@@ -24,7 +24,7 @@ public:
         search.onTextChange = [this] { rebuild(); };
         addAndMakeVisible (search);
 
-        const juce::StringArray chipNames { "ALL", "BASS", "LEAD", "PLUCK", "PAD", "DRONE", "FX", "USER" };
+        const juce::StringArray chipNames { "ALL", "BASS", "LEAD", "PLUCK", "PAD", "KEYS", "ARP", "DRONE", "FX", "USER" };
 
         for (int i = 0; i < chipNames.size(); ++i)
         {
@@ -69,6 +69,7 @@ public:
     {
         names = processorRef.getAllPresetNames();
         categories = processorRef.getAllPresetCategories();
+        tags = processorRef.getAllPresetTags();
         rebuild();
     }
 
@@ -172,6 +173,8 @@ private:
         if (category == "Pad") return juce::Colour (0xffb28aff);
         if (category == "Drone") return juce::Colour (0xff6fe3c1);
         if (category == "FX") return juce::Colour (0xffe3a56f);
+        if (category == "Keys" || category == "Chords") return juce::Colour (0xff8fd14f);
+        if (category == "Arp") return juce::Colour (0xffff7ac6);
         return IlanaTheme::accent();
     }
 
@@ -239,9 +242,12 @@ private:
         g.drawText (name, juce::Rectangle<int> (favourite ? 24 : 12, 0, width - 110, height),
                     juce::Justification::centredLeft);
 
-        const auto isUser = categories[presetIndex] == "User";
+        const auto isUser = isUserPreset (presetIndex);
         const auto colour = categoryColour (categories[presetIndex]);
-        const auto tagText = isUser ? juce::String ("USER") : categories[presetIndex].toUpperCase();
+        auto tagText = categories[presetIndex].toUpperCase();
+
+        if (isUser && categories[presetIndex] != "User")
+            tagText = juce::String (juce::CharPointer_UTF8 ("USER \xc2\xb7 ")) + tagText;
         const auto tagWidth = juce::jmax (34.0f, (float) tagText.length() * 6.0f + 12.0f);
         const auto tagBounds = juce::Rectangle<float> ((float) width - tagWidth - 8.0f,
                                                        (float) height * 0.5f - 7.0f, tagWidth, 14.0f);
@@ -280,7 +286,7 @@ private:
             return;
 
         const auto name = names[presetIndex];
-        const auto isUser = categories[presetIndex] == "User";
+        const auto isUser = isUserPreset (presetIndex);
         const auto favourite = isFavouriteName (settings, name);
 
         juce::PopupMenu menu;
@@ -326,7 +332,7 @@ private:
 
     void deletePresetByIndex (int presetIndex)
     {
-        if (! juce::isPositiveAndBelow (presetIndex, names.size()) || categories[presetIndex] != "User")
+        if (! juce::isPositiveAndBelow (presetIndex, names.size()) || ! isUserPreset (presetIndex))
             return;
 
         const auto name = names[presetIndex];
@@ -357,17 +363,29 @@ private:
         filtered.clear();
 
         const auto query = search.getText().trim().toLowerCase();
-        const juce::StringArray filterNames { "ALL", "BASS", "LEAD", "PLUCK", "PAD", "DRONE", "FX", "USER" };
-        const juce::String categoryQuery (chipCategories[(size_t) juce::jlimit (0, filterNames.size() - 1, categoryFilter)]);
+        const juce::String categoryQuery (chipCategories[(size_t) juce::jlimit (0, (int) chipCategories.size() - 1, categoryFilter)]);
 
         for (int i = 0; i < names.size(); ++i)
         {
-            if (categoryQuery.isNotEmpty() && ! categories[i].equalsIgnoreCase (categoryQuery))
+            if (categoryQuery == "User")
+            {
+                if (! isUserPreset (i))
+                    continue;
+            }
+            else if (categoryQuery == "Keys")
+            {
+                if (categories[i] != "Keys" && categories[i] != "Chords")
+                    continue;
+            }
+            else if (categoryQuery.isNotEmpty() && ! categories[i].equalsIgnoreCase (categoryQuery))
+            {
                 continue;
+            }
 
             if (query.isEmpty()
                 || names[i].toLowerCase().contains (query)
-                || categories[i].toLowerCase().contains (query))
+                || categories[i].toLowerCase().contains (query)
+                || tags[i].toLowerCase().contains (query))
                 filtered.add (i);
         }
 
@@ -423,25 +441,53 @@ private:
     void updateDeleteButton()
     {
         deleteButton.setEnabled (juce::isPositiveAndBelow (selectedPreset, names.size())
-                                 && categories[selectedPreset] == "User");
+                                 && isUserPreset (selectedPreset));
     }
 
     void saveCurrentAs()
     {
-        auto* window = new juce::AlertWindow ("Save Preset", "Name for the new user preset:",
+        juce::Component::SafePointer<PresetPanel> safeThis (this);
+        showSaveDialog (processorRef, [safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->refresh();
+        });
+    }
+
+public:
+    // Name, category and tags, then writes into the user preset folder.
+    // Shared by the browser's SAVE AS and the header's save button.
+    static void showSaveDialog (IlanaSynthAudioProcessor& processor, std::function<void()> onSaved)
+    {
+        auto* window = new juce::AlertWindow ("Save Preset", "Saved to your user preset folder.",
                                               juce::AlertWindow::NoIcon);
-        window->addTextEditor ("name", "My Preset");
+
+        auto currentName = processor.getCurrentPresetName();
+
+        if (currentName.isEmpty() || currentName == "Init")
+            currentName = "My Preset";
+
+        const auto choices = IlanaSynthAudioProcessor::getPresetCategoryChoices();
+        auto currentCategory = choices.indexOf (processor.getPresetCategory());
+
+        if (currentCategory < 0)
+            currentCategory = choices.size() - 1;
+
+        window->addTextEditor ("name", currentName, "Name");
+        window->addComboBox ("category", choices, "Category");
+        window->getComboBoxComponent ("category")->setSelectedItemIndex (currentCategory, juce::dontSendNotification);
+        window->addTextEditor ("tags", processor.getPresetTags(), "Tags (comma separated)");
         window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
         window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-        juce::Component::SafePointer<PresetPanel> safeThis (this);
+        auto* processorPointer = &processor;
 
         window->enterModalState (true, juce::ModalCallbackFunction::create (
-            [safeThis, window] (int result)
+            [processorPointer, window, onSaved] (int result)
             {
                 std::unique_ptr<juce::AlertWindow> owner (window);
 
-                if (result != 1 || safeThis == nullptr)
+                if (result != 1)
                     return;
 
                 auto name = window->getTextEditorContents ("name").trim()
@@ -450,7 +496,12 @@ private:
                 if (name.isEmpty())
                     name = "Preset";
 
-                const auto directory = safeThis->processorRef.getUserPresetDirectory();
+                const auto category = window->getComboBoxComponent ("category")->getText();
+                auto tagList = juce::StringArray::fromTokens (window->getTextEditorContents ("tags"), ",", "");
+                tagList.trim();
+                tagList.removeEmptyStrings();
+
+                const auto directory = processorPointer->getUserPresetDirectory();
                 directory.createDirectory();
                 auto file = directory.getChildFile (name + ".ilanapreset");
                 auto suffix = 1;
@@ -458,20 +509,27 @@ private:
                 while (file.existsAsFile() && suffix < 100)
                     file = directory.getChildFile (name + " " + juce::String (++suffix) + ".ilanapreset");
 
-                safeThis->processorRef.savePresetToFile (file);
-                safeThis->refresh();
+                processorPointer->setPresetMeta (category, tagList.joinIntoString (", "));
+                processorPointer->savePresetToFile (file);
+
+                if (onSaved != nullptr)
+                    onSaved();
             }), true);
     }
 
+private:
     void deleteSelected()
     {
-        if (juce::isPositiveAndBelow (selectedPreset, names.size()) && categories[selectedPreset] == "User")
+        if (juce::isPositiveAndBelow (selectedPreset, names.size()) && isUserPreset (selectedPreset))
             deletePresetByIndex (selectedPreset);
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile* settings = nullptr;
-    juce::StringArray names, categories;
+    bool isUserPreset (int index) const { return index >= factoryCount; }
+
+    juce::StringArray names, categories, tags;
+    const int factoryCount = processorRef.getFactoryPresetNames().size();
     juce::Array<int> filtered;
     juce::TextEditor search;
     juce::ListBox list { "presets", this };
@@ -480,8 +538,8 @@ private:
     juce::TextButton folderButton { "FOLDER" };
     std::vector<std::unique_ptr<juce::TextButton>> chips;
     int categoryFilter = 0;
-    static constexpr std::array<const char*, 8> chipCategories {
-        "", "Bass", "Lead", "Pluck", "Pad", "Drone", "FX", "User"
+    static constexpr std::array<const char*, 10> chipCategories {
+        "", "Bass", "Lead", "Pluck", "Pad", "Keys", "Arp", "Drone", "FX", "User"
     };
     int selectedPreset = -1;
     int hoveredRow = -1;

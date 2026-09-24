@@ -9,7 +9,9 @@
 #include "Presets.h"
 #include "PluginProcessor.h"
 #include "dsp/GranularPitchShift.h"
+#include "dsp/FilterUnit.h"
 #include "dsp/GranularSmear.h"
+#include "dsp/LfoCurve.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
 #include "dsp/SpectralFreeze.h"
@@ -335,16 +337,15 @@ void runVoiceSmokeTest()
     p.filter1.drive = 3.0f;
     p.filter1.envAmount = 2.0f;
 
-    p.filter2.mode = Svf::Mode::HighPass;
+    p.filter2.type = FilterType::HighPass;
     p.filter2.cutoffHz = 100.0f;
 
     p.ampEnv = { 0.005f, 0.3f, 0.8f, 0.25f };
     p.filterEnv = { 0.001f, 0.4f, 0.2f, 0.3f };
     p.modEnv = { 0.01f, 0.3f, 0.5f, 0.3f };
 
-    p.numModSlots = 2;
-    p.modSlots[0] = { Mod::Source::FilterEnv, Mod::Destination::Osc1Frame, 0.5f };
-    p.modSlots[1] = { Mod::Source::Random, Mod::Destination::Osc2Pitch, 0.2f };
+    p.addModSlot (Mod::Source::FilterEnv, Mod::Destination::Osc1Frame, 0.5f);
+    p.addModSlot (Mod::Source::Random, Mod::Destination::Osc2Pitch, 0.2f);
 
     voice.setParams (p);
     voice.startNote (48, 0.9f, nullptr, 8192);
@@ -429,8 +430,7 @@ void runFrameModulationTest()
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
         p.macros[0] = macroValue;
         p.lfo1 = lfoSource;
-        p.numModSlots = 1;
-        p.modSlots[0] = { source, Mod::Destination::Osc1Frame, modDepth };
+        p.addModSlot (source, Mod::Destination::Osc1Frame, modDepth);
 
         voice.setParams (p);
         voice.startNote (60, 1.0f, nullptr, 8192);
@@ -1427,8 +1427,14 @@ void runPresetTuningTest()
     auto worstCents = 0.0;
     juce::String worstName;
 
+    const auto categories = processor.getFactoryPresetCategories();
+
     for (int presetIndex = 0; presetIndex < names.size(); ++presetIndex)
     {
+        // Sound effects (noise sweeps, sirens, risers) are not meant to be in tune.
+        if (categories[presetIndex] == "FX")
+            continue;
+
         processor.loadFactoryPreset (presetIndex);
         processor.panic();
 
@@ -1526,7 +1532,7 @@ void runPresetTuningTest()
         // swing around the note, so give them a wider measurement band.
         auto pitchModulated = false;
 
-        for (int slot = 1; slot <= 8; ++slot)
+        for (int slot = 1; slot <= Mod::maxSlots; ++slot)
         {
             const auto prefix = "mod" + juce::String (slot);
 
@@ -2255,6 +2261,16 @@ void runOversamplingTest()
     check (onFinite && onPeak > 0.01f && onPeak < 4.0f,
            "oversampled render is finite and audible (peak " + juce::String (onPeak, 3) + ")");
 
+    if (auto* parameter = processor.apvts.getParameter ("os_factor"))
+        parameter->setValueNotifyingHost (1.0f);
+
+    processor.flushAsyncUpdates();
+    check (processor.getOversamplingFactor() == 4, "4x oversampling engages");
+
+    const auto [fourFinite, fourPeak] = render (40);
+    check (fourFinite && fourPeak > 0.01f && fourPeak < 4.0f,
+           "4x oversampled render is finite and audible (peak " + juce::String (fourPeak, 3) + ")");
+
     if (auto* parameter = processor.apvts.getParameter ("oversampling"))
         parameter->setValueNotifyingHost (0.0f);
 
@@ -2331,11 +2347,1001 @@ void runPresetNameTest()
     check (restored.getCurrentPresetName() == names[3],
            "preset name survives a host state round trip ('" + restored.getCurrentPresetName() + "')");
 }
+
+// Phase 1: new filter models and voice modes.
+void runFilterModelTests()
+{
+    constexpr double sampleRate = 48000.0;
+
+    // Self-oscillation: silence in, a sustained bounded tone out, for both
+    // the SVF above its old resonance cap and the ladder at full feedback.
+    for (const auto type : { (int) FilterType::LowPass, (int) FilterType::LadderLow })
+    {
+        FilterUnit filter;
+        filter.setType (type, false);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, 1000.0, 1.0));
+
+        auto peak = 0.0f;
+        auto lateEnergy = 0.0;
+        auto finite = true;
+
+        for (int i = 0; i < (int) sampleRate * 2; ++i)
+        {
+            const auto input = i < 32 ? 0.5f : 0.0f;
+            const auto out = filter.process (input);
+            finite = finite && std::isfinite (out);
+            peak = juce::jmax (peak, std::abs (out));
+
+            if (i > (int) sampleRate)
+                lateEnergy += (double) out * out;
+        }
+
+        const auto lateRms = std::sqrt (lateEnergy / sampleRate);
+        check (finite && peak < 4.0f && lateRms > 0.05,
+               FilterType::getNames()[type] + " self-oscillates at max resonance and stays bounded (peak "
+                   + juce::String (peak, 3) + ", late rms " + juce::String (lateRms, 3) + ")");
+    }
+
+    // Below the old cap the SVF path must be bit-identical to the plain Svf,
+    // so existing presets don't change.
+    {
+        FilterUnit unit;
+        unit.setType (FilterType::LowPass, true);
+        const auto c = FilterUnit::makeCoefficients (FilterType::LowPass, sampleRate, 800.0, 0.7);
+        unit.setCoefficients (c);
+
+        Svf a, b;
+        a.setMode (Svf::Mode::LowPass);
+        b.setMode (Svf::Mode::LowPass);
+        a.setCoefficients (Svf::makeCoefficients (sampleRate, 800.0, 0.7));
+        b.setCoefficients (Svf::makeCoefficients (sampleRate, 800.0, 0.7));
+
+        juce::Random random (7);
+        auto maxDiff = 0.0f;
+
+        for (int i = 0; i < 4800; ++i)
+        {
+            const auto x = random.nextFloat() * 2.0f - 1.0f;
+            maxDiff = juce::jmax (maxDiff, std::abs (unit.process (x) - b.processSample (a.processSample (x))));
+        }
+
+        check (maxDiff == 0.0f, "24 dB SVF through FilterUnit matches the legacy cascade exactly");
+    }
+
+    // Ladder low-pass actually low-passes and high-pass actually high-passes.
+    const auto toneGain = [sampleRate] (int type, double toneHz)
+    {
+        FilterUnit filter;
+        filter.setType (type, true);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, 1000.0, 0.2));
+
+        auto in = 0.0, out = 0.0;
+
+        for (int i = 0; i < 24000; ++i)
+        {
+            const auto x = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * toneHz * i / sampleRate);
+            const auto y = filter.process (x);
+
+            if (i > 4800)
+            {
+                in += (double) x * x;
+                out += (double) y * y;
+            }
+        }
+
+        return std::sqrt (out / in);
+    };
+
+    const auto lpLow = toneGain (FilterType::LadderLow, 100.0);
+    const auto lpHigh = toneGain (FilterType::LadderLow, 8000.0);
+    const auto hpLow = toneGain (FilterType::LadderHigh, 100.0);
+    const auto hpHigh = toneGain (FilterType::LadderHigh, 8000.0);
+
+    check (lpLow > 0.5 && lpHigh < 0.02, "ladder LP passes lows and cuts highs (100 Hz " + juce::String (lpLow, 3)
+                                             + ", 8 kHz " + juce::String (lpHigh, 4) + ")");
+    check (hpHigh > 0.5 && hpLow < 0.02, "ladder HP passes highs and cuts lows (100 Hz " + juce::String (hpLow, 4)
+                                             + ", 8 kHz " + juce::String (hpHigh, 3) + ")");
+}
+
+void setParam (IlanaSynthAudioProcessor& processor, const juce::String& id, float value)
+{
+    if (auto* parameter = processor.apvts.getParameter (id))
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+}
+
+void runVoiceModeTests()
+{
+    const auto render = [] (IlanaSynthAudioProcessor& processor, juce::MidiBuffer midi, int blocks)
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto peak = 0.0f;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer blockMidi;
+
+            if (block == 0)
+                blockMidi = midi;
+
+            processor.processBlock (buffer, blockMidi);
+            peak = juce::jmax (peak, buffer.getMagnitude (0, 256));
+        }
+
+        return peak;
+    };
+
+    const auto chord = []
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 10);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 20);
+        return midi;
+    };
+
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        render (processor, chord(), 20);
+        check (processor.getActiveVoiceCount() == 3, "poly mode plays a 3-note chord on 3 voices ("
+                                                         + juce::String (processor.getActiveVoiceCount()) + ")");
+    }
+
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "poly_voices", 2.0f);
+        processor.prepareToPlay (48000.0, 256);
+        render (processor, chord(), 20);
+        check (processor.getActiveVoiceCount() <= 2, "poly voice limit of 2 is respected ("
+                                                         + juce::String (processor.getActiveVoiceCount()) + ")");
+    }
+
+    for (const auto mode : { 1, 2 })
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "voice_mode", (float) mode);
+        processor.prepareToPlay (48000.0, 256);
+        const auto peak = render (processor, chord(), 20);
+        const auto name = mode == 1 ? juce::String ("mono") : juce::String ("legato");
+
+        check (processor.getActiveVoiceCount() == 1 && peak > 0.01f,
+               name + " mode plays a chord on one voice (" + juce::String (processor.getActiveVoiceCount()) + ")");
+
+        // Release the top note while the others are held: the voice must keep
+        // sounding (falls back to 64), then go quiet once everything is up.
+        juce::MidiBuffer releaseTop;
+        releaseTop.addEvent (juce::MidiMessage::noteOff (1, 67), 0);
+        const auto fallbackPeak = render (processor, releaseTop, 10);
+
+        juce::MidiBuffer releaseAll;
+        releaseAll.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+        releaseAll.addEvent (juce::MidiMessage::noteOff (1, 64), 0);
+        render (processor, releaseAll, 400);
+
+        check (fallbackPeak > 0.01f && processor.getActiveVoiceCount() == 0,
+               name + " mode falls back to held notes, then releases (fallback peak "
+                   + juce::String (fallbackPeak, 3) + ")");
+    }
+
+    // Legato keeps the amp envelope running between overlapping notes; mono
+    // retriggers it. Slow attack makes the difference measurable.
+    const auto levelAfterSecondNote = [&render] (int mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "voice_mode", (float) mode);
+        setParam (processor, "amp_attack", 1.0f);
+        processor.prepareToPlay (48000.0, 256);
+
+        juce::MidiBuffer first;
+        first.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        render (processor, first, 200); // ~1.07 s: attack complete
+
+        juce::MidiBuffer second;
+        second.addEvent (juce::MidiMessage::noteOn (1, 62, (juce::uint8) 100), 0);
+        return render (processor, second, 2);
+    };
+
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setMacroName (2, "Grit");
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (restored.getMacroName (2) == "Grit" && restored.getMacroName (0) == "Macro 1",
+               "macro names survive a host state round trip ('" + restored.getMacroName (2) + "')");
+
+        restored.loadFactoryPreset (0);
+        check (restored.getMacroName (2) == "Macro 3", "loading Init resets macro names");
+
+        restored.loadFactoryPreset (1);
+        check (restored.getMacroName (0) == "TONE", "legacy presets get default macro names ('" + restored.getMacroName (0) + "')");
+        check (restored.getPresetCategory() == "Bass", "factory preset load sets its category");
+
+        const auto file = juce::File::createTempFile ("ilanapreset");
+        restored.setPresetMeta ("Keys", "warm, vintage");
+        check (restored.savePresetToFile (file), "preset with metadata saves");
+
+        IlanaSynthAudioProcessor reloaded;
+        check (reloaded.loadPresetFromFile (file) && reloaded.getPresetCategory() == "Keys"
+                   && reloaded.getPresetTags() == "warm, vintage",
+               "preset category and tags survive a save/load ('" + reloaded.getPresetCategory() + "')");
+        file.deleteFile();
+    }
+
+    const auto legatoLevel = levelAfterSecondNote (2);
+    const auto monoLevel = levelAfterSecondNote (1);
+
+    check (legatoLevel > monoLevel * 0.9f && legatoLevel > 0.05f,
+           "legato does not retrigger the envelope (legato " + juce::String (legatoLevel, 3)
+               + ", mono " + juce::String (monoLevel, 3) + ")");
+}
+
+// Phase 2: warps, unison, per-voice LFOs, the extended matrix.
+float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int blocks, double& centroid,
+                             std::vector<float>* capture = nullptr)
+{
+    juce::AudioBuffer<float> buffer (2, 512);
+    std::vector<float> samples;
+    auto peak = 0.0f;
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+        peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
+
+        for (int i = 0; i < 512; ++i)
+            samples.push_back (buffer.getSample (0, i));
+    }
+
+    // Spectral centroid of the last 8192 samples.
+    constexpr int order = 13;
+    constexpr int size = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<float> work ((size_t) size * 2, 0.0f);
+    const auto start = samples.size() - (size_t) size;
+
+    for (int i = 0; i < size; ++i)
+        work[(size_t) i] = samples[start + (size_t) i]
+                           * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size));
+
+    fft.performFrequencyOnlyForwardTransform (work.data());
+    double weighted = 0.0, total = 0.0;
+
+    for (int bin = 1; bin < size / 2; ++bin)
+    {
+        weighted += bin * 48000.0 / size * work[(size_t) bin];
+        total += work[(size_t) bin];
+    }
+
+    centroid = total > 0.0 ? weighted / total : 0.0;
+
+    if (capture != nullptr)
+        *capture = samples;
+
+    return peak;
+}
+
+void runWarpTests()
+{
+    const auto names = Warp::getNames();
+    double plainCentroid = 0.0;
+
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 8.0f); // Sine: warps add harmonics
+        setParam (processor, "f1_cutoff", 20000.0f);
+        processor.prepareToPlay (48000.0, 512);
+        renderPeakAndCentroid (processor, 45, 40, plainCentroid);
+    }
+
+    for (int mode = 1; mode < Warp::Count; ++mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 8.0f);
+        setParam (processor, "f1_cutoff", 20000.0f);
+        setParam (processor, "osc1_warp", (float) mode);
+        setParam (processor, "osc1_warp_amt", 0.7f);
+
+        if (mode == Warp::Fm || mode == Warp::Ring)
+        {
+            setParam (processor, "osc2_on", 1.0f);
+            setParam (processor, "osc2_level", 0.01f);
+            setParam (processor, "osc2_semi", 7.0f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+
+        check (std::isfinite (peak) && peak > 0.02f && peak < 4.0f && centroid > plainCentroid * 1.15,
+               "warp " + names[mode] + " adds harmonics to a sine (centroid " + juce::String (plainCentroid, 0)
+                   + " -> " + juce::String (centroid, 0) + " Hz, peak " + juce::String (peak, 2) + ")");
+    }
+}
+
+void runUnisonTests()
+{
+    // 16 voices render, and blend 0 leaves only the centre voice(s).
+    const auto widthOf = [] (int voices, float blend, int mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_unison", (float) voices);
+        setParam (processor, "osc1_detune", 30.0f);
+        setParam (processor, "osc1_spread", 1.0f);
+        setParam (processor, "osc1_uni_blend", blend);
+        setParam (processor, "osc1_uni_mode", (float) mode);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto side = 0.0, mid = 0.0;
+
+        for (int block = 0; block < 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block > 10)
+                for (int i = 0; i < 512; ++i)
+                {
+                    const auto l = buffer.getSample (0, i), r = buffer.getSample (1, i);
+                    mid += (double) (l + r) * (l + r);
+                    side += (double) (l - r) * (l - r);
+                }
+        }
+
+        return std::sqrt (side / juce::jmax (1.0e-12, mid));
+    };
+
+    const auto full16 = widthOf (16, 1.0f, UnisonMode::Classic);
+    const auto blend0 = widthOf (15, 0.0f, UnisonMode::Classic);
+    const auto hyper = widthOf (16, 1.0f, UnisonMode::Hypersaw);
+    const auto octaves = widthOf (9, 1.0f, UnisonMode::Octaves);
+
+    check (full16 > 0.2 && std::isfinite (hyper) && hyper > 0.1 && std::isfinite (octaves),
+           "16-voice unison, hypersaw and octave stacks render wide (" + juce::String (full16, 2) + ", "
+               + juce::String (hyper, 2) + ", " + juce::String (octaves, 2) + ")");
+    check (blend0 < 0.01, "unison blend 0 keeps only the centre voice (width " + juce::String (blend0, 4) + ")");
+}
+
+void runPerVoiceLfoTest()
+{
+    // Two notes started half a second apart with a retriggered LFO on pitch:
+    // each voice's LFO starts at its own note-on, so a slow LFO puts the two
+    // notes at different points of the cycle. Checked through the voices.
+    IlanaSynthAudioProcessor processor;
+    setParam (processor, "lfo1_retrig", 1.0f);
+    setParam (processor, "lfo1_rate", 0.5f);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+
+    for (int block = 0; block < 50; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+        if (block == 47)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+    }
+
+    const auto phases = processor.getVoiceLfoPhasesForTest (0);
+    check (phases.size() == 2 && std::abs (phases[0] - phases[1]) > 0.2f,
+           "retriggered LFO runs per voice (phases " + juce::String (phases.size() > 0 ? phases[0] : -1.0f, 3) + ", "
+               + juce::String (phases.size() > 1 ? phases[1] : -1.0f, 3) + ")");
+}
+
+void runMatrixTests()
+{
+    const auto levelWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "master_clip", 0.0f);
+        setup (processor);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        return renderPeakAndCentroid (processor, 57, 30, centroid);
+    };
+
+    const auto base = levelWith ([] (auto&) {});
+
+    // Slot 20 works like slot 1: macro 1 at full pulls Amp Level down.
+    const auto viaSlot20 = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod20_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod20_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod20_amt", -0.8f);
+    });
+    check (viaSlot20 < base * 0.4f, "mod slot 20 routes (peak " + juce::String (base, 3) + " -> " + juce::String (viaSlot20, 3) + ")");
+
+    const auto bypassed = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod20_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod20_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod20_amt", -0.8f);
+        setParam (p, "mod20_byp", 1.0f);
+    });
+    check (std::abs (bypassed - base) < base * 0.05f, "bypassed slot does nothing");
+
+    // Via: macro 2 at zero scales the routing away.
+    const auto viaZero = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod3_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod3_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod3_amt", -0.8f);
+        setParam (p, "mod3_aux", (float) Mod::Source::Macro2);
+    });
+    check (std::abs (viaZero - base) < base * 0.05f, "via source at zero mutes the routing");
+
+    // Modulating a plain parameter: macro 1 into the master volume.
+    const auto masterMod = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod5_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod5_dst", (float) Mod::destinationForParamId ("master"));
+        setParam (p, "mod5_amt", -0.3f);
+    });
+    check (masterMod < base * 0.5f, "macro can modulate the master volume parameter (peak " + juce::String (masterMod, 3) + ")");
+
+    // Shape: polarity and curve.
+    Mod::Slot slot;
+    slot.source = Mod::Source::Macro1;
+    slot.polarity = Mod::Polarity::Bipolar;
+    check (std::abs (Mod::shape (slot, 0.0f) + 1.0f) < 1.0e-6f && std::abs (Mod::shape (slot, 1.0f) - 1.0f) < 1.0e-6f,
+           "bipolar polarity maps a 0..1 source to -1..1");
+    slot.polarity = Mod::Polarity::Natural;
+    slot.curve = 1.0f;
+    check (Mod::shape (slot, 0.5f) < 0.1f, "positive curve bends the response (0.5 -> "
+                                              + juce::String (Mod::shape (slot, 0.5f), 3) + ")");
+
+    check (Mod::getExplicitDestinationNames().size() == Mod::numExplicitDestinations,
+           "destination names match the destination list ("
+               + juce::String (Mod::getExplicitDestinationNames().size()) + " / " + juce::String (Mod::numExplicitDestinations) + ")");
+    check (Mod::getNumDestinations() < IlanaSynthAudioProcessor::maxDestinations, "destination count fits the display table");
+}
+
+void runStaleModulationTest()
+{
+    // A routing removed while a voice is sounding must not leave its last
+    // value stuck on the target (it once left presets detuned after a
+    // vibrato preset).
+    IlanaSynthAudioProcessor processor;
+    setParam (processor, "sub_on", 0.0f);
+    setParam (processor, "lfo1_rate", 3.0f);
+    setParam (processor, "mod1_src", (float) Mod::Source::Lfo1);
+    setParam (processor, "mod1_dst", (float) Mod::Destination::Osc1Pitch);
+    setParam (processor, "mod1_amt", 0.05f);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    std::vector<float> samples;
+
+    for (int block = 0; block < 140; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+        if (block == 13)
+            setParam (processor, "mod1_amt", 0.0f);
+
+        processor.processBlock (buffer, midi);
+
+        if (block > 40)
+            for (int i = 0; i < 512; ++i)
+                samples.push_back (buffer.getSample (0, i));
+    }
+
+    const auto frequency = fundamentalOf (samples, 48000.0);
+    check (std::abs (frequency - 220.0) < 0.5, "pitch returns to the note after a routing is removed ("
+                                                   + juce::String (frequency, 2) + " Hz)");
+}
+
+void runPhase2StateAndCpuTest()
+{
+    // New parameters survive a host round trip.
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "osc2_warp", (float) Warp::Mirror);
+        setParam (processor, "osc2_warp_amt", 0.4f);
+        setParam (processor, "osc1_uni_mode", (float) UnisonMode::Hypersaw);
+        setParam (processor, "mod27_src", (float) Mod::Source::Lfo3);
+        setParam (processor, "mod27_dst", (float) Mod::destinationForParamId ("fx_ott_amount"));
+        setParam (processor, "mod27_amt", -0.25f);
+        setParam (processor, "mod27_pol", 2.0f);
+
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        const auto slot = restored.readModSlot (26);
+
+        check ((int) restored.apvts.getRawParameterValue ("osc2_warp")->load() == Warp::Mirror
+                   && (int) restored.apvts.getRawParameterValue ("osc1_uni_mode")->load() == UnisonMode::Hypersaw
+                   && slot.source == Mod::Source::Lfo3 && slot.destination == Mod::destinationForParamId ("fx_ott_amount")
+                   && std::abs (slot.depth + 0.25f) < 1.0e-3f && slot.polarity == Mod::Polarity::Bipolar,
+               "warp, unison mode and an extended mod slot survive a state round trip");
+    }
+
+    // CPU. "Heavy" is a realistic big patch (8-note chord, two 16-voice
+    // hypersaw oscillators, ladder filter, a busy matrix) and must stay well
+    // inside real time. "Extreme" (16 notes x three 16-voice oscillators with
+    // warps) is only reported.
+    const auto measure = [] (int notes, int oscillators)
+    {
+        IlanaSynthAudioProcessor processor;
+        const char* const prefixes[] { "osc1", "osc2", "sub" };
+
+        for (int osc = 0; osc < oscillators; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            setParam (processor, prefix + "_unison", 16.0f);
+            setParam (processor, prefix + "_uni_mode", (float) UnisonMode::Hypersaw);
+            setParam (processor, prefix + "_warp", (float) Warp::Sync);
+            setParam (processor, prefix + "_warp_amt", 0.5f);
+        }
+
+        setParam (processor, "osc2_on", 1.0f);
+        setParam (processor, "sub_level", oscillators > 2 ? 0.5f : 0.0f);
+        setParam (processor, "f1_type", (float) FilterType::LadderLow);
+
+        for (int slot = 1; slot <= 16; ++slot)
+        {
+            setParam (processor, "mod" + juce::String (slot) + "_src", (float) (1 + slot % 20));
+            setParam (processor, "mod" + juce::String (slot) + "_dst", (float) (1 + (slot * 5) % 88));
+            setParam (processor, "mod" + juce::String (slot) + "_amt", 0.2f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer noteOns;
+
+        for (int note = 0; note < notes; ++note)
+            noteOns.addEvent (juce::MidiMessage::noteOn (1, 40 + note * 2, (juce::uint8) 100), 0);
+
+        const auto blocks = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_BLOCKS", "94").getIntValue(); // ~1 s
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi = noteOns;
+
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+        return std::make_pair (elapsed / (blocks * 512.0 / 48000.0), std::isfinite (buffer.getMagnitude (0, 512)));
+    };
+
+    const auto heavy = measure (8, 2);
+    const auto extreme = measure (16, 3);
+
+    std::cout << "INFO: CPU heavy patch " << juce::String (heavy.first * 100.0, 1) << " %, extreme patch "
+              << juce::String (extreme.first * 100.0, 1) << " % of one core" << std::endl;
+    check (heavy.first < 0.5 && heavy.second && extreme.second, "heavy patch (8 notes x 32 unison voices) renders well inside real time");
+}
+
+// Phase 3: the extra filter models.
+double filterToneGain (int type, double toneHz, double cutoff, double resonance, float morph, bool slope24 = true)
+{
+    constexpr double sampleRate = 48000.0;
+    FilterUnit filter;
+    filter.prepare (sampleRate);
+    filter.setType (type, slope24);
+    filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, cutoff, resonance, morph));
+
+    auto in = 0.0, out = 0.0;
+
+    for (int i = 0; i < 24000; ++i)
+    {
+        const auto x = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * toneHz * i / sampleRate);
+        const auto y = filter.process (x);
+
+        if (i > 9600)
+        {
+            in += (double) x * x;
+            out += (double) y * y;
+        }
+    }
+
+    return std::sqrt (out / in);
+}
+
+void runExtraFilterTests()
+{
+    const auto names = FilterType::getNames();
+
+    for (int type = FilterType::DiodeLow; type < FilterType::Count; ++type)
+    {
+        FilterUnit filter;
+        filter.prepare (48000.0);
+        filter.setType (type, true);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, 48000.0, 800.0, 1.0, 0.5f));
+
+        juce::Random random (3);
+        auto peak = 0.0f;
+        auto finite = true;
+
+        for (int i = 0; i < 96000; ++i)
+        {
+            const auto out = filter.process ((random.nextFloat() * 2.0f - 1.0f) * 0.5f);
+            finite = finite && std::isfinite (out);
+            peak = juce::jmax (peak, std::abs (out));
+        }
+
+        check (finite && peak < 8.0f, names[type] + " stays bounded on noise at full resonance (peak "
+                                          + juce::String (peak, 2) + ")");
+    }
+
+    for (const auto type : { (int) FilterType::DiodeLow, (int) FilterType::Ms20Low })
+    {
+        const auto low = filterToneGain (type, 100.0, 1000.0, 0.2, 0.0f);
+        const auto high = filterToneGain (type, 8000.0, 1000.0, 0.2, 0.0f);
+        check (low > 0.3 && high < low * 0.05, names[type] + " low-passes (100 Hz " + juce::String (low, 3)
+                                                   + ", 8 kHz " + juce::String (high, 4) + ")");
+    }
+
+    // Comb +: peaks at the cutoff's harmonics, dips between them.
+    const auto onHarmonic = filterToneGain (FilterType::CombPlus, 1000.0, 500.0, 0.8, 0.0f);
+    const auto between = filterToneGain (FilterType::CombPlus, 750.0, 500.0, 0.8, 0.0f);
+    check (onHarmonic > between * 3.0, "comb + rings at harmonics of its cutoff (" + juce::String (onHarmonic, 2)
+                                           + " vs " + juce::String (between, 2) + ")");
+
+    // Comb -: the opposite, peaks halfway between.
+    const auto minusOn = filterToneGain (FilterType::CombMinus, 1000.0, 500.0, 0.8, 0.0f);
+    const auto minusBetween = filterToneGain (FilterType::CombMinus, 750.0, 500.0, 0.8, 0.0f);
+    check (minusBetween > minusOn * 3.0, "comb - peaks between the harmonics");
+
+    // Morph walks from low-pass to high-pass.
+    const auto morphLowAt0 = filterToneGain (FilterType::Morph, 100.0, 1000.0, 0.2, 0.0f);
+    const auto morphHighAt0 = filterToneGain (FilterType::Morph, 8000.0, 1000.0, 0.2, 0.0f);
+    const auto morphLowAt1 = filterToneGain (FilterType::Morph, 100.0, 1000.0, 0.2, 1.0f);
+    const auto morphHighAt1 = filterToneGain (FilterType::Morph, 8000.0, 1000.0, 0.2, 1.0f);
+    check (morphLowAt0 > morphHighAt0 * 20.0 && morphHighAt1 > morphLowAt1 * 20.0, "morph goes from low-pass to high-pass");
+
+    // Formant 'A' has its first formant near 730 Hz: louder there than at 3.5 kHz.
+    const auto formantPeak = filterToneGain (FilterType::Formant, 730.0, 1000.0, 0.8, 0.0f);
+    const auto formantOff = filterToneGain (FilterType::Formant, 4500.0, 1000.0, 0.8, 0.0f);
+    check (formantPeak > formantOff * 4.0, "formant filter peaks on the vowel's formant (" + juce::String (formantPeak, 2)
+                                              + " vs " + juce::String (formantOff, 2) + ")");
+}
+
+void runFilterRoutingTest()
+{
+    // Filter 1 closed right down: Default and Filter 1 routes are silenced,
+    // Filter 2 (serial) and No filter get through.
+    const auto levelFor = [] (int route)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "f1_cutoff", 20.0f);
+        setParam (processor, "f1_slope", 1.0f);
+        setParam (processor, "f1_env", 0.0f);
+        setParam (processor, "osc1_route", (float) route);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        return renderPeakAndCentroid (processor, 60, 20, centroid);
+    };
+
+    const auto viaDefault = levelFor (FilterRoute::Default);
+    const auto viaFilter1 = levelFor (FilterRoute::Filter1);
+    const auto viaFilter2 = levelFor (FilterRoute::Filter2);
+    const auto direct = levelFor (FilterRoute::Direct);
+
+    check (viaDefault < 0.02f && viaFilter1 < 0.02f && viaFilter2 > 0.1f && direct > 0.1f,
+           "per-oscillator filter routes (default " + juce::String (viaDefault, 3) + ", F1 " + juce::String (viaFilter1, 3)
+               + ", F2 " + juce::String (viaFilter2, 3) + ", direct " + juce::String (direct, 3) + ")");
+}
+
+void runOversampledTuningTest()
+{
+    for (const auto factor : { 0.0f, 1.0f })
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "oversampling", 1.0f);
+        setParam (processor, "os_factor", factor);
+        processor.prepareToPlay (48000.0, 512);
+
+        double centroid = 0.0;
+        std::vector<float> samples;
+        renderPeakAndCentroid (processor, 57, 60, centroid, &samples);
+        samples.erase (samples.begin(), samples.begin() + 4800);
+
+        const auto frequency = fundamentalOf (samples, 48000.0);
+        check (std::abs (frequency - 220.0) < 0.5, juce::String (factor > 0.5f ? "4x" : "2x")
+                                                       + " oversampled note is in tune (" + juce::String (frequency, 2) + " Hz)");
+    }
+}
+
+void runResynthesisTest()
+{
+    // A 220 Hz saw that darkens over two seconds (not a whole number of
+    // 2048-sample frames, so Automatic resynthesizes it).
+    constexpr double sampleRate = 48000.0;
+    constexpr int length = 96000 + 777;
+    std::vector<float> audio ((size_t) length);
+    auto phase = 0.0;
+    auto smoothed = 0.0f;
+
+    for (int i = 0; i < length; ++i)
+    {
+        phase += 220.0 / sampleRate;
+        phase -= std::floor (phase);
+        const auto saw = (float) (2.0 * phase - 1.0);
+        const auto brightness = 1.0f - 0.95f * (float) i / (float) length;
+        smoothed += brightness * (saw - smoothed);
+        audio[(size_t) i] = 0.5f * smoothed;
+    }
+
+    const auto period = Wavetable::detectPeriod (audio.data() + 4800, length - 4800, sampleRate);
+    check (std::abs (period - sampleRate / 220.0) < 0.5, "pitch detection finds a 220 Hz period ("
+                                                            + juce::String (period, 3) + " samples)");
+
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana_resynth_test.wav");
+    file.deleteFile();
+
+    {
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (new juce::FileOutputStream (file),
+                                                                                 sampleRate, 1, 24, {}, 0));
+        juce::AudioBuffer<float> buffer (1, length);
+        buffer.copyFrom (0, 0, audio.data(), length);
+        writer->writeFromAudioSampleBuffer (buffer, 0, length);
+    }
+
+    Wavetable table;
+    const auto loaded = table.loadFromFile (file, Wavetable::LoadMode::Automatic);
+    file.deleteFile();
+
+    check (loaded && table.getNumFrames() == 64, "any audio becomes a 64-frame wavetable ("
+                                                     + juce::String (table.getNumFrames()) + " frames)");
+
+    // Each frame is one cycle: harmonic n sits in bin n, and a saw's second
+    // harmonic is about half the first. The last frame is darker.
+    const auto harmonics = [&table] (int frame)
+    {
+        juce::dsp::FFT fft (11);
+        std::vector<std::complex<float>> in ((size_t) Wavetable::frameSize), out ((size_t) Wavetable::frameSize);
+        const auto* data = table.getFrameData (0, frame);
+
+        for (int i = 0; i < Wavetable::frameSize; ++i)
+            in[(size_t) i] = { data[i + 1], 0.0f };
+
+        fft.perform (in.data(), out.data(), false);
+        return std::array<float, 3> { std::abs (out[1]), std::abs (out[2]), std::abs (out[8]) };
+    };
+
+    const auto first = harmonics (0);
+    const auto last = harmonics (63);
+    const auto ratio = first[1] / juce::jmax (1.0e-6f, first[0]);
+
+    check (ratio > 0.35f && ratio < 0.65f, "resynthesized frame keeps the saw's harmonic series (h2/h1 "
+                                               + juce::String (ratio, 3) + ")");
+    check (last[2] / last[0] < first[2] / first[0] * 0.7f, "later frames follow the sound getting darker");
+}
+
+void runCurveLfoTest()
+{
+    auto ramp = LfoCurve::preset (2); // -1 to +1 straight line
+    check (std::abs (ramp.valueAt (0.5)) < 1.0e-4f && std::abs (ramp.valueAt (0.25) + 0.5f) < 1.0e-4f,
+           "curve evaluates a straight ramp");
+
+    auto bent = ramp;
+    bent.points[0].tension = 0.8f;
+    check (bent.valueAt (0.5) < -0.5f, "positive tension makes a segment arrive late (" + juce::String (bent.valueAt (0.5), 3) + ")");
+
+    const auto parsed = LfoCurve::fromString (bent.toString());
+    check (parsed.points.size() == 2 && std::abs (parsed.valueAt (0.5) - bent.valueAt (0.5)) < 1.0e-3f,
+           "curve survives a text round trip");
+
+    // Session round trip.
+    IlanaSynthAudioProcessor processor;
+    processor.setLfoCurve (2, LfoCurve::preset (6));
+    juce::MemoryBlock state;
+    processor.getStateInformation (state);
+    IlanaSynthAudioProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    check (std::abs (restored.getLfoCurveValue (2, 0.3) - processor.getLfoCurveValue (2, 0.3)) < 1.0e-4f,
+           "LFO 3's curve survives a host state round trip");
+
+    // A Curve LFO drives modulation: a flat curve at +1 opens the filter.
+    const auto brightnessWith = [] (const char* curveText)
+    {
+        IlanaSynthAudioProcessor p;
+        setParam (p, "sub_on", 0.0f);
+        setParam (p, "f1_cutoff", 300.0f);
+        setParam (p, "f1_env", 0.0f);
+        setParam (p, "lfo1_shape", (float) IlanaSynthAudioProcessor::curveShape);
+        setParam (p, "lfo1_retrig", 1.0f);
+        setParam (p, "mod1_src", (float) Mod::Source::Lfo1);
+        setParam (p, "mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        setParam (p, "mod1_amt", 0.6f);
+        p.setLfoCurve (0, LfoCurve::fromString (curveText));
+        p.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        renderPeakAndCentroid (p, 45, 30, centroid);
+        return centroid;
+    };
+
+    const auto high = brightnessWith ("0,1,0;1,1,0");
+    const auto low = brightnessWith ("0,-1,0;1,-1,0");
+    check (high > low * 2.0, "a Curve LFO modulates per voice (centroid " + juce::String (low, 0) + " -> "
+                                 + juce::String (high, 0) + " Hz)");
+}
 } // namespace
+
+// Every factory preset (Init aside) has four named, working macros, plays,
+// and stays bounded with all macros at full.
+void runFactoryLibraryTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    const auto names = processor.getFactoryPresetNames();
+    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded;
+    std::vector<std::pair<double, juce::String>> levels;
+
+    const auto setMacros = [&processor] (float value)
+    {
+        for (int m = 1; m <= 4; ++m)
+            if (auto* parameter = processor.apvts.getParameter ("macro" + juce::String (m)))
+                parameter->setValueNotifyingHost (value);
+    };
+
+    const auto render = [&processor] (int blocks, bool startNotes, double& rms)
+    {
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto peak = 0.0f;
+        auto sum = 0.0;
+        auto count = 0;
+        auto finite = true;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0 && startNotes)
+                for (const auto note : { 48, 55, 60 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int channel = 0; channel < 2; ++channel)
+                for (int s = 0; s < 512; ++s)
+                {
+                    const auto value = buffer.getSample (channel, s);
+                    finite = finite && std::isfinite (value);
+                    peak = juce::jmax (peak, std::abs (value));
+                    sum += (double) value * (double) value;
+                    ++count;
+                }
+        }
+
+        rms = std::sqrt (sum / juce::jmax (1, count));
+        return finite ? peak : 1.0e9f;
+    };
+
+    for (int index = 1; index < names.size(); ++index)
+    {
+        processor.loadFactoryPreset (index);
+        processor.panic();
+
+        for (int m = 0; m < 4; ++m)
+        {
+            if (processor.getMacroName (m) == "Macro " + juce::String (m + 1))
+                unnamed.addIfNotAlreadyThere (names[index]);
+
+            auto mapped = false;
+
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            {
+                const auto info = processor.readModSlot (slot);
+                const auto macroSource = (Mod::Source) ((int) Mod::Source::Macro1 + m);
+
+                if ((info.source == macroSource && info.destination != 0 && info.depth != 0.0f)
+                    || (info.aux == macroSource && info.source != Mod::Source::None))
+                    mapped = true;
+            }
+
+            if (! mapped)
+                unmapped.addIfNotAlreadyThere (names[index] + " M" + juce::String (m + 1));
+        }
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto info = processor.readModSlot (slot);
+
+            if (info.source != Mod::Source::None && info.depth != 0.0f && info.destination == 0)
+                badSlots.addIfNotAlreadyThere (names[index]);
+        }
+
+        setMacros (0.0f);
+        double rms = 0.0;
+        const auto peak = render (90, true, rms);
+
+        if (peak < 0.001f)
+            silent.add (names[index]);
+
+        levels.push_back ({ rms, names[index] });
+
+        setMacros (1.0f);
+        double fullRms = 0.0;
+        const auto fullPeak = render (60, false, fullRms);
+
+        if (peak > 8.0f || fullPeak > 8.0f)
+            unbounded.add (names[index] + " (" + juce::String (juce::jmax (peak, fullPeak), 2) + ")");
+
+        setMacros (0.0f);
+    }
+
+    check (unnamed.isEmpty(), "every factory preset names its macros (" + unnamed.joinIntoString (", ") + ")");
+    check (unmapped.isEmpty(), "every factory macro is mapped (" + unmapped.joinIntoString (", ") + ")");
+    check (badSlots.isEmpty(), "factory mod slots all have a destination (" + badSlots.joinIntoString (", ") + ")");
+    check (silent.isEmpty(), "every factory preset makes sound (" + silent.joinIntoString (", ") + ")");
+    check (unbounded.isEmpty(), "factory presets stay bounded with macros at full (" + unbounded.joinIntoString (", ") + ")");
+
+    // Loudness: flag presets far from the library's median level.
+    auto sorted = levels;
+    std::sort (sorted.begin(), sorted.end());
+    const auto median = sorted[sorted.size() / 2].first;
+    juce::StringArray outliers;
+
+    for (const auto& level : levels)
+    {
+        const auto db = 20.0 * std::log10 (juce::jmax (1.0e-9, level.first / median));
+
+        if (std::abs (db) > 14.0)
+            outliers.add (level.second + " (" + juce::String (db, 1) + " dB)");
+    }
+
+    std::cout << "  library level: median rms " << median << ", quietest " << sorted.front().second
+              << ", loudest " << sorted.back().second << std::endl;
+    check (outliers.isEmpty(), "factory presets within 14 dB of the median level (" + outliers.joinIntoString (", ") + ")");
+}
 
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    // ILANA_BENCH=1 runs only the CPU benchmark (for profiling).
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
+    {
+        runPhase2StateAndCpuTest();
+        return 0;
+    }
 
     std::cout << "ilanaSynth table tests" << std::endl;
 
@@ -2365,6 +3371,20 @@ int main()
     runOversamplingTest();
     runFxSlotAssignTest();
     runPresetNameTest();
+    runFilterModelTests();
+    runVoiceModeTests();
+    runWarpTests();
+    runUnisonTests();
+    runPerVoiceLfoTest();
+    runMatrixTests();
+    runStaleModulationTest();
+    runPhase2StateAndCpuTest();
+    runExtraFilterTests();
+    runFilterRoutingTest();
+    runOversampledTuningTest();
+    runResynthesisTest();
+    runCurveLfoTest();
+    runFactoryLibraryTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

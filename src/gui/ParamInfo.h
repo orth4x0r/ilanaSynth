@@ -15,8 +15,11 @@ inline juce::String describeValue (const juce::String& id, float value)
     {
         const auto magnitude = std::abs (value);
 
+        // Note juce::String (value, 0) means "default precision", not "no
+        // decimals", so whole numbers go through roundToInt.
         return magnitude >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz"
-                                    : juce::String (value, magnitude < 1.0f ? 2 : (magnitude < 10.0f ? 1 : 0)) + " Hz";
+                                    : (magnitude < 10.0f ? juce::String (value, magnitude < 1.0f ? 2 : 1)
+                                                         : juce::String (juce::roundToInt (value))) + " Hz";
     };
 
     if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")
@@ -27,6 +30,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "fx_smear_size" || id == "fx_tape_stop_time" || id == "fx_haas_delay"
         || id == "fx_comp_attack" || id == "fx_comp_release" || id == "fx_limit_release")
         return asMilliseconds();
+
+    if (id == "poly_voices")
+        return juce::String (juce::roundToInt (value));
 
     if (id.endsWith ("_attack") || id == "glide"
         || ((id.endsWith ("_decay") || id.endsWith ("_release"))
@@ -39,7 +45,8 @@ inline juce::String describeValue (const juce::String& id, float value)
                + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 
     if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
-        || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain")
+        || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain"
+        || (id.startsWith ("fx_eq_") && id.endsWith ("_gain")))
         return juce::String (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
@@ -54,7 +61,8 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
-        || id == "res_decay" || id.endsWith ("_string_decay"))
+        || id == "res_decay" || id.endsWith ("_string_decay")
+        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
     return juce::String (value, value == std::floor (value) ? 0 : 2);
@@ -154,7 +162,21 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Filters
     if (id == "f1_type" || id == "f2_type")
-        return "Low Pass, Band Pass, High Pass or Notch.";
+        return "SVF: clean Low / Band / High Pass and Notch.  Ladder: Moog-style, saturating and self-oscillating.  "
+               "Diode: 303-style squelch.  MS-20: gnarly Sallen-Key.  Comb +/-: tuned to the cutoff, metallic "
+               "to hollow.  Formant: vowels (MORPH picks A-E-I-O-U).  Morph: sweeps LP > BP > HP with MORPH.";
+
+    if (id == "f1_morph" || id == "f2_morph")
+        return "Formant: moves through the vowels A, E, I, O, U.  Morph: blends low-pass into band-pass into "
+               "high-pass.  Try an LFO on it.";
+
+    if (id.startsWith ("fx_eq_"))
+        return "Three-band EQ: low shelf, a sweepable mid peak (Q sets its width) and a high shelf.  "
+               "Drag the points on the curve too.";
+
+    if (id.endsWith ("_route"))
+        return "Which filter this oscillator goes through.  Default follows the Serial / Parallel switch; "
+               "Filter 2 skips Filter 1; No filter goes straight to the amp.";
 
     if (id == "f1_slope" || id == "f2_slope")
         return "12 dB is gentle, 24 dB is steep and aggressive.";
@@ -163,7 +185,8 @@ inline juce::String describeParameter (const juce::String& id)
         return "Filter frequency. Drag the marker on the response display too.";
 
     if (id == "f1_reso" || id == "f2_reso")
-        return "Emphasis at the cutoff. High values scream.";
+        return "Emphasis at the cutoff. High values scream; near the top the filter rings on its own "
+               "(self-oscillation) and can be played as a sine.";
 
     if (id == "f1_drive" || id == "f2_drive")
         return "Saturates the signal going into the filter.";
@@ -195,6 +218,39 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "glide")
         return "Portamento time between notes.";
+
+    if (id.endsWith ("_warp"))
+        return "Bends how the oscillator reads its wavetable: Sync squeezes cycles in, Bend pushes the wave "
+               "forwards or back, PWM squashes it into part of the cycle, Mirror plays it there and back, Asym "
+               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others).";
+
+    if (id.endsWith ("_warp_amt"))
+        return "How hard the warp bends the wave. Modulate it for movement.";
+
+    if (id.endsWith ("_uni_mode"))
+        return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "
+               "Octaves and Fifths also stack intervals for huge chords.";
+
+    if (id.endsWith ("_uni_blend"))
+        return "Level of the detuned unison voices against the centre one. Lower keeps the pitch focused.";
+
+    if (id.startsWith ("lfo") && id.endsWith ("_phase"))
+        return "Where the LFO starts in its cycle when a note retriggers it.";
+
+    if (id.startsWith ("lfo") && id.endsWith ("_retrig"))
+        return "On: every note gets its own LFO, starting from the start phase (per-voice). "
+               "Off: one free-running LFO shared by all notes.";
+
+    if (id == "voice_mode")
+        return "Poly plays chords. Mono is one voice that retriggers the envelopes on every note. "
+               "Legato is one voice where overlapping notes only slide the pitch - classic for basses and leads.";
+
+    if (id == "poly_voices")
+        return "Maximum voices sounding at once in Poly mode. Fewer voices save CPU and make old notes "
+               "give way sooner.";
+
+    if (id == "glide_legato")
+        return "Only glide when notes overlap (mono modes). Detached notes jump straight to pitch.";
 
     if (id == "bend_range")
         return "Pitch bend range in semitones.";

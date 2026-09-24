@@ -22,7 +22,8 @@ public:
           traceColour (traceColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("Drag to draw when Shape is Draw, or to set steps when Shape is Steps");
+        setTooltip ("LFO shape\nDraw: drag to draw.  Steps: drag to set steps.  Curve: click to add points, drag them, "
+                    "drag the dot on a line to bend it, double-click to delete, right-click for shapes and grid.");
 
         juce::Random random (lfoIndex * 1234 + 7);
 
@@ -142,6 +143,23 @@ public:
                 }
             }
         }
+        else if (shape == IlanaSynthAudioProcessor::curveShape)
+        {
+            curve = processorRef.getLfoCurve (index);
+            paintCurveGrid (g, plot, centreY, halfHeight);
+
+            for (int x = 0; x <= (int) plot.getWidth(); ++x)
+            {
+                const auto phase = (double) x / (double) plot.getWidth();
+                const auto y = centreY - curve.valueAt (juce::jmin (0.99999, phase)) * halfHeight;
+                const auto px = plot.getX() + (float) x;
+
+                if (x == 0)
+                    path.startNewSubPath (px, y);
+                else
+                    path.lineTo (px, y);
+            }
+        }
         else
         {
             for (int x = 0; x <= (int) plot.getWidth(); ++x)
@@ -178,6 +196,10 @@ public:
         {
             value = interpolateCustom (custom, phase);
         }
+        else if (shape == IlanaSynthAudioProcessor::curveShape)
+        {
+            value = curve.valueAt (phase);
+        }
         else
         {
             value = lfoShapeValue (shape, phase);
@@ -188,6 +210,9 @@ public:
 
         g.setColour (juce::Colours::white.withAlpha (0.9f));
         g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
+
+        if (shape == IlanaSynthAudioProcessor::curveShape)
+            paintCurveHandles (g, plot, centreY, halfHeight);
     }
 
 private:
@@ -195,7 +220,9 @@ private:
     {
         const auto shape = (int) readParam ("_shape");
 
-        if (shape == 6)
+        if (shape == IlanaSynthAudioProcessor::curveShape)
+            curveMouseDown (event);
+        else if (shape == 6)
             setCustomPoint (event.position);
         else if (shape == 7)
             setStepPoint (event.position);
@@ -205,10 +232,33 @@ private:
     {
         const auto shape = (int) readParam ("_shape");
 
-        if (shape == 6)
+        if (shape == IlanaSynthAudioProcessor::curveShape)
+            curveMouseDrag (event);
+        else if (shape == 6)
             setCustomPoint (event.position);
         else if (shape == 7)
             setStepPoint (event.position);
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        if ((int) readParam ("_shape") != IlanaSynthAudioProcessor::curveShape)
+            return;
+
+        curve = processorRef.getLfoCurve (index);
+        const auto hit = hitPoint (event.position);
+
+        // Double-click removes a point (the ends stay) or straightens a segment.
+        if (hit > 0 && hit < (int) curve.points.size() - 1)
+        {
+            curve.points.erase (curve.points.begin() + hit);
+            commitCurve();
+        }
+        else if (const auto segment = hitTension (event.position); segment >= 0)
+        {
+            curve.points[(size_t) segment].tension = 0.0f;
+            commitCurve();
+        }
     }
 
     void lookAndFeelChanged() override
@@ -218,6 +268,231 @@ private:
     }
 
 private:
+    // ---- Curve shape editing --------------------------------------------
+
+    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().reduced (10.0f, 14.0f); }
+
+    juce::Point<float> pointToScreen (const LfoCurve::Point& point) const
+    {
+        const auto plot = plotArea();
+        return { plot.getX() + point.x * plot.getWidth(), plot.getCentreY() - point.y * plot.getHeight() * 0.42f };
+    }
+
+    // The little dot halfway along a segment that bends it.
+    juce::Point<float> tensionHandle (int segment) const
+    {
+        const auto& a = curve.points[(size_t) segment];
+        const auto& b = curve.points[(size_t) segment + 1];
+        const auto plot = plotArea();
+        const auto midX = 0.5f * (a.x + b.x);
+        const auto y = a.y + (b.y - a.y) * LfoCurve::bend (0.5f, a.tension);
+        return { plot.getX() + midX * plot.getWidth(), plot.getCentreY() - y * plot.getHeight() * 0.42f };
+    }
+
+    int hitPoint (juce::Point<float> position) const
+    {
+        for (int i = 0; i < (int) curve.points.size(); ++i)
+            if (pointToScreen (curve.points[(size_t) i]).getDistanceFrom (position) < 8.0f)
+                return i;
+
+        return -1;
+    }
+
+    int hitTension (juce::Point<float> position) const
+    {
+        for (int i = 0; i + 1 < (int) curve.points.size(); ++i)
+            if (curve.points[(size_t) i + 1].x - curve.points[(size_t) i].x > 0.02f
+                && tensionHandle (i).getDistanceFrom (position) < 7.0f)
+                return i;
+
+        return -1;
+    }
+
+    float snapX (float x) const
+    {
+        return gridDivisions > 0 ? std::round (x * (float) gridDivisions) / (float) gridDivisions : x;
+    }
+
+    float snapY (float y) const
+    {
+        return gridDivisions > 0 ? std::round (y * 4.0f) / 4.0f : y;
+    }
+
+    void curveMouseDown (const juce::MouseEvent& event)
+    {
+        curve = processorRef.getLfoCurve (index);
+        dragPoint = -1;
+        dragTension = -1;
+
+        if (event.mods.isPopupMenu())
+        {
+            showCurveMenu();
+            return;
+        }
+
+        dragPoint = hitPoint (event.position);
+
+        if (dragPoint < 0)
+            dragTension = hitTension (event.position);
+
+        if (dragPoint < 0 && dragTension < 0)
+        {
+            // Empty space: add a point there and start dragging it.
+            const auto plot = plotArea();
+            LfoCurve::Point point;
+            point.x = snapX (juce::jlimit (0.001f, 0.999f, (event.position.x - plot.getX()) / plot.getWidth()));
+            point.y = snapY (valueFromY (event.position.y, plot));
+
+            auto insertAt = curve.points.begin();
+
+            while (insertAt != curve.points.end() && insertAt->x <= point.x)
+                ++insertAt;
+
+            dragPoint = (int) std::distance (curve.points.begin(), curve.points.insert (insertAt, point));
+            commitCurve();
+        }
+
+        if (dragTension >= 0)
+            dragStartTension = curve.points[(size_t) dragTension].tension;
+    }
+
+    void curveMouseDrag (const juce::MouseEvent& event)
+    {
+        const auto plot = plotArea();
+
+        if (dragPoint >= 0 && dragPoint < (int) curve.points.size())
+        {
+            auto& point = curve.points[(size_t) dragPoint];
+            const auto last = (int) curve.points.size() - 1;
+
+            if (dragPoint > 0 && dragPoint < last)
+            {
+                const auto low = curve.points[(size_t) dragPoint - 1].x;
+                const auto high = curve.points[(size_t) dragPoint + 1].x;
+                point.x = juce::jlimit (low, high, snapX ((event.position.x - plot.getX()) / plot.getWidth()));
+            }
+
+            point.y = snapY (valueFromY (event.position.y, plot));
+            commitCurve();
+        }
+        else if (dragTension >= 0)
+        {
+            // Dragging towards the segment's end makes it arrive late.
+            const auto& a = curve.points[(size_t) dragTension];
+            const auto& b = curve.points[(size_t) dragTension + 1];
+            const auto direction = b.y >= a.y ? 1.0f : -1.0f;
+            const auto delta = (float) event.getDistanceFromDragStartY() * 0.012f * direction;
+            curve.points[(size_t) dragTension].tension = juce::jlimit (-1.0f, 1.0f, dragStartTension + delta);
+            commitCurve();
+        }
+    }
+
+    void commitCurve()
+    {
+        processorRef.setLfoCurve (index, curve);
+        curve = processorRef.getLfoCurve (index);
+        repaint();
+    }
+
+    void showCurveMenu()
+    {
+        juce::PopupMenu shapes;
+        const auto names = LfoCurve::getPresetNames();
+
+        for (int i = 0; i < names.size(); ++i)
+            shapes.addItem (100 + i, names[i]);
+
+        juce::PopupMenu grid;
+
+        for (const auto divisions : { 0, 4, 8, 16, 32 })
+            grid.addItem (200 + divisions, divisions == 0 ? juce::String ("Off") : juce::String (divisions),
+                          true, gridDivisions == divisions);
+
+        juce::PopupMenu menu;
+        menu.addSubMenu ("Load shape", shapes);
+        menu.addSubMenu ("Snap to grid", grid);
+        menu.addSeparator();
+        menu.addItem (300, "Flip vertically");
+        menu.addItem (301, "Reverse");
+
+        juce::Component::SafePointer<LfoDisplay> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                            [safeThis] (int result)
+                            {
+                                if (safeThis == nullptr || result == 0)
+                                    return;
+
+                                auto& self = *safeThis;
+                                self.curve = self.processorRef.getLfoCurve (self.index);
+
+                                if (result >= 100 && result < 200)
+                                    self.curve = LfoCurve::preset (result - 100);
+                                else if (result >= 200 && result < 300)
+                                    self.gridDivisions = result - 200;
+                                else if (result == 300)
+                                    for (auto& point : self.curve.points)
+                                        point.y = -point.y;
+                                else if (result == 301)
+                                {
+                                    for (auto& point : self.curve.points)
+                                    {
+                                        point.x = 1.0f - point.x;
+                                        point.tension = -point.tension;
+                                    }
+
+                                    std::reverse (self.curve.points.begin(), self.curve.points.end());
+
+                                    // Tension belongs to the segment's start point,
+                                    // which moved one place along.
+                                    for (size_t i = 0; i + 1 < self.curve.points.size(); ++i)
+                                        self.curve.points[i].tension = self.curve.points[i + 1].tension;
+                                }
+
+                                self.commitCurve();
+                            });
+    }
+
+    void paintCurveGrid (juce::Graphics& g, juce::Rectangle<float> plot, float centreY, float halfHeight) const
+    {
+        if (gridDivisions <= 0)
+            return;
+
+        g.setColour (juce::Colours::white.withAlpha (0.05f));
+
+        for (int i = 1; i < gridDivisions; ++i)
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + plot.getWidth() * (float) i / (float) gridDivisions,
+                                                                                     plot.getY()));
+
+        for (const auto level : { -1.0f, -0.5f, 0.5f, 1.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), centreY - level * halfHeight));
+    }
+
+    void paintCurveHandles (juce::Graphics& g, juce::Rectangle<float>, float, float) const
+    {
+        for (int i = 0; i + 1 < (int) curve.points.size(); ++i)
+        {
+            if (curve.points[(size_t) i + 1].x - curve.points[(size_t) i].x <= 0.02f)
+                continue;
+
+            g.setColour (traceColour.withAlpha (0.8f));
+            g.drawEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (tensionHandle (i)), 1.2f);
+        }
+
+        for (const auto& point : curve.points)
+        {
+            const auto centre = pointToScreen (point);
+            g.setColour (traceColour.withAlpha (0.35f));
+            g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre));
+            g.setColour (juce::Colours::white);
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre));
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.3f));
+        g.setFont (IlanaTheme::font (10.5f));
+        g.drawText ("click: add   drag: move   dot on a line: bend   double-click: delete   right-click: shapes / grid",
+                    getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
+    }
+
     static float interpolateCustom (const std::array<float, IlanaSynthAudioProcessor::lfoDrawSteps>& table, double phase)
     {
         const auto position = phase * (double) IlanaSynthAudioProcessor::lfoDrawSteps;
@@ -289,7 +564,9 @@ private:
     void timerCallback() override
     {
         appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+
+        if (isShowing())
+            repaint();
     }
 
     float readParam (const char* suffix) const
@@ -306,5 +583,10 @@ private:
     bool followsTheme = false;
     juce::RangedAudioParameter* gestureParameter = nullptr;
     float appear = 1.0f;
+    LfoCurve curve;
+    int dragPoint = -1;
+    int dragTension = -1;
+    float dragStartTension = 0.0f;
+    int gridDivisions = 8;
     std::array<float, 16> sampleHoldPreview {};
 };

@@ -71,10 +71,23 @@ double getSyncDivisionBeats (int index)
     return beats[juce::jlimit (0, 10, index)];
 }
 
-float lfoValue (int shape, double phase, float sampleHold, const float* customShape = nullptr)
+float lfoValue (int shape, double phase, float sampleHold, const float* customShape = nullptr,
+                const float* curveTable = nullptr)
 {
     switch (shape)
     {
+        case IlanaSynthAudioProcessor::curveShape:
+        {
+            if (curveTable == nullptr)
+                return 0.0f;
+
+            const auto position = phase * (double) LfoCurve::tableSize;
+            const auto index = (int) position % LfoCurve::tableSize;
+            const auto next = (index + 1) % LfoCurve::tableSize;
+            const auto frac = (float) (position - std::floor (position));
+            return curveTable[index] + (curveTable[next] - curveTable[index]) * frac;
+        }
+
         case 0: return (float) std::sin (juce::MathConstants<double>::twoPi * phase);
         case 1: return (float) (1.0 - 4.0 * std::abs (phase - 0.5));
         case 2: return (float) (2.0 * phase - 1.0);
@@ -156,6 +169,12 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         for (int i = 0; i < lfoDrawSteps; ++i)
             lfoCustom[(size_t) lfo][(size_t) i] = (float) std::sin (juce::MathConstants<double>::twoPi * (double) i / (double) lfoDrawSteps);
 
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        lfoCurves[(size_t) lfo] = LfoCurve::preset (0);
+        lfoCurves[(size_t) lfo].renderTable (lfoCurveTables[(size_t) lfo].data());
+    }
+
     FactoryTables::get();
 
     userTables.resize ((size_t) numUserSlots);
@@ -179,6 +198,66 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_fade_out" };
         }
     }
+
+    for (int i = 0; i < Mod::maxSlots; ++i)
+    {
+        const auto prefix = "mod" + juce::String (i + 1);
+        modSlotIds[(size_t) i] = { prefix + "_src", prefix + "_dst", prefix + "_amt", prefix + "_curve",
+                                   prefix + "_pol", prefix + "_aux", prefix + "_byp" };
+
+        const auto& ids = modSlotIds[(size_t) i];
+        modSlotRaw[(size_t) i] = { apvts.getRawParameterValue (ids.src), apvts.getRawParameterValue (ids.dst),
+                                   apvts.getRawParameterValue (ids.amt), apvts.getRawParameterValue (ids.curve),
+                                   apvts.getRawParameterValue (ids.polarity), apvts.getRawParameterValue (ids.aux),
+                                   apvts.getRawParameterValue (ids.bypass) };
+    }
+
+    for (const auto& destination : Mod::getParamDestinations())
+    {
+        ParamDestination entry;
+        entry.raw = apvts.getRawParameterValue (destination.id);
+        entry.parameter = apvts.getParameter (destination.id);
+
+        if (entry.raw != nullptr)
+            rawToParamDestination[entry.raw] = (int) paramDestinations.size();
+
+        paramDestinations.push_back (entry);
+    }
+
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        const auto prefix = "lfo" + juce::String (lfo + 1);
+        auto& ids = lfoIds[(size_t) lfo];
+        ids.shape = prefix + "_shape";
+        ids.rate = prefix + "_rate";
+        ids.sync = prefix + "_sync";
+        ids.div = prefix + "_div";
+        ids.retrig = prefix + "_retrig";
+        ids.phase = prefix + "_phase";
+
+        for (int step = 0; step < 16; ++step)
+            ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
+    }
+
+    for (int slot = 0; slot < numFxSlots; ++slot)
+    {
+        const auto prefix = "fx_slot" + juce::String (slot + 1);
+        fxSlotIds[(size_t) slot] = { prefix, prefix + "_bypass", prefix + "_solo", prefix + "_mix" };
+    }
+
+    {
+        const char* const prefixes[] { "osc1", "osc2", "sub" };
+
+        for (int osc = 0; osc < 3; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            oscShapeIds[(size_t) osc] = { prefix + "_warp", prefix + "_warp_amt", prefix + "_uni_mode", prefix + "_uni_blend",
+                                          prefix + "_route" };
+        }
+    }
+
+    for (int step = 0; step < 16; ++step)
+        tapStepIds[(size_t) step] = "fx_taps_step" + juce::String (step + 1);
 
     for (int i = 0; i < numUserSlots; ++i)
     {
@@ -244,6 +323,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addInt ("osc1_unison", "Osc1 Unison", 1, VoiceParams::maxUnison, 1);
     addFloat ("osc1_detune", "Osc1 Detune", 0.0f, 50.0f, 15.0f);
     addFloat ("osc1_spread", "Osc1 Spread", 0.0f, 1.0f, 0.5f);
+    addChoice ("osc1_warp", "Osc1 Warp", Warp::getNames(), 0);
+    addFloat ("osc1_warp_amt", "Osc1 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("osc1_uni_mode", "Osc1 Unison Mode", UnisonMode::getNames(), 0);
+    addFloat ("osc1_uni_blend", "Osc1 Unison Blend", 0.0f, 1.0f, 1.0f);
+    addChoice ("osc1_route", "Osc1 Filter Route", FilterRoute::getNames(), 0);
 
     // Osc 2
     addBool ("osc2_on", "Osc2 On", false);
@@ -256,6 +340,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addInt ("osc2_unison", "Osc2 Unison", 1, VoiceParams::maxUnison, 1);
     addFloat ("osc2_detune", "Osc2 Detune", 0.0f, 50.0f, 15.0f);
     addFloat ("osc2_spread", "Osc2 Spread", 0.0f, 1.0f, 0.5f);
+    addChoice ("osc2_warp", "Osc2 Warp", Warp::getNames(), 0);
+    addFloat ("osc2_warp_amt", "Osc2 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("osc2_uni_mode", "Osc2 Unison Mode", UnisonMode::getNames(), 0);
+    addFloat ("osc2_uni_blend", "Osc2 Unison Blend", 0.0f, 1.0f, 1.0f);
+    addChoice ("osc2_route", "Osc2 Filter Route", FilterRoute::getNames(), 0);
 
     // Sub / OSC 3
     juce::StringArray osc3TableChoices { "Shape", "Sine", "PWM", "Analog Saw" };
@@ -283,6 +372,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addInt ("sub_unison", "Osc3 Unison", 1, VoiceParams::maxUnison, 1);
     addFloat ("sub_detune", "Osc3 Detune", 0.0f, 50.0f, 12.0f);
     addFloat ("sub_spread", "Osc3 Spread", 0.0f, 1.0f, 0.0f);
+    addChoice ("sub_warp", "Osc3 Warp", Warp::getNames(), 0);
+    addFloat ("sub_warp_amt", "Osc3 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
+    addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
+    addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
     addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
@@ -291,22 +385,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("noise_level", "Noise Level", 0.0f, 1.0f, 0.0f);
 
     // Filter 1
-    addChoice ("f1_type", "F1 Type", { "Low Pass", "Band Pass", "High Pass", "Notch" }, 0);
+    addChoice ("f1_type", "F1 Type", FilterType::getNames(), 0);
     addChoice ("f1_slope", "F1 Slope", { "12 dB", "24 dB" }, 0);
     addFloat ("f1_cutoff", "F1 Cutoff", 20.0f, 20000.0f, 12000.0f, 0.25f);
-    addFloat ("f1_reso", "F1 Reso", 0.0f, 0.98f, 0.25f);
+    addFloat ("f1_reso", "F1 Reso", 0.0f, 1.0f, 0.25f);
     addFloat ("f1_drive", "F1 Drive", 1.0f, 10.0f, 1.5f);
     addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 1.5f);
     addFloat ("f1_keytrack", "F1 Key Track", -1.0f, 1.0f, 0.0f);
+    addFloat ("f1_morph", "F1 Morph", 0.0f, 1.0f, 0.0f);
 
     // Filter 2
-    addChoice ("f2_type", "F2 Type", { "Low Pass", "Band Pass", "High Pass", "Notch" }, 0);
+    addChoice ("f2_type", "F2 Type", FilterType::getNames(), 0);
     addChoice ("f2_slope", "F2 Slope", { "12 dB", "24 dB" }, 0);
     addFloat ("f2_cutoff", "F2 Cutoff", 20.0f, 20000.0f, 20000.0f, 0.25f);
-    addFloat ("f2_reso", "F2 Reso", 0.0f, 0.98f, 0.0f);
+    addFloat ("f2_reso", "F2 Reso", 0.0f, 1.0f, 0.0f);
     addFloat ("f2_drive", "F2 Drive", 1.0f, 10.0f, 1.0f);
     addFloat ("f2_env", "F2 Env", -5.0f, 5.0f, 0.0f);
     addFloat ("f2_keytrack", "F2 Key Track", -1.0f, 1.0f, 0.0f);
+    addFloat ("f2_morph", "F2 Morph", 0.0f, 1.0f, 0.0f);
     addBool ("filters_parallel", "Filters Parallel", false);
 
     // Amp envelope
@@ -366,6 +462,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("voice_spread", "Voice Spread", 0.0f, 1.0f, 0.0f);
     addFloat ("unison_random", "Unison Random", 0.0f, 1.0f, 0.0f);
     addBool ("mpe_mode", "MPE Mode", false);
+    addChoice ("voice_mode", "Voice Mode", { "Poly", "Mono", "Legato" }, 0);
+    addInt ("poly_voices", "Poly Voices", 1, numVoices, numVoices);
+    addBool ("glide_legato", "Glide Legato Only", false);
 
     // Resonator bank
     addBool ("res_on", "Resonator On", false);
@@ -422,7 +521,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("arp_gate", "Arp Gate", 0.05f, 1.0f, 0.5f);
 
     // LFOs
-    const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps" };
+    const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps", "Curve" };
 
     for (int lfo = 1; lfo <= numLfos; ++lfo)
     {
@@ -433,6 +532,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_sync", "LFO" + juce::String (lfo) + " Sync", false);
         addChoice (prefix + "_div", "LFO" + juce::String (lfo) + " Div", getSyncDivisionNames(), 2);
         addBool (prefix + "_retrig", "LFO" + juce::String (lfo) + " Retrig", false);
+        addFloat (prefix + "_phase", "LFO" + juce::String (lfo) + " Start Phase", 0.0f, 1.0f, 0.0f);
 
         for (int step = 0; step < 16; ++step)
             addFloat (prefix + "_step" + juce::String (step + 1), "LFO" + juce::String (lfo) + " Step " + juce::String (step + 1),
@@ -443,10 +543,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     for (int slot = 1; slot <= Mod::maxSlots; ++slot)
     {
         const auto prefix = "mod" + juce::String (slot);
+        const auto name = "Mod" + juce::String (slot);
 
-        addChoice (prefix + "_src", "Mod" + juce::String (slot) + " Src", Mod::getSourceNames(), 0);
-        addChoice (prefix + "_dst", "Mod" + juce::String (slot) + " Dst", Mod::getDestinationNames(), 0);
-        addFloat (prefix + "_amt", "Mod" + juce::String (slot) + " Amt", -1.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_src", name + " Src", Mod::getSourceNames(), 0);
+        addChoice (prefix + "_dst", name + " Dst", Mod::getDestinationNames(), 0);
+        addFloat (prefix + "_amt", name + " Amt", -1.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_curve", name + " Curve", -1.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_pol", name + " Polarity", { "Natural", "Unipolar", "Bipolar" }, 0);
+        addChoice (prefix + "_aux", name + " Via", Mod::getSourceNames(), 0);
+        addBool (prefix + "_byp", name + " Bypass", false);
     }
 
     // Macros
@@ -458,7 +563,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
                                       "Flanger", "Dimension", "Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
-                                      "Octaver", "Vowel", "Feedback" };
+                                      "Octaver", "Vowel", "Feedback", "EQ" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -468,6 +573,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat ("fx_slot" + juce::String (slot + 1) + "_mix", "FX Blend " + juce::String (slot + 1),
                   0.0f, 1.0f, 1.0f);
     }
+
+    addFloat ("fx_eq_low_freq", "EQ Low Freq", 20.0f, 800.0f, 120.0f, 0.4f);
+    addFloat ("fx_eq_low_gain", "EQ Low Gain", -18.0f, 18.0f, 0.0f);
+    addFloat ("fx_eq_mid_freq", "EQ Mid Freq", 100.0f, 12000.0f, 1000.0f, 0.3f);
+    addFloat ("fx_eq_mid_gain", "EQ Mid Gain", -18.0f, 18.0f, 0.0f);
+    addFloat ("fx_eq_mid_q", "EQ Mid Q", 0.2f, 8.0f, 0.9f, 0.4f);
+    addFloat ("fx_eq_high_freq", "EQ High Freq", 1000.0f, 18000.0f, 6000.0f, 0.4f);
+    addFloat ("fx_eq_high_gain", "EQ High Gain", -18.0f, 18.0f, 0.0f);
 
     addFloat ("fx_feedback_amount", "Feedback Amount", 0.0f, 0.95f, 0.6f);
     addFloat ("fx_feedback_delay", "Feedback Delay", 1.0f, 100.0f, 12.0f, 0.4f);
@@ -614,7 +727,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("master", "Master", -60.0f, 12.0f, -6.0f, 1.0f, 0.1f);
     addBool ("master_clip", "Master Soft Clip", true);
     addFloat ("master_clip_gain", "Clip Gain", 0.0f, 24.0f, 0.0f, 1.0f, 0.1f);
-    addBool ("oversampling", "Oversample 2x", false);
+    addBool ("oversampling", "Oversample", false);
+    addChoice ("os_factor", "Oversampling Factor", { "2x", "4x" }, 0);
 
     return layout;
 }
@@ -622,7 +736,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 float IlanaSynthAudioProcessor::getParam (const char* id) const
 {
     const auto* value = apvts.getRawParameterValue (id);
-    return value != nullptr ? value->load() : 0.0f;
+
+    if (value == nullptr)
+        return 0.0f;
+
+    auto result = value->load();
+
+    if (anyParamModulation)
+    {
+        const auto found = rawToParamDestination.find (value);
+
+        if (found != rawToParamDestination.end())
+        {
+            const auto offset = paramDestinationOffsets[(size_t) found->second];
+
+            if (offset != 0.0f)
+                if (auto* parameter = paramDestinations[(size_t) found->second].parameter)
+                    result = parameter->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, parameter->convertTo0to1 (result) + offset));
+        }
+    }
+
+    return result;
 }
 
 void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -632,17 +766,21 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     baseSampleRate = sampleRate;
     expectedBlockSize = juce::jmax (1, samplesPerBlock);
 
-    oversamplingActive.store (getParam ("oversampling") > 0.5f);
-    oversampler.initProcessing ((size_t) expectedBlockSize);
-    oversampler.reset();
+    oversamplingFactor.store (wantedOversamplingFactor());
 
-    const auto voiceRate = oversamplingActive.load() ? baseSampleRate * 2.0 : baseSampleRate;
+    for (auto* oversampler : { &oversampler2x, &oversampler4x })
+    {
+        oversampler->initProcessing ((size_t) expectedBlockSize);
+        oversampler->reset();
+    }
+
+    const auto voiceRate = baseSampleRate * (double) oversamplingFactor.load();
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
 
     scaledMidiBuffer.ensureSize (1024);
 
-    lfoBuffers.setSize (6, expectedBlockSize * (oversamplingActive.load() ? 2 : 1), false, false, true);
+    lfoBuffers.setSize (6, expectedBlockSize * oversamplingFactor.load(), false, false, true);
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -664,6 +802,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     for (int channel = 0; channel < 2; ++channel)
     {
         octaverShift[channel].prepare (sampleRate);
+
+        for (auto& band : eqBands[channel])
+            band.reset();
 
         for (int band = 0; band < 3; ++band)
         {
@@ -757,23 +898,37 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     reverb.reset();
 }
 
-void IlanaSynthAudioProcessor::setOversampling (bool shouldOversample)
+int IlanaSynthAudioProcessor::wantedOversamplingFactor() const
 {
-    if (shouldOversample == oversamplingActive.load())
+    if (getParam ("oversampling") < 0.5f)
+        return 1;
+
+    return (int) getParam ("os_factor") == 1 ? 4 : 2;
+}
+
+void IlanaSynthAudioProcessor::setOversampling (int factor)
+{
+    factor = factor >= 4 ? 4 : (factor >= 2 ? 2 : 1);
+
+    if (factor == oversamplingFactor.load())
         return;
 
     suspendProcessing (true);
 
-    oversamplingActive.store (shouldOversample);
-    oversampler.reset();
-    oversampler.initProcessing ((size_t) expectedBlockSize);
+    oversamplingFactor.store (factor);
 
-    const auto voiceRate = shouldOversample ? baseSampleRate * 2.0 : baseSampleRate;
+    for (auto* oversampler : { &oversampler2x, &oversampler4x })
+    {
+        oversampler->reset();
+        oversampler->initProcessing ((size_t) expectedBlockSize);
+    }
+
+    const auto voiceRate = baseSampleRate * (double) factor;
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
     mseg.prepare (voiceRate);
     mseg.reset();
-    lfoBuffers.setSize (6, expectedBlockSize * (shouldOversample ? 2 : 1), false, false, true);
+    lfoBuffers.setSize (6, expectedBlockSize * factor, false, false, true);
     scaledMidiBuffer.ensureSize (1024);
 
     suspendProcessing (false);
@@ -807,6 +962,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
         activeLfoCustom = lfoCustom;
+        activeLfoCurveTables = lfoCurveTables;
     }
 
     const auto previewOn = previewNoteOn.exchange (-1);
@@ -820,17 +976,17 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         synth.noteOff (1, previewOff, 0.0f, true);
 
     {
-        const auto wantOversampling = getParam ("oversampling") > 0.5f;
-
-        if (wantOversampling != oversamplingActive.load())
+        if (wantedOversamplingFactor() != oversamplingFactor.load())
             triggerAsyncUpdate();
     }
 
-    if (oversamplingActive.load())
+    const auto factor = oversamplingFactor.load();
+
+    if (factor > 1)
     {
         const auto savedRate = currentSampleRate;
-        currentSampleRate = baseSampleRate * 2.0;
-        renderLfos (buffer.getNumSamples() * 2, midiMessages);
+        currentSampleRate = baseSampleRate * (double) factor;
+        renderLfos (buffer.getNumSamples() * factor, midiMessages);
         currentSampleRate = savedRate;
     }
     else
@@ -860,46 +1016,20 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (int lfo = 0; lfo < numLfos; ++lfo)
         lfoPhaseDisplays[(size_t) lfo].store ((float) lfoPhases[(size_t) lfo]);
 
-    for (auto& value : modDisplayValues)
-        value.store (0.0f);
+    // Read every mod slot once; switched-on slots are packed for the voices
+    // and evaluated synth-wide for the effects and the knob rings.
+    Mod::Slot activeSlots[Mod::maxSlots];
+    auto numActiveSlots = 0;
 
     for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i + 1);
-        const auto destination = (Mod::Destination) juce::jlimit (0, (int) Mod::Destination::Count - 1,
-                                                                  (int) getParam ((prefix + "_dst").toRawUTF8()));
+        const auto slot = readModSlot (i);
 
-        if (destination == Mod::Destination::None)
-            continue;
-
-        const auto source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1,
-                                                        (int) getParam ((prefix + "_src").toRawUTF8()));
-        const auto depth = getParam ((prefix + "_amt").toRawUTF8());
-
-        if (source == Mod::Source::None || depth == 0.0f)
-            continue;
-
-        auto value = 0.0f;
-        const auto lfoIndex = Mod::lfoIndexFor (source);
-
-        if (lfoIndex >= 0)
-        {
-            const auto lfoPrefix = "lfo" + juce::String (lfoIndex + 1);
-            const auto shape = (int) getParam ((lfoPrefix + "_shape").toRawUTF8());
-            const auto phase = lfoPhases[(size_t) lfoIndex];
-
-            value = shape == 7
-                        ? getParam ((lfoPrefix + "_step" + juce::String (juce::jlimit (0, 15, (int) (phase * 16.0)) + 1)).toRawUTF8())
-                        : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(),
-                                    activeLfoCustom[(size_t) lfoIndex].data());
-        }
-        else
-        {
-            value = staticSourceValue ((int) source);
-        }
-
-        modDisplayValues[(size_t) destination].fetch_add (depth * value);
+        if (slot.isActive())
+            activeSlots[numActiveSlots++] = slot;
     }
+
+    evaluateGlobalModulation (activeSlots, numActiveSlots);
 
     VoiceParams p;
 
@@ -961,21 +1091,23 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     p.noiseLevel = getParam ("noise_level");
 
-    p.filter1.mode = (Svf::Mode) juce::jlimit (0, 3, (int) getParam ("f1_type"));
+    p.filter1.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f1_type"));
     p.filter1.slope24 = getParam ("f1_slope") > 0.5f;
     p.filter1.cutoffHz = getParam ("f1_cutoff");
     p.filter1.resonance = getParam ("f1_reso");
     p.filter1.drive = getParam ("f1_drive");
     p.filter1.envAmount = getParam ("f1_env");
     p.filter1.keyTrack = getParam ("f1_keytrack");
+    p.filter1.morph = getParam ("f1_morph");
 
-    p.filter2.mode = (Svf::Mode) juce::jlimit (0, 3, (int) getParam ("f2_type"));
+    p.filter2.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f2_type"));
     p.filter2.slope24 = getParam ("f2_slope") > 0.5f;
     p.filter2.cutoffHz = getParam ("f2_cutoff");
     p.filter2.resonance = getParam ("f2_reso");
     p.filter2.drive = getParam ("f2_drive");
     p.filter2.envAmount = getParam ("f2_env");
     p.filter2.keyTrack = getParam ("f2_keytrack");
+    p.filter2.morph = getParam ("f2_morph");
 
     p.filtersParallel = getParam ("filters_parallel") > 0.5f;
 
@@ -1062,17 +1194,71 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.lfo3 = lfoBuffers.getReadPointer (2);
     p.lfo4 = lfoBuffers.getReadPointer (3);
 
-    p.numModSlots = Mod::maxSlots;
+    p.numModSlots = numActiveSlots;
+    p.numActiveDestinations = 0;
 
-    for (int i = 0; i < Mod::maxSlots; ++i)
+    for (int i = 0; i < numActiveSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i + 1);
+        p.modSlots[i] = activeSlots[i];
+        const auto destination = activeSlots[i].destination;
 
-        auto& slot = p.modSlots[i];
-        slot.source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) getParam ((prefix + "_src").toRawUTF8()));
-        slot.destination = (Mod::Destination) juce::jlimit (0, (int) Mod::Destination::Count - 1, (int) getParam ((prefix + "_dst").toRawUTF8()));
-        slot.depth = getParam ((prefix + "_amt").toRawUTF8());
+        if (destination >= Mod::numExplicitDestinations)
+            continue;
+
+        auto seen = false;
+
+        for (int d = 0; d < p.numActiveDestinations && ! seen; ++d)
+            seen = p.activeDestinations[d] == destination;
+
+        if (! seen)
+            p.activeDestinations[p.numActiveDestinations++] = destination;
     }
+
+    // LFOs: retriggered ones run per voice (each note gets its own phase);
+    // free-running ones are shared through the buffers rendered above.
+    {
+        const auto voiceRate = baseSampleRate * (double) oversamplingFactor.load();
+
+        for (int lfo = 0; lfo < numLfos; ++lfo)
+        {
+            const auto& ids = lfoIds[(size_t) lfo];
+            auto& lfoParams = p.lfos[lfo];
+
+            auto rate = (double) getParam (ids.rate.toRawUTF8());
+
+            if (getParam (ids.sync.toRawUTF8()) > 0.5f)
+                rate = (currentBpm.load() / 60.0) / getSyncDivisionBeats ((int) getParam (ids.div.toRawUTF8()));
+
+            for (int step = 0; step < 16; ++step)
+                lfoStepValues[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
+
+            lfoParams.perVoice = getParam (ids.retrig.toRawUTF8()) > 0.5f;
+            lfoParams.shape = (int) getParam (ids.shape.toRawUTF8());
+            lfoParams.baseIncrement = juce::jlimit (0.001, 200.0, rate) / voiceRate;
+            lfoParams.startPhase = getParam (ids.phase.toRawUTF8());
+            lfoParams.steps = lfoStepValues[lfo];
+            const auto isCurve = lfoParams.shape == curveShape;
+            lfoParams.custom = isCurve ? activeLfoCurveTables[(size_t) lfo].data() : activeLfoCustom[(size_t) lfo].data();
+            lfoParams.customSize = isCurve ? LfoCurve::tableSize : lfoDrawSteps;
+        }
+    }
+
+    const auto fillWarpAndUnison = [this] (int oscIndex, VoiceParams::OscParams& osc)
+    {
+        const auto& ids = oscShapeIds[(size_t) oscIndex];
+        osc.warpMode = (int) getParam (ids.warp.toRawUTF8());
+        osc.warpAmount = getParam (ids.warpAmount.toRawUTF8());
+        osc.unisonMode = (int) getParam (ids.unisonMode.toRawUTF8());
+        osc.unisonBlend = getParam (ids.unisonBlend.toRawUTF8());
+        osc.route = (int) getParam (ids.route.toRawUTF8());
+    };
+
+    fillWarpAndUnison (0, p.osc1);
+    fillWarpAndUnison (1, p.osc2);
+    fillWarpAndUnison (2, p.sub);
+
+    synth.setVoiceMode ((IlanaSynth::Mode) juce::jlimit (0, 2, (int) getParam ("voice_mode")),
+                        (int) getParam ("poly_voices"), getParam ("glide_legato") > 0.5f);
 
     processArpeggiator (midiMessages, buffer.getNumSamples(), midiForSynth);
 
@@ -1080,8 +1266,9 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             voice->setParams (p);
 
-    if (oversamplingActive.load())
+    if (factor > 1)
     {
+        auto& oversampler = activeOversampler();
         juce::dsp::AudioBlock<float> baseBlock (buffer);
         auto upBlock = oversampler.processSamplesUp (baseBlock);
         float* upChannels[2] { upBlock.getChannelPointer (0),
@@ -1092,7 +1279,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         scaledMidiBuffer.clear();
 
         for (const auto metadata : midiForSynth)
-            scaledMidiBuffer.addEvent (metadata.getMessage(), metadata.samplePosition * 2);
+            scaledMidiBuffer.addEvent (metadata.getMessage(), metadata.samplePosition * factor);
 
         synth.renderNextBlock (upBuffer, scaledMidiBuffer, 0, upBuffer.getNumSamples());
         oversampler.processSamplesDown (baseBlock);
@@ -1135,6 +1322,9 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
                     samplePosition1 = voice->getLastSamplePosition (0);
                     samplePosition2 = voice->getLastSamplePosition (1);
                     samplePositionSub = voice->getLastSamplePosition (2);
+                    monitorVelocity.store (voice->getVelocity());
+                    monitorKeyTrack.store (voice->getKeyTrack());
+                    monitorRandom.store (voice->getRandomValue());
                     phase1 = voice->getLastWavetablePhase (0);
                     phase2 = voice->getLastWavetablePhase (1);
                     phaseSub = voice->getLastWavetablePhase (2);
@@ -1230,6 +1420,39 @@ float IlanaSynthAudioProcessor::getLfoCustomPoint (int lfoIndex, int step) const
     return lfoCustom[(size_t) lfoIndex][(size_t) step];
 }
 
+LfoCurve IlanaSynthAudioProcessor::getLfoCurve (int lfoIndex) const
+{
+    const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
+    return lfoCurves[(size_t) juce::jlimit (0, numLfos - 1, lfoIndex)];
+}
+
+void IlanaSynthAudioProcessor::setLfoCurve (int lfoIndex, const LfoCurve& curve)
+{
+    if (lfoIndex < 0 || lfoIndex >= numLfos)
+        return;
+
+    auto sanitised = curve;
+    sanitised.sanitise();
+
+    std::array<float, LfoCurve::tableSize> table {};
+    sanitised.renderTable (table.data());
+
+    const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
+    lfoCurves[(size_t) lfoIndex] = std::move (sanitised);
+    lfoCurveTables[(size_t) lfoIndex] = table;
+}
+
+float IlanaSynthAudioProcessor::getLfoCurveValue (int lfoIndex, double phase) const
+{
+    const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
+    const auto& table = lfoCurveTables[(size_t) juce::jlimit (0, numLfos - 1, lfoIndex)];
+    const auto position = (phase - std::floor (phase)) * (double) LfoCurve::tableSize;
+    const auto index = (int) position % LfoCurve::tableSize;
+    const auto next = (index + 1) % LfoCurve::tableSize;
+    const auto frac = (float) (position - std::floor (position));
+    return table[(size_t) index] + (table[(size_t) next] - table[(size_t) index]) * frac;
+}
+
 void IlanaSynthAudioProcessor::triggerPreviewNote (int midiNote, bool isOn, float velocity)
 {
     if (isOn)
@@ -1259,27 +1482,73 @@ juce::File IlanaSynthAudioProcessor::getUserPresetDirectory() const
         .getChildFile ("ilanaSynth Presets");
 }
 
-bool IlanaSynthAudioProcessor::clearModSlotsForTarget (Mod::Destination destination)
+juce::String IlanaSynthAudioProcessor::getModSlotParamId (int slotIndex, const juce::String& field) const
+{
+    return "mod" + juce::String (slotIndex + 1) + "_" + field;
+}
+
+void IlanaSynthAudioProcessor::setModSlotValue (int slotIndex, const juce::String& field, float value)
+{
+    if (auto* parameter = apvts.getParameter (getModSlotParamId (slotIndex, field)))
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+}
+
+Mod::Slot IlanaSynthAudioProcessor::readModSlot (int slotIndex) const
+{
+    Mod::Slot slot;
+
+    if (! juce::isPositiveAndBelow (slotIndex, Mod::maxSlots))
+        return slot;
+
+    const auto& raw = modSlotRaw[(size_t) slotIndex];
+    const auto read = [] (const std::atomic<float>* value) { return value != nullptr ? value->load() : 0.0f; };
+
+    slot.source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) read (raw.src));
+    slot.destination = juce::jlimit (0, Mod::getNumDestinations() - 1, (int) read (raw.dst));
+    slot.depth = read (raw.amt);
+    slot.curve = read (raw.curve);
+    slot.polarity = (Mod::Polarity) juce::jlimit (0, 2, (int) read (raw.polarity));
+    slot.aux = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) read (raw.aux));
+    slot.bypass = read (raw.bypass) > 0.5f;
+    return slot;
+}
+
+int IlanaSynthAudioProcessor::getNumUsedModSlots() const
+{
+    auto used = 0;
+
+    for (int i = 0; i < Mod::maxSlots; ++i)
+    {
+        const auto slot = readModSlot (i);
+
+        if (slot.source != Mod::Source::None || slot.destination != 0)
+            ++used;
+    }
+
+    return used;
+}
+
+void IlanaSynthAudioProcessor::clearModSlot (int slotIndex)
+{
+    setModSlotValue (slotIndex, "src", 0.0f);
+    setModSlotValue (slotIndex, "dst", 0.0f);
+    setModSlotValue (slotIndex, "amt", 0.0f);
+    setModSlotValue (slotIndex, "curve", 0.0f);
+    setModSlotValue (slotIndex, "pol", 0.0f);
+    setModSlotValue (slotIndex, "aux", 0.0f);
+    setModSlotValue (slotIndex, "byp", 0.0f);
+}
+
+bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)
 {
     auto cleared = false;
 
-    for (int i = 1; i <= Mod::maxSlots; ++i)
+    for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i);
-
-        if ((Mod::Destination) (int) getParam ((prefix + "_dst").toRawUTF8()) != destination)
+        if (readModSlot (i).destination != destination)
             continue;
 
-        const auto setValue = [this, &prefix] (const char* suffix, float value)
-        {
-            if (auto* parameter = apvts.getParameter (prefix + suffix))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-        };
-
-        setValue ("_src", 0.0f);
-        setValue ("_dst", 0.0f);
-        setValue ("_amt", 0.0f);
-
+        clearModSlot (i);
         cleared = true;
     }
 
@@ -1347,7 +1616,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     bool retriggers[numLfos] {};
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        retriggers[lfo] = getParam (("lfo" + juce::String (lfo + 1) + "_retrig").toRawUTF8()) > 0.5f;
+        retriggers[lfo] = getParam (lfoIds[(size_t) lfo].retrig.toRawUTF8()) > 0.5f;
 
     for (const auto metadata : midiMessages)
     {
@@ -1370,22 +1639,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             rate = (float) ((currentBpm.load() / 60.0) / beats);
         }
 
-        if (rateDestination == Mod::Destination::None)
-            return juce::jlimit (0.001f, 200.0f, rate);
-
-        auto rateMod = 0.0f;
-
-        for (int i = 0; i < Mod::maxSlots; ++i)
-        {
-            const auto prefix = "mod" + juce::String (i + 1);
-
-            if ((Mod::Destination) (int) getParam ((prefix + "_dst").toRawUTF8()) != rateDestination)
-                continue;
-
-            const auto source = (Mod::Source) (int) getParam ((prefix + "_src").toRawUTF8());
-            rateMod += getParam ((prefix + "_amt").toRawUTF8()) * staticSourceValue ((int) source);
-        }
-
+        // Rate modulation from the previous block's synth-wide evaluation.
+        const auto rateMod = modDisplayValues[(size_t) rateDestination].load();
         return juce::jlimit (0.001f, 200.0f, rate * std::exp2 (rateMod * 4.0f));
     };
 
@@ -1396,18 +1651,17 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
-        const auto prefix = ("lfo" + juce::String (lfo + 1));
+        const auto& ids = lfoIds[(size_t) lfo];
 
-        lfoRates[lfo] = makeRate ((prefix + "_sync").toRawUTF8(), (prefix + "_rate").toRawUTF8(),
-                                  (prefix + "_div").toRawUTF8(),
-                                  lfo == 0 ? Mod::Destination::Lfo1Rate
-                                           : (lfo == 1 ? Mod::Destination::Lfo2Rate
-                                                       : Mod::Destination::None));
-        lfoShapes[lfo] = (float) (int) getParam ((prefix + "_shape").toRawUTF8());
+        const Mod::Destination rateDestinations[] { Mod::Destination::Lfo1Rate, Mod::Destination::Lfo2Rate,
+                                                    Mod::Destination::Lfo3Rate, Mod::Destination::Lfo4Rate };
+        lfoRates[lfo] = makeRate (ids.sync.toRawUTF8(), ids.rate.toRawUTF8(), ids.div.toRawUTF8(),
+                                  rateDestinations[lfo]);
+        lfoShapes[lfo] = (float) (int) getParam (ids.shape.toRawUTF8());
         lfoIncrements[lfo] = (double) lfoRates[lfo] / currentSampleRate;
 
         for (int step = 0; step < 16; ++step)
-            lfoSteps[lfo][step] = getParam ((prefix + "_step" + juce::String (step + 1)).toRawUTF8());
+            lfoSteps[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
     }
 
     float* lfoBufferPointers[numLfos] {};
@@ -1428,7 +1682,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         const float times[4] { getParam ("mseg_time1"), getParam ("mseg_time2"),
                                getParam ("mseg_time3"), getParam ("mseg_time4") };
 
-        mseg.setParams (levels, times, getParam ("mseg_rate"), getParam ("mseg_loop") > 0.5f);
+        const auto rateMod = modDisplayValues[(size_t) Mod::Destination::MsegRate].load();
+        mseg.setParams (levels, times, getParam ("mseg_rate") * std::exp2 (rateMod * 4.0f), getParam ("mseg_loop") > 0.5f);
     }
 
     for (int i = 0; i < numSamples; ++i)
@@ -1442,7 +1697,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             lfoBufferPointers[lfo][i] = shape == 7
                                             ? lfoSteps[lfo][stepIndex]
                                             : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
-                                                        activeLfoCustom[(size_t) lfo].data());
+                                                        activeLfoCustom[(size_t) lfo].data(),
+                                                        activeLfoCurveTables[(size_t) lfo].data());
 
             auto nextPhase = phase + lfoIncrements[lfo];
 
@@ -1471,6 +1727,76 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     aftertouchDisplay.store (aftertouchValue);
     expressionDisplay.store (expressionValue);
     clockShDisplay.store (clockShValue);
+    msegDisplay.store (numSamples > 0 ? msegBuffer[numSamples - 1] : 0.0f);
+}
+
+float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
+{
+    if (const auto lfoIndex = Mod::lfoIndexFor (source); lfoIndex >= 0)
+    {
+        const auto& lfoId = lfoIds[(size_t) lfoIndex];
+        const auto shape = (int) getParam (lfoId.shape.toRawUTF8());
+        const auto phase = lfoPhases[(size_t) lfoIndex];
+
+        return shape == 7 ? getParam (lfoId.steps[(size_t) juce::jlimit (0, 15, (int) (phase * 16.0))].toRawUTF8())
+                          : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(),
+                                      activeLfoCustom[(size_t) lfoIndex].data(),
+                                      activeLfoCurveTables[(size_t) lfoIndex].data());
+    }
+
+    switch (source)
+    {
+        case Mod::Source::AmpEnv:     return envMonitorAmp.load();
+        case Mod::Source::FilterEnv:  return envMonitorFilter.load();
+        case Mod::Source::FilterEnv2: return envMonitorFilter2.load();
+        case Mod::Source::ModEnv:     return envMonitorMod.load();
+        case Mod::Source::Env4:       return envMonitorEnv4.load();
+        case Mod::Source::Velocity:   return monitorVelocity.load();
+        case Mod::Source::KeyTrack:   return monitorKeyTrack.load();
+        case Mod::Source::Random:     return monitorRandom.load();
+        case Mod::Source::ClockSh:    return clockShValue;
+        case Mod::Source::Mseg:       return lfoBuffers.getNumSamples() > 0 ? lfoBuffers.getSample (5, 0) : 0.0f;
+        default:                      return staticSourceValue ((int) source);
+    }
+}
+
+void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots, int numSlots)
+{
+    float totals[maxDestinations] {};
+
+    // Param destinations are applied inside getParam(), so clear them first
+    // or the source values read below would include last block's offsets.
+    anyParamModulation = false;
+    std::fill (paramDestinationOffsets.begin(), paramDestinationOffsets.end(), 0.0f);
+
+    for (int i = 0; i < numSlots; ++i)
+    {
+        const auto& slot = slots[i];
+
+        if (! juce::isPositiveAndBelow (slot.destination, maxDestinations))
+            continue;
+
+        auto value = Mod::shape (slot, globalSourceValue (slot.source));
+
+        if (slot.aux != Mod::Source::None)
+            value *= Mod::auxScale (slot.aux, globalSourceValue (slot.aux));
+
+        totals[slot.destination] += slot.depth * value;
+    }
+
+    for (int d = 0; d < maxDestinations; ++d)
+        modDisplayValues[(size_t) d].store (totals[d]);
+
+    for (int i = 0; i < (int) paramDestinations.size(); ++i)
+    {
+        const auto offset = totals[Mod::numExplicitDestinations + i];
+
+        if (offset != 0.0f && paramDestinations[(size_t) i].parameter != nullptr)
+        {
+            paramDestinationOffsets[(size_t) i] = offset;
+            anyParamModulation = true;
+        }
+    }
 }
 
 float IlanaSynthAudioProcessor::getArpStepRateHz() const
@@ -1495,13 +1821,15 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
                               + juce::String (juce::jlimit (0, 15, (int) (phase * 16.0)) + 1)).toRawUTF8());
 
         std::array<float, lfoDrawSteps> custom {};
+        std::array<float, LfoCurve::tableSize> curve {};
 
         {
             const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
             custom = lfoCustom[(size_t) lfoIndex];
+            curve = lfoCurveTables[(size_t) lfoIndex];
         }
 
-        return lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(), custom.data());
+        return lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(), custom.data(), curve.data());
     }
 
     switch (source)
@@ -1514,6 +1842,15 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         case Mod::Source::Aftertouch: return aftertouchDisplay.load();
         case Mod::Source::Expression: return expressionDisplay.load();
         case Mod::Source::ClockSh:    return clockShDisplay.load();
+        case Mod::Source::AmpEnv:     return envMonitorAmp.load();
+        case Mod::Source::FilterEnv:  return envMonitorFilter.load();
+        case Mod::Source::FilterEnv2: return envMonitorFilter2.load();
+        case Mod::Source::ModEnv:     return envMonitorMod.load();
+        case Mod::Source::Env4:       return envMonitorEnv4.load();
+        case Mod::Source::Velocity:   return monitorVelocity.load();
+        case Mod::Source::KeyTrack:   return monitorKeyTrack.load();
+        case Mod::Source::Random:     return monitorRandom.load();
+        case Mod::Source::Mseg:       return msegDisplay.load();
         default:                      return 0.0f;
     }
 }
@@ -1537,17 +1874,17 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
 {
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto prefix = "fx_slot" + juce::String (slot);
-        const auto type = (int) getParam (prefix.toRawUTF8());
+        const auto& ids = fxSlotIds[(size_t) (slot - 1)];
+        const auto type = (int) getParam (ids.type.toRawUTF8());
 
-        if (type == 0 || getParam ((prefix + "_bypass").toRawUTF8()) > 0.5f)
+        if (type == 0 || getParam (ids.bypass.toRawUTF8()) > 0.5f)
         {
             fxSlotCpu[(size_t) (slot - 1)].store (0.0f);
             continue;
         }
 
-        const auto solo = getParam ((prefix + "_solo").toRawUTF8()) > 0.5f;
-        const auto blend = getParam ((prefix + "_mix").toRawUTF8());
+        const auto solo = getParam (ids.solo.toRawUTF8()) > 0.5f;
+        const auto blend = getParam (ids.mix.toRawUTF8());
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
@@ -1625,6 +1962,7 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
         case 26: processOctaver (buffer); break;
         case 27: processVowel (buffer); break;
         case 28: processFeedback (buffer); break;
+        case 29: processEq (buffer); break;
         default: break;
     }
 }
@@ -1838,7 +2176,7 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
 
         if (tapsOn && tapPattern == 6)
             for (int step = 0; step < 16; ++step)
-                customTapGains[step] = getParam (("fx_taps_step" + juce::String (step + 1)).toRawUTF8());
+                customTapGains[step] = getParam (tapStepIds[(size_t) step].toRawUTF8());
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -2469,6 +2807,41 @@ void IlanaSynthAudioProcessor::processTilt (juce::AudioBuffer<float>& buffer)
     }
 }
 
+EqSettings IlanaSynthAudioProcessor::getEqSettings() const
+{
+    EqSettings settings;
+    settings.lowFreq = getParam ("fx_eq_low_freq");
+    settings.lowGain = getParam ("fx_eq_low_gain");
+    settings.midFreq = getParam ("fx_eq_mid_freq");
+    settings.midGain = getParam ("fx_eq_mid_gain");
+    settings.midQ = getParam ("fx_eq_mid_q");
+    settings.highFreq = getParam ("fx_eq_high_freq");
+    settings.highGain = getParam ("fx_eq_high_gain");
+    return settings;
+}
+
+void IlanaSynthAudioProcessor::processEq (juce::AudioBuffer<float>& buffer)
+{
+    Biquad::Coefficients coefficients[3];
+    getEqSettings().makeCoefficients (currentSampleRate, coefficients);
+
+    const auto channels = juce::jmin (2, buffer.getNumChannels());
+
+    for (int channel = 0; channel < channels; ++channel)
+    {
+        auto* data = buffer.getWritePointer (channel);
+
+        for (int band = 0; band < 3; ++band)
+        {
+            auto& filter = eqBands[channel][band];
+            filter.setCoefficients (coefficients[band]);
+
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                data[i] = filter.process (data[i]);
+        }
+    }
+}
+
 void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
@@ -3048,14 +3421,14 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     return true;
 }
 
-bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& file)
+bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& file, Wavetable::LoadMode mode)
 {
     if (slot < 0 || slot >= numUserSlots)
         return false;
 
     auto table = std::make_shared<Wavetable>();
 
-    if (! table->loadFromFile (file))
+    if (! table->loadFromFile (file, mode))
         return false;
 
     table->setName (file.getFileNameWithoutExtension());
@@ -3071,6 +3444,7 @@ bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& fi
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
         userTablePaths[(size_t) slot] = file.getFullPathName();
+        userTableModes[(size_t) slot] = (int) mode;
     }
 
     return true;
@@ -3138,14 +3512,54 @@ juce::StringArray IlanaSynthAudioProcessor::getAllPresetNames() const
     return names;
 }
 
+const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUserPresetMeta (const juce::File& file) const
+{
+    const auto key = file.getFullPathName();
+    const auto modified = file.getLastModificationTime().toMilliseconds();
+    auto& entry = userPresetMetaCache[key.toStdString()];
+
+    if (entry.modified != modified)
+    {
+        entry.modified = modified;
+        entry.category = "User";
+        entry.tags.clear();
+
+        // Only the root element's attributes are needed.
+        if (auto xml = juce::XmlDocument (file).getDocumentElementIfTagMatches (apvts.state.getType().toString()))
+        {
+            const auto category = xml->getStringAttribute ("presetCategory").trim();
+
+            if (category.isNotEmpty())
+                entry.category = category;
+
+            entry.tags = xml->getStringAttribute ("presetTags").trim();
+        }
+    }
+
+    return entry;
+}
+
 juce::StringArray IlanaSynthAudioProcessor::getAllPresetCategories() const
 {
     auto categories = getFactoryPresetCategories();
 
-    for (int i = 0; i < getUserPresetFiles().size(); ++i)
-        categories.add ("User");
+    for (const auto& file : getUserPresetFiles())
+        categories.add (getUserPresetMeta (file).category);
 
     return categories;
+}
+
+juce::StringArray IlanaSynthAudioProcessor::getAllPresetTags() const
+{
+    juce::StringArray tags;
+
+    for (int i = 0; i < getFactoryPresetCategories().size(); ++i)
+        tags.add ({});
+
+    for (const auto& file : getUserPresetFiles())
+        tags.add (getUserPresetMeta (file).tags);
+
+    return tags;
 }
 
 int IlanaSynthAudioProcessor::getNumAllPresets() const
@@ -3200,7 +3614,7 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
     std::array<bool, (size_t) numSampleOscs> clearSamples {};
     std::array<bool, (size_t) numUserSlots> clearTables {};
 
-    setOversampling (getParam ("oversampling") > 0.5f);
+    setOversampling (wantedOversamplingFactor());
 
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
@@ -3256,10 +3670,12 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
         for (int i = 0; i < numUserSlots; ++i)
         {
             juce::String path;
+            auto mode = 0;
 
             {
                 const juce::SpinLock::ScopedLockType lock (stateLock);
                 path = pendingUserTablePaths[(size_t) i];
+                mode = pendingUserTableModes[(size_t) i];
                 pendingUserTablePaths[(size_t) i].clear();
             }
 
@@ -3275,34 +3691,103 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
             const juce::File file (path);
 
             if (file.existsAsFile())
-                loadUserWavetable (i, file);
+                loadUserWavetable (i, file, (Wavetable::LoadMode) juce::jlimit (0, 2, mode));
         }
     }
 }
 
-bool IlanaSynthAudioProcessor::assignModSlot (int sourceIndex, Mod::Destination destination, float depth)
+int IlanaSynthAudioProcessor::assignModSlot (int sourceIndex, int destination, float depth)
 {
-    for (int i = 1; i <= Mod::maxSlots; ++i)
+    for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i);
+        const auto slot = readModSlot (i);
 
-        if ((int) getParam ((prefix + "_src").toRawUTF8()) != 0)
+        if (slot.source != Mod::Source::None || slot.destination != 0)
             continue;
 
-        const auto setValue = [this, &prefix] (const char* suffix, float value)
-        {
-            if (auto* parameter = apvts.getParameter (prefix + suffix))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-        };
-
-        setValue ("_src", (float) sourceIndex);
-        setValue ("_dst", (float) (int) destination);
-        setValue ("_amt", depth);
-
-        return true;
+        clearModSlot (i);
+        setModSlotValue (i, "src", (float) sourceIndex);
+        setModSlotValue (i, "dst", (float) destination);
+        setModSlotValue (i, "amt", depth);
+        return i;
     }
 
-    return false;
+    return -1;
+}
+
+void IlanaSynthAudioProcessor::applyDefaultMacros()
+{
+    using D = Mod::Destination;
+    using Targets = std::vector<std::pair<int, float>>;
+
+    const auto map = [this] (int macro, const char* name, const Targets& targets)
+    {
+        setMacroName (macro, name);
+
+        for (const auto& target : targets)
+            assignModSlot ((int) Mod::Source::Macro1 + macro, target.first, target.second);
+    };
+
+    const auto on = [this] (const char* id) { return getParam (id) > 0.5f; };
+
+    // 1: tone. Bright patches close down, dark ones open up.
+    map (0, "TONE", { { (int) D::Filter1Cutoff, getParam ("f1_cutoff") > 6000.0f ? -0.5f : 0.4f } });
+
+    // 2: timbre, from whatever the main oscillators are.
+    const auto osc1Mode = (int) getParam ("osc1_mode");
+    const auto osc2Wave = on ("osc2_on") && (int) getParam ("osc2_mode") == 0;
+
+    if (osc1Mode == 0)
+    {
+        Targets targets { { (int) D::Osc1Frame, 0.4f } };
+
+        if (osc2Wave)
+            targets.push_back ({ (int) D::Osc2Frame, 0.4f });
+
+        map (1, "MORPH", targets);
+    }
+    else if (osc1Mode == 1)
+    {
+        map (1, "DAMP", { { Mod::destinationForParamId ("osc1_string_damp"), 0.3f } });
+    }
+    else
+    {
+        map (1, "START", { { (int) D::Osc1SampleStart, 0.3f } });
+    }
+
+    // 3: drive into the filter.
+    map (2, "DRIVE", { { (int) D::Filter1Drive, 0.5f } });
+
+    // 4: space if the chain has reverb or delay, else width or swell.
+    auto hasReverb = false, hasDelay = false;
+
+    for (int slot = 1; slot <= numFxSlots; ++slot)
+    {
+        const auto type = (int) getParam (fxSlotIds[(size_t) slot - 1].type.toRawUTF8());
+        hasReverb = hasReverb || type == 13;
+        hasDelay = hasDelay || type == 9;
+    }
+
+    if (hasReverb || hasDelay)
+    {
+        Targets targets;
+
+        if (hasReverb)
+            targets.push_back ({ (int) D::FxReverbMix, 0.3f });
+
+        if (hasDelay)
+            targets.push_back ({ (int) D::FxDelayMix, 0.25f });
+
+        map (3, "SPACE", targets);
+    }
+    else if (getParam ("osc1_unison") > 1.5f)
+    {
+        map (3, "WIDTH", { { (int) D::Osc1Detune, 0.3f }, { (int) D::Osc1Spread, 0.4f } });
+    }
+    else
+    {
+        map (3, "SWELL", { { (int) D::AmpAttack, 0.3f } });
+    }
 }
 
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
@@ -3313,6 +3798,20 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         return;
 
     setCurrentPresetName (presets[(size_t) index].name);
+    setPresetMeta (getFactoryPresetCategories()[index], {});
+
+    for (int macro = 0; macro < 4; ++macro)
+    {
+        const auto& names = presets[(size_t) index].macroNames;
+        setMacroName (macro, macro < (int) names.size() ? juce::String (names[(size_t) macro]) : juce::String());
+    }
+
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        const auto& curves = presets[(size_t) index].lfoCurves;
+        const auto* text = lfo < (int) curves.size() ? curves[(size_t) lfo] : nullptr;
+        setLfoCurve (lfo, text != nullptr ? LfoCurve::fromString (text) : LfoCurve::preset (0));
+    }
 
     for (auto* parameter : getParameters())
     {
@@ -3396,6 +3895,9 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             }
         }
     }
+
+    if (index > 0 && presets[(size_t) index].macroNames.empty())
+        applyDefaultMacros();
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)
@@ -3438,6 +3940,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         }
 
         state.setProperty ("lfo" + juce::String (lfo + 1) + "Draw", values.joinIntoString (","), nullptr);
+        state.setProperty ("lfo" + juce::String (lfo + 1) + "Curve", getLfoCurve (lfo).toString(), nullptr);
     }
 
     for (int macro = 0; macro < 4; ++macro)
@@ -3452,7 +3955,10 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
         for (int i = 0; i < numUserSlots; ++i)
             if (userTablePaths[(size_t) i].isNotEmpty())
+            {
                 state.setProperty ("userTablePath" + juce::String (i + 1), userTablePaths[(size_t) i], nullptr);
+                state.setProperty ("userTableMode" + juce::String (i + 1), userTableModes[(size_t) i], nullptr);
+            }
     }
 
     return state;
@@ -3475,6 +3981,9 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& state)
 
         if (text.isNotEmpty())
             parseDraw (lfo, text);
+
+        const auto curveText = state.getProperty ("lfo" + juce::String (lfo + 1) + "Curve").toString();
+        setLfoCurve (lfo, curveText.isNotEmpty() ? LfoCurve::fromString (curveText) : LfoCurve::preset (0));
     }
 
     for (int macro = 0; macro < 4; ++macro)
@@ -3512,10 +4021,12 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& state)
         for (int i = 0; i < numUserSlots; ++i)
         {
             const auto path = state.getProperty ("userTablePath" + juce::String (i + 1)).toString();
+            const auto mode = (int) state.getProperty ("userTableMode" + juce::String (i + 1), 0);
 
-            if (path.isNotEmpty() && path != userTablePaths[(size_t) i])
+            if (path.isNotEmpty() && (path != userTablePaths[(size_t) i] || mode != userTableModes[(size_t) i]))
             {
                 pendingUserTablePaths[(size_t) i] = path;
+                pendingUserTableModes[(size_t) i] = mode;
                 pendingUserTableClear[(size_t) i] = false;
                 userTablesReloadPending = true;
                 asyncNeeded = true;
@@ -3586,7 +4097,7 @@ void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
 void IlanaSynthAudioProcessor::randomizeFxChain()
 {
     juce::Random random;
-    constexpr int typeCount = 28;
+    constexpr int typeCount = numFxTypes;
 
     const auto set = [this] (const juce::String& id, float value)
     {

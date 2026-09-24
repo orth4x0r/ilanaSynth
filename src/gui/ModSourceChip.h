@@ -15,7 +15,7 @@ public:
         : name (sourceName),
           index (sourceIndex)
     {
-        setTooltip ("Drag onto any knob to create a modulation");
+        setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover.");
         startTimerHz (30);
     }
 
@@ -39,6 +39,14 @@ public:
         g.drawText (name, getLocalBounds(), juce::Justification::centred);
     }
 
+    void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = index; }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (highlightedModSource() == index)
+            highlightedModSource() = 0;
+    }
+
     void mouseDrag (const juce::MouseEvent&) override
     {
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
@@ -56,7 +64,12 @@ public:
 private:
     void timerCallback() override
     {
-        hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f);
+        const auto target = isMouseOver() ? 1.0f : 0.0f;
+
+        if (std::abs (hover - target) < 0.005f)
+            return;
+
+        hover = IlanaAnim::approach (hover, target, 0.22f);
         repaint();
     }
 

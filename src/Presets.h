@@ -16,9 +16,12 @@ struct FactoryPreset
 {
     const char* name;
     std::vector<Value> values;
+    std::vector<const char*> macroNames {};
+    std::vector<const char*> lfoCurves {}; // LfoCurve strings for LFO 1..4 (for the Curve shape)
+    const char* category = nullptr;        // the original 80 use getLegacyCategories() instead
 };
 
-inline const std::vector<FactoryPreset>& getFactoryPresets()
+inline const std::vector<FactoryPreset>& getLegacyPresets()
 {
     static const std::vector<FactoryPreset> presets
     {
@@ -947,7 +950,7 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
     return presets;
 }
 
-inline juce::StringArray getFactoryPresetCategories()
+inline juce::StringArray getLegacyCategories()
 {
     return { "Init", "Bass", "Lead", "Lead", "Lead", "Bass", "Pluck", "Bass", "Lead", "Pad", "Pluck", "Drone", "Bass", "Bass",
              "Lead", "Pluck", "Pluck", "Pad", "Drone",
@@ -958,5 +961,38 @@ inline juce::StringArray getFactoryPresetCategories()
              "Pluck", "Pad", "Bass", "Drone", "Lead", "Lead", "FX", "Pad", "Lead", "Pad", "Pluck", "Pluck",
              "Drone", "Bass", "Pad", "Bass", "Lead", "Drone", "Pluck", "Pluck",
              "Pad", "Pluck", "Bass", "Pluck", "Pluck", "Bass", "FX", "Drone" };
+}
+} // namespace Presets
+
+#include "PresetLibrary.h"
+
+namespace Presets
+{
+// The original 80 presets first (their indices are host program numbers),
+// then the v1.0 library.
+inline const std::vector<FactoryPreset>& getFactoryPresets()
+{
+    static const std::vector<FactoryPreset> presets = []
+    {
+        auto list = getLegacyPresets();
+
+        for (auto& preset : Library::build())
+            list.push_back (preset);
+
+        return list;
+    }();
+
+    return presets;
+}
+
+inline juce::StringArray getFactoryPresetCategories()
+{
+    auto categories = getLegacyCategories();
+    const auto& presets = getFactoryPresets();
+
+    for (auto i = (size_t) categories.size(); i < presets.size(); ++i)
+        categories.add (presets[i].category != nullptr ? presets[i].category : "Other");
+
+    return categories;
 }
 } // namespace Presets

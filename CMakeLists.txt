@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ilanaSynth VERSION 0.9.0 LANGUAGES CXX)
+project(ilanaSynth VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -125,6 +125,38 @@ target_compile_definitions(ilanaSnapshot PRIVATE
 target_link_libraries(ilanaSnapshot
     PRIVATE
         ilanaFonts
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)
+
+add_test(NAME ui_tests COMMAND ilanaSnapshot --uitest)
+
+# Dev tool: per-preset render fingerprints for regression checks (not shipped).
+juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
+
+target_sources(ilanaFingerprint PRIVATE
+    tools/PresetFingerprint.cpp
+    src/PluginProcessor.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+)
+
+target_include_directories(ilanaFingerprint PRIVATE src)
+
+target_compile_definitions(ilanaFingerprint PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_TEST_BUILD=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaFingerprint
+    PRIVATE
         juce::juce_dsp
         juce::juce_audio_formats
         juce::juce_audio_processors

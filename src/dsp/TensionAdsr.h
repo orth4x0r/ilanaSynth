@@ -42,6 +42,16 @@ public:
         stage = Stage::Attack;
         position = 0.0;
         currentValue = 0.0f;
+        attackStart = 0.0f;
+    }
+
+    // Mono retrigger: restart the attack from wherever the envelope is now,
+    // so a new note doesn't click by snapping to zero first.
+    void retrigger()
+    {
+        attackStart = stage == Stage::Idle ? 0.0f : currentValue;
+        stage = Stage::Attack;
+        position = 0.0;
     }
 
     void noteOff()
@@ -75,7 +85,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = (float) std::pow (progress, exponent);
+                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress);
                 }
 
                 break;
@@ -95,7 +105,7 @@ public:
                 {
                     const auto progress = position / length;
                     currentValue = params.sustain
-                                   + (1.0f - params.sustain) * (float) std::pow (1.0 - progress, exponent);
+                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress);
                 }
 
                 break;
@@ -118,7 +128,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = releaseStart * (float) std::pow (1.0 - progress, exponent);
+                    currentValue = releaseStart * (float) shaped (1.0 - progress);
                 }
 
                 break;
@@ -134,6 +144,9 @@ public:
     }
 
 private:
+    // pow() is exact for an exponent of 1, so zero tension skips the call.
+    double shaped (double progress) const { return exponent == 1.0 ? progress : std::pow (progress, exponent); }
+
     enum class Stage
     {
         Idle,
@@ -150,4 +163,5 @@ private:
     double exponent = 1.0;
     float currentValue = 0.0f;
     float releaseStart = 0.0f;
+    float attackStart = 0.0f;
 };

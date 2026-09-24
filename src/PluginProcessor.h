@@ -6,10 +6,14 @@
 
 #include <array>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
+#include "dsp/Biquad.h"
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
+#include "dsp/IlanaSynth.h"
+#include "dsp/LfoCurve.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -23,7 +27,12 @@ class IlanaSynthAudioProcessor : public juce::AudioProcessor,
 public:
     static constexpr int numUserSlots = 4;
     static constexpr int numFxSlots = 10;
+    static constexpr int numFxTypes = 29;
+
+    EqSettings getEqSettings() const;
     static constexpr int numLfos = 4;
+    static constexpr int maxDestinations = 256;
+
     float getFxMod (Mod::Destination destination, float depth) const
     {
         return modDisplayValues[(size_t) destination].load() * depth;
@@ -70,10 +79,18 @@ public:
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
 
-    float getModDisplay (Mod::Destination destination) const
+    // Synth-wide modulation of a destination this block (loudest voice for
+    // per-voice sources), for knob rings and the effects.
+    float getModDisplay (int destination) const
     {
-        return modDisplayValues[(size_t) destination].load();
+        return juce::isPositiveAndBelow (destination, maxDestinations) ? modDisplayValues[(size_t) destination].load() : 0.0f;
     }
+
+    float getModDisplay (Mod::Destination destination) const { return getModDisplay ((int) destination); }
+
+    // Reads one mod slot's settings from the parameters (message thread).
+    Mod::Slot readModSlot (int slotIndex) const;
+    int getNumUsedModSlots() const;
 
     float getLfoPhase (int index) const
     {
@@ -93,8 +110,11 @@ public:
     double getCurrentBpm() const { return currentBpm.load(); }
     float getArpStepRateHz() const;
     float getSourceDisplayValue (int sourceIndex) const;
-    void setOversampling (bool shouldOversample);
-    bool isOversampling() const { return oversamplingActive.load(); }
+    // 1 (off), 2 or 4. Switching reprepares the voices, so it happens on
+    // the message thread (the audio thread asks for it asynchronously).
+    void setOversampling (int factor);
+    bool isOversampling() const { return oversamplingFactor.load() > 1; }
+    int getOversamplingFactor() const { return oversamplingFactor.load(); }
     double getCurrentSampleRate() const { return displaySampleRate.load(); }
 
     juce::UndoManager& getUndoManager() { return undoManager; }
@@ -104,8 +124,26 @@ public:
     juce::Array<juce::File> getUserPresetFiles() const;
     juce::StringArray getAllPresetNames() const;
     juce::StringArray getAllPresetCategories() const;
+    juce::StringArray getAllPresetTags() const;
+    bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
     void loadPresetByIndex (int index);
+
+    // Category and tags travel with the patch (state tree) and are read back
+    // from user preset files for the browser. Message thread only.
+    static juce::StringArray getPresetCategoryChoices()
+    {
+        return { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
+    }
+
+    void setPresetMeta (const juce::String& category, const juce::String& tags)
+    {
+        apvts.state.setProperty ("presetCategory", category, nullptr);
+        apvts.state.setProperty ("presetTags", tags, nullptr);
+    }
+
+    juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
+    juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
@@ -115,8 +153,30 @@ public:
     juce::String getCurrentPresetName() const { return apvts.state.getProperty ("presetName").toString(); }
     void setCurrentPresetName (const juce::String& name) { apvts.state.setProperty ("presetName", name, nullptr); }
 
-    bool assignModSlot (int sourceIndex, Mod::Destination destination, float depth);
-    bool clearModSlotsForTarget (Mod::Destination destination);
+    // Macro names travel with the patch (state tree), so presets and host
+    // sessions keep them. Message thread only.
+    juce::String getMacroName (int macroIndex) const
+    {
+        const auto name = apvts.state.getProperty ("macroName" + juce::String (macroIndex + 1)).toString();
+        return name.isNotEmpty() ? name : "Macro " + juce::String (macroIndex + 1);
+    }
+
+    void setMacroName (int macroIndex, const juce::String& name)
+    {
+        apvts.state.setProperty ("macroName" + juce::String (macroIndex + 1), name, nullptr);
+    }
+
+    // Routes a source to a destination in the first free slot; returns the
+    // slot index or -1 when all slots are taken.
+    int assignModSlot (int sourceIndex, int destination, float depth);
+
+    // Gives a patch without macro mappings a sensible set (tone, timbre,
+    // drive, space), chosen from what the patch uses. Silent at macro 0.
+    void applyDefaultMacros();
+    bool clearModSlotsForTarget (int destination);
+    void clearModSlot (int slotIndex);
+    void setModSlotValue (int slotIndex, const juce::String& field, float value);
+    juce::String getModSlotParamId (int slotIndex, const juce::String& field) const;
 
     static constexpr int scopeSize = 4096;
     void copyScopeData (float* left, float* right, int numSamples) const;
@@ -125,10 +185,29 @@ public:
     void setLfoCustomPoint (int lfoIndex, int step, float value);
     float getLfoCustomPoint (int lfoIndex, int step) const;
 
+    // The drawable "Curve" LFO shape (message thread).
+    static constexpr int curveShape = 8;
+    LfoCurve getLfoCurve (int lfoIndex) const;
+    void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+    float getLfoCurveValue (int lfoIndex, double phase) const;
+
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
     void panic() { synth.allNotesOff (0, false); }
     float getCpuUsage() const { return cpuUsage.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
+
+    // LFO phase of every sounding voice (for tests and diagnostics).
+    std::vector<float> getVoiceLfoPhasesForTest (int lfo)
+    {
+        std::vector<float> phases;
+
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
+                if (voice->isVoiceActive())
+                    phases.push_back (voice->getLfoPhase (lfo));
+
+        return phases;
+    }
     void startMacroLearn (int macroIndex);
     void cancelMacroLearn();
     int getMacroLearnTarget() const { return macroLearn.load(); }
@@ -140,7 +219,8 @@ public:
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
 
-    bool loadUserWavetable (int slot, const juce::File& file);
+    bool loadUserWavetable (int slot, const juce::File& file,
+                            Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
     bool loadUserSample (int oscIndex, const juce::File& file);
     const SampleData* getSampleForOsc (int oscIndex) const;
     void flushAsyncUpdates();
@@ -184,6 +264,7 @@ private:
     void processOctaver (juce::AudioBuffer<float>& buffer);
     void processVowel (juce::AudioBuffer<float>& buffer);
     void processFeedback (juce::AudioBuffer<float>& buffer);
+    void processEq (juce::AudioBuffer<float>& buffer);
     void processSlot (int type, juce::AudioBuffer<float>& buffer);
     juce::String captureFxChain();
     juce::ValueTree buildFullState();
@@ -192,7 +273,7 @@ private:
     void processArpeggiator (juce::MidiBuffer& midiMessages, int numSamples, juce::MidiBuffer& output);
     int selectArpNote (int mode, int octaves);
 
-    juce::Synthesiser synth;
+    IlanaSynth synth;
 
     juce::MidiBuffer midiForSynth;
     juce::Array<int> arpHeldNotes;
@@ -224,6 +305,28 @@ private:
     mutable juce::SpinLock tableLock;
 
     std::array<std::array<juce::String, 5>, 3> stringParamIds;
+
+    // Parameter IDs built once, so the audio thread never allocates strings.
+    struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };
+    struct ModSlotRaw
+    {
+        std::atomic<float>* src = nullptr;
+        std::atomic<float>* dst = nullptr;
+        std::atomic<float>* amt = nullptr;
+        std::atomic<float>* curve = nullptr;
+        std::atomic<float>* polarity = nullptr;
+        std::atomic<float>* aux = nullptr;
+        std::atomic<float>* bypass = nullptr;
+    };
+    std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
+    std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
+    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase; std::array<juce::String, 16> steps; };
+    struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
+    std::array<OscShapeIds, 3> oscShapeIds;
+    std::array<LfoIds, (size_t) numLfos> lfoIds;
+    struct FxSlotIds { juce::String type, bypass, solo, mix; };
+    std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
+    std::array<juce::String, 16> tapStepIds;
     std::array<std::array<juce::String, 7>, 3> sampleParamIds;
 
     static constexpr int numSampleOscs = 3;
@@ -239,6 +342,17 @@ private:
     bool samplesReloadPending = false;
     std::array<juce::String, (size_t) numUserSlots> userTablePaths;
     std::array<juce::String, (size_t) numUserSlots> pendingUserTablePaths;
+    std::array<int, (size_t) numUserSlots> userTableModes {};
+
+    struct UserPresetMeta
+    {
+        juce::int64 modified = -1;
+        juce::String category, tags;
+    };
+
+    const UserPresetMeta& getUserPresetMeta (const juce::File& file) const;
+    mutable std::unordered_map<std::string, UserPresetMeta> userPresetMetaCache;
+    std::array<int, (size_t) numUserSlots> pendingUserTableModes {};
     std::array<bool, (size_t) numUserSlots> pendingUserTableClear {};
     bool userTablesReloadPending = false;
 
@@ -254,6 +368,7 @@ private:
     std::atomic<float> aftertouchDisplay { 0.0f };
     std::atomic<float> expressionDisplay { 1.0f };
     std::atomic<float> clockShDisplay { 0.0f };
+    std::atomic<float> msegDisplay { 0.0f };
 
     double currentSampleRate = 44100.0;
     double baseSampleRate = 44100.0;
@@ -261,7 +376,28 @@ private:
     std::atomic<double> currentBpm { 120.0 };
     std::atomic<double> displaySampleRate { 44100.0 };
 
-    std::array<std::atomic<float>, (size_t) Mod::Destination::Count> modDisplayValues {};
+    std::array<std::atomic<float>, (size_t) maxDestinations> modDisplayValues {};
+
+    // Modulation of plain parameters (effects, master...): offsets in the
+    // parameter's normalised range, applied inside getParam().
+    struct ParamDestination
+    {
+        std::atomic<float>* raw = nullptr;
+        juce::RangedAudioParameter* parameter = nullptr;
+    };
+    std::vector<ParamDestination> paramDestinations;
+    std::unordered_map<const std::atomic<float>*, int> rawToParamDestination;
+    std::array<float, (size_t) maxDestinations> paramDestinationOffsets {};
+    bool anyParamModulation = false;
+
+    // The last note played and the loudest voice's per-voice sources, for
+    // modulation that has to be synth-wide.
+    std::atomic<float> monitorVelocity { 0.0f };
+    std::atomic<float> monitorKeyTrack { 0.0f };
+    std::atomic<float> monitorRandom { 0.0f };
+    float lfoStepValues[numLfos][16] {};
+    float globalSourceValue (Mod::Source source) const;
+    void evaluateGlobalModulation (const Mod::Slot* slots, int numSlots);
     std::array<std::atomic<float>, (size_t) numLfos> lfoPhaseDisplays {};
     std::atomic<float> displayPhase { 0.0f };
     std::atomic<float> displayFrequency { 0.0f };
@@ -274,6 +410,9 @@ private:
 
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> lfoCustom {};
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> activeLfoCustom {};
+    std::array<LfoCurve, (size_t) numLfos> lfoCurves;
+    std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> lfoCurveTables {};
+    std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> activeLfoCurveTables {};
     mutable juce::SpinLock lfoShapeLock;
 
     std::atomic<int> previewNoteOn { -1 };
@@ -296,9 +435,13 @@ private:
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
     juce::dsp::Convolution convolution;
-    juce::dsp::Oversampling<float> oversampler { 2, 1,
+    juce::dsp::Oversampling<float> oversampler2x { 2, 1,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
-    std::atomic<bool> oversamplingActive { false };
+    juce::dsp::Oversampling<float> oversampler4x { 2, 2,
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
+    std::atomic<int> oversamplingFactor { 1 };
+    int wantedOversamplingFactor() const;
+    juce::dsp::Oversampling<float>& activeOversampler() { return oversamplingFactor.load() == 4 ? oversampler4x : oversampler2x; }
     juce::MidiBuffer scaledMidiBuffer;
     std::atomic<bool> reverbIrLoaded { false };
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 96000 };
@@ -355,6 +498,7 @@ private:
     float gatedReverbEnvelope = 0.0f;
     float duckEnvelope = 0.0f;
     GranularPitchShift octaverShift[2];
+    Biquad eqBands[2][3];
     Svf vowelFilters[2][3];
     juce::AudioBuffer<float> fxScratch;
     juce::AudioBuffer<float> reverbScratch;

@@ -10,6 +10,7 @@
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
+#include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/LfoThumbs.h"
@@ -203,7 +204,7 @@ int runUiTests()
         expect (ottAmount != nullptr && ottAmount->isInterestedInDragSource (details), "OTT amount accepts modulation");
     }
 
-    // MAIN's LFO cards jump to the LFO on the ENV/LFO tab.
+    // MAIN's cards: select in place, open the full page on request.
     tabs->setCurrentTabIndex (tabIndex ("MAIN"));
     settle (300);
 
@@ -228,9 +229,52 @@ int runUiTests()
             settle (50);
             expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
 
+            // A click selects the LFO right on MAIN; the card's open button
+            // jumps to the full page with that LFO.
             thumbs->onSelect (2);
             settle (100);
-            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "clicking an LFO card opens ENV/LFO");
+
+            std::vector<CardTabs*> cardTabs;
+            findAll<CardTabs> (*page, cardTabs);
+            CardTabs* lfoTabs = nullptr;
+
+            for (auto* candidate : cardTabs)
+                if (candidate->getSelected() == 2)
+                    lfoTabs = candidate;
+
+            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN" && lfoTabs != nullptr,
+                    "clicking an LFO card selects it on MAIN");
+
+            if (lfoTabs != nullptr && lfoTabs->onOpen != nullptr)
+            {
+                lfoTabs->onOpen();
+                settle (100);
+                expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "the LFO card's open button goes to ENV/LFO");
+            }
+
+            // The envelope tabs swap MAIN's envelope controls (AMP -> MOD).
+            tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+            settle (100);
+
+            for (auto* candidate : cardTabs)
+            {
+                std::vector<KnobControl*> before;
+                candidate->setSelected (3, true);
+                settle (50);
+                findAll<KnobControl> (*page, before);
+                auto modVisible = false;
+
+                for (auto* knob : before)
+                    modVisible = modVisible || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
+
+                if (modVisible)
+                {
+                    expect (true, "MAIN's envelope tabs show the MOD envelope");
+                    break;
+                }
+
+                candidate->setSelected (0, true);
+            }
         }
         else
         {

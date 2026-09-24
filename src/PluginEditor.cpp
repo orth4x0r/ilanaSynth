@@ -19,6 +19,7 @@
 #include "gui/EqCurve.h"
 #include "gui/FilterDisplay.h"
 #include "gui/LfoDisplay.h"
+#include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
 #include "gui/LfoThumbs.h"
@@ -1045,6 +1046,13 @@ public:
         updateVisibility();
     }
 
+    void select (int index)
+    {
+        selected = juce::jlimit (0, (int) units.size() - 1, index);
+        settings.setValue ("envSelected", selected);
+        updateVisibility();
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();
@@ -1053,10 +1061,35 @@ public:
         area.removeFromTop (8);
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
-        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (470).reduced (2));
+        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        area.removeFromLeft (8);
 
-        auto knobRow = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 130));
-        layoutFixed (knobRow, units[(size_t) unitIndex].knobs);
+        // Same panel shape as the LFOs: heading, then the stage knobs.
+        panel = area;
+        auto inner = panel.reduced (10, 6);
+        inner.removeFromTop (20);
+        layoutFixed (inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), 140)),
+                     units[(size_t) unitIndex].knobs);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (panel.isEmpty())
+            return;
+
+        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+                                       juce::Colour (0xff8fff3b), juce::Colour (0xffffd447) };
+        const juce::StringArray titles { "AMP ENVELOPE", "FILTER 1 ENVELOPE", "FILTER 2 ENVELOPE", "MOD ENVELOPE", "ENVELOPE 4" };
+        const auto index = juce::jlimit (0, 4, selected);
+
+        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colours[index].withAlpha (0.35f));
+        auto header = panel.reduced (12, 0).withHeight (26);
+        g.setColour (colours[index]);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        g.drawText (titles[index], header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("drag the graph or the knobs", header, juce::Justification::centredRight);
     }
 
 private:
@@ -1097,6 +1130,7 @@ private:
     }
 
     juce::PropertiesFile& settings;
+    juce::Rectangle<int> panel;
     EnvThumbBar thumbs;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
@@ -1151,11 +1185,48 @@ public:
         area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (470).reduced (2));
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        area.removeFromLeft (8);
 
-        auto knobRow = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 130));
+        // Control panel: options across the top, knobs underneath.
+        panel = area;
+        auto inner = panel.reduced (10, 6);
+        inner.removeFromTop (20);
         auto& c = *controlsList[(size_t) displayIndex];
-        layoutRow (knobRow, { &c.shape, &c.rate, &c.sync, &c.div, &c.retrig, &c.phase });
+
+        // Options stacked on the left, the two knobs full height on the right.
+        auto options = inner.removeFromLeft (inner.getWidth() / 2);
+        const auto rowHeight = options.getHeight() / 3;
+        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
+        auto toggles = options.removeFromTop (rowHeight);
+        c.sync.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
+        c.retrig.setBounds (toggles.reduced (3, 1));
+        c.div.setBounds (options.reduced (3, 1));
+
+        inner.removeFromLeft (8);
+        c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
+        c.phase.setBounds (inner.reduced (3, 0));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (panel.isEmpty())
+            return;
+
+        const auto colour = lfoColour (selected);
+        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
+
+        auto header = panel.reduced (12, 0).withHeight (26);
+        g.setColour (colour);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        g.drawText ("LFO " + juce::String (selected + 1), header, juce::Justification::centredLeft);
+
+        const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText (retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
+                                                               : "free-running, shared by all voices",
+                    header, juce::Justification::centredRight);
     }
 
     static juce::Colour lfoColour (int index)
@@ -1235,10 +1306,13 @@ private:
 
         if (c.div.getAlpha() != divAlpha)
             c.div.setAlpha (divAlpha);
+
+        repaint (panel);
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
+    juce::Rectangle<int> panel;
     LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
@@ -1257,6 +1331,7 @@ public:
     }
 
     void selectLfo (int index) { lfoSection.select (index); }
+    void selectEnvelope (int index) { envSection.select (index); }
 
     void paint (juce::Graphics& g) override
     {
@@ -1545,7 +1620,8 @@ private:
 // The overview: everything needed to shape a basic sound on one screen
 // (oscillators, filter 1, amp envelope, LFOs). The other tabs hold the
 // detail.
-class MainPage : public juce::Component
+class MainPage : public juce::Component,
+                 private juce::Timer
 {
 public:
     explicit MainPage (IlanaSynthAudioProcessor& p)
@@ -1557,8 +1633,11 @@ public:
           wave3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", true, "sub_shape", "sub_mode", 2,
                  juce::Colour (0xffffd447)),
           filterDisplay (p),
-          ampDisplay (p, "amp", IlanaTheme::accent(), true),
-          lfoThumbs (p, [] (int index) { return lfoColour (index); })
+          lfoThumbs (p, [] (int index) { return lfoColour (index); }),
+          filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
+          envTabs ({ "AMP", "FLT 1", "FLT 2", "MOD", "ENV 4" },
+                   { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
+          lfoTabs ({}, {}, true)
     {
         const char* const prefixes[] { "osc1", "osc2", "sub" };
         const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447) };
@@ -1592,36 +1671,86 @@ public:
         addAndMakeVisible (wave2);
         addAndMakeVisible (wave3);
 
-        const auto filterColour = juce::Colour (0xffff4fd8);
-        filterType = std::make_unique<ComboControl> (p.apvts, "f1_type", "FILTER 1");
-        filterSlope = std::make_unique<ComboControl> (p.apvts, "f1_slope", "SLOPE");
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_cutoff", "CUTOFF", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_reso", "RESO", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_drive", "DRIVE", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_env", "ENV AMT", filterColour, false));
-        addAll (*this, filterDisplay, *filterType, *filterSlope);
+        // Filters: one set of controls per filter, swapped by the F1/F2 tabs.
+        addAndMakeVisible (filterDisplay);
 
-        for (auto& knob : filterKnobs)
-            addAndMakeVisible (*knob);
-
-        for (const auto& spec : { std::pair<const char*, const char*> { "amp_attack", "ATTACK" }, { "amp_decay", "DECAY" },
-                                  { "amp_sustain", "SUSTAIN" }, { "amp_release", "RELEASE" } })
-            envKnobs.push_back (std::make_unique<KnobControl> (p.apvts, spec.first, spec.second));
-
-        addAndMakeVisible (ampDisplay);
-
-        for (auto& knob : envKnobs)
-            addAndMakeVisible (*knob);
-
-        lfoThumbs.onSelect = [this] (int index)
+        for (int f = 0; f < 2; ++f)
         {
-            if (onEditLfo != nullptr)
-                onEditLfo (index);
-        };
+            const juce::String prefix (f == 0 ? "f1" : "f2");
+            auto set = std::make_unique<ControlSet>();
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_type", "TYPE"));
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_slope", "SLOPE"));
+
+            for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" },
+                                      { "_drive", "DRIVE" }, { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" } })
+                set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, filterColour (f), false));
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            filterSets.push_back (std::move (set));
+        }
+
+        // Envelopes: graph plus ADSR per envelope, swapped by the tabs.
+        const char* const envPrefixes[] { "amp", "fe", "f2e", "me", "e4" };
+
+        for (int e = 0; e < 5; ++e)
+        {
+            const juce::String prefix (envPrefixes[e]);
+            auto set = std::make_unique<ControlSet>();
+            set->display = std::make_unique<EnvelopeDisplay> (p, prefix, envColour (e), e == 0);
+
+            for (const auto& spec : { std::pair<const char*, const char*> { "_attack", "ATTACK" }, { "_decay", "DECAY" },
+                                      { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" } })
+                set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, envColour (e), e == 0));
+
+            addChildComponent (*set->display);
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            envSets.push_back (std::move (set));
+        }
+
+        // LFOs: the cards plus the selected LFO's main controls.
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+        {
+            const auto prefix = "lfo" + juce::String (lfo + 1);
+            auto set = std::make_unique<ControlSet>();
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
+            set->items.push_back (std::make_unique<StripKnob> (p, prefix + "_rate", "Rate", -1, lfoColour (lfo), lfo == 0));
+            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV"));
+            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            lfoSets.push_back (std::move (set));
+        }
+
+        lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
         addAndMakeVisible (lfoThumbs);
+
+        filterTabs.onSelect = [this] (int) { updateVisibility(); };
+        envTabs.onSelect = [this] (int) { updateVisibility(); };
+        lfoTabs.onSelect = [this] (int index)
+        {
+            lfoThumbs.setSelected (index);
+            updateVisibility();
+        };
+
+        filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
+        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (envTabs.getSelected()); };
+        lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
+
+        addAll (*this, filterTabs, envTabs, lfoTabs);
+        updateVisibility();
+        startTimerHz (8);
     }
 
-    std::function<void (int)> onEditLfo;
+    std::function<void (int)> onEditLfo, onEditEnvelope;
+    std::function<void (const juce::String&)> onOpenPage;
 
     static juce::Colour lfoColour (int index)
     {
@@ -1630,6 +1759,20 @@ public:
             case 1: return juce::Colour (0xff35c8ff);
             case 2: return juce::Colour (0xff6fe3c1);
             case 3: return juce::Colour (0xffe3a56f);
+            default: return IlanaTheme::accent();
+        }
+    }
+
+    static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffff4fd8) : juce::Colour (0xffb28aff); }
+
+    static juce::Colour envColour (int index)
+    {
+        switch (index)
+        {
+            case 1: return juce::Colour (0xffff4fd8);
+            case 2: return juce::Colour (0xffb28aff);
+            case 3: return juce::Colour (0xff8fff3b);
+            case 4: return juce::Colour (0xffffd447);
             default: return IlanaTheme::accent();
         }
     }
@@ -1643,14 +1786,9 @@ public:
         for (int osc = 0; osc < 3; ++osc)
             paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), oscColours[osc]);
 
-        paintCard (g, filterCard, "FILTER", juce::Colour (0xffff4fd8));
-        paintCard (g, envCard, "AMP ENVELOPE", IlanaTheme::accent());
-        paintCard (g, lfoCard, "LFOS", juce::Colour (0xff35c8ff));
-
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (11.0f));
-        g.drawText ("Click a card to edit it, drag it onto a knob to modulate",
-                    lfoCard.withTrimmedLeft (60).withHeight (26).reduced (10, 0), juce::Justification::centredRight);
+        paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
+        paintCard (g, envCard, "ENVELOPE", envColour (envTabs.getSelected()));
+        paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
     }
 
     void resized() override
@@ -1669,32 +1807,66 @@ public:
             layoutStrip (osc, oscCards[(size_t) osc]);
         }
 
-        const auto lfoHeight = 96;
+        const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
         const auto remaining = right.getHeight() - lfoHeight - 16;
-        filterCard = right.removeFromTop ((int) ((float) remaining * 0.54f));
+        filterCard = right.removeFromTop ((int) ((float) remaining * 0.53f));
         right.removeFromTop (8);
         envCard = right.removeFromTop (remaining - filterCard.getHeight());
         right.removeFromTop (8);
         lfoCard = right;
 
+        const auto placeTabs = [] (CardTabs& tabs, juce::Rectangle<int> card)
+        {
+            auto header = card.reduced (8, 0).withHeight (26).reduced (0, 5);
+            tabs.setBounds (header.removeFromRight (tabs.getIdealWidth()));
+        };
+
+        placeTabs (filterTabs, filterCard);
+        placeTabs (envTabs, envCard);
+        placeTabs (lfoTabs, lfoCard);
+
         {
             auto inner = filterCard.reduced (10).withTrimmedTop (18);
-            filterDisplay.setBounds (inner.removeFromTop (juce::jmax (60, inner.getHeight() - 96)));
+            filterDisplay.setBounds (inner.removeFromTop (juce::jmax (50, inner.getHeight() - 96)));
             inner.removeFromTop (4);
-            auto combos = inner.removeFromLeft (112);
-            filterType->setBounds (combos.removeFromTop (42));
-            filterSlope->setBounds (combos.removeFromTop (42));
-            layoutRow (inner, { filterKnobs[0].get(), filterKnobs[1].get(), filterKnobs[2].get(), filterKnobs[3].get() });
+
+            for (auto& set : filterSets)
+            {
+                auto row = inner;
+                auto combos = row.removeFromLeft (104);
+                set->items[0]->setBounds (combos.removeFromTop (combos.getHeight() / 2).reduced (0, 1));
+                set->items[1]->setBounds (combos.reduced (0, 1));
+                layoutRow (row, { set->items[2].get(), set->items[3].get(), set->items[4].get(), set->items[5].get(), set->items[6].get() });
+            }
         }
 
         {
             auto inner = envCard.reduced (10).withTrimmedTop (18);
-            ampDisplay.setBounds (inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2)));
+            auto displayArea = inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2));
             inner.removeFromLeft (6);
-            layoutRow (inner, { envKnobs[0].get(), envKnobs[1].get(), envKnobs[2].get(), envKnobs[3].get() });
+
+            for (auto& set : envSets)
+            {
+                set->display->setBounds (displayArea);
+                layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(), set->items[3].get() });
+            }
         }
 
-        lfoThumbs.setBounds (lfoCard.reduced (10).withTrimmedTop (18));
+        {
+            auto inner = lfoCard.reduced (10).withTrimmedTop (18);
+            lfoThumbs.setBounds (inner.removeFromTop (juce::jmax (40, inner.getHeight() - 52)));
+            inner.removeFromTop (4);
+
+            for (auto& set : lfoSets)
+            {
+                auto row = inner;
+                set->items[0]->setBounds (row.removeFromLeft (row.getWidth() * 24 / 100).reduced (2, 0));
+                set->items[1]->setBounds (row.removeFromLeft (row.getWidth() * 34 / 100).reduced (2, 0));
+                set->items[2]->setBounds (row.removeFromLeft (row.getWidth() / 3).reduced (2, 0));
+                set->items[3]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
+                set->items[4]->setBounds (row.reduced (2, 0));
+            }
+        }
     }
 
 private:
@@ -1704,6 +1876,54 @@ private:
         std::unique_ptr<ComboControl> table, warp;
         std::vector<std::unique_ptr<KnobControl>> knobs;
     };
+
+    struct ControlSet
+    {
+        std::unique_ptr<EnvelopeDisplay> display;
+        std::vector<std::unique_ptr<juce::Component>> items;
+    };
+
+    void updateVisibility()
+    {
+        const auto showSets = [] (std::vector<std::unique_ptr<ControlSet>>& sets, int selected)
+        {
+            for (int i = 0; i < (int) sets.size(); ++i)
+            {
+                const auto visible = i == selected;
+
+                if (sets[(size_t) i]->display != nullptr)
+                    sets[(size_t) i]->display->setVisible (visible);
+
+                for (auto& item : sets[(size_t) i]->items)
+                    item->setVisible (visible);
+            }
+        };
+
+        showSets (filterSets, filterTabs.getSelected());
+        showSets (envSets, envTabs.getSelected());
+        showSets (lfoSets, lfoTabs.getSelected());
+        repaint();
+    }
+
+    // Rate and division trade places with SYNC, like on the full page.
+    void timerCallback() override
+    {
+        if (! isShowing())
+            return;
+
+        const auto lfo = lfoTabs.getSelected();
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
+        const auto synced = sync != nullptr && sync->load() > 0.5f;
+        auto& items = lfoSets[(size_t) lfo]->items;
+
+        for (auto [index, active] : { std::pair<int, bool> { 1, ! synced }, { 3, synced } })
+        {
+            const auto alpha = active ? 1.0f : 0.35f;
+
+            if (items[(size_t) index]->getAlpha() != alpha)
+                items[(size_t) index]->setAlpha (alpha);
+        }
+    }
 
     static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint)
     {
@@ -1745,11 +1965,10 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     WaveDisplay wave1, wave2, wave3;
     FilterDisplay filterDisplay;
-    EnvelopeDisplay ampDisplay;
     LfoThumbBar lfoThumbs;
+    CardTabs filterTabs, envTabs, lfoTabs;
     std::vector<std::unique_ptr<OscStrip>> strips;
-    std::unique_ptr<ComboControl> filterType, filterSlope;
-    std::vector<std::unique_ptr<KnobControl>> filterKnobs, envKnobs;
+    std::vector<std::unique_ptr<ControlSet>> filterSets, envSets, lfoSets;
     std::array<juce::Rectangle<int>, 3> oscCards;
     juce::Rectangle<int> filterCard, envCard, lfoCard;
 };
@@ -3148,6 +3367,20 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     {
         envLfoPage->selectLfo (lfo);
         tabs.setCurrentTabIndex (envLfoTabIndex);
+    };
+
+    mainPage->onEditEnvelope = [this, envLfoPage] (int envelope)
+    {
+        envLfoPage->selectEnvelope (envelope);
+        tabs.setCurrentTabIndex (envLfoTabIndex);
+    };
+
+    mainPage->onOpenPage = [this] (const juce::String& name)
+    {
+        const auto index = tabs.getTabNames().indexOf (name);
+
+        if (index >= 0)
+            tabs.setCurrentTabIndex (index);
     };
 
     tabs.addTab ("FM", juce::Colour (0xff18181c), new FmPage (p), true);

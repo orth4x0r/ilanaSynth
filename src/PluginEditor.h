@@ -56,7 +56,6 @@ private:
     void loadPresetIndex (int index);
     void updateHeaderButtons();
     void updateUndoButtons();
-    void updateSeqTab();
     void showHistoryMenu();
     bool isFavourite (const juce::String& presetName) const;
     void toggleFavourite();
@@ -73,10 +72,9 @@ private:
     float hostScaleFactor() const;
 
     static constexpr int envLfoTabIndex = 3;
-    static constexpr int seqTabIndex = 4;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
-    static constexpr const char* appVersion = "1.0";
+    static constexpr const char* appVersion = "1.1";
 
     IlanaSynthAudioProcessor& processorRef;
     IlanaLookAndFeel lookAndFeel;
@@ -105,14 +103,13 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<PresetPanel> presetPanel;
-    std::unique_ptr<juce::Component> seqPage;
-    bool seqTabVisible = true;
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
     std::unique_ptr<ComboControl> voiceModeBox;
+    std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = true;
     juce::int64 loadedFingerprint = 0;
 

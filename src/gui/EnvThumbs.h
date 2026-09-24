@@ -45,8 +45,13 @@ public:
             paintCard (g, env, cardBounds (env));
     }
 
-    void mouseDown (const juce::MouseEvent& event) override
+    // Select on release, and only for a click: a drag assigns the source to
+    // a knob instead (on MAIN, selecting would switch pages mid-drag).
+    void mouseUp (const juce::MouseEvent& event) override
     {
+        if (event.mouseWasDraggedSinceMouseDown() || event.getDistanceFromDragStart() >= 6)
+            return;
+
         const auto index = indexAt (event.getPosition());
 
         if (index >= 0 && onSelect != nullptr)

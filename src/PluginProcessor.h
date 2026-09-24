@@ -10,15 +10,18 @@
 #include <vector>
 
 #include "dsp/Biquad.h"
+#include "dsp/Generative.h"
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
 #include "dsp/LfoCurve.h"
+#include "dsp/LfoShape.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
 #include "dsp/Modulation.h"
 #include "dsp/SamplePlayer.h"
+#include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
@@ -78,6 +81,17 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
+    bool isSpectralWarpReady (int osc) const { return spectralCache->isReady (osc); }
+    float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
+
+    // The spectrally warped table an oscillator is playing, for display
+    // (null when its warp is off or still building).
+    std::shared_ptr<const Wavetable> getSpectralDisplayTable (int osc, int tableChoice) const
+    {
+        static const char* ids[] { "osc1_spectral", "osc2_spectral", "sub_spectral" };
+        const auto* mode = apvts.getRawParameterValue (ids[juce::jlimit (0, 2, osc)]);
+        return spectralCache->getForDisplay (juce::jlimit (0, 2, osc), tableChoice, mode != nullptr ? (int) mode->load() : 0);
+    }
 
     // Synth-wide modulation of a destination this block (loudest voice for
     // per-voice sources), for knob rings and the effects.
@@ -173,6 +187,9 @@ public:
     // Gives a patch without macro mappings a sensible set (tone, timbre,
     // drive, space), chosen from what the patch uses. Silent at macro 0.
     void applyDefaultMacros();
+
+    static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
+                                   const std::function<void (const juce::String&, float)>& set);
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
     void setModSlotValue (int slotIndex, const juce::String& field, float value);
@@ -276,6 +293,9 @@ private:
     IlanaSynth synth;
 
     juce::MidiBuffer midiForSynth;
+    juce::MidiBuffer generatedMidi;
+    NoteSpray noteSpray;
+    std::unique_ptr<SpectralCache> spectralCache;
     juce::Array<int> arpHeldNotes;
     juce::Array<int> arpChordActive;
     juce::Array<int> arpChordNotes;
@@ -320,13 +340,14 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase; std::array<juce::String, 16> steps; };
+    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key; std::array<juce::String, 16> steps; };
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, 3> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<juce::String, 16> tapStepIds;
+    std::array<juce::String, 16> gateStepIds;
     std::array<std::array<juce::String, 7>, 3> sampleParamIds;
 
     static constexpr int numSampleOscs = 3;
@@ -359,6 +380,8 @@ private:
     juce::AudioBuffer<float> lfoBuffers;
     std::array<double, (size_t) numLfos> lfoPhases {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoSampleHolds {};
+    std::array<std::atomic<float>, (size_t) numLfos> lfoLastValues {};
+    std::array<LfoChaos, (size_t) numLfos> lfoChaos;
     juce::Random lfoRandom;
 
     float modWheelValue = 0.0f;
@@ -483,10 +506,25 @@ private:
     float gateEnvelope = 1.0f;
     juce::uint16 gateRandomMask = 0xFFFF;
     int gateCycleCount = 8;
+    int gateLastStep = -1;
+    std::atomic<int> gateDisplayStep { -1 };
+    std::atomic<double> hostPpq { 0.0 };
+    std::atomic<bool> hostPlaying { false };
+
+public:
+    // Pattern built-ins as step levels (for the editor and the Custom copy).
+    static float gatePatternLevel (int pattern, int step);
+    int getGateDisplayStep() const { return gateDisplayStep.load(); }
+
+    // Tests only: one arpeggiator note choice from the currently held notes.
+    int pickArpNoteForTest (int mode, int octaves) { return selectArpNote (mode, octaves); }
+
+private:
     float tapeStopRate = 1.0f;
     juce::AudioBuffer<float> tapeStopBuffer;
     int tapeStopWrite = 0;
     double tapeStopRead = 0.0;
+    float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
     float tiltLowState[2] {};
     float tiltHighState[2] {};
     float ottLowState[2][2] {};

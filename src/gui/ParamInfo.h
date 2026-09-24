@@ -22,6 +22,36 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                          : juce::String (juce::roundToInt (value))) + " Hz";
     };
 
+    if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    if (id == "fx_gate_steps")
+        return juce::String (juce::roundToInt (value)) + " steps";
+
+    if (id == "spray_count")
+        return juce::String (juce::roundToInt (value)) + " notes";
+
+    if (id == "spray_range")
+        return juce::String (juce::roundToInt (value)) + " st";
+
+    if (id == "spray_spread")
+        return juce::String (juce::roundToInt (value)) + " ms";
+
+    if (id.startsWith ("fm_") && id != "fm_mode")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    if (id == "spray_chance" || id == "spray_velocity" || id == "arp_chance")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    if (id == "filter_balance")
+    {
+        if (std::abs (value) < 0.01f)
+            return "F1 = F2";
+
+        return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + " %"
+                            : "F2 +" + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    }
+
     if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")
         || id == "lfo1_rate" || id == "lfo2_rate" || id == "mseg_rate" || id == "fx_shifter_shift")
         return asHertz();
@@ -30,6 +60,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "fx_smear_size" || id == "fx_tape_stop_time" || id == "fx_haas_delay"
         || id == "fx_comp_attack" || id == "fx_comp_release" || id == "fx_limit_release")
         return asMilliseconds();
+
+    if (id.endsWith ("_grain_size"))
+        return juce::String (juce::roundToInt (value)) + " ms";
 
     if (id == "poly_voices")
         return juce::String (juce::roundToInt (value));
@@ -62,7 +95,8 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
         || id == "res_decay" || id.endsWith ("_string_decay")
-        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
+        || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
+        || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
     return juce::String (value, value == std::floor (value) ? 0 : 2);
@@ -99,7 +133,8 @@ inline juce::String describeParameter (const juce::String& id)
         return "Stereo spread of the unison stack.";
 
     if (id == "osc1_mode" || id == "osc2_mode")
-        return "Wavetable, Karplus-Strong string, or a sample you drag onto the card.";
+        return "Wavetable, Karplus-Strong string, a sample you drag onto the card, or Granular: a cloud of tiny "
+               "grains read from that sample (a vocal until you load your own).";
 
     if (id == "osc1_on" || id == "osc2_on" || id == "sub_on")
         return "Turns this oscillator on and off. Switching fades in/out so it stays click-free.";
@@ -117,10 +152,19 @@ inline juce::String describeParameter (const juce::String& id)
         return "Level of the continuous excitation (ignore for Burst).";
 
     if (id == "sub_level")
+        return "Oscillator 3 level.";
+
+    if (id == "subosc_level")
         return "Sub oscillator an octave (or two) below the note.";
 
+    if (id == "subosc_on")
+        return "Turns the sub oscillator on.";
+
+    if (id == "subosc_route")
+        return "Where the sub and the noise enter the filters.";
+
     if (id == "sub_shape")
-        return "Sine for clean weight, Square/Saw for grit.";
+        return "Sub oscillator shape: Sine for clean weight, Square/Saw for grit.";
 
     if (id == "sub_octave")
         return "How far below the played note the sub sits.";
@@ -197,6 +241,54 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "f1_keytrack" || id == "f2_keytrack")
         return "Cutoff follows the played note (1.0 = full tracking).";
 
+    if (id == "fm_mode")
+        return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
+
+    if (id == "osc1_out" || id == "osc2_out" || id == "sub_out")
+        return "Off makes this oscillator a silent modulator: it still drives FM but isn't heard.";
+
+    if (id.startsWith ("fm_fb") || id == "fm_feedback")
+        return "The oscillator modulates itself: brighter, then noisier.";
+
+    if (id.startsWith ("fm_") && id != "fm_mode")
+        return "How hard one oscillator frequency-modulates another. Try whole-number pitch ratios for bells and keys.";
+
+    if (id == "gen_scale")
+        return "Scale that sprayed notes and the Scale Random arp snap to.";
+
+    if (id == "gen_snap")
+        return "Also snap the notes you play to the scale.";
+
+    if (id == "spray_on")
+        return "Each played note throws extra notes around itself.";
+
+    if (id == "spray_count")
+        return "How many extra notes each played note can spray.";
+
+    if (id == "spray_range")
+        return "How far (in semitones) the extra notes can land from the played note.";
+
+    if (id == "spray_spread")
+        return "Spreads the extra notes out in time, up to this long after the played note.";
+
+    if (id == "spray_chance")
+        return "Chance that each extra note actually plays.";
+
+    if (id == "spray_velocity")
+        return "Randomises the extra notes' velocity.";
+
+    if (id == "arp_chance")
+        return "Chance that each arp step plays; lower it for gaps and generative patterns.";
+
+    if (id == "fx_gate_steps")
+        return "Trance gate pattern length. DIV sets the length of each step.";
+
+    if (id == "fx_gate_swing")
+        return "Pushes every second step later for a shuffled gate.";
+
+    if (id == "filter_balance")
+        return "Parallel mode: fades between Filter 1 and Filter 2. Centre plays both.";
+
     if (id == "filters_parallel")
         return "Serial: F1 into F2. Parallel: both filters summed.";
 
@@ -226,6 +318,31 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.endsWith ("_warp_amt"))
         return "How hard the warp bends the wave. Modulate it for movement.";
+
+    if (id.endsWith ("_grain_size"))
+        return "Length of each grain. Short grains buzz and blur into texture; long ones keep the sample recognisable.";
+
+    if (id.endsWith ("_grain_density"))
+        return "How many grains overlap: from sparse, stuttering single grains to a thick, continuous cloud.";
+
+    if (id.endsWith ("_grain_spray"))
+        return "Random scatter of each grain's start around the position. More spray smears the sample into a cloud.";
+
+    if (id.endsWith ("_grain_pitch"))
+        return "Random detune per grain, up to an octave either way. A little shimmers; a lot sounds like a swarm.";
+
+    if (id.endsWith ("_grain_spread"))
+        return "How far grains are scattered across the stereo field.";
+
+    if (id.endsWith ("_spectral"))
+        return "Reshapes the wavetable's harmonics rather than its waveform: Stretch pulls them apart into bells and "
+               "metal, Shift moves them all up for hollow ring-mod tones, Odd/Even keeps odd then even harmonics, "
+               "Formant moves the vowel without changing pitch, Smear blurs them into a haze, Harmonic Cut keeps only "
+               "the lowest. Works on the factory tables.";
+
+    if (id.endsWith ("_spectral_amt"))
+        return "How far the spectral warp goes. For Formant, the middle leaves the vowel where it was. "
+               "Changes rebuild the table in the background, so this isn't a modulation target.";
 
     if (id.endsWith ("_uni_mode"))
         return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "
@@ -259,7 +376,13 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("lfo1_") || id.startsWith ("lfo2_") || id.startsWith ("lfo3_") || id.startsWith ("lfo4_"))
     {
         if (id.endsWith ("_shape"))
-            return "Waveform. Draw = design your own, Steps = 16-step sequencer.";
+            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Smooth Random glides to a new "
+                   "random value each cycle, Drunk wanders a little from where it was, Chaos follows a Lorenz "
+                   "attractor that never repeats.";
+
+        if (id.endsWith ("_key"))
+            return "Key tracks the rate: the LFO runs per voice at the note's pitch times RATE / 4 Hz, so 4 Hz "
+                   "follows the note exactly. Route it to an oscillator level, an FM route or ring mod for audio-rate growl.";
 
         if (id.endsWith ("_rate"))
             return "Speed when Sync is off.";
@@ -295,7 +418,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("mseg_"))
     {
         if (id.endsWith ("_level1") || id.endsWith ("_level2") || id.endsWith ("_level3") || id.endsWith ("_level4"))
-            return "MSEG point level. Drag the editor on the SEQ tab.";
+            return "MSEG point level. Drag the editor on the ARP/SEQ tab.";
 
         if (id.endsWith ("_time1") || id.endsWith ("_time2") || id.endsWith ("_time3") || id.endsWith ("_time4"))
             return "MSEG segment length (relative).";
@@ -527,15 +650,16 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.startsWith ("sub_"))
     {
-        if (id == "sub_level") return "Level of OSC 3 (the sub).";
-        if (id == "sub_shape") return "Legacy sub waveform, used when Osc3 Table is Shape.";
-        if (id == "sub_octave") return "Base octave of OSC 3: one or two octaves down.";
+        if (id == "sub_level") return "Level of OSC 3.";
+        if (id == "sub_shape") return "Sub oscillator shape: sine, square or saw.";
+        if (id == "sub_octave") return "Sub oscillator octave: one or two octaves down.";
         if (id == "sub_mode")
-            return "Wavetable, Karplus-Strong string, or a sample you drag onto the card.";
-        if (id == "sub_table") return "Waveform for OSC 3. Shape follows the SHAPE control.";
+            return "Wavetable, Karplus-Strong string, a sample you drag onto the card, or Granular: a cloud of tiny "
+               "grains read from that sample (a vocal until you load your own).";
+        if (id == "sub_table") return "Wavetable for OSC 3.";
         if (id == "sub_frame") return "Morphs through the table's frames.";
         if (id == "sub_pan") return "Stereo position of OSC 3.";
-        if (id == "sub_semi") return "Extra pitch offset on top of the octave.";
+        if (id == "sub_semi") return "OSC 3 pitch offset in semitones.";
         if (id == "sub_fine") return "Fine pitch offset in cents.";
         if (id == "sub_unison") return "Stacked detuned copies of OSC 3.";
         if (id == "sub_detune") return "Unison spread in cents.";

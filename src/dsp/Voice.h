@@ -5,7 +5,9 @@
 #include <array>
 
 #include "FilterUnit.h"
+#include "GranularOsc.h"
 #include "KarplusStrong.h"
+#include "LfoShape.h"
 #include "Modulation.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
@@ -78,6 +80,13 @@ struct VoiceParams
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
+
+        bool granularMode = false; // also sets sampleMode: grains read the sample
+        float grainSizeMs = 80.0f;
+        float grainDensity = 0.5f;
+        float grainSpray = 0.15f;
+        float grainPitch = 0.0f;
+        float grainSpread = 0.6f;
     };
 
     struct FilterParams
@@ -97,6 +106,7 @@ struct VoiceParams
     struct LfoParams
     {
         bool perVoice = false;
+        bool keyTrack = false;         // rate follows the note: RATE 4 Hz = the note's pitch
         int shape = 0;
         double baseIncrement = 0.0;   // cycles per voice-rate sample, before modulation
         float startPhase = 0.0f;
@@ -115,6 +125,9 @@ struct VoiceParams
 
     float fmAmount = 0.0f;
     float fmFeedback = 0.0f;
+    float fmMatrix[3][3] {};      // [source][target]: oscillator 1, 2, 3
+    int fmMode = 0;               // 0 phase, 1 through-zero, 2 exponential
+    bool oscOut[3] { true, true, true };
     float ringMod = 0.0f;
     bool hardSync = false;
     float drift = 0.0f;
@@ -133,14 +146,19 @@ struct VoiceParams
     float resonatorOffset = 0.0f;
     float resonatorKeytrack = 1.0f;
 
-    float subLevel = 0.0f;
-    PolyBlepOsc::Shape subShape = PolyBlepOsc::Shape::Square;
-    int subOctave = 1;
+    // The dedicated sub oscillator (sine/square/saw one or two octaves down).
+    // It and the noise share one route.
+    bool subOscEnabled = false;
+    float subOscLevel = 0.5f;
+    int subOscOctave = -12;
+    int subOscRoute = 0;
+    const Wavetable* subOscTable = nullptr;
     float noiseLevel = 0.0f;
 
     FilterParams filter1;
     FilterParams filter2;
     bool filtersParallel = false;
+    float filterBalance = 0.0f; // parallel only: -1 all Filter 1 .. +1 all Filter 2
 
     TensionAdsr::Parameters ampEnv { 0.005f, 0.3f, 0.8f, 0.25f, 0.0f };
     TensionAdsr::Parameters filterEnv { 0.01f, 0.4f, 0.4f, 0.3f, 0.0f };
@@ -264,6 +282,9 @@ private:
     SamplePlayer sample1Unison[VoiceParams::maxBufferedUnison];
     SamplePlayer sample2Unison[VoiceParams::maxBufferedUnison];
     SamplePlayer subSamples[VoiceParams::maxBufferedUnison];
+    GranularOsc grains1[VoiceParams::maxBufferedUnison];
+    GranularOsc grains2[VoiceParams::maxBufferedUnison];
+    GranularOsc grainsSub[VoiceParams::maxBufferedUnison];
     double sampleRatio1[VoiceParams::maxUnison] {}, sampleRatio2[VoiceParams::maxUnison] {};
     double sampleRatioSub[VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
@@ -277,6 +298,8 @@ private:
     juce::SmoothedValue<float> levelSmooth1, levelSmooth2;
     juce::SmoothedValue<float> subSmooth, noiseSmooth;
     juce::SmoothedValue<float> osc1EnableSmooth, osc2EnableSmooth, subEnableSmooth;
+    WavetableOscillator subOsc;
+    juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;
 
     // Modulation evaluated at the start of each block, for everything that
     // doesn't need to move within a block (envelope times, pans, detune...).
@@ -286,6 +309,7 @@ private:
     double lfoPhases[VoiceParams::numLfos] {};
     double lfoIncrements[VoiceParams::numLfos] {};
     float lfoHolds[VoiceParams::numLfos] {};
+    LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
 
     double sampleRate = 44100.0;
@@ -315,6 +339,8 @@ private:
     float panGain1L[VoiceParams::maxUnison] {}, panGain1R[VoiceParams::maxUnison] {};
     float panGain2L[VoiceParams::maxUnison] {}, panGain2R[VoiceParams::maxUnison] {};
     float panGainSubL[VoiceParams::maxUnison] {}, panGainSubR[VoiceParams::maxUnison] {};
+    float panGainSubOscL = 0.7071f, panGainSubOscR = 0.7071f;
+    float previousOsc3 = 0.0f;
     // Per-unison-voice pitch offsets (semitones) and gains from the unison
     // mode, detune and blend.
     double unisonOffset1[VoiceParams::maxUnison] {}, unisonOffset2[VoiceParams::maxUnison] {};

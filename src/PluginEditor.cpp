@@ -19,7 +19,11 @@
 #include "gui/EqCurve.h"
 #include "gui/FilterDisplay.h"
 #include "gui/LfoDisplay.h"
+#include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
+#include "gui/FilterWidgets.h"
+#include "gui/FmDiagram.h"
+#include "gui/TableBrowser.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -130,7 +134,7 @@ public:
                         IlanaTheme::accent(), true),
           waveDisplay2 (p, "osc2_table", "osc2_frame", "osc2_unison", "osc2_spread", "osc2_detune", false, {}, "osc2_mode", 1,
                         juce::Colour (0xff5b8cff)),
-          waveDisplay3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", true, "sub_shape", "sub_mode", 2,
+          waveDisplay3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", false, {}, "sub_mode", 2,
                         juce::Colour (0xffffd447)),
           osc1On (p.apvts, "osc1_on", "ON"),
           osc1Mode (p.apvts, "osc1_mode", "MODE"),
@@ -209,8 +213,25 @@ public:
           subWarp (p.apvts, "sub_warp", "WARP"), subUniMode (p.apvts, "sub_uni_mode", "UNISON"),
           osc1WarpAmt (p.apvts, "osc1_warp_amt", "WARP AMT"), osc1UniBlend (p.apvts, "osc1_uni_blend", "BLEND"),
           osc2WarpAmt (p.apvts, "osc2_warp_amt", "WARP AMT"), osc2UniBlend (p.apvts, "osc2_uni_blend", "BLEND"),
-          subWarpAmt (p.apvts, "sub_warp_amt", "WARP AMT"), subUniBlend (p.apvts, "sub_uni_blend", "BLEND")
+          subWarpAmt (p.apvts, "sub_warp_amt", "WARP AMT"), subUniBlend (p.apvts, "sub_uni_blend", "BLEND"),
+          osc1Spectral (p.apvts, "osc1_spectral", "SPECTRAL"), osc2Spectral (p.apvts, "osc2_spectral", "SPECTRAL"),
+          subSpectral (p.apvts, "sub_spectral", "SPECTRAL"),
+          osc1SpectralAmt (p.apvts, "osc1_spectral_amt", "SPEC AMT"), osc2SpectralAmt (p.apvts, "osc2_spectral_amt", "SPEC AMT"),
+          subSpectralAmt (p.apvts, "sub_spectral_amt", "SPEC AMT"),
+          osc1GrainPosition (p.apvts, "osc1_sample_start", "POSITION"), osc1GrainSize (p.apvts, "osc1_grain_size", "SIZE"),
+          osc1GrainDensity (p.apvts, "osc1_grain_density", "DENSITY"), osc1GrainSpray (p.apvts, "osc1_grain_spray", "SPRAY"),
+          osc1GrainPitch (p.apvts, "osc1_grain_pitch", "PITCH RND"), osc1GrainSpread (p.apvts, "osc1_grain_spread", "STEREO"),
+          osc2GrainPosition (p.apvts, "osc2_sample_start", "POSITION"), osc2GrainSize (p.apvts, "osc2_grain_size", "SIZE"),
+          osc2GrainDensity (p.apvts, "osc2_grain_density", "DENSITY"), osc2GrainSpray (p.apvts, "osc2_grain_spray", "SPRAY"),
+          osc2GrainPitch (p.apvts, "osc2_grain_pitch", "PITCH RND"), osc2GrainSpread (p.apvts, "osc2_grain_spread", "STEREO"),
+          subGrainPosition (p.apvts, "sub_sample_start", "POSITION"), subGrainSize (p.apvts, "sub_grain_size", "SIZE"),
+          subGrainDensity (p.apvts, "sub_grain_density", "DENSITY"), subGrainSpray (p.apvts, "sub_grain_spray", "SPRAY"),
+          subGrainPitch (p.apvts, "sub_grain_pitch", "PITCH RND"), subGrainSpread (p.apvts, "sub_grain_spread", "STEREO")
     {
+        addAll (*this, osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread);
+        addAll (*this, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread);
+        addAll (*this, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread);
+        addAll (*this, osc1Spectral, osc2Spectral, subSpectral, osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt);
         addAll (*this, osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode,
                 osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend);
 
@@ -220,7 +241,7 @@ public:
 
         setupLoadButton (loadTableButton1, "osc1_table", 0);
         setupLoadButton (loadTableButton2, "osc2_table", 0);
-        setupLoadButton (loadTableButton3, "sub_table", 4);
+        setupLoadButton (loadTableButton3, "sub_table", 0);
 
         addAndMakeVisible (loadTableButton1);
         addAndMakeVisible (loadTableButton2);
@@ -240,6 +261,28 @@ public:
                 subSampleTuned, subSampleLoop, subSampleReverse, subSampleStart, subSampleEnd,
                 subSampleFadeIn, subSampleFadeOut, subChord,
                 noiseLevel);
+
+        // The TABLE lists open the wavetable browser.
+        for (auto [control, id, colour] : { std::tuple<ComboControl*, const char*, juce::Colour> { &osc1Table, "osc1_table", IlanaTheme::accent() },
+                                            { &osc2Table, "osc2_table", juce::Colour (0xff5b8cff) },
+                                            { &subTable, "sub_table", juce::Colour (0xffffd447) } })
+        {
+            control->setPopupOverride ([this, control, id = juce::String (id), colour]
+            {
+                TableBrowser::show (processorRef, id, colour, control->getComboBox());
+            });
+        }
+
+        voiceSpread = std::make_unique<StripKnob> (p, "voice_spread", "Spread");
+        unisonRandom = std::make_unique<StripKnob> (p, "unison_random", "Uni Phase");
+        drift = std::make_unique<StripKnob> (p, "drift", "Drift");
+        addAll (*this, *voiceSpread, *unisonRandom, *drift);
+
+        subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
+        subOscLevel = std::make_unique<StripKnob> (p, "subosc_level", "Sub Level", -1, juce::Colour (0xffff9f43), false);
+        noiseStrip = std::make_unique<StripKnob> (p, "noise_level", "Noise", -1, juce::Colour (0xffc8c8d0), false);
+        addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
+        noiseLevel.setVisible (false);
 
         for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" })
             processorRef.apvts.addParameterListener (id, this);
@@ -288,8 +331,8 @@ public:
             g.setColour (tint.withAlpha (0.85f));
             g.fillRoundedRectangle (strip, 1.5f);
 
-            const std::array<const char*, 3> modeNames { "WAVETABLE", "STRING", "SAMPLE" };
-            const auto mode = juce::jlimit (0, 2, getMode (band));
+            const std::array<const char*, 4> modeNames { "WAVETABLE", "STRING", "SAMPLE", "GRANULAR" };
+            const auto mode = juce::jlimit (0, 3, getMode (band));
 
             g.setColour (tint);
             g.setFont (IlanaTheme::font (13.0f, true));
@@ -307,6 +350,22 @@ public:
             if (! controlBay[(size_t) band].isEmpty())
                 IlanaTheme::paintRecessedPanel (g, controlBay[(size_t) band].toFloat(), 6.0f);
         }
+
+        if (! subStrip.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
+            g.setColour (juce::Colour (0xffff9f43));
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("SUB", subStrip.withWidth (60).withTrimmedLeft (14), juce::Justification::centredLeft);
+        }
+
+        if (! voiceStrip.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
+            g.setColour (IlanaTheme::accent());
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("VOICE", voiceStrip.withWidth (70).withTrimmedLeft (14), juce::Justification::centredLeft);
+        }
     }
 
     static juce::Colour oscColour (int index)
@@ -321,7 +380,8 @@ public:
 
     void resized() override
     {
-        bandHeight = juce::jlimit (137, 176, (getHeight() - 24 - bandGap * 2) / 3);
+        constexpr int stripHeight = 50;
+        bandHeight = juce::jlimit (128, 176, (getHeight() - 24 - bandGap * 3 - stripHeight) / 3);
         auto area = getLocalBounds().reduced (12);
 
         for (int band = 0; band < 3; ++band)
@@ -329,6 +389,30 @@ public:
             layoutBand (area.removeFromTop (bandHeight), band);
             area.removeFromTop (bandGap);
         }
+
+        // One strip: the sub and noise on the left, voice settings on the right.
+        auto strip = area.removeFromTop (stripHeight);
+        subStrip = strip.removeFromLeft (strip.getWidth() * 58 / 100);
+        strip.removeFromLeft (8);
+        voiceStrip = strip;
+
+        auto row = subStrip.reduced (6, 2);
+        row.removeFromLeft (54);
+        subOscOn->setBounds (row.removeFromLeft (70).reduced (2, 2));
+        row.removeFromLeft (6);
+        subShape.setBounds (row.removeFromLeft (row.getWidth() * 22 / 100).reduced (3, 0));
+        subOctave.setBounds (row.removeFromLeft (row.getWidth() * 22 / 100).reduced (3, 0));
+        row.removeFromLeft (10);
+        const auto knobWidth = row.getWidth() / 2;
+        subOscLevel->setBounds (row.removeFromLeft (knobWidth));
+        noiseStrip->setBounds (row);
+
+        row = voiceStrip.reduced (6, 3);
+        row.removeFromLeft (64);
+        const auto third = row.getWidth() / 3;
+        voiceSpread->setBounds (row.removeFromLeft (third));
+        unisonRandom->setBounds (row.removeFromLeft (third));
+        drift->setBounds (row);
     }
 
 private:
@@ -422,12 +506,50 @@ private:
         const auto isSample = mode == 2;
         const auto isString = mode == 1;
         const auto isWavetable = mode == 0;
+        const auto isGranular = mode == 3;
+
 
         std::vector<juce::Component*> top;
         std::vector<juce::Component*> bottom;
 
         const auto addTop = [&top] (juce::Component* item) { if (item != nullptr) top.push_back (item); };
         const auto addBottom = [&bottom] (juce::Component* item) { if (item != nullptr) bottom.push_back (item); };
+
+        if (isGranular)
+        {
+            const auto prefixIndex = juce::jlimit (0, 2, index);
+            juce::Component* on[] { &osc1On, &osc2On, &subOn };
+            juce::Component* modeBox[] { &osc1Mode, &osc2Mode, &subMode };
+            juce::Component* tuned[] { &osc1SampleTuned, &osc2SampleTuned, &subSampleTuned };
+            juce::Component* reverse[] { &osc1SampleReverse, &osc2SampleReverse, &subSampleReverse };
+            juce::Component* uniMode[] { &osc1UniMode, &osc2UniMode, &subUniMode };
+            juce::Component* chord[] { &osc1Chord, &osc2Chord, &subChord };
+            juce::Component* grains[3][6] {
+                { &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread },
+                { &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread },
+                { &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread }
+            };
+            juce::Component* voice[3][6] {
+                { &osc1Level, &osc1Pan, &osc1Semi, &osc1Fine, &osc1Unison, &osc1Detune },
+                { &osc2Level, &osc2Pan, &osc2Semi, &osc2Fine, &osc2Unison, &osc2Detune },
+                { &subLevel, &subPan, &subSemi, &subFine, &subUnison, &subDetune }
+            };
+
+            for (auto* item : { on[prefixIndex], modeBox[prefixIndex], tuned[prefixIndex], reverse[prefixIndex],
+                                uniMode[prefixIndex], chord[prefixIndex] })
+                addTop (item);
+
+            for (auto* item : grains[prefixIndex])
+                addBottom (item);
+
+            for (auto* item : voice[prefixIndex])
+                addBottom (item);
+
+            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
+            layoutSlots (topRow, top);
+            layoutSlots (bottomRow, bottom);
+            return;
+        }
 
         if (index == 0)
         {
@@ -438,12 +560,14 @@ private:
             addTop (isSample ? (juce::Component*) &osc1SampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &osc1SampleReverse : nullptr);
             addTop (isWavetable ? (juce::Component*) &osc1Warp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &osc1Spectral : nullptr);
             addTop (&osc1UniMode);
             addTop (&osc1Chord);
 
             addBottom (isSample ? (juce::Component*) &osc1SampleStart
                                 : (isString ? (juce::Component*) &osc1StringDecay : (juce::Component*) &osc1Frame));
             addBottom (isWavetable ? (juce::Component*) &osc1WarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &osc1SpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &osc1SampleEnd
                                 : (isString ? (juce::Component*) &osc1StringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &osc1SampleFadeIn
@@ -467,12 +591,14 @@ private:
             addTop (isSample ? (juce::Component*) &osc2SampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &osc2SampleReverse : nullptr);
             addTop (isWavetable ? (juce::Component*) &osc2Warp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &osc2Spectral : nullptr);
             addTop (&osc2UniMode);
             addTop (&osc2Chord);
 
             addBottom (isSample ? (juce::Component*) &osc2SampleStart
                                 : (isString ? (juce::Component*) &osc2StringDecay : (juce::Component*) &osc2Frame));
             addBottom (isWavetable ? (juce::Component*) &osc2WarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &osc2SpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &osc2SampleEnd
                                 : (isString ? (juce::Component*) &osc2StringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &osc2SampleFadeIn
@@ -493,17 +619,17 @@ private:
             addTop (&subMode);
             addTop (isSample ? (juce::Component*) &subSampleTuned
                              : (isString ? (juce::Component*) &subExcite : (juce::Component*) &subTable));
-            addTop (isSample ? (juce::Component*) &subSampleLoop
-                             : (isString ? nullptr : (juce::Component*) &subShape));
+            addTop (isSample ? (juce::Component*) &subSampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &subSampleReverse : nullptr);
-            addTop (&subOctave);
             addTop (isWavetable ? (juce::Component*) &subWarp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &subSpectral : nullptr);
             addTop (&subUniMode);
             addTop (&subChord);
 
             addBottom (isSample ? (juce::Component*) &subSampleStart
                                 : (isString ? (juce::Component*) &subStringDecay : (juce::Component*) &subFrame));
             addBottom (isWavetable ? (juce::Component*) &subWarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &subSpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &subSampleEnd
                                 : (isString ? (juce::Component*) &subStringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &subSampleFadeIn
@@ -517,7 +643,6 @@ private:
             addBottom (&subDetune);
             addBottom (&subUniBlend);
             addBottom (&subSpread);
-            addBottom (&noiseLevel);
         }
 
         controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
@@ -606,15 +731,25 @@ private:
         osc1StringDecay.setVisible (mode1 == 1);
         osc1StringDamp.setVisible (mode1 == 1);
         osc1StringSustain.setVisible (mode1 == 1);
-        osc1SampleTuned.setVisible (mode1 == 2);
+        osc1SampleTuned.setVisible (mode1 >= 2);
         osc1SampleLoop.setVisible (mode1 == 2);
-        osc1SampleReverse.setVisible (mode1 == 2);
+        osc1SampleReverse.setVisible (mode1 >= 2);
         osc1SampleStart.setVisible (mode1 == 2);
         osc1SampleEnd.setVisible (mode1 == 2);
         osc1SampleFadeIn.setVisible (mode1 == 2);
         osc1SampleFadeOut.setVisible (mode1 == 2);
         osc1Warp.setVisible (mode1 == 0);
         osc1WarpAmt.setVisible (mode1 == 0);
+        osc1Spectral.setVisible (mode1 == 0);
+        osc1SpectralAmt.setVisible (mode1 == 0);
+        osc1GrainPosition.setVisible (mode1 == 3);
+        osc1GrainSize.setVisible (mode1 == 3);
+        osc1GrainDensity.setVisible (mode1 == 3);
+        osc1GrainSpray.setVisible (mode1 == 3);
+        osc1GrainPitch.setVisible (mode1 == 3);
+        osc1GrainSpread.setVisible (mode1 == 3);
+        osc1UniBlend.setVisible (mode1 != 3);
+        osc1Spread.setVisible (mode1 != 3);
 
         const auto mode2 = getMode (1);
         osc2Table.setVisible (mode2 == 0);
@@ -623,33 +758,52 @@ private:
         osc2StringDecay.setVisible (mode2 == 1);
         osc2StringDamp.setVisible (mode2 == 1);
         osc2StringSustain.setVisible (mode2 == 1);
-        osc2SampleTuned.setVisible (mode2 == 2);
+        osc2SampleTuned.setVisible (mode2 >= 2);
         osc2SampleLoop.setVisible (mode2 == 2);
-        osc2SampleReverse.setVisible (mode2 == 2);
+        osc2SampleReverse.setVisible (mode2 >= 2);
         osc2SampleStart.setVisible (mode2 == 2);
         osc2SampleEnd.setVisible (mode2 == 2);
         osc2SampleFadeIn.setVisible (mode2 == 2);
         osc2SampleFadeOut.setVisible (mode2 == 2);
         osc2Warp.setVisible (mode2 == 0);
         osc2WarpAmt.setVisible (mode2 == 0);
+        osc2Spectral.setVisible (mode2 == 0);
+        osc2SpectralAmt.setVisible (mode2 == 0);
+        osc2GrainPosition.setVisible (mode2 == 3);
+        osc2GrainSize.setVisible (mode2 == 3);
+        osc2GrainDensity.setVisible (mode2 == 3);
+        osc2GrainSpray.setVisible (mode2 == 3);
+        osc2GrainPitch.setVisible (mode2 == 3);
+        osc2GrainSpread.setVisible (mode2 == 3);
+        osc2UniBlend.setVisible (mode2 != 3);
+        osc2Spread.setVisible (mode2 != 3);
 
         const auto mode3 = getMode (2);
         subTable.setVisible (mode3 == 0);
         subFrame.setVisible (mode3 == 0);
-        subShape.setVisible (mode3 == 0);
         subExcite.setVisible (mode3 == 1);
         subStringDecay.setVisible (mode3 == 1);
         subStringDamp.setVisible (mode3 == 1);
         subStringSustain.setVisible (mode3 == 1);
-        subSampleTuned.setVisible (mode3 == 2);
+        subSampleTuned.setVisible (mode3 >= 2);
         subSampleLoop.setVisible (mode3 == 2);
-        subSampleReverse.setVisible (mode3 == 2);
+        subSampleReverse.setVisible (mode3 >= 2);
         subSampleStart.setVisible (mode3 == 2);
         subSampleEnd.setVisible (mode3 == 2);
         subSampleFadeIn.setVisible (mode3 == 2);
         subSampleFadeOut.setVisible (mode3 == 2);
         subWarp.setVisible (mode3 == 0);
         subWarpAmt.setVisible (mode3 == 0);
+        subSpectral.setVisible (mode3 == 0);
+        subSpectralAmt.setVisible (mode3 == 0);
+        subGrainPosition.setVisible (mode3 == 3);
+        subGrainSize.setVisible (mode3 == 3);
+        subGrainDensity.setVisible (mode3 == 3);
+        subGrainSpray.setVisible (mode3 == 3);
+        subGrainPitch.setVisible (mode3 == 3);
+        subGrainSpread.setVisible (mode3 == 3);
+        subUniBlend.setVisible (mode3 != 3);
+        subSpread.setVisible (mode3 != 3);
 
         resized();
     }
@@ -674,21 +828,24 @@ private:
                            &osc1StringDecay, &osc1StringDamp, &osc1StringSustain,
                            &osc1SampleTuned, &osc1SampleLoop, &osc1SampleReverse,
                            &osc1SampleStart, &osc1SampleEnd, &osc1SampleFadeIn, &osc1SampleFadeOut,
-                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1UniMode, &osc1UniBlend },
+                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1Spectral, &osc1SpectralAmt, &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread,
+                           &osc1UniMode, &osc1UniBlend },
                          enabled1);
         setGroupEnabled ({ &osc2Mode, &osc2Table, &osc2Excite, &osc2Frame, &osc2Level, &osc2Pan, &osc2Semi,
                            &osc2Fine, &osc2Unison, &osc2Detune, &osc2Spread,
                            &osc2StringDecay, &osc2StringDamp, &osc2StringSustain,
                            &osc2SampleTuned, &osc2SampleLoop, &osc2SampleReverse,
                            &osc2SampleStart, &osc2SampleEnd, &osc2SampleFadeIn, &osc2SampleFadeOut,
-                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2UniMode, &osc2UniBlend },
+                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2Spectral, &osc2SpectralAmt, &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread,
+                           &osc2UniMode, &osc2UniBlend },
                          enabled2);
-        setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subShape, &subOctave, &subLevel,
+        setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subLevel,
                            &subPan, &subSemi, &subFine, &subUnison, &subDetune, &subSpread,
                            &subStringDecay, &subStringDamp, &subStringSustain,
                            &subSampleTuned, &subSampleLoop, &subSampleReverse,
                            &subSampleStart, &subSampleEnd, &subSampleFadeIn, &subSampleFadeOut,
-                           &subChord, &noiseLevel, &subWarp, &subWarpAmt, &subUniMode, &subUniBlend },
+                           &subChord, &subWarp, &subWarpAmt, &subSpectral, &subSpectralAmt, &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread,
+                           &subUniMode, &subUniBlend },
                          enabled3);
 
         const std::array<bool, 3> enabled { enabled1, enabled2, enabled3 };
@@ -719,6 +876,16 @@ private:
     juce::TextButton loadTableButton3 { "LOAD .WAV" };
     std::unique_ptr<juce::FileChooser> tableChooser;
     bool chooserOpen = false;
+
+    // Voice-wide settings that shape how the oscillators stack and drift.
+    std::unique_ptr<StripKnob> voiceSpread, unisonRandom, drift;
+    juce::Rectangle<int> voiceStrip;
+
+    // The dedicated sub and the noise.
+    std::unique_ptr<ToggleControl> subOscOn;
+    std::unique_ptr<StripKnob> subOscLevel, noiseStrip;
+    juce::Rectangle<int> subStrip;
+
     ToggleControl osc1On;
     ComboControl osc1Mode, osc1Table, osc1Excite;
     KnobControl osc1Frame, osc1Level, osc1Pan, osc1Semi, osc1Fine, osc1Unison, osc1Detune, osc1Spread;
@@ -743,115 +910,100 @@ private:
     KnobControl noiseLevel;
     ComboControl osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode;
     KnobControl osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend;
+    ComboControl osc1Spectral, osc2Spectral, subSpectral;
+    KnobControl osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt;
+    KnobControl osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread;
 };
 
-class RoutingSwitch : public juce::Button
+// One filter: its type grid, slope switch and only the knobs its model uses.
+class FilterPanel : public juce::Component,
+                    private juce::Timer
 {
 public:
-    RoutingSwitch() : juce::Button ("filters_parallel")
+    FilterPanel (IlanaSynthAudioProcessor& p, int index, juce::Colour colourIn)
+        : processorRef (p),
+          prefix (index == 1 ? "f1" : "f2"),
+          title ("FILTER " + juce::String (index)),
+          colour (colourIn),
+          grid (p.apvts, prefix + "_type", colourIn),
+          slope (p.apvts, prefix + "_slope", colourIn),
+          cutoff (p.apvts, prefix + "_cutoff", "CUTOFF", colourIn, false),
+          reso (p.apvts, prefix + "_reso", "RESO", colourIn, false),
+          drive (p.apvts, prefix + "_drive", "DRIVE", colourIn, false),
+          env (p.apvts, prefix + "_env", "ENV AMT", colourIn, false),
+          key (p.apvts, prefix + "_keytrack", "KEY TRK", colourIn, false),
+          fm (p.apvts, prefix + "_fm", "AUDIO FM", colourIn, false),
+          morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
-        setClickingTogglesState (true);
-        setTooltip ("Serial: Filter 1 feeds Filter 2.   Parallel: both filters run side by side and are summed.");
+        addAll (*this, grid, slope, cutoff, reso, drive, env, key, fm, morph);
+        refreshType();
+        startTimerHz (8);
     }
 
-    void paintButton (juce::Graphics& g, bool over, bool down) override
+    void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat();
-        const auto parallel = getToggleState();
+        IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour.withAlpha (0.35f));
 
-        IlanaTheme::paintCard (g, bounds, 6.0f, IlanaTheme::accent().withAlpha (0.35f));
+        auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
+        g.setColour (colour);
+        g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 3.0f, 6.0f, 6.0f);
+        header.removeFromLeft (14);
 
-        const auto halfWidth = bounds.getWidth() * 0.5f;
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText (title, header, juce::Justification::centredLeft);
 
-        for (int half = 0; half < 2; ++half)
-        {
-            const auto area = juce::Rectangle<float> (bounds.getX() + (float) half * halfWidth, bounds.getY(),
-                                                      halfWidth, bounds.getHeight()).reduced (6.0f, 4.0f);
-            const auto active = (half == 1) == parallel;
-            const auto colour = half == 1 ? juce::Colour (0xffb28aff) : juce::Colour (0xffff4fd8);
+        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.0f, true)), title);
+        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.setFont (IlanaTheme::font (12.0f));
+        g.drawText (FilterType::getNames()[type], header.withTrimmedLeft (titleWidth + 10), juce::Justification::centredLeft);
+    }
 
-            if (active)
-            {
-                g.setColour (colour.withAlpha (0.13f));
-                g.fillRoundedRectangle (area.expanded (3.0f, 1.0f), 5.0f);
-                g.setColour (colour.withAlpha (0.65f));
-                g.drawRoundedRectangle (area.expanded (3.0f, 1.0f), 5.0f, 1.0f);
-            }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (10, 0);
+        auto header = area.removeFromTop (28);
+        slope.setBounds (header.removeFromRight (96).reduced (0, 5));
 
-            drawDiagram (g, area, half == 1, active ? 1.0f : 0.35f);
-        }
+        grid.setBounds (area.removeFromTop (juce::jlimit (52, 64, getHeight() / 4)));
+        area.removeFromTop (4);
+        area.removeFromBottom (6);
 
-        g.setColour (juce::Colours::black.withAlpha (0.35f));
-        g.fillRect (bounds.getCentreX() - 0.5f, bounds.getY() + 8.0f, 1.0f, bounds.getHeight() - 16.0f);
+        std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
 
-        if (over || down)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.3f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.2f);
-        }
+        if (morph.isVisible())
+            knobs.push_back (&morph);
+
+        layoutRow (area, knobs);
     }
 
 private:
-    static void drawDiagram (juce::Graphics& g, juce::Rectangle<float> area, bool parallel, float alpha)
+    // Comb and formant have no slope; only Formant and Morph use MORPH.
+    void refreshType()
     {
-        const auto colour = (parallel ? juce::Colour (0xffb28aff) : juce::Colour (0xffff4fd8)).withAlpha (alpha);
-        auto labelArea = area.removeFromBottom (12.0f);
+        if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))
+            type = juce::jlimit (0, FilterType::Count - 1, (int) value->load());
 
-        constexpr auto boxWidth = 30.0f;
-        constexpr auto boxHeight = 14.0f;
-
-        const auto drawBox = [&g, colour] (juce::Rectangle<float> box, const juce::String& boxText)
-        {
-            g.setColour (colour.withAlpha (colour.getFloatAlpha() * 0.3f));
-            g.fillRoundedRectangle (box, 3.0f);
-            g.setColour (colour);
-            g.drawRoundedRectangle (box, 3.0f, 1.0f);
-            g.setFont (IlanaTheme::font (10.0f, true));
-            g.drawText (boxText, box.toNearestInt(), juce::Justification::centred);
-        };
-
-        const auto arrow = [&g, colour] (float x1, float y1, float x2, float y2)
-        {
-            g.setColour (colour);
-            g.drawLine (x1, y1, x2, y2, 1.2f);
-
-            juce::Path head;
-            head.addTriangle (x2 - 4.0f, y2 - 2.4f, x2 - 4.0f, y2 + 2.4f, x2, y2);
-            g.fillPath (head);
-        };
-
-        if (! parallel)
-        {
-            const auto y = area.getCentreY();
-            const auto x = area.getX();
-
-            drawBox ({ x, y - boxHeight * 0.5f, boxWidth, boxHeight }, "F1");
-            arrow (x + boxWidth + 1.0f, y, x + boxWidth + 10.0f, y);
-            drawBox ({ x + boxWidth + 13.0f, y - boxHeight * 0.5f, boxWidth, boxHeight }, "F2");
-            arrow (x + boxWidth * 2.0f + 14.0f, y, x + boxWidth * 2.0f + 24.0f, y);
-        }
-        else
-        {
-            const auto x = area.getX();
-            const auto yTop = area.getCentreY() - boxHeight * 0.62f;
-            const auto yBottom = area.getCentreY() + boxHeight * 0.62f;
-            const auto sumX = x + boxWidth + 13.0f;
-
-            drawBox ({ x, yTop - boxHeight * 0.5f, boxWidth, boxHeight }, "F1");
-            drawBox ({ x, yBottom - boxHeight * 0.5f, boxWidth, boxHeight }, "F2");
-
-            arrow (x + boxWidth + 1.0f, yTop, sumX - 1.0f, yTop);
-            arrow (x + boxWidth + 1.0f, yBottom, sumX - 1.0f, yBottom);
-
-            g.setColour (colour);
-            g.fillRect (sumX - 1.5f, yTop - boxHeight * 0.5f, 1.5f, yBottom - yTop + boxHeight);
-            arrow (sumX, area.getCentreY(), sumX + 9.0f, area.getCentreY());
-        }
-
-        g.setColour (colour);
-        g.setFont (IlanaTheme::font (10.5f, true));
-        g.drawText (parallel ? "PARALLEL" : "SERIAL", labelArea.toNearestInt(), juce::Justification::centred);
+        const auto hasSlope = type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant;
+        slope.setVisible (hasSlope);
+        morph.setVisible (FilterType::usesMorph (type));
+        resized();
+        repaint();
     }
+
+    void timerCallback() override
+    {
+        if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))
+            if ((int) value->load() != type)
+                refreshType();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    juce::String prefix, title;
+    juce::Colour colour;
+    FilterTypeGrid grid;
+    SlopeSwitch slope;
+    KnobControl cutoff, reso, drive, env, key, fm, morph;
+    int type = -1;
 };
 
 class FilterPage : public juce::Component,
@@ -861,137 +1013,137 @@ public:
     explicit FilterPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           filterDisplay (p),
-          f1Type (p.apvts, "f1_type", "TYPE"),
-          f1Slope (p.apvts, "f1_slope", "SLOPE"),
-          f1Cutoff (p.apvts, "f1_cutoff", "CUTOFF", juce::Colour (0xffff4fd8), false),
-          f1Reso (p.apvts, "f1_reso", "RESO", juce::Colour (0xffff4fd8), false),
-          f1Drive (p.apvts, "f1_drive", "DRIVE", juce::Colour (0xffff4fd8), false),
-          f1Env (p.apvts, "f1_env", "ENV AMT", juce::Colour (0xffff4fd8), false),
-          f1Key (p.apvts, "f1_keytrack", "KEY TRK", juce::Colour (0xffff4fd8), false),
-          f1Fm (p.apvts, "f1_fm", "FM", juce::Colour (0xffff4fd8), false),
-          f1Morph (p.apvts, "f1_morph", "MORPH", juce::Colour (0xffff4fd8), false),
-          f2Type (p.apvts, "f2_type", "TYPE"),
-          f2Slope (p.apvts, "f2_slope", "SLOPE"),
-          f2Cutoff (p.apvts, "f2_cutoff", "CUTOFF", juce::Colour (0xffb28aff), false),
-          f2Reso (p.apvts, "f2_reso", "RESO", juce::Colour (0xffb28aff), false),
-          f2Drive (p.apvts, "f2_drive", "DRIVE", juce::Colour (0xffb28aff), false),
-          f2Env (p.apvts, "f2_env", "ENV AMT", juce::Colour (0xffb28aff), false),
-          f2Key (p.apvts, "f2_keytrack", "KEY TRK", juce::Colour (0xffb28aff), false),
-          f2Fm (p.apvts, "f2_fm", "FM", juce::Colour (0xffb28aff), false),
-          f2Morph (p.apvts, "f2_morph", "MORPH", juce::Colour (0xffb28aff), false),
-          osc1Route (p.apvts, "osc1_route", "OSC 1 INTO"),
-          osc2Route (p.apvts, "osc2_route", "OSC 2 INTO"),
-          osc3Route (p.apvts, "sub_route", "OSC 3 + NOISE INTO")
+          panel1 (p, 1, juce::Colour (0xffff4fd8)),
+          panel2 (p, 2, juce::Colour (0xffb28aff)),
+          flow (p),
+          balance (p.apvts, "filter_balance", "", IlanaTheme::accent(), true),
+          resOn (p.apvts, "res_on", "ON"),
+          resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), false),
+          resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), false),
+          resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), false),
+          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), false)
     {
-        addAndMakeVisible (filterDisplay);
-        addAll (*this, f1Type, f1Slope, f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm, f1Morph,
-                f2Type, f2Slope, f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm, f2Morph,
-                osc1Route, osc2Route, osc3Route);
-
-        addAndMakeVisible (routing);
-        routingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            p.apvts, "filters_parallel", routing);
-
-        updateMorphEnabled();
-        startTimerHz (4);
+        addAll (*this, filterDisplay, panel1, panel2, flow, balance,
+                resOn, resAmount, resDecay, resOffset, resKeytrack);
+        startTimerHz (8);
     }
+
+    static juce::Colour resonatorColour() { return juce::Colour (0xff6fe3c1); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintSectionTitle (g, "RESPONSE  (drag the markers)", { 14, 12, 400, 16 });
-
-        g.setFont (IlanaTheme::font (13.0f, true));
-        g.setColour (juce::Colour (0xffff4fd8));
-        g.fillEllipse (14.0f, (float) filter1Title + 5.0f, 6.0f, 6.0f);
-        g.drawText ("FILTER 1", juce::Rectangle<int> (28, filter1Title, 300, 16), juce::Justification::centredLeft);
-
-        g.setColour (juce::Colour (0xffb28aff));
-        g.fillEllipse (14.0f, (float) filter2Title + 5.0f, 6.0f, 6.0f);
-        g.drawText ("FILTER 2", juce::Rectangle<int> (28, filter2Title, 300, 16), juce::Justification::centredLeft);
-
-        paintSectionTitle (g, "ROUTING", { 14, routingTitle, 300, 16 });
-
+        paintSectionTitle (g, "RESPONSE", { 14, 10, 200, 16 });
         g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (12.0f));
-        g.drawFittedText ("Serial runs Filter 1 into Filter 2; Parallel sums them.  Each oscillator can also skip "
-                          "straight to Filter 2 or past both filters.",
-                          routingNote, juce::Justification::centredLeft, 2);
+        g.setFont (IlanaTheme::font (11.5f));
+        g.drawText ("drag the markers to set cutoff and resonance", juce::Rectangle<int> (100, 10, 400, 16),
+                    juce::Justification::centredLeft);
+
+        paintSectionTitle (g, "SIGNAL FLOW", flowTitle);
+
+        // Balance: its own small card, with a hint when serial makes it idle.
+        {
+            const auto* parallel = processorRef.apvts.getRawParameterValue ("filters_parallel");
+            const auto active = parallel != nullptr && parallel->load() > 0.5f;
+            IlanaTheme::paintCard (g, balanceCard.toFloat(), 7.0f, IlanaTheme::accent().withAlpha (active ? 0.35f : 0.12f));
+            g.setColour (active ? IlanaTheme::accent() : juce::Colours::white.withAlpha (0.45f));
+            g.setFont (IlanaTheme::font (11.5f, true));
+            g.drawText ("BALANCE", balanceCard.withHeight (24), juce::Justification::centred);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (10.0f));
+            g.drawText (active ? "parallel mix" : "parallel only", balanceCard.withTrimmedTop (balanceCard.getHeight() - 18),
+                        juce::Justification::centred);
+        }
+
+        IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
+        g.setColour (resonatorColour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("RESONATOR", resonatorCard.reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.5f));
+        g.drawText ("tuned body after the filters", resonatorCard.reduced (12, 0).removeFromTop (26),
+                    juce::Justification::centredRight);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
-
         area.removeFromTop (18);
-        const auto displayHeight = juce::jlimit (110, 190, area.getHeight() - 330);
+
+        const auto panelHeight = juce::jlimit (200, 260, area.getHeight() * 9 / 20);
+        const auto bottomHeight = juce::jlimit (128, 170, area.getHeight() / 4);
+        const auto displayHeight = juce::jmax (90, area.getHeight() - panelHeight - bottomHeight - 16);
+
         filterDisplay.setBounds (area.removeFromTop (displayHeight));
         area.removeFromTop (8);
 
-        const auto rowHeight = juce::jlimit (92, 110, (area.getHeight() - 110) / 2);
-
-        filter1Title = area.getY();
-        area.removeFromTop (18);
-        layoutRow (area.removeFromTop (rowHeight), { &f1Type, &f1Slope, &f1Cutoff, &f1Reso, &f1Drive, &f1Env, &f1Key, &f1Fm, &f1Morph });
-
-        area.removeFromTop (6);
-        filter2Title = area.getY();
-        area.removeFromTop (18);
-        layoutRow (area.removeFromTop (rowHeight), { &f2Type, &f2Slope, &f2Cutoff, &f2Reso, &f2Drive, &f2Env, &f2Key, &f2Fm, &f2Morph });
+        auto panels = area.removeFromTop (panelHeight);
+        panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - 10) / 2));
+        panels.removeFromLeft (10);
+        panel2.setBounds (panels);
 
         area.removeFromTop (8);
-        routingTitle = area.getY();
-        area.removeFromTop (18);
+        auto bottom = area.removeFromTop (bottomHeight);
 
-        auto row3 = area.removeFromTop (54);
-        routing.setBounds (row3.removeFromLeft (230).reduced (0, 2));
-        row3.removeFromLeft (16);
+        auto flowArea = bottom.removeFromLeft (bottom.getWidth() / 2 - 5);
+        flowTitle = flowArea.removeFromTop (18);
+        balanceCard = flowArea.removeFromRight (104);
+        balance.setBounds (balanceCard.reduced (8, 0).withTrimmedTop (24).withTrimmedBottom (18));
+        flowArea.removeFromRight (8);
+        flow.setBounds (flowArea);
 
-        for (auto* combo : { &osc1Route, &osc2Route, &osc3Route })
-        {
-            combo->setBounds (row3.removeFromLeft (150).withTrimmedTop (4));
-            row3.removeFromLeft (8);
-        }
-
-        routingNote = row3.reduced (8, 0);
+        bottom.removeFromLeft (10);
+        resonatorCard = bottom;
+        auto resArea = bottom.reduced (8, 0);
+        resArea.removeFromTop (26);
+        resArea.removeFromBottom (4);
+        layoutRow (resArea, { &resOn, &resAmount, &resDecay, &resOffset, &resKeytrack });
     }
 
 private:
-    // MORPH only does something on the Formant and Morph types.
-    void updateMorphEnabled()
+    // Balance only acts in parallel; resonator knobs only when it is on.
+    void timerCallback() override
     {
-        const auto uses = [this] (const char* id)
+        const auto read = [this] (const char* id)
         {
             const auto* value = processorRef.apvts.getRawParameterValue (id);
-            return value != nullptr && FilterType::usesMorph ((int) value->load());
+            return value != nullptr && value->load() > 0.5f;
         };
 
-        for (auto [knob, id] : { std::pair<KnobControl*, const char*> { &f1Morph, "f1_type" }, { &f2Morph, "f2_type" } })
+        const auto fade = [] (juce::Component& component, bool active)
         {
-            const auto enabled = uses (id);
+            const auto alpha = active ? 1.0f : 0.4f;
 
-            if (knob->isEnabled() != enabled)
-            {
-                knob->setEnabled (enabled);
-                knob->setAlpha (enabled ? 1.0f : 0.35f);
-            }
+            if (component.getAlpha() != alpha)
+                component.setAlpha (alpha);
+        };
+
+        const auto parallelNow = read ("filters_parallel");
+
+        if (parallelNow != wasParallel)
+        {
+            wasParallel = parallelNow;
+            repaint (balanceCard);
         }
-    }
 
-    void timerCallback() override { updateMorphEnabled(); }
+        fade (balance, parallelNow);
+
+        const auto resonating = read ("res_on");
+
+        for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
+            fade (*knob, resonating);
+    }
 
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
-    ComboControl f1Type, f1Slope;
-    KnobControl f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm, f1Morph;
-    ComboControl f2Type, f2Slope;
-    KnobControl f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm, f2Morph;
-    ComboControl osc1Route, osc2Route, osc3Route;
-    RoutingSwitch routing;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> routingAttachment;
-    int filter1Title = 0, filter2Title = 0, routingTitle = 0;
-    juce::Rectangle<int> routingNote;
+    FilterPanel panel1, panel2;
+    SignalFlow flow;
+    KnobControl balance;
+    bool wasParallel = false;
+    ToggleControl resOn;
+    KnobControl resAmount, resDecay, resOffset, resKeytrack;
+    juce::Rectangle<int> flowTitle, resonatorCard, balanceCard;
 };
 
 class EnvSection : public juce::Component
@@ -1052,6 +1204,13 @@ public:
         updateVisibility();
     }
 
+    void select (int index)
+    {
+        selected = juce::jlimit (0, (int) units.size() - 1, index);
+        settings.setValue ("envSelected", selected);
+        updateVisibility();
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();
@@ -1060,10 +1219,35 @@ public:
         area.removeFromTop (8);
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
-        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (470).reduced (2));
+        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        area.removeFromLeft (8);
 
-        auto knobRow = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 130));
-        layoutFixed (knobRow, units[(size_t) unitIndex].knobs);
+        // Same panel shape as the LFOs: heading, then the stage knobs.
+        panel = area;
+        auto inner = panel.reduced (10, 6);
+        inner.removeFromTop (20);
+        layoutFixed (inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), 140)),
+                     units[(size_t) unitIndex].knobs);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (panel.isEmpty())
+            return;
+
+        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+                                       juce::Colour (0xff8fff3b), juce::Colour (0xffffd447) };
+        const juce::StringArray titles { "AMP ENVELOPE", "FILTER 1 ENVELOPE", "FILTER 2 ENVELOPE", "MOD ENVELOPE", "ENVELOPE 4" };
+        const auto index = juce::jlimit (0, 4, selected);
+
+        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colours[index].withAlpha (0.35f));
+        auto header = panel.reduced (12, 0).withHeight (26);
+        g.setColour (colours[index]);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        g.drawText (titles[index], header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("drag the graph or the knobs", header, juce::Justification::centredRight);
     }
 
 private:
@@ -1104,6 +1288,7 @@ private:
     }
 
     juce::PropertiesFile& settings;
+    juce::Rectangle<int> panel;
     EnvThumbBar thumbs;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
@@ -1133,7 +1318,8 @@ public:
             displays.push_back (std::move (display));
 
             auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
-            addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->phase);
+            addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
+                    controls->phase);
             controlsList.push_back (std::move (controls));
         }
 
@@ -1158,11 +1344,52 @@ public:
         area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (470).reduced (2));
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        area.removeFromLeft (8);
 
-        auto knobRow = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 130));
+        // Control panel: options across the top, knobs underneath.
+        panel = area;
+        auto inner = panel.reduced (10, 6);
+        inner.removeFromTop (20);
         auto& c = *controlsList[(size_t) displayIndex];
-        layoutRow (knobRow, { &c.shape, &c.rate, &c.sync, &c.div, &c.retrig, &c.phase });
+
+        // Options stacked on the left, the two knobs full height on the right.
+        auto options = inner.removeFromLeft (inner.getWidth() / 2);
+        const auto rowHeight = options.getHeight() / 3;
+        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
+        auto toggles = options.removeFromTop (rowHeight);
+        const auto toggleWidth = toggles.getWidth() / 3;
+        c.sync.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.retrig.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.key.setBounds (toggles.reduced (3, 1));
+        c.div.setBounds (options.reduced (3, 1));
+
+        inner.removeFromLeft (8);
+        c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
+        c.phase.setBounds (inner.reduced (3, 0));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (panel.isEmpty())
+            return;
+
+        const auto colour = lfoColour (selected);
+        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
+
+        auto header = panel.reduced (12, 0).withHeight (26);
+        g.setColour (colour);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        g.drawText ("LFO " + juce::String (selected + 1), header, juce::Justification::centredLeft);
+
+        const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
+        const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText (key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
+                    : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
+                                                                 : "free-running, shared by all voices",
+                    header, juce::Justification::centredRight);
     }
 
     static juce::Colour lfoColour (int index)
@@ -1192,6 +1419,7 @@ private:
               sync (state, "lfo" + juce::String (lfo) + "_sync", "SYNC"),
               div (state, "lfo" + juce::String (lfo) + "_div", "DIVISION"),
               retrig (state, "lfo" + juce::String (lfo) + "_retrig", "RETRIG"),
+              key (state, "lfo" + juce::String (lfo) + "_key", "KEY"),
               phase (state, "lfo" + juce::String (lfo) + "_phase", "START", accent, followsTheme)
         {
         }
@@ -1201,6 +1429,7 @@ private:
         ToggleControl sync;
         ComboControl div;
         ToggleControl retrig;
+        ToggleControl key;
         KnobControl phase;
     };
 
@@ -1216,6 +1445,7 @@ private:
             c.sync.setVisible (visible);
             c.div.setVisible (visible);
             c.retrig.setVisible (visible);
+            c.key.setVisible (visible);
             c.phase.setVisible (visible);
         }
 
@@ -1242,10 +1472,13 @@ private:
 
         if (c.div.getAlpha() != divAlpha)
             c.div.setAlpha (divAlpha);
+
+        repaint (panel);
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
+    juce::Rectangle<int> panel;
     LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
@@ -1264,6 +1497,7 @@ public:
     }
 
     void selectLfo (int index) { lfoSection.select (index); }
+    void selectEnvelope (int index) { envSection.select (index); }
 
     void paint (juce::Graphics& g) override
     {
@@ -1301,228 +1535,160 @@ private:
     int lfoBottom = 0;
 };
 
-class XtraPage : public juce::Component,
-                 private juce::Timer
+// FM between the three oscillators: the operator diagram on the left, the
+// full matrix of amounts on the right (rows = from, columns = to), plus the
+// FM style, each oscillator's output switch, ring mod and hard sync.
+class FmPage : public juce::Component,
+               private juce::Timer
 {
 public:
-    explicit XtraPage (IlanaSynthAudioProcessor& p)
+    explicit FmPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
-          voiceSpread (p.apvts, "voice_spread", "VOICE SPREAD", xtraColour (0), true),
-          unisonRandom (p.apvts, "unison_random", "UNI PHASE RND", xtraColour (0), true),
-          masterClip (p.apvts, "master_clip", "SOFT CLIP"),
-          mpeMode (p.apvts, "mpe_mode", "MPE"),
-          glideLegato (p.apvts, "glide_legato", "LEGATO GLIDE"),
-          clipGain (p.apvts, "master_clip_gain", "CLIP GAIN", xtraColour (0), false),
-          fmAmount (p.apvts, "fm_amount", "FM  OSC2>OSC1", xtraColour (1), false),
-          fmFeedback (p.apvts, "fm_feedback", "FM FEEDBACK", xtraColour (1), false),
-          ringMod (p.apvts, "ring_mod", "RING MOD", xtraColour (1), false),
-          hardSync (p.apvts, "hard_sync", "HARD SYNC"),
-          drift (p.apvts, "drift", "DRIFT", xtraColour (1), false),
-          arpOn (p.apvts, "arp_on", "ARP"),
-          arpMode (p.apvts, "arp_mode", "MODE"),
-          arpDiv (p.apvts, "arp_div", "RATE"),
-          arpOctaves (p.apvts, "arp_octaves", "OCTAVES", xtraColour (2), false),
-          arpGate (p.apvts, "arp_gate", "GATE", xtraColour (2), false),
-          resOn (p.apvts, "res_on", "RESONATOR"),
-          resAmount (p.apvts, "res_amount", "RES AMOUNT", xtraColour (3), false),
-          resDecay (p.apvts, "res_decay", "RES DECAY", xtraColour (3), false),
-          resOffset (p.apvts, "res_offset", "RES OFFSET", xtraColour (3), false),
-          resKeytrack (p.apvts, "res_keytrack", "RES KEYTRK", xtraColour (3), false),
-          voiceDisplay (p),
-          crossModDisplay (p, xtraColour (1)),
-          arpDisplay (p, xtraColour (2)),
-          resonatorDisplay (p, xtraColour (3))
+          diagram (p),
+          mode (p.apvts, "fm_mode", "FM MODE"),
+          hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
     {
-        addAndMakeVisible (tabBar);
-        addAll (*this, voiceDisplay, crossModDisplay, arpDisplay, resonatorDisplay,
-                voiceSpread, unisonRandom, masterClip, mpeMode, glideLegato, clipGain,
-                fmAmount, fmFeedback, ringMod, hardSync, drift,
-                arpOn, arpMode, arpDiv, arpOctaves, arpGate,
-                resOn, resAmount, resDecay, resOffset, resKeytrack);
+        addAll (*this, diagram, mode, hardSync);
+        ringMod = std::make_unique<StripKnob> (p, "ring_mod", "Ring Mod", -1, fmColour(), false);
+        addAndMakeVisible (*ringMod);
 
-        units.push_back ({ &voiceDisplay, { &voiceSpread, &unisonRandom, &glideLegato, &masterClip, &mpeMode, &clipGain } });
-        units.push_back ({ &crossModDisplay, { &fmAmount, &fmFeedback, &ringMod, &hardSync, &drift } });
-        units.push_back ({ &arpDisplay, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate }, "arp_on" });
-        units.push_back ({ &resonatorDisplay, { &resOn, &resAmount, &resDecay, &resOffset, &resKeytrack }, "res_on" });
-
-        knobAlphas.resize (units.size());
-
-        for (size_t u = 0; u < units.size(); ++u)
-            knobAlphas[u].assign (units[u].knobs.size(), 1.0f);
-
-        tabBar.onSelect = [this] (int index)
+        for (int source = 0; source < 3; ++source)
         {
-            selected = index;
-            updateVisibility();
-        };
+            for (int target = 0; target < 3; ++target)
+            {
+                auto knob = std::make_unique<KnobControl> (p.apvts, FmDiagram::routeId (source, target), "",
+                                                           FmDiagram::oscColour (source), false);
+                addAndMakeVisible (*knob);
+                knobs[(size_t) source][(size_t) target] = std::move (knob);
+            }
 
-        updateVisibility();
-        startTimerHz (30);
-    }
-
-    static juce::Colour xtraColour (int index)
-    {
-        switch (index)
-        {
-            case 1: return juce::Colour (0xffe3a56f);
-            case 2: return juce::Colour (0xff6fe3c1);
-            case 3: return juce::Colour (0xffb28aff);
-            default: return IlanaTheme::accent();
+            outs[(size_t) source] = std::make_unique<ToggleControl> (p.apvts, source == 0 ? "osc1_out" : (source == 1 ? "osc2_out" : "sub_out"), "OUT");
+            addAndMakeVisible (*outs[(size_t) source]);
         }
+
+        startTimerHz (12);
     }
+
+    static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
+        paintSectionTitle (g, "OPERATORS", { 14, 10, 300, 16 });
+        IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
 
-        const juce::StringArray titles { "VOICE", "CROSS MODULATION", "ARPEGGIATOR", "RESONATOR" };
-        const auto colour = xtraColour (selected);
-
-        g.setColour (colour);
+        g.setColour (fmColour());
         g.setFont (IlanaTheme::font (13.0f, true));
-        g.fillEllipse (14.0f, 44.0f, 6.0f, 6.0f);
-        g.drawText (titles[juce::jlimit (0, titles.size() - 1, selected)],
-                    juce::Rectangle<int> (28, 40, 300, 16), juce::Justification::centredLeft);
+        g.drawText ("FM MATRIX", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
 
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (11.5f));
-        g.drawText (juce::String (selected + 1) + " / 4",
-                    juce::Rectangle<int> (getWidth() - 76, 40, 60, 16), juce::Justification::centredRight);
-
-        if (! controlBay.isEmpty())
+        // Matrix cells: tinted by the source, brighter the deeper the route.
+        for (int source = 0; source < 3; ++source)
         {
-            IlanaTheme::paintRecessedPanel (g, controlBay.toFloat(), 6.0f);
+            for (int target = 0; target < 3; ++target)
+            {
+                const auto cell = cells[(size_t) source][(size_t) target].toFloat();
+                const auto* value = processorRef.apvts.getRawParameterValue (FmDiagram::routeId (source, target));
+                const auto amount = value != nullptr ? juce::jlimit (0.0f, 1.0f, value->load()) : 0.0f;
+                const auto colour = FmDiagram::oscColour (source);
 
-            const auto caption = controlBay.withHeight (16).translated (0, 2);
+                g.setColour (juce::Colours::black.withAlpha (0.22f));
+                g.fillRoundedRectangle (cell, 6.0f);
+                g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
+                g.fillRoundedRectangle (cell, 6.0f);
+                g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
+                g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
 
-            g.setColour (colour.withAlpha (0.85f));
-            g.setFont (IlanaTheme::font (11.0f, true));
-            g.drawText (titles[juce::jlimit (0, titles.size() - 1, selected)] + " CONTROLS",
-                        caption.reduced (10, 0), juce::Justification::centredLeft);
+                if (source == target)
+                {
+                    g.setColour (colour.withAlpha (0.6f));
+                    g.setFont (IlanaTheme::font (9.5f, true));
+                    g.drawText ("FEEDBACK", cell.reduced (6.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
+                }
+            }
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (12.5f));
-        g.drawText ("Cross mod shapes the oscillators, the arpeggiator feeds notes and the resonator "
-                    "adds tuned body after the filters.",
-                    juce::Rectangle<int> (14, 424, 1000, 16), juce::Justification::centredLeft);
+        // Column and row headings.
+        g.setFont (IlanaTheme::font (11.0f, true));
+
+        for (int i = 0; i < 3; ++i)
+        {
+            g.setColour (FmDiagram::oscColour (i));
+            g.drawText ("TO OSC " + juce::String (i + 1), columnHeads[(size_t) i], juce::Justification::centred);
+            g.drawText ("OSC " + juce::String (i + 1), rowHeads[(size_t) i].withHeight (18), juce::Justification::centredLeft);
+        }
+    }
+
+    void timerCallback() override
+    {
+        if (isShowing())
+            repaint (matrixCard);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
+        area.removeFromTop (18);
 
-        tabBar.setBounds (area.removeFromTop (26));
-        area.removeFromTop (6);
+        matrixCard = area.removeFromRight (area.getWidth() * 48 / 100);
+        area.removeFromRight (10);
+        diagram.setBounds (area);
 
-        auto row = area.removeFromTop (313);
-        row.removeFromTop (18);
+        auto inner = matrixCard.reduced (10, 0);
+        inner.removeFromTop (26);
+        inner.removeFromBottom (8);
 
-        const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
-        units[(size_t) unitIndex].display->setBounds (row.removeFromLeft (470).reduced (2));
+        // Mode, ring mod and sync across the top.
+        auto top = inner.removeFromTop (48);
+        mode.setBounds (top.removeFromLeft (top.getWidth() * 36 / 100).reduced (3, 1));
+        ringMod->setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 1));
+        hardSync.setBounds (top.reduced (3, 1));
+        inner.removeFromTop (6);
 
-        controlBay = row.reduced (0, 4);
+        auto heads = inner.removeFromTop (18);
+        heads.removeFromLeft (70);
+        const auto columnWidth = heads.getWidth() / 3;
 
-        auto knobRow = controlBay.withTrimmedTop (20);
-        const auto knobHeight = juce::jmin (knobRow.getHeight(), 120);
-        layoutRow (knobRow.withSizeKeepingCentre (knobRow.getWidth(), knobHeight), units[(size_t) unitIndex].knobs);
+        for (int i = 0; i < 3; ++i)
+            columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
+
+        inner.removeFromTop (4);
+        const auto rowHeight = inner.getHeight() / 3;
+
+        for (int source = 0; source < 3; ++source)
+        {
+            auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
+            auto head = row.removeFromLeft (70);
+            rowHeads[(size_t) source] = head.withTrimmedTop (head.getHeight() / 2 - 26);
+            outs[(size_t) source]->setBounds (rowHeads[(size_t) source].withTrimmedTop (20).withHeight (40).reduced (0, 2));
+
+            for (int target = 0; target < 3; ++target)
+            {
+                auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
+                cells[(size_t) source][(size_t) target] = cell;
+                const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
+                knobs[(size_t) source][(size_t) target]->setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+            }
+        }
     }
 
 private:
-    struct Unit
-    {
-        juce::Component* display = nullptr;
-        std::vector<juce::Component*> knobs;
-        const char* enableParam = nullptr;
-    };
-
-    void updateVisibility()
-    {
-        for (int i = 0; i < (int) units.size(); ++i)
-        {
-            const auto visible = i == selected;
-            units[(size_t) i].display->setVisible (visible);
-
-            for (auto* knob : units[(size_t) i].knobs)
-                knob->setVisible (visible);
-        }
-
-        if (juce::isPositiveAndBelow (selected, (int) units.size()))
-        {
-            if (auto* animated = dynamic_cast<IlanaAnim::PageAnimated*> (units[(size_t) selected].display))
-                animated->replayAppear();
-        }
-
-        tabBar.setItems ({ "VOICE", "CROSS MOD", "ARPEGGIATOR", "RESONATOR" }, 4, selected);
-        resized();
-        repaint();
-    }
-
-    void timerCallback() override
-    {
-        for (size_t u = 0; u < units.size(); ++u)
-        {
-            auto& unit = units[u];
-
-            if (unit.enableParam == nullptr)
-                continue;
-
-            const auto on = readFloat (unit.enableParam) > 0.5f;
-            const auto target = on ? 1.0f : 0.45f;
-
-            for (size_t k = 1; k < unit.knobs.size(); ++k)
-            {
-                auto& alpha = knobAlphas[u][k];
-
-                if (std::abs (alpha - target) < 0.004f)
-                    continue;
-
-                alpha = IlanaAnim::approach (alpha, target, 0.25f);
-                unit.knobs[k]->setAlpha (alpha);
-            }
-        }
-
-        if (pendingRepaint)
-        {
-            pendingRepaint = false;
-            repaint();
-        }
-    }
-
-    float readFloat (const char* id) const
-    {
-        if (const auto* value = processorRef.apvts.getRawParameterValue (id))
-            return value->load();
-
-        return 0.0f;
-    }
-
-    // Declared in constructor-initialiser order.
     IlanaSynthAudioProcessor& processorRef;
-    KnobControl voiceSpread, unisonRandom;
-    ToggleControl masterClip, mpeMode, glideLegato;
-    KnobControl clipGain;
-    KnobControl fmAmount, fmFeedback, ringMod;
+    FmDiagram diagram;
+    ComboControl mode;
     ToggleControl hardSync;
-    KnobControl drift;
-    ToggleControl arpOn;
-    ComboControl arpMode, arpDiv;
-    KnobControl arpOctaves, arpGate;
-    ToggleControl resOn;
-    KnobControl resAmount, resDecay, resOffset, resKeytrack;
-    VoiceDisplay voiceDisplay;
-    CrossModDisplay crossModDisplay;
-    ArpDisplay arpDisplay;
-    ResonatorDisplay resonatorDisplay;
-    SubTabBar tabBar;
-    juce::Rectangle<int> controlBay;
-    std::vector<std::vector<float>> knobAlphas;
-    std::vector<Unit> units;
-    int selected = 0;
-    bool pendingRepaint = false;
+    std::unique_ptr<StripKnob> ringMod;
+    std::array<std::array<std::unique_ptr<KnobControl>, 3>, 3> knobs;
+    std::array<std::unique_ptr<ToggleControl>, 3> outs;
+    std::array<juce::Rectangle<int>, 3> columnHeads, rowHeads;
+    std::array<std::array<juce::Rectangle<int>, 3>, 3> cells;
+    juce::Rectangle<int> matrixCard;
 };
 
-class SeqPage : public juce::Component
+class SeqPage : public juce::Component,
+                private juce::Timer
 {
 public:
     explicit SeqPage (IlanaSynthAudioProcessor& p)
@@ -1530,10 +1696,30 @@ public:
           step2 (p, 1, juce::Colour (0xff35c8ff)),
           mseg (p),
           msegLoop (p.apvts, "mseg_loop", "LOOP"),
-          msegRate (p.apvts, "mseg_rate", "RATE"),
-          clockDiv (p.apvts, "clock_div", "CLOCK DIV"),
-          processorRef (p)
+          msegRate (p.apvts, "mseg_rate", "RATE", msegColour(), false),
+          clockDiv (p.apvts, "clock_div", "S&H CLOCK", msegColour(), false),
+          processorRef (p),
+          arpDisplay (p, arpColour()),
+          arpOn (p.apvts, "arp_on", "ARP"),
+          arpMode (p.apvts, "arp_mode", "MODE"),
+          arpDiv (p.apvts, "arp_div", "RATE"),
+          arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), false),
+          arpGate (p.apvts, "arp_gate", "GATE", arpColour(), false),
+          arpChance (p.apvts, "arp_chance", "CHANCE", arpColour(), false),
+          genScale (p.apvts, "gen_scale", "SCALE"),
+          genRoot (p.apvts, "gen_root", "ROOT"),
+          genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
+          sprayOn (p.apvts, "spray_on", "SPRAY"),
+          sprayDirection (p.apvts, "spray_direction", "DIRECTION")
     {
+        sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), false);
+        sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), false);
+        spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "STRUM", generateColour(), false);
+        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), false);
+        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), false);
+        addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
+                *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity);
+
         addAndMakeVisible (step1);
         addAndMakeVisible (step2);
 
@@ -1559,33 +1745,60 @@ public:
         showLfo (0, 0);
         showLfo (1, 1);
 
-        addAndMakeVisible (mseg);
-        addAndMakeVisible (msegLoop);
-        addAndMakeVisible (msegRate);
-        addAndMakeVisible (clockDiv);
+        addAll (*this, mseg, msegLoop, msegRate, clockDiv,
+                arpDisplay, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
+        startTimerHz (8);
     }
+
+    static juce::Colour msegColour() { return juce::Colour (0xff6fe3c1); }
+    static juce::Colour arpColour() { return juce::Colour (0xffff7ac6); }
+    static juce::Colour generateColour() { return juce::Colour (0xffffd447); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        g.setColour (IlanaTheme::accent());
-        g.setFont (IlanaTheme::font (13.0f, true));
-        g.fillEllipse (14.0f, 12.0f, 6.0f, 6.0f);
-        g.drawText ("STEPS", juce::Rectangle<int> (28, 8, 300, 16), juce::Justification::centredLeft);
+        const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
+        {
+            g.setColour (colour);
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.fillEllipse ((float) area.getX(), (float) area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            g.drawText (text, area.withTrimmedLeft (14), juce::Justification::centredLeft);
+        };
 
-        g.setColour (juce::Colour (0xff35c8ff));
-        g.fillEllipse (14.0f, 136.0f, 6.0f, 6.0f);
-        g.drawText ("STEPS", juce::Rectangle<int> (28, 132, 300, 16), juce::Justification::centredLeft);
+        title (stepTitle1, "STEPS", IlanaTheme::accent());
+        title (stepTitle2, "STEPS", juce::Colour (0xff35c8ff));
 
-        g.setColour (juce::Colour (0xff6fe3c1));
-        g.fillEllipse (14.0f, 260.0f, 6.0f, 6.0f);
-        g.drawText ("MSEG", juce::Rectangle<int> (28, 256, 300, 16), juce::Justification::centredLeft);
+        IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, arpColour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
+        title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
+        title (arpCard.reduced (12, 0).removeFromTop (26), "ARPEGGIATOR", arpColour());
+        title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (12.5f));
-        g.drawText ("Set an LFO shape to Steps, pick it above a row, then draw.  Assign LFOs in the MATRIX tab.",
-                    juce::Rectangle<int> (14, 424, 1000, 16), juce::Justification::centredLeft);
+        g.setFont (IlanaTheme::font (11.5f));
+        g.drawText ("drag points; assign it in the MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
+                    juce::Justification::centredRight);
+        g.drawText ("hold notes to play the pattern", arpCard.reduced (12, 0).removeFromTop (26),
+                    juce::Justification::centredRight);
+        // "NOTE SPRAY" divider: the label, then a hairline to the card edge.
+        if (! sprayDivider.isEmpty())
+        {
+            const auto font = IlanaTheme::font (10.5f, true);
+            const juce::String text ("NOTE SPRAY");
+            const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+            g.setColour (generateColour().withAlpha (0.9f));
+            g.setFont (font);
+            g.drawText (text, sprayDivider.withTrimmedLeft (3), juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.fillRect (sprayDivider.getX() + width + 12, sprayDivider.getCentreY(), sprayDivider.getWidth() - width - 15, 1);
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("scale snap and note spray", generateCard.reduced (12, 0).removeFromTop (26),
+                    juce::Justification::centredRight);
     }
 
     void resized() override
@@ -1603,21 +1816,64 @@ public:
             }
         };
 
-        auto row = area.removeFromTop (120);
-        layoutPicker (0, row.removeFromTop (22).withTrimmedBottom (2));
+        // Left: the two step rows and the MSEG. Right: arp and generate.
+        auto right = area.removeFromRight (area.getWidth() * 43 / 100);
+        area.removeFromRight (10);
+
+        const auto msegHeight = juce::jlimit (170, 260, area.getHeight() * 2 / 5);
+        const auto stepHeight = (area.getHeight() - msegHeight - 16) / 2;
+
+        auto row = area.removeFromTop (stepHeight);
+        stepTitle1 = row.removeFromTop (22).withWidth (80);
+        layoutPicker (0, row.withHeight (22).translated (0, -22).withTrimmedBottom (2));
         step1.setBounds (row);
 
-        area.removeFromTop (4);
-        row = area.removeFromTop (120);
-        layoutPicker (1, row.removeFromTop (22).withTrimmedBottom (2));
+        area.removeFromTop (8);
+        row = area.removeFromTop (stepHeight);
+        stepTitle2 = row.removeFromTop (22).withWidth (80);
+        layoutPicker (1, row.withHeight (22).translated (0, -22).withTrimmedBottom (2));
         step2.setBounds (row);
 
-        area.removeFromTop (4);
-        row = area.removeFromTop (160);
-        row.removeFromTop (22);
-        mseg.setBounds (row.removeFromLeft (600).reduced (2));
-        row.removeFromTop (10);
-        layoutRow (row.removeFromLeft (330), { &msegLoop, &msegRate, &clockDiv });
+        area.removeFromTop (8);
+        msegCard = area;
+
+        auto msegArea = msegCard.reduced (10, 0);
+        msegArea.removeFromTop (26);
+        msegArea.removeFromBottom (8);
+        auto msegControls = msegArea.removeFromRight (juce::jmin (180, msegArea.getWidth() / 3));
+        mseg.setBounds (msegArea.reduced (0, 2));
+        msegLoop.setBounds (msegControls.removeFromTop (40).reduced (8, 4));
+        layoutRow (msegControls, { &msegRate, &clockDiv });
+
+        // Arp card.
+        arpCard = right.removeFromTop ((right.getHeight() - 8) * 47 / 100);
+        right.removeFromTop (8);
+        generateCard = right;
+
+        auto arpArea = arpCard.reduced (10, 0);
+        arpArea.removeFromTop (26);
+        arpArea.removeFromBottom (6);
+        arpDisplay.setBounds (arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - 104)).reduced (0, 2));
+        layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance });
+
+        // Generate card: scale row, then note spray (switch and direction,
+        // with its amounts as one row of knobs).
+        auto generate = generateCard.reduced (10, 0);
+        generate.removeFromTop (26);
+        generate.removeFromBottom (6);
+
+        auto scaleRow = generate.removeFromTop (46);
+        genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 42 / 100).reduced (3, 1));
+        genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 40 / 100).reduced (3, 1));
+        genSnap.setBounds (scaleRow.reduced (3, 1));
+
+        sprayDivider = generate.removeFromTop (22);
+
+        auto sprayRow = generate.removeFromTop (46);
+        sprayOn.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() * 42 / 100).reduced (3, 1));
+        sprayDirection.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() * 40 / 100).reduced (3, 1));
+        generate.removeFromTop (4);
+        layoutRow (generate, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
     }
 
     void visibilityChanged() override
@@ -1671,19 +1927,54 @@ private:
         lfoButtons[(size_t) row][(size_t) lfo].setToggleState (true, juce::dontSendNotification);
     }
 
+    // Arp controls step back while the arp is off.
+    void timerCallback() override
+    {
+        const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
+        const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : 0.45f;
+
+        for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
+                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
+                                          static_cast<juce::Component*> (&arpChance) })
+            if (control->getAlpha() != alpha)
+                control->setAlpha (alpha);
+
+        const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
+        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : 0.45f;
+
+        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
+                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
+                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
+            if (control->getAlpha() != sprayAlpha)
+                control->setAlpha (sprayAlpha);
+    }
+
     StepEditor step1, step2;
     MsegEditor mseg;
     ToggleControl msegLoop;
     KnobControl msegRate;
     KnobControl clockDiv;
     IlanaSynthAudioProcessor& processorRef;
+    ArpDisplay arpDisplay;
+    ToggleControl arpOn;
+    ComboControl arpMode, arpDiv;
+    KnobControl arpOctaves, arpGate, arpChance;
+    ComboControl genScale, genRoot;
+    ToggleControl genSnap, sprayOn;
+    ComboControl sprayDirection;
+    std::unique_ptr<KnobControl> sprayCount, sprayRange, spraySpread, sprayChance, sprayVelocity;
+    juce::Rectangle<int> sprayDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
+    juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
 };
 
 // The overview: everything needed to shape a basic sound on one screen
 // (oscillators, filter 1, amp envelope, LFOs). The other tabs hold the
 // detail.
-class MainPage : public juce::Component
+class MainPage : public juce::Component,
+                 private juce::Timer,
+                 private juce::AudioProcessorValueTreeState::Listener,
+                 private juce::AsyncUpdater
 {
 public:
     explicit MainPage (IlanaSynthAudioProcessor& p)
@@ -1692,11 +1983,14 @@ public:
                  IlanaTheme::accent(), true),
           wave2 (p, "osc2_table", "osc2_frame", "osc2_unison", "osc2_spread", "osc2_detune", false, {}, "osc2_mode", 1,
                  juce::Colour (0xff5b8cff)),
-          wave3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", true, "sub_shape", "sub_mode", 2,
+          wave3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", false, {}, "sub_mode", 2,
                  juce::Colour (0xffffd447)),
           filterDisplay (p),
-          ampDisplay (p, "amp", IlanaTheme::accent(), true),
-          lfoThumbs (p, [] (int index) { return lfoColour (index); })
+          lfoThumbs (p, [] (int index) { return lfoColour (index); }),
+          filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
+          envTabs ({ "AMP", "FLT 1", "FLT 2", "MOD", "ENV 4" },
+                   { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
+          lfoTabs ({}, {}, true)
     {
         const char* const prefixes[] { "osc1", "osc2", "sub" };
         const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447) };
@@ -1709,19 +2003,42 @@ public:
             const auto themed = osc == 0;
 
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
+            strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "MODE");
+            strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "EXCITE");
             strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "TABLE");
+            strip->table->setPopupOverride ([this, table = strip->table.get(), id = prefix + "_table", colour]
+            {
+                TableBrowser::show (processorRef, id, colour, table->getComboBox());
+            });
             strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "WARP");
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_frame", "FRAME", colour, themed));
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_warp_amt", "WARP", colour, themed));
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_level", "LEVEL", colour, themed));
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_semi", "SEMI", colour, themed));
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_unison", "UNISON", colour, themed));
-            strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_detune", "DETUNE", colour, themed));
+            // One row of knobs per oscillator mode: wavetable, string, sample, granular.
+            const auto knob = [&] (const juce::String& suffix, const juce::String& label)
+            {
+                const auto id = prefix + suffix;
 
-            addAll (*this, *strip->on, *strip->table, *strip->warp);
+                for (auto& existing : strip->allKnobs)
+                    if (existing.first == id + label)
+                        return existing.second.get();
 
-            for (auto& knob : strip->knobs)
-                addAndMakeVisible (*knob);
+                strip->allKnobs.push_back ({ id + label, std::make_unique<KnobControl> (p.apvts, id, label, colour, themed) });
+                addChildComponent (*strip->allKnobs.back().second);
+                return strip->allKnobs.back().second.get();
+            };
+
+            strip->modeKnobs[0] = { knob ("_frame", "FRAME"), knob ("_warp_amt", "WARP"), knob ("_level", "LEVEL"),
+                                    knob ("_semi", "SEMI"), knob ("_unison", "UNISON"), knob ("_detune", "DETUNE") };
+            strip->modeKnobs[1] = { knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP"),
+                                    knob ("_string_sustain", "SUSTAIN"), knob ("_level", "LEVEL"), knob ("_semi", "SEMI"),
+                                    knob ("_unison", "UNISON") };
+            strip->modeKnobs[2] = { knob ("_sample_start", "START"), knob ("_sample_end", "END"),
+                                    knob ("_sample_fade_out", "FADE OUT"), knob ("_level", "LEVEL"), knob ("_semi", "SEMI"),
+                                    knob ("_unison", "UNISON") };
+            strip->modeKnobs[3] = { knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE"),
+                                    knob ("_grain_density", "DENSITY"), knob ("_grain_spray", "SPRAY"), knob ("_level", "LEVEL"),
+                                    knob ("_semi", "SEMI") };
+
+            addAll (*this, *strip->on, *strip->mode, *strip->table, *strip->warp);
+            addChildComponent (*strip->excite);
 
             strips.push_back (std::move (strip));
         }
@@ -1730,36 +2047,97 @@ public:
         addAndMakeVisible (wave2);
         addAndMakeVisible (wave3);
 
-        const auto filterColour = juce::Colour (0xffff4fd8);
-        filterType = std::make_unique<ComboControl> (p.apvts, "f1_type", "FILTER 1");
-        filterSlope = std::make_unique<ComboControl> (p.apvts, "f1_slope", "SLOPE");
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_cutoff", "CUTOFF", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_reso", "RESO", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_drive", "DRIVE", filterColour, false));
-        filterKnobs.push_back (std::make_unique<KnobControl> (p.apvts, "f1_env", "ENV AMT", filterColour, false));
-        addAll (*this, filterDisplay, *filterType, *filterSlope);
+        // Filters: one set of controls per filter, swapped by the F1/F2 tabs.
+        addAndMakeVisible (filterDisplay);
 
-        for (auto& knob : filterKnobs)
-            addAndMakeVisible (*knob);
-
-        for (const auto& spec : { std::pair<const char*, const char*> { "amp_attack", "ATTACK" }, { "amp_decay", "DECAY" },
-                                  { "amp_sustain", "SUSTAIN" }, { "amp_release", "RELEASE" } })
-            envKnobs.push_back (std::make_unique<KnobControl> (p.apvts, spec.first, spec.second));
-
-        addAndMakeVisible (ampDisplay);
-
-        for (auto& knob : envKnobs)
-            addAndMakeVisible (*knob);
-
-        lfoThumbs.onSelect = [this] (int index)
+        for (int f = 0; f < 2; ++f)
         {
-            if (onEditLfo != nullptr)
-                onEditLfo (index);
-        };
+            const juce::String prefix (f == 0 ? "f1" : "f2");
+            auto set = std::make_unique<ControlSet>();
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_type", "TYPE"));
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_slope", "SLOPE"));
+
+            for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" },
+                                      { "_drive", "DRIVE" }, { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" } })
+                set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, filterColour (f), false));
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            filterSets.push_back (std::move (set));
+        }
+
+        // Envelopes: graph plus ADSR per envelope, swapped by the tabs.
+        const char* const envPrefixes[] { "amp", "fe", "f2e", "me", "e4" };
+
+        for (int e = 0; e < 5; ++e)
+        {
+            const juce::String prefix (envPrefixes[e]);
+            auto set = std::make_unique<ControlSet>();
+            set->display = std::make_unique<EnvelopeDisplay> (p, prefix, envColour (e), e == 0);
+
+            for (const auto& spec : { std::pair<const char*, const char*> { "_attack", "ATTACK" }, { "_decay", "DECAY" },
+                                      { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" } })
+                set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, envColour (e), e == 0));
+
+            addChildComponent (*set->display);
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            envSets.push_back (std::move (set));
+        }
+
+        // LFOs: the cards plus the selected LFO's main controls.
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+        {
+            const auto prefix = "lfo" + juce::String (lfo + 1);
+            auto set = std::make_unique<ControlSet>();
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
+            set->items.push_back (std::make_unique<StripKnob> (p, prefix + "_rate", "Rate", -1, lfoColour (lfo), lfo == 0));
+            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
+            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV"));
+            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
+
+            for (auto& item : set->items)
+                addChildComponent (*item);
+
+            lfoSets.push_back (std::move (set));
+        }
+
+        lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
         addAndMakeVisible (lfoThumbs);
+
+        filterTabs.onSelect = [this] (int) { updateVisibility(); };
+        envTabs.onSelect = [this] (int) { updateVisibility(); };
+        lfoTabs.onSelect = [this] (int index)
+        {
+            lfoThumbs.setSelected (index);
+            updateVisibility();
+        };
+
+        filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
+        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (envTabs.getSelected()); };
+        lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
+
+        addAll (*this, filterTabs, envTabs, lfoTabs);
+        updateVisibility();
+        updateStrips();
+
+        for (const auto* id : stripParameterIds)
+            processorRef.apvts.addParameterListener (id, this);
+
+        startTimerHz (8);
     }
 
-    std::function<void (int)> onEditLfo;
+    ~MainPage() override
+    {
+        for (const auto* id : stripParameterIds)
+            processorRef.apvts.removeParameterListener (id, this);
+    }
+
+    std::function<void (int)> onEditLfo, onEditEnvelope;
+    std::function<void (const juce::String&)> onOpenPage;
 
     static juce::Colour lfoColour (int index)
     {
@@ -1768,6 +2146,20 @@ public:
             case 1: return juce::Colour (0xff35c8ff);
             case 2: return juce::Colour (0xff6fe3c1);
             case 3: return juce::Colour (0xffe3a56f);
+            default: return IlanaTheme::accent();
+        }
+    }
+
+    static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffff4fd8) : juce::Colour (0xffb28aff); }
+
+    static juce::Colour envColour (int index)
+    {
+        switch (index)
+        {
+            case 1: return juce::Colour (0xffff4fd8);
+            case 2: return juce::Colour (0xffb28aff);
+            case 3: return juce::Colour (0xff8fff3b);
+            case 4: return juce::Colour (0xffffd447);
             default: return IlanaTheme::accent();
         }
     }
@@ -1781,14 +2173,9 @@ public:
         for (int osc = 0; osc < 3; ++osc)
             paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), oscColours[osc]);
 
-        paintCard (g, filterCard, "FILTER", juce::Colour (0xffff4fd8));
-        paintCard (g, envCard, "AMP ENVELOPE", IlanaTheme::accent());
-        paintCard (g, lfoCard, "LFOS", juce::Colour (0xff35c8ff));
-
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (11.0f));
-        g.drawText ("Click a card to edit it, drag it onto a knob to modulate",
-                    lfoCard.withTrimmedLeft (60).withHeight (26).reduced (10, 0), juce::Justification::centredRight);
+        paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
+        paintCard (g, envCard, "ENVELOPE", envColour (envTabs.getSelected()));
+        paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
     }
 
     void resized() override
@@ -1807,41 +2194,185 @@ public:
             layoutStrip (osc, oscCards[(size_t) osc]);
         }
 
-        const auto lfoHeight = 96;
+        const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
         const auto remaining = right.getHeight() - lfoHeight - 16;
-        filterCard = right.removeFromTop ((int) ((float) remaining * 0.54f));
+        filterCard = right.removeFromTop ((int) ((float) remaining * 0.53f));
         right.removeFromTop (8);
         envCard = right.removeFromTop (remaining - filterCard.getHeight());
         right.removeFromTop (8);
         lfoCard = right;
 
+        const auto placeTabs = [] (CardTabs& tabs, juce::Rectangle<int> card)
+        {
+            auto header = card.reduced (8, 0).withHeight (26).reduced (0, 5);
+            tabs.setBounds (header.removeFromRight (tabs.getIdealWidth()));
+        };
+
+        placeTabs (filterTabs, filterCard);
+        placeTabs (envTabs, envCard);
+        placeTabs (lfoTabs, lfoCard);
+
         {
             auto inner = filterCard.reduced (10).withTrimmedTop (18);
-            filterDisplay.setBounds (inner.removeFromTop (juce::jmax (60, inner.getHeight() - 96)));
+            filterDisplay.setBounds (inner.removeFromTop (juce::jmax (50, inner.getHeight() - 96)));
             inner.removeFromTop (4);
-            auto combos = inner.removeFromLeft (112);
-            filterType->setBounds (combos.removeFromTop (42));
-            filterSlope->setBounds (combos.removeFromTop (42));
-            layoutRow (inner, { filterKnobs[0].get(), filterKnobs[1].get(), filterKnobs[2].get(), filterKnobs[3].get() });
+
+            for (auto& set : filterSets)
+            {
+                auto row = inner;
+                auto combos = row.removeFromLeft (104);
+                set->items[0]->setBounds (combos.removeFromTop (combos.getHeight() / 2).reduced (0, 1));
+                set->items[1]->setBounds (combos.reduced (0, 1));
+                layoutRow (row, { set->items[2].get(), set->items[3].get(), set->items[4].get(), set->items[5].get(), set->items[6].get() });
+            }
         }
 
         {
             auto inner = envCard.reduced (10).withTrimmedTop (18);
-            ampDisplay.setBounds (inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2)));
+            auto displayArea = inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2));
             inner.removeFromLeft (6);
-            layoutRow (inner, { envKnobs[0].get(), envKnobs[1].get(), envKnobs[2].get(), envKnobs[3].get() });
+
+            for (auto& set : envSets)
+            {
+                set->display->setBounds (displayArea);
+                layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(), set->items[3].get() });
+            }
         }
 
-        lfoThumbs.setBounds (lfoCard.reduced (10).withTrimmedTop (18));
+        {
+            auto inner = lfoCard.reduced (10).withTrimmedTop (18);
+            lfoThumbs.setBounds (inner.removeFromTop (juce::jmax (40, inner.getHeight() - 52)));
+            inner.removeFromTop (4);
+
+            for (auto& set : lfoSets)
+            {
+                auto row = inner;
+                set->items[0]->setBounds (row.removeFromLeft (row.getWidth() * 24 / 100).reduced (2, 0));
+                set->items[1]->setBounds (row.removeFromLeft (row.getWidth() * 34 / 100).reduced (2, 0));
+                set->items[2]->setBounds (row.removeFromLeft (row.getWidth() / 3).reduced (2, 0));
+                set->items[3]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
+                set->items[4]->setBounds (row.reduced (2, 0));
+            }
+        }
     }
 
 private:
     struct OscStrip
     {
         std::unique_ptr<ToggleControl> on;
-        std::unique_ptr<ComboControl> table, warp;
-        std::vector<std::unique_ptr<KnobControl>> knobs;
+        std::unique_ptr<ComboControl> mode, excite, table, warp;
+        std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
+        std::array<std::vector<juce::Component*>, 4> modeKnobs;
+        int shownMode = -1;
+        bool shownOn = true;
     };
+
+    static constexpr const char* stripParameterIds[] { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" };
+
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { updateStrips(); }
+
+    int readInt (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? (int) value->load() : 0;
+    }
+
+    // Shows the controls for each oscillator's mode and dims a switched-off one.
+    void updateStrips()
+    {
+        const char* const prefixes[] { "osc1", "osc2", "sub" };
+        auto changed = false;
+
+        for (int index = 0; index < (int) strips.size(); ++index)
+        {
+            auto& strip = *strips[(size_t) index];
+            const juce::String prefix (prefixes[index]);
+            const auto mode = juce::jlimit (0, 3, readInt (prefix + "_mode"));
+            const auto on = readInt (prefix + "_on") > 0;
+
+            if (mode != strip.shownMode)
+            {
+                strip.shownMode = mode;
+                changed = true;
+
+                for (auto& entry : strip.allKnobs)
+                    entry.second->setVisible (false);
+
+                for (auto* item : strip.modeKnobs[(size_t) mode])
+                    item->setVisible (true);
+
+                strip.table->setVisible (mode == 0);
+                strip.warp->setVisible (mode == 0);
+                strip.excite->setVisible (mode == 1);
+            }
+
+            if (on != strip.shownOn)
+            {
+                strip.shownOn = on;
+                const auto alpha = on ? 1.0f : 0.4f;
+
+                for (auto* item : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.excite.get(),
+                                    (juce::Component*) strip.table.get(), (juce::Component*) strip.warp.get(),
+                                    (juce::Component*) &wave (index) })
+                    item->setAlpha (alpha);
+
+                for (auto& entry : strip.allKnobs)
+                    entry.second->setAlpha (alpha);
+            }
+        }
+
+        if (changed)
+            resized();
+    }
+
+    struct ControlSet
+    {
+        std::unique_ptr<EnvelopeDisplay> display;
+        std::vector<std::unique_ptr<juce::Component>> items;
+    };
+
+    void updateVisibility()
+    {
+        const auto showSets = [] (std::vector<std::unique_ptr<ControlSet>>& sets, int selected)
+        {
+            for (int i = 0; i < (int) sets.size(); ++i)
+            {
+                const auto visible = i == selected;
+
+                if (sets[(size_t) i]->display != nullptr)
+                    sets[(size_t) i]->display->setVisible (visible);
+
+                for (auto& item : sets[(size_t) i]->items)
+                    item->setVisible (visible);
+            }
+        };
+
+        showSets (filterSets, filterTabs.getSelected());
+        showSets (envSets, envTabs.getSelected());
+        showSets (lfoSets, lfoTabs.getSelected());
+        repaint();
+    }
+
+    // Rate and division trade places with SYNC, like on the full page.
+    void timerCallback() override
+    {
+        if (! isShowing())
+            return;
+
+        const auto lfo = lfoTabs.getSelected();
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
+        const auto synced = sync != nullptr && sync->load() > 0.5f;
+        auto& items = lfoSets[(size_t) lfo]->items;
+
+        for (auto [index, active] : { std::pair<int, bool> { 1, ! synced }, { 3, synced } })
+        {
+            const auto alpha = active ? 1.0f : 0.35f;
+
+            if (items[(size_t) index]->getAlpha() != alpha)
+                items[(size_t) index]->setAlpha (alpha);
+        }
+    }
 
     static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint)
     {
@@ -1869,25 +2400,30 @@ private:
         inner.removeFromLeft (8);
 
         auto combos = inner.removeFromTop (40);
-        strip.table->setBounds (combos.removeFromLeft (combos.getWidth() / 2).reduced (3, 0));
-        strip.warp->setBounds (combos.reduced (3, 0));
+        const auto mode = juce::jmax (0, strip.shownMode);
+        const auto third = combos.getWidth() / 3;
+        strip.mode->setBounds (combos.removeFromLeft (third).reduced (3, 0));
 
-        std::vector<juce::Component*> knobs;
+        if (mode == 0)
+        {
+            strip.table->setBounds (combos.removeFromLeft (third).reduced (3, 0));
+            strip.warp->setBounds (combos.reduced (3, 0));
+        }
+        else if (mode == 1)
+        {
+            strip.excite->setBounds (combos.removeFromLeft (third).reduced (3, 0));
+        }
 
-        for (auto& knob : strip.knobs)
-            knobs.push_back (knob.get());
-
-        layoutRow (inner, knobs);
+        layoutRow (inner, strip.modeKnobs[(size_t) mode]);
     }
 
     IlanaSynthAudioProcessor& processorRef;
     WaveDisplay wave1, wave2, wave3;
     FilterDisplay filterDisplay;
-    EnvelopeDisplay ampDisplay;
     LfoThumbBar lfoThumbs;
+    CardTabs filterTabs, envTabs, lfoTabs;
     std::vector<std::unique_ptr<OscStrip>> strips;
-    std::unique_ptr<ComboControl> filterType, filterSlope;
-    std::vector<std::unique_ptr<KnobControl>> filterKnobs, envKnobs;
+    std::vector<std::unique_ptr<ControlSet>> filterSets, envSets, lfoSets;
     std::array<juce::Rectangle<int>, 3> oscCards;
     juce::Rectangle<int> filterCard, envCard, lfoCard;
 };
@@ -1957,12 +2493,71 @@ public:
         heading ("DESTINATION", C::destination, C::gap);
 
         if (visibleRows.empty())
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.3f));
-            g.setFont (IlanaTheme::font (14.0f));
-            g.drawText ("Nothing is modulated yet.", viewport.getBounds().withTrimmedTop (60).withHeight (24),
-                        juce::Justification::centred);
-        }
+            paintEmptyState (g);
+    }
+
+    // An empty matrix explains the three ways in, with a little animated
+    // routing and an arrow down to the source chips.
+    void paintEmptyState (juce::Graphics& g)
+    {
+        const auto now = (float) juce::Time::getMillisecondCounterHiRes() * 0.001f;
+        const auto area = viewport.getBounds().withTrimmedTop (56);
+        const auto card = juce::Rectangle<float> (560.0f, 250.0f).withCentre (area.toFloat().getCentre()).withY ((float) area.getY() + 20.0f);
+        IlanaTheme::paintCard (g, card, 10.0f, IlanaTheme::accent().withAlpha (0.3f));
+
+        // Source dot -> animated cable -> knob.
+        const auto sourceCentre = juce::Point<float> (card.getX() + 150.0f, card.getY() + 62.0f);
+        const auto knobCentre = juce::Point<float> (card.getRight() - 150.0f, card.getY() + 62.0f);
+        juce::Path cable;
+        cable.startNewSubPath (sourceCentre);
+        cable.cubicTo (sourceCentre.translated (80.0f, -40.0f + 10.0f * std::sin (now * 2.0f)),
+                       knobCentre.translated (-80.0f, 40.0f - 10.0f * std::sin (now * 2.0f)), knobCentre);
+        g.setColour (IlanaTheme::accent().withAlpha (0.35f));
+        g.strokePath (cable, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        const auto travel = std::fmod (now * 0.5f, 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (cable.getPointAlongPath (travel * cable.getLength())));
+
+        g.setColour (juce::Colour (0xff35c8ff));
+        g.fillRoundedRectangle (juce::Rectangle<float> (58.0f, 24.0f).withCentre (sourceCentre), 5.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.75f));
+        g.setFont (IlanaTheme::font (11.0f, true));
+        g.drawText ("LFO 1", juce::Rectangle<float> (58.0f, 24.0f).withCentre (sourceCentre), juce::Justification::centred);
+
+        const auto knob = juce::Rectangle<float> (34.0f, 34.0f).withCentre (knobCentre);
+        g.setColour (juce::Colour (0xff202026));
+        g.fillEllipse (knob);
+        const auto sweep = 0.6f + 0.35f * std::sin (now * 2.0f);
+        juce::Path arc;
+        arc.addCentredArc (knobCentre.x, knobCentre.y, 21.0f, 21.0f, 0.0f, -2.4f, -2.4f + 4.8f * sweep, true);
+        g.setColour (IlanaTheme::accent());
+        g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setFont (IlanaTheme::font (16.0f, true));
+        g.drawText ("Nothing is modulated yet", card.withTrimmedTop (104.0f).withHeight (24.0f), juce::Justification::centred);
+
+        g.setColour (juce::Colours::white.withAlpha (0.55f));
+        g.setFont (IlanaTheme::font (12.5f));
+        const char* const tips[] {
+            "Drag a source chip from the bar below onto any knob",
+            "or right-click a knob for quick modulation",
+            "or press  + ADD MODULATION  above to build a routing here"
+        };
+
+        for (int i = 0; i < 3; ++i)
+            g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
+
+        // A chevron bobbing towards the source chips.
+        const auto bob = 4.0f * std::sin (now * 3.0f);
+        const auto tip = juce::Point<float> (area.toFloat().getCentreX(), (float) getHeight() - 22.0f + bob);
+        juce::Path chevron;
+        chevron.startNewSubPath (tip.translated (-10.0f, -8.0f));
+        chevron.lineTo (tip);
+        chevron.lineTo (tip.translated (10.0f, -8.0f));
+        g.setColour (IlanaTheme::accent().withAlpha (0.6f));
+        g.strokePath (chevron, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     void resized() override
@@ -2048,6 +2643,9 @@ private:
             return;
 
         updateRows();
+
+        if (visibleRows.empty())
+            repaint();
     }
 
     // Shows the patch's macro names in the source lists.
@@ -2186,6 +2784,189 @@ private:
     int hoverStep = -1;
 };
 
+// Each effect family has its own colour: drive/distortion warm, modulation
+// blue-violet, time and space green-cyan, dynamics teal, filters/EQ pink.
+inline juce::Colour fxColour (int type)
+{
+    switch (type)
+    {
+        case 1: case 2: case 3: case 25: case 26: case 28: return juce::Colour (0xffff7a45); // amp, drive, crush, ring, octaver, feedback
+        case 4: case 16: case 19: case 20: case 21:        return juce::Colour (0xff4fd8c8); // comp, gate, utility, OTT, limiter
+        case 6: case 7: case 8: case 14: case 15: case 22: case 23: case 24:
+                                                           return juce::Colour (0xff7d8cff); // phaser .. freq shift
+        case 9: case 10: case 17:                          return juce::Colour (0xff6fe38a); // delay, stutter, tape stop
+        case 11: case 12: case 13:                         return juce::Colour (0xff45c8ff); // smear, freeze, reverb
+        case 5: case 18: case 27: case 29:                 return juce::Colour (0xffff5fb0); // comb, tilt, vowel, EQ
+        default:                                           return juce::Colour (0xff5a5a66);
+    }
+}
+
+// Trance gate steps: bar height is each step's level, the playing step
+// lights up. Editing a built-in pattern copies it into Custom first.
+class GateGrid : public juce::Component,
+                 public juce::SettableTooltipClient,
+                 private juce::Timer
+{
+public:
+    explicit GateGrid (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setTooltip ("Drag up/down to set each step's level. Right-click a step to toggle it.");
+        startTimerHz (20);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
+        const auto colour = fxColour (16);
+        const auto steps = numSteps();
+        const auto playing = processorRef.getGateDisplayStep();
+        auto bars = getBarBounds().toFloat();
+        const auto columnWidth = bars.getWidth() / 16.0f;
+
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("STEPS", getLocalBounds().removeFromTop (14).reduced (9, 0), juce::Justification::centredLeft);
+
+        for (int step = 0; step < 16; ++step)
+        {
+            const auto cell = bars.withWidth (columnWidth).reduced (1.5f, 0.0f);
+            bars.removeFromLeft (columnWidth);
+            const auto active = step < steps;
+            const auto value = level (step);
+
+            g.setColour (juce::Colours::white.withAlpha (active ? (step % 4 == 0 ? 0.11f : 0.07f) : 0.02f));
+            g.fillRoundedRectangle (cell, 2.0f);
+
+            if (active && value > 0.001f)
+            {
+                g.setColour (colour.withAlpha (step == playing ? 1.0f : (step == hoverStep ? 0.85f : 0.6f)));
+                g.fillRoundedRectangle (cell.withTop (cell.getBottom() - cell.getHeight() * value), 2.0f);
+            }
+
+            if (active && step == playing)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.7f));
+                g.fillRect (cell.withHeight (2.0f).withY (cell.getBottom() + 2.0f));
+            }
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu())
+        {
+            const auto step = stepAt (event.getPosition());
+            setLevel (step, level (step) > 0.5f ? 0.0f : 1.0f);
+            return;
+        }
+
+        setFromMouse (event);
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu())
+            setFromMouse (event);
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto step = stepAt (event.getPosition());
+
+        if (step != hoverStep)
+        {
+            hoverStep = step;
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverStep = -1;
+        repaint();
+    }
+
+private:
+    juce::Rectangle<int> getBarBounds() const { return getLocalBounds().reduced (8, 10).withTrimmedTop (10); }
+
+    int stepAt (juce::Point<int> position) const
+    {
+        const auto bars = getBarBounds();
+        return juce::jlimit (0, 15, (int) ((float) (position.x - bars.getX()) / ((float) bars.getWidth() / 16.0f)));
+    }
+
+    int numSteps() const { return (int) processorRef.apvts.getRawParameterValue ("fx_gate_steps")->load(); }
+    int pattern() const { return (int) processorRef.apvts.getRawParameterValue ("fx_gate_pattern")->load(); }
+
+    float level (int step) const
+    {
+        if (pattern() == 8)
+            return processorRef.apvts.getRawParameterValue ("fx_gate_step" + juce::String (step + 1))->load();
+
+        return IlanaSynthAudioProcessor::gatePatternLevel (pattern(), step);
+    }
+
+    void setLevel (int step, float value)
+    {
+        // First edit of a built-in pattern: copy it into Custom.
+        if (pattern() != 8)
+        {
+            for (int i = 0; i < 16; ++i)
+                if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (i + 1)))
+                    parameter->setValueNotifyingHost (IlanaSynthAudioProcessor::gatePatternLevel (pattern(), i));
+
+            if (auto* choice = processorRef.apvts.getParameter ("fx_gate_pattern"))
+                choice->setValueNotifyingHost (choice->convertTo0to1 (8.0f));
+        }
+
+        if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (step + 1)))
+            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+
+        repaint();
+    }
+
+    void setFromMouse (const juce::MouseEvent& event)
+    {
+        const auto bars = getBarBounds();
+        auto value = 1.0f - (float) (event.getPosition().y - bars.getY()) / (float) juce::jmax (1, bars.getHeight());
+
+        // Snap near the ends so full and closed steps are easy to hit.
+        value = value > 0.92f ? 1.0f : (value < 0.08f ? 0.0f : value);
+        hoverStep = stepAt (event.getPosition());
+        setLevel (hoverStep, value);
+    }
+
+    void timerCallback() override
+    {
+        if (isShowing())
+            repaint();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    int hoverStep = -1;
+};
+
+// Scrolling content for the FX stack: paints each module's panel and hands
+// clicks back to the page.
+class FxStackContent : public juce::Component
+{
+public:
+    std::function<void (juce::Graphics&)> painter;
+    std::function<void (juce::Point<int>)> onClick;
+
+    void paint (juce::Graphics& g) override
+    {
+        if (painter != nullptr)
+            painter (g);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (onClick != nullptr)
+            onClick (event.getPosition());
+    }
+};
+
 class FxPage : public juce::Component,
                private juce::Timer
 {
@@ -2265,6 +3046,8 @@ public:
           dimMix (p.apvts, "fx_dim_mix", "MIX"),
           gateDiv (p.apvts, "fx_gate_div", "DIV"),
           gatePattern (p.apvts, "fx_gate_pattern", "PATTERN"),
+          gateSteps (p.apvts, "fx_gate_steps", "STEPS"),
+          gateSwing (p.apvts, "fx_gate_swing", "SWING"),
           gateSmooth (p.apvts, "fx_gate_smooth", "SMOOTH"),
           gateMix (p.apvts, "fx_gate_mix", "MIX"),
           tapeStopTrigger (p.apvts, "fx_tape_stop_trigger", "STOP"),
@@ -2324,7 +3107,7 @@ public:
                 reverbOn, reverbType, reverbSize, reverbDamping, reverbWidth, reverbMix,
                 flangerRate, flangerDepth, flangerFeedback, flangerMix,
                 dimRate, dimDepth, dimMix,
-                gateDiv, gatePattern, gateSmooth, gateMix,
+                gateDiv, gatePattern, gateSteps, gateSwing, gateSmooth, gateMix,
                 tapeStopTrigger, tapeStopTime, tapeStopMix,
                 tiltAmount, tiltLevel,
                 utilGain, utilMono, utilInvert,
@@ -2358,7 +3141,7 @@ public:
         slotGroups.push_back ({ &reverbOn, &reverbType, &reverbSize, &reverbDamping, &reverbWidth, &reverbMix });
         slotGroups.push_back ({ &flangerRate, &flangerDepth, &flangerFeedback, &flangerMix });
         slotGroups.push_back ({ &dimRate, &dimDepth, &dimMix });
-        slotGroups.push_back ({ &gateDiv, &gatePattern, &gateSmooth, &gateMix });
+        slotGroups.push_back ({ &gateDiv, &gatePattern, &gateSteps, &gateSwing, &gateSmooth, &gateMix });
         slotGroups.push_back ({ &tapeStopTrigger, &tapeStopTime, &tapeStopMix });
         slotGroups.push_back ({ &tiltAmount, &tiltLevel });
         slotGroups.push_back ({ &utilGain, &utilMono, &utilInvert });
@@ -2430,10 +3213,71 @@ public:
         addAndMakeVisible (tapGrid);
         tapGrid.setVisible (false);
 
+        // The final stage after the rack.
+        softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "SOFT CLIP");
+        clipGain = std::make_unique<StripKnob> (p, "master_clip_gain", "Clip Gain");
+        addAndMakeVisible (*softClip);
+        addAndMakeVisible (*clipGain);
+
         slotBlend.setSliderStyle (juce::Slider::LinearHorizontal);
         slotBlend.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 16);
         slotBlend.setTooltip ("Parallel blend for the selected slot: 0 is dry only, 1 is the full effect.");
         addAndMakeVisible (slotBlend);
+
+        // Every loaded module's controls live in one scrolling stack.
+        for (auto& group : slotGroups)
+            for (auto* control : group)
+                stackContent.addChildComponent (control);
+
+        gateGrid = std::make_unique<GateGrid> (p);
+        stackContent.addChildComponent (*gateGrid);
+        stackContent.addChildComponent (tapGrid);
+        stackContent.addChildComponent (eqCurve);
+        stackContent.addChildComponent (loadIrButton);
+        stackContent.painter = [this] (juce::Graphics& g) { paintStack (g); };
+        stackContent.onClick = [this] (juce::Point<int> position)
+        {
+            for (const auto& panel : stackPanels)
+            {
+                if (panel.bounds.contains (position))
+                {
+                    selectedSlot = panel.slot;
+                    bindBlend();
+                    repaint();
+                    stackContent.repaint();
+                }
+            }
+        };
+
+        stackView.setViewedComponent (&stackContent, false);
+        stackView.setScrollBarsShown (true, false);
+        stackView.setScrollBarThickness (8);
+        addAndMakeVisible (stackView);
+
+        // Quick picks for an empty rack: one click adds the effect.
+        for (const auto& pick : { std::pair<int, const char*> { 13, "REVERB" }, { 9, "DELAY" }, { 7, "CHORUS" },
+                                  { 2, "DRIVE" }, { 20, "OTT" }, { 16, "TRANCE GATE" }, { 6, "PHASER" }, { 29, "EQ" } })
+        {
+            auto button = std::make_unique<juce::TextButton> (juce::String ("+  ") + pick.second);
+            const auto type = pick.first;
+            button->setColour (juce::TextButton::buttonColourId, fxColour (type).withAlpha (0.18f));
+            button->setColour (juce::TextButton::textColourOffId, fxColour (type).brighter (0.3f));
+            button->setTooltip ("Add " + juce::String (pick.second).toLowerCase() + " to the first empty slot");
+            button->onClick = [this, type]
+            {
+                for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                {
+                    if (getSlotType (slot) == 0)
+                    {
+                        processorRef.assignFxSlot (slot + 1, type);
+                        selectedSlot = slot;
+                        return;
+                    }
+                }
+            };
+            addChildComponent (*button);
+            quickAddButtons.push_back (std::move (button));
+        }
 
         updateVisibility();
         startTimerHz (30);
@@ -2446,6 +3290,18 @@ public:
         const auto type = getSlotType (selectedSlot);
 
         paintSectionTitle (g, "CHAIN", { 14, 6, 200, 14 });
+
+        if (! outputStrip.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, outputStrip.toFloat(), 6.0f);
+            g.setColour (IlanaTheme::accent());
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("OUTPUT", outputStrip.withWidth (80).withTrimmedLeft (14), juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (11.5f));
+            g.drawText ("after the rack, before the master volume", outputStrip.reduced (14, 0),
+                        juce::Justification::centredRight);
+        }
 
         g.setColour (juce::Colours::white.withAlpha (0.45f));
         g.setFont (IlanaTheme::font (11.5f));
@@ -2462,10 +3318,17 @@ public:
             const auto dragSource = cardDragActive && slot == selectedSlot;
             const auto dim = bypassed ? 0.45f : 1.0f;
 
+            const auto typeColour = fxColour (slotType);
+
             if (dragSource)
                 g.setColour (juce::Colour (0xff141416).withAlpha (0.5f));
-            else if (selected)
-                g.setColour (IlanaTheme::accent().withAlpha (0.22f));
+            else if (slotType != 0)
+            {
+                // Loaded modules wear their family colour.
+                juce::ColourGradient rowGradient (typeColour.withAlpha ((selected ? 0.34f : 0.18f) * dim), 0.0f, (float) row.getY(),
+                                                  typeColour.withAlpha ((selected ? 0.16f : 0.06f) * dim), 0.0f, (float) row.getBottom(), false);
+                g.setGradientFill (rowGradient);
+            }
             else
             {
                 juce::ColourGradient rowGradient (juce::Colour (0xff20202a).withMultipliedAlpha (dim), 0.0f, (float) row.getY(),
@@ -2475,12 +3338,18 @@ public:
 
             g.fillRoundedRectangle (row.toFloat(), 6.0f);
 
+            if (slotType != 0 && ! dragSource)
+            {
+                g.setColour (typeColour.withAlpha (dim));
+                g.fillRoundedRectangle (row.toFloat().withWidth (4.0f).reduced (0.0f, 6.0f).translated (2.0f, 0.0f), 2.0f);
+            }
+
             if (! selected && ! dragSource && rowHover[(size_t) slot] > 0.01f)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.07f * rowHover[(size_t) slot]));
                 g.fillRoundedRectangle (row.toFloat(), 6.0f);
             }
-            g.setColour ((selected ? IlanaTheme::accent() : juce::Colour (0xff33333a)).withMultipliedAlpha (dim));
+            g.setColour ((selected ? (slotType != 0 ? typeColour : IlanaTheme::accent()) : juce::Colour (0xff33333a)).withMultipliedAlpha (dim));
             g.drawRoundedRectangle (row.toFloat().reduced (0.5f), 6.0f, selected ? 1.6f : 1.0f);
 
             if (dragSource)
@@ -2494,7 +3363,7 @@ public:
 
             if (slotType != 0 && ! bypassed)
             {
-                g.setColour (IlanaTheme::accent());
+                g.setColour (typeColour);
                 g.fillEllipse (led);
             }
             else
@@ -2503,10 +3372,10 @@ public:
                 g.drawEllipse (led, 1.0f);
             }
 
-            g.setColour (juce::Colours::white.withAlpha ((slotType != 0 ? 0.92f : 0.3f) * dim));
-            g.setFont (IlanaTheme::font (13.0f, true));
-            g.drawFittedText (getSlotName (slotType), row.reduced (30, 6).withTrimmedRight (18), 1,
-                              juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha ((slotType != 0 ? 0.92f : 0.22f) * dim));
+            g.setFont (IlanaTheme::font (13.0f, slotType != 0));
+            g.drawFittedText (slotType != 0 ? getSlotName (slotType) : juce::String ("+  add effect"),
+                              row.reduced (30, 6).withTrimmedRight (18), 1, juce::Justification::centredLeft);
 
             if (slotType != 0 && ! bypassed)
             {
@@ -2630,17 +3499,11 @@ public:
             g.drawRoundedRectangle (ghost, 6.0f, 1.5f);
         }
 
-        if (type != 0 && type < (int) slotGroups.size())
-        {
-            paintSectionTitle (g, getSlotName (type).toUpperCase() + " PARAMETERS", { 336, 38, 400, 14 });
-        }
-        else
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.3f));
-            g.setFont (IlanaTheme::font (13.5f));
-            g.drawText ("Click an empty slot to add an effect; right-click any slot to change it.",
-                        juce::Rectangle<int> (336, 38, 600, 16), juce::Justification::centredLeft);
-        }
+        juce::ignoreUnused (type);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.5f));
+        g.drawText ("Click a slot to add or jump to it, drag to reorder, right-click to change it.",
+                    juce::Rectangle<int> (stackView.getX(), stackView.getY() - 20, 600, 16), juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -2672,33 +3535,19 @@ public:
         area.removeFromLeft (22);
 
         auto panel = area;
-        auto tapArea = panel.removeFromBottom (52);
-        panel.removeFromTop (18); // "<MODULE> PARAMETERS" title
-
-        for (auto& group : slotGroups)
+        outputStrip = panel.removeFromBottom (46);
+        panel.removeFromBottom (6);
         {
-            auto groupArea = panel;
-
-            if (group.size() > 8)
-            {
-                const auto half = (int) (group.size() + 1) / 2;
-                std::vector<juce::Component*> firstRow (group.begin(), group.begin() + half);
-                std::vector<juce::Component*> secondRow (group.begin() + half, group.end());
-
-                layoutRow (groupArea.removeFromTop (130), firstRow);
-                layoutRow (groupArea.removeFromTop (130), secondRow);
-            }
-            else
-            {
-                layoutRow (groupArea.removeFromTop (150), group);
-            }
+            auto strip = outputStrip.reduced (6, 3);
+            strip.removeFromLeft (80);
+            softClip->setBounds (strip.removeFromLeft (120));
+            strip.removeFromLeft (10);
+            clipGain->setBounds (strip.removeFromLeft (160));
         }
 
-        tapGrid.setBounds (tapArea);
-
-        // The EQ's knobs take one row; its curve fills the space under them.
-        eqCurve.setBounds (panel.withTrimmedTop (156).withTrimmedBottom (4));
-        loadIrButton.setBounds (440, 15, 90, 18);
+        panel.removeFromTop (22); // hint line
+        stackView.setBounds (panel);
+        layoutStack();
         slotBlend.setBounds (280, 15, 150, 18);
     }
 
@@ -2712,7 +3561,9 @@ public:
                 continue;
 
             selectedSlot = slot;
-            updateVisibility();
+            bindBlend();
+            scrollToSlot (slot);
+            stackContent.repaint();
             repaint();
 
             // Empty slots have nothing to bypass or drag, so any click picks a module.
@@ -2993,18 +3844,34 @@ private:
 
     void updateVisibility()
     {
-        const auto selectedType = getSlotType (selectedSlot);
+        std::array<bool, 64> shown {};
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            const auto type = getSlotType (slot);
+
+            if (type > 0 && type < 64)
+                shown[(size_t) type] = true;
+        }
 
         for (int type = 0; type < (int) slotGroups.size(); ++type)
             for (auto* control : slotGroups[(size_t) type])
-                control->setVisible (type == selectedType);
+            {
+                control->setVisible (shown[(size_t) type]);
+                control->setAlpha (1.0f);
+            }
 
-        tapGrid.setVisible (selectedType == 9);
-        eqCurve.setVisible (selectedType == 29);
-        loadIrButton.setVisible (selectedType == 13);
+        tapGrid.setVisible (shown[9]);
+        gateGrid->setVisible (shown[16]);
+        eqCurve.setVisible (shown[29]);
+        loadIrButton.setVisible (shown[13]);
 
-        paramsAppear = 0.0f;
+        bindBlend();
+        resized();
+    }
 
+    void bindBlend()
+    {
         if (boundBlendSlot != selectedSlot)
         {
             boundBlendSlot = selectedSlot;
@@ -3013,8 +3880,168 @@ private:
             if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (selectedSlot + 1) + "_mix"))
                 slotBlendAttachment = std::make_unique<juce::SliderParameterAttachment> (*parameter, slotBlend, nullptr);
         }
+    }
 
-        resized();
+    // One panel per loaded slot, in chain order. A module type loaded twice
+    // shares its settings, so later copies get a short note instead.
+    std::vector<std::unique_ptr<juce::TextButton>> quickAddButtons;
+
+    void layoutStack()
+    {
+        stackPanels.clear();
+        const auto width = juce::jmax (100, stackView.getWidth() - stackView.getScrollBarThickness() - 4);
+        auto y = 0;
+        std::array<bool, 64> placed {};
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            const auto type = getSlotType (slot);
+
+            if (type <= 0 || type >= (int) slotGroups.size())
+                continue;
+
+            StackPanel panel;
+            panel.slot = slot;
+            panel.type = type;
+            panel.duplicate = placed[(size_t) type];
+            placed[(size_t) type] = true;
+
+            const auto& group = slotGroups[(size_t) type];
+            const auto rows = group.size() > 8 ? 2 : 1;
+            auto height = 30 + (panel.duplicate ? 30 : rows * 112 + 8);
+
+            if (! panel.duplicate && type == 29)
+                height += 130;
+
+            if (! panel.duplicate && type == 9)
+                height += 58;
+
+            if (! panel.duplicate && type == 16)
+                height += 78;
+
+            panel.bounds = { 0, y, width, height };
+            y += height + 8;
+
+            if (! panel.duplicate)
+            {
+                auto body = panel.bounds.reduced (10, 0);
+                body.removeFromTop (30);
+
+                if (group.size() > 8)
+                {
+                    const auto half = (int) (group.size() + 1) / 2;
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin(), group.begin() + half));
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin() + half, group.end()));
+                }
+                else
+                {
+                    const auto maxWidth = juce::jmin (body.getWidth(), (int) group.size() * 120);
+                    layoutRow (body.removeFromTop (112).withWidth (maxWidth), group);
+                }
+
+                if (type == 29)
+                    eqCurve.setBounds (body.removeFromTop (126).reduced (0, 2));
+
+                if (type == 9)
+                    tapGrid.setBounds (body.removeFromTop (54).reduced (0, 2));
+
+                if (type == 16)
+                    gateGrid->setBounds (body.removeFromTop (74).reduced (0, 2));
+
+                if (type == 13)
+                    loadIrButton.setBounds (panel.bounds.getRight() - 110, panel.bounds.getY() + 6, 96, 18);
+            }
+
+            stackPanels.push_back (panel);
+        }
+
+        stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
+        stackContent.repaint();
+
+        // Quick picks sit in the empty rack, four to a row.
+        const auto empty = stackPanels.empty();
+        auto grid = stackView.getBounds().withTrimmedTop (104).withSizeKeepingCentre (juce::jmin (620, stackView.getWidth() - 20), 84);
+        grid.setY (stackView.getY() + 104);
+        const auto columns = 4;
+        const auto cellWidth = grid.getWidth() / columns;
+
+        for (size_t i = 0; i < quickAddButtons.size(); ++i)
+        {
+            auto& button = *quickAddButtons[i];
+            button.setVisible (empty);
+            button.setBounds (grid.getX() + (int) (i % columns) * cellWidth, grid.getY() + (int) (i / columns) * 42,
+                              cellWidth, 42);
+            button.setBounds (button.getBounds().reduced (5, 4));
+        }
+    }
+
+    void paintStack (juce::Graphics& g)
+    {
+        if (stackPanels.empty())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.85f));
+            g.setFont (IlanaTheme::font (16.0f, true));
+            g.drawText ("The rack is empty", stackContent.getLocalBounds().withTrimmedTop (40).withHeight (24),
+                        juce::Justification::centred);
+            g.setColour (juce::Colours::white.withAlpha (0.45f));
+            g.setFont (IlanaTheme::font (12.5f));
+            g.drawText ("Start with one of these, or click any slot on the left for all 29 effects.",
+                        stackContent.getLocalBounds().withTrimmedTop (68).withHeight (20), juce::Justification::centred);
+            return;
+        }
+
+        for (const auto& panel : stackPanels)
+        {
+            const auto colour = fxColour (panel.type);
+            const auto bounds = panel.bounds.toFloat();
+            const auto selected = panel.slot == selectedSlot;
+            const auto bypassed = processorRef.apvts.getParameter ("fx_slot" + juce::String (panel.slot + 1) + "_bypass")->getValue() > 0.5f;
+
+            juce::ColourGradient body (colour.withAlpha (selected ? 0.16f : 0.1f), 0.0f, bounds.getY(),
+                                       juce::Colour (0xff141418).withAlpha (0.9f), 0.0f, bounds.getBottom(), false);
+            g.setGradientFill (body);
+            g.fillRoundedRectangle (bounds, 8.0f);
+
+            // The module's name, large and faint, fills the panel's open right side.
+            if (! panel.duplicate && bounds.getHeight() > 80.0f)
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (panel.bounds.reduced (2));
+                g.setColour (colour.withAlpha (0.06f));
+                g.setFont (IlanaTheme::font (juce::jmin (64.0f, bounds.getHeight() * 0.42f), true));
+                g.drawText (getSlotName (panel.type).toUpperCase(), panel.bounds.reduced (18, 10).withTrimmedTop (20),
+                            juce::Justification::bottomRight);
+            }
+
+            g.setColour (colour.withAlpha (selected ? 0.9f : 0.35f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, selected ? 1.6f : 1.0f);
+
+            auto header = panel.bounds.withHeight (28).reduced (12, 0);
+            g.setColour (colour.withAlpha (bypassed ? 0.4f : 1.0f));
+            g.fillRoundedRectangle (header.removeFromLeft (4).toFloat().reduced (0.0f, 7.0f), 2.0f);
+            header.removeFromLeft (8);
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.drawText (getSlotName (panel.type).toUpperCase(), header, juce::Justification::centredLeft);
+
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.setFont (IlanaTheme::font (11.0f));
+            const auto note = juce::String ("SLOT ") + juce::String (panel.slot + 1) + (bypassed ? "  -  BYPASSED" : "");
+            g.drawText (note, header.withTrimmedRight (panel.type == 13 ? 110 : 0), juce::Justification::centredRight);
+
+            if (panel.duplicate)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.4f));
+                g.drawText ("Shares its settings with the first " + getSlotName (panel.type) + " above.",
+                            panel.bounds.withTrimmedTop (28).reduced (16, 0).withHeight (26), juce::Justification::centredLeft);
+            }
+        }
+    }
+
+    void scrollToSlot (int slot)
+    {
+        for (const auto& panel : stackPanels)
+            if (panel.slot == slot)
+                stackView.setViewPosition (0, juce::jmax (0, panel.bounds.getY() - 4));
     }
 
     void visibilityChanged() override
@@ -3049,12 +4076,6 @@ private:
         dropFlash *= 0.85f;
         chainSweep *= 0.9f;
         paramsAppear = juce::jmin (1.0f, paramsAppear + 0.1f);
-
-        const auto selectedType = getSlotType (selectedSlot);
-
-        if (selectedType < (int) slotGroups.size())
-            for (auto* control : slotGroups[(size_t) selectedType])
-                control->setAlpha (paramsAppear);
 
         const auto showingA = processorRef.isShowingChainA();
 
@@ -3095,8 +4116,23 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     TapGrid tapGrid;
+    std::unique_ptr<GateGrid> gateGrid;
+    std::unique_ptr<ToggleControl> softClip;
+    std::unique_ptr<StripKnob> clipGain;
+    juce::Rectangle<int> outputStrip;
     juce::StringArray slotNames;
     std::vector<std::vector<juce::Component*>> slotGroups;
+
+    struct StackPanel
+    {
+        int slot = 0, type = 0;
+        bool duplicate = false;
+        juce::Rectangle<int> bounds;
+    };
+
+    juce::Viewport stackView;
+    FxStackContent stackContent;
+    std::vector<StackPanel> stackPanels;
     int selectedSlot = 0;
     static constexpr int rowHeight = 39;
     int rowsTop = 60;
@@ -3165,7 +4201,7 @@ private:
     KnobControl flangerRate, flangerDepth, flangerFeedback, flangerMix;
     KnobControl dimRate, dimDepth, dimMix;
     ComboControl gateDiv, gatePattern;
-    KnobControl gateSmooth, gateMix;
+    KnobControl gateSteps, gateSwing, gateSmooth, gateMix;
     ToggleControl tapeStopTrigger;
     KnobControl tapeStopTime, tapeStopMix;
     KnobControl tiltAmount, tiltLevel;
@@ -3257,10 +4293,22 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         tabs.setCurrentTabIndex (envLfoTabIndex);
     };
 
-    seqPage = std::make_unique<SeqPage> (p);
-    tabs.addTab ("SEQ", juce::Colour (0xff18181c), seqPage.get(), false, seqTabIndex);
+    mainPage->onEditEnvelope = [this, envLfoPage] (int envelope)
+    {
+        envLfoPage->selectEnvelope (envelope);
+        tabs.setCurrentTabIndex (envLfoTabIndex);
+    };
 
-    tabs.addTab ("XTRA", juce::Colour (0xff18181c), new XtraPage (p), true);
+    mainPage->onOpenPage = [this] (const juce::String& name)
+    {
+        const auto index = tabs.getTabNames().indexOf (name);
+
+        if (index >= 0)
+            tabs.setCurrentTabIndex (index);
+    };
+
+    tabs.addTab ("FM", juce::Colour (0xff18181c), new FmPage (p), true);
+    tabs.addTab ("ARP/SEQ", juce::Colour (0xff18181c), new SeqPage (p), true);
     tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
     tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
     tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
@@ -3278,6 +4326,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     }
 
     glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
+    legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
+    legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
+    content.addAndMakeVisible (*legatoToggle);
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
     voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices");
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, juce::Colour (0xffffd447), false);
@@ -3363,7 +4414,6 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     updateHeaderButtons();
     updateUndoButtons();
-    updateSeqTab();
     loadedFingerprint = parameterFingerprint();
 
     // Drag the corner (or the host's window edge) to any size between 75% and
@@ -3415,55 +4465,6 @@ void IlanaSynthAudioProcessorEditor::startTabTransition()
                                 .translated (0.0f, 12.0f));
         startTimerHz (60);
     }
-}
-
-void IlanaSynthAudioProcessorEditor::updateSeqTab()
-{
-    const auto readInt = [this] (const juce::String& id)
-    {
-        if (const auto* value = processorRef.apvts.getRawParameterValue (id))
-            return (int) value->load();
-
-        return 0;
-    };
-
-    auto wanted = false;
-
-    for (int lfo = 1; lfo <= 4 && ! wanted; ++lfo)
-        wanted = readInt ("lfo" + juce::String (lfo) + "_shape") == 7;
-
-    for (int slot = 1; slot <= Mod::maxSlots && ! wanted; ++slot)
-        wanted = readInt ("mod" + juce::String (slot) + "_src") == (int) Mod::Source::Mseg;
-
-    if (wanted == seqTabVisible)
-        return;
-
-    constexpr int seqIndex = seqTabIndex;
-
-    if (wanted)
-    {
-        if (seqPage != nullptr)
-            tabs.addTab ("SEQ", juce::Colour (0xff18181c), seqPage.get(), false, seqIndex);
-    }
-    else
-    {
-        if (tabs.getNumTabs() > seqIndex && tabs.getTabNames()[seqIndex] == "SEQ")
-        {
-            if (tabs.getCurrentTabIndex() == seqIndex)
-                tabs.setCurrentTabIndex (envLfoTabIndex);
-
-            if (auto* seqContent = tabs.getTabContentComponent (seqIndex))
-            {
-                seqContent->setVisible (false);
-                tabs.removeTab (seqIndex);
-
-                if (auto* parent = seqContent->getParentComponent())
-                    parent->removeChildComponent (seqContent);
-            }
-        }
-    }
-
-    seqTabVisible = wanted;
 }
 
 float IlanaSynthAudioProcessorEditor::displayScale() const
@@ -3574,7 +4575,6 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         settings->saveIfNeeded();
     }
 
-    updateSeqTab();
 
     // Program changes, host state restores and A/B swaps change the preset
     // behind the editor's back.
@@ -3768,6 +4768,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     voiceModeBox->setBounds (strip.removeFromRight (96).withSizeKeepingCentre (92, 40));
     strip.removeFromRight (8);
     bendKnob->setBounds (strip.removeFromRight (88));
+    legatoToggle->setBounds (strip.removeFromRight (80).withSizeKeepingCentre (76, 44));
     glideKnob->setBounds (strip.removeFromRight (96));
     strip.removeFromRight (10);
 
@@ -4133,6 +5134,8 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
+    menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
+                  processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
 
@@ -4150,6 +5153,15 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                 safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
                             else if (result == 300)
                                 safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                            else if (result == 500)
+                            {
+                                if (auto* mpe = safeThis->processorRef.apvts.getParameter ("mpe_mode"))
+                                {
+                                    mpe->beginChangeGesture();
+                                    mpe->setValueNotifyingHost (mpe->getValue() > 0.5f ? 0.0f : 1.0f);
+                                    mpe->endChangeGesture();
+                                }
+                            }
                             else if (result == 400)
                             {
                                 safeThis->tutorial.setVisible (true);
@@ -4233,7 +5245,9 @@ void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
         setValue ("osc2_table", (float) random.nextInt (tableCount));
         setValue ("osc2_frame", random.nextFloat());
         setValue ("osc2_semi", (float) (random.nextBool() ? -12 : 12));
-        setValue ("sub_level", randomRange (0.0f, 0.6f));
+        setValue ("subosc_on", random.nextFloat() < 0.6f ? 1.0f : 0.0f);
+        setValue ("subosc_level", randomRange (0.2f, 0.6f));
+        setValue ("sub_shape", (float) random.nextInt (3));
         setValue ("fm_amount", random.nextFloat() < 0.6f ? randomRange (0.0f, 0.5f) : 0.0f);
         setValue ("fm_feedback", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.4f) : 0.0f);
         setValue ("ring_mod", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.8f) : 0.0f);

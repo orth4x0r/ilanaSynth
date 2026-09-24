@@ -265,7 +265,8 @@ inline void paintWell (juce::Graphics& g, juce::Rectangle<float> bounds, float r
                                  bounds.getX() + bounds.getWidth() * 0.2f, bounds.getBottom(),
                                  bounds.getX() + bounds.getWidth() * 0.5f, bounds.getY(),
                                  bounds.getX() + bounds.getWidth() * 0.05f, bounds.getY());
-        g.setColour (juce::Colours::white.withAlpha (0.035f));
+        // Big panels get a fainter streak, so it reads as glass, not a stripe.
+        g.setColour (juce::Colours::white.withAlpha (0.035f * juce::jlimit (0.3f, 1.0f, 240.0f / bounds.getHeight())));
         g.fillPath (streak);
 
         // Inner shadow from the top edge.
@@ -298,7 +299,7 @@ inline void paintGlassOverlay (juce::Graphics& g, juce::Rectangle<float> bounds,
                              bounds.getX() + bounds.getWidth() * 0.2f, bounds.getBottom(),
                              bounds.getX() + bounds.getWidth() * 0.5f, bounds.getY(),
                              bounds.getX() + bounds.getWidth() * 0.05f, bounds.getY());
-    g.setColour (juce::Colours::white.withAlpha (0.025f));
+    g.setColour (juce::Colours::white.withAlpha (0.025f * juce::jlimit (0.3f, 1.0f, 240.0f / bounds.getHeight())));
     g.fillPath (streak);
 }
 

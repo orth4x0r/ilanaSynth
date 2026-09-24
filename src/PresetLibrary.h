@@ -30,12 +30,24 @@ enum Src
     M1, M2, M3, M4, ClockSH, Mseg, Env4, FiltEnv2, Lfo3, Lfo4
 };
 
-// Wavetables (osc 1/2 table index). Osc 3 lists four shapes first.
+// Wavetables (the same table index for all three oscillators).
 enum Table
 {
     Basic = 0, HardSync, Wavefold, FmMetal, FormantT, CombT, Pwm, DriveSaw,
-    SineT, TriangleT, Analog, Vowel, Glass, Fractal, Riser, Digital
+    SineT, TriangleT, Analog, Vowel, Glass, Fractal, Riser, Digital,
+    // v1.1
+    SoftSaw, SquareSweep, SawOctaves, Organ, HarmonicWalk, OddToEven, Bitwise, Stepped,
+    Choir, Throat, Talkbox, CombSweep, SpectralTilt, PartialCloud, FibonacciBell,
+    Chebyshev, HardClip, Rectify, Bitcrush, PluckPosition, Breath, Wood, Logistic, LorenzT
 };
+
+enum Spectral { SpOff = 0, SpStretch, SpShift, SpOddEven, SpFormant, SpSmear, SpCut };
+enum FmMode { FmPhase = 0, FmThroughZero, FmExp };
+enum Scale { NoScale = 0, Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, HarmonicMinor,
+             MelodicMinor, MajorPenta, MinorPenta, Blues, WholeTone, Hirajoshi, PhrygianDominant };
+enum Note { C = 0, Cs, Dn, Ds, En, Fn, Fs, Gn, Gs, An, As, Bn };
+enum SprayDir { SprayUp = 0, SprayDown, SprayBoth };
+enum ArpMode { ArpUp = 0, ArpDown, ArpUpDown, ArpRandom, ArpDownUp, ArpConverge, ArpWalk, ArpChord, ArpScaleRandom };
 
 enum Filter { LP = 0, BP, HP, Notch, LadderLP, LadderHP, DiodeLP, Ms20LP, CombPlus, CombMinus, Formant, Morph };
 enum WarpMode { WOff = 0, WSync, WBendPlus, WBendMinus, WPwm, WMirror, WAsym, WQuantize, WFm, WRing };
@@ -47,7 +59,8 @@ enum Fx
 };
 enum Div { D1_1 = 0, D1_2, D1_4, D1_8, D1_16, D1_32, D1_4T, D1_8T, D1_16T, D1_8D, D1_16D };
 enum Verb { Room = 0, Hall, Plate, Shimmer, Spring, Gated };
-enum LfoShape { Sine = 0, Tri, SawUp, SawDown, Square, SampleHold, DrawShape, StepsShape, CurveShape };
+enum LfoShape { Sine = 0, Tri, SawUp, SawDown, Square, SampleHold, DrawShape, StepsShape, CurveShape,
+                SmoothRandom, Drunk, Chaos };
 enum Uni { Classic = 0, Hypersaw, Octaves, Fifths };
 
 inline int param (const char* id) { return Mod::destinationForParamId (id); }
@@ -102,7 +115,7 @@ public:
 
         if (index == 3)
         {
-            set ("sub_table", (float) (table + 4));
+            set ("sub_table", (float) table);
             set ("sub_level", level);
         }
         else
@@ -121,13 +134,12 @@ public:
     Builder& osc2 (int table, float frame, float level = 0.6f, int semi = 0, float fine = 0.0f) { return osc (2, table, frame, level, semi, fine); }
     Builder& osc3 (int table, float frame, float level = 0.5f, int semi = 0, float fine = 0.0f) { return osc (3, table, frame, level, semi, fine); }
 
-    // Osc 3 as a classic sub: 0 sine, 1 square, 2 saw; octave 0 = -1, 1 = -2.
+    // The dedicated sub: 0 sine, 1 square, 2 saw; octave 0 = -1, 1 = -2.
     Builder& sub (int shape, float level, int octave = 0)
     {
-        set ("sub_on", 1);
-        set ("sub_table", 0);
+        set ("subosc_on", 1);
         set ("sub_shape", (float) shape);
-        set ("sub_level", level);
+        set ("subosc_level", level);
         set ("sub_octave", (float) octave);
         return *this;
     }
@@ -437,6 +449,82 @@ public:
     }
 
     Builder& master (float db) { return set ("master", db); }
+
+    // v1.1 --------------------------------------------------------------------
+    // FM matrix route, oscillators 1..3 (same source and target = feedback).
+    Builder& fmRoute (int from, int to, float amount)
+    {
+        static const char* ids[3][3] {
+            { "fm_feedback", "fm_1to2", "fm_1to3" },
+            { "fm_amount", "fm_fb2", "fm_2to3" },
+            { "fm_3to1", "fm_3to2", "fm_fb3" }
+        };
+
+        return set (ids[from - 1][to - 1], amount);
+    }
+
+    Builder& fmMode (int mode) { return set ("fm_mode", (float) mode); }
+
+    // Take an oscillator out of the mix: it still modulates.
+    Builder& modOnly (int index) { return set (index == 1 ? "osc1_out" : index == 2 ? "osc2_out" : "sub_out", 0.0f); }
+
+    Builder& spectral (int index, int mode, float amount)
+    {
+        const auto p = prefix (index);
+        set (p + "_spectral", (float) mode);
+        return set (p + "_spectral_amt", amount);
+    }
+
+    // Granular cloud from a built-in sample (see sample() for the numbers).
+    Builder& granular (int index, int factorySample, float level, float position, float sizeMs, float density,
+                       float spray, float pitchSpray = 0.0f, float spread = 0.6f)
+    {
+        sample (index, factorySample, level, false);
+        const auto p = prefix (index);
+        set (p + "_mode", 3);
+        set (p + "_sample_start", position);
+        set (p + "_grain_size", sizeMs);
+        set (p + "_grain_density", density);
+        set (p + "_grain_spray", spray);
+        set (p + "_grain_pitch", pitchSpray);
+        return set (p + "_grain_spread", spread);
+    }
+
+    Builder& lfoKey (int index) { return set ("lfo" + std::to_string (index) + "_key", 1); }
+
+    // Trance gate with its own steps: one character per step, '0'..'9' = level.
+    Builder& gateSteps (int division, const char* steps, float smooth, float swing = 0.0f, float mix = 1.0f)
+    {
+        gate (division, 8, smooth, mix);
+        const auto count = (int) std::char_traits<char>::length (steps);
+        set ("fx_gate_steps", (float) count);
+        set ("fx_gate_swing", swing);
+
+        for (int step = 0; step < count && step < 16; ++step)
+            set ("fx_gate_step" + std::to_string (step + 1), (float) (steps[step] - '0') / 9.0f);
+
+        return *this;
+    }
+
+    Builder& scale (int scaleIndex, int root, bool snapPlayed = false)
+    {
+        set ("gen_scale", (float) scaleIndex);
+        set ("gen_root", (float) root);
+        return set ("gen_snap", snapPlayed ? 1.0f : 0.0f);
+    }
+
+    Builder& spray (int count, int range, int direction, float spreadMs, float chance = 1.0f, float velocity = 0.3f)
+    {
+        set ("spray_on", 1);
+        set ("spray_count", (float) count);
+        set ("spray_range", (float) range);
+        set ("spray_direction", (float) direction);
+        set ("spray_spread", spreadMs);
+        set ("spray_chance", chance);
+        return set ("spray_velocity", velocity);
+    }
+
+    Builder& arpChance (float chance) { return set ("arp_chance", chance); }
 
     operator FactoryPreset() const { return preset; }
 
@@ -1876,6 +1964,437 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "DETUNE", { { D::Osc1Detune, 0.3f } })
              .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.2f } })
              .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.4f, 0.15f, true).reverb (Plate, 0.5f, 0.15f));
+
+
+    // ======================================================================
+    // v1.1: drums, FM, spectral, granular, chaos, trance gate, generative
+    // ======================================================================
+
+    // DRUMS ------------------------------------------------------------------
+
+    add (B ("Chaos Kick", "Drums")
+             .osc1 (SineT, 0.0f, 0.95f).sub (0, 0.35f)
+             .menv (0.0f, 0.07f, 0.0f, 0.05f, -0.6f).mod (ModEnv, D::Osc1Pitch, 0.5f)
+             .env4 (0.0f, 0.012f, 0.0f, 0.01f).mod (Env4, D::NoiseLevel, 0.5f)
+             .amp (0.0f, 0.42f, 0.0f, 0.1f, -0.4f)
+             .filter1 (LP, 9000.0f, 0.0f)
+             .voices (1)
+             .macro (1, "PUNCH", { { D::Osc1Pitch, 0.15f }, { D::MeDecay, 0.3f } })
+             .macro (2, "DECAY", { { D::AmpDecay, 0.5f } })
+             .macro (3, "CLICK", { { D::NoiseLevel, 0.3f } })
+             .macro (4, "DIRT", { { D::FxDriveAmount, 0.6f } })
+             .fx ({ FxDrive, FxComp, FxLimiter }).driveFx (2.2f, 0.5f).comp (-18.0f, 4.0f, 6.0f).limiter (-0.5f).master (0.0f));
+
+    add (B ("FM Snare", "Drums")
+             .osc1 (SineT, 0.0f, 0.6f, 12).osc2 (SineT, 0.0f, 0.0f, 19).modOnly (2)
+             .fmRoute (2, 1, 0.55f).fmMode (FmThroughZero)
+             .noise (0.55f)
+             .menv (0.0f, 0.05f, 0.0f, 0.04f).mod (ModEnv, D::Osc1Pitch, 0.18f)
+             .filter1 (BP, 2400.0f, 0.25f, 0.0f, 1.2f)
+             .amp (0.0f, 0.22f, 0.0f, 0.12f, -0.5f).master (-2.0f)
+             .macro (1, "SNAP", { { D::NoiseLevel, 0.3f } })
+             .macro (2, "BODY", { { D::FmAmount, -0.4f }, { D::Osc1Level, 0.2f } })
+             .macro (3, "DECAY", { { D::AmpDecay, 0.4f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxComp, FxReverb }).comp (-16.0f, 3.0f, 3.0f).reverb (Room, 0.25f, 0.08f));
+
+    add (B ("Metal Hat", "Drums")
+             .osc1 (FmMetal, 0.8f, 0.9f, 24).osc2 (SineT, 0.0f, 0.0f, 31).modOnly (2)
+             .fmRoute (2, 1, 0.8f).ring (0.4f).noise (0.7f)
+             .filter1 (HP, 4500.0f, 0.2f).master (0.0f)
+             .amp (0.0f, 0.06f, 0.0f, 0.05f, -0.6f)
+             .lfo (1, SampleHold, 30.0f).mod (Lfo1, D::Filter1Cutoff, 0.05f)
+             .macro (1, "OPEN", { { D::AmpDecay, 0.6f } })
+             .macro (2, "TONE", { { D::Filter1Cutoff, 0.3f } })
+             .macro (3, "METAL", { { D::FmAmount, 0.2f }, { D::RingMod, 0.4f } })
+             .macro (4, "WIDTH", { { param ("fx_width"), 0.4f } })
+             .fx ({ FxWidener }).width (1.4f, 1.0f));
+
+    add (B ("Granular Clap", "Drums")
+             .granular (1, 5, 0.9f, 0.55f, 18.0f, 0.95f, 0.6f, 0.3f, 0.9f)
+             .noise (0.25f)
+             .filter1 (BP, 1400.0f, 0.3f, 0.0f, 1.3f)
+             .amp (0.0f, 0.2f, 0.0f, 0.15f, -0.4f)
+             .macro (1, "SPREAD", { { param ("osc1_grain_spray"), 0.4f } })
+             .macro (2, "TONE", { { D::Filter1Cutoff, 0.35f } })
+             .macro (3, "TAIL", { { D::AmpDecay, 0.5f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.4f } })
+             .fx ({ FxComp, FxReverb }).comp (-18.0f, 4.0f, 6.0f).reverb (Plate, 0.3f, 0.12f).master (0.0f));
+
+    add (B ("Drunk Tom", "Drums")
+             .osc1 (SineT, 0.0f, 0.9f).osc2 (TriangleT, 0.0f, 0.3f, 7)
+             .menv (0.0f, 0.12f, 0.0f, 0.1f, -0.4f).mod (ModEnv, D::Osc1Pitch, 0.25f).mod (ModEnv, D::Osc2Pitch, 0.25f)
+             .lfo (1, Drunk, 3.0f).mod (Lfo1, D::Osc1Pitch, 0.02f)
+             .amp (0.0f, 0.5f, 0.0f, 0.2f, -0.3f)
+             .filter1 (LP, 5000.0f, 0.1f)
+             .macro (1, "PITCH", { { D::Osc1Pitch, 0.12f }, { D::Osc2Pitch, 0.12f } })
+             .macro (2, "DECAY", { { D::AmpDecay, 0.4f } })
+             .macro (3, "WANDER", { { D::Lfo1Rate, 0.3f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxDrive, FxReverb }).driveFx (1.5f, 0.3f).reverb (Room, 0.4f, 0.1f));
+
+    add (B ("Spectral Rim", "Drums")
+             .osc1 (FibonacciBell, 0.4f, 0.8f, 24).spectral (1, SpStretch, 0.55f)
+             .osc2 (Wood, 0.3f, 0.5f, 31)
+             .amp (0.0f, 0.09f, 0.0f, 0.08f, -0.5f).master (-2.0f)
+             .filter1 (HP, 400.0f, 0.1f)
+             .macro (1, "STRETCH", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "DECAY", { { D::AmpDecay, 0.5f } })
+             .macro (3, "WOOD", { { D::Osc2Level, 0.3f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxDelay }).delay (D1_16D, 0.25f, 0.08f, true));
+
+    // FM ---------------------------------------------------------------------
+
+    add (B ("Operator Bell", "Keys")
+             .osc1 (SineT, 0.0f, 0.75f).osc2 (SineT, 0.0f, 0.0f, 24, 3.0f).osc3 (SineT, 0.0f, 0.3f, 12)
+             .modOnly (2).fmRoute (2, 1, 0.4f).fmRoute (2, 3, 0.25f).fmRoute (3, 3, 0.1f)
+             .menv (0.0f, 1.4f, 0.1f, 0.8f).mod (ModEnv, D::FmAmount, 0.35f).mod (ModEnv, D::Fm2to3, 0.25f)
+             .amp (0.001f, 2.4f, 0.0f, 1.2f).velocity (0.6f)
+             .macro (1, "BRIGHT", { { D::FmAmount, 0.3f }, { D::Fm2to3, 0.2f } })
+             .macro (2, "DECAY", { { D::AmpDecay, 0.4f }, { D::MeDecay, 0.4f } })
+             .macro (3, "SHIMMER", { { D::Fm3Feedback, 0.3f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxChorus, FxReverb }).chorus (0.4f, 0.3f, 0.2f).reverb (Hall, 0.7f, 0.22f));
+
+    add (B ("Through-Zero Growl", "Bass")
+             .osc1 (Basic, 0.2f, 0.8f).osc2 (SineT, 0.0f, 0.0f, -12).osc3 (SineT, 0.0f, 0.0f, 7).modOnly (2).modOnly (3)
+             .fmRoute (2, 1, 0.5f).fmRoute (3, 2, 0.3f).fmMode (FmThroughZero).sub (0, 0.45f)
+             .lfoSync (1, Sine, D1_8).mod (Lfo1, D::FmAmount, 0.3f)
+             .filter1 (LadderLP, 1600.0f, 0.3f, 0.0f, 2.2f, 0.2f, true)
+             .amp (0.002f, 0.3f, 0.9f, 0.1f).mono (0.02f)
+             .macro (1, "GROWL", { { D::FmAmount, 0.35f } })
+             .macro (2, "WOBBLE", { { D::Lfo1Rate, 0.4f } })
+             .macro (3, "CHAIN", { { D::Fm3to2, 0.4f } })
+             .macro (4, "CUTOFF", { { D::Filter1Cutoff, 0.45f } })
+             .fx ({ FxOtt, FxLimiter }).ott (0.3f, 0.4f).limiter (-0.8f));
+
+    add (B ("Feedback Choir", "Pad")
+             .osc1 (Choir, 0.3f, 0.6f).unison (1, 4, 14.0f, 0.8f).osc2 (SineT, 0.0f, 0.35f, 12)
+             .fmRoute (2, 2, 0.35f).fmRoute (2, 1, 0.12f).fmMode (FmExp)
+             .lfo (1, SmoothRandom, 0.2f).mod (Lfo1, D::Osc1Frame, 0.3f).mod (Lfo1, D::Fm2Feedback, 0.15f)
+             .filter1 (LP, 3200.0f, 0.2f)
+             .amp (1.2f, 1.5f, 0.85f, 2.5f)
+             .macro (1, "VOWEL", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "FEEDBACK", { { D::Fm2Feedback, 0.3f } })
+             .macro (3, "FM", { { D::FmAmount, 0.25f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxChorus, FxReverb }).chorus (0.3f, 0.4f, 0.3f).reverb (Hall, 0.85f, 0.3f));
+
+    add (B ("Key FM Scream", "Lead")
+             .osc1 (DriveSaw, 0.3f, 0.75f).unison (1, 3, 8.0f, 0.5f).osc2 (SineT, 0.0f, 0.3f)
+             .lfo (1, Sine, 8.0f).lfoKey (1).mod (Lfo1, D::Osc2Level, 0.4f)
+             .fmRoute (2, 1, 0.2f)
+             .menv (0.002f, 0.6f, 0.2f, 0.3f).mod (ModEnv, D::FmAmount, 0.25f)
+             .filter1 (LadderLP, 3200.0f, 0.35f, 1.0f, 2.5f, 0.5f, true)
+             .fenv (0.002f, 0.4f, 0.4f, 0.3f).amp (0.002f, 0.3f, 0.9f, 0.25f).legato (0.05f)
+             .macro (1, "SCREAM", { { D::FmAmount, 0.35f } })
+             .macro (2, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "AM", { { D::Osc2Level, 0.4f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxDrive, FxDelay, FxReverb }).driveFx (2.0f, 0.3f).delay (D1_8D, 0.35f, 0.12f, true).reverb (Plate, 0.4f, 0.1f));
+
+    // SPECTRAL ---------------------------------------------------------------
+
+    add (B ("Stretched Glass Keys", "Keys")
+             .osc1 (Glass, 0.2f, 0.75f).spectral (1, SpStretch, 0.35f).osc2 (SineT, 0.0f, 0.3f, 12)
+             .filter1 (LP, 7000.0f, 0.15f, 0.8f, 1.0f, 0.4f)
+             .fenv (0.001f, 0.8f, 0.3f, 0.6f).amp (0.001f, 1.6f, 0.4f, 0.9f).velocity (0.5f)
+             .menv (0.0f, 0.9f, 0.0f, 0.5f).mod (ModEnv, D::Osc1Frame, 0.3f)
+             .macro (1, "MORPH", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "DECAY", { { D::AmpDecay, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxChorus, FxReverb }).chorus (0.5f, 0.3f, 0.25f).reverb (Plate, 0.6f, 0.2f));
+
+    add (B ("Formant Shifter", "Lead")
+             .osc1 (Talkbox, 0.3f, 0.8f).spectral (1, SpFormant, 0.7f).unison (1, 2, 6.0f, 0.4f)
+             .lfo (1, Tri, 0.35f).mod (Lfo1, D::Osc1Frame, 0.4f)
+             .filter1 (LP, 5000.0f, 0.2f).amp (0.01f, 0.3f, 0.9f, 0.3f).legato (0.08f)
+             .macro (1, "VOWEL", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "SPEED", { { D::Lfo1Rate, 0.4f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.35f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.2f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_4, 0.35f, 0.15f, true).reverb (Hall, 0.5f, 0.15f));
+
+    add (B ("Harmonic Cut Pad", "Pad")
+             .osc1 (PartialCloud, 0.5f, 0.6f).spectral (1, SpCut, 0.45f).unison (1, 5, 16.0f, 0.9f)
+             .osc2 (SoftSaw, 0.3f, 0.4f, 12).spectral (2, SpOddEven, 0.25f)
+             .lfo (1, Chaos, 0.08f).mod (Lfo1, D::Osc1Frame, 0.3f).mod (Lfo1, D::Pan, 0.2f)
+             .filter1 (LP, 4000.0f, 0.15f)
+             .amp (1.5f, 2.0f, 0.8f, 3.0f)
+             .macro (1, "DRIFT", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "OCTAVE", { { D::Osc2Level, 0.3f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxChorus, FxReverb }).chorus (0.2f, 0.5f, 0.3f).reverb (Shimmer, 0.8f, 0.3f));
+
+    add (B ("Smeared Organ", "Keys")
+             .osc1 (Organ, 0.6f, 0.75f).spectral (1, SpSmear, 0.3f).osc2 (Organ, 0.2f, 0.35f, 12)
+             .filter1 (LP, 6000.0f, 0.1f)
+             .amp (0.01f, 0.4f, 0.9f, 0.3f)
+             .lfo (1, Sine, 5.5f).mod (Lfo1, D::Osc1Pitch, 0.002f)
+             .macro (1, "DRAWBARS", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "OCTAVE", { { D::Osc2Level, 0.3f } })
+             .macro (3, "LESLIE", { { param ("fx_chorus_mix"), 0.4f } })
+             .macro (4, "DRIVE", { { D::FxDriveAmount, 0.5f } })
+             .fx ({ FxDrive, FxChorus, FxReverb }).driveFx (1.5f, 0.3f).chorus (5.0f, 0.2f, 0.25f).reverb (Room, 0.4f, 0.12f));
+
+    add (B ("Shift Bass", "Bass")
+             .osc1 (SawOctaves, 0.3f, 0.8f).spectral (1, SpShift, 0.2f).sub (0, 0.55f)
+             .filter1 (LadderLP, 900.0f, 0.35f, 1.5f, 2.0f, 0.2f, true)
+             .fenv (0.001f, 0.25f, 0.2f, 0.15f).amp (0.002f, 0.3f, 0.85f, 0.1f).mono (0.02f)
+             .macro (1, "CUTOFF", { { D::Filter1Cutoff, 0.45f } })
+             .macro (2, "FRAME", { { D::Osc1Frame, 0.5f } })
+             .macro (3, "PUNCH", { { D::Filter1Env, 0.3f } })
+             .macro (4, "DIRT", { { D::FxDriveAmount, 0.5f } })
+             .fx ({ FxDrive, FxEq }).driveFx (2.2f, 0.35f).eq (2.0f, 500.0f, -2.0f, 0.0f));
+
+    // GRANULAR ---------------------------------------------------------------
+
+    add (B ("Grain Choir", "Pad")
+             .granular (1, 2, 0.8f, 0.4f, 140.0f, 0.75f, 0.25f, 0.03f, 0.8f).unison (1, 2, 8.0f, 0.8f)
+             .osc2 (Choir, 0.4f, 0.25f)
+             .lfo (1, SmoothRandom, 0.15f).mod (Lfo1, D::Osc1SampleStart, 0.15f)
+             .filter1 (LP, 5000.0f, 0.1f)
+             .amp (0.8f, 1.5f, 0.85f, 2.5f)
+             .macro (1, "SCRUB", { { D::Osc1SampleStart, 0.4f } })
+             .macro (2, "SPRAY", { { param ("osc1_grain_spray"), 0.5f } })
+             .macro (3, "SHIMMER", { { param ("osc1_grain_pitch"), 0.2f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxChorus, FxReverb }).chorus (0.3f, 0.4f, 0.25f).reverb (Hall, 0.85f, 0.3f));
+
+    add (B ("Swarm", "Drone")
+             .granular (1, 1, 0.7f, 0.3f, 45.0f, 1.0f, 0.8f, 0.05f, 1.0f)
+             .granular (2, 4, 0.4f, 0.5f, 220.0f, 0.4f, 0.6f, 0.2f, 1.0f)
+             .lfo (1, Chaos, 0.1f).mod (Lfo1, D::Osc1SampleStart, 0.3f).mod (Lfo1, D::Filter1Cutoff, 0.15f)
+             .filter1 (BP, 1800.0f, 0.3f, 0.0f, 1.2f, 0.5f)
+             .amp (2.0f, 2.0f, 0.9f, 4.0f)
+             .macro (1, "SWARM", { { param ("osc1_grain_pitch"), 0.5f } })
+             .macro (2, "DENSITY", { { param ("osc1_grain_density"), -0.6f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
+
+    add (B ("Vinyl Dust Keys", "Keys")
+             .osc1 (SoftSaw, 0.2f, 0.7f).osc2 (SineT, 0.0f, 0.35f, 12)
+             .granular (3, 4, 0.18f, 0.2f, 60.0f, 0.5f, 0.9f, 0.0f, 1.0f)
+             .filter1 (LP, 2800.0f, 0.15f, 0.6f, 1.2f, 0.4f)
+             .fenv (0.001f, 0.9f, 0.3f, 0.5f).amp (0.002f, 1.2f, 0.5f, 0.6f).velocity (0.5f)
+             .macro (1, "DUST", { { D::SubLevel, 0.3f } })
+             .macro (2, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "WOBBLE", { { param ("fx_chorus_mix"), 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxChorus, FxCrush, FxReverb }).chorus (0.6f, 0.4f, 0.3f).crush (12.0f, 2.0f, 0.25f).reverb (Room, 0.5f, 0.18f));
+
+    add (B ("Frozen Grain Lead", "Lead")
+             .granular (1, 2, 0.85f, 0.35f, 60.0f, 0.85f, 0.05f, 0.0f, 0.4f)
+             .osc2 (Vowel, 0.3f, 0.35f).legato (0.07f)
+             .lfo (1, Sine, 5.0f).mod (Lfo1, D::Osc1Pitch, 0.004f)
+             .filter1 (LP, 4500.0f, 0.2f)
+             .amp (0.01f, 0.3f, 0.9f, 0.3f)
+             .macro (1, "SCRUB", { { D::Osc1SampleStart, 0.4f } })
+             .macro (2, "GRAIN", { { param ("osc1_grain_size"), 0.4f } })
+             .macro (3, "VIBRATO", { { D::Osc1Pitch, 0.004f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_4, 0.4f, 0.15f, true).reverb (Plate, 0.5f, 0.15f));
+
+    // CHAOS / DRUNK ----------------------------------------------------------
+
+    add (B ("Lorenz Bass", "Bass")
+             .osc1 (LorenzT, 0.3f, 0.8f).sub (0, 0.5f)
+             .lfo (1, Chaos, 1.2f).mod (Lfo1, D::Osc1Frame, 0.35f).mod (Lfo1, D::Filter1Cutoff, 0.15f)
+             .filter1 (LadderLP, 1100.0f, 0.4f, 0.0f, 2.2f, 0.2f, true)
+             .amp (0.002f, 0.3f, 0.9f, 0.12f).mono (0.02f)
+             .macro (1, "CHAOS", { { D::Lfo1Rate, 0.4f } })
+             .macro (2, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "FRAME", { { D::Osc1Frame, 0.3f } })
+             .macro (4, "DIRT", { { D::FxDriveAmount, 0.5f } })
+             .fx ({ FxDrive, FxOtt }).driveFx (2.0f, 0.3f).ott (0.3f, 0.3f));
+
+    add (B ("Drunk Tape Keys", "Keys")
+             .osc1 (Analog, 0.2f, 0.7f).osc2 (TriangleT, 0.0f, 0.4f, 12)
+             .lfo (1, Drunk, 1.5f).mod (Lfo1, D::Osc1Pitch, 0.004f).mod (Lfo1, D::Osc2Pitch, 0.004f)
+             .lfo (2, SmoothRandom, 0.5f).mod (Lfo2, D::Filter1Cutoff, 0.1f)
+             .filter1 (LP, 2600.0f, 0.15f, 0.5f, 1.2f, 0.4f)
+             .fenv (0.002f, 0.7f, 0.3f, 0.5f).amp (0.002f, 1.0f, 0.6f, 0.5f)
+             .macro (1, "WARBLE", { { D::Lfo1Rate, 0.4f } })
+             .macro (2, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "DUST", { { D::FxCrushMix, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxCrush, FxChorus, FxReverb }).crush (12.0f, 1.0f, 0.0f).chorus (0.3f, 0.4f, 0.3f).reverb (Room, 0.4f, 0.15f));
+
+    add (B ("Chaos Filter Pad", "Pad")
+             .osc1 (SawOctaves, 0.4f, 0.55f).unison (1, 6, 18.0f, 0.9f, Hypersaw)
+             .osc2 (SquareSweep, 0.3f, 0.35f, -12)
+             .lfo (1, Chaos, 0.25f).mod (Lfo1, D::Filter1Cutoff, 0.25f)
+             .lfo (2, SmoothRandom, 0.3f).mod (Lfo2, D::Osc2Frame, 0.4f)
+             .filter1 (LP, 1800.0f, 0.4f, 0.0f, 1.3f, 0.3f)
+             .amp (0.9f, 1.5f, 0.85f, 2.0f)
+             .macro (1, "CHAOS", { { D::Lfo1Rate, 0.4f } })
+             .macro (2, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "RESO", { { D::Filter1Reso, 0.35f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxPhaser, FxReverb }).phaser (0.2f, 0.5f, 0.4f, 0.3f).reverb (Hall, 0.8f, 0.3f));
+
+    // TRANCE GATE --------------------------------------------------------------
+
+    add (B ("Gated Supersaw", "Chords")
+             .osc1 (Analog, 0.3f, 0.6f).unison (1, 7, 24.0f, 0.9f, Hypersaw).osc2 (Analog, 0.3f, 0.4f, 12).unison (2, 5, 20.0f, 0.9f, Hypersaw)
+             .chord (1, 2)
+             .filter1 (LP, 5000.0f, 0.2f)
+             .amp (0.005f, 0.4f, 0.9f, 0.3f)
+             .macro (1, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (2, "GATE", { { param ("fx_gate_mix"), -0.8f } })
+             .macro (3, "SMOOTH", { { param ("fx_gate_smooth"), 0.5f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.2f } })
+             .fx ({ FxGate, FxDelay, FxReverb }).gateSteps (D1_16, "9090990990909909", 0.15f)
+             .delay (D1_8D, 0.4f, 0.15f, true).reverb (Hall, 0.7f, 0.2f));
+
+    add (B ("Swing Gate Pad", "Pad")
+             .osc1 (Choir, 0.4f, 0.6f).unison (1, 4, 12.0f, 0.9f).osc2 (SoftSaw, 0.3f, 0.35f, 7)
+             .filter1 (LP, 4000.0f, 0.2f)
+             .amp (0.4f, 1.0f, 0.9f, 1.5f)
+             .macro (1, "SWING", { { param ("fx_gate_swing"), 0.4f } })
+             .macro (2, "GATE", { { param ("fx_gate_mix"), -0.8f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxGate, FxChorus, FxReverb }).gateSteps (D1_16, "95309530", 0.3f, 0.25f)
+             .chorus (0.4f, 0.4f, 0.3f).reverb (Plate, 0.7f, 0.25f));
+
+    add (B ("Stutter Stab", "Chords")
+             .osc1 (DriveSaw, 0.4f, 0.7f).unison (1, 3, 10.0f, 0.6f).chord (1, 3)
+             .filter1 (LadderLP, 2200.0f, 0.3f, 1.4f, 1.8f, 0.3f)
+             .fenv (0.001f, 0.3f, 0.2f, 0.2f).amp (0.001f, 0.6f, 0.5f, 0.3f)
+             .macro (1, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (2, "GATE", { { param ("fx_gate_mix"), -0.8f } })
+             .macro (3, "PUNCH", { { D::Filter1Env, 0.35f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxGate, FxOtt, FxReverb }).gateSteps (D1_32, "9900990099909000", 0.05f)
+             .ott (0.3f, 0.3f).reverb (Room, 0.4f, 0.15f));
+
+    // GENERATIVE ---------------------------------------------------------------
+
+    add (B ("Pentatonic Rain", "Generative")
+             .osc1 (Glass, 0.3f, 0.6f).osc2 (SineT, 0.0f, 0.35f, 12)
+             .scale (MinorPenta, An).spray (4, 24, SprayUp, 900.0f, 0.8f, 0.4f)
+             .filter1 (LP, 6000.0f, 0.1f, 0.5f, 1.0f, 0.4f)
+             .fenv (0.001f, 0.5f, 0.2f, 0.5f).amp (0.001f, 1.2f, 0.0f, 1.0f).velocity (0.6f)
+             .macro (1, "DENSITY", { { param ("spray_chance"), -0.5f } })
+             .macro (2, "SPREAD", { { param ("spray_spread"), 0.4f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.25f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.45f, 0.2f, true).reverb (Hall, 0.85f, 0.3f));
+
+    add (B ("Scale Walker", "Generative")
+             .osc1 (PluckPosition, 0.4f, 0.75f).osc2 (SineT, 0.0f, 0.3f, -12)
+             .scale (Dorian, Dn).arp (ArpScaleRandom, D1_16, 2, 0.5f).arpChance (0.75f)
+             .filter1 (LadderLP, 2600.0f, 0.3f, 1.2f, 1.5f, 0.4f)
+             .fenv (0.001f, 0.2f, 0.1f, 0.2f).amp (0.001f, 0.35f, 0.2f, 0.25f)
+             .macro (1, "CHANCE", { { param ("arp_chance"), 0.25f } })
+             .macro (2, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "PLUCK", { { D::FeDecay, 0.4f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.4f, 0.2f, true).reverb (Plate, 0.5f, 0.15f));
+
+    add (B ("Hirajoshi Spray", "Generative")
+             .string (1, 0.8f, 0, 0.7f, 0.3f)
+             .scale (Hirajoshi, En).spray (3, 12, SprayBoth, 350.0f, 0.9f, 0.5f)
+             .filter1 (LP, 7000.0f, 0.1f)
+             .amp (0.001f, 1.5f, 0.0f, 1.0f).master (-2.0f)
+             .macro (1, "DENSITY", { { param ("spray_chance"), -0.5f } })
+             .macro (2, "STRUM", { { param ("spray_spread"), 0.3f } })
+             .macro (3, "DAMP", { { param ("osc1_string_damp"), 0.3f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.7f, 0.25f));
+
+    add (B ("Blues Machine", "Generative")
+             .osc1 (Organ, 0.4f, 0.7f).osc2 (Basic, 0.2f, 0.25f, 12)
+             .scale (Blues, Gn, true).arp (ArpScaleRandom, D1_8T, 1, 0.6f).arpChance (0.85f)
+             .spray (1, 12, SprayUp, 0.0f, 0.3f, 0.3f)
+             .filter1 (LP, 3500.0f, 0.2f, 0.6f, 1.3f, 0.3f)
+             .fenv (0.001f, 0.3f, 0.3f, 0.2f).amp (0.002f, 0.4f, 0.6f, 0.2f)
+             .macro (1, "CHANCE", { { param ("arp_chance"), 0.15f } })
+             .macro (2, "HARMONY", { { param ("spray_chance"), 0.6f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "DRIVE", { { D::FxDriveAmount, 0.5f } })
+             .fx ({ FxDrive, FxChorus, FxReverb }).driveFx (1.6f, 0.3f).chorus (4.0f, 0.2f, 0.2f).reverb (Room, 0.5f, 0.15f));
+
+    // FX -----------------------------------------------------------------------
+
+    add (B ("Granular Riser", "FX")
+             .granular (1, 5, 0.8f, 0.1f, 90.0f, 0.8f, 0.3f, 0.1f, 1.0f)
+             .env4 (4.0f, 0.1f, 1.0f, 1.0f).mod (Env4, D::Osc1SampleStart, 0.8f).mod (Env4, D::Osc1Pitch, 0.25f)
+             .mod (Env4, D::Filter1Cutoff, 0.5f)
+             .filter1 (HP, 200.0f, 0.3f)
+             .amp (2.0f, 0.1f, 1.0f, 1.5f).master (0.0f)
+             .macro (1, "RISE", { { D::E4Attack, 0.5f } })
+             .macro (2, "SPRAY", { { param ("osc1_grain_spray"), 0.5f } })
+             .macro (3, "PITCH", { { D::Osc1Pitch, 0.2f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.4f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
+
+    add (B ("Lorenz Radio", "FX")
+             .osc1 (Logistic, 0.5f, 0.6f).spectral (1, SpSmear, 0.6f).noise (0.2f)
+             .lfo (1, Chaos, 3.0f).mod (Lfo1, D::Osc1Pitch, 0.3f).mod (Lfo1, D::Filter1Cutoff, 0.3f)
+             .lfo (2, Drunk, 2.0f).mod (Lfo2, D::Osc1Frame, 0.5f)
+             .filter1 (BP, 1500.0f, 0.5f, 0.0f, 1.5f)
+             .amp (0.1f, 1.0f, 0.9f, 1.0f)
+             .macro (1, "CHAOS", { { D::Lfo1Rate, 0.4f } })
+             .macro (2, "STATIC", { { D::NoiseLevel, 0.3f } })
+             .macro (3, "BAND", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxRingMod, FxDelay }).delay (D1_8, 0.5f, 0.2f, true));
+
+    add (B ("Audio Rate Siren", "FX")
+             .osc1 (SineT, 0.0f, 0.7f).osc2 (Basic, 0.0f, 0.3f)
+             .lfo (1, Tri, 2.0f).lfoKey (1).mod (Lfo1, D::Osc1Level, 0.5f)
+             .lfo (2, Sine, 0.3f).mod (Lfo2, D::Osc1Pitch, 0.15f).mod (Lfo2, D::Osc2Pitch, 0.15f)
+             .filter1 (LP, 5000.0f, 0.3f)
+             .amp (0.05f, 1.0f, 0.9f, 0.8f)
+             .macro (1, "SPEED", { { D::Lfo2Rate, 0.4f } })
+             .macro (2, "AM", { { D::Osc1Level, 0.3f } })
+             .macro (3, "BUZZ", { { D::Osc2Level, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.6f, 0.2f));
+
+    // PLUCKS / ARPS --------------------------------------------------------------
+
+    add (B ("FM Kalimba", "Pluck")
+             .osc1 (SineT, 0.0f, 0.8f).osc2 (SineT, 0.0f, 0.0f, 31).modOnly (2)
+             .fmRoute (2, 1, 0.35f)
+             .menv (0.0f, 0.15f, 0.0f, 0.1f).mod (ModEnv, D::FmAmount, 0.4f)
+             .amp (0.001f, 1.2f, 0.0f, 0.8f, -0.3f).velocity (0.5f)
+             .macro (1, "TINE", { { D::FmAmount, 0.3f } })
+             .macro (2, "DECAY", { { D::AmpDecay, 0.4f } })
+             .macro (3, "WOOD", { { D::MeDecay, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxReverb }).reverb (Room, 0.5f, 0.2f));
+
+    add (B ("Bitwise Arp", "Arp")
+             .osc1 (Bitwise, 0.3f, 0.7f).osc2 (Stepped, 0.5f, 0.35f, 12)
+             .arp (ArpUpDown, D1_16, 2, 0.4f)
+             .lfo (1, Drunk, 2.0f).mod (Lfo1, D::Osc1Frame, 0.4f)
+             .filter1 (LP, 3500.0f, 0.3f, 1.0f, 1.3f, 0.3f)
+             .fenv (0.001f, 0.2f, 0.1f, 0.15f).amp (0.001f, 0.25f, 0.3f, 0.2f)
+             .macro (1, "BITS", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (3, "WANDER", { { D::Lfo1Rate, 0.4f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.45f, 0.2f, true).reverb (Plate, 0.5f, 0.15f));
+
+    add (B ("Throat Drone", "Drone")
+             .osc1 (Throat, 0.3f, 0.6f).unison (1, 3, 6.0f, 0.7f).osc2 (Breath, 0.5f, 0.3f, -12)
+             .spectral (2, SpFormant, 0.35f)
+             .lfo (1, SmoothRandom, 0.1f).mod (Lfo1, D::Osc1Frame, 0.4f)
+             .lfo (2, Chaos, 0.05f).mod (Lfo2, D::Filter1Cutoff, 0.2f)
+             .filter1 (LP, 2500.0f, 0.3f)
+             .amp (2.0f, 2.0f, 0.9f, 4.0f)
+             .macro (1, "VOWEL", { { D::Osc1Frame, 0.4f } })
+             .macro (2, "BREATH", { { D::Osc2Level, 0.3f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
 
     return list;
 }

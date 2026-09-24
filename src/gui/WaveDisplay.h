@@ -102,7 +102,8 @@ public:
 
         const auto tableIndex = resolveTableIndex();
         const auto frame = displayedFrame;
-        const auto* table = processorRef.getWavetable (tableIndex);
+        const auto warped = processorRef.getSpectralDisplayTable (oscIndex, tableIndex);
+        const auto* table = warped != nullptr ? warped.get() : processorRef.getWavetable (tableIndex);
 
         if (table == nullptr || table->getNumFrames() == 0)
         {
@@ -144,8 +145,8 @@ public:
 
     void drawModeTag (juce::Graphics& g) const
     {
-        const char* const names[] { "WAVETABLE", "STRING", "SAMPLE" };
-        const auto index = juce::jlimit (0, 2, modeId.isNotEmpty() ? readChoice (modeId) : 0);
+        const char* const names[] { "WAVETABLE", "STRING", "SAMPLE", "GRANULAR" };
+        const auto index = juce::jlimit (0, 3, modeId.isNotEmpty() ? readChoice (modeId) : 0);
         const juce::String tag (names[index]);
         const auto tagBounds = juce::Rectangle<float> (8.0f, 6.0f, (float) tag.length() * 5.4f + 12.0f, 13.0f);
 
@@ -160,7 +161,12 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         if (! event.mods.isPopupMenu())
+        {
+            if (isGranularMode())
+                setPositionFromX (event.position.x);
+
             return;
+        }
 
         juce::PopupMenu menu;
         menu.addSectionHeader ("Factory Samples");
@@ -183,14 +189,15 @@ public:
                                 if (auto* parameter = safeThis->processorRef.apvts.getParameter (paramId))
                                     parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) result));
 
-                                if (safeThis->modeId.isNotEmpty())
-                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (safeThis->modeId))
-                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
+                                safeThis->switchToSampleMode();
                             });
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (isGranularMode())
+            setPositionFromX (event.position.x);
+
         if (isSampleMode())
             return;
 
@@ -233,11 +240,7 @@ public:
             return;
 
         if (processorRef.loadUserSample (oscIndex, file))
-        {
-            if (modeId.isNotEmpty())
-                if (auto* parameter = processorRef.apvts.getParameter (modeId))
-                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
-        }
+            switchToSampleMode();
 
         repaint();
     }
@@ -250,7 +253,80 @@ public:
 private:
     bool isSampleMode() const
     {
-        return modeId.isNotEmpty() && readChoice (modeId) == 2;
+        return modeId.isNotEmpty() && readChoice (modeId) >= 2;
+    }
+
+    bool isGranularMode() const
+    {
+        return modeId.isNotEmpty() && readChoice (modeId) == 3;
+    }
+
+    // Picking or dropping a sample switches a wavetable or string oscillator
+    // to Sample; a granular one stays granular.
+    void switchToSampleMode()
+    {
+        if (modeId.isEmpty() || isSampleMode())
+            return;
+
+        if (auto* parameter = processorRef.apvts.getParameter (modeId))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
+    }
+
+    void setPositionFromX (float x)
+    {
+        const auto plotWidth = (float) juce::jmax (1, getWidth() - 20);
+
+        if (auto* parameter = processorRef.apvts.getParameter (startId))
+            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, (x - 10.0f) / plotWidth));
+    }
+
+    void drawGrainCloud (juce::Graphics& g, juce::Rectangle<float> plot, float centreY, float halfHeight) const
+    {
+        const auto prefix = oscIndex == 0 ? juce::String ("osc1") : (oscIndex == 1 ? juce::String ("osc2") : juce::String ("sub"));
+        const auto position = juce::jlimit (0.0f, 1.0f, readPlain (startId));
+        const auto spray = readPlain (prefix + "_grain_spray");
+        const auto density = readPlain (prefix + "_grain_density");
+        const auto size = readPlain (prefix + "_grain_size");
+        const auto positionX = plot.getX() + position * plot.getWidth();
+        const auto halfSpray = spray * 0.25f * plot.getWidth();
+
+        // The window grains are drawn from.
+        const auto band = juce::Rectangle<float> (positionX - halfSpray, plot.getY(), halfSpray * 2.0f, plot.getHeight())
+                              .getIntersection (plot);
+        g.setColour (traceColour.withAlpha (0.12f));
+        g.fillRect (band);
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRect (plot.withRight (band.getX()));
+        g.fillRect (plot.withLeft (band.getRight()));
+
+        // Grains drifting through it: each lives for a moment, then respawns.
+        const auto sounding = processorRef.getActiveVoiceCount() > 0;
+        const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const auto count = 6 + (int) (density * 22.0f);
+        const auto grainWidth = juce::jlimit (3.0f, 26.0f, size / 500.0f * plot.getWidth() * 0.25f + 3.0f);
+
+        for (int i = 0; i < count; ++i)
+        {
+            const auto speed = 0.6 + 0.9 * (double) ((i * 37) % 11) / 11.0;
+            const auto life = now * speed + (double) i * 0.37;
+            const auto cycle = (int) std::floor (life);
+            const auto age = (float) (life - (double) cycle);
+            const auto hash = (float) ((cycle * 7919 + i * 104729) % 1000) / 1000.0f;
+            const auto hashY = (float) ((cycle * 3571 + i * 6007) % 1000) / 1000.0f;
+            const auto x = positionX + (hash * 2.0f - 1.0f) * halfSpray + age * grainWidth * 0.5f;
+            const auto y = centreY + (hashY * 2.0f - 1.0f) * halfHeight * 0.8f;
+            const auto alpha = std::sin (age * juce::MathConstants<float>::pi) * (sounding ? 0.9f : 0.35f);
+
+            g.setColour (traceColour.withAlpha (alpha * 0.5f));
+            g.fillRoundedRectangle (juce::Rectangle<float> (grainWidth, 5.0f).withCentre ({ x, y }), 2.5f);
+            g.setColour (juce::Colours::white.withAlpha (alpha * 0.8f));
+            g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ x, y }));
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.8f));
+        g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ positionX, centreY }));
+        g.setColour (traceColour);
+        g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ positionX, plot.getY() + 4.0f }));
     }
 
     void drawSample (juce::Graphics& g) const
@@ -331,6 +407,18 @@ private:
 
         g.setColour (traceColour.withAlpha (0.35f));
         g.strokePath (mirrored, juce::PathStrokeType (1.0f));
+
+        if (isGranularMode())
+        {
+            drawGrainCloud (g, plot, centreY, halfHeight);
+            g.setColour (juce::Colours::white.withAlpha (0.55f));
+            g.setFont (IlanaTheme::font (10.5f, true));
+            const auto wide = getWidth() > 240;
+            g.drawText ((reverse ? "REV " : "") + juce::String (wide ? "GRAINS - drag to move" : "GRAINS"),
+                        getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
+            g.drawText (sample->name, getLocalBounds().reduced (8, 6), juce::Justification::bottomRight);
+            return;
+        }
 
         const auto startX = plot.getX() + start * plot.getWidth();
         const auto endX = plot.getX() + end * plot.getWidth();
@@ -457,7 +545,8 @@ private:
     void timerCallback() override
     {
         modeButton.setVisible (! isSampleMode());
-        setTooltip (isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
+        setTooltip (isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
+                    : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
                                    : "Drag to scrub the frame, click 3D to toggle the waterfall view. Drop a wav to switch this oscillator to Sample.");
 
         const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;

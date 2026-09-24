@@ -170,8 +170,21 @@ enum class Destination
     E4Release,
     Filter1Morph,
     Filter2Morph,
+
+    // v1.1: the FM matrix (OSC 2 > 1 and OSC 1 feedback are FmAmount/FmFeedback)
+    Fm1to2,
+    Fm1to3,
+    Fm2to3,
+    Fm3to1,
+    Fm3to2,
+    Fm2Feedback,
+    Fm3Feedback,
     Count
 };
+
+// Explicit destinations before the FM matrix was added: saved patches that
+// point at a parameter destination (numbered after these) are shifted on load.
+constexpr int explicitDestinationsV10 = 89;
 
 constexpr int numExplicitDestinations = (int) Destination::Count;
 
@@ -239,6 +252,17 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "osc2_string_sustain", "Osc2 String Sustain" },
         { "sub_string_decay", "Osc3 String Decay" }, { "sub_string_damp", "Osc3 String Damp" },
         { "sub_string_sustain", "Osc3 String Sustain" },
+        { "filter_balance", "Filter Balance" },
+        { "subosc_level", "Sub Level" },
+        // Appended in v1.1.
+        { "osc1_grain_size", "Osc1 Grain Size" }, { "osc1_grain_density", "Osc1 Grain Density" },
+        { "osc1_grain_spray", "Osc1 Grain Spray" }, { "osc1_grain_pitch", "Osc1 Grain Pitch" },
+        { "osc2_grain_size", "Osc2 Grain Size" }, { "osc2_grain_density", "Osc2 Grain Density" },
+        { "osc2_grain_spray", "Osc2 Grain Spray" }, { "osc2_grain_pitch", "Osc2 Grain Pitch" },
+        { "sub_grain_size", "Osc3 Grain Size" }, { "sub_grain_density", "Osc3 Grain Density" },
+        { "sub_grain_spray", "Osc3 Grain Spray" }, { "sub_grain_pitch", "Osc3 Grain Pitch" },
+        { "arp_chance", "Arp Chance" }, { "spray_chance", "Spray Chance" }, { "spray_spread", "Spray Spread" },
+        { "fx_gate_swing", "Gate Swing" },
     };
 
     return list;
@@ -344,7 +368,9 @@ inline juce::StringArray getExplicitDestinationNames()
              "Mod Env Attack", "Mod Env Decay", "Mod Env Sustain", "Mod Env Release",
              "F2 Env Attack", "F2 Env Decay", "F2 Env Sustain", "F2 Env Release",
              "Env4 Attack", "Env4 Decay", "Env4 Sustain", "Env4 Release",
-             "Filter1 Morph", "Filter2 Morph" };
+             "Filter1 Morph", "Filter2 Morph",
+             "FM Osc1 > Osc2", "FM Osc1 > Osc3", "FM Osc2 > Osc3", "FM Osc3 > Osc1", "FM Osc3 > Osc2",
+             "FM Osc2 Feedback", "FM Osc3 Feedback" };
 }
 
 inline juce::StringArray getDestinationNames()

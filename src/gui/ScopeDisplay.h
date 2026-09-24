@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <complex>
 #include <vector>
 
@@ -18,7 +19,7 @@ public:
         : processorRef (processor),
           fft (11)
     {
-        setTooltip ("Click to switch between scope and spectrum.  Click the L/R meters to solo a channel.");
+        setTooltip ("Click to cycle scope, spectrum and split view.  Click the L/R meters to solo a channel.");
 
         holdButton.setClickingTogglesState (true);
         holdButton.setTooltip ("Freeze the display");
@@ -39,6 +40,29 @@ public:
 
         addAndMakeVisible (holdButton);
         addAndMakeVisible (peakButton);
+
+        // View: waveform, spectrum, or both stacked.
+        const char* const viewNames[] { "SCOPE", "SPECTRUM", "SPLIT" };
+
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& button = viewButtons[(size_t) i];
+            button.setButtonText (viewNames[i]);
+            button.setClickingTogglesState (true);
+            button.setRadioGroupId (4711);
+            button.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0) | (i < 2 ? juce::Button::ConnectedOnRight : 0));
+            button.onClick = [this, i]
+            {
+                if (viewButtons[(size_t) i].getToggleState())
+                {
+                    viewMode = i;
+                    repaint();
+                }
+            };
+            addAndMakeVisible (button);
+        }
+
+        viewButtons[2].setToggleState (true, juce::dontSendNotification);
 
         oversamplingButton.setClickingTogglesState (true);
         oversamplingButton.setTooltip ("Oversampling\nRun the voice engine at a higher sample rate: cleaner highs from "
@@ -67,6 +91,9 @@ public:
         factorBox.setBounds (getWidth() - 158, 7, 50, 18);
         holdButton.setBounds (getWidth() - 106, 7, 48, 18);
         peakButton.setBounds (getWidth() - 54, 7, 46, 18);
+
+        for (int i = 0; i < 3; ++i)
+            viewButtons[(size_t) i].setBounds (110 + i * 76, 7, 76, 18);
     }
 
     void paint (juce::Graphics& g) override
@@ -110,16 +137,30 @@ public:
             scopeGain += (targetGain - scopeGain) * 0.15f;
         }
 
-        if (spectrumMode)
+        area.removeFromTop (18.0f);
+
+        if (viewMode == 1)
+        {
             drawSpectrum (g, area);
-        else
+        }
+        else if (viewMode == 0)
+        {
             drawScope (g, area);
+        }
+        else
+        {
+            auto top = area.removeFromTop (area.getHeight() * 0.52f);
+            drawScope (g, top.withTrimmedBottom (6.0f));
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.fillRect (area.getX(), area.getY(), area.getWidth(), 1.0f);
+            drawSpectrum (g, area.withTrimmedTop (6.0f));
+        }
 
         drawMeter (g, meterArea);
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (11.5f, true));
-        g.drawText (hold ? "SCOPE  HOLD" : (spectrumMode ? "SPECTRUM" : "SCOPE"),
+        g.drawText (hold ? "HOLD" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
@@ -139,7 +180,8 @@ public:
             return;
         }
 
-        spectrumMode = ! spectrumMode;
+        viewMode = (viewMode + 1) % 3;
+        viewButtons[(size_t) viewMode].setToggleState (true, juce::dontSendNotification);
         repaint();
     }
 
@@ -351,7 +393,7 @@ private:
             const auto x = area.getX() + (float) proportion * area.getWidth();
 
             g.setColour (juce::Colours::white.withAlpha (0.07f));
-            g.fillRect (juce::Rectangle<float> (1.0f, area.getHeight()).withX (x));
+            g.fillRect (juce::Rectangle<float> (x, area.getY(), 1.0f, area.getHeight()));
 
             g.setColour (juce::Colours::white.withAlpha (0.25f));
             g.drawText (mark.second, juce::Rectangle<float> (x + 3.0f, area.getBottom() - 12.0f, 40.0f, 12.0f)
@@ -447,7 +489,8 @@ private:
     float spectrumGain = 1.0f;
     float peakHoldL = 0.0f;
     float peakHoldR = 0.0f;
-    bool spectrumMode = false;
+    int viewMode = 2; // 0 scope, 1 spectrum, 2 both
+    std::array<juce::TextButton, 3> viewButtons;
     bool hold = false;
     bool peakHoldEnabled = true;
     int channelSolo = 0;

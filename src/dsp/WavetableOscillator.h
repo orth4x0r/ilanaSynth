@@ -179,7 +179,9 @@ public:
         return getNextSample (phaseModulation, frameReadFor (table, framePosition));
     }
 
-    float getNextSample (double phaseModulation, const FrameRead& frames)
+    // incrementScale bends the frequency for this sample (through-zero and
+    // exponential FM); 1 is the plain pitch, negative runs backwards.
+    float getNextSample (double phaseModulation, const FrameRead& frames, double incrementScale = 1.0)
     {
         wrapped = false;
 
@@ -218,13 +220,16 @@ public:
             }
         }
 
-        phase += frequency / sampleRate;
+        phase += frequency / sampleRate * incrementScale;
 
         while (phase >= 1.0)
         {
             phase -= 1.0;
             wrapped = true;
         }
+
+        while (phase < 0.0)
+            phase += 1.0;
 
         return value;
     }

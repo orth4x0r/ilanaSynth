@@ -795,6 +795,9 @@ public:
 
     juce::ComboBox& getComboBox() { return combo; }
 
+    // Replace the drop-down list with something else when clicked.
+    void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+
     void resized() override
     {
         auto area = getLocalBounds();
@@ -837,7 +840,21 @@ private:
             repaint();
     }
 
-    juce::ComboBox combo;
+    // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
+    struct PopupCombo : public juce::ComboBox
+    {
+        std::function<void()> popupOverride;
+
+        void showPopup() override
+        {
+            if (popupOverride != nullptr)
+                popupOverride();
+            else
+                juce::ComboBox::showPopup();
+        }
+    };
+
+    PopupCombo combo;
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float appear = 1.0f;
@@ -875,32 +892,23 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto on = button.getToggleState();
-        const auto pulse = 0.6f + 0.4f * std::sin (pulsePhase);
-        const auto ledY = juce::jmin (button.getBottom() + 6.0f, (float) getHeight() - 8.0f);
-
         if (hover > 0.01f)
         {
             g.setColour (IlanaTheme::accent().withAlpha (0.18f * hover));
             g.fillRoundedRectangle (button.getBounds().toFloat().expanded (2.0f), 5.0f);
         }
+    }
 
-        if (on)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.12f * pulse));
-            g.fillEllipse ((float) button.getX() + 2.0f, ledY - 3.0f, 12.0f, 12.0f);
-        }
+    // On/off reads from the button itself (lit accent when on); a soft
+    // pulse under a lit button keeps it alive.
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! button.getToggleState())
+            return;
 
-        g.setColour (on ? IlanaTheme::accent().withAlpha (0.5f + 0.5f * pulse)
-                        : juce::Colours::white.withAlpha (0.12f));
-        g.fillEllipse ((float) button.getX() + 5.0f, ledY, 6.0f, 6.0f);
-
-        // Bezel and glass highlight on the LED.
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.drawEllipse ((float) button.getX() + 4.5f, ledY - 0.5f, 7.0f, 7.0f, 1.0f);
-
-        g.setColour (juce::Colours::white.withAlpha (on ? 0.55f : 0.18f));
-        g.fillEllipse ((float) button.getX() + 6.0f, ledY + 1.0f, 2.2f, 2.2f);
+        const auto pulse = 0.5f + 0.5f * std::sin (pulsePhase);
+        g.setColour (juce::Colours::white.withAlpha (0.05f + 0.05f * pulse));
+        g.fillRoundedRectangle (button.getBounds().toFloat().reduced (2.0f).withTrimmedTop ((float) button.getHeight() * 0.55f), 3.0f);
     }
 
     void resized() override
@@ -931,8 +939,12 @@ private:
                                                            (float) button.getY() + (float) button.getHeight() * 0.5f));
         button.setAlpha (appear);
 
-        if (button.getToggleState() || hover > 0.01f || appear < 0.999f || isMouseOver())
+        const auto on = button.getToggleState();
+
+        if (on || on != lastOn || hover > 0.01f || appear < 0.999f || isMouseOver())
             repaint();
+
+        lastOn = on;
     }
 
     juce::TextButton button;
@@ -940,6 +952,7 @@ private:
     float pulsePhase = 0.0f;
     float appear = 1.0f;
     float hover = 0.0f;
+    bool lastOn = false;
 };
 
 class ValueSliderControl : public juce::Component

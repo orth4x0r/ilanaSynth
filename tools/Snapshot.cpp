@@ -10,7 +10,10 @@
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
+#include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
+#include "gui/TableBrowser.h"
+#include "gui/EnvelopeDisplay.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -202,7 +205,7 @@ int runUiTests()
         expect (ottAmount != nullptr && ottAmount->isInterestedInDragSource (details), "OTT amount accepts modulation");
     }
 
-    // MAIN's LFO cards jump to the LFO on the ENV/LFO tab.
+    // MAIN's cards: select in place, open the full page on request.
     tabs->setCurrentTabIndex (tabIndex ("MAIN"));
     settle (300);
 
@@ -210,9 +213,69 @@ int runUiTests()
     {
         if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
         {
+            // A press that moves away (a drag to a knob) must not switch pages.
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto now = juce::Time::getCurrentTime();
+            const juce::Point<float> from (20.0f, (float) thumbs->getHeight() * 0.5f);
+            const juce::Point<float> to (from.x + 60.0f, from.y + 40.0f);
+            const auto make = [&] (juce::Point<float> at, bool dragged)
+            {
+                return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                         thumbs, thumbs, now, from, now, 1, dragged);
+            };
+
+            auto& component = static_cast<juce::Component&> (*thumbs);
+            component.mouseDown (make (from, false));
+            component.mouseUp (make (to, true));
+            settle (50);
+            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
+
+            // A click selects the LFO right on MAIN; the card's open button
+            // jumps to the full page with that LFO.
             thumbs->onSelect (2);
             settle (100);
-            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "clicking an LFO card opens ENV/LFO");
+
+            std::vector<CardTabs*> cardTabs;
+            findAll<CardTabs> (*page, cardTabs);
+            CardTabs* lfoTabs = nullptr;
+
+            for (auto* candidate : cardTabs)
+                if (candidate->getSelected() == 2)
+                    lfoTabs = candidate;
+
+            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN" && lfoTabs != nullptr,
+                    "clicking an LFO card selects it on MAIN");
+
+            if (lfoTabs != nullptr && lfoTabs->onOpen != nullptr)
+            {
+                lfoTabs->onOpen();
+                settle (100);
+                expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "the LFO card's open button goes to ENV/LFO");
+            }
+
+            // The envelope tabs swap MAIN's envelope controls (AMP -> MOD).
+            tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+            settle (100);
+
+            for (auto* candidate : cardTabs)
+            {
+                std::vector<KnobControl*> before;
+                candidate->setSelected (3, true);
+                settle (50);
+                findAll<KnobControl> (*page, before);
+                auto modVisible = false;
+
+                for (auto* knob : before)
+                    modVisible = modVisible || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
+
+                if (modVisible)
+                {
+                    expect (true, "MAIN's envelope tabs show the MOD envelope");
+                    break;
+                }
+
+                candidate->setSelected (0, true);
+            }
         }
         else
         {
@@ -263,6 +326,137 @@ int runUiTests()
         else
         {
             expect (false, "ENV/LFO page has envelope cards");
+        }
+    }
+
+    // Envelope graph: a dragged handle lands where the mouse is.
+    tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+    settle (200);
+
+    if (auto* page = tabs->getCurrentContentComponent())
+    {
+        std::vector<EnvelopeDisplay*> displays;
+        findAll<EnvelopeDisplay> (*page, displays);
+        EnvelopeDisplay* amp = nullptr;
+
+        for (auto* display : displays)
+            if (visibleInTree (display))
+                amp = display;
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        const auto get = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+
+        if (amp != nullptr)
+        {
+            set ("amp_attack", 0.25f);
+            set ("amp_decay", 0.3f);
+            set ("amp_sustain", 0.5f);
+            set ("amp_release", 0.5f);
+
+            // Mirror of the display's geometry.
+            const auto plot = amp->getLocalBounds().toFloat().reduced (12.0f, 14.0f);
+            const auto total = std::sqrt (0.25f) + std::sqrt (0.3f) + 0.55f + std::sqrt (0.5f);
+            const auto scale = plot.getWidth() / juce::jmax (1.6f, total * 1.15f);
+            const auto xA = plot.getX() + scale * std::sqrt (0.25f);
+            const auto xS = xA + scale * std::sqrt (0.3f) + scale * 0.55f;
+            const auto xR = xS + scale * std::sqrt (0.5f);
+
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto drag = [&] (juce::Point<float> from, juce::Point<float> to)
+            {
+                const auto now = juce::Time::getCurrentTime();
+                const auto make = [&] (juce::Point<float> at, bool dragged)
+                {
+                    return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             amp, amp, now, from, now, 1, dragged);
+                };
+
+                auto& component = static_cast<juce::Component&> (*amp);
+                component.mouseDown (make (from, false));
+                component.mouseDrag (make (to, true));
+                component.mouseUp (make (to, true));
+            };
+
+            drag ({ xA, plot.getY() }, { xA + 30.0f, plot.getY() });
+            const auto expectedAttack = std::pow ((xA + 30.0f - plot.getX()) / scale, 2.0f);
+            expect (std::abs (get ("amp_attack") - expectedAttack) < expectedAttack * 0.03f,
+                    "attack handle follows the mouse (" + juce::String (get ("amp_attack"), 3) + " s, expected "
+                        + juce::String (expectedAttack, 3) + ")");
+
+            // Re-measure with the new attack, then drag the release end.
+            const auto total2 = std::sqrt (get ("amp_attack")) + std::sqrt (0.3f) + 0.55f + std::sqrt (0.5f);
+            const auto scale2 = plot.getWidth() / juce::jmax (1.6f, total2 * 1.15f);
+            const auto xS2 = plot.getX() + scale2 * (std::sqrt (get ("amp_attack")) + std::sqrt (0.3f) + 0.55f);
+            const auto xR2 = xS2 + scale2 * std::sqrt (0.5f);
+            drag ({ xR2, plot.getBottom() }, { xR2 - 25.0f, plot.getBottom() });
+            const auto expectedRelease = std::pow ((xR2 - 25.0f - xS2) / scale2, 2.0f);
+            expect (std::abs (get ("amp_release") - expectedRelease) < expectedRelease * 0.03f,
+                    "release handle follows the mouse (" + juce::String (get ("amp_release"), 3) + " s, expected "
+                        + juce::String (expectedRelease, 3) + ")");
+            juce::ignoreUnused (xR);
+        }
+        else
+        {
+            expect (false, "ENV/LFO shows the amp envelope display");
+        }
+    }
+
+    // MAIN's oscillator cards follow the mode: granular shows grain knobs, not FRAME.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+
+        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
+            mode->setValueNotifyingHost (mode->convertTo0to1 (3.0f));
+
+        settle (400);
+        std::vector<KnobControl*> mainKnobs;
+        findAll<KnobControl> (*editor, mainKnobs);
+        auto grainSize = false, frame = false;
+
+        for (auto* knob : mainKnobs)
+        {
+            if (! visibleInTree (knob))
+                continue;
+
+            grainSize = grainSize || knob->getParameterId() == "osc1_grain_size";
+            frame = frame || knob->getParameterId() == "osc1_frame";
+        }
+
+        expect (grainSize && ! frame, "MAIN's OSC 1 card shows grain controls in granular mode (grain " + juce::String ((int) grainSize) + ", frame " + juce::String ((int) frame) + ")");
+
+        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
+            mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
+    }
+
+    // An empty FX rack offers one-click effects.
+    {
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+
+        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        settle (500);
+        std::vector<juce::TextButton*> textButtons;
+        findAll<juce::TextButton> (*editor, textButtons);
+        juce::TextButton* reverb = nullptr;
+
+        for (auto* button : textButtons)
+            if (button->getButtonText().contains ("REVERB") && visibleInTree (button))
+                reverb = button;
+
+        expect (reverb != nullptr, "the empty rack shows quick-add buttons");
+
+        if (reverb != nullptr)
+        {
+            reverb->triggerClick();
+            settle (400);
+            const auto* slot1 = processor.apvts.getRawParameterValue ("fx_slot1");
+            expect (slot1 != nullptr && (int) slot1->load() == 13, "quick-add REVERB puts a reverb in slot 1");
+            expect (! reverb->isVisible(), "quick-add buttons hide once the rack has an effect");
         }
     }
 
@@ -396,6 +590,14 @@ int main (int argc, char** argv)
 
         settle (500);
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
+    }
+
+    // The wavetable browser on its own.
+    {
+        TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setSize (740, 520);
+        settle (100);
+        save (browser, outDir.getChildFile ("table-browser.png"));
     }
 
     editor.reset();

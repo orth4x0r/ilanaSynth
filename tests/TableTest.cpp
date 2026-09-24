@@ -3,7 +3,9 @@
 #include <juce_events/juce_events.h>
 
 #include <complex>
+#include <functional>
 #include <iostream>
+#include <set>
 #include <vector>
 
 #include "Presets.h"
@@ -12,6 +14,7 @@
 #include "dsp/FilterUnit.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/LfoCurve.h"
+#include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
 #include "dsp/SpectralFreeze.h"
@@ -1432,7 +1435,8 @@ void runPresetTuningTest()
     for (int presetIndex = 0; presetIndex < names.size(); ++presetIndex)
     {
         // Sound effects (noise sweeps, sirens, risers) are not meant to be in tune.
-        if (categories[presetIndex] == "FX")
+        // Drums sweep their pitch and generative patches spray extra notes by design.
+        if (categories[presetIndex] == "FX" || categories[presetIndex] == "Drums" || categories[presetIndex] == "Generative")
             continue;
 
         processor.loadFactoryPreset (presetIndex);
@@ -3210,7 +3214,8 @@ void runFactoryLibraryTest()
     processor.prepareToPlay (48000.0, 512);
 
     const auto names = processor.getFactoryPresetNames();
-    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded;
+    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded, drumLevels;
+    const auto categories = processor.getFactoryPresetCategories();
     std::vector<std::pair<double, juce::String>> levels;
 
     const auto setMacros = [&processor] (float value)
@@ -3295,7 +3300,16 @@ void runFactoryLibraryTest()
         if (peak < 0.001f)
             silent.add (names[index]);
 
-        levels.push_back ({ rms, names[index] });
+        // Drums are short hits: judge them by their peak, not a held note's level.
+        if (categories[index] == "Drums")
+        {
+            if (peak < 0.15f || peak > 2.0f)
+                drumLevels.add (names[index] + " (peak " + juce::String (peak, 2) + ")");
+        }
+        else
+        {
+            levels.push_back ({ rms, names[index] });
+        }
 
         setMacros (1.0f);
         double fullRms = 0.0;
@@ -3311,6 +3325,7 @@ void runFactoryLibraryTest()
     check (unmapped.isEmpty(), "every factory macro is mapped (" + unmapped.joinIntoString (", ") + ")");
     check (badSlots.isEmpty(), "factory mod slots all have a destination (" + badSlots.joinIntoString (", ") + ")");
     check (silent.isEmpty(), "every factory preset makes sound (" + silent.joinIntoString (", ") + ")");
+    check (drumLevels.isEmpty(), "factory drums hit at a sensible level (" + drumLevels.joinIntoString (", ") + ")");
     check (unbounded.isEmpty(), "factory presets stay bounded with macros at full (" + unbounded.joinIntoString (", ") + ")");
 
     // Loudness: flag presets far from the library's median level.
@@ -3330,6 +3345,842 @@ void runFactoryLibraryTest()
     std::cout << "  library level: median rms " << median << ", quietest " << sorted.front().second
               << ", loudest " << sorted.back().second << std::endl;
     check (outliers.isEmpty(), "factory presets within 14 dB of the median level (" + outliers.joinIntoString (", ") + ")");
+}
+
+// Tape stop must not leave latency behind once it is released.
+void runTapeStopLatencyTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    processor.loadFactoryPreset (0);
+    processor.assignFxSlot (1, 17); // TapeStop
+
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("fx_tape_stop_time", 0.3f);
+
+    const auto run = [&processor] (int blocks, const juce::MidiBuffer& firstMidi)
+    {
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi = firstMidi;
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    juce::MidiBuffer noteOn;
+    noteOn.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    run (20, noteOn);
+    set ("fx_tape_stop_trigger", 1.0f);
+    run (40, {});                        // tape winds down
+    set ("fx_tape_stop_trigger", 0.0f);
+    run (60, {});                        // spins back up and rejoins
+    processor.panic();
+    run (200, {});                       // let the tail die
+
+    const auto out = run (40, noteOn);
+    auto onset = -1;
+
+    for (int i = 0; i < (int) out.size(); ++i)
+    {
+        if (std::abs (out[(size_t) i]) > 1.0e-3f)
+        {
+            onset = i;
+            break;
+        }
+    }
+
+    check (onset >= 0 && onset < 256, "tape stop adds no latency after release (onset at sample " + juce::String (onset) + ")");
+}
+
+// Trance gate: a Custom open/closed pattern gates the sound step by step,
+// each step lasting DIV (1/16 at 120 BPM = 0.125 s).
+void runTranceGateTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 500);
+    processor.loadFactoryPreset (0);
+    processor.assignFxSlot (1, 16);
+
+    const auto set = [&processor] (const juce::String& id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("fx_gate_div", 4.0f);      // 1/16
+    set ("fx_gate_pattern", 8.0f);  // Custom
+    set ("fx_gate_steps", 4.0f);
+    set ("fx_gate_smooth", 0.0f);
+    set ("fx_gate_mix", 1.0f);
+
+    for (int step = 1; step <= 16; ++step)
+        set ("fx_gate_step" + juce::String (step), step % 2 == 1 ? 1.0f : 0.0f);
+
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 500);
+
+    for (int block = 0; block < 96; ++block) // 1 s
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+
+        for (int i = 0; i < 500; ++i)
+            out.push_back (buffer.getSample (0, i));
+    }
+
+    const auto rmsOf = [&out] (int start, int length)
+    {
+        auto sum = 0.0;
+
+        for (int i = start; i < start + length; ++i)
+            sum += (double) out[(size_t) i] * out[(size_t) i];
+
+        return std::sqrt (sum / length);
+    };
+
+    constexpr int stepLength = 6000;
+    auto worstRatio = 1.0e9;
+
+    for (int step = 1; step < 7; step += 2)
+    {
+        // Middles of an open step and the closed step after it.
+        const auto open = rmsOf ((step - 1) * stepLength + 1500, 3000);
+        const auto closed = rmsOf (step * stepLength + 1500, 3000);
+        worstRatio = juce::jmin (worstRatio, open / juce::jmax (1.0e-9, closed));
+    }
+
+    check (worstRatio > 30.0, "trance gate opens and closes on 1/16 steps (open/closed ratio " + juce::String (worstRatio, 1) + ")");
+}
+
+void runGenerativeTests()
+{
+    // Scale snapping.
+    check (Scales::quantize (61, 1, 0) == 62 && Scales::quantize (66, 1, 0) == 67 && Scales::quantize (60, 1, 0) == 60,
+           "scale snap: C major sends C# up to D, F# up to G, keeps C");
+    check (Scales::quantize (64, 2, 9) == 64 && Scales::quantize (61, 2, 9) == 62,
+           "scale snap: A minor keeps E, moves C# to D");
+
+    // Spray: every extra note is in the scale, released with its parent.
+    NoteSpray spray;
+    NoteSpray::Settings settings;
+    settings.scale = 11; // minor pentatonic
+    settings.root = 0;
+    settings.sprayOn = true;
+    settings.count = 5;
+    settings.range = 12;
+    settings.chance = 1.0f;
+
+    juce::MidiBuffer in, out;
+    in.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    spray.process (in, out, 512, settings);
+
+    std::set<int> sounding;
+    auto allInScale = true;
+
+    for (const auto metadata : out)
+    {
+        const auto message = metadata.getMessage();
+
+        if (message.isNoteOn())
+        {
+            sounding.insert (message.getNoteNumber());
+            allInScale = allInScale && Scales::contains (message.getNoteNumber(), 11, 0);
+        }
+    }
+
+    check (sounding.size() >= 3 && sounding.count (60) == 1 && allInScale,
+           "note spray adds scale notes around the played note (" + juce::String ((int) sounding.size()) + " notes)");
+
+    in.clear();
+    in.addEvent (juce::MidiMessage::noteOff (1, 60), 10);
+    spray.process (in, out, 512, settings);
+    std::set<int> released;
+
+    for (const auto metadata : out)
+        if (metadata.getMessage().isNoteOff())
+            released.insert (metadata.getMessage().getNoteNumber());
+
+    check (released == sounding, "releasing the played note releases every sprayed note");
+
+    // Spread: extra notes arrive later, across blocks.
+    settings.spreadSamples = 4000;
+    in.clear();
+    in.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0);
+    auto starts = 0;
+
+    for (int block = 0; block < 10; ++block)
+    {
+        spray.process (in, out, 512, settings);
+        in.clear();
+
+        for (const auto metadata : out)
+            if (metadata.getMessage().isNoteOn())
+                ++starts;
+    }
+
+    check (starts >= 4, "spread sprayed notes start over time (" + juce::String (starts) + " starts)");
+
+    // Scale Random arp stays in the scale and the range.
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    processor.loadFactoryPreset (0);
+
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("arp_on", 1.0f);
+    set ("arp_mode", 8.0f);
+    set ("arp_div", 5.0f); // 1/32: many steps
+    set ("arp_octaves", 2.0f);
+    set ("gen_scale", 3.0f); // D dorian
+    set ("gen_root", 2.0f);
+
+    auto inKey = true, inRange = true;
+    juce::AudioBuffer<float> buffer (2, 512);
+
+    for (int block = 0; block < 200; ++block)
+    {
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 50, (juce::uint8) 100), 0);
+
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+    }
+
+    // With note 50 held, check the arp's choices over many picks.
+    for (int i = 0; i < 400; ++i)
+    {
+        const auto note = processor.pickArpNoteForTest (8, 2);
+        inKey = inKey && Scales::contains (note, 3, 2);
+        inRange = inRange && note >= 50 && note <= 50 + 24 + 1;
+    }
+
+    check (inKey && inRange, "Scale Random arp picks notes in the scale and the octave range");
+}
+
+// Pre-1.1 states used OSC 3 as the sub; loading them moves a plain sub to
+// the dedicated SUB and keeps a real OSC 3 at the same pitch.
+void runOsc3MigrationTest()
+{
+    const auto loadOldState = [] (std::function<void (juce::ValueTree&)> edit)
+    {
+        IlanaSynthAudioProcessor source;
+        auto state = source.apvts.copyState();
+        state.removeProperty ("osc3Schema", nullptr);
+        edit (state);
+
+        juce::MemoryBlock data;
+        std::unique_ptr<juce::XmlElement> xml (state.createXml());
+        source.copyXmlToBinary (*xml, data);
+
+        auto target = std::make_unique<IlanaSynthAudioProcessor>();
+        target->setStateInformation (data.getData(), (int) data.getSize());
+        return target;
+    };
+
+    const auto setParam = [] (juce::ValueTree& state, const juce::String& id, float value)
+    {
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+
+            if (child.getProperty ("id").toString() == id)
+            {
+                child.setProperty ("value", value, nullptr);
+                return;
+            }
+        }
+
+        juce::ValueTree child ("PARAM");
+        child.setProperty ("id", id, nullptr);
+        child.setProperty ("value", value, nullptr);
+        state.appendChild (child, nullptr);
+    };
+
+    const auto value = [] (IlanaSynthAudioProcessor& processor, const char* id)
+    {
+        return processor.apvts.getRawParameterValue (id)->load();
+    };
+
+    // Plain sub: old table 0 (Shape) with a saw, two octaves down.
+    auto plain = loadOldState ([&] (juce::ValueTree& state)
+    {
+        setParam (state, "sub_on", 1.0f);
+        setParam (state, "sub_table", 0.0f);
+        setParam (state, "sub_shape", 2.0f);
+        setParam (state, "sub_octave", 1.0f);
+        setParam (state, "sub_level", 0.4f);
+    });
+
+    check (value (*plain, "subosc_on") > 0.5f && value (*plain, "sub_on") < 0.5f && (int) value (*plain, "sub_shape") == 2
+               && (int) value (*plain, "sub_octave") == 1 && std::abs (value (*plain, "subosc_level") - 0.4f) < 1.0e-4f,
+           "old plain sub moves to the dedicated SUB");
+
+    // Real OSC 3: old table 5 (factory table 1), one octave down, semi +3.
+    auto real = loadOldState ([&] (juce::ValueTree& state)
+    {
+        setParam (state, "sub_on", 1.0f);
+        setParam (state, "sub_table", 5.0f);
+        setParam (state, "sub_octave", 0.0f);
+        setParam (state, "sub_semi", 3.0f);
+        setParam (state, "osc1_table", 17.0f); // "User 2" before v1.1
+    });
+
+    check ((int) value (*real, "osc1_table") == TableFactory::getNumFactoryTables() + 1,
+           "an old user wavetable choice still points at the same user slot");
+
+    check (value (*real, "sub_on") > 0.5f && value (*real, "subosc_on") < 0.5f
+               && (int) value (*real, "sub_table") == 1 && (int) value (*real, "sub_semi") == -9,
+           "old real OSC 3 keeps its table and pitch (table " + juce::String ((int) value (*real, "sub_table"))
+               + ", semi " + juce::String ((int) value (*real, "sub_semi")) + ")");
+
+    // New states are not migrated again.
+    juce::MemoryBlock saved;
+    real->getStateInformation (saved);
+    IlanaSynthAudioProcessor again;
+    again.setStateInformation (saved.getData(), (int) saved.getSize());
+    check ((int) again.apvts.getRawParameterValue ("sub_semi")->load() == -9, "saved 1.1 state is not migrated twice");
+}
+
+void runSpectralWarpTests()
+{
+    // Each warp on a bright table: bounded, and different from the source.
+    {
+        Wavetable source;
+        source.buildFromFrames (TableFactory::generate (10));
+
+        for (int mode = SpectralWarp::Stretch; mode < SpectralWarp::Count; ++mode)
+        {
+            const auto amount = mode == SpectralWarp::Formant ? 0.9f : 0.7f;
+            const auto warped = SpectralWarp::warpTable (source, mode, amount);
+            auto peak = 0.0f;
+            auto diff = 0.0;
+            auto finite = true;
+
+            for (int frame = 0; frame < warped->getNumFrames(); ++frame)
+            {
+                const auto* a = source.getFrameData (0, frame);
+                const auto* b = warped->getFrameData (0, frame);
+
+                for (int i = 0; i < Wavetable::frameSize; ++i)
+                {
+                    finite = finite && std::isfinite (b[i]);
+                    peak = juce::jmax (peak, std::abs (b[i]));
+                    diff += (double) (a[i] - b[i]) * (a[i] - b[i]);
+                }
+            }
+
+            diff = std::sqrt (diff / (double) (warped->getNumFrames() * Wavetable::frameSize));
+            check (finite && peak <= 1.05f && peak > 0.1f && diff > 0.02,
+                   "Spectral warp " + SpectralWarp::getNames()[mode] + " is bounded and audible (peak "
+                       + juce::String (peak, 3) + ", diff " + juce::String (diff, 3) + ")");
+        }
+    }
+
+    const auto render = [] (int mode, bool offline)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (offline);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_table", 10.0f);
+        set ("osc1_spectral", (float) mode);
+        set ("osc1_spectral_amt", 0.8f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+        auto waited = 0;
+
+        // Realtime: let the worker build the warp before the note starts.
+        for (; ! offline && waited < 400; ++waited)
+        {
+            buffer.clear();
+            juce::MidiBuffer none;
+            processor.processBlock (buffer, none);
+
+            if (processor.isSpectralWarpReady (0))
+                break;
+
+            juce::Thread::sleep (5);
+        }
+
+        for (int block = 0; block < 12; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return std::make_pair (out, processor.isSpectralWarpReady (0));
+    };
+
+    const auto difference = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto sum = 0.0;
+
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            sum += (double) (a[i] - b[i]) * (a[i] - b[i]);
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, a.size()));
+    };
+
+    const auto plain = render (SpectralWarp::Off, true).first;
+    const auto offline = render (SpectralWarp::Stretch, true);
+    const auto realtime = render (SpectralWarp::Stretch, false);
+
+    check (offline.second && difference (plain, offline.first) > 0.01,
+           "Offline renders build the spectral warp in place (diff " + juce::String (difference (plain, offline.first), 4) + ")");
+    check (realtime.second && difference (offline.first, realtime.first) < 1.0e-4,
+           "The background worker builds the same warp (diff " + juce::String (difference (offline.first, realtime.first), 6) + ")");
+}
+
+void runChaosLfoTests()
+{
+    juce::Random random (7);
+
+    // Chaos: bounded, uses both halves, and doesn't repeat cycle to cycle.
+    {
+        LfoChaos chaos;
+        chaos.reset (random);
+        std::vector<float> values;
+        auto finite = true;
+
+        for (int i = 0; i < 48000 * 4; ++i)
+        {
+            chaos.advance (2.0 / 48000.0);
+            values.push_back (chaos.value (LfoShapes::Chaos, 0.0));
+            finite = finite && std::isfinite (values.back());
+        }
+
+        const auto [low, high] = std::minmax_element (values.begin(), values.end());
+        auto cycleDifference = 0.0;
+
+        for (int i = 0; i < 24000; ++i)
+            cycleDifference += std::abs ((double) values[(size_t) i + 96000] - (double) values[(size_t) i + 120000]);
+
+        check (finite && *low < -0.4f && *high > 0.4f && *low >= -1.0f && *high <= 1.0f && cycleDifference / 24000.0 > 0.05,
+               "Chaos LFO wanders both ways without repeating (" + juce::String (*low, 2) + " .. " + juce::String (*high, 2)
+                   + ", cycle diff " + juce::String (cycleDifference / 24000.0, 3) + ")");
+    }
+
+    // Drunk: small steps, stays in range. Smooth Random: continuous across cycles.
+    {
+        LfoChaos drunk, smooth;
+        drunk.reset (random);
+        smooth.reset (random);
+        auto maxStep = 0.0f, maxJump = 0.0f;
+        auto inRange = true;
+        auto last = smooth.value (LfoShapes::SmoothRandom, 0.999);
+
+        for (int cycle = 0; cycle < 2000; ++cycle)
+        {
+            const auto before = drunk.target;
+            drunk.onCycle (LfoShapes::Drunk, random);
+            maxStep = juce::jmax (maxStep, std::abs (drunk.target - before));
+            inRange = inRange && std::abs (drunk.target) <= 1.0f;
+
+            smooth.onCycle (LfoShapes::SmoothRandom, random);
+            maxJump = juce::jmax (maxJump, std::abs (smooth.value (LfoShapes::SmoothRandom, 0.0) - last));
+            last = smooth.value (LfoShapes::SmoothRandom, 0.999);
+        }
+
+        check (inRange && maxStep <= 0.4501f, "Drunk LFO takes small steps and stays in range (max step " + juce::String (maxStep, 3) + ")");
+        check (maxJump < 0.01f, "Smooth Random LFO has no jumps between cycles (" + juce::String (maxJump, 4) + ")");
+    }
+
+    // Key tracking: a per-voice LFO at the note's pitch, driving level.
+    const auto render = [] (bool key, int shape)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_table", 8.0f);
+        set ("osc1_frame", 0.0f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        set ("lfo1_shape", (float) shape);
+        set ("lfo1_rate", 12.0f); // key tracked: three times the note
+        set ("lfo1_key", key ? 1.0f : 0.0f);
+        set ("mod1_src", (float) Mod::Source::Lfo1);
+        set ("mod1_dst", (float) Mod::Destination::Osc1Level);
+        set ("mod1_amt", 0.5f);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+
+        for (int block = 0; block < 16; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    // Brightness proxy: mean absolute first difference relative to level.
+    const auto brightness = [] (const std::vector<float>& data)
+    {
+        auto diff = 0.0, level = 0.0;
+
+        for (size_t i = 4096; i < data.size(); ++i)
+        {
+            diff += std::abs ((double) data[i] - (double) data[i - 1]);
+            level += std::abs ((double) data[i]);
+        }
+
+        return diff / juce::jmax (1.0e-9, level);
+    };
+
+    const auto slow = render (false, LfoShapes::Sine);
+    const auto audio = render (true, LfoShapes::Sine);
+    check (brightness (audio) > brightness (slow) * 1.3,
+           "A key-tracked LFO on level is audio-rate AM (brightness " + juce::String (brightness (slow), 4) + " -> "
+               + juce::String (brightness (audio), 4) + ")");
+
+    for (const auto shape : { (int) LfoShapes::SmoothRandom, (int) LfoShapes::Drunk, (int) LfoShapes::Chaos })
+    {
+        const auto out = render (false, shape);
+        auto finite = true;
+        auto peak = 0.0f;
+
+        for (auto value : out)
+        {
+            finite = finite && std::isfinite (value);
+            peak = juce::jmax (peak, std::abs (value));
+        }
+
+        check (finite && peak > 0.01f && peak < 4.0f, "LFO shape " + juce::String (shape) + " drives a voice cleanly (peak " + juce::String (peak, 3) + ")");
+    }
+}
+
+void runGranularTests()
+{
+    const auto render = [] (std::function<void (juce::AudioProcessorValueTreeState&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        auto& state = processor.apvts;
+        const auto set = [&state] (const char* id, float value)
+        {
+            if (auto* parameter = state.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_mode", 3.0f);
+        set ("osc1_sample_start", 0.3f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        setup (state);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> left, right;
+
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+            {
+                left.push_back (buffer.getSample (0, i));
+                right.push_back (buffer.getSample (1, i));
+            }
+        }
+
+        return std::make_pair (left, right);
+    };
+
+    const auto stats = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto energy = 0.0, difference = 0.0;
+        auto peak = 0.0f;
+        auto finite = true;
+
+        for (size_t i = 4800; i < a.size(); ++i)
+        {
+            energy += (double) a[i] * a[i];
+            difference += (double) (a[i] - b[i]) * (a[i] - b[i]);
+            peak = juce::jmax (peak, std::abs (a[i]), std::abs (b[i]));
+            finite = finite && std::isfinite (a[i]) && std::isfinite (b[i]);
+        }
+
+        const auto n = (double) (a.size() - 4800);
+        return std::make_tuple (std::sqrt (energy / n), std::sqrt (difference / n), peak, finite);
+    };
+
+    const auto [rms, sideRms, peak, finite] = [&]
+    {
+        const auto out = render ([] (juce::AudioProcessorValueTreeState&) {});
+        return stats (out.first, out.second);
+    }();
+
+    check (finite && rms > 0.01 && peak < 2.0f,
+           "Granular mode sounds with no sample loaded (rms " + juce::String (rms, 4) + ", peak " + juce::String (peak, 3) + ")");
+    check (sideRms > 0.005, "Granular grains are spread across the stereo field (side " + juce::String (sideRms, 4) + ")");
+
+    const auto mono = render ([] (juce::AudioProcessorValueTreeState& state)
+    {
+        if (auto* parameter = state.getParameter ("osc1_grain_spread"))
+            parameter->setValueNotifyingHost (0.0f);
+    });
+    const auto [monoRms, monoSide, monoPeak, monoFinite] = stats (mono.first, mono.second);
+    check (monoFinite && monoSide < 1.0e-4 && monoRms > 0.01, "Granular stereo spread at zero is mono (side " + juce::String (monoSide, 6) + ")");
+
+    // Sparse vs dense clouds stay in the same loudness ballpark.
+    for (const auto density : { 0.0f, 1.0f })
+    {
+        const auto out = render ([density] (juce::AudioProcessorValueTreeState& state)
+        {
+            if (auto* parameter = state.getParameter ("osc1_grain_density"))
+                parameter->setValueNotifyingHost (density);
+        });
+        const auto [densityRms, s2, densityPeak, densityFinite] = stats (out.first, out.second);
+        juce::ignoreUnused (s2);
+        check (densityFinite && densityRms > rms * 0.3 && densityRms < rms * 3.0 && densityPeak < 2.5f,
+               "Granular density " + juce::String (density, 1) + " keeps a sensible level (rms " + juce::String (densityRms, 4) + ")");
+    }
+}
+
+// The new engines must stay affordable: six-note chords on the heaviest
+// v1.1 presets, measured as milliseconds of CPU per second of audio.
+void runHeavyPresetCpuTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    const auto names = processor.getFactoryPresetNames();
+
+    for (const auto* name : { "Swarm", "Grain Choir", "Gated Supersaw", "Harmonic Cut Pad", "Chaos Filter Pad", "Operator Bell" })
+    {
+        const auto index = names.indexOf (name);
+
+        if (index < 0)
+        {
+            check (false, juce::String ("heavy preset exists: ") + name);
+            continue;
+        }
+
+        processor.loadFactoryPreset (index);
+        processor.panic();
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto blocks = (int) (48000 * 2 / 512);
+        const auto start = juce::Time::getHighResolutionTicks();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (const auto note : { 48, 52, 55, 59, 62, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto seconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start);
+        const auto msPerSecond = seconds * 1000.0 / 2.0;
+        std::cout << "  cpu: " << name << " " << juce::String (msPerSecond, 1) << " ms per second of audio" << std::endl;
+        check (msPerSecond < 400.0, juce::String (name) + " renders a six-note chord well within real time ("
+                                          + juce::String (msPerSecond, 1) + " ms/s)");
+    }
+}
+
+void runFmMatrixTests()
+{
+    const auto renderWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        // Two sine operators, no sub, open filter.
+        set ("subosc_on", 0.0f);
+        set ("osc1_table", 8.0f);
+        set ("osc1_frame", 0.0f);
+        set ("osc2_on", 1.0f);
+        set ("osc2_table", 8.0f);
+        set ("osc2_fine", 0.0f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        setup (processor);
+
+        std::vector<float> out;
+        juce::AudioBuffer<float> buffer (2, 512);
+
+        for (int block = 0; block < 20; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    const auto set = [] (IlanaSynthAudioProcessor& processor, const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    const auto rms = [] (const std::vector<float>& data)
+    {
+        auto sum = 0.0;
+
+        for (auto value : data)
+            sum += (double) value * value;
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, data.size()));
+    };
+
+    const auto difference = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto sum = 0.0;
+
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            sum += (double) (a[i] - b[i]) * (a[i] - b[i]);
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, a.size()));
+    };
+
+    // OSC 1 as a silent modulator of OSC 2.
+    const auto plain = renderWith ([&] (IlanaSynthAudioProcessor& p) { set (p, "osc1_out", 0.0f); });
+    const auto modulated = renderWith ([&] (IlanaSynthAudioProcessor& p)
+    {
+        set (p, "osc1_out", 0.0f);
+        set (p, "fm_1to2", 0.6f);
+    });
+    const auto both = renderWith ([&] (IlanaSynthAudioProcessor&) {});
+
+    check (rms (plain) > 0.01 && rms (both) > rms (plain) * 1.3,
+           "OUT off keeps an oscillator out of the mix (" + juce::String (rms (plain), 3) + " vs " + juce::String (rms (both), 3) + ")");
+    check (difference (plain, modulated) > rms (plain) * 0.2,
+           "OSC 1 > OSC 2 FM changes OSC 2 while OSC 1 stays silent");
+
+    // All three FM styles stay finite and bounded at full depth.
+    for (int mode = 0; mode < 3; ++mode)
+    {
+        const auto out = renderWith ([&] (IlanaSynthAudioProcessor& p)
+        {
+            set (p, "fm_mode", (float) mode);
+            set (p, "fm_1to2", 1.0f);
+            set (p, "fm_amount", 1.0f);
+            set (p, "fm_fb2", 1.0f);
+        });
+
+        auto finite = true;
+        auto peak = 0.0f;
+
+        for (auto value : out)
+        {
+            finite = finite && std::isfinite (value);
+            peak = juce::jmax (peak, std::abs (value));
+        }
+
+        check (finite && peak < 4.0f && peak > 0.001f, "FM mode " + juce::String (mode) + " stays bounded at full depth (peak "
+                                                           + juce::String (peak, 3) + ")");
+    }
+
+    // Saved 1.0 routings to parameter destinations move past the new FM ones.
+    IlanaSynthAudioProcessor source;
+    auto state = source.apvts.copyState();
+    state.removeProperty ("destSchema", nullptr);
+    const auto oldIndex = Mod::explicitDestinationsV10 + 3;
+
+    for (int i = 0; i < state.getNumChildren(); ++i)
+        if (state.getChild (i).getProperty ("id").toString() == "mod1_dst")
+            state.getChild (i).setProperty ("value", oldIndex, nullptr);
+
+    juce::MemoryBlock data;
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    juce::AudioProcessor::copyXmlToBinary (*xml, data);
+    IlanaSynthAudioProcessor target;
+    target.setStateInformation (data.getData(), (int) data.getSize());
+    const auto migrated = (int) target.apvts.getRawParameterValue ("mod1_dst")->load();
+    check (migrated == Mod::numExplicitDestinations + 3,
+           "old parameter-destination routings are renumbered (" + juce::String (migrated) + ")");
 }
 
 int main()
@@ -3385,6 +4236,15 @@ int main()
     runResynthesisTest();
     runCurveLfoTest();
     runFactoryLibraryTest();
+    runTapeStopLatencyTest();
+    runTranceGateTest();
+    runGenerativeTests();
+    runOsc3MigrationTest();
+    runFmMatrixTests();
+    runSpectralWarpTests();
+    runChaosLfoTests();
+    runGranularTests();
+    runHeavyPresetCpuTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

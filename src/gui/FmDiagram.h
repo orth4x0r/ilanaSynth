@@ -21,7 +21,7 @@ public:
     {
         setTooltip ("Drag from one oscillator to another to add or remove an FM route; onto itself for feedback. "
                     "Click an oscillator to mute its output (it still modulates).");
-        startTimerHz (15);
+        startTimerHz (30);
     }
 
     // [source][target] parameter ids.
@@ -87,6 +87,22 @@ public:
                 g.setColour (colour);
                 g.fillPath (arrow);
 
+                // Energy flowing along the route: faster and brighter while notes play.
+                {
+                    const auto playing = processorRef.getActiveVoiceCount() > 0;
+                    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+                    const auto speed = (playing ? 0.9 : 0.3) * (0.5 + amount);
+
+                    for (int dot = 0; dot < 3; ++dot)
+                    {
+                        const auto t = (float) std::fmod (now * speed + dot / 3.0, 1.0);
+                        const auto position = from + (to - from) * (t * 0.88f);
+                        const auto alpha = std::sin (t * juce::MathConstants<float>::pi) * (playing ? 0.95f : 0.5f);
+                        g.setColour (juce::Colours::white.withAlpha (alpha));
+                        g.fillEllipse (juce::Rectangle<float> (4.0f + thickness * 0.4f, 4.0f + thickness * 0.4f).withCentre (position));
+                    }
+                }
+
                 g.setColour (juce::Colours::white.withAlpha (0.75f));
                 g.setFont (IlanaTheme::font (10.0f, true));
                 g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%",
@@ -124,6 +140,14 @@ public:
             const auto out = read (osc == 0 ? "osc1_out" : (osc == 1 ? "osc2_out" : "sub_out")) > 0.5f;
             const auto on = read (osc == 0 ? "osc1_on" : (osc == 1 ? "osc2_on" : "sub_on")) > 0.5f;
             const auto circle = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
+
+            // A soft halo that breathes while this operator sounds.
+            if (on && processorRef.getActiveVoiceCount() > 0)
+            {
+                const auto breath = 0.5f + 0.5f * std::sin ((float) juce::Time::getMillisecondCounterHiRes() * 0.004f + (float) osc);
+                g.setColour (colour.withAlpha (0.10f + 0.12f * breath));
+                g.fillEllipse (circle.expanded (6.0f + 4.0f * breath));
+            }
 
             g.setColour (juce::Colour (0xff17171b));
             g.fillEllipse (circle);
@@ -199,10 +223,17 @@ private:
 
     std::array<juce::Point<float>, 3> operatorCentres() const
     {
-        const auto area = getLocalBounds().toFloat().reduced (operatorRadius() * 1.9f);
-        return { juce::Point<float> { area.getX() + area.getWidth() * 0.12f, area.getY() + area.getHeight() * 0.1f },
-                 juce::Point<float> { area.getRight() - area.getWidth() * 0.12f, area.getY() + area.getHeight() * 0.1f },
-                 juce::Point<float> { area.getCentreX(), area.getBottom() - area.getHeight() * 0.05f } };
+        // An upside-down triangle centred in the view: OSC 1 and 2 on top, OSC 3 below.
+        const auto bounds = getLocalBounds().toFloat().reduced (operatorRadius() * 1.6f);
+        const auto centre = bounds.getCentre().translated (0.0f, -bounds.getHeight() * 0.04f);
+        const auto spread = juce::jmin (bounds.getWidth() * 0.5f, bounds.getHeight() * 0.62f);
+        const auto angle = [&] (float degrees)
+        {
+            const auto radians = juce::degreesToRadians (degrees);
+            return centre + juce::Point<float> (std::cos (radians), std::sin (radians)) * spread;
+        };
+
+        return { angle (-150.0f), angle (-30.0f), angle (90.0f) };
     }
 
     int oscAt (juce::Point<float> position) const

@@ -413,8 +413,9 @@ private:
             drawGrainCloud (g, plot, centreY, halfHeight);
             g.setColour (juce::Colours::white.withAlpha (0.55f));
             g.setFont (IlanaTheme::font (10.5f, true));
-            g.drawText ((reverse ? "REV " : "") + juce::String ("GRAINS  - drag to move"), getLocalBounds().reduced (8, 6),
-                        juce::Justification::bottomLeft);
+            const auto wide = getWidth() > 240;
+            g.drawText ((reverse ? "REV " : "") + juce::String (wide ? "GRAINS - drag to move" : "GRAINS"),
+                        getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
             g.drawText (sample->name, getLocalBounds().reduced (8, 6), juce::Justification::bottomRight);
             return;
         }

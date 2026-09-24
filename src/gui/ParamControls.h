@@ -892,32 +892,35 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto on = button.getToggleState();
-        const auto pulse = 0.6f + 0.4f * std::sin (pulsePhase);
-        const auto ledY = juce::jmin (button.getBottom() + 6.0f, (float) getHeight() - 8.0f);
-
         if (hover > 0.01f)
         {
             g.setColour (IlanaTheme::accent().withAlpha (0.18f * hover));
             g.fillRoundedRectangle (button.getBounds().toFloat().expanded (2.0f), 5.0f);
         }
+    }
+
+    // The LED sits inside the button's left end, so it never hangs below
+    // the control or gets clipped by the row beneath.
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (button.getWidth() < 44)
+            return;
+
+        const auto on = button.getToggleState();
+        const auto pulse = 0.6f + 0.4f * std::sin (pulsePhase);
+        const auto centre = juce::Point<float> ((float) button.getX() + 10.0f, (float) button.getBounds().getCentreY());
+        const auto led = juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre);
 
         if (on)
         {
-            g.setColour (IlanaTheme::accent().withAlpha (0.12f * pulse));
-            g.fillEllipse ((float) button.getX() + 2.0f, ledY - 3.0f, 12.0f, 12.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.18f * pulse));
+            g.fillEllipse (led.expanded (3.0f));
         }
 
-        g.setColour (on ? IlanaTheme::accent().withAlpha (0.5f + 0.5f * pulse)
-                        : juce::Colours::white.withAlpha (0.12f));
-        g.fillEllipse ((float) button.getX() + 5.0f, ledY, 6.0f, 6.0f);
-
-        // Bezel and glass highlight on the LED.
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.drawEllipse ((float) button.getX() + 4.5f, ledY - 0.5f, 7.0f, 7.0f, 1.0f);
-
-        g.setColour (juce::Colours::white.withAlpha (on ? 0.55f : 0.18f));
-        g.fillEllipse ((float) button.getX() + 6.0f, ledY + 1.0f, 2.2f, 2.2f);
+        g.setColour (on ? juce::Colours::white.withAlpha (0.75f + 0.25f * pulse) : juce::Colours::black.withAlpha (0.45f));
+        g.fillEllipse (led);
+        g.setColour (on ? juce::Colours::white.withAlpha (0.3f) : juce::Colours::white.withAlpha (0.14f));
+        g.drawEllipse (led.expanded (0.5f), 1.0f);
     }
 
     void resized() override
@@ -948,8 +951,12 @@ private:
                                                            (float) button.getY() + (float) button.getHeight() * 0.5f));
         button.setAlpha (appear);
 
-        if (button.getToggleState() || hover > 0.01f || appear < 0.999f || isMouseOver())
+        const auto on = button.getToggleState();
+
+        if (on || on != lastOn || hover > 0.01f || appear < 0.999f || isMouseOver())
             repaint();
+
+        lastOn = on;
     }
 
     juce::TextButton button;
@@ -957,6 +964,7 @@ private:
     float pulsePhase = 0.0f;
     float appear = 1.0f;
     float hover = 0.0f;
+    bool lastOn = false;
 };
 
 class ValueSliderControl : public juce::Component

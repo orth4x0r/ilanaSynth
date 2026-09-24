@@ -349,17 +349,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("osc2_uni_blend", "Osc2 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("osc2_route", "Osc2 Filter Route", FilterRoute::getNames(), 0);
 
-    // Sub / OSC 3
-    juce::StringArray osc3TableChoices { "Shape", "Sine", "PWM", "Analog Saw" };
-    osc3TableChoices.addArray (TableFactory::getFactoryTableNames());
+    // OSC 3: a full oscillator like OSC 1 and 2 (its ids keep the old "sub_"
+    // prefix so saved patches still line up; see migrateLegacyOsc3).
+    addBool ("sub_on", "Osc3 On", false);
+    addFloat ("sub_level", "Osc3 Level", 0.0f, 1.0f, 0.6f);
 
-    for (int i = 1; i <= numUserSlots; ++i)
-        osc3TableChoices.add ("User " + juce::String (i));
-
-    addBool ("sub_on", "Osc3 On", true);
-    addFloat ("sub_level", "Sub Level", 0.0f, 1.0f, 0.3f);
-    addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 1);
-    addChoice ("sub_octave", "Sub Octave", { "1 Oct", "2 Oct" }, 0);
+    // The dedicated sub oscillator.
+    addBool ("subosc_on", "Sub On", false);
+    addFloat ("subosc_level", "Sub Level", 0.0f, 1.0f, 0.5f);
+    addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
+    addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
+    addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
     addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "String", "Sample" }, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
@@ -367,7 +367,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("sub_sample_factory", "Osc3 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
-    addChoice ("sub_table", "Osc3 Table", osc3TableChoices, 0);
+    addChoice ("sub_table", "Osc3 Table", getOscTableChoices(), 0);
     addFloat ("sub_frame", "Osc3 Frame", 0.0f, 1.0f, 0.0f);
     addFloat ("sub_pan", "Osc3 Pan", -1.0f, 1.0f, 0.0f);
     addInt ("sub_semi", "Osc3 Semi", -24, 24, 0);
@@ -1097,22 +1097,17 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.sub.stringDamping = getParam ("sub_string_damp");
     p.sub.stringSustain = getParam ("sub_string_sustain");
     p.sub.chord = (int) getParam ("sub_chord");
-    p.subOctaveOffset = (int) getParam ("sub_octave") == 0 ? -12 : -24;
+    p.subOctaveOffset = 0;
+    p.sub.table = getTableForChoice ((int) getParam ("sub_table"));
 
+    // Dedicated sub: the Sine, PWM (square) or Analog (saw) table at frame 0.
     {
-        const auto tableChoice = (int) getParam ("sub_table");
         const auto shape = (int) getParam ("sub_shape");
-
-        if (tableChoice == 0)
-            p.sub.table = getTableForChoice (shape == 0 ? 8 : (shape == 1 ? 6 : 10));
-        else if (tableChoice == 1)
-            p.sub.table = getTableForChoice (8);
-        else if (tableChoice == 2)
-            p.sub.table = getTableForChoice (6);
-        else if (tableChoice == 3)
-            p.sub.table = getTableForChoice (10);
-        else
-            p.sub.table = getTableForChoice (tableChoice - 4);
+        p.subOscEnabled = getParam ("subosc_on") > 0.5f;
+        p.subOscLevel = getParam ("subosc_level");
+        p.subOscOctave = (int) getParam ("sub_octave") == 0 ? -12 : -24;
+        p.subOscRoute = (int) getParam ("subosc_route");
+        p.subOscTable = getTableForChoice (shape == 0 ? 8 : (shape == 1 ? 6 : 10));
     }
 
     p.noiseLevel = getParam ("noise_level");
@@ -3936,12 +3931,43 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             ranged->setValueNotifyingHost (ranged->getDefaultValue());
     }
 
+    // The original 80 presets predate the separate sub; move them over.
+    std::vector<std::pair<juce::String, float>> values;
+
     for (const auto& value : presets[(size_t) index].values)
+        values.push_back ({ juce::String (value.id), value.value });
+
+    if (presets[(size_t) index].category == nullptr)
     {
-        if (auto* parameter = apvts.getParameter (value.id))
+        const auto find = [&values] (const juce::String& id) -> std::pair<juce::String, float>*
+        {
+            for (auto& entry : values)
+                if (entry.first == id)
+                    return &entry;
+
+            return nullptr;
+        };
+
+        migrateLegacyOsc3 ([&find] (const juce::String& id, float fallback)
+                           {
+                               const auto* entry = find (id);
+                               return entry != nullptr ? entry->second : fallback;
+                           },
+                           [&find, &values] (const juce::String& id, float value)
+                           {
+                               if (auto* entry = find (id))
+                                   entry->second = value;
+                               else
+                                   values.push_back ({ id, value });
+                           });
+    }
+
+    for (const auto& value : values)
+    {
+        if (auto* parameter = apvts.getParameter (value.first))
         {
             if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
-                ranged->setValueNotifyingHost (ranged->convertTo0to1 (value.value));
+                ranged->setValueNotifyingHost (ranged->convertTo0to1 (value.second));
         }
     }
 
@@ -4044,6 +4070,7 @@ bool IlanaSynthAudioProcessor::loadPresetFromFile (const juce::File& file)
 juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 {
     auto state = apvts.copyState();
+    state.setProperty ("osc3Schema", 2, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -4081,8 +4108,112 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     return state;
 }
 
-void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& state)
+// Before v1.1, OSC 3 doubled as the sub: its table list began with four sub
+// shapes (Shape/Sine/PWM/Analog Saw), it always played an octave or two
+// down, and the noise followed its route. A patch that used it as a plain
+// sub moves to the dedicated SUB (same table, same level, same octave); any
+// other use stays on OSC 3 with the octave drop folded into SEMI and its
+// table renumbered. Works on plain stored values, before they reach the
+// parameters, so old table numbers aren't clamped by the new list.
+void IlanaSynthAudioProcessor::migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
+                                                  const std::function<void (const juce::String&, float)>& set)
 {
+    const auto table = juce::roundToInt (get ("sub_table", 0.0f));
+    const auto shape = juce::roundToInt (get ("sub_shape", 1.0f));
+    const auto octave = juce::roundToInt (get ("sub_octave", 0.0f));
+    const auto semi = juce::roundToInt (get ("sub_semi", 0.0f));
+    const auto route = get ("sub_route", 0.0f);
+
+    auto modulated = false;
+    const Mod::Destination osc3Targets[] { Mod::Destination::SubLevel, Mod::Destination::SubPitch, Mod::Destination::SubFrame,
+                                           Mod::Destination::SubSampleStart, Mod::Destination::SubSampleEnd,
+                                           Mod::Destination::SubDetune, Mod::Destination::SubPan, Mod::Destination::SubWarp,
+                                           Mod::Destination::SubBlend, Mod::Destination::SubSpread };
+
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+    {
+        const auto prefix = "mod" + juce::String (slot);
+
+        if (get (prefix + "_src", 0.0f) < 0.5f || std::abs (get (prefix + "_amt", 0.0f)) < 1.0e-6f)
+            continue;
+
+        const auto destination = juce::roundToInt (get (prefix + "_dst", 0.0f));
+
+        for (const auto target : osc3Targets)
+            modulated = modulated || destination == (int) target;
+    }
+
+    const auto plainSub = table <= 3
+                          && juce::roundToInt (get ("sub_mode", 0.0f)) == 0
+                          && juce::roundToInt (get ("sub_unison", 1.0f)) <= 1
+                          && juce::roundToInt (get ("sub_warp", 0.0f)) == 0
+                          && juce::roundToInt (get ("sub_chord", 0.0f)) == 0
+                          && semi == 0 && std::abs (get ("sub_fine", 0.0f)) < 0.01f
+                          && std::abs (get ("sub_pan", 0.0f)) < 0.001f
+                          && get ("sub_frame", 0.0f) < 0.001f
+                          && ! modulated;
+
+    const auto shapeForTable = table == 0 ? shape : (table == 1 ? 0 : (table == 2 ? 1 : 2));
+    set ("subosc_route", route);
+
+    if (plainSub)
+    {
+        set ("subosc_on", get ("sub_on", 1.0f));
+        set ("subosc_level", get ("sub_level", 0.3f));
+        set ("sub_shape", (float) shapeForTable);
+        set ("sub_octave", (float) octave);
+        set ("sub_on", 0.0f);
+        set ("sub_table", 0.0f);
+        return;
+    }
+
+    // OSC 3 was a real oscillator: keep it, in the new table numbering, at
+    // the same pitch.
+    const int shapeTables[] { 8, 6, 10 };
+    set ("subosc_on", 0.0f);
+    set ("sub_on", get ("sub_on", 1.0f));
+    set ("sub_level", get ("sub_level", 0.3f));
+    set ("sub_table", (float) (table >= 4 ? table - 4 : shapeTables[juce::jlimit (0, 2, shapeForTable)]));
+    set ("sub_semi", (float) juce::jlimit (-24, 24, semi + (octave == 0 ? -12 : -24)));
+}
+
+void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
+{
+    auto state = stateIn.createCopy();
+
+    if ((int) state.getProperty ("osc3Schema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+
+            return juce::ValueTree();
+        };
+
+        migrateLegacyOsc3 ([&find] (const juce::String& id, float fallback)
+                           {
+                               const auto child = find (id);
+                               return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                           },
+                           [&find, &state] (const juce::String& id, float value)
+                           {
+                               auto child = find (id);
+
+                               if (! child.isValid())
+                               {
+                                   child = juce::ValueTree ("PARAM");
+                                   child.setProperty ("id", id, nullptr);
+                                   state.appendChild (child, nullptr);
+                               }
+
+                               child.setProperty ("value", value, nullptr);
+                           });
+
+        state.setProperty ("osc3Schema", 2, nullptr);
+    }
+
     const auto parseDraw = [this] (int lfoIndex, const juce::String& text)
     {
         const auto tokens = juce::StringArray::fromTokens (text, ",", "");

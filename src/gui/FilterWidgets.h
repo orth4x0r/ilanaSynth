@@ -185,15 +185,15 @@ public:
         const auto mouse = getMouseXYRelative().toFloat();
         const auto over = isMouseOver();
 
-        // Wires from each oscillator.
-        for (int osc = 0; osc < 3; ++osc)
+        // Wires from each source.
+        for (int osc = 0; osc < numSources; ++osc)
         {
-            const auto on = osc == 2 ? (read ("sub_on") > 0.5f || read ("noise_level") > 0.001f)
-                                     : read (osc == 0 ? "osc1_on" : "osc2_on") > 0.5f;
+            const auto on = osc == 3 ? (read ("subosc_on") > 0.5f || read ("noise_level") > 0.001f)
+                                     : read (osc == 0 ? "osc1_on" : (osc == 1 ? "osc2_on" : "sub_on")) > 0.5f;
             const auto route = (int) read (routeId (osc));
             const auto colour = oscColour (osc).withAlpha (on ? 0.85f : 0.2f);
             const auto start = layout.osc[(size_t) osc].getCentre().withX (layout.osc[(size_t) osc].getRight());
-            const auto yOffset = (float) (osc - 1) * 3.0f;
+            const auto yOffset = ((float) osc - 1.5f) * 3.0f;
 
             const auto wireTo = [&] (juce::Rectangle<float> target)
             {
@@ -232,8 +232,8 @@ public:
         drawWire (g, { layout.res.getRight(), layout.res.getCentreY() }, { layout.out.getX(), layout.out.getCentreY() }, chainColour);
 
         // Blocks.
-        for (int osc = 0; osc < 3; ++osc)
-            drawBlock (g, layout.osc[(size_t) osc], osc == 2 ? "OSC 3+N" : "OSC " + juce::String (osc + 1), oscColour (osc),
+        for (int osc = 0; osc < numSources; ++osc)
+            drawBlock (g, layout.osc[(size_t) osc], osc == 3 ? "SUB+N" : "OSC " + juce::String (osc + 1), oscColour (osc),
                        true, over && layout.osc[(size_t) osc].contains (mouse));
 
         drawBlock (g, layout.f1, "F1", juce::Colour (0xffff4fd8), true, false);
@@ -258,7 +258,7 @@ public:
     {
         const auto layout = computeLayout();
 
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < numSources; ++osc)
         {
             if (layout.osc[(size_t) osc].contains (event.position))
             {
@@ -278,17 +278,19 @@ public:
         const auto layout = computeLayout();
         juce::String tip = "Signal flow\nClick an oscillator to route it, the badge to switch serial/parallel, RES for the resonator.";
 
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < numSources; ++osc)
             if (layout.osc[(size_t) osc].contains (event.position))
-                tip = "Click to choose where " + juce::String (osc == 2 ? "OSC 3 and noise go." : "OSC " + juce::String (osc + 1) + " goes.");
+                tip = "Click to choose where " + juce::String (osc == 3 ? "the sub and noise go." : "OSC " + juce::String (osc + 1) + " goes.");
 
         setTooltip (tip);
     }
 
 private:
+    static constexpr int numSources = 4;
+
     struct Layout
     {
-        std::array<juce::Rectangle<float>, 3> osc;
+        std::array<juce::Rectangle<float>, numSources> osc;
         juce::Rectangle<float> f1, f2, res, out, bypass, badge;
     };
 
@@ -296,13 +298,14 @@ private:
     {
         Layout layout;
         auto area = getLocalBounds().toFloat().reduced (10.0f, 8.0f);
-        const auto blockHeight = juce::jmin (26.0f, area.getHeight() / 3.6f);
-        const auto rowGap = (area.getHeight() - blockHeight * 3.0f) / 2.0f;
+        const auto blockHeight = juce::jmin (24.0f, area.getHeight() / 4.8f);
+        const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / 5.0f);
+        const auto rowGap = (area.getHeight() - sourceHeight * (float) numSources) / (float) (numSources - 1);
 
         auto oscColumn = area.removeFromLeft (juce::jmin (78.0f, area.getWidth() * 0.18f));
 
-        for (int osc = 0; osc < 3; ++osc)
-            layout.osc[(size_t) osc] = oscColumn.withHeight (blockHeight).withY (oscColumn.getY() + (float) osc * (blockHeight + rowGap));
+        for (int osc = 0; osc < numSources; ++osc)
+            layout.osc[(size_t) osc] = oscColumn.withHeight (sourceHeight).withY (oscColumn.getY() + (float) osc * (sourceHeight + rowGap));
 
         layout.out = area.removeFromRight (46.0f).withSizeKeepingCentre (46.0f, blockHeight);
         area.removeFromRight (18.0f);
@@ -336,11 +339,16 @@ private:
 
     static juce::Colour oscColour (int osc)
     {
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447) };
-        return colours[juce::jlimit (0, 2, osc)];
+        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
+                                       juce::Colour (0xffff9f43) };
+        return colours[juce::jlimit (0, numSources - 1, osc)];
     }
 
-    static const char* routeId (int osc) { return osc == 0 ? "osc1_route" : osc == 1 ? "osc2_route" : "sub_route"; }
+    static const char* routeId (int osc)
+    {
+        const char* const ids[] { "osc1_route", "osc2_route", "sub_route", "subosc_route" };
+        return ids[juce::jlimit (0, numSources - 1, osc)];
+    }
 
     float read (const char* id) const
     {

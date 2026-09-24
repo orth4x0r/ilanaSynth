@@ -144,10 +144,19 @@ inline juce::String describeParameter (const juce::String& id)
         return "Level of the continuous excitation (ignore for Burst).";
 
     if (id == "sub_level")
+        return "Oscillator 3 level.";
+
+    if (id == "subosc_level")
         return "Sub oscillator an octave (or two) below the note.";
 
+    if (id == "subosc_on")
+        return "Turns the sub oscillator on.";
+
+    if (id == "subosc_route")
+        return "Where the sub and the noise enter the filters.";
+
     if (id == "sub_shape")
-        return "Sine for clean weight, Square/Saw for grit.";
+        return "Sub oscillator shape: Sine for clean weight, Square/Saw for grit.";
 
     if (id == "sub_octave")
         return "How far below the played note the sub sits.";
@@ -590,15 +599,15 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.startsWith ("sub_"))
     {
-        if (id == "sub_level") return "Level of OSC 3 (the sub).";
-        if (id == "sub_shape") return "Legacy sub waveform, used when Osc3 Table is Shape.";
-        if (id == "sub_octave") return "Base octave of OSC 3: one or two octaves down.";
+        if (id == "sub_level") return "Level of OSC 3.";
+        if (id == "sub_shape") return "Sub oscillator shape: sine, square or saw.";
+        if (id == "sub_octave") return "Sub oscillator octave: one or two octaves down.";
         if (id == "sub_mode")
             return "Wavetable, Karplus-Strong string, or a sample you drag onto the card.";
-        if (id == "sub_table") return "Waveform for OSC 3. Shape follows the SHAPE control.";
+        if (id == "sub_table") return "Wavetable for OSC 3.";
         if (id == "sub_frame") return "Morphs through the table's frames.";
         if (id == "sub_pan") return "Stereo position of OSC 3.";
-        if (id == "sub_semi") return "Extra pitch offset on top of the octave.";
+        if (id == "sub_semi") return "OSC 3 pitch offset in semitones.";
         if (id == "sub_fine") return "Fine pitch offset in cents.";
         if (id == "sub_unison") return "Stacked detuned copies of OSC 3.";
         if (id == "sub_detune") return "Unison spread in cents.";

@@ -3572,6 +3572,86 @@ void runGenerativeTests()
     check (inKey && inRange, "Scale Random arp picks notes in the scale and the octave range");
 }
 
+// Pre-1.1 states used OSC 3 as the sub; loading them moves a plain sub to
+// the dedicated SUB and keeps a real OSC 3 at the same pitch.
+void runOsc3MigrationTest()
+{
+    const auto loadOldState = [] (std::function<void (juce::ValueTree&)> edit)
+    {
+        IlanaSynthAudioProcessor source;
+        auto state = source.apvts.copyState();
+        state.removeProperty ("osc3Schema", nullptr);
+        edit (state);
+
+        juce::MemoryBlock data;
+        std::unique_ptr<juce::XmlElement> xml (state.createXml());
+        source.copyXmlToBinary (*xml, data);
+
+        auto target = std::make_unique<IlanaSynthAudioProcessor>();
+        target->setStateInformation (data.getData(), (int) data.getSize());
+        return target;
+    };
+
+    const auto setParam = [] (juce::ValueTree& state, const juce::String& id, float value)
+    {
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+
+            if (child.getProperty ("id").toString() == id)
+            {
+                child.setProperty ("value", value, nullptr);
+                return;
+            }
+        }
+
+        juce::ValueTree child ("PARAM");
+        child.setProperty ("id", id, nullptr);
+        child.setProperty ("value", value, nullptr);
+        state.appendChild (child, nullptr);
+    };
+
+    const auto value = [] (IlanaSynthAudioProcessor& processor, const char* id)
+    {
+        return processor.apvts.getRawParameterValue (id)->load();
+    };
+
+    // Plain sub: old table 0 (Shape) with a saw, two octaves down.
+    auto plain = loadOldState ([&] (juce::ValueTree& state)
+    {
+        setParam (state, "sub_on", 1.0f);
+        setParam (state, "sub_table", 0.0f);
+        setParam (state, "sub_shape", 2.0f);
+        setParam (state, "sub_octave", 1.0f);
+        setParam (state, "sub_level", 0.4f);
+    });
+
+    check (value (*plain, "subosc_on") > 0.5f && value (*plain, "sub_on") < 0.5f && (int) value (*plain, "sub_shape") == 2
+               && (int) value (*plain, "sub_octave") == 1 && std::abs (value (*plain, "subosc_level") - 0.4f) < 1.0e-4f,
+           "old plain sub moves to the dedicated SUB");
+
+    // Real OSC 3: old table 5 (factory table 1), one octave down, semi +3.
+    auto real = loadOldState ([&] (juce::ValueTree& state)
+    {
+        setParam (state, "sub_on", 1.0f);
+        setParam (state, "sub_table", 5.0f);
+        setParam (state, "sub_octave", 0.0f);
+        setParam (state, "sub_semi", 3.0f);
+    });
+
+    check (value (*real, "sub_on") > 0.5f && value (*real, "subosc_on") < 0.5f
+               && (int) value (*real, "sub_table") == 1 && (int) value (*real, "sub_semi") == -9,
+           "old real OSC 3 keeps its table and pitch (table " + juce::String ((int) value (*real, "sub_table"))
+               + ", semi " + juce::String ((int) value (*real, "sub_semi")) + ")");
+
+    // New states are not migrated again.
+    juce::MemoryBlock saved;
+    real->getStateInformation (saved);
+    IlanaSynthAudioProcessor again;
+    again.setStateInformation (saved.getData(), (int) saved.getSize());
+    check ((int) again.apvts.getRawParameterValue ("sub_semi")->load() == -9, "saved 1.1 state is not migrated twice");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3628,6 +3708,7 @@ int main()
     runTapeStopLatencyTest();
     runTranceGateTest();
     runGenerativeTests();
+    runOsc3MigrationTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

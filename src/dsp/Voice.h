@@ -133,9 +133,13 @@ struct VoiceParams
     float resonatorOffset = 0.0f;
     float resonatorKeytrack = 1.0f;
 
-    float subLevel = 0.0f;
-    PolyBlepOsc::Shape subShape = PolyBlepOsc::Shape::Square;
-    int subOctave = 1;
+    // The dedicated sub oscillator (sine/square/saw one or two octaves down).
+    // It and the noise share one route.
+    bool subOscEnabled = false;
+    float subOscLevel = 0.5f;
+    int subOscOctave = -12;
+    int subOscRoute = 0;
+    const Wavetable* subOscTable = nullptr;
     float noiseLevel = 0.0f;
 
     FilterParams filter1;
@@ -278,6 +282,8 @@ private:
     juce::SmoothedValue<float> levelSmooth1, levelSmooth2;
     juce::SmoothedValue<float> subSmooth, noiseSmooth;
     juce::SmoothedValue<float> osc1EnableSmooth, osc2EnableSmooth, subEnableSmooth;
+    WavetableOscillator subOsc;
+    juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;
 
     // Modulation evaluated at the start of each block, for everything that
     // doesn't need to move within a block (envelope times, pans, detune...).
@@ -316,6 +322,7 @@ private:
     float panGain1L[VoiceParams::maxUnison] {}, panGain1R[VoiceParams::maxUnison] {};
     float panGain2L[VoiceParams::maxUnison] {}, panGain2R[VoiceParams::maxUnison] {};
     float panGainSubL[VoiceParams::maxUnison] {}, panGainSubR[VoiceParams::maxUnison] {};
+    float panGainSubOscL = 0.7071f, panGainSubOscR = 0.7071f;
     // Per-unison-voice pitch offsets (semitones) and gains from the unison
     // mode, detune and blend.
     double unisonOffset1[VoiceParams::maxUnison] {}, unisonOffset2[VoiceParams::maxUnison] {};

@@ -30,7 +30,7 @@ enum Src
     M1, M2, M3, M4, ClockSH, Mseg, Env4, FiltEnv2, Lfo3, Lfo4
 };
 
-// Wavetables (osc 1/2 table index). Osc 3 lists four shapes first.
+// Wavetables (the same table index for all three oscillators).
 enum Table
 {
     Basic = 0, HardSync, Wavefold, FmMetal, FormantT, CombT, Pwm, DriveSaw,
@@ -102,7 +102,7 @@ public:
 
         if (index == 3)
         {
-            set ("sub_table", (float) (table + 4));
+            set ("sub_table", (float) table);
             set ("sub_level", level);
         }
         else
@@ -121,13 +121,12 @@ public:
     Builder& osc2 (int table, float frame, float level = 0.6f, int semi = 0, float fine = 0.0f) { return osc (2, table, frame, level, semi, fine); }
     Builder& osc3 (int table, float frame, float level = 0.5f, int semi = 0, float fine = 0.0f) { return osc (3, table, frame, level, semi, fine); }
 
-    // Osc 3 as a classic sub: 0 sine, 1 square, 2 saw; octave 0 = -1, 1 = -2.
+    // The dedicated sub: 0 sine, 1 square, 2 saw; octave 0 = -1, 1 = -2.
     Builder& sub (int shape, float level, int octave = 0)
     {
-        set ("sub_on", 1);
-        set ("sub_table", 0);
+        set ("subosc_on", 1);
         set ("sub_shape", (float) shape);
-        set ("sub_level", level);
+        set ("subosc_level", level);
         set ("sub_octave", (float) octave);
         return *this;
     }

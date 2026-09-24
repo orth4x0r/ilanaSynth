@@ -132,7 +132,7 @@ public:
                         IlanaTheme::accent(), true),
           waveDisplay2 (p, "osc2_table", "osc2_frame", "osc2_unison", "osc2_spread", "osc2_detune", false, {}, "osc2_mode", 1,
                         juce::Colour (0xff5b8cff)),
-          waveDisplay3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", true, "sub_shape", "sub_mode", 2,
+          waveDisplay3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", false, {}, "sub_mode", 2,
                         juce::Colour (0xffffd447)),
           osc1On (p.apvts, "osc1_on", "ON"),
           osc1Mode (p.apvts, "osc1_mode", "MODE"),
@@ -222,7 +222,7 @@ public:
 
         setupLoadButton (loadTableButton1, "osc1_table", 0);
         setupLoadButton (loadTableButton2, "osc2_table", 0);
-        setupLoadButton (loadTableButton3, "sub_table", 4);
+        setupLoadButton (loadTableButton3, "sub_table", 0);
 
         addAndMakeVisible (loadTableButton1);
         addAndMakeVisible (loadTableButton2);
@@ -243,12 +243,16 @@ public:
                 subSampleFadeIn, subSampleFadeOut, subChord,
                 noiseLevel);
 
-        voiceSpread = std::make_unique<StripKnob> (p, "voice_spread", "Voice Spread");
+        voiceSpread = std::make_unique<StripKnob> (p, "voice_spread", "Spread");
         unisonRandom = std::make_unique<StripKnob> (p, "unison_random", "Uni Phase");
         drift = std::make_unique<StripKnob> (p, "drift", "Drift");
-        glideLegato = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO GLIDE");
-        mpeMode = std::make_unique<ToggleControl> (p.apvts, "mpe_mode", "MPE");
-        addAll (*this, *voiceSpread, *unisonRandom, *drift, *glideLegato, *mpeMode);
+        addAll (*this, *voiceSpread, *unisonRandom, *drift);
+
+        subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
+        subOscLevel = std::make_unique<StripKnob> (p, "subosc_level", "Sub Level", -1, juce::Colour (0xffff9f43), false);
+        noiseStrip = std::make_unique<StripKnob> (p, "noise_level", "Noise", -1, juce::Colour (0xffc8c8d0), false);
+        addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
+        noiseLevel.setVisible (false);
 
         for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" })
             processorRef.apvts.addParameterListener (id, this);
@@ -317,6 +321,14 @@ public:
                 IlanaTheme::paintRecessedPanel (g, controlBay[(size_t) band].toFloat(), 6.0f);
         }
 
+        if (! subStrip.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
+            g.setColour (juce::Colour (0xffff9f43));
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("SUB", subStrip.withWidth (60).withTrimmedLeft (14), juce::Justification::centredLeft);
+        }
+
         if (! voiceStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
@@ -338,8 +350,8 @@ public:
 
     void resized() override
     {
-        constexpr int voiceStripHeight = 50;
-        bandHeight = juce::jlimit (128, 176, (getHeight() - 24 - bandGap * 3 - voiceStripHeight) / 3);
+        constexpr int stripHeight = 50;
+        bandHeight = juce::jlimit (128, 176, (getHeight() - 24 - bandGap * 3 - stripHeight) / 3);
         auto area = getLocalBounds().reduced (12);
 
         for (int band = 0; band < 3; ++band)
@@ -348,17 +360,27 @@ public:
             area.removeFromTop (bandGap);
         }
 
-        voiceStrip = area.removeFromTop (voiceStripHeight);
-        auto strip = voiceStrip.reduced (6, 3);
-        strip.removeFromLeft (70);
-        const auto knobWidth = juce::jmin (170, strip.getWidth() / 5);
+        // One strip: the sub and noise on the left, voice settings on the right.
+        auto strip = area.removeFromTop (stripHeight);
+        subStrip = strip.removeFromLeft (strip.getWidth() * 58 / 100);
+        strip.removeFromLeft (8);
+        voiceStrip = strip;
 
-        for (auto* knob : { voiceSpread.get(), unisonRandom.get(), drift.get() })
-            knob->setBounds (strip.removeFromLeft (knobWidth));
+        auto row = subStrip.reduced (6, 2);
+        row.removeFromLeft (54);
+        subOscOn->setBounds (row.removeFromLeft (64).reduced (2, 2));
+        subShape.setBounds (row.removeFromLeft (104).reduced (3, 0));
+        subOctave.setBounds (row.removeFromLeft (88).reduced (3, 0));
+        const auto knobWidth = row.getWidth() / 2;
+        subOscLevel->setBounds (row.removeFromLeft (knobWidth));
+        noiseStrip->setBounds (row);
 
-        mpeMode->setBounds (strip.removeFromRight (110));
-        strip.removeFromRight (8);
-        glideLegato->setBounds (strip.removeFromRight (150));
+        row = voiceStrip.reduced (6, 3);
+        row.removeFromLeft (64);
+        const auto third = row.getWidth() / 3;
+        voiceSpread->setBounds (row.removeFromLeft (third));
+        unisonRandom->setBounds (row.removeFromLeft (third));
+        drift->setBounds (row);
     }
 
 private:
@@ -523,10 +545,8 @@ private:
             addTop (&subMode);
             addTop (isSample ? (juce::Component*) &subSampleTuned
                              : (isString ? (juce::Component*) &subExcite : (juce::Component*) &subTable));
-            addTop (isSample ? (juce::Component*) &subSampleLoop
-                             : (isString ? nullptr : (juce::Component*) &subShape));
+            addTop (isSample ? (juce::Component*) &subSampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &subSampleReverse : nullptr);
-            addTop (&subOctave);
             addTop (isWavetable ? (juce::Component*) &subWarp : nullptr);
             addTop (&subUniMode);
             addTop (&subChord);
@@ -547,7 +567,6 @@ private:
             addBottom (&subDetune);
             addBottom (&subUniBlend);
             addBottom (&subSpread);
-            addBottom (&noiseLevel);
         }
 
         controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
@@ -666,7 +685,6 @@ private:
         const auto mode3 = getMode (2);
         subTable.setVisible (mode3 == 0);
         subFrame.setVisible (mode3 == 0);
-        subShape.setVisible (mode3 == 0);
         subExcite.setVisible (mode3 == 1);
         subStringDecay.setVisible (mode3 == 1);
         subStringDamp.setVisible (mode3 == 1);
@@ -713,12 +731,12 @@ private:
                            &osc2SampleStart, &osc2SampleEnd, &osc2SampleFadeIn, &osc2SampleFadeOut,
                            &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2UniMode, &osc2UniBlend },
                          enabled2);
-        setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subShape, &subOctave, &subLevel,
+        setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subLevel,
                            &subPan, &subSemi, &subFine, &subUnison, &subDetune, &subSpread,
                            &subStringDecay, &subStringDamp, &subStringSustain,
                            &subSampleTuned, &subSampleLoop, &subSampleReverse,
                            &subSampleStart, &subSampleEnd, &subSampleFadeIn, &subSampleFadeOut,
-                           &subChord, &noiseLevel, &subWarp, &subWarpAmt, &subUniMode, &subUniBlend },
+                           &subChord, &subWarp, &subWarpAmt, &subUniMode, &subUniBlend },
                          enabled3);
 
         const std::array<bool, 3> enabled { enabled1, enabled2, enabled3 };
@@ -752,8 +770,12 @@ private:
 
     // Voice-wide settings that shape how the oscillators stack and drift.
     std::unique_ptr<StripKnob> voiceSpread, unisonRandom, drift;
-    std::unique_ptr<ToggleControl> glideLegato, mpeMode;
     juce::Rectangle<int> voiceStrip;
+
+    // The dedicated sub and the noise.
+    std::unique_ptr<ToggleControl> subOscOn;
+    std::unique_ptr<StripKnob> subOscLevel, noiseStrip;
+    juce::Rectangle<int> subStrip;
 
     ToggleControl osc1On;
     ComboControl osc1Mode, osc1Table, osc1Excite;
@@ -1692,7 +1714,7 @@ public:
                  IlanaTheme::accent(), true),
           wave2 (p, "osc2_table", "osc2_frame", "osc2_unison", "osc2_spread", "osc2_detune", false, {}, "osc2_mode", 1,
                  juce::Colour (0xff5b8cff)),
-          wave3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", true, "sub_shape", "sub_mode", 2,
+          wave3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", false, {}, "sub_mode", 2,
                  juce::Colour (0xffffd447)),
           filterDisplay (p),
           lfoThumbs (p, [] (int index) { return lfoColour (index); }),
@@ -3812,6 +3834,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     }
 
     glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
+    legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
+    legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
+    content.addAndMakeVisible (*legatoToggle);
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
     voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices");
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, juce::Colour (0xffffd447), false);
@@ -4251,6 +4276,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     voiceModeBox->setBounds (strip.removeFromRight (96).withSizeKeepingCentre (92, 40));
     strip.removeFromRight (8);
     bendKnob->setBounds (strip.removeFromRight (88));
+    legatoToggle->setBounds (strip.removeFromRight (80).withSizeKeepingCentre (76, 44));
     glideKnob->setBounds (strip.removeFromRight (96));
     strip.removeFromRight (10);
 
@@ -4616,6 +4642,8 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
+    menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
+                  processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
 
@@ -4633,6 +4661,15 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                 safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
                             else if (result == 300)
                                 safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                            else if (result == 500)
+                            {
+                                if (auto* mpe = safeThis->processorRef.apvts.getParameter ("mpe_mode"))
+                                {
+                                    mpe->beginChangeGesture();
+                                    mpe->setValueNotifyingHost (mpe->getValue() > 0.5f ? 0.0f : 1.0f);
+                                    mpe->endChangeGesture();
+                                }
+                            }
                             else if (result == 400)
                             {
                                 safeThis->tutorial.setVisible (true);
@@ -4716,7 +4753,9 @@ void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
         setValue ("osc2_table", (float) random.nextInt (tableCount));
         setValue ("osc2_frame", random.nextFloat());
         setValue ("osc2_semi", (float) (random.nextBool() ? -12 : 12));
-        setValue ("sub_level", randomRange (0.0f, 0.6f));
+        setValue ("subosc_on", random.nextFloat() < 0.6f ? 1.0f : 0.0f);
+        setValue ("subosc_level", randomRange (0.2f, 0.6f));
+        setValue ("sub_shape", (float) random.nextInt (3));
         setValue ("fm_amount", random.nextFloat() < 0.6f ? randomRange (0.0f, 0.5f) : 0.0f);
         setValue ("fm_feedback", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.4f) : 0.0f);
         setValue ("ring_mod", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.8f) : 0.0f);

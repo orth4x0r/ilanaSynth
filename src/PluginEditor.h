@@ -109,6 +109,7 @@ private:
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
     std::unique_ptr<ComboControl> voiceModeBox;
+    std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = true;
     juce::int64 loadedFingerprint = 0;
 

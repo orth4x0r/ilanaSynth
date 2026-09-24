@@ -174,6 +174,9 @@ public:
     // Gives a patch without macro mappings a sensible set (tone, timbre,
     // drive, space), chosen from what the patch uses. Silent at macro 0.
     void applyDefaultMacros();
+
+    static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
+                                   const std::function<void (const juce::String&, float)>& set);
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
     void setModSlotValue (int slotIndex, const juce::String& field, float value);

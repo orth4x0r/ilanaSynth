@@ -121,17 +121,20 @@ Width, Pitch Shifter, Ring Mod, Octaver and Vowel filter.
 3. The standalone `ilanaSynth.exe` needs no DAW at all.
 
 ### macOS
-There is no pre-built macOS binary in this release. The project is plain
-CMake + JUCE and builds on macOS with Xcode command line tools:
+There is no pre-built macOS binary in this release. Build it yourself (about
+ten minutes, internet needed the first time for JUCE):
 
 ```bash
+xcode-select --install   # Apple compilers, once
+brew install cmake       # or the .pkg from cmake.org
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
 Copy the built `ilanaSynth.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or
 `~/Library/Audio/Plug-Ins/VST3/`) and rescan in your DAW. The standalone app
-is in `build/ilanaSynth_artefacts/Release/Standalone/`.
+is in `build/ilanaSynth_artefacts/Release/Standalone/`; if macOS refuses to
+open it, run `xattr -dr com.apple.quarantine <path to ilanaSynth.app>`.
 
 ---
 

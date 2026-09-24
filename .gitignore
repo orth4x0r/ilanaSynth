@@ -11,3 +11,4 @@ out/
 *.zip
 *.exe
 portable/
+release/

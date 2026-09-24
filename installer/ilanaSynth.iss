@@ -33,7 +33,6 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Source: "{#RepoRoot}\build\ilanaSynth_artefacts\Release\VST3\ilanaSynth.vst3\*"; DestDir: "{commoncf}\VST3\ilanaSynth.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\build\ilanaSynth_artefacts\Release\Standalone\ilanaSynth.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\README.es.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

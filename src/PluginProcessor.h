@@ -20,6 +20,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Modulation.h"
 #include "dsp/SamplePlayer.h"
+#include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
@@ -79,6 +80,16 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
+    bool isSpectralWarpReady (int osc) const { return spectralCache->isReady (osc); }
+
+    // The spectrally warped table an oscillator is playing, for display
+    // (null when its warp is off or still building).
+    std::shared_ptr<const Wavetable> getSpectralDisplayTable (int osc, int tableChoice) const
+    {
+        static const char* ids[] { "osc1_spectral", "osc2_spectral", "sub_spectral" };
+        const auto* mode = apvts.getRawParameterValue (ids[juce::jlimit (0, 2, osc)]);
+        return spectralCache->getForDisplay (juce::jlimit (0, 2, osc), tableChoice, mode != nullptr ? (int) mode->load() : 0);
+    }
 
     // Synth-wide modulation of a destination this block (loudest voice for
     // per-voice sources), for knob rings and the effects.
@@ -282,6 +293,7 @@ private:
     juce::MidiBuffer midiForSynth;
     juce::MidiBuffer generatedMidi;
     NoteSpray noteSpray;
+    std::unique_ptr<SpectralCache> spectralCache;
     juce::Array<int> arpHeldNotes;
     juce::Array<int> arpChordActive;
     juce::Array<int> arpChordNotes;

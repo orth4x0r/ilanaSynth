@@ -153,6 +153,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, &undoManager, "PARAMS", createParameterLayout())
 {
+    spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
+                                                     TableFactory::getNumFactoryTables());
+
     for (auto& value : modDisplayValues)
         value.store (0.0f);
 
@@ -328,6 +331,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("osc1_spread", "Osc1 Spread", 0.0f, 1.0f, 0.5f);
     addChoice ("osc1_warp", "Osc1 Warp", Warp::getNames(), 0);
     addFloat ("osc1_warp_amt", "Osc1 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("osc1_spectral", "Osc1 Spectral Warp", SpectralWarp::getNames(), 0);
+    addFloat ("osc1_spectral_amt", "Osc1 Spectral Amount", 0.0f, 1.0f, 0.5f);
     addChoice ("osc1_uni_mode", "Osc1 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("osc1_uni_blend", "Osc1 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("osc1_route", "Osc1 Filter Route", FilterRoute::getNames(), 0);
@@ -345,6 +350,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("osc2_spread", "Osc2 Spread", 0.0f, 1.0f, 0.5f);
     addChoice ("osc2_warp", "Osc2 Warp", Warp::getNames(), 0);
     addFloat ("osc2_warp_amt", "Osc2 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("osc2_spectral", "Osc2 Spectral Warp", SpectralWarp::getNames(), 0);
+    addFloat ("osc2_spectral_amt", "Osc2 Spectral Amount", 0.0f, 1.0f, 0.5f);
     addChoice ("osc2_uni_mode", "Osc2 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("osc2_uni_blend", "Osc2 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("osc2_route", "Osc2 Filter Route", FilterRoute::getNames(), 0);
@@ -377,6 +384,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("sub_spread", "Osc3 Spread", 0.0f, 1.0f, 0.0f);
     addChoice ("sub_warp", "Osc3 Warp", Warp::getNames(), 0);
     addFloat ("sub_warp_amt", "Osc3 Warp Amount", 0.0f, 1.0f, 0.0f);
+    addChoice ("sub_spectral", "Osc3 Spectral Warp", SpectralWarp::getNames(), 0);
+    addFloat ("sub_spectral_amt", "Osc3 Spectral Amount", 0.0f, 1.0f, 0.5f);
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
@@ -989,6 +998,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const auto startTicks = juce::Time::getHighResolutionTicks();
 
     juce::ScopedNoDenormals noDenormals;
+    spectralCache->setSynchronous (isNonRealtime());
 
     const auto totalNumInputChannels = getTotalNumInputChannels();
     const auto totalNumOutputChannels = getTotalNumOutputChannels();
@@ -1070,7 +1080,11 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     VoiceParams p;
 
-    p.osc1.table = getTableForChoice ((int) getParam ("osc1_table"));
+    {
+        const auto choice = (int) getParam ("osc1_table");
+        p.osc1.table = spectralCache->get (0, choice, getTableForChoice (choice), (int) getParam ("osc1_spectral"),
+                                            getParam ("osc1_spectral_amt"));
+    }
     p.osc1.frame = getParam ("osc1_frame");
     p.osc1.level = getParam ("osc1_level");
     p.osc1.pan = getParam ("osc1_pan");
@@ -1083,7 +1097,11 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.osc1Enabled = getParam ("osc1_on") > 0.5f;
     p.osc2Enabled = getParam ("osc2_on") > 0.5f;
     p.subEnabled = getParam ("sub_on") > 0.5f;
-    p.osc2.table = getTableForChoice ((int) getParam ("osc2_table"));
+    {
+        const auto choice = (int) getParam ("osc2_table");
+        p.osc2.table = spectralCache->get (1, choice, getTableForChoice (choice), (int) getParam ("osc2_spectral"),
+                                            getParam ("osc2_spectral_amt"));
+    }
     p.osc2.frame = getParam ("osc2_frame");
     p.osc2.level = getParam ("osc2_level");
     p.osc2.pan = getParam ("osc2_pan");
@@ -1109,7 +1127,11 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.sub.stringSustain = getParam ("sub_string_sustain");
     p.sub.chord = (int) getParam ("sub_chord");
     p.subOctaveOffset = 0;
-    p.sub.table = getTableForChoice ((int) getParam ("sub_table"));
+    {
+        const auto choice = (int) getParam ("sub_table");
+        p.sub.table = spectralCache->get (2, choice, getTableForChoice (choice), (int) getParam ("sub_spectral"),
+                                            getParam ("sub_spectral_amt"));
+    }
 
     // Dedicated sub: the Sine, PWM (square) or Analog (saw) table at frame 0.
     {

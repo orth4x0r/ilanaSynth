@@ -102,7 +102,8 @@ public:
 
         const auto tableIndex = resolveTableIndex();
         const auto frame = displayedFrame;
-        const auto* table = processorRef.getWavetable (tableIndex);
+        const auto warped = processorRef.getSpectralDisplayTable (oscIndex, tableIndex);
+        const auto* table = warped != nullptr ? warped.get() : processorRef.getWavetable (tableIndex);
 
         if (table == nullptr || table->getNumFrames() == 0)
         {

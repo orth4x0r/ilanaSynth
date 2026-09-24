@@ -3656,6 +3656,114 @@ void runOsc3MigrationTest()
     check ((int) again.apvts.getRawParameterValue ("sub_semi")->load() == -9, "saved 1.1 state is not migrated twice");
 }
 
+void runSpectralWarpTests()
+{
+    // Each warp on a bright table: bounded, and different from the source.
+    {
+        Wavetable source;
+        source.buildFromFrames (TableFactory::generate (10));
+
+        for (int mode = SpectralWarp::Stretch; mode < SpectralWarp::Count; ++mode)
+        {
+            const auto amount = mode == SpectralWarp::Formant ? 0.9f : 0.7f;
+            const auto warped = SpectralWarp::warpTable (source, mode, amount);
+            auto peak = 0.0f;
+            auto diff = 0.0;
+            auto finite = true;
+
+            for (int frame = 0; frame < warped->getNumFrames(); ++frame)
+            {
+                const auto* a = source.getFrameData (0, frame);
+                const auto* b = warped->getFrameData (0, frame);
+
+                for (int i = 0; i < Wavetable::frameSize; ++i)
+                {
+                    finite = finite && std::isfinite (b[i]);
+                    peak = juce::jmax (peak, std::abs (b[i]));
+                    diff += (double) (a[i] - b[i]) * (a[i] - b[i]);
+                }
+            }
+
+            diff = std::sqrt (diff / (double) (warped->getNumFrames() * Wavetable::frameSize));
+            check (finite && peak <= 1.05f && peak > 0.1f && diff > 0.02,
+                   "Spectral warp " + SpectralWarp::getNames()[mode] + " is bounded and audible (peak "
+                       + juce::String (peak, 3) + ", diff " + juce::String (diff, 3) + ")");
+        }
+    }
+
+    const auto render = [] (int mode, bool offline)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (offline);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_table", 10.0f);
+        set ("osc1_spectral", (float) mode);
+        set ("osc1_spectral_amt", 0.8f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+        auto waited = 0;
+
+        // Realtime: let the worker build the warp before the note starts.
+        for (; ! offline && waited < 400; ++waited)
+        {
+            buffer.clear();
+            juce::MidiBuffer none;
+            processor.processBlock (buffer, none);
+
+            if (processor.isSpectralWarpReady (0))
+                break;
+
+            juce::Thread::sleep (5);
+        }
+
+        for (int block = 0; block < 12; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return std::make_pair (out, processor.isSpectralWarpReady (0));
+    };
+
+    const auto difference = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto sum = 0.0;
+
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            sum += (double) (a[i] - b[i]) * (a[i] - b[i]);
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, a.size()));
+    };
+
+    const auto plain = render (SpectralWarp::Off, true).first;
+    const auto offline = render (SpectralWarp::Stretch, true);
+    const auto realtime = render (SpectralWarp::Stretch, false);
+
+    check (offline.second && difference (plain, offline.first) > 0.01,
+           "Offline renders build the spectral warp in place (diff " + juce::String (difference (plain, offline.first), 4) + ")");
+    check (realtime.second && difference (offline.first, realtime.first) < 1.0e-4,
+           "The background worker builds the same warp (diff " + juce::String (difference (offline.first, realtime.first), 6) + ")");
+}
+
 void runFmMatrixTests()
 {
     const auto renderWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
@@ -3843,6 +3951,7 @@ int main()
     runGenerativeTests();
     runOsc3MigrationTest();
     runFmMatrixTests();
+    runSpectralWarpTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

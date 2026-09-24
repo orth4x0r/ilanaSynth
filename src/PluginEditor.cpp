@@ -213,8 +213,13 @@ public:
           subWarp (p.apvts, "sub_warp", "WARP"), subUniMode (p.apvts, "sub_uni_mode", "UNISON"),
           osc1WarpAmt (p.apvts, "osc1_warp_amt", "WARP AMT"), osc1UniBlend (p.apvts, "osc1_uni_blend", "BLEND"),
           osc2WarpAmt (p.apvts, "osc2_warp_amt", "WARP AMT"), osc2UniBlend (p.apvts, "osc2_uni_blend", "BLEND"),
-          subWarpAmt (p.apvts, "sub_warp_amt", "WARP AMT"), subUniBlend (p.apvts, "sub_uni_blend", "BLEND")
+          subWarpAmt (p.apvts, "sub_warp_amt", "WARP AMT"), subUniBlend (p.apvts, "sub_uni_blend", "BLEND"),
+          osc1Spectral (p.apvts, "osc1_spectral", "SPECTRAL"), osc2Spectral (p.apvts, "osc2_spectral", "SPECTRAL"),
+          subSpectral (p.apvts, "sub_spectral", "SPECTRAL"),
+          osc1SpectralAmt (p.apvts, "osc1_spectral_amt", "SPEC AMT"), osc2SpectralAmt (p.apvts, "osc2_spectral_amt", "SPEC AMT"),
+          subSpectralAmt (p.apvts, "sub_spectral_amt", "SPEC AMT")
     {
+        addAll (*this, osc1Spectral, osc2Spectral, subSpectral, osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt);
         addAll (*this, osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode,
                 osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend);
 
@@ -503,12 +508,14 @@ private:
             addTop (isSample ? (juce::Component*) &osc1SampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &osc1SampleReverse : nullptr);
             addTop (isWavetable ? (juce::Component*) &osc1Warp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &osc1Spectral : nullptr);
             addTop (&osc1UniMode);
             addTop (&osc1Chord);
 
             addBottom (isSample ? (juce::Component*) &osc1SampleStart
                                 : (isString ? (juce::Component*) &osc1StringDecay : (juce::Component*) &osc1Frame));
             addBottom (isWavetable ? (juce::Component*) &osc1WarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &osc1SpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &osc1SampleEnd
                                 : (isString ? (juce::Component*) &osc1StringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &osc1SampleFadeIn
@@ -532,12 +539,14 @@ private:
             addTop (isSample ? (juce::Component*) &osc2SampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &osc2SampleReverse : nullptr);
             addTop (isWavetable ? (juce::Component*) &osc2Warp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &osc2Spectral : nullptr);
             addTop (&osc2UniMode);
             addTop (&osc2Chord);
 
             addBottom (isSample ? (juce::Component*) &osc2SampleStart
                                 : (isString ? (juce::Component*) &osc2StringDecay : (juce::Component*) &osc2Frame));
             addBottom (isWavetable ? (juce::Component*) &osc2WarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &osc2SpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &osc2SampleEnd
                                 : (isString ? (juce::Component*) &osc2StringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &osc2SampleFadeIn
@@ -561,12 +570,14 @@ private:
             addTop (isSample ? (juce::Component*) &subSampleLoop : nullptr);
             addTop (isSample ? (juce::Component*) &subSampleReverse : nullptr);
             addTop (isWavetable ? (juce::Component*) &subWarp : nullptr);
+            addTop (isWavetable ? (juce::Component*) &subSpectral : nullptr);
             addTop (&subUniMode);
             addTop (&subChord);
 
             addBottom (isSample ? (juce::Component*) &subSampleStart
                                 : (isString ? (juce::Component*) &subStringDecay : (juce::Component*) &subFrame));
             addBottom (isWavetable ? (juce::Component*) &subWarpAmt : nullptr);
+            addBottom (isWavetable ? (juce::Component*) &subSpectralAmt : nullptr);
             addBottom (isSample ? (juce::Component*) &subSampleEnd
                                 : (isString ? (juce::Component*) &subStringDamp : nullptr));
             addBottom (isSample ? (juce::Component*) &subSampleFadeIn
@@ -677,6 +688,8 @@ private:
         osc1SampleFadeOut.setVisible (mode1 == 2);
         osc1Warp.setVisible (mode1 == 0);
         osc1WarpAmt.setVisible (mode1 == 0);
+        osc1Spectral.setVisible (mode1 == 0);
+        osc1SpectralAmt.setVisible (mode1 == 0);
 
         const auto mode2 = getMode (1);
         osc2Table.setVisible (mode2 == 0);
@@ -694,6 +707,8 @@ private:
         osc2SampleFadeOut.setVisible (mode2 == 2);
         osc2Warp.setVisible (mode2 == 0);
         osc2WarpAmt.setVisible (mode2 == 0);
+        osc2Spectral.setVisible (mode2 == 0);
+        osc2SpectralAmt.setVisible (mode2 == 0);
 
         const auto mode3 = getMode (2);
         subTable.setVisible (mode3 == 0);
@@ -711,6 +726,8 @@ private:
         subSampleFadeOut.setVisible (mode3 == 2);
         subWarp.setVisible (mode3 == 0);
         subWarpAmt.setVisible (mode3 == 0);
+        subSpectral.setVisible (mode3 == 0);
+        subSpectralAmt.setVisible (mode3 == 0);
 
         resized();
     }
@@ -735,21 +752,21 @@ private:
                            &osc1StringDecay, &osc1StringDamp, &osc1StringSustain,
                            &osc1SampleTuned, &osc1SampleLoop, &osc1SampleReverse,
                            &osc1SampleStart, &osc1SampleEnd, &osc1SampleFadeIn, &osc1SampleFadeOut,
-                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1UniMode, &osc1UniBlend },
+                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1Spectral, &osc1SpectralAmt, &osc1UniMode, &osc1UniBlend },
                          enabled1);
         setGroupEnabled ({ &osc2Mode, &osc2Table, &osc2Excite, &osc2Frame, &osc2Level, &osc2Pan, &osc2Semi,
                            &osc2Fine, &osc2Unison, &osc2Detune, &osc2Spread,
                            &osc2StringDecay, &osc2StringDamp, &osc2StringSustain,
                            &osc2SampleTuned, &osc2SampleLoop, &osc2SampleReverse,
                            &osc2SampleStart, &osc2SampleEnd, &osc2SampleFadeIn, &osc2SampleFadeOut,
-                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2UniMode, &osc2UniBlend },
+                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2Spectral, &osc2SpectralAmt, &osc2UniMode, &osc2UniBlend },
                          enabled2);
         setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subLevel,
                            &subPan, &subSemi, &subFine, &subUnison, &subDetune, &subSpread,
                            &subStringDecay, &subStringDamp, &subStringSustain,
                            &subSampleTuned, &subSampleLoop, &subSampleReverse,
                            &subSampleStart, &subSampleEnd, &subSampleFadeIn, &subSampleFadeOut,
-                           &subChord, &subWarp, &subWarpAmt, &subUniMode, &subUniBlend },
+                           &subChord, &subWarp, &subWarpAmt, &subSpectral, &subSpectralAmt, &subUniMode, &subUniBlend },
                          enabled3);
 
         const std::array<bool, 3> enabled { enabled1, enabled2, enabled3 };
@@ -814,6 +831,8 @@ private:
     KnobControl noiseLevel;
     ComboControl osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode;
     KnobControl osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend;
+    ComboControl osc1Spectral, osc2Spectral, subSpectral;
+    KnobControl osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt;
 };
 
 // One filter: its type grid, slope switch and only the knobs its model uses.

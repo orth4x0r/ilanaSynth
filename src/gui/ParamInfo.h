@@ -92,7 +92,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
         || id == "res_decay" || id.endsWith ("_string_decay")
-        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
+        || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
     return juce::String (value, value == std::floor (value) ? 0 : 2);
@@ -313,6 +313,16 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.endsWith ("_warp_amt"))
         return "How hard the warp bends the wave. Modulate it for movement.";
+
+    if (id.endsWith ("_spectral"))
+        return "Reshapes the wavetable's harmonics rather than its waveform: Stretch pulls them apart into bells and "
+               "metal, Shift moves them all up for hollow ring-mod tones, Odd/Even keeps odd then even harmonics, "
+               "Formant moves the vowel without changing pitch, Smear blurs them into a haze, Harmonic Cut keeps only "
+               "the lowest. Works on the factory tables.";
+
+    if (id.endsWith ("_spectral_amt"))
+        return "How far the spectral warp goes. For Formant, the middle leaves the vowel where it was. "
+               "Changes rebuild the table in the background, so this isn't a modulation target.";
 
     if (id.endsWith ("_uni_mode"))
         return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "

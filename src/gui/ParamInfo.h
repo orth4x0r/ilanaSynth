@@ -57,7 +57,8 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
-        || id == "res_decay" || id.endsWith ("_string_decay"))
+        || id == "res_decay" || id.endsWith ("_string_decay")
+        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase"))
         return asPercent();
 
     return juce::String (value, value == std::floor (value) ? 0 : 2);
@@ -200,6 +201,28 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "glide")
         return "Portamento time between notes.";
+
+    if (id.endsWith ("_warp"))
+        return "Bends how the oscillator reads its wavetable: Sync squeezes cycles in, Bend pushes the wave "
+               "forwards or back, PWM squashes it into part of the cycle, Mirror plays it there and back, Asym "
+               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others).";
+
+    if (id.endsWith ("_warp_amt"))
+        return "How hard the warp bends the wave. Modulate it for movement.";
+
+    if (id.endsWith ("_uni_mode"))
+        return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "
+               "Octaves and Fifths also stack intervals for huge chords.";
+
+    if (id.endsWith ("_uni_blend"))
+        return "Level of the detuned unison voices against the centre one. Lower keeps the pitch focused.";
+
+    if (id.startsWith ("lfo") && id.endsWith ("_phase"))
+        return "Where the LFO starts in its cycle when a note retriggers it.";
+
+    if (id.startsWith ("lfo") && id.endsWith ("_retrig"))
+        return "On: every note gets its own LFO, starting from the start phase (per-voice). "
+               "Off: one free-running LFO shared by all notes.";
 
     if (id == "voice_mode")
         return "Poly plays chords. Mono is one voice that retriggers the envelopes on every note. "

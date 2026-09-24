@@ -7,6 +7,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
+#include "ParamControls.h"
 
 // All four LFOs at a glance: each card shows its waveform, a live phase dot,
 // its rate and whether it is routed anywhere. Clicking a card selects that
@@ -79,6 +80,8 @@ public:
         if (index != hoverIndex)
         {
             hoverIndex = index;
+            const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
+            highlightedModSource() = index >= 0 ? (int) sources[index] : 0;
             repaint();
         }
     }
@@ -86,6 +89,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override
     {
         hoverIndex = -1;
+        highlightedModSource() = 0;
         repaint();
     }
 
@@ -118,13 +122,11 @@ private:
     {
         const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
 
-        for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
         {
-            const auto* src = processorRef.apvts.getRawParameterValue ("mod" + juce::String (slot) + "_src");
-            const auto* amt = processorRef.apvts.getRawParameterValue ("mod" + juce::String (slot) + "_amt");
+            const auto routing = processorRef.readModSlot (slot);
 
-            if (src != nullptr && amt != nullptr && (int) src->load() == (int) sources[lfo]
-                && std::abs (amt->load()) > 0.0001f)
+            if (routing.isActive() && routing.source == sources[lfo])
                 return true;
         }
 

@@ -11,38 +11,95 @@
 
 struct ModRingConfig
 {
-    Mod::Destination destination = Mod::Destination::None;
+    int destination = 0;
     float scale = 1.0f;
 };
 
-inline ModRingConfig modRingConfigFor (const juce::String& parameterID)
+// Which modulation destination a knob drives, and how far a full-depth
+// modulation moves the knob (as a fraction of its travel) for the ring.
+inline ModRingConfig modRingConfigFor (const juce::String& id)
 {
-    if (parameterID == "osc1_frame") return { Mod::Destination::Osc1Frame, 1.0f };
-    if (parameterID == "osc1_level") return { Mod::Destination::Osc1Level, 1.0f };
-    if (parameterID == "osc1_semi" || parameterID == "osc1_fine") return { Mod::Destination::Osc1Pitch, 1.0f };
-    if (parameterID == "osc1_pan") return { Mod::Destination::Pan, 0.5f };
-    if (parameterID == "osc2_frame") return { Mod::Destination::Osc2Frame, 1.0f };
-    if (parameterID == "osc2_level") return { Mod::Destination::Osc2Level, 1.0f };
-    if (parameterID == "osc2_semi" || parameterID == "osc2_fine") return { Mod::Destination::Osc2Pitch, 1.0f };
-    if (parameterID == "osc2_pan") return { Mod::Destination::Pan, 0.5f };
-    if (parameterID == "sub_level") return { Mod::Destination::SubLevel, 1.0f };
-    if (parameterID == "sub_semi" || parameterID == "sub_fine") return { Mod::Destination::SubPitch, 1.0f };
-    if (parameterID == "sub_frame") return { Mod::Destination::SubFrame, 1.0f };
-    if (parameterID == "osc1_sample_start") return { Mod::Destination::Osc1SampleStart, 0.5f };
-    if (parameterID == "osc1_sample_end") return { Mod::Destination::Osc1SampleEnd, 0.5f };
-    if (parameterID == "osc2_sample_start") return { Mod::Destination::Osc2SampleStart, 0.5f };
-    if (parameterID == "osc2_sample_end") return { Mod::Destination::Osc2SampleEnd, 0.5f };
-    if (parameterID == "sub_sample_start") return { Mod::Destination::SubSampleStart, 0.5f };
-    if (parameterID == "sub_sample_end") return { Mod::Destination::SubSampleEnd, 0.5f };
-    if (parameterID == "noise_level") return { Mod::Destination::NoiseLevel, 1.0f };
-    if (parameterID == "f1_cutoff") return { Mod::Destination::Filter1Cutoff, 0.5f };
-    if (parameterID == "f1_reso") return { Mod::Destination::Filter1Reso, 1.0f };
-    if (parameterID == "f2_cutoff") return { Mod::Destination::Filter2Cutoff, 0.5f };
-    if (parameterID == "f2_reso") return { Mod::Destination::Filter2Reso, 1.0f };
-    if (parameterID == "lfo1_rate") return { Mod::Destination::Lfo1Rate, 0.3f };
-    if (parameterID == "lfo2_rate") return { Mod::Destination::Lfo2Rate, 0.3f };
+    using D = Mod::Destination;
+    const auto explicitDest = [] (D d, float scale) { return ModRingConfig { (int) d, scale }; };
 
-    return {};
+    struct OscIds { const char* prefix; D pitch, frame, level, pan, detune, spread, warp, blend, start, end; };
+    static const OscIds oscs[] {
+        { "osc1", D::Osc1Pitch, D::Osc1Frame, D::Osc1Level, D::Osc1Pan, D::Osc1Detune, D::Osc1Spread, D::Osc1Warp,
+          D::Osc1Blend, D::Osc1SampleStart, D::Osc1SampleEnd },
+        { "osc2", D::Osc2Pitch, D::Osc2Frame, D::Osc2Level, D::Osc2Pan, D::Osc2Detune, D::Osc2Spread, D::Osc2Warp,
+          D::Osc2Blend, D::Osc2SampleStart, D::Osc2SampleEnd },
+        { "sub", D::SubPitch, D::SubFrame, D::SubLevel, D::SubPan, D::SubDetune, D::SubSpread, D::SubWarp,
+          D::SubBlend, D::SubSampleStart, D::SubSampleEnd },
+    };
+
+    for (const auto& osc : oscs)
+    {
+        const juce::String prefix (osc.prefix);
+
+        if (! id.startsWith (prefix + "_"))
+            continue;
+
+        const auto field = id.fromFirstOccurrenceOf (prefix + "_", false, false);
+
+        if (field == "semi" || field == "fine") return explicitDest (osc.pitch, 1.0f);
+        if (field == "frame")        return explicitDest (osc.frame, 1.0f);
+        if (field == "level")        return explicitDest (osc.level, 1.0f);
+        if (field == "pan")          return explicitDest (osc.pan, 0.5f);
+        if (field == "detune")       return explicitDest (osc.detune, 1.0f);
+        if (field == "spread")       return explicitDest (osc.spread, 1.0f);
+        if (field == "warp_amt")     return explicitDest (osc.warp, 1.0f);
+        if (field == "uni_blend")    return explicitDest (osc.blend, 1.0f);
+        if (field == "sample_start") return explicitDest (osc.start, 0.5f);
+        if (field == "sample_end")   return explicitDest (osc.end, 0.5f);
+    }
+
+    struct Entry { const char* id; D destination; float scale; };
+    static const Entry entries[] {
+        { "noise_level", D::NoiseLevel, 1.0f },
+        { "f1_cutoff", D::Filter1Cutoff, 0.5f }, { "f1_reso", D::Filter1Reso, 1.0f },
+        { "f1_drive", D::Filter1Drive, 1.0f }, { "f1_env", D::Filter1Env, 0.5f }, { "f1_fm", D::Filter1Fm, 0.5f },
+        { "f1_morph", D::Filter1Morph, 1.0f },
+        { "f2_cutoff", D::Filter2Cutoff, 0.5f }, { "f2_reso", D::Filter2Reso, 1.0f },
+        { "f2_drive", D::Filter2Drive, 1.0f }, { "f2_env", D::Filter2Env, 0.5f }, { "f2_fm", D::Filter2Fm, 0.5f },
+        { "f2_morph", D::Filter2Morph, 1.0f },
+        { "fm_amount", D::FmAmount, 1.0f }, { "fm_feedback", D::FmFeedback, 1.0f },
+        { "ring_mod", D::RingMod, 1.0f }, { "drift", D::Drift, 1.0f },
+        { "lfo1_rate", D::Lfo1Rate, 0.3f }, { "lfo2_rate", D::Lfo2Rate, 0.3f },
+        { "lfo3_rate", D::Lfo3Rate, 0.3f }, { "lfo4_rate", D::Lfo4Rate, 0.3f }, { "mseg_rate", D::MsegRate, 0.3f },
+        { "res_amount", D::ResAmount, 1.0f }, { "res_decay", D::ResDecay, 1.0f }, { "res_offset", D::ResOffset, 0.5f },
+        { "amp_attack", D::AmpAttack, 0.5f }, { "amp_decay", D::AmpDecay, 0.5f },
+        { "amp_sustain", D::AmpSustain, 1.0f }, { "amp_release", D::AmpRelease, 0.5f },
+        { "fe_attack", D::FeAttack, 0.5f }, { "fe_decay", D::FeDecay, 0.5f },
+        { "fe_sustain", D::FeSustain, 1.0f }, { "fe_release", D::FeRelease, 0.5f },
+        { "me_attack", D::MeAttack, 0.5f }, { "me_decay", D::MeDecay, 0.5f },
+        { "me_sustain", D::MeSustain, 1.0f }, { "me_release", D::MeRelease, 0.5f },
+        { "f2e_attack", D::F2eAttack, 0.5f }, { "f2e_decay", D::F2eDecay, 0.5f },
+        { "f2e_sustain", D::F2eSustain, 1.0f }, { "f2e_release", D::F2eRelease, 0.5f },
+        { "e4_attack", D::E4Attack, 0.5f }, { "e4_decay", D::E4Decay, 0.5f },
+        { "e4_sustain", D::E4Sustain, 1.0f }, { "e4_release", D::E4Release, 0.5f },
+        { "fx_drive_amount", D::FxDriveAmount, 1.0f }, { "fx_crush_mix", D::FxCrushMix, 1.0f },
+        { "fx_comb_freq", D::FxCombFreq, 0.6f }, { "fx_phaser_rate", D::FxPhaserRate, 0.55f },
+        { "fx_chorus_depth", D::FxChorusDepth, 1.0f }, { "fx_delay_mix", D::FxDelayMix, 1.0f },
+        { "fx_delay_feedback", D::FxDelayFeedback, 0.95f }, { "fx_smear_mix", D::FxSmearMix, 1.0f },
+        { "fx_freeze_mix", D::FxFreezeMix, 1.0f }, { "fx_reverb_mix", D::FxReverbMix, 1.0f },
+        { "fx_reverb_size", D::FxReverbSize, 1.0f },
+    };
+
+    for (const auto& entry : entries)
+        if (id == entry.id)
+            return explicitDest (entry.destination, entry.scale);
+
+    // Everything else that can be modulated is a plain-parameter destination,
+    // offset in the knob's own normalised range.
+    return { Mod::destinationForParamId (id), 1.0f };
+}
+
+// The source currently hovered (chip, macro or LFO card), so knobs it
+// modulates can light up. Message thread only.
+inline int& highlightedModSource()
+{
+    static int source = 0;
+    return source;
 }
 
 inline juce::Colour modSourceColour (int sourceIndex)
@@ -80,6 +137,154 @@ inline juce::String& knobClipboard()
     return value;
 }
 
+// The coloured dots beside a modulated knob: one per routing into it.
+// Drag a dot up or down to change that routing's depth, double-click it to
+// remove the routing. Hovering shows which source it is.
+class ModDotStrip : public juce::Component,
+                    public juce::SettableTooltipClient
+{
+public:
+    struct Dot
+    {
+        int slot = -1;
+        int source = 0;
+        float depth = 0.0f;
+    };
+
+    std::function<void (int slot, float depth)> onDepthChange;
+    std::function<void (int slot)> onRemove;
+
+    void setDots (const std::vector<Dot>& newDots)
+    {
+        if (dragIndex >= 0)
+            return; // keep the list stable mid-drag
+
+        dots = newDots;
+        updateTooltip();
+        repaint();
+    }
+
+    static constexpr int dotSize = 8;
+    static constexpr int dotPitch = 11;
+
+    int getPreferredHeight() const { return (int) dots.size() * dotPitch; }
+
+    void paint (juce::Graphics& g) override
+    {
+        for (int i = 0; i < (int) dots.size(); ++i)
+        {
+            const auto& dot = dots[(size_t) i];
+            const auto area = dotBounds (i);
+            const auto colour = modSourceColour (dot.source);
+            const auto active = i == dragIndex || i == hoverIndex;
+
+            g.setColour (colour.withAlpha (active ? 0.35f : 0.18f));
+            g.fillEllipse (area.expanded (active ? 2.5f : 1.5f));
+
+            // Fill shows the depth: a pie from 12 o'clock, clockwise for
+            // positive and anticlockwise for negative.
+            g.setColour (juce::Colour (0xff141418));
+            g.fillEllipse (area);
+
+            juce::Path pie;
+            const auto angle = juce::jlimit (-1.0f, 1.0f, dot.depth) * juce::MathConstants<float>::twoPi;
+            pie.addPieSegment (area, 0.0f, angle, 0.0f);
+            g.setColour (colour);
+            g.fillPath (pie);
+
+            g.setColour (colour.withAlpha (0.9f));
+            g.drawEllipse (area, 1.0f);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto index = indexAt (event.position);
+
+        if (index != hoverIndex)
+        {
+            hoverIndex = index;
+            updateTooltip();
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverIndex = -1;
+        repaint();
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        dragIndex = indexAt (event.position);
+
+        if (dragIndex >= 0)
+            dragStartDepth = dots[(size_t) dragIndex].depth;
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (dragIndex < 0)
+            return;
+
+        const auto fine = event.mods.isShiftDown() ? 0.2f : 1.0f;
+        const auto depth = juce::jlimit (-1.0f, 1.0f, dragStartDepth - (float) event.getDistanceFromDragStartY() * 0.008f * fine);
+        dots[(size_t) dragIndex].depth = depth;
+        updateTooltip();
+        repaint();
+
+        if (onDepthChange != nullptr)
+            onDepthChange (dots[(size_t) dragIndex].slot, depth);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { dragIndex = -1; }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        const auto index = indexAt (event.position);
+
+        if (index >= 0 && onRemove != nullptr)
+            onRemove (dots[(size_t) index].slot);
+    }
+
+private:
+    juce::Rectangle<float> dotBounds (int index) const
+    {
+        return juce::Rectangle<float> ((float) dotSize, (float) dotSize)
+            .withCentre ({ (float) getWidth() * 0.5f, (float) (index * dotPitch) + (float) dotPitch * 0.5f });
+    }
+
+    int indexAt (juce::Point<float> position) const
+    {
+        for (int i = 0; i < (int) dots.size(); ++i)
+            if (dotBounds (i).expanded (2.0f).contains (position))
+                return i;
+
+        return -1;
+    }
+
+    void updateTooltip()
+    {
+        const auto index = hoverIndex >= 0 ? hoverIndex : dragIndex;
+
+        if (! juce::isPositiveAndBelow (index, (int) dots.size()))
+        {
+            setTooltip ("Modulation\nDrag a dot to set its depth, double-click it to remove the routing.");
+            return;
+        }
+
+        const auto& dot = dots[(size_t) index];
+        setTooltip (Mod::getSourceNames()[dot.source] + "  " + juce::String (juce::roundToInt (dot.depth * 100.0f))
+                    + " %\nDrag up or down to set the depth (Shift for fine), double-click to remove.");
+    }
+
+    std::vector<Dot> dots;
+    int dragIndex = -1;
+    int hoverIndex = -1;
+    float dragStartDepth = 0.0f;
+};
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -110,6 +315,20 @@ public:
         label.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.65f));
         addAndMakeVisible (label);
 
+        dotStrip.onDepthChange = [this] (int slot, float depth)
+        {
+            if (processorRef != nullptr)
+                processorRef->setModSlotValue (slot, "amt", depth);
+        };
+        dotStrip.onRemove = [this] (int slot)
+        {
+            if (processorRef != nullptr)
+                processorRef->clearModSlot (slot);
+
+            refreshRoutings();
+        };
+        addChildComponent (dotStrip);
+
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, slider);
 
         parameter = state.getParameter (parameterID);
@@ -119,12 +338,17 @@ public:
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
 
             const auto description = describeParameter (parameterID);
-            const auto tooltip = parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : "");
+            const auto modHint = ringConfig.destination != 0
+                                     ? juce::String ("  Drop a mod source here, or right-click to modulate.")
+                                     : juce::String();
+            const auto tooltip = parameter->getName (64)
+                                 + (description.isNotEmpty() || modHint.isNotEmpty() ? "\n" + description + modHint : "");
             slider.setTooltip (tooltip);
             setTooltip (tooltip);
         }
 
         lastSliderValue = slider.getValue();
+        refreshRoutings();
         startTimerHz (30);
     }
 
@@ -174,17 +398,17 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto modActive = processorRef != nullptr
-                               && ringConfig.destination != Mod::Destination::None
-                               && std::abs (processorRef->getModDisplay (ringConfig.destination)) > 0.001f;
-        const auto glowColour = modActive ? modSourceColour (dominantModSource()) : IlanaTheme::accent();
+        const auto mod = processorRef != nullptr && ringConfig.destination != 0
+                             ? processorRef->getModDisplay (ringConfig.destination)
+                             : 0.0f;
+        const auto modActive = std::abs (mod) > 0.001f;
+        const auto glowColour = modActive ? modSourceColour (dominantSource) : IlanaTheme::accent();
         const auto glowIntensity = juce::jmax (glow * 0.09f, activity * 0.2f);
+        const auto centre = rotaryArea().getCentre();
+        const auto knobRadius = knobRadiusFor (knobBounds);
 
         if (glowIntensity > 0.005f)
         {
-            const auto centre = rotaryArea().getCentre();
-            const auto knobRadius = knobRadiusFor (knobBounds);
-
             for (int ring = 2; ring >= 1; --ring)
             {
                 const auto radius = knobRadius + (float) ring * 3.5f;
@@ -193,28 +417,29 @@ public:
             }
         }
 
+        // A hovered source lights up every knob it modulates.
+        const auto highlighted = highlightedModSource();
+
+        if (highlighted != 0 && routesFrom (highlighted))
+        {
+            const auto radius = knobRadius + 5.0f;
+            g.setColour (modSourceColour (highlighted).withAlpha (0.22f));
+            g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
+            g.setColour (modSourceColour (highlighted).withAlpha (0.8f));
+            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.5f);
+        }
+
         if (dragHover)
         {
             g.setColour (juce::Colours::white.withAlpha (0.16f));
             g.fillRoundedRectangle (knobBounds.toFloat().reduced (2.0f), 6.0f);
         }
 
-        if (processorRef == nullptr || ringConfig.destination == Mod::Destination::None)
-            return;
-
-        const auto mod = processorRef->getModDisplay (ringConfig.destination);
-
-        if (std::abs (mod) < 0.001f)
-            return;
-
-        const auto centre = rotaryArea().getCentre();
-        const auto radius = knobRadiusFor (knobBounds);
-
-        if (radius < 8.0f)
+        if (! modActive || knobRadius < 8.0f)
             return;
 
         const auto lineWidth = 2.0f;
-        const auto arcRadius = radius - lineWidth * 0.5f;
+        const auto arcRadius = knobRadius - lineWidth * 0.5f;
         const auto startAngle = juce::MathConstants<float>::pi * 1.2f;
         const auto endAngle = juce::MathConstants<float>::pi * 2.8f;
 
@@ -231,7 +456,7 @@ public:
         arc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                            juce::jmin (angleA, angleB), juce::jmax (angleA, angleB), true);
 
-        g.setColour (modSourceColour (dominantModSource()).withAlpha (0.85f));
+        g.setColour (modSourceColour (dominantSource).withAlpha (0.85f));
         g.strokePath (arc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
     }
@@ -245,12 +470,13 @@ public:
 
         knobBounds = area;
         slider.setBounds (area);
+        layoutDots();
     }
 
     bool isInterestedInDragSource (const SourceDetails& details) override
     {
         return processorRef != nullptr
-               && ringConfig.destination != Mod::Destination::None
+               && ringConfig.destination != 0
                && details.description.toString().startsWith ("modsource:");
     }
 
@@ -278,6 +504,7 @@ public:
                                      .getIntValue();
 
         processorRef->assignModSlot (sourceIndex, ringConfig.destination, 0.35f);
+        refreshRoutings();
         repaint();
     }
 
@@ -302,39 +529,67 @@ private:
         return area;
     }
 
-    int dominantModSource() const
+    bool routesFrom (int source) const
     {
-        if (processorRef == nullptr || ringConfig.destination == Mod::Destination::None)
-            return 0;
+        for (const auto& dot : routings)
+            if (dot.source == source)
+                return true;
 
-        auto dominantSource = 0;
-        auto dominantDepth = 0.0f;
+        return false;
+    }
 
-        for (int i = 1; i <= Mod::maxSlots; ++i)
+    void layoutDots()
+    {
+        const auto area = rotaryArea();
+        const auto radius = knobRadiusFor (knobBounds);
+        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
+        const auto x = (int) (area.getCentreX() + radius + 3.0f);
+        const auto y = (int) (area.getCentreY() - radius + 2.0f);
+
+        dotStrip.setBounds (juce::jmin (x, getWidth() - 12), y, 12, height);
+        dotStrip.setVisible (! routings.empty() && ! compact);
+    }
+
+    // Re-reads which mod slots route into this knob. Cheap (raw parameter
+    // reads), so it runs on the timer.
+    void refreshRoutings()
+    {
+        if (processorRef == nullptr || ringConfig.destination == 0)
+            return;
+
+        std::vector<ModDotStrip::Dot> found;
+        auto strongest = 0.0f;
+        dominantSource = 0;
+
+        for (int i = 0; i < Mod::maxSlots && found.size() < 6; ++i)
         {
-            const auto prefix = "mod" + juce::String (i);
+            const auto slot = processorRef->readModSlot (i);
 
-            const auto* destinationValue = processorRef->apvts.getRawParameterValue (prefix + "_dst");
-            const auto* sourceValue = processorRef->apvts.getRawParameterValue (prefix + "_src");
-            const auto* depthValue = processorRef->apvts.getRawParameterValue (prefix + "_amt");
-
-            if (destinationValue == nullptr || sourceValue == nullptr || depthValue == nullptr)
+            if (slot.destination != ringConfig.destination || slot.source == Mod::Source::None)
                 continue;
 
-            if ((Mod::Destination) (int) destinationValue->load() != ringConfig.destination)
-                continue;
+            found.push_back ({ i, (int) slot.source, slot.depth });
 
-            const auto depth = std::abs (depthValue->load());
-            const auto source = (int) sourceValue->load();
-
-            if (source != 0 && depth > dominantDepth)
+            if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
-                dominantDepth = depth;
-                dominantSource = source;
+                strongest = std::abs (slot.depth);
+                dominantSource = (int) slot.source;
             }
         }
 
-        return dominantSource;
+        const auto changed = found.size() != routings.size()
+                             || ! std::equal (found.begin(), found.end(), routings.begin(),
+                                              [] (const auto& a, const auto& b)
+                                              { return a.slot == b.slot && a.source == b.source
+                                                       && std::abs (a.depth - b.depth) < 1.0e-4f; });
+
+        if (! changed)
+            return;
+
+        routings = std::move (found);
+        dotStrip.setDots (routings);
+        layoutDots();
+        repaint();
     }
 
     void showModMenu()
@@ -344,16 +599,28 @@ private:
 
         juce::PopupMenu menu;
 
-        if (ringConfig.destination != Mod::Destination::None)
+        if (ringConfig.destination != 0)
         {
             const auto sources = Mod::getSourceNames();
             juce::PopupMenu sourceMenu;
 
             for (int i = 1; i < sources.size(); ++i)
-                sourceMenu.addItem (i + 1, sources[i]);
+                sourceMenu.addItem (i + 1, sources[i], true, routesFrom (i));
 
             menu.addSubMenu ("Modulate with", sourceMenu);
-            menu.addItem (1000, "Clear modulation to this target");
+
+            if (! routings.empty())
+            {
+                juce::PopupMenu removeMenu;
+
+                for (const auto& dot : routings)
+                    removeMenu.addItem (5000 + dot.slot, sources[dot.source] + "  ("
+                                                             + juce::String (juce::roundToInt (dot.depth * 100.0f)) + " %)");
+
+                menu.addSubMenu ("Remove modulation", removeMenu);
+                menu.addItem (1000, "Clear all modulation to this knob");
+            }
+
             menu.addSeparator();
         }
 
@@ -382,8 +649,10 @@ private:
                                 if (safeThis == nullptr || result == 0)
                                     return;
 
+                                auto& processor = *safeThis->processorRef;
+
                                 if (result == 1000)
-                                    safeThis->processorRef->clearModSlotsForTarget (safeThis->ringConfig.destination);
+                                    processor.clearModSlotsForTarget (safeThis->ringConfig.destination);
                                 else if (result == 2000)
                                 {
                                     if (safeThis->parameter != nullptr)
@@ -400,13 +669,18 @@ private:
                                 }
                                 else if (result == 4000)
                                 {
-                                    safeThis->processorRef->startMacroLearn (
-                                        safeThis->parameterId.getTrailingIntValue() - 1);
+                                    processor.startMacroLearn (safeThis->parameterId.getTrailingIntValue() - 1);
+                                }
+                                else if (result >= 5000)
+                                {
+                                    processor.clearModSlot (result - 5000);
                                 }
                                 else
                                 {
-                                    safeThis->processorRef->assignModSlot (result - 1, safeThis->ringConfig.destination, 0.35f);
+                                    processor.assignModSlot (result - 1, safeThis->ringConfig.destination, 0.35f);
                                 }
+
+                                safeThis->refreshRoutings();
                             });
     }
 
@@ -417,6 +691,7 @@ private:
         appear = juce::jmin (1.0f, appear + 0.12f);
         slider.setAlpha (appear);
         label.setAlpha (appear);
+        dotStrip.setAlpha (appear);
 
         const auto value = slider.getValue();
 
@@ -428,7 +703,7 @@ private:
 
         activity *= 0.88f;
 
-        if (processorRef == nullptr || ringConfig.destination == Mod::Destination::None)
+        if (processorRef == nullptr || ringConfig.destination == 0)
         {
             if (glow > 0.01f || activity > 0.01f || appear < 0.999f || isMouseOver())
                 repaint();
@@ -436,11 +711,19 @@ private:
             return;
         }
 
+        if (++routingCheck >= 6)
+        {
+            routingCheck = 0;
+            refreshRoutings();
+        }
+
+        const auto highlighted = highlightedModSource();
         const auto modValue = processorRef->getModDisplay (ringConfig.destination);
 
-        if (std::abs (modValue - lastModValue) > 0.002f)
+        if (std::abs (modValue - lastModValue) > 0.002f || highlighted != lastHighlighted)
         {
             lastModValue = modValue;
+            lastHighlighted = highlighted;
             repaint();
         }
         else if (glow > 0.01f || activity > 0.01f || appear < 0.999f || isMouseOver())
@@ -451,6 +734,7 @@ private:
 
     juce::Slider slider;
     juce::Label label;
+    ModDotStrip dotStrip;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 
     IlanaSynthAudioProcessor* processorRef = nullptr;
@@ -460,6 +744,10 @@ private:
     juce::Colour knobAccent;
     bool followsTheme = false;
     juce::Rectangle<int> knobBounds;
+    std::vector<ModDotStrip::Dot> routings;
+    int dominantSource = 0;
+    int routingCheck = 0;
+    int lastHighlighted = 0;
     float lastModValue = 0.0f;
     float glow = 0.0f;
     float activity = 0.0f;

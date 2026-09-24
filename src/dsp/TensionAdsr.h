@@ -85,7 +85,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = attackStart + (1.0f - attackStart) * (float) std::pow (progress, exponent);
+                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress);
                 }
 
                 break;
@@ -105,7 +105,7 @@ public:
                 {
                     const auto progress = position / length;
                     currentValue = params.sustain
-                                   + (1.0f - params.sustain) * (float) std::pow (1.0 - progress, exponent);
+                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress);
                 }
 
                 break;
@@ -128,7 +128,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = releaseStart * (float) std::pow (1.0 - progress, exponent);
+                    currentValue = releaseStart * (float) shaped (1.0 - progress);
                 }
 
                 break;
@@ -144,6 +144,9 @@ public:
     }
 
 private:
+    // pow() is exact for an exponent of 1, so zero tension skips the call.
+    double shaped (double progress) const { return exponent == 1.0 ? progress : std::pow (progress, exponent); }
+
     enum class Stage
     {
         Idle,

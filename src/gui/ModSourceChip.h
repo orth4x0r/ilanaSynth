@@ -15,7 +15,7 @@ public:
         : name (sourceName),
           index (sourceIndex)
     {
-        setTooltip ("Drag onto any knob to create a modulation");
+        setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover.");
         startTimerHz (30);
     }
 
@@ -37,6 +37,14 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.75f + 0.25f * hover));
         g.setFont (IlanaTheme::font (11.5f, true));
         g.drawText (name, getLocalBounds(), juce::Justification::centred);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = index; }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (highlightedModSource() == index)
+            highlightedModSource() = 0;
     }
 
     void mouseDrag (const juce::MouseEvent&) override

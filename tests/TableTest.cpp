@@ -343,9 +343,8 @@ void runVoiceSmokeTest()
     p.filterEnv = { 0.001f, 0.4f, 0.2f, 0.3f };
     p.modEnv = { 0.01f, 0.3f, 0.5f, 0.3f };
 
-    p.numModSlots = 2;
-    p.modSlots[0] = { Mod::Source::FilterEnv, Mod::Destination::Osc1Frame, 0.5f };
-    p.modSlots[1] = { Mod::Source::Random, Mod::Destination::Osc2Pitch, 0.2f };
+    p.addModSlot (Mod::Source::FilterEnv, Mod::Destination::Osc1Frame, 0.5f);
+    p.addModSlot (Mod::Source::Random, Mod::Destination::Osc2Pitch, 0.2f);
 
     voice.setParams (p);
     voice.startNote (48, 0.9f, nullptr, 8192);
@@ -430,8 +429,7 @@ void runFrameModulationTest()
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
         p.macros[0] = macroValue;
         p.lfo1 = lfoSource;
-        p.numModSlots = 1;
-        p.modSlots[0] = { source, Mod::Destination::Osc1Frame, modDepth };
+        p.addModSlot (source, Mod::Destination::Osc1Frame, modDepth);
 
         voice.setParams (p);
         voice.startNote (60, 1.0f, nullptr, 8192);
@@ -2549,11 +2547,391 @@ void runVoiceModeTests()
            "legato does not retrigger the envelope (legato " + juce::String (legatoLevel, 3)
                + ", mono " + juce::String (monoLevel, 3) + ")");
 }
+
+// Phase 2: warps, unison, per-voice LFOs, the extended matrix.
+float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int blocks, double& centroid,
+                             std::vector<float>* capture = nullptr)
+{
+    juce::AudioBuffer<float> buffer (2, 512);
+    std::vector<float> samples;
+    auto peak = 0.0f;
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+        peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
+
+        for (int i = 0; i < 512; ++i)
+            samples.push_back (buffer.getSample (0, i));
+    }
+
+    // Spectral centroid of the last 8192 samples.
+    constexpr int order = 13;
+    constexpr int size = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<float> work ((size_t) size * 2, 0.0f);
+    const auto start = samples.size() - (size_t) size;
+
+    for (int i = 0; i < size; ++i)
+        work[(size_t) i] = samples[start + (size_t) i]
+                           * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size));
+
+    fft.performFrequencyOnlyForwardTransform (work.data());
+    double weighted = 0.0, total = 0.0;
+
+    for (int bin = 1; bin < size / 2; ++bin)
+    {
+        weighted += bin * 48000.0 / size * work[(size_t) bin];
+        total += work[(size_t) bin];
+    }
+
+    centroid = total > 0.0 ? weighted / total : 0.0;
+
+    if (capture != nullptr)
+        *capture = samples;
+
+    return peak;
+}
+
+void runWarpTests()
+{
+    const auto names = Warp::getNames();
+    double plainCentroid = 0.0;
+
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 8.0f); // Sine: warps add harmonics
+        setParam (processor, "f1_cutoff", 20000.0f);
+        processor.prepareToPlay (48000.0, 512);
+        renderPeakAndCentroid (processor, 45, 40, plainCentroid);
+    }
+
+    for (int mode = 1; mode < Warp::Count; ++mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 8.0f);
+        setParam (processor, "f1_cutoff", 20000.0f);
+        setParam (processor, "osc1_warp", (float) mode);
+        setParam (processor, "osc1_warp_amt", 0.7f);
+
+        if (mode == Warp::Fm || mode == Warp::Ring)
+        {
+            setParam (processor, "osc2_on", 1.0f);
+            setParam (processor, "osc2_level", 0.01f);
+            setParam (processor, "osc2_semi", 7.0f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+
+        check (std::isfinite (peak) && peak > 0.02f && peak < 4.0f && centroid > plainCentroid * 1.15,
+               "warp " + names[mode] + " adds harmonics to a sine (centroid " + juce::String (plainCentroid, 0)
+                   + " -> " + juce::String (centroid, 0) + " Hz, peak " + juce::String (peak, 2) + ")");
+    }
+}
+
+void runUnisonTests()
+{
+    // 16 voices render, and blend 0 leaves only the centre voice(s).
+    const auto widthOf = [] (int voices, float blend, int mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_unison", (float) voices);
+        setParam (processor, "osc1_detune", 30.0f);
+        setParam (processor, "osc1_spread", 1.0f);
+        setParam (processor, "osc1_uni_blend", blend);
+        setParam (processor, "osc1_uni_mode", (float) mode);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto side = 0.0, mid = 0.0;
+
+        for (int block = 0; block < 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block > 10)
+                for (int i = 0; i < 512; ++i)
+                {
+                    const auto l = buffer.getSample (0, i), r = buffer.getSample (1, i);
+                    mid += (double) (l + r) * (l + r);
+                    side += (double) (l - r) * (l - r);
+                }
+        }
+
+        return std::sqrt (side / juce::jmax (1.0e-12, mid));
+    };
+
+    const auto full16 = widthOf (16, 1.0f, UnisonMode::Classic);
+    const auto blend0 = widthOf (15, 0.0f, UnisonMode::Classic);
+    const auto hyper = widthOf (16, 1.0f, UnisonMode::Hypersaw);
+    const auto octaves = widthOf (9, 1.0f, UnisonMode::Octaves);
+
+    check (full16 > 0.2 && std::isfinite (hyper) && hyper > 0.1 && std::isfinite (octaves),
+           "16-voice unison, hypersaw and octave stacks render wide (" + juce::String (full16, 2) + ", "
+               + juce::String (hyper, 2) + ", " + juce::String (octaves, 2) + ")");
+    check (blend0 < 0.01, "unison blend 0 keeps only the centre voice (width " + juce::String (blend0, 4) + ")");
+}
+
+void runPerVoiceLfoTest()
+{
+    // Two notes started half a second apart with a retriggered LFO on pitch:
+    // each voice's LFO starts at its own note-on, so a slow LFO puts the two
+    // notes at different points of the cycle. Checked through the voices.
+    IlanaSynthAudioProcessor processor;
+    setParam (processor, "lfo1_retrig", 1.0f);
+    setParam (processor, "lfo1_rate", 0.5f);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+
+    for (int block = 0; block < 50; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+        if (block == 47)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+    }
+
+    const auto phases = processor.getVoiceLfoPhasesForTest (0);
+    check (phases.size() == 2 && std::abs (phases[0] - phases[1]) > 0.2f,
+           "retriggered LFO runs per voice (phases " + juce::String (phases.size() > 0 ? phases[0] : -1.0f, 3) + ", "
+               + juce::String (phases.size() > 1 ? phases[1] : -1.0f, 3) + ")");
+}
+
+void runMatrixTests()
+{
+    const auto levelWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "master_clip", 0.0f);
+        setup (processor);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        return renderPeakAndCentroid (processor, 57, 30, centroid);
+    };
+
+    const auto base = levelWith ([] (auto&) {});
+
+    // Slot 20 works like slot 1: macro 1 at full pulls Amp Level down.
+    const auto viaSlot20 = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod20_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod20_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod20_amt", -0.8f);
+    });
+    check (viaSlot20 < base * 0.4f, "mod slot 20 routes (peak " + juce::String (base, 3) + " -> " + juce::String (viaSlot20, 3) + ")");
+
+    const auto bypassed = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod20_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod20_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod20_amt", -0.8f);
+        setParam (p, "mod20_byp", 1.0f);
+    });
+    check (std::abs (bypassed - base) < base * 0.05f, "bypassed slot does nothing");
+
+    // Via: macro 2 at zero scales the routing away.
+    const auto viaZero = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod3_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod3_dst", (float) Mod::Destination::AmpLevel);
+        setParam (p, "mod3_amt", -0.8f);
+        setParam (p, "mod3_aux", (float) Mod::Source::Macro2);
+    });
+    check (std::abs (viaZero - base) < base * 0.05f, "via source at zero mutes the routing");
+
+    // Modulating a plain parameter: macro 1 into the master volume.
+    const auto masterMod = levelWith ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "macro1", 1.0f);
+        setParam (p, "mod5_src", (float) Mod::Source::Macro1);
+        setParam (p, "mod5_dst", (float) Mod::destinationForParamId ("master"));
+        setParam (p, "mod5_amt", -0.3f);
+    });
+    check (masterMod < base * 0.5f, "macro can modulate the master volume parameter (peak " + juce::String (masterMod, 3) + ")");
+
+    // Shape: polarity and curve.
+    Mod::Slot slot;
+    slot.source = Mod::Source::Macro1;
+    slot.polarity = Mod::Polarity::Bipolar;
+    check (std::abs (Mod::shape (slot, 0.0f) + 1.0f) < 1.0e-6f && std::abs (Mod::shape (slot, 1.0f) - 1.0f) < 1.0e-6f,
+           "bipolar polarity maps a 0..1 source to -1..1");
+    slot.polarity = Mod::Polarity::Natural;
+    slot.curve = 1.0f;
+    check (Mod::shape (slot, 0.5f) < 0.1f, "positive curve bends the response (0.5 -> "
+                                              + juce::String (Mod::shape (slot, 0.5f), 3) + ")");
+
+    check (Mod::getExplicitDestinationNames().size() == Mod::numExplicitDestinations,
+           "destination names match the destination list ("
+               + juce::String (Mod::getExplicitDestinationNames().size()) + " / " + juce::String (Mod::numExplicitDestinations) + ")");
+    check (Mod::getNumDestinations() < IlanaSynthAudioProcessor::maxDestinations, "destination count fits the display table");
+}
+
+void runStaleModulationTest()
+{
+    // A routing removed while a voice is sounding must not leave its last
+    // value stuck on the target (it once left presets detuned after a
+    // vibrato preset).
+    IlanaSynthAudioProcessor processor;
+    setParam (processor, "sub_on", 0.0f);
+    setParam (processor, "lfo1_rate", 3.0f);
+    setParam (processor, "mod1_src", (float) Mod::Source::Lfo1);
+    setParam (processor, "mod1_dst", (float) Mod::Destination::Osc1Pitch);
+    setParam (processor, "mod1_amt", 0.05f);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    std::vector<float> samples;
+
+    for (int block = 0; block < 140; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+        if (block == 13)
+            setParam (processor, "mod1_amt", 0.0f);
+
+        processor.processBlock (buffer, midi);
+
+        if (block > 40)
+            for (int i = 0; i < 512; ++i)
+                samples.push_back (buffer.getSample (0, i));
+    }
+
+    const auto frequency = fundamentalOf (samples, 48000.0);
+    check (std::abs (frequency - 220.0) < 0.5, "pitch returns to the note after a routing is removed ("
+                                                   + juce::String (frequency, 2) + " Hz)");
+}
+
+void runPhase2StateAndCpuTest()
+{
+    // New parameters survive a host round trip.
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "osc2_warp", (float) Warp::Mirror);
+        setParam (processor, "osc2_warp_amt", 0.4f);
+        setParam (processor, "osc1_uni_mode", (float) UnisonMode::Hypersaw);
+        setParam (processor, "mod27_src", (float) Mod::Source::Lfo3);
+        setParam (processor, "mod27_dst", (float) Mod::destinationForParamId ("fx_ott_amount"));
+        setParam (processor, "mod27_amt", -0.25f);
+        setParam (processor, "mod27_pol", 2.0f);
+
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        const auto slot = restored.readModSlot (26);
+
+        check ((int) restored.apvts.getRawParameterValue ("osc2_warp")->load() == Warp::Mirror
+                   && (int) restored.apvts.getRawParameterValue ("osc1_uni_mode")->load() == UnisonMode::Hypersaw
+                   && slot.source == Mod::Source::Lfo3 && slot.destination == Mod::destinationForParamId ("fx_ott_amount")
+                   && std::abs (slot.depth + 0.25f) < 1.0e-3f && slot.polarity == Mod::Polarity::Bipolar,
+               "warp, unison mode and an extended mod slot survive a state round trip");
+    }
+
+    // CPU. "Heavy" is a realistic big patch (8-note chord, two 16-voice
+    // hypersaw oscillators, ladder filter, a busy matrix) and must stay well
+    // inside real time. "Extreme" (16 notes x three 16-voice oscillators with
+    // warps) is only reported.
+    const auto measure = [] (int notes, int oscillators)
+    {
+        IlanaSynthAudioProcessor processor;
+        const char* const prefixes[] { "osc1", "osc2", "sub" };
+
+        for (int osc = 0; osc < oscillators; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            setParam (processor, prefix + "_unison", 16.0f);
+            setParam (processor, prefix + "_uni_mode", (float) UnisonMode::Hypersaw);
+            setParam (processor, prefix + "_warp", (float) Warp::Sync);
+            setParam (processor, prefix + "_warp_amt", 0.5f);
+        }
+
+        setParam (processor, "osc2_on", 1.0f);
+        setParam (processor, "sub_level", oscillators > 2 ? 0.5f : 0.0f);
+        setParam (processor, "f1_type", (float) FilterType::LadderLow);
+
+        for (int slot = 1; slot <= 16; ++slot)
+        {
+            setParam (processor, "mod" + juce::String (slot) + "_src", (float) (1 + slot % 20));
+            setParam (processor, "mod" + juce::String (slot) + "_dst", (float) (1 + (slot * 5) % 88));
+            setParam (processor, "mod" + juce::String (slot) + "_amt", 0.2f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer noteOns;
+
+        for (int note = 0; note < notes; ++note)
+            noteOns.addEvent (juce::MidiMessage::noteOn (1, 40 + note * 2, (juce::uint8) 100), 0);
+
+        const auto blocks = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_BLOCKS", "94").getIntValue(); // ~1 s
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi = noteOns;
+
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+        return std::make_pair (elapsed / (blocks * 512.0 / 48000.0), std::isfinite (buffer.getMagnitude (0, 512)));
+    };
+
+    const auto heavy = measure (8, 2);
+    const auto extreme = measure (16, 3);
+
+    std::cout << "INFO: CPU heavy patch " << juce::String (heavy.first * 100.0, 1) << " %, extreme patch "
+              << juce::String (extreme.first * 100.0, 1) << " % of one core" << std::endl;
+    check (heavy.first < 0.5 && heavy.second && extreme.second, "heavy patch (8 notes x 32 unison voices) renders well inside real time");
+}
 } // namespace
 
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    // ILANA_BENCH=1 runs only the CPU benchmark (for profiling).
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
+    {
+        runPhase2StateAndCpuTest();
+        return 0;
+    }
 
     std::cout << "ilanaSynth table tests" << std::endl;
 
@@ -2585,6 +2963,12 @@ int main()
     runPresetNameTest();
     runFilterModelTests();
     runVoiceModeTests();
+    runWarpTests();
+    runUnisonTests();
+    runPerVoiceLfoTest();
+    runMatrixTests();
+    runStaleModulationTest();
+    runPhase2StateAndCpuTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

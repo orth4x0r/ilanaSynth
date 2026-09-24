@@ -103,8 +103,25 @@ public:
         nameEditor.setBounds (text.removeFromTop (text.getHeight() / 2).withTrimmedRight (10));
     }
 
-    void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
-    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override
+    {
+        hover = true;
+
+        if (macroIndex >= 0)
+            highlightedModSource() = (int) Mod::Source::Macro1 + macroIndex;
+
+        repaint();
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hover = false;
+
+        if (macroIndex >= 0 && highlightedModSource() == (int) Mod::Source::Macro1 + macroIndex)
+            highlightedModSource() = 0;
+
+        repaint();
+    }
 
     void mouseDoubleClick (const juce::MouseEvent&) override
     {

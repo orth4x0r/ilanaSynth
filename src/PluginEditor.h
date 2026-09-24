@@ -71,6 +71,8 @@ private:
     float displayScale() const;
     float hostScaleFactor() const;
 
+    static constexpr int envLfoTabIndex = 3;
+    static constexpr int seqTabIndex = 4;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "0.9";

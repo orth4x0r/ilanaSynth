@@ -2,19 +2,39 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <array>
+
+#include "FilterUnit.h"
 #include "KarplusStrong.h"
 #include "Modulation.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
 #include "SamplePlayer.h"
-#include "FilterUnit.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
 #include "WavetableOscillator.h"
 
+namespace UnisonMode
+{
+enum
+{
+    Classic = 0,
+    Hypersaw,
+    Octaves,
+    Fifths,
+    Count
+};
+
+inline juce::StringArray getNames() { return { "Classic", "Hypersaw", "Octaves", "Fifths" }; }
+} // namespace UnisonMode
+
 struct VoiceParams
 {
-    static constexpr int maxUnison = 8;
+    static constexpr int maxUnison = 16;
+    // String and sample unison each carry a long delay/sample buffer, so they
+    // stop at 8 voices; wavetable unison goes to 16.
+    static constexpr int maxBufferedUnison = 8;
+    static constexpr int numLfos = 4;
 
     struct OscParams
     {
@@ -27,6 +47,10 @@ struct VoiceParams
         int unison = 1;
         float detuneCents = 0.0f;
         float spread = 0.0f;
+        int unisonMode = UnisonMode::Classic;
+        float unisonBlend = 1.0f;
+        int warpMode = 0;
+        float warpAmount = 0.0f;
 
         bool stringMode = false;
         int stringExcite = 0;
@@ -55,6 +79,20 @@ struct VoiceParams
         float drive = 1.0f;
         float envAmount = 0.0f;
         float keyTrack = 0.0f;
+        float morph = 0.0f;
+    };
+
+    // Per-voice LFO settings. When perVoice is off the voice reads the
+    // synth-wide LFO buffer instead (free-running, shared by all voices).
+    struct LfoParams
+    {
+        bool perVoice = false;
+        int shape = 0;
+        double baseIncrement = 0.0;   // cycles per voice-rate sample, before modulation
+        float startPhase = 0.0f;
+        const float* steps = nullptr;  // 16 values
+        const float* custom = nullptr; // lfoDrawSteps values
+        int customSize = 0;
     };
 
     OscParams osc1;
@@ -113,9 +151,33 @@ struct VoiceParams
     const float* lfo4 = nullptr;
     const float* clockSh = nullptr;
     const float* mseg = nullptr;
+    LfoParams lfos[numLfos];
 
+    // Only the slots that are switched on, packed at the front, plus the
+    // explicit destinations they touch (so the voice only clears those).
     Mod::Slot modSlots[Mod::maxSlots] {};
     int numModSlots = 0;
+    int activeDestinations[Mod::maxSlots] {};
+    int numActiveDestinations = 0;
+
+    // Appends a routing (for code that drives a voice directly, e.g. tests).
+    void addModSlot (Mod::Source source, Mod::Destination destination, float depth)
+    {
+        if (numModSlots >= Mod::maxSlots)
+            return;
+
+        Mod::Slot slot;
+        slot.source = source;
+        slot.destination = (int) destination;
+        slot.depth = depth;
+        modSlots[numModSlots++] = slot;
+
+        for (int d = 0; d < numActiveDestinations; ++d)
+            if (activeDestinations[d] == (int) destination)
+                return;
+
+        activeDestinations[numActiveDestinations++] = (int) destination;
+    }
 };
 
 class Voice : public juce::SynthesiserVoice
@@ -140,6 +202,10 @@ public:
     float getLastFilter2Value() const { return lastFilter2Value; }
     float getLastModValue() const { return lastModValue; }
     float getLastEnv4Value() const { return lastEnv4Value; }
+    float getVelocity() const { return velocityLevel; }
+    float getKeyTrack() const { return keyTrackValue; }
+    float getRandomValue() const { return randomValue; }
+    float getLfoPhase (int lfo) const { return (float) lfoPhases[(size_t) juce::jlimit (0, 3, lfo)]; }
 
     bool canPlaySound (juce::SynthesiserSound*) override { return true; }
 
@@ -168,21 +234,26 @@ private:
     void syncSamplePlayers();
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue);
     void updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue);
+    void updateUnisonLayout();
     float sourceValue (Mod::Source source, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
-    float evaluateModAtBlockStart (Mod::Destination destination) const;
+    void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
+                       float filter2Value, float modValue, float env4Value) const;
+    void advanceVoiceLfos();
+    float voiceLfoValue (int lfo) const;
+    float blockMod (Mod::Destination destination) const { return blockMods[(size_t) destination]; }
 
     VoiceParams params;
 
     WavetableOscillator osc1Unison[VoiceParams::maxUnison];
     WavetableOscillator osc2Unison[VoiceParams::maxUnison];
     WavetableOscillator subUnison[VoiceParams::maxUnison];
-    KarplusStrong string1Unison[VoiceParams::maxUnison];
-    KarplusStrong string2Unison[VoiceParams::maxUnison];
-    KarplusStrong subStrings[VoiceParams::maxUnison];
-    SamplePlayer sample1Unison[VoiceParams::maxUnison];
-    SamplePlayer sample2Unison[VoiceParams::maxUnison];
-    SamplePlayer subSamples[VoiceParams::maxUnison];
+    KarplusStrong string1Unison[VoiceParams::maxBufferedUnison];
+    KarplusStrong string2Unison[VoiceParams::maxBufferedUnison];
+    KarplusStrong subStrings[VoiceParams::maxBufferedUnison];
+    SamplePlayer sample1Unison[VoiceParams::maxBufferedUnison];
+    SamplePlayer sample2Unison[VoiceParams::maxBufferedUnison];
+    SamplePlayer subSamples[VoiceParams::maxBufferedUnison];
     double sampleRatio1[VoiceParams::maxUnison] {}, sampleRatio2[VoiceParams::maxUnison] {};
     double sampleRatioSub[VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
@@ -196,6 +267,16 @@ private:
     juce::SmoothedValue<float> levelSmooth1, levelSmooth2;
     juce::SmoothedValue<float> subSmooth, noiseSmooth;
     juce::SmoothedValue<float> osc1EnableSmooth, osc2EnableSmooth, subEnableSmooth;
+
+    // Modulation evaluated at the start of each block, for everything that
+    // doesn't need to move within a block (envelope times, pans, detune...).
+    std::array<float, (size_t) Mod::numExplicitDestinations> blockMods {};
+    std::array<float, (size_t) Mod::numExplicitDestinations> sampleMods {};
+
+    double lfoPhases[VoiceParams::numLfos] {};
+    double lfoIncrements[VoiceParams::numLfos] {};
+    float lfoHolds[VoiceParams::numLfos] {};
+    float lfoValues[VoiceParams::numLfos] {};
 
     double sampleRate = 44100.0;
     double baseFrequency = 440.0;
@@ -220,10 +301,16 @@ private:
 
     int numOsc1Unison = 1;
     int numOsc2Unison = 1;
+    int numSubUnison = 1;
     float panGain1L[VoiceParams::maxUnison] {}, panGain1R[VoiceParams::maxUnison] {};
     float panGain2L[VoiceParams::maxUnison] {}, panGain2R[VoiceParams::maxUnison] {};
     float panGainSubL[VoiceParams::maxUnison] {}, panGainSubR[VoiceParams::maxUnison] {};
-    int numSubUnison = 1;
+    // Per-unison-voice pitch offsets (semitones) and gains from the unison
+    // mode, detune and blend.
+    double unisonOffset1[VoiceParams::maxUnison] {}, unisonOffset2[VoiceParams::maxUnison] {};
+    double unisonOffsetSub[VoiceParams::maxUnison] {};
+    float unisonGains1[VoiceParams::maxUnison] {}, unisonGains2[VoiceParams::maxUnison] {};
+    float unisonGainsSub[VoiceParams::maxUnison] {};
     float glideCoeff = 1.0f;
     bool hasPlayedNote = false;
 

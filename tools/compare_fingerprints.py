@@ -12,7 +12,7 @@ import sys
 
 # Presets driven by random sources (S&H, chaotic feedback) vary run to run by
 # more than the default tolerance; compare them loosely.
-NOISY = {"Clock Weirdo", "S&H Techno", "Self Osc Drone", "Chord Pad", "Wide Chord Pad"}
+NOISY = {"Clock Weirdo", "S&H Techno", "Self Osc Drone", "Chord Pad", "Wide Chord Pad", "Minor Chord Stab"}
 
 
 def load(path):

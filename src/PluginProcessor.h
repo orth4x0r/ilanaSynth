@@ -6,6 +6,7 @@
 
 #include <array>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "dsp/GranularPitchShift.h"
@@ -25,6 +26,8 @@ public:
     static constexpr int numUserSlots = 4;
     static constexpr int numFxSlots = 10;
     static constexpr int numLfos = 4;
+    static constexpr int maxDestinations = 256;
+
     float getFxMod (Mod::Destination destination, float depth) const
     {
         return modDisplayValues[(size_t) destination].load() * depth;
@@ -71,10 +74,18 @@ public:
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
 
-    float getModDisplay (Mod::Destination destination) const
+    // Synth-wide modulation of a destination this block (loudest voice for
+    // per-voice sources), for knob rings and the effects.
+    float getModDisplay (int destination) const
     {
-        return modDisplayValues[(size_t) destination].load();
+        return juce::isPositiveAndBelow (destination, maxDestinations) ? modDisplayValues[(size_t) destination].load() : 0.0f;
     }
+
+    float getModDisplay (Mod::Destination destination) const { return getModDisplay ((int) destination); }
+
+    // Reads one mod slot's settings from the parameters (message thread).
+    Mod::Slot readModSlot (int slotIndex) const;
+    int getNumUsedModSlots() const;
 
     float getLfoPhase (int index) const
     {
@@ -129,8 +140,13 @@ public:
         apvts.state.setProperty ("macroName" + juce::String (macroIndex + 1), name, nullptr);
     }
 
-    bool assignModSlot (int sourceIndex, Mod::Destination destination, float depth);
-    bool clearModSlotsForTarget (Mod::Destination destination);
+    // Routes a source to a destination in the first free slot; returns the
+    // slot index or -1 when all slots are taken.
+    int assignModSlot (int sourceIndex, int destination, float depth);
+    bool clearModSlotsForTarget (int destination);
+    void clearModSlot (int slotIndex);
+    void setModSlotValue (int slotIndex, const juce::String& field, float value);
+    juce::String getModSlotParamId (int slotIndex, const juce::String& field) const;
 
     static constexpr int scopeSize = 4096;
     void copyScopeData (float* left, float* right, int numSamples) const;
@@ -143,6 +159,19 @@ public:
     void panic() { synth.allNotesOff (0, false); }
     float getCpuUsage() const { return cpuUsage.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
+
+    // LFO phase of every sounding voice (for tests and diagnostics).
+    std::vector<float> getVoiceLfoPhasesForTest (int lfo)
+    {
+        std::vector<float> phases;
+
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
+                if (voice->isVoiceActive())
+                    phases.push_back (voice->getLfoPhase (lfo));
+
+        return phases;
+    }
     void startMacroLearn (int macroIndex);
     void cancelMacroLearn();
     int getMacroLearnTarget() const { return macroLearn.load(); }
@@ -240,9 +269,22 @@ private:
     std::array<std::array<juce::String, 5>, 3> stringParamIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
-    struct ModSlotIds { juce::String src, dst, amt; };
+    struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };
+    struct ModSlotRaw
+    {
+        std::atomic<float>* src = nullptr;
+        std::atomic<float>* dst = nullptr;
+        std::atomic<float>* amt = nullptr;
+        std::atomic<float>* curve = nullptr;
+        std::atomic<float>* polarity = nullptr;
+        std::atomic<float>* aux = nullptr;
+        std::atomic<float>* bypass = nullptr;
+    };
+    std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { juce::String shape, rate, sync, div, retrig; std::array<juce::String, 16> steps; };
+    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase; std::array<juce::String, 16> steps; };
+    struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend; };
+    std::array<OscShapeIds, 3> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
@@ -277,6 +319,7 @@ private:
     std::atomic<float> aftertouchDisplay { 0.0f };
     std::atomic<float> expressionDisplay { 1.0f };
     std::atomic<float> clockShDisplay { 0.0f };
+    std::atomic<float> msegDisplay { 0.0f };
 
     double currentSampleRate = 44100.0;
     double baseSampleRate = 44100.0;
@@ -284,7 +327,28 @@ private:
     std::atomic<double> currentBpm { 120.0 };
     std::atomic<double> displaySampleRate { 44100.0 };
 
-    std::array<std::atomic<float>, (size_t) Mod::Destination::Count> modDisplayValues {};
+    std::array<std::atomic<float>, (size_t) maxDestinations> modDisplayValues {};
+
+    // Modulation of plain parameters (effects, master...): offsets in the
+    // parameter's normalised range, applied inside getParam().
+    struct ParamDestination
+    {
+        std::atomic<float>* raw = nullptr;
+        juce::RangedAudioParameter* parameter = nullptr;
+    };
+    std::vector<ParamDestination> paramDestinations;
+    std::unordered_map<const std::atomic<float>*, int> rawToParamDestination;
+    std::array<float, (size_t) maxDestinations> paramDestinationOffsets {};
+    bool anyParamModulation = false;
+
+    // The last note played and the loudest voice's per-voice sources, for
+    // modulation that has to be synth-wide.
+    std::atomic<float> monitorVelocity { 0.0f };
+    std::atomic<float> monitorKeyTrack { 0.0f };
+    std::atomic<float> monitorRandom { 0.0f };
+    float lfoStepValues[numLfos][16] {};
+    float globalSourceValue (Mod::Source source) const;
+    void evaluateGlobalModulation (const Mod::Slot* slots, int numSlots);
     std::array<std::atomic<float>, (size_t) numLfos> lfoPhaseDisplays {};
     std::atomic<float> displayPhase { 0.0f };
     std::atomic<float> displayFrequency { 0.0f };

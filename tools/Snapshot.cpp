@@ -598,6 +598,11 @@ int main (int argc, char** argv)
         browser.setSize (740, 520);
         settle (100);
         save (browser, outDir.getChildFile ("table-browser.png"));
+
+        // The size it opens at over a 100% editor (see TableBrowser::show).
+        browser.setSize (912, 576);
+        settle (100);
+        save (browser, outDir.getChildFile ("table-browser-editor.png"));
     }
 
     editor.reset();

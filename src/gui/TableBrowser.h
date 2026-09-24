@@ -29,6 +29,13 @@ public:
     {
         auto browser = std::make_unique<TableBrowser> (processor, parameterId, colour);
         auto* parent = target.getTopLevelComponent();
+
+        // Fill most of the plugin window so the previews are readable at any
+        // UI zoom (the call-out is not scaled with the editor's content).
+        if (parent != nullptr)
+            browser->setSize (juce::jmax (740, juce::roundToInt ((float) parent->getWidth() * 0.86f)),
+                              juce::jmax (520, juce::roundToInt ((float) parent->getHeight() * 0.8f)));
+
         juce::CallOutBox::launchAsynchronously (std::move (browser),
                                                 parent != nullptr ? parent->getLocalArea (&target, target.getLocalBounds())
                                                                   : target.getScreenBounds(),
@@ -76,9 +83,12 @@ private:
         order.add ("User");
 
         const auto width = juce::jmax (200, getWidth() - 12);
-        constexpr int columns = 6;
+        // Cells grow with the browser; ~140 px wide at the smallest size.
+        scale = juce::jlimit (1.0f, 2.5f, (float) width / 728.0f);
+        const auto columns = juce::jlimit (4, 6, width / juce::roundToInt (140.0f * scale));
         const auto cellWidth = width / columns;
-        constexpr int cellHeight = 64;
+        const auto cellHeight = juce::roundToInt ((float) cellWidth * 0.55f);
+        const auto headingHeight = juce::roundToInt (22.0f * scale);
         auto y = 6;
 
         for (const auto& category : order)
@@ -100,21 +110,21 @@ private:
             if (group.empty())
                 continue;
 
-            headings.push_back ({ category.toUpperCase(), { 8, y, width, 18 } });
-            y += 20;
+            headings.push_back ({ category.toUpperCase(), { 8, y, width, headingHeight } });
+            y += headingHeight + 2;
 
             for (size_t i = 0; i < group.size(); ++i)
             {
                 const auto column = (int) i % columns;
 
                 if (column == 0 && i > 0)
-                    y += cellHeight + 4;
+                    y += cellHeight + 6;
 
                 group[i].bounds = { 4 + column * cellWidth, y, cellWidth - 6, cellHeight };
                 items.push_back (group[i]);
             }
 
-            y += cellHeight + 12;
+            y += cellHeight + juce::roundToInt (14.0f * scale);
         }
 
         content.setSize (width, y);
@@ -137,7 +147,7 @@ private:
         for (const auto& heading : headings)
         {
             g.setColour (colour);
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setFont (IlanaTheme::font (13.0f * scale, true));
             g.drawText (heading.text, heading.bounds, juce::Justification::centredLeft);
         }
 
@@ -152,12 +162,12 @@ private:
             g.setColour (isSelected ? colour : juce::Colours::white.withAlpha (isHovered ? 0.3f : 0.1f));
             g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, isSelected ? 1.5f : 1.0f);
 
-            auto area = bounds.reduced (6.0f, 4.0f);
-            const auto label = area.removeFromBottom (14.0f);
+            auto area = bounds.reduced (8.0f * scale, 5.0f * scale);
+            const auto label = area.removeFromBottom (17.0f * scale);
             paintWave (g, item.choice, area, isSelected || isHovered);
 
             g.setColour (isSelected ? colour : juce::Colours::white.withAlpha (0.75f));
-            g.setFont (IlanaTheme::font (10.5f, isSelected));
+            g.setFont (IlanaTheme::font (12.5f * scale, isSelected));
             g.drawFittedText (item.name, label.toNearestInt(), juce::Justification::centred, 1, 0.8f);
         }
     }
@@ -169,7 +179,7 @@ private:
         if (table == nullptr || table->getNumFrames() == 0)
         {
             g.setColour (juce::Colours::white.withAlpha (0.25f));
-            g.setFont (IlanaTheme::font (10.0f));
+            g.setFont (IlanaTheme::font (11.0f * scale));
             g.drawText ("empty", area, juce::Justification::centred);
             return;
         }
@@ -182,10 +192,10 @@ private:
             const auto* data = table->getFrameData (0, frames[layer]);
             juce::Path path;
 
-            for (int i = 0; i <= 48; ++i)
+            for (int i = 0; i <= 96; ++i)
             {
-                const auto index = juce::jmin (Wavetable::frameSize - 1, i * Wavetable::frameSize / 48);
-                const auto x = area.getX() + area.getWidth() * (float) i / 48.0f;
+                const auto index = juce::jmin (Wavetable::frameSize - 1, i * Wavetable::frameSize / 96);
+                const auto x = area.getX() + area.getWidth() * (float) i / 96.0f;
                 const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, data[index]) * area.getHeight() * 0.45f;
 
                 if (i == 0)
@@ -195,7 +205,7 @@ private:
             }
 
             g.setColour (layer == 0 ? colour.withAlpha (0.3f) : colour.withAlpha (bright ? 1.0f : 0.75f));
-            g.strokePath (path, juce::PathStrokeType (layer == 0 ? 1.0f : 1.4f));
+            g.strokePath (path, juce::PathStrokeType ((layer == 0 ? 1.0f : 1.6f) * scale));
         }
     }
 
@@ -245,4 +255,5 @@ private:
     std::vector<Item> items;
     std::vector<Heading> headings;
     int hovered = -1;
+    float scale = 1.0f;
 };

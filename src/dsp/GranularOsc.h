@@ -75,7 +75,7 @@ public:
             if (! grain.active)
                 continue;
 
-            const auto window = std::sin (juce::MathConstants<double>::pi * grain.age / grain.length);
+            const auto windowIndex = juce::jmin (windowSize - 1, (int) (grain.age * grain.windowStep));
             auto position = std::fmod (grain.position, (double) numSamples);
 
             if (position < 0.0)
@@ -86,7 +86,7 @@ public:
             const auto frac = (float) (position - (double) index);
             const auto l = dataL[index] + (dataL[next] - dataL[index]) * frac;
             const auto r = dataR[index] + (dataR[next] - dataR[index]) * frac;
-            const auto gain = (float) (window * window);
+            const auto gain = window()[(size_t) windowIndex];
 
             sumL += l * gain * grain.gainL;
             sumR += r * gain * grain.gainR;
@@ -108,7 +108,7 @@ private:
     struct Grain
     {
         bool active = false;
-        double position = 0.0, increment = 1.0, age = 0.0, length = 1.0;
+        double position = 0.0, increment = 1.0, age = 0.0, length = 1.0, windowStep = 0.0;
         float gainL = 1.0f, gainR = 1.0f;
     };
 
@@ -138,11 +138,33 @@ private:
         free->active = true;
         free->age = 0.0;
         free->length = grainLength;
+        free->windowStep = (double) windowSize / grainLength;
         free->increment = ratio * (sample.sampleRate / sampleRate) * std::exp2 ((double) detune / 12.0)
                           * (params.reverse ? -1.0 : 1.0);
         free->position = centre * (numSamples - 1.0);
         free->gainL = std::cos (angle) * juce::MathConstants<float>::sqrt2;
         free->gainR = std::sin (angle) * juce::MathConstants<float>::sqrt2;
+    }
+
+    // Hann window (sin squared) as a table: one lookup per grain per sample.
+    static constexpr int windowSize = 2048;
+
+    static const std::array<float, windowSize>& window()
+    {
+        static const auto table = []
+        {
+            std::array<float, windowSize> values {};
+
+            for (int i = 0; i < windowSize; ++i)
+            {
+                const auto s = std::sin (juce::MathConstants<double>::pi * (i + 0.5) / windowSize);
+                values[(size_t) i] = (float) (s * s);
+            }
+
+            return values;
+        }();
+
+        return table;
     }
 
     Params params;

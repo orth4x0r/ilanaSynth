@@ -418,7 +418,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("mseg_"))
     {
         if (id.endsWith ("_level1") || id.endsWith ("_level2") || id.endsWith ("_level3") || id.endsWith ("_level4"))
-            return "MSEG point level. Drag the editor on the SEQ tab.";
+            return "MSEG point level. Drag the editor on the ARP/SEQ tab.";
 
         if (id.endsWith ("_time1") || id.endsWith ("_time2") || id.endsWith ("_time3") || id.endsWith ("_time4"))
             return "MSEG segment length (relative).";

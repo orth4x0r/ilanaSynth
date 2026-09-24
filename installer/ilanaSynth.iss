@@ -1,5 +1,5 @@
 #define AppName "ilanaSynth"
-#define AppVersion "1.0"
+#define AppVersion "1.1"
 #define AppPublisher "Ilana Audio"
 #define RepoRoot ".."
 
@@ -12,7 +12,7 @@ AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#RepoRoot}\release
-OutputBaseFilename=ilanaSynth-1.0-Windows-Setup
+OutputBaseFilename=ilanaSynth-{#AppVersion}-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -20,7 +20,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\ilanaSynth.exe
-VersionInfoVersion=1.0.0.0
+VersionInfoVersion=1.1.0.0
 VersionInfoProductName={#AppName}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription=ilanaSynth v{#AppVersion} installer

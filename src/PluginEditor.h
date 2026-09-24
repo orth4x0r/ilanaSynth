@@ -74,7 +74,7 @@ private:
     static constexpr int envLfoTabIndex = 3;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
-    static constexpr const char* appVersion = "1.0";
+    static constexpr const char* appVersion = "1.1";
 
     IlanaSynthAudioProcessor& processorRef;
     IlanaLookAndFeel lookAndFeel;

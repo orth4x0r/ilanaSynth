@@ -4009,6 +4009,51 @@ void runGranularTests()
     }
 }
 
+// The new engines must stay affordable: six-note chords on the heaviest
+// v1.1 presets, measured as milliseconds of CPU per second of audio.
+void runHeavyPresetCpuTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    const auto names = processor.getFactoryPresetNames();
+
+    for (const auto* name : { "Swarm", "Grain Choir", "Gated Supersaw", "Harmonic Cut Pad", "Chaos Filter Pad", "Operator Bell" })
+    {
+        const auto index = names.indexOf (name);
+
+        if (index < 0)
+        {
+            check (false, juce::String ("heavy preset exists: ") + name);
+            continue;
+        }
+
+        processor.loadFactoryPreset (index);
+        processor.panic();
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto blocks = (int) (48000 * 2 / 512);
+        const auto start = juce::Time::getHighResolutionTicks();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (const auto note : { 48, 52, 55, 59, 62, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto seconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start);
+        const auto msPerSecond = seconds * 1000.0 / 2.0;
+        std::cout << "  cpu: " << name << " " << juce::String (msPerSecond, 1) << " ms per second of audio" << std::endl;
+        check (msPerSecond < 400.0, juce::String (name) + " renders a six-note chord well within real time ("
+                                          + juce::String (msPerSecond, 1) + " ms/s)");
+    }
+}
+
 void runFmMatrixTests()
 {
     const auto renderWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
@@ -4199,6 +4244,7 @@ int main()
     runSpectralWarpTests();
     runChaosLfoTests();
     runGranularTests();
+    runHeavyPresetCpuTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -1972,7 +1972,9 @@ private:
 // (oscillators, filter 1, amp envelope, LFOs). The other tabs hold the
 // detail.
 class MainPage : public juce::Component,
-                 private juce::Timer
+                 private juce::Timer,
+                 private juce::AudioProcessorValueTreeState::Listener,
+                 private juce::AsyncUpdater
 {
 public:
     explicit MainPage (IlanaSynthAudioProcessor& p)
@@ -2121,7 +2123,17 @@ public:
         addAll (*this, filterTabs, envTabs, lfoTabs);
         updateVisibility();
         updateStrips();
+
+        for (const auto* id : stripParameterIds)
+            processorRef.apvts.addParameterListener (id, this);
+
         startTimerHz (8);
+    }
+
+    ~MainPage() override
+    {
+        for (const auto* id : stripParameterIds)
+            processorRef.apvts.removeParameterListener (id, this);
     }
 
     std::function<void (int)> onEditLfo, onEditEnvelope;
@@ -2255,6 +2267,11 @@ private:
         bool shownOn = true;
     };
 
+    static constexpr const char* stripParameterIds[] { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" };
+
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { updateStrips(); }
+
     int readInt (const juce::String& id) const
     {
         const auto* value = processorRef.apvts.getRawParameterValue (id);
@@ -2342,8 +2359,6 @@ private:
     {
         if (! isShowing())
             return;
-
-        updateStrips();
 
         const auto lfo = lfoTabs.getSelected();
         const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
@@ -3986,6 +4001,18 @@ private:
                                        juce::Colour (0xff141418).withAlpha (0.9f), 0.0f, bounds.getBottom(), false);
             g.setGradientFill (body);
             g.fillRoundedRectangle (bounds, 8.0f);
+
+            // The module's name, large and faint, fills the panel's open right side.
+            if (! panel.duplicate && bounds.getHeight() > 80.0f)
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (panel.bounds.reduced (2));
+                g.setColour (colour.withAlpha (0.06f));
+                g.setFont (IlanaTheme::font (juce::jmin (64.0f, bounds.getHeight() * 0.42f), true));
+                g.drawText (getSlotName (panel.type).toUpperCase(), panel.bounds.reduced (18, 10).withTrimmedTop (20),
+                            juce::Justification::bottomRight);
+            }
+
             g.setColour (colour.withAlpha (selected ? 0.9f : 0.35f));
             g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, selected ? 1.6f : 1.0f);
 

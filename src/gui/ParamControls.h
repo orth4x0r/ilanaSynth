@@ -903,7 +903,11 @@ public:
     // the control or gets clipped by the row beneath.
     void paintOverChildren (juce::Graphics& g) override
     {
-        if (button.getWidth() < 44)
+        // Only where there's room beside the centred label.
+        const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (juce::jmin (16.0f, (float) button.getHeight() * 0.72f)),
+                                                                           button.getButtonText());
+
+        if (button.getWidth() < labelWidth + 44)
             return;
 
         const auto on = button.getToggleState();

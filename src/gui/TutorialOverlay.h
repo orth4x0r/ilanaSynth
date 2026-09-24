@@ -108,25 +108,62 @@ public:
                         area.removeFromTop (18), juce::Justification::centredLeft);
 
             area.removeFromTop (14);
+            area.removeFromBottom (44); // GOT IT and the checkbox
+
+            // Shortcuts, then what's new, along the bottom; the tips fill the rest.
+            auto shortcuts = area.removeFromBottom (18);
+            area.removeFromBottom (12);
+            auto newBand = area.removeFromBottom (58);
             area.removeFromBottom (10);
+
+            {
+                g.setColour (IlanaTheme::accent());
+                g.setFont (IlanaTheme::font (13.5f, true));
+                g.drawText ("NEW IN 1.1", newBand.removeFromTop (22), juce::Justification::centredLeft);
+
+                const juce::StringArray features { "3-OP FM MATRIX", "SPECTRAL WARPS", "GRANULAR OSC", "CHAOS LFOs",
+                                                   "TRANCE GATE", "NOTE SPRAY", "SCALE ARP", "40 WAVETABLES" };
+                const auto font = IlanaTheme::font (11.5f, true);
+                auto x = (float) newBand.getX();
+
+                for (int i = 0; i < features.size(); ++i)
+                {
+                    const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, features[i]) + 22.0f;
+                    const auto chip = juce::Rectangle<float> (x, (float) newBand.getY() + 4.0f, width, 26.0f);
+
+                    if (chip.getRight() > (float) newBand.getRight())
+                        break;
+
+                    const auto hue = std::fmod (0.02f + (float) i * 0.11f, 1.0f);
+                    const auto colour = juce::Colour::fromHSV (hue, 0.6f, 1.0f, 1.0f);
+                    g.setColour (colour.withAlpha (0.14f));
+                    g.fillRoundedRectangle (chip, 13.0f);
+                    g.setColour (colour.withAlpha (0.7f));
+                    g.drawRoundedRectangle (chip.reduced (0.5f), 13.0f, 1.0f);
+                    g.setColour (colour.brighter (0.3f));
+                    g.setFont (font);
+                    g.drawText (features[i], chip, juce::Justification::centred);
+                    x = chip.getRight() + 8.0f;
+                }
+            }
 
             auto left = area.removeFromLeft (area.getWidth() / 2 - 12);
             auto right = area.removeFromRight (area.getWidth() - 12);
 
             const juce::StringArray playTips {
-                "Right-click an oscillator's waveform to pick a factory sample, or drag in your own wav - it switches to Sample mode.",
+                "Each oscillator is Wavetable, String, Sample or Granular. Click TABLE for the visual browser; drop a wav on the display to sample it.",
                 "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
                 "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
-                "Every unit has its own colour - envelope curves, LFO traces and the chips all match.",
+                "Try SPECTRAL on an oscillator, the Chaos and Drunk LFO shapes, or KEY on an LFO for audio-rate growl.",
                 "MATRIX has 32 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
             };
 
             const juce::StringArray workflowTips {
-                "The FX rack starts empty - click an empty slot to add an effect, then drag rows to reorder.",
+                "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
-                "200 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
-                "FM holds cross modulation, ARP/SEQ the arpeggiator and step LFOs, FILTER the resonator. SCOPE has 2x/4x oversampling."
+                "235 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
+                "FM is a 3-operator matrix. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);
@@ -135,7 +172,7 @@ public:
             g.setColour (juce::Colours::white.withAlpha (0.3f));
             g.setFont (IlanaTheme::font (12.5f));
             g.drawText ("1-9 switch tabs    Ctrl+Z / Ctrl+Shift+Z undo / redo    ? reopens this tour",
-                        area.removeFromBottom (18), juce::Justification::centredLeft);
+                        shortcuts, juce::Justification::centredLeft);
         }
     }
 

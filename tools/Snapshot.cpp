@@ -406,6 +406,60 @@ int runUiTests()
         }
     }
 
+    // MAIN's oscillator cards follow the mode: granular shows grain knobs, not FRAME.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+
+        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
+            mode->setValueNotifyingHost (mode->convertTo0to1 (3.0f));
+
+        settle (400);
+        std::vector<KnobControl*> mainKnobs;
+        findAll<KnobControl> (*editor, mainKnobs);
+        auto grainSize = false, frame = false;
+
+        for (auto* knob : mainKnobs)
+        {
+            if (! visibleInTree (knob))
+                continue;
+
+            grainSize = grainSize || knob->getParameterId() == "osc1_grain_size";
+            frame = frame || knob->getParameterId() == "osc1_frame";
+        }
+
+        expect (grainSize && ! frame, "MAIN's OSC 1 card shows grain controls in granular mode (grain " + juce::String ((int) grainSize) + ", frame " + juce::String ((int) frame) + ")");
+
+        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
+            mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
+    }
+
+    // An empty FX rack offers one-click effects.
+    {
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+
+        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        settle (500);
+        std::vector<juce::TextButton*> textButtons;
+        findAll<juce::TextButton> (*editor, textButtons);
+        juce::TextButton* reverb = nullptr;
+
+        for (auto* button : textButtons)
+            if (button->getButtonText().contains ("REVERB") && visibleInTree (button))
+                reverb = button;
+
+        expect (reverb != nullptr, "the empty rack shows quick-add buttons");
+
+        if (reverb != nullptr)
+        {
+            reverb->triggerClick();
+            settle (400);
+            const auto* slot1 = processor.apvts.getRawParameterValue ("fx_slot1");
+            expect (slot1 != nullptr && (int) slot1->load() == 13, "quick-add REVERB puts a reverb in slot 1");
+            expect (! reverb->isVisible(), "quick-add buttons hide once the rack has an effect");
+        }
+    }
+
     // Header: next steps to the following preset and the display follows.
     std::vector<IconButton*> buttons;
     findAll<IconButton> (*editor, buttons);

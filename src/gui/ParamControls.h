@@ -899,32 +899,16 @@ public:
         }
     }
 
-    // The LED sits inside the button's left end, so it never hangs below
-    // the control or gets clipped by the row beneath.
+    // On/off reads from the button itself (lit accent when on); a soft
+    // pulse under a lit button keeps it alive.
     void paintOverChildren (juce::Graphics& g) override
     {
-        // Only where there's room beside the centred label.
-        const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (juce::jmin (16.0f, (float) button.getHeight() * 0.72f)),
-                                                                           button.getButtonText());
-
-        if (button.getWidth() < labelWidth + 44)
+        if (! button.getToggleState())
             return;
 
-        const auto on = button.getToggleState();
-        const auto pulse = 0.6f + 0.4f * std::sin (pulsePhase);
-        const auto centre = juce::Point<float> ((float) button.getX() + 10.0f, (float) button.getBounds().getCentreY());
-        const auto led = juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre);
-
-        if (on)
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.18f * pulse));
-            g.fillEllipse (led.expanded (3.0f));
-        }
-
-        g.setColour (on ? juce::Colours::white.withAlpha (0.75f + 0.25f * pulse) : juce::Colours::black.withAlpha (0.45f));
-        g.fillEllipse (led);
-        g.setColour (on ? juce::Colours::white.withAlpha (0.3f) : juce::Colours::white.withAlpha (0.14f));
-        g.drawEllipse (led.expanded (0.5f), 1.0f);
+        const auto pulse = 0.5f + 0.5f * std::sin (pulsePhase);
+        g.setColour (juce::Colours::white.withAlpha (0.05f + 0.05f * pulse));
+        g.fillRoundedRectangle (button.getBounds().toFloat().reduced (2.0f).withTrimmedTop ((float) button.getHeight() * 0.55f), 3.0f);
     }
 
     void resized() override

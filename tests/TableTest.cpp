@@ -3332,6 +3332,69 @@ void runFactoryLibraryTest()
     check (outliers.isEmpty(), "factory presets within 14 dB of the median level (" + outliers.joinIntoString (", ") + ")");
 }
 
+// Tape stop must not leave latency behind once it is released.
+void runTapeStopLatencyTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    processor.loadFactoryPreset (0);
+    processor.assignFxSlot (1, 17); // TapeStop
+
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("fx_tape_stop_time", 0.3f);
+
+    const auto run = [&processor] (int blocks, const juce::MidiBuffer& firstMidi)
+    {
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi = firstMidi;
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    juce::MidiBuffer noteOn;
+    noteOn.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    run (20, noteOn);
+    set ("fx_tape_stop_trigger", 1.0f);
+    run (40, {});                        // tape winds down
+    set ("fx_tape_stop_trigger", 0.0f);
+    run (60, {});                        // spins back up and rejoins
+    processor.panic();
+    run (200, {});                       // let the tail die
+
+    const auto out = run (40, noteOn);
+    auto onset = -1;
+
+    for (int i = 0; i < (int) out.size(); ++i)
+    {
+        if (std::abs (out[(size_t) i]) > 1.0e-3f)
+        {
+            onset = i;
+            break;
+        }
+    }
+
+    check (onset >= 0 && onset < 256, "tape stop adds no latency after release (onset at sample " + juce::String (onset) + ")");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3385,6 +3448,7 @@ int main()
     runResynthesisTest();
     runCurveLfoTest();
     runFactoryLibraryTest();
+    runTapeStopLatencyTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

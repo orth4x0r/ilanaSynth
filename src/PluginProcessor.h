@@ -487,6 +487,7 @@ private:
     juce::AudioBuffer<float> tapeStopBuffer;
     int tapeStopWrite = 0;
     double tapeStopRead = 0.0;
+    float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
     float tiltLowState[2] {};
     float tiltHighState[2] {};
     float ottLowState[2][2] {};

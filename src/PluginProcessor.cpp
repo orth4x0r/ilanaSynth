@@ -799,6 +799,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     tapeStopWrite = 0;
     tapeStopRead = 0.0;
     tapeStopRate = 1.0f;
+    tapeStopLagFade = 1.0f;
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -2755,6 +2756,7 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
     const auto mix = getParam ("fx_tape_stop_mix");
     const auto target = getParam ("fx_tape_stop_trigger") > 0.5f ? 0.0f : 1.0f;
     const auto rateStep = 1.0f / (time * (float) currentSampleRate);
+    const auto fadeStep = 1.0f / (0.03f * (float) currentSampleRate);
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -2762,6 +2764,19 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
             tapeStopRate = juce::jmin (target, tapeStopRate + rateStep);
         else
             tapeStopRate = juce::jmax (target, tapeStopRate - rateStep);
+
+        // Slowing down leaves the tape behind the input. Once it is back up
+        // to speed, crossfade to the live signal and re-lock the read head,
+        // or that lag would stay as permanent latency.
+        auto lag = (double) tapeStopWrite - tapeStopRead;
+
+        if (lag < 0.0)
+            lag += (double) size;
+
+        const auto catchingUp = target >= 1.0f && tapeStopRate >= 1.0f && lag > 0.5;
+
+        if (catchingUp)
+            tapeStopLagFade = juce::jmax (0.0f, tapeStopLagFade - fadeStep);
 
         for (int channel = 0; channel < channels; ++channel)
         {
@@ -2771,10 +2786,19 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
             const auto index = (int) tapeStopRead;
             const auto next = (index + 1) % size;
             const auto frac = (float) (tapeStopRead - (double) index);
-            const auto wet = tapeStopBuffer.getSample (channel, index)
-                             + (tapeStopBuffer.getSample (channel, next) - tapeStopBuffer.getSample (channel, index)) * frac;
+            auto wet = tapeStopBuffer.getSample (channel, index)
+                       + (tapeStopBuffer.getSample (channel, next) - tapeStopBuffer.getSample (channel, index)) * frac;
+
+            if (catchingUp)
+                wet = data[i] + (wet - data[i]) * tapeStopLagFade;
 
             data[i] = data[i] + (wet - data[i]) * mix;
+        }
+
+        if (catchingUp && tapeStopLagFade <= 0.0f)
+        {
+            tapeStopRead = (double) tapeStopWrite; // advanced below with the write head
+            tapeStopLagFade = 1.0f;
         }
 
         tapeStopWrite = (tapeStopWrite + 1) % size;

@@ -76,7 +76,7 @@ private:
     static constexpr int seqTabIndex = 4;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
-    static constexpr const char* appVersion = "0.9";
+    static constexpr const char* appVersion = "1.0";
 
     IlanaSynthAudioProcessor& processorRef;
     IlanaLookAndFeel lookAndFeel;

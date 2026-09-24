@@ -180,6 +180,27 @@ private:
 class MatrixRow : public juce::Component
 {
 public:
+    void setMacroNames (const juce::StringArray& names)
+    {
+        for (int m = 0; m < names.size(); ++m)
+        {
+            const auto base = "Macro " + juce::String (m + 1);
+            const auto text = names[m] == base ? base : base + " (" + names[m] + ")";
+            const auto itemId = (int) Mod::Source::Macro1 + m + 1;
+
+            for (auto* box : { &source, &via })
+            {
+                // getSelectedId() matches on the item text too, so read it
+                // before renaming.
+                const auto wasSelected = box->getSelectedId() == itemId;
+                box->changeItemText (itemId, text);
+
+                if (wasSelected)
+                    box->setSelectedId (itemId, juce::dontSendNotification);
+            }
+        }
+    }
+
     MatrixRow (IlanaSynthAudioProcessor& p, int slotIndexIn)
         : processorRef (p),
           slotIndex (slotIndexIn),

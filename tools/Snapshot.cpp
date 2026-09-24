@@ -10,6 +10,7 @@
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
+#include "gui/EnvThumbs.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -219,6 +220,52 @@ int runUiTests()
         }
     }
 
+    // Legacy presets get named default macros, and the matrix shows the names.
+    {
+        auto showsMacroName = false;
+
+        for (auto* row : rows)
+        {
+            std::vector<juce::ComboBox*> combos;
+            findAll<juce::ComboBox> (*row, combos);
+
+            for (auto* combo : combos)
+                showsMacroName = showsMacroName || combo->getText() == "Macro 1 (TONE)";
+        }
+
+        expect (showsMacroName, "matrix source shows the macro's name ('Macro 1 (TONE)')");
+    }
+
+    // ENV/LFO: every envelope has a card, and picking one shows its controls.
+    tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+    settle (300);
+
+    if (auto* page = tabs->getCurrentContentComponent())
+    {
+        if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
+        {
+            envCards->onSelect (3);
+            settle (100);
+
+            knobs.clear();
+            findAll<KnobControl> (*page, knobs);
+            auto modAttackShown = false, ampAttackShown = false;
+
+            for (auto* knob : knobs)
+            {
+                modAttackShown = modAttackShown || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
+                ampAttackShown = ampAttackShown || (knob->getParameterId() == "amp_attack" && visibleInTree (knob));
+            }
+
+            expect (modAttackShown && ! ampAttackShown, "clicking the MOD envelope card shows the mod envelope");
+            envCards->onSelect (0);
+        }
+        else
+        {
+            expect (false, "ENV/LFO page has envelope cards");
+        }
+    }
+
     // Header: next steps to the following preset and the display follows.
     std::vector<IconButton*> buttons;
     findAll<IconButton> (*editor, buttons);
@@ -306,6 +353,22 @@ int main (int argc, char** argv)
 
             if (bars[b]->getNumRevealed() > 1)
                 bars[b]->onSelect (0);
+        }
+
+        // Every envelope card on the ENV/LFO page.
+        if (auto* page = tabs->getCurrentContentComponent())
+        {
+            if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
+            {
+                for (int env = 1; env < EnvThumbBar::numEnvs; ++env)
+                {
+                    envCards->onSelect (env);
+                    settle (300);
+                    save (*editor, outDir.getChildFile (stem + "-env" + juce::String (env + 1) + ".png"));
+                }
+
+                envCards->onSelect (0);
+            }
         }
 
         // Each FX module's editor, placed in slot 1.

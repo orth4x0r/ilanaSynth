@@ -115,18 +115,18 @@ public:
 
             const juce::StringArray playTips {
                 "Right-click an oscillator's waveform to pick a factory sample, or drag in your own wav - it switches to Sample mode.",
-                "ENV and LFO tabs start with one unit; press + to reveal more envelopes and up to four LFOs.",
-                "Drag a coloured source chip onto any knob to create a modulation; right-click knobs to edit or MIDI-learn.",
+                "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
+                "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
                 "Every unit has its own colour - envelope curves, LFO traces and the chips all match.",
-                "MATRIX has 8 slots with live sources: mod wheel, aftertouch, macros, clocked S&H and MSEG."
+                "MATRIX has 32 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
             };
 
             const juce::StringArray workflowTips {
                 "The FX rack starts empty - click an empty slot to add an effect, then drag rows to reorder.",
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
-                "Presets: click to audition, chips filter by category, SAVE AS stores your own in the browser.",
-                "XTRA holds the voice engine: cross mod, arp, resonator and the 2x oversampling switch."
+                "200 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
+                "XTRA holds the voice engine: cross mod, arp and resonator. SCOPE has the 2x/4x oversampling switch."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);

@@ -19,6 +19,7 @@
 #include "gui/EqCurve.h"
 #include "gui/FilterDisplay.h"
 #include "gui/LfoDisplay.h"
+#include "gui/EnvThumbs.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -998,6 +999,11 @@ class EnvSection : public juce::Component
 public:
     EnvSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
         : settings (settingsRef),
+          thumbs (p, { EnvThumbBar::Env { "AMP", "amp", Mod::Source::AmpEnv, IlanaTheme::accent() },
+                       EnvThumbBar::Env { "FILTER 1", "fe", Mod::Source::FilterEnv, juce::Colour (0xffff4fd8) },
+                       EnvThumbBar::Env { "FILTER 2", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xffb28aff) },
+                       EnvThumbBar::Env { "MOD", "me", Mod::Source::ModEnv, juce::Colour (0xff8fff3b) },
+                       EnvThumbBar::Env { "ENV 4", "e4", Mod::Source::Env4, juce::Colour (0xffffd447) } }),
           ampDisplay (p, "amp", IlanaTheme::accent(), true),
           feDisplay (p, "fe", juce::Colour (0xffff4fd8)),
           f2eDisplay (p, "f2e", juce::Colour (0xffb28aff)),
@@ -1019,7 +1025,7 @@ public:
           e4S (p.apvts, "e4_sustain", "SUSTAIN"), e4R (p.apvts, "e4_release", "RELEASE"),
           e4Curve (p.apvts, "e4_curve", "TENSION", juce::Colour (0xffffd447), false)
     {
-        addAndMakeVisible (tabBar);
+        addAndMakeVisible (thumbs);
 
         addAll (*this, ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display,
                 ampA, ampD, ampS, ampR, ampVel, ampCurve,
@@ -1034,23 +1040,13 @@ public:
         units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, nullptr, &meCurve } });
         units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, nullptr, &e4Curve } });
 
-        revealed = juce::jlimit (1, (int) units.size(), settings.getIntValue ("envRevealed", 1));
+        selected = juce::jlimit (0, (int) units.size() - 1, settings.getIntValue ("envSelected", 0));
 
-        tabBar.onSelect = [this] (int index)
+        thumbs.onSelect = [this] (int index)
         {
             selected = index;
+            settings.setValue ("envSelected", selected);
             updateVisibility();
-        };
-
-        tabBar.onAdd = [this]
-        {
-            if (revealed < (int) units.size())
-            {
-                ++revealed;
-                selected = revealed - 1;
-                settings.setValue ("envRevealed", revealed);
-                updateVisibility();
-            }
         };
 
         updateVisibility();
@@ -1060,8 +1056,8 @@ public:
     {
         auto area = getLocalBounds();
 
-        tabBar.setBounds (area.removeFromTop (24));
-        area.removeFromTop (4);
+        thumbs.setBounds (area.removeFromTop (48));
+        area.removeFromTop (8);
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
         units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (470).reduced (2));
@@ -1102,13 +1098,13 @@ private:
                     knob->setVisible (visible);
         }
 
-        tabBar.setItems ({ "AMP", "FILTER 1", "FILTER 2", "MOD", "ENV 4" }, revealed, selected);
+        thumbs.setSelected (selected);
         resized();
         repaint();
     }
 
     juce::PropertiesFile& settings;
-    SubTabBar tabBar;
+    EnvThumbBar thumbs;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
     KnobControl feA, feD, feS, feR, feVel, feCurve;
@@ -1116,10 +1112,11 @@ private:
     KnobControl meA, meD, meS, meR, meCurve;
     KnobControl e4A, e4D, e4S, e4R, e4Curve;
     std::vector<Unit> units;
-    int revealed = 1;
     int selected = 0;
 };
-class LfoSection : public juce::Component
+
+class LfoSection : public juce::Component,
+                   private juce::Timer
 {
 public:
     LfoSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
@@ -1150,6 +1147,7 @@ public:
         };
 
         updateVisibility();
+        startTimerHz (10);
     }
 
     void resized() override
@@ -1224,6 +1222,26 @@ private:
         thumbs.setSelected (selected);
         resized();
         repaint();
+    }
+
+    // RATE only matters free-running and DIVISION only when synced, so the
+    // unused one steps back.
+    void timerCallback() override
+    {
+        if (! isShowing())
+            return;
+
+        auto& c = *controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, selected)];
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_sync");
+        const auto synced = sync != nullptr && sync->load() > 0.5f;
+        const auto rateAlpha = synced ? 0.35f : 1.0f;
+        const auto divAlpha = synced ? 1.0f : 0.35f;
+
+        if (c.rate.getAlpha() != rateAlpha)
+            c.rate.setAlpha (rateAlpha);
+
+        if (c.div.getAlpha() != divAlpha)
+            c.div.setAlpha (divAlpha);
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -1981,6 +1999,8 @@ private:
 
     void updateRows()
     {
+        refreshMacroNames();
+
         std::vector<int> used;
 
         for (int i = 0; i < Mod::maxSlots; ++i)
@@ -2024,11 +2044,31 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
-            updateRows();
+        if (! isShowing())
+            return;
+
+        updateRows();
+    }
+
+    // Shows the patch's macro names in the source lists.
+    void refreshMacroNames()
+    {
+        juce::StringArray macroNames;
+
+        for (int m = 0; m < 4; ++m)
+            macroNames.add (processorRef.getMacroName (m));
+
+        if (macroNames != shownMacroNames)
+        {
+            shownMacroNames = macroNames;
+
+            for (auto& row : rows)
+                row->setMacroNames (macroNames);
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    juce::StringArray shownMacroNames;
     juce::Viewport viewport;
     juce::Component list;
     std::vector<std::unique_ptr<MatrixRow>> rows;

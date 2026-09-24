@@ -22,6 +22,7 @@
 #include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
+#include "gui/FmDiagram.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -1391,18 +1392,34 @@ private:
     int lfoBottom = 0;
 };
 
-// Cross modulation between the oscillators.
+// FM between the three oscillators: the operator diagram on the left, the
+// full matrix of amounts on the right (rows = from, columns = to), plus the
+// FM style, each oscillator's output switch, ring mod and hard sync.
 class FmPage : public juce::Component
 {
 public:
     explicit FmPage (IlanaSynthAudioProcessor& p)
-        : display (p, fmColour()),
-          fmAmount (p.apvts, "fm_amount", "FM  OSC2 > OSC1", fmColour(), false),
-          fmFeedback (p.apvts, "fm_feedback", "FEEDBACK", fmColour(), false),
-          ringMod (p.apvts, "ring_mod", "RING MOD", fmColour(), false),
-          hardSync (p.apvts, "hard_sync", "HARD SYNC")
+        : diagram (p),
+          mode (p.apvts, "fm_mode", "FM MODE"),
+          hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
     {
-        addAll (*this, display, fmAmount, fmFeedback, ringMod, hardSync);
+        addAll (*this, diagram, mode, hardSync);
+        ringMod = std::make_unique<StripKnob> (p, "ring_mod", "Ring Mod", -1, fmColour(), false);
+        addAndMakeVisible (*ringMod);
+
+        for (int source = 0; source < 3; ++source)
+        {
+            for (int target = 0; target < 3; ++target)
+            {
+                auto knob = std::make_unique<KnobControl> (p.apvts, FmDiagram::routeId (source, target), "",
+                                                           FmDiagram::oscColour (source), false);
+                addAndMakeVisible (*knob);
+                knobs[(size_t) source][(size_t) target] = std::move (knob);
+            }
+
+            outs[(size_t) source] = std::make_unique<ToggleControl> (p.apvts, source == 0 ? "osc1_out" : (source == 1 ? "osc2_out" : "sub_out"), "OUT");
+            addAndMakeVisible (*outs[(size_t) source]);
+        }
     }
 
     static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }
@@ -1410,25 +1427,77 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "CROSS MODULATION", { 14, 10, 300, 16 });
-        IlanaTheme::paintCard (g, controlCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
+        paintSectionTitle (g, "OPERATORS", { 14, 10, 300, 16 });
+        IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
+
+        g.setColour (fmColour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("FM MATRIX", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
+
+        // Column and row headings.
+        g.setFont (IlanaTheme::font (11.0f, true));
+
+        for (int i = 0; i < 3; ++i)
+        {
+            g.setColour (FmDiagram::oscColour (i));
+            g.drawText ("TO OSC " + juce::String (i + 1), columnHeads[(size_t) i], juce::Justification::centred);
+            g.drawText ("OSC " + juce::String (i + 1), rowHeads[(size_t) i].withHeight (18), juce::Justification::centredLeft);
+        }
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
         area.removeFromTop (18);
-        controlCard = area.removeFromBottom (juce::jlimit (130, 170, area.getHeight() / 3));
-        area.removeFromBottom (10);
-        display.setBounds (area);
-        layoutRow (controlCard.reduced (10, 8), { &fmAmount, &fmFeedback, &ringMod, &hardSync });
+
+        matrixCard = area.removeFromRight (area.getWidth() * 48 / 100);
+        area.removeFromRight (10);
+        diagram.setBounds (area);
+
+        auto inner = matrixCard.reduced (10, 0);
+        inner.removeFromTop (26);
+        inner.removeFromBottom (8);
+
+        // Mode, ring mod and sync across the top.
+        auto top = inner.removeFromTop (48);
+        mode.setBounds (top.removeFromLeft (top.getWidth() * 36 / 100).reduced (3, 1));
+        ringMod->setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 1));
+        hardSync.setBounds (top.reduced (3, 1));
+        inner.removeFromTop (6);
+
+        auto heads = inner.removeFromTop (18);
+        heads.removeFromLeft (70);
+        const auto columnWidth = heads.getWidth() / 3;
+
+        for (int i = 0; i < 3; ++i)
+            columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
+
+        const auto rowHeight = inner.getHeight() / 3;
+
+        for (int source = 0; source < 3; ++source)
+        {
+            auto row = inner.removeFromTop (rowHeight);
+            auto head = row.removeFromLeft (70);
+            rowHeads[(size_t) source] = head.withTrimmedTop (head.getHeight() / 2 - 26);
+            outs[(size_t) source]->setBounds (rowHeads[(size_t) source].withTrimmedTop (20).withHeight (40).reduced (0, 2));
+
+            for (int target = 0; target < 3; ++target)
+                knobs[(size_t) source][(size_t) target]->setBounds (row.removeFromLeft (columnWidth).reduced (3, 0));
+        }
     }
 
 private:
-    CrossModDisplay display;
-    KnobControl fmAmount, fmFeedback, ringMod;
+    FmDiagram diagram;
+    ComboControl mode;
     ToggleControl hardSync;
-    juce::Rectangle<int> controlCard;
+    std::unique_ptr<StripKnob> ringMod;
+    std::array<std::array<std::unique_ptr<KnobControl>, 3>, 3> knobs;
+    std::array<std::unique_ptr<ToggleControl>, 3> outs;
+    std::array<juce::Rectangle<int>, 3> columnHeads, rowHeads;
+    juce::Rectangle<int> matrixCard;
 };
 
 class SeqPage : public juce::Component,

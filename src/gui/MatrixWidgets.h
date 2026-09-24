@@ -44,8 +44,9 @@ inline void fillDestinations (juce::ComboBox& combo)
                              D::SubBlend, D::SubWarp, D::SubSampleStart, D::SubSampleEnd, D::NoiseLevel });
     group ("Filters", { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
                         D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
-    group ("Voice", { D::AmpLevel, D::Pan, D::FmAmount, D::FmFeedback, D::RingMod, D::Drift,
-                      D::ResAmount, D::ResDecay, D::ResOffset });
+    group ("Voice", { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
+    group ("FM", { D::FmAmount, D::Fm1to2, D::Fm1to3, D::Fm2to3, D::Fm3to1, D::Fm3to2,
+                   D::FmFeedback, D::Fm2Feedback, D::Fm3Feedback });
     group ("Envelopes", { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
                           D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
                           D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,

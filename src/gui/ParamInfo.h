@@ -37,6 +37,9 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "spray_spread")
         return juce::String (juce::roundToInt (value)) + " ms";
 
+    if (id.startsWith ("fm_") && id != "fm_mode")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     if (id == "spray_chance" || id == "spray_velocity" || id == "arp_chance")
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
 
@@ -232,6 +235,18 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
         return "Cutoff follows the played note (1.0 = full tracking).";
+
+    if (id == "fm_mode")
+        return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
+
+    if (id == "osc1_out" || id == "osc2_out" || id == "sub_out")
+        return "Off makes this oscillator a silent modulator: it still drives FM but isn't heard.";
+
+    if (id.startsWith ("fm_fb") || id == "fm_feedback")
+        return "The oscillator modulates itself: brighter, then noisier.";
+
+    if (id.startsWith ("fm_") && id != "fm_mode")
+        return "How hard one oscillator frequency-modulates another. Try whole-number pitch ratios for bells and keys.";
 
     if (id == "gen_scale")
         return "Scale that sprayed notes and the Scale Random arp snap to.";

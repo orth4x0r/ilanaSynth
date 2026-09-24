@@ -115,6 +115,9 @@ struct VoiceParams
 
     float fmAmount = 0.0f;
     float fmFeedback = 0.0f;
+    float fmMatrix[3][3] {};      // [source][target]: oscillator 1, 2, 3
+    int fmMode = 0;               // 0 phase, 1 through-zero, 2 exponential
+    bool oscOut[3] { true, true, true };
     float ringMod = 0.0f;
     bool hardSync = false;
     float drift = 0.0f;
@@ -323,6 +326,7 @@ private:
     float panGain2L[VoiceParams::maxUnison] {}, panGain2R[VoiceParams::maxUnison] {};
     float panGainSubL[VoiceParams::maxUnison] {}, panGainSubR[VoiceParams::maxUnison] {};
     float panGainSubOscL = 0.7071f, panGainSubOscR = 0.7071f;
+    float previousOsc3 = 0.0f;
     // Per-unison-voice pitch offsets (semitones) and gains from the unison
     // mode, detune and blend.
     double unisonOffset1[VoiceParams::maxUnison] {}, unisonOffset2[VoiceParams::maxUnison] {};

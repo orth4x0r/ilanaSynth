@@ -269,6 +269,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     previousOsc1 = 0.0f;
     previousOsc2 = 0.0f;
+    previousOsc3 = 0.0f;
     driftValue = driftRandom.nextFloat() * 2.0f - 1.0f;
     driftTarget = driftValue;
 
@@ -696,10 +697,36 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         float busR[FilterRoute::Count] {};
         auto osc1Mono = 0.0f;
         auto osc2Mono = 0.0f;
+        auto osc3Mono = 0.0f;
 
+        // FM matrix: each oscillator hears the others (and itself) from the
+        // previous sample. Phase mode offsets the phase (as FM always did);
+        // through-zero and exponential bend the frequency instead.
         const auto fmAmount = params.fmAmount + mods[(int) D::FmAmount];
         const auto fmFeedback = params.fmFeedback + mods[(int) D::FmFeedback];
-        auto phaseModulation = (double) (fmAmount * previousOsc2 + fmFeedback * previousOsc1);
+        const auto fm3to1 = params.fmMatrix[2][0] + mods[(int) D::Fm3to1];
+        const auto fmInput1 = (double) (fmAmount * previousOsc2 + fmFeedback * previousOsc1) + (double) (fm3to1 * previousOsc3);
+        const auto fmInput2 = (double) ((params.fmMatrix[0][1] + mods[(int) D::Fm1to2]) * previousOsc1
+                                        + (params.fmMatrix[1][1] + mods[(int) D::Fm2Feedback]) * previousOsc2
+                                        + (params.fmMatrix[2][1] + mods[(int) D::Fm3to2]) * previousOsc3);
+        const auto fmInput3 = (double) ((params.fmMatrix[0][2] + mods[(int) D::Fm1to3]) * previousOsc1
+                                        + (params.fmMatrix[1][2] + mods[(int) D::Fm2to3]) * previousOsc2
+                                        + (params.fmMatrix[2][2] + mods[(int) D::Fm3Feedback]) * previousOsc3);
+
+        const auto fmPhase = [this] (double input) { return params.fmMode == 0 ? input : 0.0; };
+        const auto fmRate = [this] (double input)
+        {
+            if (params.fmMode == 1)
+                return 1.0 + 4.0 * input;               // through-zero: up to +-4x the pitch
+
+            if (params.fmMode == 2)
+                return std::exp2 (juce::jlimit (-4.0, 4.0, 2.0 * input)); // exponential: up to +-2 octaves
+
+            return 1.0;
+        };
+
+        auto phaseModulation = fmPhase (fmInput1);
+        const auto rate1 = fmRate (fmInput1);
 
         const auto warp1Amount = juce::jlimit (0.0f, 1.0f, params.osc1.warpAmount + mods[(int) D::Osc1Warp]);
 
@@ -733,13 +760,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 else
                 {
                     osc1Unison[u].setFramePosition (frame);
-                    raw = osc1Unison[u].getNextSample (phaseModulation, frames) * ring;
+                    raw = osc1Unison[u].getNextSample (phaseModulation, frames, rate1) * ring;
                 }
 
                 const auto gain = unisonGains1[u] * level * enable1;
                 osc1Mono += raw * gain;
-                busL[route1] += (params.osc1.sampleMode ? sampleL : raw) * gain * panGain1L[u];
-                busR[route1] += (params.osc1.sampleMode ? sampleR : raw) * gain * panGain1R[u];
+
+                if (params.oscOut[0])
+                {
+                    busL[route1] += (params.osc1.sampleMode ? sampleL : raw) * gain * panGain1L[u];
+                    busR[route1] += (params.osc1.sampleMode ? sampleR : raw) * gain * panGain1R[u];
+                }
             }
         }
         else
@@ -763,7 +794,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         {
             const auto frame = juce::jlimit (0.0f, 1.0f, frameSmooth2.getNextValue() + mods[(int) D::Osc2Frame]);
             const auto level = juce::jlimit (0.0f, 1.0f, levelSmooth2.getNextValue() + mods[(int) D::Osc2Level]);
-            const auto phaseMod2 = warp2Mode == Warp::Fm ? (double) (warp2Amount * osc1Mono) : 0.0;
+            const auto phaseMod2 = (warp2Mode == Warp::Fm ? (double) (warp2Amount * osc1Mono) : 0.0) + fmPhase (fmInput2);
+            const auto rate2 = fmRate (fmInput2);
             const auto ring = warp2Mode == Warp::Ring ? 1.0f + (osc1Mono - 1.0f) * warp2Amount : 1.0f;
             const auto frames = WavetableOscillator::frameReadFor (params.osc2.table, frame);
 
@@ -785,13 +817,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 else
                 {
                     osc2Unison[u].setFramePosition (frame);
-                    raw = osc2Unison[u].getNextSample (phaseMod2, frames) * ring;
+                    raw = osc2Unison[u].getNextSample (phaseMod2, frames, rate2) * ring;
                 }
 
                 const auto gain = unisonGains2[u] * level * enable2;
                 osc2Mono += raw * gain;
-                busL[route2] += (params.osc2.sampleMode ? sampleL : raw) * gain * panGain2L[u];
-                busR[route2] += (params.osc2.sampleMode ? sampleR : raw) * gain * panGain2R[u];
+
+                if (params.oscOut[1])
+                {
+                    busL[route2] += (params.osc2.sampleMode ? sampleL : raw) * gain * panGain2L[u];
+                    busR[route2] += (params.osc2.sampleMode ? sampleR : raw) * gain * panGain2R[u];
+                }
             }
         }
         else
@@ -821,7 +857,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         {
             const auto frame = juce::jlimit (0.0f, 1.0f, subFrameSmooth.getNextValue() + mods[(int) D::SubFrame]);
             const auto warpSubAmount = juce::jlimit (0.0f, 1.0f, params.sub.warpAmount + mods[(int) D::SubWarp]);
-            const auto phaseModSub = warpSubMode == Warp::Fm ? (double) (warpSubAmount * osc1Mono) : 0.0;
+            const auto phaseModSub = (warpSubMode == Warp::Fm ? (double) (warpSubAmount * osc1Mono) : 0.0) + fmPhase (fmInput3);
+            const auto rateSub = fmRate (fmInput3);
             const auto ring = warpSubMode == Warp::Ring ? 1.0f + (osc1Mono - 1.0f) * warpSubAmount : 1.0f;
             const auto frames = WavetableOscillator::frameReadFor (params.sub.table, frame);
 
@@ -843,18 +880,25 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 else
                 {
                     subUnison[u].setFramePosition (frame);
-                    raw = subUnison[u].getNextSample (phaseModSub, frames) * ring;
+                    raw = subUnison[u].getNextSample (phaseModSub, frames, rateSub) * ring;
                 }
 
                 const auto gain = unisonGainsSub[u] * subLevel * enableSub;
-                busL[routeSub] += (params.sub.sampleMode ? sampleL : raw) * gain * panGainSubL[u];
-                busR[routeSub] += (params.sub.sampleMode ? sampleR : raw) * gain * panGainSubR[u];
+                osc3Mono += raw * gain;
+
+                if (params.oscOut[2])
+                {
+                    busL[routeSub] += (params.sub.sampleMode ? sampleL : raw) * gain * panGainSubL[u];
+                    busR[routeSub] += (params.sub.sampleMode ? sampleR : raw) * gain * panGainSubR[u];
+                }
             }
         }
         else
         {
             subFrameSmooth.getNextValue();
         }
+
+        previousOsc3 = juce::jlimit (-2.0f, 2.0f, osc3Mono);
 
         // Dedicated sub: plain table at frame 0, centre pan.
         const auto subOscLevel = subOscLevelSmooth.getNextValue();

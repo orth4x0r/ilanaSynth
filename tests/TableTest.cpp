@@ -3652,6 +3652,135 @@ void runOsc3MigrationTest()
     check ((int) again.apvts.getRawParameterValue ("sub_semi")->load() == -9, "saved 1.1 state is not migrated twice");
 }
 
+void runFmMatrixTests()
+{
+    const auto renderWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        // Two sine operators, no sub, open filter.
+        set ("subosc_on", 0.0f);
+        set ("osc1_table", 8.0f);
+        set ("osc1_frame", 0.0f);
+        set ("osc2_on", 1.0f);
+        set ("osc2_table", 8.0f);
+        set ("osc2_fine", 0.0f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        setup (processor);
+
+        std::vector<float> out;
+        juce::AudioBuffer<float> buffer (2, 512);
+
+        for (int block = 0; block < 20; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    const auto set = [] (IlanaSynthAudioProcessor& processor, const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    const auto rms = [] (const std::vector<float>& data)
+    {
+        auto sum = 0.0;
+
+        for (auto value : data)
+            sum += (double) value * value;
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, data.size()));
+    };
+
+    const auto difference = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto sum = 0.0;
+
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            sum += (double) (a[i] - b[i]) * (a[i] - b[i]);
+
+        return std::sqrt (sum / juce::jmax ((size_t) 1, a.size()));
+    };
+
+    // OSC 1 as a silent modulator of OSC 2.
+    const auto plain = renderWith ([&] (IlanaSynthAudioProcessor& p) { set (p, "osc1_out", 0.0f); });
+    const auto modulated = renderWith ([&] (IlanaSynthAudioProcessor& p)
+    {
+        set (p, "osc1_out", 0.0f);
+        set (p, "fm_1to2", 0.6f);
+    });
+    const auto both = renderWith ([&] (IlanaSynthAudioProcessor&) {});
+
+    check (rms (plain) > 0.01 && rms (both) > rms (plain) * 1.3,
+           "OUT off keeps an oscillator out of the mix (" + juce::String (rms (plain), 3) + " vs " + juce::String (rms (both), 3) + ")");
+    check (difference (plain, modulated) > rms (plain) * 0.2,
+           "OSC 1 > OSC 2 FM changes OSC 2 while OSC 1 stays silent");
+
+    // All three FM styles stay finite and bounded at full depth.
+    for (int mode = 0; mode < 3; ++mode)
+    {
+        const auto out = renderWith ([&] (IlanaSynthAudioProcessor& p)
+        {
+            set (p, "fm_mode", (float) mode);
+            set (p, "fm_1to2", 1.0f);
+            set (p, "fm_amount", 1.0f);
+            set (p, "fm_fb2", 1.0f);
+        });
+
+        auto finite = true;
+        auto peak = 0.0f;
+
+        for (auto value : out)
+        {
+            finite = finite && std::isfinite (value);
+            peak = juce::jmax (peak, std::abs (value));
+        }
+
+        check (finite && peak < 4.0f && peak > 0.001f, "FM mode " + juce::String (mode) + " stays bounded at full depth (peak "
+                                                           + juce::String (peak, 3) + ")");
+    }
+
+    // Saved 1.0 routings to parameter destinations move past the new FM ones.
+    IlanaSynthAudioProcessor source;
+    auto state = source.apvts.copyState();
+    state.removeProperty ("destSchema", nullptr);
+    const auto oldIndex = Mod::explicitDestinationsV10 + 3;
+
+    for (int i = 0; i < state.getNumChildren(); ++i)
+        if (state.getChild (i).getProperty ("id").toString() == "mod1_dst")
+            state.getChild (i).setProperty ("value", oldIndex, nullptr);
+
+    juce::MemoryBlock data;
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    juce::AudioProcessor::copyXmlToBinary (*xml, data);
+    IlanaSynthAudioProcessor target;
+    target.setStateInformation (data.getData(), (int) data.getSize());
+    const auto migrated = (int) target.apvts.getRawParameterValue ("mod1_dst")->load();
+    check (migrated == Mod::numExplicitDestinations + 3,
+           "old parameter-destination routings are renumbered (" + juce::String (migrated) + ")");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3709,6 +3838,7 @@ int main()
     runTranceGateTest();
     runGenerativeTests();
     runOsc3MigrationTest();
+    runFmMatrixTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

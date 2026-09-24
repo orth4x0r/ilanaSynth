@@ -453,8 +453,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
 
     // Oscillator cross-modulation
-    addFloat ("fm_amount", "FM Amount", 0.0f, 1.0f, 0.0f);
-    addFloat ("fm_feedback", "FM Feedback", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_amount", "FM Osc2 > Osc1", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_feedback", "FM Osc1 Feedback", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_1to2", "FM Osc1 > Osc2", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_1to3", "FM Osc1 > Osc3", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_2to3", "FM Osc2 > Osc3", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_3to1", "FM Osc3 > Osc1", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_3to2", "FM Osc3 > Osc2", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_fb2", "FM Osc2 Feedback", 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_fb3", "FM Osc3 Feedback", 0.0f, 1.0f, 0.0f);
+    addChoice ("fm_mode", "FM Mode", { "Phase", "Through-Zero", "Exponential" }, 0);
+    addBool ("osc1_out", "Osc1 Output", true);
+    addBool ("osc2_out", "Osc2 Output", true);
+    addBool ("sub_out", "Osc3 Output", true);
     addFloat ("ring_mod", "Ring Mod", 0.0f, 1.0f, 0.0f);
     addBool ("hard_sync", "Hard Sync", false);
     addFloat ("f1_fm", "F1 Audio FM", -1.0f, 1.0f, 0.0f);
@@ -1154,6 +1165,22 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.ringMod = getParam ("ring_mod");
     p.hardSync = getParam ("hard_sync") > 0.5f;
     p.drift = getParam ("drift");
+
+    // FM matrix [source][target]; OSC 2 > 1 and OSC 1 feedback are the
+    // original FM Amount and FM Feedback.
+    p.fmMatrix[1][0] = p.fmAmount;
+    p.fmMatrix[0][0] = p.fmFeedback;
+    p.fmMatrix[0][1] = getParam ("fm_1to2");
+    p.fmMatrix[0][2] = getParam ("fm_1to3");
+    p.fmMatrix[1][2] = getParam ("fm_2to3");
+    p.fmMatrix[2][0] = getParam ("fm_3to1");
+    p.fmMatrix[2][1] = getParam ("fm_3to2");
+    p.fmMatrix[1][1] = getParam ("fm_fb2");
+    p.fmMatrix[2][2] = getParam ("fm_fb3");
+    p.fmMode = (int) getParam ("fm_mode");
+    p.oscOut[0] = getParam ("osc1_out") > 0.5f;
+    p.oscOut[1] = getParam ("osc2_out") > 0.5f;
+    p.oscOut[2] = getParam ("sub_out") > 0.5f;
 
     const auto fillStringParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
     {
@@ -4071,6 +4098,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 {
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
+    state.setProperty ("destSchema", 2, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -4212,6 +4240,29 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                            });
 
         state.setProperty ("osc3Schema", 2, nullptr);
+    }
+
+    // v1.1 added explicit (FM) destinations ahead of the parameter
+    // destinations, so older saved routings to those move up.
+    if ((int) state.getProperty ("destSchema", 1) < 2)
+    {
+        const auto added = Mod::numExplicitDestinations - Mod::explicitDestinationsV10;
+
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+            const auto id = child.getProperty ("id").toString();
+
+            if (id.startsWith ("mod") && id.endsWith ("_dst"))
+            {
+                const auto destination = juce::roundToInt ((float) child.getProperty ("value"));
+
+                if (destination >= Mod::explicitDestinationsV10)
+                    child.setProperty ("value", destination + added, nullptr);
+            }
+        }
+
+        state.setProperty ("destSchema", 2, nullptr);
     }
 
     const auto parseDraw = [this] (int lfoIndex, const juce::String& text)

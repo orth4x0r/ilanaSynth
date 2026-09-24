@@ -170,8 +170,21 @@ enum class Destination
     E4Release,
     Filter1Morph,
     Filter2Morph,
+
+    // v1.1: the FM matrix (OSC 2 > 1 and OSC 1 feedback are FmAmount/FmFeedback)
+    Fm1to2,
+    Fm1to3,
+    Fm2to3,
+    Fm3to1,
+    Fm3to2,
+    Fm2Feedback,
+    Fm3Feedback,
     Count
 };
+
+// Explicit destinations before the FM matrix was added: saved patches that
+// point at a parameter destination (numbered after these) are shifted on load.
+constexpr int explicitDestinationsV10 = 89;
 
 constexpr int numExplicitDestinations = (int) Destination::Count;
 
@@ -346,7 +359,9 @@ inline juce::StringArray getExplicitDestinationNames()
              "Mod Env Attack", "Mod Env Decay", "Mod Env Sustain", "Mod Env Release",
              "F2 Env Attack", "F2 Env Decay", "F2 Env Sustain", "F2 Env Release",
              "Env4 Attack", "Env4 Decay", "Env4 Sustain", "Env4 Release",
-             "Filter1 Morph", "Filter2 Morph" };
+             "Filter1 Morph", "Filter2 Morph",
+             "FM Osc1 > Osc2", "FM Osc1 > Osc3", "FM Osc2 > Osc3", "FM Osc3 > Osc1", "FM Osc3 > Osc2",
+             "FM Osc2 Feedback", "FM Osc3 Feedback" };
 }
 
 inline juce::StringArray getDestinationNames()

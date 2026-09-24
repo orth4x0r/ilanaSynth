@@ -3779,12 +3779,28 @@ juce::int64 IlanaSynthAudioProcessorEditor::parameterFingerprint() const
 
 void IlanaSynthAudioProcessorEditor::savePreset()
 {
+    juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
+
+    PresetPanel::showSaveDialog (processorRef, [safeThis]
+    {
+        if (safeThis == nullptr)
+            return;
+
+        safeThis->loadedFingerprint = safeThis->parameterFingerprint();
+
+        if (safeThis->presetPanel != nullptr)
+            safeThis->presetPanel->refresh();
+    });
+}
+
+void IlanaSynthAudioProcessorEditor::exportPreset()
+{
     const auto directory = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
                                .getChildFile ("ilanaSynth Presets");
     directory.createDirectory();
 
-    fileChooser = std::make_unique<juce::FileChooser> ("Save Preset",
-                                                       directory.getChildFile ("My Preset.ilanapreset"),
+    fileChooser = std::make_unique<juce::FileChooser> ("Export Preset",
+                                                       directory.getChildFile (processorRef.getCurrentPresetName() + ".ilanapreset"),
                                                        "*.ilanapreset");
 
     juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
@@ -3995,6 +4011,7 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
     menu.addItem (1, "Init patch");
     menu.addSeparator();
     menu.addItem (2, "Save preset...");
+    menu.addItem (5, "Export preset file...");
     menu.addItem (3, "Load preset file...");
     menu.addItem (4, "Open user preset folder");
 
@@ -4009,6 +4026,7 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
                                 case 1: safeThis->loadPresetIndex (0); break;
                                 case 2: safeThis->savePreset(); break;
                                 case 3: safeThis->loadPreset(); break;
+                                case 5: safeThis->exportPreset(); break;
                                 case 4:
                                 {
                                     const auto directory = safeThis->processorRef.getUserPresetDirectory();

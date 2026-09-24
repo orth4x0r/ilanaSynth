@@ -231,6 +231,14 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "fx_feedback_tone", "Feedback Tone" }, { "fx_feedback_mix", "Feedback Mix" },
         { "fx_eq_low_gain", "EQ Low Gain" }, { "fx_eq_mid_freq", "EQ Mid Freq" }, { "fx_eq_mid_gain", "EQ Mid Gain" },
         { "fx_eq_high_gain", "EQ High Gain" },
+        // Appended in v1.0 (keep order: presets store the index).
+        { "glide", "Glide" },
+        { "osc1_string_decay", "Osc1 String Decay" }, { "osc1_string_damp", "Osc1 String Damp" },
+        { "osc1_string_sustain", "Osc1 String Sustain" },
+        { "osc2_string_decay", "Osc2 String Decay" }, { "osc2_string_damp", "Osc2 String Damp" },
+        { "osc2_string_sustain", "Osc2 String Sustain" },
+        { "sub_string_decay", "Osc3 String Decay" }, { "sub_string_damp", "Osc3 String Damp" },
+        { "sub_string_sustain", "Osc3 String Sustain" },
     };
 
     return list;

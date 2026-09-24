@@ -124,8 +124,26 @@ public:
     juce::Array<juce::File> getUserPresetFiles() const;
     juce::StringArray getAllPresetNames() const;
     juce::StringArray getAllPresetCategories() const;
+    juce::StringArray getAllPresetTags() const;
+    bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
     void loadPresetByIndex (int index);
+
+    // Category and tags travel with the patch (state tree) and are read back
+    // from user preset files for the browser. Message thread only.
+    static juce::StringArray getPresetCategoryChoices()
+    {
+        return { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
+    }
+
+    void setPresetMeta (const juce::String& category, const juce::String& tags)
+    {
+        apvts.state.setProperty ("presetCategory", category, nullptr);
+        apvts.state.setProperty ("presetTags", tags, nullptr);
+    }
+
+    juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
+    juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
@@ -151,6 +169,10 @@ public:
     // Routes a source to a destination in the first free slot; returns the
     // slot index or -1 when all slots are taken.
     int assignModSlot (int sourceIndex, int destination, float depth);
+
+    // Gives a patch without macro mappings a sensible set (tone, timbre,
+    // drive, space), chosen from what the patch uses. Silent at macro 0.
+    void applyDefaultMacros();
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
     void setModSlotValue (int slotIndex, const juce::String& field, float value);
@@ -321,6 +343,15 @@ private:
     std::array<juce::String, (size_t) numUserSlots> userTablePaths;
     std::array<juce::String, (size_t) numUserSlots> pendingUserTablePaths;
     std::array<int, (size_t) numUserSlots> userTableModes {};
+
+    struct UserPresetMeta
+    {
+        juce::int64 modified = -1;
+        juce::String category, tags;
+    };
+
+    const UserPresetMeta& getUserPresetMeta (const juce::File& file) const;
+    mutable std::unordered_map<std::string, UserPresetMeta> userPresetMetaCache;
     std::array<int, (size_t) numUserSlots> pendingUserTableModes {};
     std::array<bool, (size_t) numUserSlots> pendingUserTableClear {};
     bool userTablesReloadPending = false;

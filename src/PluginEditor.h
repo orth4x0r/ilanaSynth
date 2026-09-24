@@ -44,6 +44,7 @@ private:
 
     void paintHeader (juce::Graphics& g);
     void savePreset();
+    void exportPreset();
     void loadPreset();
     void togglePresetPanel();
     void showPresetMenu();

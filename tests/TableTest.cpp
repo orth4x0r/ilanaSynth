@@ -1427,8 +1427,14 @@ void runPresetTuningTest()
     auto worstCents = 0.0;
     juce::String worstName;
 
+    const auto categories = processor.getFactoryPresetCategories();
+
     for (int presetIndex = 0; presetIndex < names.size(); ++presetIndex)
     {
+        // Sound effects (noise sweeps, sirens, risers) are not meant to be in tune.
+        if (categories[presetIndex] == "FX")
+            continue;
+
         processor.loadFactoryPreset (presetIndex);
         processor.panic();
 
@@ -1526,7 +1532,7 @@ void runPresetTuningTest()
         // swing around the note, so give them a wider measurement band.
         auto pitchModulated = false;
 
-        for (int slot = 1; slot <= 8; ++slot)
+        for (int slot = 1; slot <= Mod::maxSlots; ++slot)
         {
             const auto prefix = "mod" + juce::String (slot);
 
@@ -2547,8 +2553,22 @@ void runVoiceModeTests()
         check (restored.getMacroName (2) == "Grit" && restored.getMacroName (0) == "Macro 1",
                "macro names survive a host state round trip ('" + restored.getMacroName (2) + "')");
 
+        restored.loadFactoryPreset (0);
+        check (restored.getMacroName (2) == "Macro 3", "loading Init resets macro names");
+
         restored.loadFactoryPreset (1);
-        check (restored.getMacroName (2) == "Macro 3", "loading a factory preset resets macro names");
+        check (restored.getMacroName (0) == "TONE", "legacy presets get default macro names ('" + restored.getMacroName (0) + "')");
+        check (restored.getPresetCategory() == "Bass", "factory preset load sets its category");
+
+        const auto file = juce::File::createTempFile ("ilanapreset");
+        restored.setPresetMeta ("Keys", "warm, vintage");
+        check (restored.savePresetToFile (file), "preset with metadata saves");
+
+        IlanaSynthAudioProcessor reloaded;
+        check (reloaded.loadPresetFromFile (file) && reloaded.getPresetCategory() == "Keys"
+                   && reloaded.getPresetTags() == "warm, vintage",
+               "preset category and tags survive a save/load ('" + reloaded.getPresetCategory() + "')");
+        file.deleteFile();
     }
 
     const auto legatoLevel = levelAfterSecondNote (2);
@@ -3182,6 +3202,136 @@ void runCurveLfoTest()
 }
 } // namespace
 
+// Every factory preset (Init aside) has four named, working macros, plays,
+// and stays bounded with all macros at full.
+void runFactoryLibraryTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    const auto names = processor.getFactoryPresetNames();
+    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded;
+    std::vector<std::pair<double, juce::String>> levels;
+
+    const auto setMacros = [&processor] (float value)
+    {
+        for (int m = 1; m <= 4; ++m)
+            if (auto* parameter = processor.apvts.getParameter ("macro" + juce::String (m)))
+                parameter->setValueNotifyingHost (value);
+    };
+
+    const auto render = [&processor] (int blocks, bool startNotes, double& rms)
+    {
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto peak = 0.0f;
+        auto sum = 0.0;
+        auto count = 0;
+        auto finite = true;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0 && startNotes)
+                for (const auto note : { 48, 55, 60 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int channel = 0; channel < 2; ++channel)
+                for (int s = 0; s < 512; ++s)
+                {
+                    const auto value = buffer.getSample (channel, s);
+                    finite = finite && std::isfinite (value);
+                    peak = juce::jmax (peak, std::abs (value));
+                    sum += (double) value * (double) value;
+                    ++count;
+                }
+        }
+
+        rms = std::sqrt (sum / juce::jmax (1, count));
+        return finite ? peak : 1.0e9f;
+    };
+
+    for (int index = 1; index < names.size(); ++index)
+    {
+        processor.loadFactoryPreset (index);
+        processor.panic();
+
+        for (int m = 0; m < 4; ++m)
+        {
+            if (processor.getMacroName (m) == "Macro " + juce::String (m + 1))
+                unnamed.addIfNotAlreadyThere (names[index]);
+
+            auto mapped = false;
+
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            {
+                const auto info = processor.readModSlot (slot);
+                const auto macroSource = (Mod::Source) ((int) Mod::Source::Macro1 + m);
+
+                if ((info.source == macroSource && info.destination != 0 && info.depth != 0.0f)
+                    || (info.aux == macroSource && info.source != Mod::Source::None))
+                    mapped = true;
+            }
+
+            if (! mapped)
+                unmapped.addIfNotAlreadyThere (names[index] + " M" + juce::String (m + 1));
+        }
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto info = processor.readModSlot (slot);
+
+            if (info.source != Mod::Source::None && info.depth != 0.0f && info.destination == 0)
+                badSlots.addIfNotAlreadyThere (names[index]);
+        }
+
+        setMacros (0.0f);
+        double rms = 0.0;
+        const auto peak = render (90, true, rms);
+
+        if (peak < 0.001f)
+            silent.add (names[index]);
+
+        levels.push_back ({ rms, names[index] });
+
+        setMacros (1.0f);
+        double fullRms = 0.0;
+        const auto fullPeak = render (60, false, fullRms);
+
+        if (peak > 8.0f || fullPeak > 8.0f)
+            unbounded.add (names[index] + " (" + juce::String (juce::jmax (peak, fullPeak), 2) + ")");
+
+        setMacros (0.0f);
+    }
+
+    check (unnamed.isEmpty(), "every factory preset names its macros (" + unnamed.joinIntoString (", ") + ")");
+    check (unmapped.isEmpty(), "every factory macro is mapped (" + unmapped.joinIntoString (", ") + ")");
+    check (badSlots.isEmpty(), "factory mod slots all have a destination (" + badSlots.joinIntoString (", ") + ")");
+    check (silent.isEmpty(), "every factory preset makes sound (" + silent.joinIntoString (", ") + ")");
+    check (unbounded.isEmpty(), "factory presets stay bounded with macros at full (" + unbounded.joinIntoString (", ") + ")");
+
+    // Loudness: flag presets far from the library's median level.
+    auto sorted = levels;
+    std::sort (sorted.begin(), sorted.end());
+    const auto median = sorted[sorted.size() / 2].first;
+    juce::StringArray outliers;
+
+    for (const auto& level : levels)
+    {
+        const auto db = 20.0 * std::log10 (juce::jmax (1.0e-9, level.first / median));
+
+        if (std::abs (db) > 14.0)
+            outliers.add (level.second + " (" + juce::String (db, 1) + " dB)");
+    }
+
+    std::cout << "  library level: median rms " << median << ", quietest " << sorted.front().second
+              << ", loudest " << sorted.back().second << std::endl;
+    check (outliers.isEmpty(), "factory presets within 14 dB of the median level (" + outliers.joinIntoString (", ") + ")");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3190,11 +3340,6 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
     {
         runPhase2StateAndCpuTest();
-    runExtraFilterTests();
-    runFilterRoutingTest();
-    runOversampledTuningTest();
-    runResynthesisTest();
-    runCurveLfoTest();
         return 0;
     }
 
@@ -3239,6 +3384,7 @@ int main()
     runOversampledTuningTest();
     runResynthesisTest();
     runCurveLfoTest();
+    runFactoryLibraryTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

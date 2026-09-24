@@ -3512,14 +3512,54 @@ juce::StringArray IlanaSynthAudioProcessor::getAllPresetNames() const
     return names;
 }
 
+const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUserPresetMeta (const juce::File& file) const
+{
+    const auto key = file.getFullPathName();
+    const auto modified = file.getLastModificationTime().toMilliseconds();
+    auto& entry = userPresetMetaCache[key.toStdString()];
+
+    if (entry.modified != modified)
+    {
+        entry.modified = modified;
+        entry.category = "User";
+        entry.tags.clear();
+
+        // Only the root element's attributes are needed.
+        if (auto xml = juce::XmlDocument (file).getDocumentElementIfTagMatches (apvts.state.getType().toString()))
+        {
+            const auto category = xml->getStringAttribute ("presetCategory").trim();
+
+            if (category.isNotEmpty())
+                entry.category = category;
+
+            entry.tags = xml->getStringAttribute ("presetTags").trim();
+        }
+    }
+
+    return entry;
+}
+
 juce::StringArray IlanaSynthAudioProcessor::getAllPresetCategories() const
 {
     auto categories = getFactoryPresetCategories();
 
-    for (int i = 0; i < getUserPresetFiles().size(); ++i)
-        categories.add ("User");
+    for (const auto& file : getUserPresetFiles())
+        categories.add (getUserPresetMeta (file).category);
 
     return categories;
+}
+
+juce::StringArray IlanaSynthAudioProcessor::getAllPresetTags() const
+{
+    juce::StringArray tags;
+
+    for (int i = 0; i < getFactoryPresetCategories().size(); ++i)
+        tags.add ({});
+
+    for (const auto& file : getUserPresetFiles())
+        tags.add (getUserPresetMeta (file).tags);
+
+    return tags;
 }
 
 int IlanaSynthAudioProcessor::getNumAllPresets() const
@@ -3675,6 +3715,81 @@ int IlanaSynthAudioProcessor::assignModSlot (int sourceIndex, int destination, f
     return -1;
 }
 
+void IlanaSynthAudioProcessor::applyDefaultMacros()
+{
+    using D = Mod::Destination;
+    using Targets = std::vector<std::pair<int, float>>;
+
+    const auto map = [this] (int macro, const char* name, const Targets& targets)
+    {
+        setMacroName (macro, name);
+
+        for (const auto& target : targets)
+            assignModSlot ((int) Mod::Source::Macro1 + macro, target.first, target.second);
+    };
+
+    const auto on = [this] (const char* id) { return getParam (id) > 0.5f; };
+
+    // 1: tone. Bright patches close down, dark ones open up.
+    map (0, "TONE", { { (int) D::Filter1Cutoff, getParam ("f1_cutoff") > 6000.0f ? -0.5f : 0.4f } });
+
+    // 2: timbre, from whatever the main oscillators are.
+    const auto osc1Mode = (int) getParam ("osc1_mode");
+    const auto osc2Wave = on ("osc2_on") && (int) getParam ("osc2_mode") == 0;
+
+    if (osc1Mode == 0)
+    {
+        Targets targets { { (int) D::Osc1Frame, 0.4f } };
+
+        if (osc2Wave)
+            targets.push_back ({ (int) D::Osc2Frame, 0.4f });
+
+        map (1, "MORPH", targets);
+    }
+    else if (osc1Mode == 1)
+    {
+        map (1, "DAMP", { { Mod::destinationForParamId ("osc1_string_damp"), 0.3f } });
+    }
+    else
+    {
+        map (1, "START", { { (int) D::Osc1SampleStart, 0.3f } });
+    }
+
+    // 3: drive into the filter.
+    map (2, "DRIVE", { { (int) D::Filter1Drive, 0.5f } });
+
+    // 4: space if the chain has reverb or delay, else width or swell.
+    auto hasReverb = false, hasDelay = false;
+
+    for (int slot = 1; slot <= numFxSlots; ++slot)
+    {
+        const auto type = (int) getParam (fxSlotIds[(size_t) slot - 1].type.toRawUTF8());
+        hasReverb = hasReverb || type == 13;
+        hasDelay = hasDelay || type == 9;
+    }
+
+    if (hasReverb || hasDelay)
+    {
+        Targets targets;
+
+        if (hasReverb)
+            targets.push_back ({ (int) D::FxReverbMix, 0.3f });
+
+        if (hasDelay)
+            targets.push_back ({ (int) D::FxDelayMix, 0.25f });
+
+        map (3, "SPACE", targets);
+    }
+    else if (getParam ("osc1_unison") > 1.5f)
+    {
+        map (3, "WIDTH", { { (int) D::Osc1Detune, 0.3f }, { (int) D::Osc1Spread, 0.4f } });
+    }
+    else
+    {
+        map (3, "SWELL", { { (int) D::AmpAttack, 0.3f } });
+    }
+}
+
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
     const auto& presets = Presets::getFactoryPresets();
@@ -3683,6 +3798,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         return;
 
     setCurrentPresetName (presets[(size_t) index].name);
+    setPresetMeta (getFactoryPresetCategories()[index], {});
 
     for (int macro = 0; macro < 4; ++macro)
     {
@@ -3779,6 +3895,9 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             }
         }
     }
+
+    if (index > 0 && presets[(size_t) index].macroNames.empty())
+        applyDefaultMacros();
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

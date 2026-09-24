@@ -20,12 +20,7 @@ int chordInterval (int mode, int voiceIndex)
 }
 } // namespace
 
-Voice::Voice()
-{
-    for (auto* filter : { &filter1L1, &filter1L2, &filter1R1, &filter1R2,
-                          &filter2L1, &filter2L2, &filter2R1, &filter2R2 })
-        filter->setMode (Svf::Mode::LowPass);
-}
+Voice::Voice() = default;
 
 void Voice::setCurrentPlaybackSampleRate (double newRate)
 {
@@ -83,9 +78,8 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     resonatorL.prepare (newRate);
     resonatorR.prepare (newRate);
 
-    for (auto* filter : { &filter1L1, &filter1L2, &filter1R1, &filter1R2,
-                          &filter2L1, &filter2L2, &filter2R1, &filter2R2 })
-        filter->setSampleRate (newRate);
+    for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R })
+        filter->reset();
 }
 
 void Voice::syncSamplePlayers()
@@ -122,20 +116,46 @@ void Voice::syncSamplePlayers()
 
 void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound*, int currentPitchWheelPosition)
 {
-    velocityLevel = velocity;
+    const auto mono = monoPending;
+    const auto legato = mono && monoLegato;
+    const auto keepRunning = mono && monoKeepRunning;
+    const auto glide = ! mono || monoGlide;
+    monoPending = false;
+    monoKeepRunning = false;
+
     baseFrequency = juce::MidiMessage::getMidiNoteInHertz (midiNoteNumber);
     keyTrackValue = juce::jlimit (-1.0f, 1.0f, (float) (midiNoteNumber - 60) / 48.0f);
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
-    randomValue = random.nextFloat() * 2.0f - 1.0f;
-    voicePan = random.nextFloat() * 2.0f - 1.0f;
 
-    if (! hasPlayedNote)
+    if (! hasPlayedNote || ! glide)
     {
         currentFrequency = baseFrequency;
         hasPlayedNote = true;
     }
 
     pitchWheelMoved (currentPitchWheelPosition);
+
+    // Legato: the note just changes pitch; envelopes, phases and filters
+    // carry on from where they are.
+    if (legato)
+        return;
+
+    velocityLevel = velocity;
+
+    if (keepRunning)
+    {
+        // Mono retrigger: restart envelopes from their current level and keep
+        // oscillator phases and filter state so there is no click.
+        ampEnv.retrigger();
+        filterEnv.retrigger();
+        filter2Env.retrigger();
+        modEnv.retrigger();
+        env4.retrigger();
+        return;
+    }
+
+    randomValue = random.nextFloat() * 2.0f - 1.0f;
+    voicePan = random.nextFloat() * 2.0f - 1.0f;
 
     for (int u = 0; u < VoiceParams::maxUnison; ++u)
     {
@@ -190,8 +210,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     driftValue = driftRandom.nextFloat() * 2.0f - 1.0f;
     driftTarget = driftValue;
 
-    for (auto* filter : { &filter1L1, &filter1L2, &filter1R1, &filter1R2,
-                          &filter2L1, &filter2L2, &filter2R1, &filter2R2 })
+    for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R })
         filter->reset();
 
     frameSmooth1.setCurrentAndTargetValue (params.osc1.frame);
@@ -214,6 +233,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
 void Voice::stopNote (float, bool allowTailOff)
 {
+    // The synth hard-stops a voice before reusing it; a mono note change
+    // keeps the voice sounding instead.
+    if (! allowTailOff && monoPending && monoKeepRunning)
+        return;
+
     if (allowTailOff)
     {
         ampEnv.noteOff();
@@ -640,14 +664,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             inR = std::tanh (inR * params.filter1.drive);
         }
 
-        auto f1L = filter1L1.processSample (inL);
-        auto f1R = filter1R1.processSample (inR);
-
-        if (params.filter1.slope24)
-        {
-            f1L = filter1L2.processSample (f1L);
-            f1R = filter1R2.processSample (f1R);
-        }
+        auto f1L = filter1L.process (inL);
+        auto f1R = filter1R.process (inR);
 
         float outL, outR;
 
@@ -662,17 +680,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 in2R = std::tanh (in2R * params.filter2.drive);
             }
 
-            auto f2L = filter2L1.processSample (in2L);
-            auto f2R = filter2R1.processSample (in2R);
-
-            if (params.filter2.slope24)
-            {
-                f2L = filter2L2.processSample (f2L);
-                f2R = filter2R2.processSample (f2R);
-            }
-
-            outL = (f1L + f2L) * 0.7071f;
-            outR = (f1R + f2R) * 0.7071f;
+            outL = (f1L + filter2L.process (in2L)) * 0.7071f;
+            outR = (f1R + filter2R.process (in2R)) * 0.7071f;
         }
         else
         {
@@ -685,14 +694,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 f2inR = std::tanh (f2inR * params.filter2.drive);
             }
 
-            outL = filter2L1.processSample (f2inL);
-            outR = filter2R1.processSample (f2inR);
-
-            if (params.filter2.slope24)
-            {
-                outL = filter2L2.processSample (outL);
-                outR = filter2R2.processSample (outR);
-            }
+            outL = filter2L.process (f2inL);
+            outR = filter2R.process (f2inR);
         }
 
         if (params.resonatorOn && params.resonatorAmount > 0.001f)
@@ -831,17 +834,14 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
                                        (double) params.filter1.cutoffHz
                                            * std::exp2 (keyOctaves1 + envOctaves1 + fmOctaves1
                                                         + (double) mods[(int) Mod::Destination::Filter1Cutoff] * 6.0));
-    const auto reso1 = juce::jlimit (0.0f, 0.98f, params.filter1.resonance + mods[(int) Mod::Destination::Filter1Reso]);
+    const auto reso1 = juce::jlimit (0.0f, 1.0f, params.filter1.resonance + mods[(int) Mod::Destination::Filter1Reso]);
 
-    filter1L1.setMode (params.filter1.mode);
-    filter1L2.setMode (params.filter1.mode);
-    filter1R1.setMode (params.filter1.mode);
-    filter1R2.setMode (params.filter1.mode);
+    for (auto* filter : { &filter1L, &filter1R })
+        filter->setType (params.filter1.type, params.filter1.slope24);
 
-    const auto coefficients1 = Svf::makeCoefficients (sampleRate, cutoff1, reso1);
-
-    for (auto* filter : { &filter1L1, &filter1L2, &filter1R1, &filter1R2 })
-        filter->setCoefficients (coefficients1);
+    const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1);
+    filter1L.setCoefficients (coefficients1);
+    filter1R.setCoefficients (coefficients1);
 
     const auto keyOctaves2 = (double) params.filter2.keyTrack * (double) keyTrackOctaves;
     const auto envOctaves2 = (double) params.filter2.envAmount * (double) filter2EnvValue * (double) velocityEnvScale;
@@ -849,17 +849,14 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
                                        (double) params.filter2.cutoffHz
                                            * std::exp2 (keyOctaves2 + envOctaves2 + fmOctaves2
                                                         + (double) mods[(int) Mod::Destination::Filter2Cutoff] * 6.0));
-    const auto reso2 = juce::jlimit (0.0f, 0.98f, params.filter2.resonance + mods[(int) Mod::Destination::Filter2Reso]);
+    const auto reso2 = juce::jlimit (0.0f, 1.0f, params.filter2.resonance + mods[(int) Mod::Destination::Filter2Reso]);
 
-    filter2L1.setMode (params.filter2.mode);
-    filter2L2.setMode (params.filter2.mode);
-    filter2R1.setMode (params.filter2.mode);
-    filter2R2.setMode (params.filter2.mode);
+    for (auto* filter : { &filter2L, &filter2R })
+        filter->setType (params.filter2.type, params.filter2.slope24);
 
-    const auto coefficients2 = Svf::makeCoefficients (sampleRate, cutoff2, reso2);
-
-    for (auto* filter : { &filter2L1, &filter2L2, &filter2R1, &filter2R2 })
-        filter->setCoefficients (coefficients2);
+    const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2);
+    filter2L.setCoefficients (coefficients2);
+    filter2R.setCoefficients (coefficients2);
 }
 
 float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, float filterValue,

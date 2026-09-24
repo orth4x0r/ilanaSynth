@@ -9,6 +9,7 @@
 #include "Presets.h"
 #include "PluginProcessor.h"
 #include "dsp/GranularPitchShift.h"
+#include "dsp/FilterUnit.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
@@ -335,7 +336,7 @@ void runVoiceSmokeTest()
     p.filter1.drive = 3.0f;
     p.filter1.envAmount = 2.0f;
 
-    p.filter2.mode = Svf::Mode::HighPass;
+    p.filter2.type = FilterType::HighPass;
     p.filter2.cutoffHz = 100.0f;
 
     p.ampEnv = { 0.005f, 0.3f, 0.8f, 0.25f };
@@ -2331,6 +2332,223 @@ void runPresetNameTest()
     check (restored.getCurrentPresetName() == names[3],
            "preset name survives a host state round trip ('" + restored.getCurrentPresetName() + "')");
 }
+
+// Phase 1: new filter models and voice modes.
+void runFilterModelTests()
+{
+    constexpr double sampleRate = 48000.0;
+
+    // Self-oscillation: silence in, a sustained bounded tone out, for both
+    // the SVF above its old resonance cap and the ladder at full feedback.
+    for (const auto type : { (int) FilterType::LowPass, (int) FilterType::LadderLow })
+    {
+        FilterUnit filter;
+        filter.setType (type, false);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, 1000.0, 1.0));
+
+        auto peak = 0.0f;
+        auto lateEnergy = 0.0;
+        auto finite = true;
+
+        for (int i = 0; i < (int) sampleRate * 2; ++i)
+        {
+            const auto input = i < 32 ? 0.5f : 0.0f;
+            const auto out = filter.process (input);
+            finite = finite && std::isfinite (out);
+            peak = juce::jmax (peak, std::abs (out));
+
+            if (i > (int) sampleRate)
+                lateEnergy += (double) out * out;
+        }
+
+        const auto lateRms = std::sqrt (lateEnergy / sampleRate);
+        check (finite && peak < 4.0f && lateRms > 0.05,
+               FilterType::getNames()[type] + " self-oscillates at max resonance and stays bounded (peak "
+                   + juce::String (peak, 3) + ", late rms " + juce::String (lateRms, 3) + ")");
+    }
+
+    // Below the old cap the SVF path must be bit-identical to the plain Svf,
+    // so existing presets don't change.
+    {
+        FilterUnit unit;
+        unit.setType (FilterType::LowPass, true);
+        const auto c = FilterUnit::makeCoefficients (FilterType::LowPass, sampleRate, 800.0, 0.7);
+        unit.setCoefficients (c);
+
+        Svf a, b;
+        a.setMode (Svf::Mode::LowPass);
+        b.setMode (Svf::Mode::LowPass);
+        a.setCoefficients (Svf::makeCoefficients (sampleRate, 800.0, 0.7));
+        b.setCoefficients (Svf::makeCoefficients (sampleRate, 800.0, 0.7));
+
+        juce::Random random (7);
+        auto maxDiff = 0.0f;
+
+        for (int i = 0; i < 4800; ++i)
+        {
+            const auto x = random.nextFloat() * 2.0f - 1.0f;
+            maxDiff = juce::jmax (maxDiff, std::abs (unit.process (x) - b.processSample (a.processSample (x))));
+        }
+
+        check (maxDiff == 0.0f, "24 dB SVF through FilterUnit matches the legacy cascade exactly");
+    }
+
+    // Ladder low-pass actually low-passes and high-pass actually high-passes.
+    const auto toneGain = [sampleRate] (int type, double toneHz)
+    {
+        FilterUnit filter;
+        filter.setType (type, true);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, 1000.0, 0.2));
+
+        auto in = 0.0, out = 0.0;
+
+        for (int i = 0; i < 24000; ++i)
+        {
+            const auto x = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * toneHz * i / sampleRate);
+            const auto y = filter.process (x);
+
+            if (i > 4800)
+            {
+                in += (double) x * x;
+                out += (double) y * y;
+            }
+        }
+
+        return std::sqrt (out / in);
+    };
+
+    const auto lpLow = toneGain (FilterType::LadderLow, 100.0);
+    const auto lpHigh = toneGain (FilterType::LadderLow, 8000.0);
+    const auto hpLow = toneGain (FilterType::LadderHigh, 100.0);
+    const auto hpHigh = toneGain (FilterType::LadderHigh, 8000.0);
+
+    check (lpLow > 0.5 && lpHigh < 0.02, "ladder LP passes lows and cuts highs (100 Hz " + juce::String (lpLow, 3)
+                                             + ", 8 kHz " + juce::String (lpHigh, 4) + ")");
+    check (hpHigh > 0.5 && hpLow < 0.02, "ladder HP passes highs and cuts lows (100 Hz " + juce::String (hpLow, 4)
+                                             + ", 8 kHz " + juce::String (hpHigh, 3) + ")");
+}
+
+void setParam (IlanaSynthAudioProcessor& processor, const juce::String& id, float value)
+{
+    if (auto* parameter = processor.apvts.getParameter (id))
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+}
+
+void runVoiceModeTests()
+{
+    const auto render = [] (IlanaSynthAudioProcessor& processor, juce::MidiBuffer midi, int blocks)
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto peak = 0.0f;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer blockMidi;
+
+            if (block == 0)
+                blockMidi = midi;
+
+            processor.processBlock (buffer, blockMidi);
+            peak = juce::jmax (peak, buffer.getMagnitude (0, 256));
+        }
+
+        return peak;
+    };
+
+    const auto chord = []
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 10);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 20);
+        return midi;
+    };
+
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        render (processor, chord(), 20);
+        check (processor.getActiveVoiceCount() == 3, "poly mode plays a 3-note chord on 3 voices ("
+                                                         + juce::String (processor.getActiveVoiceCount()) + ")");
+    }
+
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "poly_voices", 2.0f);
+        processor.prepareToPlay (48000.0, 256);
+        render (processor, chord(), 20);
+        check (processor.getActiveVoiceCount() <= 2, "poly voice limit of 2 is respected ("
+                                                         + juce::String (processor.getActiveVoiceCount()) + ")");
+    }
+
+    for (const auto mode : { 1, 2 })
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "voice_mode", (float) mode);
+        processor.prepareToPlay (48000.0, 256);
+        const auto peak = render (processor, chord(), 20);
+        const auto name = mode == 1 ? juce::String ("mono") : juce::String ("legato");
+
+        check (processor.getActiveVoiceCount() == 1 && peak > 0.01f,
+               name + " mode plays a chord on one voice (" + juce::String (processor.getActiveVoiceCount()) + ")");
+
+        // Release the top note while the others are held: the voice must keep
+        // sounding (falls back to 64), then go quiet once everything is up.
+        juce::MidiBuffer releaseTop;
+        releaseTop.addEvent (juce::MidiMessage::noteOff (1, 67), 0);
+        const auto fallbackPeak = render (processor, releaseTop, 10);
+
+        juce::MidiBuffer releaseAll;
+        releaseAll.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+        releaseAll.addEvent (juce::MidiMessage::noteOff (1, 64), 0);
+        render (processor, releaseAll, 400);
+
+        check (fallbackPeak > 0.01f && processor.getActiveVoiceCount() == 0,
+               name + " mode falls back to held notes, then releases (fallback peak "
+                   + juce::String (fallbackPeak, 3) + ")");
+    }
+
+    // Legato keeps the amp envelope running between overlapping notes; mono
+    // retriggers it. Slow attack makes the difference measurable.
+    const auto levelAfterSecondNote = [&render] (int mode)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "voice_mode", (float) mode);
+        setParam (processor, "amp_attack", 1.0f);
+        processor.prepareToPlay (48000.0, 256);
+
+        juce::MidiBuffer first;
+        first.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        render (processor, first, 200); // ~1.07 s: attack complete
+
+        juce::MidiBuffer second;
+        second.addEvent (juce::MidiMessage::noteOn (1, 62, (juce::uint8) 100), 0);
+        return render (processor, second, 2);
+    };
+
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setMacroName (2, "Grit");
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (restored.getMacroName (2) == "Grit" && restored.getMacroName (0) == "Macro 1",
+               "macro names survive a host state round trip ('" + restored.getMacroName (2) + "')");
+
+        restored.loadFactoryPreset (1);
+        check (restored.getMacroName (2) == "Macro 3", "loading a factory preset resets macro names");
+    }
+
+    const auto legatoLevel = levelAfterSecondNote (2);
+    const auto monoLevel = levelAfterSecondNote (1);
+
+    check (legatoLevel > monoLevel * 0.9f && legatoLevel > 0.05f,
+           "legato does not retrigger the envelope (legato " + juce::String (legatoLevel, 3)
+               + ", mono " + juce::String (monoLevel, 3) + ")");
+}
 } // namespace
 
 int main()
@@ -2365,6 +2583,8 @@ int main()
     runOversamplingTest();
     runFxSlotAssignTest();
     runPresetNameTest();
+    runFilterModelTests();
+    runVoiceModeTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

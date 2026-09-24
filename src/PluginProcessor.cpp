@@ -180,6 +180,35 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         }
     }
 
+    for (int i = 0; i < Mod::maxSlots; ++i)
+    {
+        const auto prefix = "mod" + juce::String (i + 1);
+        modSlotIds[(size_t) i] = { prefix + "_src", prefix + "_dst", prefix + "_amt" };
+    }
+
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        const auto prefix = "lfo" + juce::String (lfo + 1);
+        auto& ids = lfoIds[(size_t) lfo];
+        ids.shape = prefix + "_shape";
+        ids.rate = prefix + "_rate";
+        ids.sync = prefix + "_sync";
+        ids.div = prefix + "_div";
+        ids.retrig = prefix + "_retrig";
+
+        for (int step = 0; step < 16; ++step)
+            ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
+    }
+
+    for (int slot = 0; slot < numFxSlots; ++slot)
+    {
+        const auto prefix = "fx_slot" + juce::String (slot + 1);
+        fxSlotIds[(size_t) slot] = { prefix, prefix + "_bypass", prefix + "_solo", prefix + "_mix" };
+    }
+
+    for (int step = 0; step < 16; ++step)
+        tapStepIds[(size_t) step] = "fx_taps_step" + juce::String (step + 1);
+
     for (int i = 0; i < numUserSlots; ++i)
     {
         auto table = std::make_shared<Wavetable>();
@@ -291,19 +320,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("noise_level", "Noise Level", 0.0f, 1.0f, 0.0f);
 
     // Filter 1
-    addChoice ("f1_type", "F1 Type", { "Low Pass", "Band Pass", "High Pass", "Notch" }, 0);
+    addChoice ("f1_type", "F1 Type", FilterType::getNames(), 0);
     addChoice ("f1_slope", "F1 Slope", { "12 dB", "24 dB" }, 0);
     addFloat ("f1_cutoff", "F1 Cutoff", 20.0f, 20000.0f, 12000.0f, 0.25f);
-    addFloat ("f1_reso", "F1 Reso", 0.0f, 0.98f, 0.25f);
+    addFloat ("f1_reso", "F1 Reso", 0.0f, 1.0f, 0.25f);
     addFloat ("f1_drive", "F1 Drive", 1.0f, 10.0f, 1.5f);
     addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 1.5f);
     addFloat ("f1_keytrack", "F1 Key Track", -1.0f, 1.0f, 0.0f);
 
     // Filter 2
-    addChoice ("f2_type", "F2 Type", { "Low Pass", "Band Pass", "High Pass", "Notch" }, 0);
+    addChoice ("f2_type", "F2 Type", FilterType::getNames(), 0);
     addChoice ("f2_slope", "F2 Slope", { "12 dB", "24 dB" }, 0);
     addFloat ("f2_cutoff", "F2 Cutoff", 20.0f, 20000.0f, 20000.0f, 0.25f);
-    addFloat ("f2_reso", "F2 Reso", 0.0f, 0.98f, 0.0f);
+    addFloat ("f2_reso", "F2 Reso", 0.0f, 1.0f, 0.0f);
     addFloat ("f2_drive", "F2 Drive", 1.0f, 10.0f, 1.0f);
     addFloat ("f2_env", "F2 Env", -5.0f, 5.0f, 0.0f);
     addFloat ("f2_keytrack", "F2 Key Track", -1.0f, 1.0f, 0.0f);
@@ -366,6 +395,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("voice_spread", "Voice Spread", 0.0f, 1.0f, 0.0f);
     addFloat ("unison_random", "Unison Random", 0.0f, 1.0f, 0.0f);
     addBool ("mpe_mode", "MPE Mode", false);
+    addChoice ("voice_mode", "Voice Mode", { "Poly", "Mono", "Legato" }, 0);
+    addInt ("poly_voices", "Poly Voices", 1, numVoices, numVoices);
+    addBool ("glide_legato", "Glide Legato Only", false);
 
     // Resonator bank
     addBool ("res_on", "Resonator On", false);
@@ -865,16 +897,16 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i + 1);
+        const auto& ids = modSlotIds[(size_t) i];
         const auto destination = (Mod::Destination) juce::jlimit (0, (int) Mod::Destination::Count - 1,
-                                                                  (int) getParam ((prefix + "_dst").toRawUTF8()));
+                                                                  (int) getParam (ids.dst.toRawUTF8()));
 
         if (destination == Mod::Destination::None)
             continue;
 
         const auto source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1,
-                                                        (int) getParam ((prefix + "_src").toRawUTF8()));
-        const auto depth = getParam ((prefix + "_amt").toRawUTF8());
+                                                        (int) getParam (ids.src.toRawUTF8()));
+        const auto depth = getParam (ids.amt.toRawUTF8());
 
         if (source == Mod::Source::None || depth == 0.0f)
             continue;
@@ -884,12 +916,12 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
         if (lfoIndex >= 0)
         {
-            const auto lfoPrefix = "lfo" + juce::String (lfoIndex + 1);
-            const auto shape = (int) getParam ((lfoPrefix + "_shape").toRawUTF8());
+            const auto& lfoId = lfoIds[(size_t) lfoIndex];
+            const auto shape = (int) getParam (lfoId.shape.toRawUTF8());
             const auto phase = lfoPhases[(size_t) lfoIndex];
 
             value = shape == 7
-                        ? getParam ((lfoPrefix + "_step" + juce::String (juce::jlimit (0, 15, (int) (phase * 16.0)) + 1)).toRawUTF8())
+                        ? getParam (lfoId.steps[(size_t) juce::jlimit (0, 15, (int) (phase * 16.0))].toRawUTF8())
                         : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(),
                                     activeLfoCustom[(size_t) lfoIndex].data());
         }
@@ -961,7 +993,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     p.noiseLevel = getParam ("noise_level");
 
-    p.filter1.mode = (Svf::Mode) juce::jlimit (0, 3, (int) getParam ("f1_type"));
+    p.filter1.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f1_type"));
     p.filter1.slope24 = getParam ("f1_slope") > 0.5f;
     p.filter1.cutoffHz = getParam ("f1_cutoff");
     p.filter1.resonance = getParam ("f1_reso");
@@ -969,7 +1001,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.filter1.envAmount = getParam ("f1_env");
     p.filter1.keyTrack = getParam ("f1_keytrack");
 
-    p.filter2.mode = (Svf::Mode) juce::jlimit (0, 3, (int) getParam ("f2_type"));
+    p.filter2.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f2_type"));
     p.filter2.slope24 = getParam ("f2_slope") > 0.5f;
     p.filter2.cutoffHz = getParam ("f2_cutoff");
     p.filter2.resonance = getParam ("f2_reso");
@@ -1066,13 +1098,16 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto prefix = "mod" + juce::String (i + 1);
+        const auto& ids = modSlotIds[(size_t) i];
 
         auto& slot = p.modSlots[i];
-        slot.source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) getParam ((prefix + "_src").toRawUTF8()));
-        slot.destination = (Mod::Destination) juce::jlimit (0, (int) Mod::Destination::Count - 1, (int) getParam ((prefix + "_dst").toRawUTF8()));
-        slot.depth = getParam ((prefix + "_amt").toRawUTF8());
+        slot.source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) getParam (ids.src.toRawUTF8()));
+        slot.destination = (Mod::Destination) juce::jlimit (0, (int) Mod::Destination::Count - 1, (int) getParam (ids.dst.toRawUTF8()));
+        slot.depth = getParam (ids.amt.toRawUTF8());
     }
+
+    synth.setVoiceMode ((IlanaSynth::Mode) juce::jlimit (0, 2, (int) getParam ("voice_mode")),
+                        (int) getParam ("poly_voices"), getParam ("glide_legato") > 0.5f);
 
     processArpeggiator (midiMessages, buffer.getNumSamples(), midiForSynth);
 
@@ -1347,7 +1382,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     bool retriggers[numLfos] {};
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        retriggers[lfo] = getParam (("lfo" + juce::String (lfo + 1) + "_retrig").toRawUTF8()) > 0.5f;
+        retriggers[lfo] = getParam (lfoIds[(size_t) lfo].retrig.toRawUTF8()) > 0.5f;
 
     for (const auto metadata : midiMessages)
     {
@@ -1377,13 +1412,13 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
         for (int i = 0; i < Mod::maxSlots; ++i)
         {
-            const auto prefix = "mod" + juce::String (i + 1);
+            const auto& ids = modSlotIds[(size_t) i];
 
-            if ((Mod::Destination) (int) getParam ((prefix + "_dst").toRawUTF8()) != rateDestination)
+            if ((Mod::Destination) (int) getParam (ids.dst.toRawUTF8()) != rateDestination)
                 continue;
 
-            const auto source = (Mod::Source) (int) getParam ((prefix + "_src").toRawUTF8());
-            rateMod += getParam ((prefix + "_amt").toRawUTF8()) * staticSourceValue ((int) source);
+            const auto source = (Mod::Source) (int) getParam (ids.src.toRawUTF8());
+            rateMod += getParam (ids.amt.toRawUTF8()) * staticSourceValue ((int) source);
         }
 
         return juce::jlimit (0.001f, 200.0f, rate * std::exp2 (rateMod * 4.0f));
@@ -1396,18 +1431,17 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
-        const auto prefix = ("lfo" + juce::String (lfo + 1));
+        const auto& ids = lfoIds[(size_t) lfo];
 
-        lfoRates[lfo] = makeRate ((prefix + "_sync").toRawUTF8(), (prefix + "_rate").toRawUTF8(),
-                                  (prefix + "_div").toRawUTF8(),
+        lfoRates[lfo] = makeRate (ids.sync.toRawUTF8(), ids.rate.toRawUTF8(), ids.div.toRawUTF8(),
                                   lfo == 0 ? Mod::Destination::Lfo1Rate
                                            : (lfo == 1 ? Mod::Destination::Lfo2Rate
                                                        : Mod::Destination::None));
-        lfoShapes[lfo] = (float) (int) getParam ((prefix + "_shape").toRawUTF8());
+        lfoShapes[lfo] = (float) (int) getParam (ids.shape.toRawUTF8());
         lfoIncrements[lfo] = (double) lfoRates[lfo] / currentSampleRate;
 
         for (int step = 0; step < 16; ++step)
-            lfoSteps[lfo][step] = getParam ((prefix + "_step" + juce::String (step + 1)).toRawUTF8());
+            lfoSteps[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
     }
 
     float* lfoBufferPointers[numLfos] {};
@@ -1537,17 +1571,17 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
 {
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto prefix = "fx_slot" + juce::String (slot);
-        const auto type = (int) getParam (prefix.toRawUTF8());
+        const auto& ids = fxSlotIds[(size_t) (slot - 1)];
+        const auto type = (int) getParam (ids.type.toRawUTF8());
 
-        if (type == 0 || getParam ((prefix + "_bypass").toRawUTF8()) > 0.5f)
+        if (type == 0 || getParam (ids.bypass.toRawUTF8()) > 0.5f)
         {
             fxSlotCpu[(size_t) (slot - 1)].store (0.0f);
             continue;
         }
 
-        const auto solo = getParam ((prefix + "_solo").toRawUTF8()) > 0.5f;
-        const auto blend = getParam ((prefix + "_mix").toRawUTF8());
+        const auto solo = getParam (ids.solo.toRawUTF8()) > 0.5f;
+        const auto blend = getParam (ids.mix.toRawUTF8());
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
@@ -1838,7 +1872,7 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
 
         if (tapsOn && tapPattern == 6)
             for (int step = 0; step < 16; ++step)
-                customTapGains[step] = getParam (("fx_taps_step" + juce::String (step + 1)).toRawUTF8());
+                customTapGains[step] = getParam (tapStepIds[(size_t) step].toRawUTF8());
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -3313,6 +3347,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         return;
 
     setCurrentPresetName (presets[(size_t) index].name);
+
+    for (int macro = 0; macro < 4; ++macro)
+    {
+        const auto& names = presets[(size_t) index].macroNames;
+        setMacroName (macro, macro < (int) names.size() ? juce::String (names[(size_t) macro]) : juce::String());
+    }
 
     for (auto* parameter : getParameters())
     {

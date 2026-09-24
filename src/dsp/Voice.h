@@ -7,6 +7,7 @@
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
 #include "SamplePlayer.h"
+#include "FilterUnit.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
 #include "WavetableOscillator.h"
@@ -47,7 +48,7 @@ struct VoiceParams
 
     struct FilterParams
     {
-        Svf::Mode mode = Svf::Mode::LowPass;
+        int type = FilterType::LowPass;
         bool slope24 = false;
         float cutoffHz = 20000.0f;
         float resonance = 0.2f;
@@ -142,6 +143,18 @@ public:
 
     bool canPlaySound (juce::SynthesiserSound*) override { return true; }
 
+    // Mono / legato: the synth calls this right before handing the voice a
+    // new note. keepRunning stops the hard reset between notes; legato also
+    // skips retriggering the envelopes; glide says whether to slide pitch
+    // from the previous note or jump.
+    void prepareMonoNote (bool legato, bool keepRunning, bool glide)
+    {
+        monoLegato = legato;
+        monoKeepRunning = keepRunning;
+        monoGlide = glide;
+        monoPending = true;
+    }
+
     void setCurrentPlaybackSampleRate (double newRate) override;
     void startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound* sound, int currentPitchWheelPosition) override;
     void stopNote (float velocity, bool allowTailOff) override;
@@ -174,8 +187,7 @@ private:
     double sampleRatioSub[VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
 
-    Svf filter1L1, filter1L2, filter1R1, filter1R2;
-    Svf filter2L1, filter2L2, filter2R1, filter2R2;
+    FilterUnit filter1L, filter1R, filter2L, filter2R;
 
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;
     juce::Random random;
@@ -233,4 +245,9 @@ private:
     int lastUnison2 = 1;
     int lastUnisonSub = 1;
     float voicePan = 0.0f;
+
+    bool monoPending = false;
+    bool monoLegato = false;
+    bool monoKeepRunning = false;
+    bool monoGlide = true;
 };

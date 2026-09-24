@@ -10,6 +10,7 @@
 
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
+#include "dsp/IlanaSynth.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -115,6 +116,19 @@ public:
     juce::String getCurrentPresetName() const { return apvts.state.getProperty ("presetName").toString(); }
     void setCurrentPresetName (const juce::String& name) { apvts.state.setProperty ("presetName", name, nullptr); }
 
+    // Macro names travel with the patch (state tree), so presets and host
+    // sessions keep them. Message thread only.
+    juce::String getMacroName (int macroIndex) const
+    {
+        const auto name = apvts.state.getProperty ("macroName" + juce::String (macroIndex + 1)).toString();
+        return name.isNotEmpty() ? name : "Macro " + juce::String (macroIndex + 1);
+    }
+
+    void setMacroName (int macroIndex, const juce::String& name)
+    {
+        apvts.state.setProperty ("macroName" + juce::String (macroIndex + 1), name, nullptr);
+    }
+
     bool assignModSlot (int sourceIndex, Mod::Destination destination, float depth);
     bool clearModSlotsForTarget (Mod::Destination destination);
 
@@ -192,7 +206,7 @@ private:
     void processArpeggiator (juce::MidiBuffer& midiMessages, int numSamples, juce::MidiBuffer& output);
     int selectArpNote (int mode, int octaves);
 
-    juce::Synthesiser synth;
+    IlanaSynth synth;
 
     juce::MidiBuffer midiForSynth;
     juce::Array<int> arpHeldNotes;
@@ -224,6 +238,15 @@ private:
     mutable juce::SpinLock tableLock;
 
     std::array<std::array<juce::String, 5>, 3> stringParamIds;
+
+    // Parameter IDs built once, so the audio thread never allocates strings.
+    struct ModSlotIds { juce::String src, dst, amt; };
+    std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
+    struct LfoIds { juce::String shape, rate, sync, div, retrig; std::array<juce::String, 16> steps; };
+    std::array<LfoIds, (size_t) numLfos> lfoIds;
+    struct FxSlotIds { juce::String type, bypass, solo, mix; };
+    std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
+    std::array<juce::String, 16> tapStepIds;
     std::array<std::array<juce::String, 7>, 3> sampleParamIds;
 
     static constexpr int numSampleOscs = 3;

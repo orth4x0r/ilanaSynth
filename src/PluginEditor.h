@@ -7,10 +7,12 @@
 #include <vector>
 
 #include "PluginProcessor.h"
+#include "gui/HeaderWidgets.h"
 #include "gui/IlanaLookAndFeel.h"
 #include "gui/InfoStrip.h"
 #include "gui/KeyboardStrip.h"
 #include "gui/LogoComponent.h"
+#include "gui/MacroStrip.h"
 #include "gui/ModSourceChip.h"
 #include "gui/PresetPanel.h"
 #include "gui/TutorialOverlay.h"
@@ -44,7 +46,12 @@ private:
     void savePreset();
     void loadPreset();
     void togglePresetPanel();
+    void showPresetMenu();
+    void showDiceMenu();
+    void showSettingsMenu();
     void randomize();
+    void randomizeGroup (int group);
+    void mutate (float amount);
     void loadPresetIndex (int index);
     void updateHeaderButtons();
     void updateUndoButtons();
@@ -53,7 +60,9 @@ private:
     bool isFavourite (const juce::String& presetName) const;
     void toggleFavourite();
     void toggleAB();
-    void cycleTheme();
+    void setTheme (int newThemeIndex);
+    void setKeyboardVisible (bool shouldBeVisible);
+    juce::int64 parameterFingerprint() const;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
     void startTabTransition();
@@ -76,20 +85,19 @@ private:
 
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
 
-    juce::TextButton presetButton { "PRESETS" };
-    juce::TextButton prevButton { "<" };
-    juce::TextButton nextButton { ">" };
-    juce::TextButton initButton { "INIT" };
-    juce::TextButton favButton { "FAV" };
-    juce::TextButton undoButton { "UNDO" };
-    juce::TextButton redoButton { "REDO" };
-    juce::TextButton historyButton { "HIST" };
+    PresetDisplay presetDisplay;
+    IconButton prevButton { "prev", IlanaIcons::Icon::ChevronLeft, "Previous preset" };
+    IconButton nextButton { "next", IlanaIcons::Icon::ChevronRight, "Next preset" };
+    IconButton favButton { "fav", IlanaIcons::Icon::Star, "Favourite\nMark this preset as a favourite." };
+    IconButton saveButton { "save", IlanaIcons::Icon::Save, "Save preset\nSave the current sound as a user preset." };
+    IconButton moreButton { "more", IlanaIcons::Icon::More, "Preset options\nInit, load from file, open the preset folder." };
+    IconButton undoButton { "undo", IlanaIcons::Icon::Undo, "Undo  (Ctrl+Z)" };
+    IconButton redoButton { "redo", IlanaIcons::Icon::Redo, "Redo  (Ctrl+Shift+Z)" };
+    IconButton historyButton { "history", IlanaIcons::Icon::History, "History\nJump back to any earlier change." };
     juce::TextButton abButton { "A" };
-    juce::TextButton themeButton { "SKIN" };
-    juce::TextButton zoomButton { "UI 100%" };
-    juce::TextButton diceButton { "DICE" };
-    juce::TextButton saveButton { "SAVE" };
-    juce::TextButton loadButton { "LOAD" };
+    IconButton diceButton { "dice", IlanaIcons::Icon::Dice, "Randomise\nRoll a new patch, or randomise one part of it." };
+    IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nSkin, interface size, keyboard and the welcome tour." };
+    juce::TextButton keysButton { "KEYS" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<juce::PropertiesFile> settings;
@@ -99,14 +107,18 @@ private:
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     std::unique_ptr<KeyboardStrip> keyboard;
-    std::unique_ptr<juce::Component> macro1Knob, macro2Knob, macro3Knob, macro4Knob, masterKnob;
-    std::unique_ptr<juce::Component> glideKnob, bendKnob;
+    std::vector<std::unique_ptr<StripKnob>> macroKnobs;
+    std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
+    std::unique_ptr<ComboControl> voiceModeBox;
+    bool keyboardVisible = true;
+    juce::int64 loadedFingerprint = 0;
 
     juce::ValueTree slotA, slotB;
     bool showingA = true;
     int currentPresetIndex = -1;
     juce::String shownPresetName;
     int themeIndex = 0;
+    juce::String shownCategory;
 
     juce::Component* transitionPage = nullptr;
     double transitionStart = 0.0;

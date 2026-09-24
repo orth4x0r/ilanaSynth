@@ -18,6 +18,7 @@
 #include "gui/EnvelopeDisplay.h"
 #include "gui/FilterDisplay.h"
 #include "gui/LfoDisplay.h"
+#include "gui/LfoThumbs.h"
 #include "gui/ParamControls.h"
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
@@ -1018,9 +1019,10 @@ class LfoSection : public juce::Component
 public:
     LfoSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
         : processorRef (p),
-          settings (settingsRef)
+          settings (settingsRef),
+          thumbs (p, [] (int index) { return lfoColour (index); })
     {
-        addAndMakeVisible (tabBar);
+        addAndMakeVisible (thumbs);
 
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         {
@@ -1033,24 +1035,13 @@ public:
             controlsList.push_back (std::move (controls));
         }
 
-        revealed = juce::jlimit (1, IlanaSynthAudioProcessor::numLfos,
-                                 settings.getIntValue ("lfoRevealed", 1));
+        selected = juce::jlimit (0, IlanaSynthAudioProcessor::numLfos - 1, settings.getIntValue ("lfoSelected", 0));
 
-        tabBar.onSelect = [this] (int index)
+        thumbs.onSelect = [this] (int index)
         {
             selected = index;
+            settings.setValue ("lfoSelected", selected);
             updateVisibility();
-        };
-
-        tabBar.onAdd = [this]
-        {
-            if (revealed < IlanaSynthAudioProcessor::numLfos)
-            {
-                ++revealed;
-                selected = revealed - 1;
-                settings.setValue ("lfoRevealed", revealed);
-                updateVisibility();
-            }
         };
 
         updateVisibility();
@@ -1060,8 +1051,8 @@ public:
     {
         auto area = getLocalBounds();
 
-        tabBar.setBounds (area.removeFromTop (24));
-        area.removeFromTop (4);
+        thumbs.setBounds (area.removeFromTop (58));
+        area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
         displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (470).reduced (2));
@@ -1070,6 +1061,17 @@ public:
         layoutRow (knobRow, { &controlsList[(size_t) displayIndex]->shape, &controlsList[(size_t) displayIndex]->rate,
                               &controlsList[(size_t) displayIndex]->sync, &controlsList[(size_t) displayIndex]->div,
                               &controlsList[(size_t) displayIndex]->retrig });
+    }
+
+    static juce::Colour lfoColour (int index)
+    {
+        switch (index)
+        {
+            case 1: return juce::Colour (0xff35c8ff);
+            case 2: return juce::Colour (0xff6fe3c1);
+            case 3: return juce::Colour (0xffe3a56f);
+            default: return IlanaTheme::accent();
+        }
     }
 
 private:
@@ -1091,17 +1093,6 @@ private:
         ToggleControl retrig;
     };
 
-    static juce::Colour lfoColour (int index)
-    {
-        switch (index)
-        {
-            case 1: return juce::Colour (0xff35c8ff);
-            case 2: return juce::Colour (0xff6fe3c1);
-            case 3: return juce::Colour (0xffe3a56f);
-            default: return IlanaTheme::accent();
-        }
-    }
-
     void updateVisibility()
     {
         for (int lfo = 0; lfo < (int) displays.size(); ++lfo)
@@ -1116,22 +1107,16 @@ private:
             c.retrig.setVisible (visible);
         }
 
-        juce::StringArray names;
-
-        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            names.add ("LFO " + juce::String (lfo + 1));
-
-        tabBar.setItems (names, revealed, selected);
+        thumbs.setSelected (selected);
         resized();
         repaint();
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
-    SubTabBar tabBar;
+    LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
-    int revealed = 1;
     int selected = 0;
 };
 
@@ -1192,6 +1177,7 @@ public:
           unisonRandom (p.apvts, "unison_random", "UNI PHASE RND", xtraColour (0), true),
           masterClip (p.apvts, "master_clip", "SOFT CLIP"),
           mpeMode (p.apvts, "mpe_mode", "MPE"),
+          glideLegato (p.apvts, "glide_legato", "LEGATO GLIDE"),
           clipGain (p.apvts, "master_clip_gain", "CLIP GAIN", xtraColour (0), false),
           fmAmount (p.apvts, "fm_amount", "FM  OSC2>OSC1", xtraColour (1), false),
           fmFeedback (p.apvts, "fm_feedback", "FM FEEDBACK", xtraColour (1), false),
@@ -1215,12 +1201,12 @@ public:
     {
         addAndMakeVisible (tabBar);
         addAll (*this, voiceDisplay, crossModDisplay, arpDisplay, resonatorDisplay,
-                voiceSpread, unisonRandom, masterClip, mpeMode, clipGain,
+                voiceSpread, unisonRandom, masterClip, mpeMode, glideLegato, clipGain,
                 fmAmount, fmFeedback, ringMod, hardSync, drift,
                 arpOn, arpMode, arpDiv, arpOctaves, arpGate,
                 resOn, resAmount, resDecay, resOffset, resKeytrack);
 
-        units.push_back ({ &voiceDisplay, { &voiceSpread, &unisonRandom, &masterClip, &mpeMode, &clipGain } });
+        units.push_back ({ &voiceDisplay, { &voiceSpread, &unisonRandom, &glideLegato, &masterClip, &mpeMode, &clipGain } });
         units.push_back ({ &crossModDisplay, { &fmAmount, &fmFeedback, &ringMod, &hardSync, &drift } });
         units.push_back ({ &arpDisplay, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate }, "arp_on" });
         units.push_back ({ &resonatorDisplay, { &resOn, &resAmount, &resDecay, &resOffset, &resKeytrack }, "res_on" });
@@ -1377,16 +1363,11 @@ private:
         return 0.0f;
     }
 
-    SubTabBar tabBar;
-    VoiceDisplay voiceDisplay;
-    CrossModDisplay crossModDisplay;
-    ArpDisplay arpDisplay;
-    ResonatorDisplay resonatorDisplay;
+    // Declared in constructor-initialiser order.
     IlanaSynthAudioProcessor& processorRef;
-    juce::Rectangle<int> controlBay;
-    std::vector<std::vector<float>> knobAlphas;
-    KnobControl voiceSpread, unisonRandom, clipGain;
-    ToggleControl masterClip, mpeMode;
+    KnobControl voiceSpread, unisonRandom;
+    ToggleControl masterClip, mpeMode, glideLegato;
+    KnobControl clipGain;
     KnobControl fmAmount, fmFeedback, ringMod;
     ToggleControl hardSync;
     KnobControl drift;
@@ -1395,6 +1376,13 @@ private:
     KnobControl arpOctaves, arpGate;
     ToggleControl resOn;
     KnobControl resAmount, resDecay, resOffset, resKeytrack;
+    VoiceDisplay voiceDisplay;
+    CrossModDisplay crossModDisplay;
+    ArpDisplay arpDisplay;
+    ResonatorDisplay resonatorDisplay;
+    SubTabBar tabBar;
+    juce::Rectangle<int> controlBay;
+    std::vector<std::vector<float>> knobAlphas;
     std::vector<Unit> units;
     int selected = 0;
     bool pendingRepaint = false;
@@ -2555,16 +2543,21 @@ private:
         if (target < 0 || target >= IlanaSynthAudioProcessor::numFxSlots)
             return;
 
-        auto* current = processorRef.apvts.getParameter ("fx_slot" + juce::String (selectedSlot + 1));
-        auto* other = processorRef.apvts.getParameter ("fx_slot" + juce::String (target + 1));
-
-        if (current != nullptr && other != nullptr)
+        // A slot is its module plus its bypass, solo and blend settings; move
+        // them together so a dragged slot keeps how it was set up.
+        for (const auto* suffix : { "", "_bypass", "_solo", "_mix" })
         {
-            const auto currentValue = current->getValue();
-            const auto otherValue = other->getValue();
+            auto* current = processorRef.apvts.getParameter ("fx_slot" + juce::String (selectedSlot + 1) + suffix);
+            auto* other = processorRef.apvts.getParameter ("fx_slot" + juce::String (target + 1) + suffix);
 
-            current->setValueNotifyingHost (otherValue);
-            other->setValueNotifyingHost (currentValue);
+            if (current != nullptr && other != nullptr)
+            {
+                const auto currentValue = current->getValue();
+                const auto otherValue = other->getValue();
+
+                current->setValueNotifyingHost (otherValue);
+                other->setValueNotifyingHost (currentValue);
+            }
         }
 
         selectedSlot = target;
@@ -2865,7 +2858,11 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     content.addAndMakeVisible (logo);
     content.addAndMakeVisible (infoStrip);
-    infoStrip.setToolbarButton (&zoomButton);
+
+    keysButton.setClickingTogglesState (true);
+    keysButton.setTooltip ("Keyboard\nShow or hide the on-screen keyboard.  Hiding it gives the pages more room.");
+    keysButton.onClick = [this] { setKeyboardVisible (keysButton.getToggleState()); };
+    infoStrip.setToolbarButton (&keysButton);
 
     infoStrip.onHelp = [this]
     {
@@ -2896,24 +2893,28 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     content.addAndMakeVisible (tabs);
 
-    macro1Knob = std::make_unique<KnobControl> (p.apvts, "macro1", "MACRO 1");
-    macro2Knob = std::make_unique<KnobControl> (p.apvts, "macro2", "MACRO 2");
-    macro3Knob = std::make_unique<KnobControl> (p.apvts, "macro3", "MACRO 3");
-    macro4Knob = std::make_unique<KnobControl> (p.apvts, "macro4", "MACRO 4");
-    glideKnob = std::make_unique<KnobControl> (p.apvts, "glide", "GLIDE");
-    bendKnob = std::make_unique<KnobControl> (p.apvts, "bend_range", "BEND RANGE");
-    masterKnob = std::make_unique<KnobControl> (p.apvts, "master", "MASTER",
-                                                juce::Colour (0xffffd447));
+    // Bottom strip: macros, then performance controls, then master.
+    for (int macro = 0; macro < 4; ++macro)
+    {
+        auto knob = std::make_unique<StripKnob> (p, "macro" + juce::String (macro + 1),
+                                                 "Macro " + juce::String (macro + 1), macro,
+                                                 juce::Colour (0xffffd447), false);
+        content.addAndMakeVisible (*knob);
+        macroKnobs.push_back (std::move (knob));
+    }
 
-    content.addAndMakeVisible (*macro1Knob);
-    content.addAndMakeVisible (*macro2Knob);
-    content.addAndMakeVisible (*macro3Knob);
-    content.addAndMakeVisible (*macro4Knob);
-    content.addAndMakeVisible (*glideKnob);
-    content.addAndMakeVisible (*bendKnob);
-    content.addAndMakeVisible (*masterKnob);
+    glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
+    bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
+    voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices");
+    masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, juce::Colour (0xffffd447), false);
+    voiceModeBox = std::make_unique<ComboControl> (p.apvts, "voice_mode", "VOICE MODE");
 
-    presetButton.onClick = [this] { togglePresetPanel(); };
+    for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (bendKnob.get()),
+                             static_cast<juce::Component*> (voicesKnob.get()), static_cast<juce::Component*> (masterKnob.get()),
+                             static_cast<juce::Component*> (voiceModeBox.get()) })
+        content.addAndMakeVisible (*component);
+
+    presetDisplay.onClick = [this] { togglePresetPanel(); };
 
     prevButton.onClick = [this]
     {
@@ -2929,42 +2930,23 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         if (count > 0)
             loadPresetIndex ((currentPresetIndex + 1) % count);
     };
-    initButton.onClick = [this] { loadPresetIndex (0); };
     favButton.setClickingTogglesState (true);
     favButton.onClick = [this] { toggleFavourite(); updateHeaderButtons(); };
+    saveButton.setText ("SAVE");
+    saveButton.onClick = [this] { savePreset(); };
+    moreButton.onClick = [this] { showPresetMenu(); };
     undoButton.onClick = [this] { processorRef.getUndoManager().undo(); };
     redoButton.onClick = [this] { processorRef.getUndoManager().redo(); };
     historyButton.onClick = [this] { showHistoryMenu(); };
+    abButton.setTooltip ("A / B\nFlip between two versions of the patch to compare them.");
     abButton.onClick = [this] { toggleAB(); };
-    themeButton.onClick = [this] { cycleTheme(); };
-    zoomButton.onClick = [this]
-    {
-        const float choices[] { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+    diceButton.setText ("DICE");
+    diceButton.onClick = [this] { showDiceMenu(); };
+    settingsButton.onClick = [this] { showSettingsMenu(); };
 
-        juce::PopupMenu menu;
-
-        for (int i = 0; i < 5; ++i)
-            menu.addItem (i + 1, juce::String (juce::roundToInt (choices[i] * 100.0f)) + "%",
-                          true, juce::approximatelyEqual (uiZoom, choices[i]));
-
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&zoomButton),
-                            [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
-                            {
-                                if (safeThis == nullptr || result <= 0)
-                                    return;
-
-                                const float zoomChoices[] { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
-                                safeThis->applyUiZoom (zoomChoices[juce::jlimit (0, 4, result - 1)]);
-                            });
-    };
-    diceButton.onClick = [this] { randomize(); };
-
-    saveButton.onClick = [this] { savePreset(); };
-    loadButton.onClick = [this] { loadPreset(); };
-
-    for (auto* button : { &presetButton, &prevButton, &nextButton, &initButton, &favButton,
-                          &undoButton, &redoButton, &historyButton, &abButton, &themeButton, &diceButton,
-                          &saveButton, &loadButton })
+    for (auto* button : std::initializer_list<juce::Component*> { &presetDisplay, &prevButton, &nextButton, &favButton,
+                                                                  &saveButton, &moreButton, &undoButton, &redoButton,
+                                                                  &historyButton, &abButton, &diceButton, &settingsButton })
         content.addAndMakeVisible (*button);
 
     keyboard = std::make_unique<KeyboardStrip> (p);
@@ -2972,19 +2954,23 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     setWantsKeyboardFocus (true);
 
+    // Macros are dragged from their own names in the strip, so they have no
+    // chip here.
     const struct
     {
         const char* name;
-        int source;
+        Mod::Source source;
     } chipSpecs[] = {
-        { "LFO 1", 1 }, { "LFO 2", 2 }, { "LFO 3", 20 }, { "LFO 4", 21 },
-        { "MOD ENV", 3 }, { "FILT ENV", 4 }, { "VELOCITY", 6 },
-        { "MOD WHEEL", 9 }, { "MACRO 1", 12 }, { "MACRO 2", 13 }, { "MACRO 3", 14 }, { "MACRO 4", 15 }
+        { "LFO 1", Mod::Source::Lfo1 }, { "LFO 2", Mod::Source::Lfo2 }, { "LFO 3", Mod::Source::Lfo3 },
+        { "LFO 4", Mod::Source::Lfo4 }, { "MOD ENV", Mod::Source::ModEnv }, { "FILT ENV", Mod::Source::FilterEnv },
+        { "F2 ENV", Mod::Source::FilterEnv2 }, { "ENV 4", Mod::Source::Env4 }, { "MSEG", Mod::Source::Mseg },
+        { "VELOCITY", Mod::Source::Velocity }, { "KEY", Mod::Source::KeyTrack }, { "RANDOM", Mod::Source::Random },
+        { "WHEEL", Mod::Source::ModWheel }, { "PRESSURE", Mod::Source::Aftertouch }
     };
 
     for (const auto& spec : chipSpecs)
     {
-        auto chip = std::make_unique<ModSourceChip> (spec.name, spec.source);
+        auto chip = std::make_unique<ModSourceChip> (spec.name, (int) spec.source);
         content.addAndMakeVisible (*chip);
         chips.push_back (std::move (chip));
     }
@@ -2997,9 +2983,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     if (tutorial.isVisible())
         tutorial.toFront (false);
 
+    keyboardVisible = settings->getBoolValue ("showKeyboard", true);
+    keysButton.setToggleState (keyboardVisible, juce::dontSendNotification);
+    keyboard->setVisible (keyboardVisible);
+
     updateHeaderButtons();
     updateUndoButtons();
     updateSeqTab();
+    loadedFingerprint = parameterFingerprint();
 
     setResizable (true, false);
 
@@ -3128,8 +3119,6 @@ void IlanaSynthAudioProcessorEditor::applyUiZoom (float newZoom)
 {
     uiZoom = juce::jlimit (0.75f, 2.0f, newZoom);
 
-    zoomButton.setButtonText ("UI " + juce::String (juce::roundToInt (uiZoom * 100.0f)) + "%");
-
     if (settings != nullptr)
     {
         settings->setValue ("uiZoom", uiZoom);
@@ -3216,6 +3205,14 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
             presetLoadFlash = 0.0f;
     }
 
+    presetDisplay.setFlash (presetLoadFlash);
+
+    // "Edited" marker: cheap checksum of every parameter against the one
+    // taken when the preset was loaded.
+    if (presetLoadFlash <= 0.01f)
+        presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
+                                 parameterFingerprint() != loadedFingerprint);
+
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
@@ -3274,23 +3271,9 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.1f));
     g.fillRect (juce::Rectangle<int> (0, 1, designWidth, 1));
 
-    if (presetLoadFlash > 0.01f)
-    {
-        const auto flashBounds = presetButton.getBounds().toFloat().expanded (3.0f, 2.5f);
-
-        juce::ColourGradient flash (IlanaTheme::accent().withAlpha (0.24f * presetLoadFlash), flashBounds.getX(), flashBounds.getY(),
-                                    IlanaTheme::accent().withAlpha (0.02f * presetLoadFlash), flashBounds.getX(), flashBounds.getBottom(), false);
-        g.setGradientFill (flash);
-        g.fillRoundedRectangle (flashBounds, 7.0f);
-
-        g.setColour (IlanaTheme::accent().withAlpha (0.5f * presetLoadFlash));
-        g.drawRoundedRectangle (flashBounds, 7.0f, 1.4f);
-    }
-
     g.setColour (juce::Colours::white.withAlpha (0.3f));
     g.setFont (IlanaTheme::font (10.5f));
-    g.drawText (juce::String ("aggressive wavetable synthesizer   -   v") + appVersion,
-                juce::Rectangle<int> (288, 40, 340, 14), juce::Justification::centredLeft);
+    g.drawText (juce::String ("v") + appVersion, juce::Rectangle<int> (236, 40, 50, 14), juce::Justification::centredLeft);
 
     juce::ColourGradient headerLine (IlanaTheme::accent().withAlpha (0.5f), 16.0f, 0.0f,
                                      IlanaTheme::accent().withAlpha (0.0f), (float) designWidth - 16.0f, 0.0f, false);
@@ -3300,21 +3283,23 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     const auto cpu = processorRef.getCpuUsage() * 100.0f;
 
     const auto cpuColour = cpu < 30.0f
-                               ? juce::Colours::white.withAlpha (0.45f)
+                               ? juce::Colours::white.withAlpha (0.4f)
                                : (cpu < 60.0f
-                                      ? juce::Colours::white.withAlpha (0.45f)
+                                      ? juce::Colours::white.withAlpha (0.4f)
                                             .interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
                                       : IlanaTheme::accent().interpolatedWith (juce::Colours::red,
                                                                                juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
 
+    // Status line along the bottom edge of the header: tempo, voices, CPU.
+    const auto statusY = 43;
+    g.setFont (IlanaTheme::font (10.5f));
     g.setColour (cpuColour);
-    g.setFont (IlanaTheme::font (11.5f));
     g.drawText ("CPU " + juce::String (cpu, 0) + "%",
-                juce::Rectangle<int> (designWidth - 118, 41, 100, 12), juce::Justification::centredRight);
+                juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);
 
-    g.setColour (juce::Colours::white.withAlpha (0.45f));
-    g.drawText ("BPM " + juce::String (processorRef.getCurrentBpm(), 1),
-                juce::Rectangle<int> (designWidth - 330, 41, 80, 12), juce::Justification::centredRight);
+    g.setColour (juce::Colours::white.withAlpha (0.4f));
+    g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
+                juce::Rectangle<int> (designWidth - 316, statusY, 70, 11), juce::Justification::centredRight);
 
     const auto activeVoices = processorRef.getActiveVoiceCount();
 
@@ -3323,7 +3308,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         const auto lit = i < activeVoices;
         g.setColour (lit ? IlanaTheme::accent().withAlpha (0.9f)
                          : juce::Colours::white.withAlpha (0.12f));
-        g.fillEllipse ((float) (designWidth - 244 + i * 7), 43.0f, 5.0f, 5.0f);
+        g.fillEllipse ((float) (designWidth - 232 + i * 8), (float) statusY + 3.0f, 5.0f, 5.0f);
     }
 }
 
@@ -3337,72 +3322,107 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     auto area = content.getLocalBounds();
 
-    auto headerRow = area.removeFromTop (56).reduced (14, 10);
-    headerRow.removeFromLeft (300);
+    logo.setBounds (16, 5, 216, 46);
 
-    logo.setBounds (16, 5, 264, 46);
+    // Header: preset display in the middle with its browse / save controls,
+    // editing tools on the right. Buttons sit in the top 36 px; the status
+    // line runs underneath them.
+    auto headerRow = area.removeFromTop (56).withTrimmedTop (5).withHeight (32).withTrimmedRight (14);
+    headerRow.removeFromLeft (292);
 
-    // SAVE and LOAD are placed first so they can never be squeezed out, then
-    // the smaller controls from the right, and the preset display takes
-    // whatever is left in the middle.
-    loadButton.setBounds (headerRow.removeFromLeft (50).reduced (0, 6));
-    headerRow.removeFromLeft (4);
-    saveButton.setBounds (headerRow.removeFromLeft (50).reduced (0, 6));
-    headerRow.removeFromLeft (8);
+    constexpr int key = 30;
+    settingsButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (6);
+    diceButton.setBounds (headerRow.removeFromRight (66));
+    headerRow.removeFromRight (6);
+    abButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (12);
+    historyButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (3);
+    redoButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (3);
+    undoButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (16);
 
-    themeButton.setBounds (headerRow.removeFromRight (46).reduced (0, 6));
-    headerRow.removeFromRight (6);
-    diceButton.setBounds (headerRow.removeFromRight (46).reduced (0, 6));
-    headerRow.removeFromRight (6);
-    abButton.setBounds (headerRow.removeFromRight (32).reduced (0, 6));
-    headerRow.removeFromRight (6);
-    redoButton.setBounds (headerRow.removeFromRight (52).reduced (0, 6));
-    headerRow.removeFromRight (4);
-    historyButton.setBounds (headerRow.removeFromRight (48).reduced (0, 6));
-    headerRow.removeFromRight (4);
-    undoButton.setBounds (headerRow.removeFromRight (52).reduced (0, 6));
+    moreButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (3);
+    saveButton.setBounds (headerRow.removeFromRight (70));
     headerRow.removeFromRight (8);
-    favButton.setBounds (headerRow.removeFromRight (42).reduced (0, 6));
-    headerRow.removeFromRight (4);
-    initButton.setBounds (headerRow.removeFromRight (46).reduced (0, 6));
-    headerRow.removeFromRight (4);
-    nextButton.setBounds (headerRow.removeFromRight (26).reduced (0, 6));
-    prevButton.setBounds (headerRow.removeFromRight (26).reduced (0, 6));
-    headerRow.removeFromRight (4);
+    favButton.setBounds (headerRow.removeFromRight (key));
+    headerRow.removeFromRight (3);
+    nextButton.setBounds (headerRow.removeFromRight (26));
+    prevButton.setBounds (headerRow.removeFromLeft (26));
+    headerRow.removeFromLeft (3);
+    headerRow.removeFromRight (3);
+    presetDisplay.setBounds (headerRow.withTrimmedTop (-3).withHeight (headerRow.getHeight() + 6));
 
-    presetButton.setBounds (headerRow.reduced (0, 6));
+    // Bottom: source chips, the macro / performance strip, the info line and
+    // the optional keyboard.
+    if (keyboard != nullptr)
+    {
+        keyboard->setVisible (keyboardVisible);
 
-    auto bottom = area.removeFromBottom (178);
+        if (keyboardVisible)
+            keyboard->setBounds (area.removeFromBottom (32).reduced (14, 2));
+    }
 
-    auto chipsRow = bottom.removeFromTop (28).reduced (14, 2);
+    infoStrip.setBounds (area.removeFromBottom (24).reduced (14, 2));
+    tutorial.setBounds (content.getLocalBounds());
+
+    auto strip = area.removeFromBottom (54).reduced (14, 2);
+    masterKnob->setBounds (strip.removeFromRight (112));
+    strip.removeFromRight (6);
+    voicesKnob->setBounds (strip.removeFromRight (90));
+    voiceModeBox->setBounds (strip.removeFromRight (96).withSizeKeepingCentre (92, 40));
+    strip.removeFromRight (8);
+    bendKnob->setBounds (strip.removeFromRight (88));
+    glideKnob->setBounds (strip.removeFromRight (96));
+    strip.removeFromRight (10);
+
+    const auto macroWidth = strip.getWidth() / juce::jmax (1, (int) macroKnobs.size());
+
+    for (auto& knob : macroKnobs)
+        knob->setBounds (strip.removeFromLeft (macroWidth).withTrimmedRight (6));
+
+    auto chipsRow = area.removeFromBottom (28).reduced (14, 2);
 
     if (! chips.empty())
     {
         const auto chipWidth = chipsRow.getWidth() / (int) chips.size();
 
         for (auto& chip : chips)
-            chip->setBounds (chipsRow.removeFromLeft (chipWidth).reduced (2));
+            chip->setBounds (chipsRow.removeFromLeft (chipWidth).reduced (2, 1));
     }
 
-    if (keyboard != nullptr)
-        keyboard->setBounds (bottom.removeFromBottom (34).reduced (14, 2));
+    tabs.setBounds (area.reduced (14, 0).withTrimmedBottom (2));
+}
 
-    infoStrip.setBounds (bottom.removeFromBottom (22).reduced (14, 1));
-    tutorial.setBounds (content.getLocalBounds());
+void IlanaSynthAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
+{
+    keyboardVisible = shouldBeVisible;
+    keysButton.setToggleState (shouldBeVisible, juce::dontSendNotification);
 
-    auto macroRow = bottom.reduced (14, 2);
-    auto masterArea = macroRow.removeFromRight (104);
-    masterKnob->setBounds (masterArea);
+    if (settings != nullptr)
+    {
+        settings->setValue ("showKeyboard", shouldBeVisible);
+        settings->saveIfNeeded();
+    }
 
-    bendKnob->setBounds (macroRow.removeFromRight (86).reduced (4, 0));
-    glideKnob->setBounds (macroRow.removeFromRight (86).reduced (4, 0));
+    resized();
+}
 
-    const auto macroWidth = macroRow.getWidth() / 4;
+juce::int64 IlanaSynthAudioProcessorEditor::parameterFingerprint() const
+{
+    juce::int64 hash = 0;
+    auto index = 1;
 
-    for (auto* knob : { macro1Knob.get(), macro2Knob.get(), macro3Knob.get(), macro4Knob.get() })
-        knob->setBounds (macroRow.removeFromLeft (macroWidth).reduced (6, 0));
+    for (auto* parameter : processorRef.getParameters())
+    {
+        hash += (juce::int64) juce::roundToInt (parameter->getValue() * 100000.0f) * (index * 2654435761LL % 1000003);
+        ++index;
+    }
 
-    tabs.setBounds (area.reduced (14, 0));
+    return hash;
 }
 
 void IlanaSynthAudioProcessorEditor::savePreset()
@@ -3464,6 +3484,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
         startTimer (60);
 
     updateHeaderButtons();
+    loadedFingerprint = parameterFingerprint();
 }
 
 void IlanaSynthAudioProcessorEditor::showHistoryMenu()
@@ -3530,14 +3551,27 @@ void IlanaSynthAudioProcessorEditor::showHistoryMenu()
 
 void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
 {
+    const auto nameChanged = processorRef.getCurrentPresetName() != shownPresetName;
     shownPresetName = processorRef.getCurrentPresetName();
-    currentPresetIndex = processorRef.getAllPresetNames().indexOf (shownPresetName);
 
-    const auto name = shownPresetName.isNotEmpty() ? shownPresetName : juce::String ("PRESETS");
+    const auto names = processorRef.getAllPresetNames();
+    currentPresetIndex = names.indexOf (shownPresetName);
+    shownCategory = juce::isPositiveAndBelow (currentPresetIndex, names.size())
+                        ? processorRef.getAllPresetCategories()[currentPresetIndex]
+                        : juce::String();
 
-    presetButton.setButtonText (name + (isFavourite (name) ? "  *" : ""));
-    favButton.setToggleState (isFavourite (name), juce::dontSendNotification);
+    if (nameChanged)
+        loadedFingerprint = parameterFingerprint();
+
+    presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
+                             parameterFingerprint() != loadedFingerprint);
+    favButton.setToggleState (isFavourite (shownPresetName), juce::dontSendNotification);
+    favButton.setIconColour (isFavourite (shownPresetName) ? std::optional<juce::Colour> (juce::Colour (0xffffd447))
+                                                           : std::nullopt);
     abButton.setButtonText (showingA ? "A" : "B");
+
+    for (auto& knob : macroKnobs)
+        knob->refreshName();
 }
 
 void IlanaSynthAudioProcessorEditor::updateUndoButtons()
@@ -3589,9 +3623,9 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
     abButton.setButtonText (showingA ? "A" : "B");
 }
 
-void IlanaSynthAudioProcessorEditor::cycleTheme()
+void IlanaSynthAudioProcessorEditor::setTheme (int newThemeIndex)
 {
-    themeIndex = (themeIndex + 1) % IlanaTheme::numPalettes;
+    themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, newThemeIndex);
     lookAndFeel.setAccent (juce::Colour (IlanaTheme::palette[themeIndex]));
 
     if (settings != nullptr)
@@ -3601,6 +3635,117 @@ void IlanaSynthAudioProcessorEditor::cycleTheme()
     }
 
     sendLookAndFeelChange();
+}
+
+void IlanaSynthAudioProcessorEditor::showPresetMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem (1, "Init patch");
+    menu.addSeparator();
+    menu.addItem (2, "Save preset...");
+    menu.addItem (3, "Load preset file...");
+    menu.addItem (4, "Open user preset folder");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreButton),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
+                        {
+                            if (safeThis == nullptr)
+                                return;
+
+                            switch (result)
+                            {
+                                case 1: safeThis->loadPresetIndex (0); break;
+                                case 2: safeThis->savePreset(); break;
+                                case 3: safeThis->loadPreset(); break;
+                                case 4:
+                                {
+                                    const auto directory = safeThis->processorRef.getUserPresetDirectory();
+                                    directory.createDirectory();
+                                    directory.startAsProcess();
+                                    break;
+                                }
+                                default: break;
+                            }
+                        });
+}
+
+void IlanaSynthAudioProcessorEditor::showDiceMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("RANDOMISE");
+    menu.addItem (1, "Whole patch");
+    menu.addItem (2, "Oscillators only");
+    menu.addItem (3, "Filters only");
+    menu.addItem (4, "Envelopes only");
+    menu.addItem (5, "Modulation only");
+    menu.addItem (6, "Effects chain only");
+    menu.addSeparator();
+    menu.addSectionHeader ("MUTATE");
+    menu.addItem (10, "Nudge  (small changes)");
+    menu.addItem (11, "Shake  (bigger changes)");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&diceButton),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
+                        {
+                            if (safeThis == nullptr || result == 0)
+                                return;
+
+                            if (result == 1)
+                                safeThis->randomize();
+                            else if (result == 6)
+                                safeThis->processorRef.randomizeFxChain();
+                            else if (result == 10)
+                                safeThis->mutate (0.06f);
+                            else if (result == 11)
+                                safeThis->mutate (0.18f);
+                            else
+                                safeThis->randomizeGroup (result);
+                        });
+}
+
+void IlanaSynthAudioProcessorEditor::showSettingsMenu()
+{
+    const char* const skinNames[] { "Ember", "Ice", "Acid", "Neon" };
+    const float zoomChoices[] { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+
+    juce::PopupMenu skins;
+
+    for (int i = 0; i < IlanaTheme::numPalettes; ++i)
+        skins.addItem (100 + i, skinNames[i], true, i == themeIndex);
+
+    juce::PopupMenu sizes;
+
+    for (int i = 0; i < 6; ++i)
+        sizes.addItem (200 + i, juce::String (juce::roundToInt (zoomChoices[i] * 100.0f)) + "%",
+                       true, juce::approximatelyEqual (uiZoom, zoomChoices[i]));
+
+    juce::PopupMenu menu;
+    menu.addSubMenu ("Skin", skins);
+    menu.addSubMenu ("Interface size", sizes);
+    menu.addItem (300, "Show keyboard", true, keyboardVisible);
+    menu.addSeparator();
+    menu.addItem (400, "Show welcome tour");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
+                        {
+                            if (safeThis == nullptr || result == 0)
+                                return;
+
+                            const float zooms[] { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+
+                            if (result >= 100 && result < 200)
+                                safeThis->setTheme (result - 100);
+                            else if (result >= 200 && result < 300)
+                                safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
+                            else if (result == 300)
+                                safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                            else if (result == 400)
+                            {
+                                safeThis->tutorial.setVisible (true);
+                                safeThis->tutorial.toFront (false);
+                            }
+                        });
 }
 
 void IlanaSynthAudioProcessorEditor::togglePresetPanel()
@@ -3629,6 +3774,13 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
 
 void IlanaSynthAudioProcessorEditor::randomize()
 {
+    for (const auto group : { 2, 3, 4, 5 })
+        randomizeGroup (group);
+}
+
+// Groups: 2 oscillators, 3 filters, 4 envelopes, 5 modulation.
+void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
+{
     juce::Random random;
 
     const auto setValue = [this] (const char* id, float value)
@@ -3644,65 +3796,109 @@ void IlanaSynthAudioProcessorEditor::randomize()
 
     const auto tableCount = TableFactory::getNumFactoryTables();
 
-    setValue ("osc1_on", 1.0f);
-    setValue ("sub_on", 1.0f);
-    setValue ("osc2_mode", 0.0f);
-    setValue ("sub_mode", 0.0f);
-
-    if (random.nextFloat() < 0.25f)
+    if (group == 2)
     {
-        setValue ("osc1_mode", 1.0f);
-        setValue ("osc1_excite", (float) random.nextInt (4));
-        setValue ("osc1_string_decay", randomRange (0.6f, 0.95f));
-        setValue ("osc1_string_damp", randomRange (0.1f, 0.6f));
-    }
-    else
-    {
-        setValue ("osc1_mode", 0.0f);
-    }
+        setValue ("osc1_on", 1.0f);
+        setValue ("sub_on", 1.0f);
+        setValue ("osc2_mode", 0.0f);
+        setValue ("sub_mode", 0.0f);
 
-    setValue ("osc1_table", (float) random.nextInt (tableCount));
-    setValue ("osc1_frame", random.nextFloat());
-    setValue ("osc1_unison", (float) (1 + random.nextInt (4)));
-    setValue ("osc1_detune", randomRange (5.0f, 30.0f));
-    setValue ("osc2_on", random.nextBool() ? 1.0f : 0.0f);
-    setValue ("osc2_table", (float) random.nextInt (tableCount));
-    setValue ("osc2_frame", random.nextFloat());
-    setValue ("osc2_semi", (float) (random.nextBool() ? -12 : 12));
-    setValue ("sub_level", randomRange (0.0f, 0.6f));
-    setValue ("f1_type", (float) random.nextInt (3));
-    setValue ("f1_cutoff", randomRange (200.0f, 8000.0f));
-    setValue ("f1_reso", randomRange (0.0f, 0.6f));
-    setValue ("f1_env", randomRange (-1.0f, 3.0f));
-    setValue ("fe_decay", randomRange (0.05f, 1.5f));
-    setValue ("amp_attack", random.nextFloat() < 0.3f ? randomRange (0.05f, 0.8f) : 0.005f);
-    setValue ("amp_release", randomRange (0.05f, 2.0f));
-    setValue ("fm_amount", random.nextFloat() < 0.6f ? randomRange (0.0f, 0.5f) : 0.0f);
-    setValue ("fm_feedback", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.4f) : 0.0f);
-    setValue ("ring_mod", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.8f) : 0.0f);
-    setValue ("hard_sync", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    setValue ("drift", randomRange (0.0f, 0.5f));
-    setValue ("lfo1_rate", randomRange (0.2f, 8.0f));
+        if (random.nextFloat() < 0.25f)
+        {
+            setValue ("osc1_mode", 1.0f);
+            setValue ("osc1_excite", (float) random.nextInt (4));
+            setValue ("osc1_string_decay", randomRange (0.6f, 0.95f));
+            setValue ("osc1_string_damp", randomRange (0.1f, 0.6f));
+        }
+        else
+        {
+            setValue ("osc1_mode", 0.0f);
+        }
 
-    if (random.nextFloat() < 0.6f)
-    {
-        setValue ("mod1_src", 1.0f);
-        setValue ("mod1_dst", random.nextFloat() < 0.5f ? 9.0f : 2.0f);
-        setValue ("mod1_amt", randomRange (0.15f, 0.6f));
+        setValue ("osc1_table", (float) random.nextInt (tableCount));
+        setValue ("osc1_frame", random.nextFloat());
+        setValue ("osc1_unison", (float) (1 + random.nextInt (4)));
+        setValue ("osc1_detune", randomRange (5.0f, 30.0f));
+        setValue ("osc2_on", random.nextBool() ? 1.0f : 0.0f);
+        setValue ("osc2_table", (float) random.nextInt (tableCount));
+        setValue ("osc2_frame", random.nextFloat());
+        setValue ("osc2_semi", (float) (random.nextBool() ? -12 : 12));
+        setValue ("sub_level", randomRange (0.0f, 0.6f));
+        setValue ("fm_amount", random.nextFloat() < 0.6f ? randomRange (0.0f, 0.5f) : 0.0f);
+        setValue ("fm_feedback", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.4f) : 0.0f);
+        setValue ("ring_mod", random.nextFloat() < 0.3f ? randomRange (0.0f, 0.8f) : 0.0f);
+        setValue ("hard_sync", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
+        setValue ("drift", randomRange (0.0f, 0.5f));
+        setValue ("osc1_chord", (float) random.nextInt (7));
+        setValue ("voice_spread", randomRange (0.0f, 0.5f));
+        setValue ("unison_random", randomRange (0.0f, 1.0f));
     }
-    else
+    else if (group == 3)
     {
-        setValue ("mod1_src", 0.0f);
-        setValue ("mod1_dst", 0.0f);
-        setValue ("mod1_amt", 0.0f);
+        // Low pass, band pass, high pass and both ladders; notch is rarely useful at random.
+        const int types[] { FilterType::LowPass, FilterType::BandPass, FilterType::HighPass,
+                            FilterType::LadderLow, FilterType::LadderLow, FilterType::LadderHigh };
+        setValue ("f1_type", (float) types[random.nextInt (6)]);
+        setValue ("f1_cutoff", randomRange (200.0f, 8000.0f));
+        setValue ("f1_reso", randomRange (0.0f, 0.6f));
+        setValue ("f1_env", randomRange (-1.0f, 3.0f));
+        setValue ("res_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
     }
+    else if (group == 4)
+    {
+        setValue ("fe_decay", randomRange (0.05f, 1.5f));
+        setValue ("amp_attack", random.nextFloat() < 0.3f ? randomRange (0.05f, 0.8f) : 0.005f);
+        setValue ("amp_release", randomRange (0.05f, 2.0f));
+    }
+    else if (group == 5)
+    {
+        setValue ("lfo1_rate", randomRange (0.2f, 8.0f));
 
-    // The FX rack has its own DICE; module on-flags alone do nothing without
-    // a slot, so the effects chain is left as it is here.
-    setValue ("res_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    setValue ("osc1_chord", (float) random.nextInt (7));
-    setValue ("voice_spread", randomRange (0.0f, 0.5f));
-    setValue ("unison_random", randomRange (0.0f, 1.0f));
+        if (random.nextFloat() < 0.6f)
+        {
+            setValue ("mod1_src", 1.0f);
+            setValue ("mod1_dst", random.nextFloat() < 0.5f ? 9.0f : 2.0f);
+            setValue ("mod1_amt", randomRange (0.15f, 0.6f));
+        }
+        else
+        {
+            setValue ("mod1_src", 0.0f);
+            setValue ("mod1_dst", 0.0f);
+            setValue ("mod1_amt", 0.0f);
+        }
+    }
+}
+
+// Nudges every continuous sound parameter by a small random amount, keeping
+// the patch's character. Routing, switches, levels at the end of the chain
+// and the effect rack layout are left alone.
+void IlanaSynthAudioProcessorEditor::mutate (float amount)
+{
+    juce::Random random;
+
+    for (auto* parameter : processorRef.getParameters())
+    {
+        auto* floatParameter = dynamic_cast<juce::AudioParameterFloat*> (parameter);
+
+        if (floatParameter == nullptr)
+            continue;
+
+        const auto id = floatParameter->getParameterID();
+
+        if (id == "master" || id.startsWith ("macro") || id.startsWith ("mod") || id.startsWith ("fx_slot")
+            || id == "bend_range" || id == "master_clip_gain" || id.contains ("_step"))
+            continue;
+
+        // Only touch what's already doing something: a parameter sitting at
+        // its default is usually off on purpose.
+        const auto current = parameter->getValue();
+
+        if (std::abs (current - parameter->getDefaultValue()) < 1.0e-4f && random.nextFloat() < 0.7f)
+            continue;
+
+        const auto offset = ((random.nextFloat() + random.nextFloat() + random.nextFloat()) / 1.5f - 1.0f) * amount;
+        floatParameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, current + offset));
+    }
 }
 
 bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)

@@ -142,6 +142,16 @@ public:
 
     juce::Slider& getSlider() { return slider; }
 
+    // Compact knobs (bottom strip) have no label or value box: the owner
+    // draws those next to the knob.
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        label.setVisible (! compact);
+        slider.setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 64, 14);
+        resized();
+    }
+
     void mouseEnter (const juce::MouseEvent&) override
     {
         hover = true;
@@ -229,7 +239,10 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        label.setBounds (area.removeFromTop (13));
+
+        if (! compact)
+            label.setBounds (area.removeFromTop (13));
+
         knobBounds = area;
         slider.setBounds (area);
     }
@@ -269,12 +282,12 @@ public:
     }
 
 private:
-    static float knobRadiusFor (juce::Rectangle<int> bounds)
+    float knobRadiusFor (juce::Rectangle<int>) const
     {
-        auto area = bounds.toFloat();
-        area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
-        return juce::jlimit (14.0f, 30.0f,
-                             juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+        // Deliberately not reduced like the knob itself: the mod ring sits
+        // just outside the value arc.
+        const auto area = rotaryArea();
+        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
     }
 
     // The rotary is drawn above the value text box, so glow and mod ring must
@@ -282,7 +295,10 @@ private:
     juce::Rectangle<float> rotaryArea() const
     {
         auto area = knobBounds.toFloat();
-        area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
+
+        if (! compact)
+            area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
+
         return area;
     }
 
@@ -450,6 +466,7 @@ private:
     double lastSliderValue = 0.0;
     bool dragHover = false;
     bool hover = false;
+    bool compact = false;
     float appear = 1.0f;
 };
 

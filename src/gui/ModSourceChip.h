@@ -56,7 +56,12 @@ public:
 private:
     void timerCallback() override
     {
-        hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f);
+        const auto target = isMouseOver() ? 1.0f : 0.0f;
+
+        if (std::abs (hover - target) < 0.005f)
+            return;
+
+        hover = IlanaAnim::approach (hover, target, 0.22f);
         repaint();
     }
 

@@ -28,6 +28,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "fx_comp_attack" || id == "fx_comp_release" || id == "fx_limit_release")
         return asMilliseconds();
 
+    if (id == "poly_voices")
+        return juce::String (juce::roundToInt (value));
+
     if (id.endsWith ("_attack") || id == "glide"
         || ((id.endsWith ("_decay") || id.endsWith ("_release"))
             && ! id.endsWith ("_string_decay") && id != "res_decay"))
@@ -154,7 +157,8 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Filters
     if (id == "f1_type" || id == "f2_type")
-        return "Low Pass, Band Pass, High Pass or Notch.";
+        return "Clean SVF (Low / Band / High Pass, Notch) or the Ladder: a Moog-style filter that saturates "
+               "in its feedback loop - thick, growly and able to self-oscillate.";
 
     if (id == "f1_slope" || id == "f2_slope")
         return "12 dB is gentle, 24 dB is steep and aggressive.";
@@ -163,7 +167,8 @@ inline juce::String describeParameter (const juce::String& id)
         return "Filter frequency. Drag the marker on the response display too.";
 
     if (id == "f1_reso" || id == "f2_reso")
-        return "Emphasis at the cutoff. High values scream.";
+        return "Emphasis at the cutoff. High values scream; near the top the filter rings on its own "
+               "(self-oscillation) and can be played as a sine.";
 
     if (id == "f1_drive" || id == "f2_drive")
         return "Saturates the signal going into the filter.";
@@ -195,6 +200,17 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "glide")
         return "Portamento time between notes.";
+
+    if (id == "voice_mode")
+        return "Poly plays chords. Mono is one voice that retriggers the envelopes on every note. "
+               "Legato is one voice where overlapping notes only slide the pitch - classic for basses and leads.";
+
+    if (id == "poly_voices")
+        return "Maximum voices sounding at once in Poly mode. Fewer voices save CPU and make old notes "
+               "give way sooner.";
+
+    if (id == "glide_legato")
+        return "Only glide when notes overlap (mono modes). Detached notes jump straight to pitch.";
 
     if (id == "bend_range")
         return "Pitch bend range in semitones.";

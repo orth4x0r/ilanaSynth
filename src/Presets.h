@@ -16,6 +16,7 @@ struct FactoryPreset
 {
     const char* name;
     std::vector<Value> values;
+    std::vector<const char*> macroNames {};
 };
 
 inline const std::vector<FactoryPreset>& getFactoryPresets()

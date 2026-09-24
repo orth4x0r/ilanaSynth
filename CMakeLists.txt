@@ -132,3 +132,33 @@ target_link_libraries(ilanaSnapshot
     PUBLIC
         juce::juce_recommended_config_flags
 )
+
+# Dev tool: per-preset render fingerprints for regression checks (not shipped).
+juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
+
+target_sources(ilanaFingerprint PRIVATE
+    tools/PresetFingerprint.cpp
+    src/PluginProcessor.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+)
+
+target_include_directories(ilanaFingerprint PRIVATE src)
+
+target_compile_definitions(ilanaFingerprint PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_TEST_BUILD=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaFingerprint
+    PRIVATE
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)

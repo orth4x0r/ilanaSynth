@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "../dsp/FilterUnit.h"
 #include "IlanaLookAndFeel.h"
 
 class FilterDisplay : public juce::Component,
@@ -112,28 +113,23 @@ private:
     std::complex<double> response (int filterIndex, double frequency) const
     {
         const auto cutoff = cutoffWithMod (filterIndex);
-        const auto reso = juce::jlimit (0.0, 0.98, (double) readParam (filterIndex == 0 ? "f1_reso" : "f2_reso"));
-        const auto k = 2.0 - 2.0 * reso;
+        const auto reso = (double) readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
         const auto type = (int) readParam (filterIndex == 0 ? "f1_type" : "f2_type");
         const auto slope24 = readParam (filterIndex == 0 ? "f1_slope" : "f2_slope") > 0.5f;
 
-        const auto s = std::complex<double> (0.0, frequency / cutoff);
-        const auto denominator = s * s + k * s + 1.0;
+        return FilterType::response (type, slope24, reso, std::complex<double> (0.0, frequency / cutoff));
+    }
 
-        std::complex<double> h;
+    // Marker height <-> resonance, shared by drawing and dragging so the
+    // marker stays under the mouse.
+    static float resoToY (juce::Rectangle<float> plot, float reso)
+    {
+        return plot.getBottom() - (0.08f + juce::jlimit (0.0f, 1.0f, reso) * 0.8f) * plot.getHeight();
+    }
 
-        switch (type)
-        {
-            case 1:  h = s / denominator; break;
-            case 2:  h = s * s / denominator; break;
-            case 3:  h = (s * s + 1.0) / denominator; break;
-            default: h = 1.0 / denominator; break;
-        }
-
-        if (slope24)
-            h = h * h;
-
-        return h;
+    static float yToReso (juce::Rectangle<float> plot, float y)
+    {
+        return juce::jlimit (0.0f, 1.0f, ((plot.getBottom() - y) / plot.getHeight() - 0.08f) / 0.8f);
     }
 
     void drawCurve (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Colour colour)
@@ -245,10 +241,10 @@ private:
     void drawMarker (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Colour colour)
     {
         const auto cutoff = cutoffWithMod (filterIndex);
-        const auto reso = juce::jlimit (0.0f, 0.98f, readParam (filterIndex == 0 ? "f1_reso" : "f2_reso"));
+        const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
 
         const auto x = plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth();
-        const auto y = plot.getBottom() - (0.08f + reso * 0.8f) * plot.getHeight();
+        const auto y = resoToY (plot, reso);
 
         g.setColour (colour);
         g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }));
@@ -269,9 +265,9 @@ private:
         for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
         {
             const auto cutoff = cutoffWithMod (filterIndex);
-            const auto reso = juce::jlimit (0.0f, 0.98f, readParam (filterIndex == 0 ? "f1_reso" : "f2_reso"));
+            const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
             const juce::Point<float> marker (plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth(),
-                                             plot.getBottom() - (0.08f + reso * 0.8f) * plot.getHeight());
+                                             resoToY (plot, reso));
             const auto distance = marker.getDistanceFrom (event.position);
 
             if (distance < bestDistance)
@@ -291,8 +287,7 @@ private:
         const auto proportion = (double) juce::jlimit (0.0f, 1.0f,
                                                        (event.position.x - plot.getX()) / plot.getWidth());
         const auto frequency = juce::jlimit (20.0, 20000.0, xToFrequency (proportion));
-        const auto reso = juce::jlimit (0.0f, 0.98f,
-                                        1.0f - (event.position.y - plot.getY()) / plot.getHeight());
+        const auto reso = yToReso (plot, event.position.y);
 
         setParameter (draggingFilter == 0 ? "f1_cutoff" : "f2_cutoff", (float) frequency);
         setParameter (draggingFilter == 0 ? "f1_reso" : "f2_reso", reso);

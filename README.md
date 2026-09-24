@@ -77,7 +77,7 @@ Width, Pitch Shifter, Ring Mod, Octaver and Vowel filter.
 
 - Every slot: bypass, blend, per-slot CPU readout.
 - **Solo** a slot (wet only) by clicking its S badge.
-- The rack starts empty — right-click a row to choose a module.
+- The rack starts empty — click an empty row to choose a module.
 - **A/B chains** with copy A to B, so you can compare two effect chains.
 
 ### Voice & global
@@ -155,7 +155,7 @@ open it, run `xattr -dr com.apple.quarantine <path to ilanaSynth.app>`.
 ### Good to know
 - The SEQ tab is hidden until you need it: it appears when an LFO shape is
   set to Steps or the MSEG is assigned as a modulation source.
-- The FX rack is empty on INIT — right-click any of the 10 rows to add an
+- The FX rack is empty on INIT — click any of the 10 rows to add an
   effect.
 - After adding the new factory wavetables, the user wavetable slots moved to
   positions 17–20 in the table list; very old patches that referenced a user
@@ -182,8 +182,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release      # Windows: cmake -B build
 cmake --build build --config Release
 ```
 
-Targets: `ilanaSynth_VST3`, `ilanaSynth_Standalone` and `ilanaTableTest`
-(the offline regression suite).
+Targets: `ilanaSynth_VST3`, `ilanaSynth_Standalone`, `ilanaTableTest`
+(the offline regression suite) and `ilanaSnapshot`, a dev tool that renders
+every tab, sub-tab and FX module panel to PNGs without a DAW or display:
+`ilanaSnapshot snapshots/out [factory preset index]`.
 
 ---
 

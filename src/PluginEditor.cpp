@@ -10,6 +10,9 @@
 
 #include "PluginEditor.h"
 
+#include <algorithm>
+#include <array>
+
 #include "dsp/Modulation.h"
 #include "dsp/TableFactory.h"
 #include "gui/EnvelopeDisplay.h"
@@ -1301,7 +1304,7 @@ public:
         controlBay = row.reduced (0, 4);
 
         auto knobRow = controlBay.withTrimmedTop (20);
-        const auto knobHeight = juce::jmin (knobRow.getHeight(), 180);
+        const auto knobHeight = juce::jmin (knobRow.getHeight(), 120);
         layoutRow (knobRow.withSizeKeepingCentre (knobRow.getWidth(), knobHeight), units[(size_t) unitIndex].knobs);
     }
 
@@ -1406,10 +1409,34 @@ public:
           mseg (p),
           msegLoop (p.apvts, "mseg_loop", "LOOP"),
           msegRate (p.apvts, "mseg_rate", "RATE"),
-          clockDiv (p.apvts, "clock_div", "CLOCK DIV")
+          clockDiv (p.apvts, "clock_div", "CLOCK DIV"),
+          processorRef (p)
     {
         addAndMakeVisible (step1);
         addAndMakeVisible (step2);
+
+        // Each step row can edit any of the four LFOs.
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            {
+                auto& button = lfoButtons[(size_t) row][(size_t) lfo];
+                button.setButtonText ("LFO " + juce::String (lfo + 1));
+                button.setClickingTogglesState (true);
+                button.setRadioGroupId (100 + row);
+                button.setTooltip ("Edit the steps of LFO " + juce::String (lfo + 1) + " in this row");
+                button.onClick = [this, row, lfo]
+                {
+                    if (lfoButtons[(size_t) row][(size_t) lfo].getToggleState())
+                        showLfo (row, lfo);
+                };
+                addAndMakeVisible (button);
+            }
+        }
+
+        showLfo (0, 0);
+        showLfo (1, 1);
+
         addAndMakeVisible (mseg);
         addAndMakeVisible (msegLoop);
         addAndMakeVisible (msegRate);
@@ -1423,11 +1450,11 @@ public:
         g.setColour (IlanaTheme::accent());
         g.setFont (IlanaTheme::font (13.0f, true));
         g.fillEllipse (14.0f, 12.0f, 6.0f, 6.0f);
-        g.drawText ("STEP LFO 1", juce::Rectangle<int> (28, 8, 300, 16), juce::Justification::centredLeft);
+        g.drawText ("STEPS", juce::Rectangle<int> (28, 8, 300, 16), juce::Justification::centredLeft);
 
         g.setColour (juce::Colour (0xff35c8ff));
         g.fillEllipse (14.0f, 136.0f, 6.0f, 6.0f);
-        g.drawText ("STEP LFO 2", juce::Rectangle<int> (28, 132, 300, 16), juce::Justification::centredLeft);
+        g.drawText ("STEPS", juce::Rectangle<int> (28, 132, 300, 16), juce::Justification::centredLeft);
 
         g.setColour (juce::Colour (0xff6fe3c1));
         g.fillEllipse (14.0f, 260.0f, 6.0f, 6.0f);
@@ -1435,7 +1462,7 @@ public:
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (12.5f));
-        g.drawText ("Set the LFO shape to Steps, then draw here.  Assign them in the MATRIX tab.",
+        g.drawText ("Set an LFO shape to Steps, pick it above a row, then draw.  Assign LFOs in the MATRIX tab.",
                     juce::Rectangle<int> (14, 424, 1000, 16), juce::Justification::centredLeft);
     }
 
@@ -1443,13 +1470,24 @@ public:
     {
         auto area = getLocalBounds().reduced (12);
 
+        const auto layoutPicker = [this] (int rowIndex, juce::Rectangle<int> header)
+        {
+            header.removeFromLeft (80);
+
+            for (auto& button : lfoButtons[(size_t) rowIndex])
+            {
+                button.setBounds (header.removeFromLeft (58).reduced (2, 0));
+                header.removeFromLeft (2);
+            }
+        };
+
         auto row = area.removeFromTop (120);
-        row.removeFromTop (22);
+        layoutPicker (0, row.removeFromTop (22).withTrimmedBottom (2));
         step1.setBounds (row);
 
         area.removeFromTop (4);
         row = area.removeFromTop (120);
-        row.removeFromTop (22);
+        layoutPicker (1, row.removeFromTop (22).withTrimmedBottom (2));
         step2.setBounds (row);
 
         area.removeFromTop (4);
@@ -1460,12 +1498,64 @@ public:
         layoutRow (row.removeFromLeft (330), { &msegLoop, &msegRate, &clockDiv });
     }
 
+    void visibilityChanged() override
+    {
+        if (! isVisible())
+            return;
+
+        // Bring the LFOs that are actually set to Steps into the two rows.
+        std::vector<int> stepLfos;
+
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape"))
+                if ((int) shape->load() == 7)
+                    stepLfos.push_back (lfo);
+
+        const auto shown = [this] (int lfo) { return step1.getLfoIndex() == lfo || step2.getLfoIndex() == lfo; };
+
+        for (const auto lfo : stepLfos)
+        {
+            if (shown (lfo))
+                continue;
+
+            // Replace a row that is not showing a Steps LFO, preferring the second.
+            const auto rowIsSteps = [&stepLfos] (int index)
+            {
+                return std::find (stepLfos.begin(), stepLfos.end(), index) != stepLfos.end();
+            };
+
+            if (! rowIsSteps (step2.getLfoIndex()))
+                showLfo (1, lfo);
+            else if (! rowIsSteps (step1.getLfoIndex()))
+                showLfo (0, lfo);
+        }
+    }
+
 private:
+    void showLfo (int row, int lfo)
+    {
+        auto& editor = row == 0 ? step1 : step2;
+        auto& other = row == 0 ? step2 : step1;
+
+        // Both rows showing the same LFO would just duplicate it; swap instead.
+        if (other.getLfoIndex() == lfo && editor.getLfoIndex() != lfo)
+        {
+            const auto previous = editor.getLfoIndex();
+            other.setLfoIndex (previous);
+            lfoButtons[row == 0 ? 1 : 0][(size_t) previous].setToggleState (true, juce::dontSendNotification);
+        }
+
+        editor.setLfoIndex (lfo);
+        lfoButtons[(size_t) row][(size_t) lfo].setToggleState (true, juce::dontSendNotification);
+    }
+
     StepEditor step1, step2;
     MsegEditor mseg;
     ToggleControl msegLoop;
     KnobControl msegRate;
     KnobControl clockDiv;
+    IlanaSynthAudioProcessor& processorRef;
+    std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
 };
 
 class MatrixPage : public juce::Component,
@@ -1812,7 +1902,7 @@ public:
           delayPingPong (p.apvts, "fx_delay_pingpong", "PING-PONG"),
           tapsOn (p.apvts, "fx_taps_on", "TAPS"),
           tapsPattern (p.apvts, "fx_taps_pattern", "PATTERN"),
-          tapsMix (p.apvts, "fx_taps_mix", "MIX"),
+          tapsMix (p.apvts, "fx_taps_mix", "TAPS MIX"),
           stutterOn (p.apvts, "fx_stutter_on", "ON"),
           stutterDiv (p.apvts, "fx_stutter_div", "DIV"),
           stutterMix (p.apvts, "fx_stutter_mix", "MIX"),
@@ -2196,13 +2286,13 @@ public:
 
         if (type != 0 && type < (int) slotGroups.size())
         {
-            paintSectionTitle (g, getSlotName (type).toUpperCase() + " PARAMETERS", { 336, 8, 400, 14 });
+            paintSectionTitle (g, getSlotName (type).toUpperCase() + " PARAMETERS", { 336, 38, 400, 14 });
         }
         else
         {
             g.setColour (juce::Colours::white.withAlpha (0.3f));
             g.setFont (IlanaTheme::font (13.5f));
-            g.drawText ("Right-click a slot to add an effect from the list.",
+            g.drawText ("Click an empty slot to add an effect; right-click any slot to change it.",
                         juce::Rectangle<int> (336, 38, 600, 16), juce::Justification::centredLeft);
         }
     }
@@ -2237,6 +2327,7 @@ public:
 
         auto panel = area;
         auto tapArea = panel.removeFromBottom (52);
+        panel.removeFromTop (18); // "<MODULE> PARAMETERS" title
 
         for (auto& group : slotGroups)
         {
@@ -2275,7 +2366,8 @@ public:
             updateVisibility();
             repaint();
 
-            if (event.mods.isPopupMenu())
+            // Empty slots have nothing to bypass or drag, so any click picks a module.
+            if (event.mods.isPopupMenu() || getSlotType (slot) == 0)
             {
                 showTypeMenu (slot);
                 return;

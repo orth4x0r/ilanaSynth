@@ -36,6 +36,14 @@ public:
 
     void replayAppear() override { appear = 0.0f; }
 
+    int getLfoIndex() const { return index; }
+
+    void setLfoIndex (int lfoIndex)
+    {
+        index = juce::jlimit (0, IlanaSynthAudioProcessor::numLfos - 1, lfoIndex);
+        repaint();
+    }
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();

@@ -657,12 +657,18 @@ public:
         g.setColour (juce::Colour (0xff2c2c33));
         g.fillRoundedRectangle (track, trackHeight * 0.5f);
 
-        const auto valueWidth = juce::jlimit (0.0f, (float) width, sliderPos - (float) x);
+        // Bipolar ranges fill outwards from zero, so a centred value reads as "none".
+        const auto bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+        const auto originX = bipolar ? (float) x + (float) width * (float) slider.valueToProportionOfLength (0.0)
+                                     : (float) x;
+        const auto thumbPos = juce::jlimit ((float) x, (float) (x + width), sliderPos);
+        const auto fill = juce::Rectangle<float>::leftTopRightBottom (juce::jmin (originX, thumbPos), track.getY(),
+                                                                     juce::jmax (originX, thumbPos), track.getBottom());
 
-        if (valueWidth > 0.5f)
+        if (fill.getWidth() > 0.5f)
         {
             g.setColour (slider.findColour (juce::Slider::rotarySliderFillColourId));
-            g.fillRoundedRectangle (track.withWidth (valueWidth), trackHeight * 0.5f);
+            g.fillRoundedRectangle (fill, trackHeight * 0.5f);
         }
 
         const auto thumbX = juce::jlimit ((float) x, (float) (x + width), sliderPos);

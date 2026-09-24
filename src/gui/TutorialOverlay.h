@@ -122,7 +122,7 @@ public:
             };
 
             const juce::StringArray workflowTips {
-                "The FX rack starts empty - right-click a slot to add an effect, then drag rows to reorder.",
+                "The FX rack starts empty - click an empty slot to add an effect, then drag rows to reorder.",
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
                 "Presets: click to audition, chips filter by category, SAVE AS stores your own in the browser.",

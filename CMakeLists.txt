@@ -100,3 +100,35 @@ target_link_libraries(ilanaTableTest
 )
 
 add_test(NAME table_tests COMMAND ilanaTableTest)
+
+# Dev tool: offscreen PNG snapshots of every editor tab (not shipped).
+juce_add_console_app(ilanaSnapshot PRODUCT_NAME "ilanaSnapshot")
+
+target_sources(ilanaSnapshot PRIVATE
+    tools/Snapshot.cpp
+    src/PluginProcessor.cpp
+    src/PluginEditor.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+)
+
+target_include_directories(ilanaSnapshot PRIVATE src)
+
+target_compile_definitions(ilanaSnapshot PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaSnapshot
+    PRIVATE
+        ilanaFonts
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)

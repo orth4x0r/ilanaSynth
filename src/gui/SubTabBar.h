@@ -36,10 +36,11 @@ public:
         items = names;
         revealed = juce::jlimit (1, juce::jmax (1, items.size()), numRevealed);
         selectedIndex = juce::jlimit (0, revealed - 1, selected);
-        addButton.setEnabled (revealed < items.size());
-        addButton.setAlpha (revealed < items.size() ? 1.0f : 0.3f);
+        addButton.setVisible (revealed < items.size());
         repaint();
     }
+
+    int getNumRevealed() const { return revealed; }
 
     std::function<void (int)> onSelect;
     std::function<void()> onAdd;

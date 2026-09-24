@@ -159,11 +159,16 @@ private:
 
         g.setColour (juce::Colours::white.withAlpha (0.25f));
         g.setFont (IlanaTheme::font (10.0f));
-        g.drawText ("+1", area.withHeight (12.0f).withX (area.getX() + 4.0f), juce::Justification::centredLeft);
-        g.drawText ("0", area.withHeight (12.0f).withY (centreY - 6.0f).withX (area.getX() + 4.0f),
-                    juce::Justification::centredLeft);
-        g.drawText ("-1", area.withHeight (12.0f).withY (area.getBottom() - 12.0f).withX (area.getX() + 4.0f),
-                    juce::Justification::centredLeft);
+        // Labels sit just inside their grid lines, clear of the title above.
+        const auto label = [&] (const juce::String& text, float y)
+        {
+            g.drawText (text, juce::Rectangle<float> (area.getX() + 4.0f, y, 30.0f, 12.0f),
+                        juce::Justification::centredLeft);
+        };
+
+        label ("+1", centreY - halfHeight + 2.0f);
+        label ("0", centreY + 2.0f);
+        label ("-1", centreY + halfHeight - 14.0f);
 
         auto start = 0;
 

@@ -126,7 +126,7 @@ public:
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
                 "200 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
-                "XTRA holds the voice engine: cross mod, arp and resonator. SCOPE has the 2x/4x oversampling switch."
+                "FM holds cross modulation, ARP/SEQ the arpeggiator and step LFOs, FILTER the resonator. SCOPE has 2x/4x oversampling."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);

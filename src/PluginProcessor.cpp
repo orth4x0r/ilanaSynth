@@ -404,6 +404,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("f2_keytrack", "F2 Key Track", -1.0f, 1.0f, 0.0f);
     addFloat ("f2_morph", "F2 Morph", 0.0f, 1.0f, 0.0f);
     addBool ("filters_parallel", "Filters Parallel", false);
+    addFloat ("filter_balance", "Filter Balance", -1.0f, 1.0f, 0.0f);
 
     // Amp envelope
     addFloat ("amp_attack", "Amp Attack", 0.001f, 5.0f, 0.005f, 0.35f);
@@ -1110,6 +1111,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.filter2.morph = getParam ("f2_morph");
 
     p.filtersParallel = getParam ("filters_parallel") > 0.5f;
+    p.filterBalance = getParam ("filter_balance");
 
     p.ampEnv = { getParam ("amp_attack"), getParam ("amp_decay"), getParam ("amp_sustain"),
                  getParam ("amp_release"), getParam ("amp_curve") };

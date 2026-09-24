@@ -872,8 +872,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto in2L = drive (defaultL + busL[FilterRoute::Filter2], drive2);
             const auto in2R = drive (defaultR + busR[FilterRoute::Filter2], drive2);
 
-            outL = (f1L + filter2L.process (in2L)) * 0.7071f;
-            outR = (f1R + filter2R.process (in2R)) * 0.7071f;
+            // Balance fades one filter out; at the centre both are at full.
+            const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
+            const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
+
+            outL = (f1L * gain1 + filter2L.process (in2L) * gain2) * 0.7071f;
+            outR = (f1R * gain1 + filter2R.process (in2R) * gain2) * 0.7071f;
         }
         else
         {

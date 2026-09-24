@@ -239,6 +239,7 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "osc2_string_sustain", "Osc2 String Sustain" },
         { "sub_string_decay", "Osc3 String Decay" }, { "sub_string_damp", "Osc3 String Damp" },
         { "sub_string_sustain", "Osc3 String Sustain" },
+        { "filter_balance", "Filter Balance" },
     };
 
     return list;

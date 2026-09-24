@@ -22,6 +22,15 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                          : juce::String (juce::roundToInt (value))) + " Hz";
     };
 
+    if (id == "filter_balance")
+    {
+        if (std::abs (value) < 0.01f)
+            return "F1 = F2";
+
+        return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + " %"
+                            : "F2 +" + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    }
+
     if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")
         || id == "lfo1_rate" || id == "lfo2_rate" || id == "mseg_rate" || id == "fx_shifter_shift")
         return asHertz();
@@ -196,6 +205,9 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
         return "Cutoff follows the played note (1.0 = full tracking).";
+
+    if (id == "filter_balance")
+        return "Parallel mode: fades between Filter 1 and Filter 2. Centre plays both.";
 
     if (id == "filters_parallel")
         return "Serial: F1 into F2. Parallel: both filters summed.";

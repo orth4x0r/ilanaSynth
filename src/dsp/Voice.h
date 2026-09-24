@@ -141,6 +141,7 @@ struct VoiceParams
     FilterParams filter1;
     FilterParams filter2;
     bool filtersParallel = false;
+    float filterBalance = 0.0f; // parallel only: -1 all Filter 1 .. +1 all Filter 2
 
     TensionAdsr::Parameters ampEnv { 0.005f, 0.3f, 0.8f, 0.25f, 0.0f };
     TensionAdsr::Parameters filterEnv { 0.01f, 0.4f, 0.4f, 0.3f, 0.0f };

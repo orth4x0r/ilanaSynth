@@ -13,3 +13,7 @@ out/
 portable/
 release/
 snapshots/
+.idea/
+*.suo
+*.aps
+CMakeUserPresets.json

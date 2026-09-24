@@ -128,6 +128,7 @@ private:
     bool displayScaleApplied = false;
     void* previousDpiContext = nullptr;
     float uiZoom = 1.0f;
+    bool zoomNeedsSaving = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessorEditor)
 };

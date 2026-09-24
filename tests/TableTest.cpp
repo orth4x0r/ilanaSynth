@@ -11,6 +11,7 @@
 #include "dsp/GranularPitchShift.h"
 #include "dsp/FilterUnit.h"
 #include "dsp/GranularSmear.h"
+#include "dsp/LfoCurve.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
 #include "dsp/SpectralFreeze.h"
@@ -2254,6 +2255,16 @@ void runOversamplingTest()
     check (onFinite && onPeak > 0.01f && onPeak < 4.0f,
            "oversampled render is finite and audible (peak " + juce::String (onPeak, 3) + ")");
 
+    if (auto* parameter = processor.apvts.getParameter ("os_factor"))
+        parameter->setValueNotifyingHost (1.0f);
+
+    processor.flushAsyncUpdates();
+    check (processor.getOversamplingFactor() == 4, "4x oversampling engages");
+
+    const auto [fourFinite, fourPeak] = render (40);
+    check (fourFinite && fourPeak > 0.01f && fourPeak < 4.0f,
+           "4x oversampled render is finite and audible (peak " + juce::String (fourPeak, 3) + ")");
+
     if (auto* parameter = processor.apvts.getParameter ("oversampling"))
         parameter->setValueNotifyingHost (0.0f);
 
@@ -2920,6 +2931,255 @@ void runPhase2StateAndCpuTest()
               << juce::String (extreme.first * 100.0, 1) << " % of one core" << std::endl;
     check (heavy.first < 0.5 && heavy.second && extreme.second, "heavy patch (8 notes x 32 unison voices) renders well inside real time");
 }
+
+// Phase 3: the extra filter models.
+double filterToneGain (int type, double toneHz, double cutoff, double resonance, float morph, bool slope24 = true)
+{
+    constexpr double sampleRate = 48000.0;
+    FilterUnit filter;
+    filter.prepare (sampleRate);
+    filter.setType (type, slope24);
+    filter.setCoefficients (FilterUnit::makeCoefficients (type, sampleRate, cutoff, resonance, morph));
+
+    auto in = 0.0, out = 0.0;
+
+    for (int i = 0; i < 24000; ++i)
+    {
+        const auto x = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * toneHz * i / sampleRate);
+        const auto y = filter.process (x);
+
+        if (i > 9600)
+        {
+            in += (double) x * x;
+            out += (double) y * y;
+        }
+    }
+
+    return std::sqrt (out / in);
+}
+
+void runExtraFilterTests()
+{
+    const auto names = FilterType::getNames();
+
+    for (int type = FilterType::DiodeLow; type < FilterType::Count; ++type)
+    {
+        FilterUnit filter;
+        filter.prepare (48000.0);
+        filter.setType (type, true);
+        filter.setCoefficients (FilterUnit::makeCoefficients (type, 48000.0, 800.0, 1.0, 0.5f));
+
+        juce::Random random (3);
+        auto peak = 0.0f;
+        auto finite = true;
+
+        for (int i = 0; i < 96000; ++i)
+        {
+            const auto out = filter.process ((random.nextFloat() * 2.0f - 1.0f) * 0.5f);
+            finite = finite && std::isfinite (out);
+            peak = juce::jmax (peak, std::abs (out));
+        }
+
+        check (finite && peak < 8.0f, names[type] + " stays bounded on noise at full resonance (peak "
+                                          + juce::String (peak, 2) + ")");
+    }
+
+    for (const auto type : { (int) FilterType::DiodeLow, (int) FilterType::Ms20Low })
+    {
+        const auto low = filterToneGain (type, 100.0, 1000.0, 0.2, 0.0f);
+        const auto high = filterToneGain (type, 8000.0, 1000.0, 0.2, 0.0f);
+        check (low > 0.3 && high < low * 0.05, names[type] + " low-passes (100 Hz " + juce::String (low, 3)
+                                                   + ", 8 kHz " + juce::String (high, 4) + ")");
+    }
+
+    // Comb +: peaks at the cutoff's harmonics, dips between them.
+    const auto onHarmonic = filterToneGain (FilterType::CombPlus, 1000.0, 500.0, 0.8, 0.0f);
+    const auto between = filterToneGain (FilterType::CombPlus, 750.0, 500.0, 0.8, 0.0f);
+    check (onHarmonic > between * 3.0, "comb + rings at harmonics of its cutoff (" + juce::String (onHarmonic, 2)
+                                           + " vs " + juce::String (between, 2) + ")");
+
+    // Comb -: the opposite, peaks halfway between.
+    const auto minusOn = filterToneGain (FilterType::CombMinus, 1000.0, 500.0, 0.8, 0.0f);
+    const auto minusBetween = filterToneGain (FilterType::CombMinus, 750.0, 500.0, 0.8, 0.0f);
+    check (minusBetween > minusOn * 3.0, "comb - peaks between the harmonics");
+
+    // Morph walks from low-pass to high-pass.
+    const auto morphLowAt0 = filterToneGain (FilterType::Morph, 100.0, 1000.0, 0.2, 0.0f);
+    const auto morphHighAt0 = filterToneGain (FilterType::Morph, 8000.0, 1000.0, 0.2, 0.0f);
+    const auto morphLowAt1 = filterToneGain (FilterType::Morph, 100.0, 1000.0, 0.2, 1.0f);
+    const auto morphHighAt1 = filterToneGain (FilterType::Morph, 8000.0, 1000.0, 0.2, 1.0f);
+    check (morphLowAt0 > morphHighAt0 * 20.0 && morphHighAt1 > morphLowAt1 * 20.0, "morph goes from low-pass to high-pass");
+
+    // Formant 'A' has its first formant near 730 Hz: louder there than at 3.5 kHz.
+    const auto formantPeak = filterToneGain (FilterType::Formant, 730.0, 1000.0, 0.8, 0.0f);
+    const auto formantOff = filterToneGain (FilterType::Formant, 4500.0, 1000.0, 0.8, 0.0f);
+    check (formantPeak > formantOff * 4.0, "formant filter peaks on the vowel's formant (" + juce::String (formantPeak, 2)
+                                              + " vs " + juce::String (formantOff, 2) + ")");
+}
+
+void runFilterRoutingTest()
+{
+    // Filter 1 closed right down: Default and Filter 1 routes are silenced,
+    // Filter 2 (serial) and No filter get through.
+    const auto levelFor = [] (int route)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "f1_cutoff", 20.0f);
+        setParam (processor, "f1_slope", 1.0f);
+        setParam (processor, "f1_env", 0.0f);
+        setParam (processor, "osc1_route", (float) route);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        return renderPeakAndCentroid (processor, 60, 20, centroid);
+    };
+
+    const auto viaDefault = levelFor (FilterRoute::Default);
+    const auto viaFilter1 = levelFor (FilterRoute::Filter1);
+    const auto viaFilter2 = levelFor (FilterRoute::Filter2);
+    const auto direct = levelFor (FilterRoute::Direct);
+
+    check (viaDefault < 0.02f && viaFilter1 < 0.02f && viaFilter2 > 0.1f && direct > 0.1f,
+           "per-oscillator filter routes (default " + juce::String (viaDefault, 3) + ", F1 " + juce::String (viaFilter1, 3)
+               + ", F2 " + juce::String (viaFilter2, 3) + ", direct " + juce::String (direct, 3) + ")");
+}
+
+void runOversampledTuningTest()
+{
+    for (const auto factor : { 0.0f, 1.0f })
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "oversampling", 1.0f);
+        setParam (processor, "os_factor", factor);
+        processor.prepareToPlay (48000.0, 512);
+
+        double centroid = 0.0;
+        std::vector<float> samples;
+        renderPeakAndCentroid (processor, 57, 60, centroid, &samples);
+        samples.erase (samples.begin(), samples.begin() + 4800);
+
+        const auto frequency = fundamentalOf (samples, 48000.0);
+        check (std::abs (frequency - 220.0) < 0.5, juce::String (factor > 0.5f ? "4x" : "2x")
+                                                       + " oversampled note is in tune (" + juce::String (frequency, 2) + " Hz)");
+    }
+}
+
+void runResynthesisTest()
+{
+    // A 220 Hz saw that darkens over two seconds (not a whole number of
+    // 2048-sample frames, so Automatic resynthesizes it).
+    constexpr double sampleRate = 48000.0;
+    constexpr int length = 96000 + 777;
+    std::vector<float> audio ((size_t) length);
+    auto phase = 0.0;
+    auto smoothed = 0.0f;
+
+    for (int i = 0; i < length; ++i)
+    {
+        phase += 220.0 / sampleRate;
+        phase -= std::floor (phase);
+        const auto saw = (float) (2.0 * phase - 1.0);
+        const auto brightness = 1.0f - 0.95f * (float) i / (float) length;
+        smoothed += brightness * (saw - smoothed);
+        audio[(size_t) i] = 0.5f * smoothed;
+    }
+
+    const auto period = Wavetable::detectPeriod (audio.data() + 4800, length - 4800, sampleRate);
+    check (std::abs (period - sampleRate / 220.0) < 0.5, "pitch detection finds a 220 Hz period ("
+                                                            + juce::String (period, 3) + " samples)");
+
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana_resynth_test.wav");
+    file.deleteFile();
+
+    {
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (new juce::FileOutputStream (file),
+                                                                                 sampleRate, 1, 24, {}, 0));
+        juce::AudioBuffer<float> buffer (1, length);
+        buffer.copyFrom (0, 0, audio.data(), length);
+        writer->writeFromAudioSampleBuffer (buffer, 0, length);
+    }
+
+    Wavetable table;
+    const auto loaded = table.loadFromFile (file, Wavetable::LoadMode::Automatic);
+    file.deleteFile();
+
+    check (loaded && table.getNumFrames() == 64, "any audio becomes a 64-frame wavetable ("
+                                                     + juce::String (table.getNumFrames()) + " frames)");
+
+    // Each frame is one cycle: harmonic n sits in bin n, and a saw's second
+    // harmonic is about half the first. The last frame is darker.
+    const auto harmonics = [&table] (int frame)
+    {
+        juce::dsp::FFT fft (11);
+        std::vector<std::complex<float>> in ((size_t) Wavetable::frameSize), out ((size_t) Wavetable::frameSize);
+        const auto* data = table.getFrameData (0, frame);
+
+        for (int i = 0; i < Wavetable::frameSize; ++i)
+            in[(size_t) i] = { data[i + 1], 0.0f };
+
+        fft.perform (in.data(), out.data(), false);
+        return std::array<float, 3> { std::abs (out[1]), std::abs (out[2]), std::abs (out[8]) };
+    };
+
+    const auto first = harmonics (0);
+    const auto last = harmonics (63);
+    const auto ratio = first[1] / juce::jmax (1.0e-6f, first[0]);
+
+    check (ratio > 0.35f && ratio < 0.65f, "resynthesized frame keeps the saw's harmonic series (h2/h1 "
+                                               + juce::String (ratio, 3) + ")");
+    check (last[2] / last[0] < first[2] / first[0] * 0.7f, "later frames follow the sound getting darker");
+}
+
+void runCurveLfoTest()
+{
+    auto ramp = LfoCurve::preset (2); // -1 to +1 straight line
+    check (std::abs (ramp.valueAt (0.5)) < 1.0e-4f && std::abs (ramp.valueAt (0.25) + 0.5f) < 1.0e-4f,
+           "curve evaluates a straight ramp");
+
+    auto bent = ramp;
+    bent.points[0].tension = 0.8f;
+    check (bent.valueAt (0.5) < -0.5f, "positive tension makes a segment arrive late (" + juce::String (bent.valueAt (0.5), 3) + ")");
+
+    const auto parsed = LfoCurve::fromString (bent.toString());
+    check (parsed.points.size() == 2 && std::abs (parsed.valueAt (0.5) - bent.valueAt (0.5)) < 1.0e-3f,
+           "curve survives a text round trip");
+
+    // Session round trip.
+    IlanaSynthAudioProcessor processor;
+    processor.setLfoCurve (2, LfoCurve::preset (6));
+    juce::MemoryBlock state;
+    processor.getStateInformation (state);
+    IlanaSynthAudioProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    check (std::abs (restored.getLfoCurveValue (2, 0.3) - processor.getLfoCurveValue (2, 0.3)) < 1.0e-4f,
+           "LFO 3's curve survives a host state round trip");
+
+    // A Curve LFO drives modulation: a flat curve at +1 opens the filter.
+    const auto brightnessWith = [] (const char* curveText)
+    {
+        IlanaSynthAudioProcessor p;
+        setParam (p, "sub_on", 0.0f);
+        setParam (p, "f1_cutoff", 300.0f);
+        setParam (p, "f1_env", 0.0f);
+        setParam (p, "lfo1_shape", (float) IlanaSynthAudioProcessor::curveShape);
+        setParam (p, "lfo1_retrig", 1.0f);
+        setParam (p, "mod1_src", (float) Mod::Source::Lfo1);
+        setParam (p, "mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        setParam (p, "mod1_amt", 0.6f);
+        p.setLfoCurve (0, LfoCurve::fromString (curveText));
+        p.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        renderPeakAndCentroid (p, 45, 30, centroid);
+        return centroid;
+    };
+
+    const auto high = brightnessWith ("0,1,0;1,1,0");
+    const auto low = brightnessWith ("0,-1,0;1,-1,0");
+    check (high > low * 2.0, "a Curve LFO modulates per voice (centroid " + juce::String (low, 0) + " -> "
+                                 + juce::String (high, 0) + " Hz)");
+}
 } // namespace
 
 int main()
@@ -2930,6 +3190,11 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
     {
         runPhase2StateAndCpuTest();
+    runExtraFilterTests();
+    runFilterRoutingTest();
+    runOversampledTuningTest();
+    runResynthesisTest();
+    runCurveLfoTest();
         return 0;
     }
 
@@ -2969,6 +3234,11 @@ int main()
     runMatrixTests();
     runStaleModulationTest();
     runPhase2StateAndCpuTest();
+    runExtraFilterTests();
+    runFilterRoutingTest();
+    runOversampledTuningTest();
+    runResynthesisTest();
+    runCurveLfoTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

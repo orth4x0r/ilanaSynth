@@ -81,6 +81,28 @@ public:
 
     void reset() { ic1 = 0.0f; ic2 = 0.0f; }
 
+    // All three outputs at once (for morphing between them).
+    void processAll (float input, float& lowPass, float& bandPass, float& highPass)
+    {
+        const auto inputDouble = (double) input;
+        const auto v3 = inputDouble - (double) ic2;
+        const auto v1 = a1 * (double) ic1 + a2 * v3;
+        const auto v2 = (double) ic2 + a2 * (double) ic1 + a3 * v3;
+
+        ic1 = (float) (2.0 * v1) - ic1;
+        ic2 = (float) (2.0 * v2) - ic2;
+
+        if (saturate)
+        {
+            ic1 = 2.0f * std::tanh (ic1 * 0.5f);
+            ic2 = 2.0f * std::tanh (ic2 * 0.5f);
+        }
+
+        lowPass = (float) v2;
+        bandPass = (float) v1;
+        highPass = input - (float) k * (float) v1 - (float) v2;
+    }
+
     float processSample (float input)
     {
         const auto inputDouble = (double) input;

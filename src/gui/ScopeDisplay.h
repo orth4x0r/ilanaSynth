@@ -41,7 +41,13 @@ public:
         addAndMakeVisible (peakButton);
 
         oversamplingButton.setClickingTogglesState (true);
-        oversamplingButton.setTooltip ("Run the voice engine at 2x sample rate (smoother highs, more CPU)");
+        oversamplingButton.setTooltip ("Oversampling\nRun the voice engine at a higher sample rate: cleaner highs from "
+                                       "warps, FM and screaming filters, at the cost of CPU.  Pick 2x or 4x beside it.");
+        factorBox.addItemList ({ "2x", "4x" }, 1);
+        factorBox.setTooltip ("Oversampling factor");
+        addAndMakeVisible (factorBox);
+        factorAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+            processor.apvts, "os_factor", factorBox);
         addAndMakeVisible (oversamplingButton);
         oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             processor.apvts, "oversampling", oversamplingButton);
@@ -57,7 +63,8 @@ public:
 
     void resized() override
     {
-        oversamplingButton.setBounds (getWidth() - 168, 7, 60, 18);
+        oversamplingButton.setBounds (getWidth() - 222, 7, 60, 18);
+        factorBox.setBounds (getWidth() - 158, 7, 50, 18);
         holdButton.setBounds (getWidth() - 106, 7, 48, 18);
         peakButton.setBounds (getWidth() - 54, 7, 46, 18);
     }
@@ -427,8 +434,10 @@ private:
     juce::dsp::FFT fft;
     juce::TextButton holdButton { "HOLD" };
     juce::TextButton peakButton { "PEAK" };
-    juce::TextButton oversamplingButton { "2x OS" };
+    juce::TextButton oversamplingButton { "OVERSAMPLE" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> oversamplingAttachment;
+    juce::ComboBox factorBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> factorAttachment;
 
     std::vector<float> scopeSamplesL, scopeSamplesR, windowBuffer;
     std::vector<std::complex<float>> fftInput, fftOutput;

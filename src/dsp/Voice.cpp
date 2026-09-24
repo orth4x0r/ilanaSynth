@@ -129,7 +129,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     resonatorR.prepare (newRate);
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R })
-        filter->reset();
+        filter->prepare (newRate);
 }
 
 void Voice::syncSamplePlayers()
@@ -652,6 +652,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const auto ampVelScale = 1.0f - params.ampVelocity + params.ampVelocity * velocityLevel;
     auto* mods = sampleMods.data();
 
+    const auto route1 = juce::jlimit (0, FilterRoute::Count - 1, params.osc1.route);
+    const auto route2 = juce::jlimit (0, FilterRoute::Count - 1, params.osc2.route);
+    const auto routeSub = juce::jlimit (0, FilterRoute::Count - 1, params.sub.route);
+
     const auto warp1Mode = params.osc1.warpMode;
     const auto warp2Mode = params.osc2.warpMode;
     const auto warpSubMode = params.sub.warpMode;
@@ -673,8 +677,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                  || mods[(int) D::Filter1Fm] != 0.0f || mods[(int) D::Filter2Fm] != 0.0f)
             updateFilterCoefficients (mods, filterValue, filter2Value);
 
-        auto oscL = 0.0f;
-        auto oscR = 0.0f;
+        // One stereo bus per filter route; with every oscillator on Default
+        // only bus 0 is used and the signal flow is exactly the classic one.
+        float busL[FilterRoute::Count] {};
+        float busR[FilterRoute::Count] {};
         auto osc1Mono = 0.0f;
         auto osc2Mono = 0.0f;
 
@@ -719,8 +725,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
                 const auto gain = unisonGains1[u] * level * enable1;
                 osc1Mono += raw * gain;
-                oscL += (params.osc1.sampleMode ? sampleL : raw) * gain * panGain1L[u];
-                oscR += (params.osc1.sampleMode ? sampleR : raw) * gain * panGain1R[u];
+                busL[route1] += (params.osc1.sampleMode ? sampleL : raw) * gain * panGain1L[u];
+                busR[route1] += (params.osc1.sampleMode ? sampleR : raw) * gain * panGain1R[u];
             }
         }
         else
@@ -771,8 +777,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
                 const auto gain = unisonGains2[u] * level * enable2;
                 osc2Mono += raw * gain;
-                oscL += (params.osc2.sampleMode ? sampleL : raw) * gain * panGain2L[u];
-                oscR += (params.osc2.sampleMode ? sampleR : raw) * gain * panGain2R[u];
+                busL[route2] += (params.osc2.sampleMode ? sampleL : raw) * gain * panGain2L[u];
+                busR[route2] += (params.osc2.sampleMode ? sampleR : raw) * gain * panGain2R[u];
             }
         }
         else
@@ -785,8 +791,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         if (ringMod > 0.0f && osc1Active && osc2Active)
         {
-            oscL += (oscL * osc2Mono - oscL) * ringMod;
-            oscR += (oscR * osc2Mono - oscR) * ringMod;
+            for (int bus = 0; bus < FilterRoute::Count; ++bus)
+            {
+                busL[bus] += (busL[bus] * osc2Mono - busL[bus]) * ringMod;
+                busR[bus] += (busR[bus] * osc2Mono - busR[bus]) * ringMod;
+            }
         }
 
         previousOsc1 = juce::jlimit (-2.0f, 2.0f, osc1Mono);
@@ -825,8 +834,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
 
                 const auto gain = unisonGainsSub[u] * subLevel * enableSub;
-                oscL += (params.sub.sampleMode ? sampleL : raw) * gain * panGainSubL[u];
-                oscR += (params.sub.sampleMode ? sampleR : raw) * gain * panGainSubR[u];
+                busL[routeSub] += (params.sub.sampleMode ? sampleL : raw) * gain * panGainSubL[u];
+                busR[routeSub] += (params.sub.sampleMode ? sampleR : raw) * gain * panGainSubR[u];
             }
         }
         else
@@ -839,18 +848,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         if (noiseLevel > 0.0f)
         {
             const auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f;
-            oscL += value;
-            oscR += value;
+            busL[routeSub] += value;
+            busR[routeSub] += value;
         }
 
-        auto inL = oscL;
-        auto inR = oscR;
+        const auto drive = [] (float value, float amount) { return amount > 1.0f ? std::tanh (value * amount) : value; };
 
-        if (drive1 > 1.0f)
-        {
-            inL = std::tanh (inL * drive1);
-            inR = std::tanh (inR * drive1);
-        }
+        // Filter 1 hears the Default and Filter-1 buses.
+        const auto defaultL = drive (busL[FilterRoute::Default], drive1);
+        const auto defaultR = drive (busR[FilterRoute::Default], drive1);
+        const auto hasF1Bus = busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f;
+        const auto inL = hasF1Bus ? drive (busL[FilterRoute::Default] + busL[FilterRoute::Filter1], drive1) : defaultL;
+        const auto inR = hasF1Bus ? drive (busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1) : defaultR;
 
         auto f1L = filter1L.process (inL);
         auto f1R = filter1R.process (inR);
@@ -859,32 +868,24 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         if (params.filtersParallel)
         {
-            auto in2L = inL;
-            auto in2R = inR;
-
-            if (drive2 > 1.0f)
-            {
-                in2L = std::tanh (in2L * drive2);
-                in2R = std::tanh (in2R * drive2);
-            }
+            // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
+            const auto in2L = drive (defaultL + busL[FilterRoute::Filter2], drive2);
+            const auto in2R = drive (defaultR + busR[FilterRoute::Filter2], drive2);
 
             outL = (f1L + filter2L.process (in2L)) * 0.7071f;
             outR = (f1R + filter2R.process (in2R)) * 0.7071f;
         }
         else
         {
-            auto f2inL = f1L;
-            auto f2inR = f1R;
-
-            if (drive2 > 1.0f)
-            {
-                f2inL = std::tanh (f2inL * drive2);
-                f2inR = std::tanh (f2inR * drive2);
-            }
+            const auto f2inL = drive (f1L + busL[FilterRoute::Filter2], drive2);
+            const auto f2inR = drive (f1R + busR[FilterRoute::Filter2], drive2);
 
             outL = filter2L.process (f2inL);
             outR = filter2R.process (f2inR);
         }
+
+        outL += busL[FilterRoute::Direct];
+        outR += busR[FilterRoute::Direct];
 
         if (params.resonatorOn && resonatorAmount > 0.001f)
         {
@@ -1042,7 +1043,8 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     for (auto* filter : { &filter1L, &filter1R })
         filter->setType (params.filter1.type, params.filter1.slope24);
 
-    const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1);
+    const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
+    const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
     filter1L.setCoefficients (coefficients1);
     filter1R.setCoefficients (coefficients1);
 
@@ -1058,7 +1060,8 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     for (auto* filter : { &filter2L, &filter2R })
         filter->setType (params.filter2.type, params.filter2.slope24);
 
-    const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2);
+    const auto morph2 = juce::jlimit (0.0f, 1.0f, params.filter2.morph + mods[(int) D::Filter2Morph]);
+    const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2, morph2);
     filter2L.setCoefficients (coefficients2);
     filter2R.setCoefficients (coefficients2);
 }

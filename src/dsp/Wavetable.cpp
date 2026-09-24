@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-bool Wavetable::loadFromFile (const juce::File& file)
+bool Wavetable::loadFromFile (const juce::File& file, LoadMode mode)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -14,7 +14,9 @@ bool Wavetable::loadFromFile (const juce::File& file)
     if (reader == nullptr || reader->lengthInSamples <= 0)
         return false;
 
-    const auto totalSamples = (int) reader->lengthInSamples;
+    // Resynthesis only needs the first stretch of long recordings.
+    const auto maxSamples = (juce::int64) (reader->sampleRate * 30.0);
+    const auto totalSamples = (int) juce::jmin (reader->lengthInSamples, maxSamples);
 
     int frameLength = 0;
     int frameCount = 0;
@@ -32,12 +34,6 @@ bool Wavetable::loadFromFile (const juce::File& file)
                 break;
             }
         }
-    }
-
-    if (frameLength == 0)
-    {
-        frameLength = totalSamples;
-        frameCount = 1;
     }
 
     const auto numChannels = juce::jmax (1, (int) reader->numChannels);
@@ -61,26 +57,180 @@ bool Wavetable::loadFromFile (const juce::File& file)
     for (auto& sample : mono)
         sample *= channelScale;
 
-    std::vector<std::vector<float>> frames ((size_t) frameCount, std::vector<float> ((size_t) frameSize, 0.0f));
+    const auto sliceAsFrames = mode == LoadMode::Frames || (mode == LoadMode::Automatic && frameLength > 0);
 
-    for (int frame = 0; frame < frameCount; ++frame)
+    std::vector<std::vector<float>> frames;
+
+    if (sliceAsFrames)
     {
-        const auto* source = mono.data() + (size_t) frame * (size_t) frameLength;
-
-        for (int i = 0; i < frameSize; ++i)
+        if (frameLength == 0)
         {
-            const auto position = (double) i * (double) frameLength / (double) frameSize;
-            const auto index = juce::jlimit (0, frameLength - 1, (int) position);
-            const auto next = juce::jmin (index + 1, frameLength - 1);
-            const auto frac = (float) (position - (double) index);
+            frameLength = totalSamples;
+            frameCount = 1;
+        }
 
-            frames[(size_t) frame][(size_t) i] = source[index] + frac * (source[next] - source[index]);
+        frames.assign ((size_t) frameCount, std::vector<float> ((size_t) frameSize, 0.0f));
+
+        for (int frame = 0; frame < frameCount; ++frame)
+        {
+            const auto* source = mono.data() + (size_t) frame * (size_t) frameLength;
+
+            for (int i = 0; i < frameSize; ++i)
+            {
+                const auto position = (double) i * (double) frameLength / (double) frameSize;
+                const auto index = juce::jlimit (0, frameLength - 1, (int) position);
+                const auto next = juce::jmin (index + 1, frameLength - 1);
+                const auto frac = (float) (position - (double) index);
+
+                frames[(size_t) frame][(size_t) i] = source[index] + frac * (source[next] - source[index]);
+            }
         }
     }
+    else
+    {
+        resynthesize (mono, reader->sampleRate, frames);
+    }
+
+    if (frames.empty())
+        return false;
 
     name = file.getFileNameWithoutExtension();
     buildFromFrames (frames);
     return true;
+}
+
+double Wavetable::detectPeriod (const float* audio, int numSamples, double sampleRate)
+{
+    // YIN: cumulative-mean-normalised difference function, first dip under
+    // the threshold, refined with a parabola.
+    const auto minPeriod = juce::jmax (2, (int) (sampleRate / 2000.0));
+    const auto maxPeriod = juce::jmin (numSamples / 2 - 2, (int) (sampleRate / 30.0));
+    const auto window = juce::jmin (numSamples - maxPeriod - 2, (int) (sampleRate * 0.05));
+
+    if (maxPeriod <= minPeriod || window < minPeriod * 2)
+        return 0.0;
+
+    std::vector<double> difference ((size_t) maxPeriod + 2, 0.0);
+
+    for (int lag = 1; lag <= maxPeriod + 1; ++lag)
+    {
+        auto sum = 0.0;
+
+        for (int i = 0; i < window; ++i)
+        {
+            const auto delta = (double) audio[i] - (double) audio[i + lag];
+            sum += delta * delta;
+        }
+
+        difference[(size_t) lag] = sum;
+    }
+
+    std::vector<double> normalised ((size_t) maxPeriod + 2, 1.0);
+    auto running = 0.0;
+
+    for (int lag = 1; lag <= maxPeriod + 1; ++lag)
+    {
+        running += difference[(size_t) lag];
+        normalised[(size_t) lag] = running > 0.0 ? difference[(size_t) lag] * (double) lag / running : 1.0;
+    }
+
+    auto best = -1;
+
+    for (int lag = minPeriod; lag <= maxPeriod; ++lag)
+    {
+        if (normalised[(size_t) lag] < 0.15)
+        {
+            while (lag + 1 <= maxPeriod && normalised[(size_t) lag + 1] < normalised[(size_t) lag])
+                ++lag;
+
+            best = lag;
+            break;
+        }
+    }
+
+    if (best < 0)
+    {
+        // No confident dip: take the global minimum if it is still clear.
+        auto lowest = 1.0;
+
+        for (int lag = minPeriod; lag <= maxPeriod; ++lag)
+            if (normalised[(size_t) lag] < lowest)
+            {
+                lowest = normalised[(size_t) lag];
+                best = lag;
+            }
+
+        if (lowest > 0.35)
+            return 0.0;
+    }
+
+    const auto a = normalised[(size_t) best - 1];
+    const auto b = normalised[(size_t) best];
+    const auto c = normalised[(size_t) best + 1];
+    const auto denominator = a - 2.0 * b + c;
+    const auto offset = std::abs (denominator) > 1.0e-12 ? 0.5 * (a - c) / denominator : 0.0;
+
+    return (double) best + juce::jlimit (-1.0, 1.0, offset);
+}
+
+bool Wavetable::resynthesize (const std::vector<float>& audio, double sampleRate,
+                              std::vector<std::vector<float>>& frames, int maxFrames)
+{
+    frames.clear();
+    const auto numSamples = (int) audio.size();
+
+    if (numSamples < 64)
+        return false;
+
+    // Analyse just after the attack, where the pitch has settled.
+    const auto analysisStart = juce::jmin (numSamples / 4, (int) (sampleRate * 0.1));
+    auto period = detectPeriod (audio.data() + analysisStart, numSamples - analysisStart, sampleRate);
+    const auto pitched = period > 0.0;
+
+    if (! pitched)
+        period = juce::jmin ((double) numSamples, 2048.0);
+
+    const auto sampleAt = [&audio, numSamples] (double position)
+    {
+        const auto index = juce::jlimit (0, numSamples - 1, (int) position);
+        const auto next = juce::jmin (index + 1, numSamples - 1);
+        const auto frac = (float) (position - (double) index);
+        return audio[(size_t) index] + frac * (audio[(size_t) next] - audio[(size_t) index]);
+    };
+
+    const auto usable = (double) numSamples - period * 2.0;
+    const auto count = juce::jlimit (1, maxFrames, usable > 0.0 ? (int) (usable / period) : 1);
+
+    for (int frame = 0; frame < count; ++frame)
+    {
+        auto start = count > 1 ? usable * (double) frame / (double) (count - 1) : 0.0;
+
+        // Line each cycle up on a rising zero crossing so frames morph
+        // smoothly instead of jumping phase.
+        if (pitched)
+        {
+            for (auto search = (int) start; search < (int) (start + period) && search + 1 < numSamples; ++search)
+            {
+                const auto a = audio[(size_t) search];
+                const auto b = audio[(size_t) search + 1];
+
+                if (a <= 0.0f && b > 0.0f)
+                {
+                    start = (double) search + (double) (-a / (b - a));
+                    break;
+                }
+            }
+        }
+
+        std::vector<float> cycle ((size_t) frameSize);
+
+        for (int i = 0; i < frameSize; ++i)
+            cycle[(size_t) i] = sampleAt (start + period * (double) i / (double) frameSize);
+
+        frames.push_back (std::move (cycle));
+    }
+
+    return pitched;
 }
 
 void Wavetable::buildFromFrames (const std::vector<std::vector<float>>& frames)

@@ -311,13 +311,28 @@ int main (int argc, char** argv)
         // Each FX module's editor, placed in slot 1.
         if (tabs->getTabNames()[i] == "FX")
         {
-            for (int type = 1; type <= 28; ++type)
+            for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
             {
                 processor.assignFxSlot (1, type);
                 settle (900);
                 save (*editor, outDir.getChildFile ("fx-" + juce::String (type).paddedLeft ('0', 2) + ".png"));
             }
         }
+    }
+
+    // The drawable Curve LFO editor.
+    if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
+    {
+        shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
+        processor.setLfoCurve (0, LfoCurve::preset (9));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+
+        settle (500);
+        save (*editor, outDir.getChildFile ("lfo-curve.png"));
     }
 
     editor.reset();

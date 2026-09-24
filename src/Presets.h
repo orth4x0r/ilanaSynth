@@ -17,6 +17,7 @@ struct FactoryPreset
     const char* name;
     std::vector<Value> values;
     std::vector<const char*> macroNames {};
+    std::vector<const char*> lfoCurves {}; // LfoCurve strings for LFO 1..4 (for the Curve shape)
 };
 
 inline const std::vector<FactoryPreset>& getFactoryPresets()

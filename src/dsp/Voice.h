@@ -28,6 +28,15 @@ enum
 inline juce::StringArray getNames() { return { "Classic", "Hypersaw", "Octaves", "Fifths" }; }
 } // namespace UnisonMode
 
+// Where an oscillator enters the filter section. Default follows the
+// serial/parallel switch (into Filter 1 when serial, both when parallel).
+namespace FilterRoute
+{
+enum { Default = 0, Filter1, Filter2, Direct, Count };
+
+inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2", "No filter" }; }
+} // namespace FilterRoute
+
 struct VoiceParams
 {
     static constexpr int maxUnison = 16;
@@ -51,6 +60,7 @@ struct VoiceParams
         float unisonBlend = 1.0f;
         int warpMode = 0;
         float warpAmount = 0.0f;
+        int route = 0; // FilterRoute
 
         bool stringMode = false;
         int stringExcite = 0;

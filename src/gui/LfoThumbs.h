@@ -143,6 +143,7 @@ private:
             case 6: return processorRef.getLfoCustomPoint (lfo, juce::jlimit (0, IlanaSynthAudioProcessor::lfoDrawSteps - 1,
                                                                               (int) (phase * IlanaSynthAudioProcessor::lfoDrawSteps)));
             case 7: return readParam (lfo, "_step" + juce::String (juce::jlimit (0, 15, (int) (phase * 16.0)) + 1));
+            case IlanaSynthAudioProcessor::curveShape: return processorRef.getLfoCurveValue (lfo, phase);
             default: return lfoShapeValue (shape, phase);
         }
     }

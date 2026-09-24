@@ -15,8 +15,11 @@ inline juce::String describeValue (const juce::String& id, float value)
     {
         const auto magnitude = std::abs (value);
 
+        // Note juce::String (value, 0) means "default precision", not "no
+        // decimals", so whole numbers go through roundToInt.
         return magnitude >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz"
-                                    : juce::String (value, magnitude < 1.0f ? 2 : (magnitude < 10.0f ? 1 : 0)) + " Hz";
+                                    : (magnitude < 10.0f ? juce::String (value, magnitude < 1.0f ? 2 : 1)
+                                                         : juce::String (juce::roundToInt (value))) + " Hz";
     };
 
     if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")
@@ -42,7 +45,8 @@ inline juce::String describeValue (const juce::String& id, float value)
                + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 
     if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
-        || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain")
+        || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain"
+        || (id.startsWith ("fx_eq_") && id.endsWith ("_gain")))
         return juce::String (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
@@ -58,7 +62,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
         || id == "res_decay" || id.endsWith ("_string_decay")
-        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase"))
+        || id.endsWith ("_warp_amt") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
     return juce::String (value, value == std::floor (value) ? 0 : 2);
@@ -158,8 +162,21 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Filters
     if (id == "f1_type" || id == "f2_type")
-        return "Clean SVF (Low / Band / High Pass, Notch) or the Ladder: a Moog-style filter that saturates "
-               "in its feedback loop - thick, growly and able to self-oscillate.";
+        return "SVF: clean Low / Band / High Pass and Notch.  Ladder: Moog-style, saturating and self-oscillating.  "
+               "Diode: 303-style squelch.  MS-20: gnarly Sallen-Key.  Comb +/-: tuned to the cutoff, metallic "
+               "to hollow.  Formant: vowels (MORPH picks A-E-I-O-U).  Morph: sweeps LP > BP > HP with MORPH.";
+
+    if (id == "f1_morph" || id == "f2_morph")
+        return "Formant: moves through the vowels A, E, I, O, U.  Morph: blends low-pass into band-pass into "
+               "high-pass.  Try an LFO on it.";
+
+    if (id.startsWith ("fx_eq_"))
+        return "Three-band EQ: low shelf, a sweepable mid peak (Q sets its width) and a high shelf.  "
+               "Drag the points on the curve too.";
+
+    if (id.endsWith ("_route"))
+        return "Which filter this oscillator goes through.  Default follows the Serial / Parallel switch; "
+               "Filter 2 skips Filter 1; No filter goes straight to the amp.";
 
     if (id == "f1_slope" || id == "f2_slope")
         return "12 dB is gentle, 24 dB is steep and aggressive.";

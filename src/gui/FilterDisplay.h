@@ -117,7 +117,12 @@ private:
         const auto type = (int) readParam (filterIndex == 0 ? "f1_type" : "f2_type");
         const auto slope24 = readParam (filterIndex == 0 ? "f1_slope" : "f2_slope") > 0.5f;
 
-        return FilterType::response (type, slope24, reso, std::complex<double> (0.0, frequency / cutoff));
+        const auto morph = (double) readParam (filterIndex == 0 ? "f1_morph" : "f2_morph")
+                           + (double) processorRef.getModDisplay (filterIndex == 0 ? Mod::Destination::Filter1Morph
+                                                                                    : Mod::Destination::Filter2Morph);
+
+        return FilterType::response (type, slope24, reso, std::complex<double> (0.0, frequency / cutoff),
+                                     juce::jlimit (0.0, 1.0, morph), cutoff);
     }
 
     // Marker height <-> resonance, shared by drawing and dragging so the

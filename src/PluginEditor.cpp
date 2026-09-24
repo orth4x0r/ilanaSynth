@@ -16,6 +16,7 @@
 #include "dsp/Modulation.h"
 #include "dsp/TableFactory.h"
 #include "gui/EnvelopeDisplay.h"
+#include "gui/EqCurve.h"
 #include "gui/FilterDisplay.h"
 #include "gui/LfoDisplay.h"
 #include "gui/LfoThumbs.h"
@@ -525,55 +526,74 @@ private:
 
     void setupLoadButton (juce::TextButton& button, const juce::String& tableId, int tableChoiceOffset)
     {
-        button.setTooltip ("Load a .wav file into this oscillator's user table slots");
-        button.onClick = [this, tableId, tableChoiceOffset]
+        button.setTooltip ("Load a wavetable (.wav of single-cycle frames), or turn any recording into a wavetable");
+        button.onClick = [this, &button, tableId, tableChoiceOffset]
         {
             if (chooserOpen)
                 return;
 
-            chooserOpen = true;
+            juce::PopupMenu menu;
+            menu.addItem (1, "Load wavetable file...");
+            menu.addItem (2, "Make a wavetable from any audio...");
+            menu.addSeparator();
+            menu.addItem (3, "(Any audio: the pitch is detected and one cycle per frame is taken across the file)", false);
 
-            for (int index = 0; index < 3; ++index)
-                loadButton (index).setEnabled (false);
-
-            if (tableChooser == nullptr)
-                tableChooser = std::make_unique<juce::FileChooser> (
-                    "Load Wavetable (.wav)",
-                    juce::File::getSpecialLocation (juce::File::userMusicDirectory),
-                    "*.wav");
-
-            juce::Component::SafePointer<OscPage> safeThis (this);
-
-            tableChooser->launchAsync (juce::FileBrowserComponent::openMode
-                                           | juce::FileBrowserComponent::canSelectFiles,
-                                       [safeThis, tableId, tableChoiceOffset] (const juce::FileChooser& chooser)
-                                       {
-                                           if (safeThis == nullptr)
-                                               return;
-
-                                           safeThis->chooserOpen = false;
-                                           safeThis->updateEnabled();
-
-                                           const auto file = chooser.getResult();
-
-                                           if (! file.existsAsFile())
-                                               return;
-
-                                           const auto factoryCount = TableFactory::getNumFactoryTables();
-                                           const auto domain = juce::jmax (0, safeThis->readTableChoiceIndex (tableId) - tableChoiceOffset);
-                                           const auto slot = domain >= factoryCount
-                                                                 ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1,
-                                                                                 domain - factoryCount)
-                                                                 : 0;
-
-                                           if (safeThis->processorRef.loadUserWavetable (slot, file))
-                                           {
-                                               if (auto* parameter = safeThis->processorRef.apvts.getParameter (tableId))
-                                                   parameter->setValueNotifyingHost (
-                                                       parameter->convertTo0to1 ((float) (tableChoiceOffset + factoryCount + slot)));
-                                           }
-                                       });
+            juce::Component::SafePointer<OscPage> safeMenu (this);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&button),
+                                [safeMenu, tableId, tableChoiceOffset] (int result)
+                                {
+                                    if (safeMenu != nullptr && (result == 1 || result == 2))
+                                        safeMenu->chooseTable (tableId, tableChoiceOffset,
+                                                               result == 2 ? Wavetable::LoadMode::Resynthesize
+                                                                           : Wavetable::LoadMode::Automatic);
+                                });
         };
+    }
+
+    void chooseTable (const juce::String& tableId, int tableChoiceOffset, Wavetable::LoadMode mode)
+    {
+        chooserOpen = true;
+
+        for (int index = 0; index < 3; ++index)
+            loadButton (index).setEnabled (false);
+
+        if (tableChooser == nullptr)
+            tableChooser = std::make_unique<juce::FileChooser> (
+                "Load Wavetable or Audio",
+                juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+
+        juce::Component::SafePointer<OscPage> safeThis (this);
+
+        tableChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                       | juce::FileBrowserComponent::canSelectFiles,
+                                   [safeThis, tableId, tableChoiceOffset, mode] (const juce::FileChooser& chooser)
+                                   {
+                                       if (safeThis == nullptr)
+                                           return;
+
+                                       safeThis->chooserOpen = false;
+                                       safeThis->updateEnabled();
+
+                                       const auto file = chooser.getResult();
+
+                                       if (! file.existsAsFile())
+                                           return;
+
+                                       const auto factoryCount = TableFactory::getNumFactoryTables();
+                                       const auto domain = juce::jmax (0, safeThis->readTableChoiceIndex (tableId) - tableChoiceOffset);
+                                       const auto slot = domain >= factoryCount
+                                                             ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1,
+                                                                             domain - factoryCount)
+                                                             : 0;
+
+                                       if (safeThis->processorRef.loadUserWavetable (slot, file, mode))
+                                       {
+                                           if (auto* parameter = safeThis->processorRef.apvts.getParameter (tableId))
+                                               parameter->setValueNotifyingHost (
+                                                   parameter->convertTo0to1 ((float) (tableChoiceOffset + factoryCount + slot)));
+                                       }
+                                   });
     }
 
     void updateModeVisibility()
@@ -833,11 +853,13 @@ private:
     }
 };
 
-class FilterPage : public juce::Component
+class FilterPage : public juce::Component,
+                   private juce::Timer
 {
 public:
     explicit FilterPage (IlanaSynthAudioProcessor& p)
-        : filterDisplay (p),
+        : processorRef (p),
+          filterDisplay (p),
           f1Type (p.apvts, "f1_type", "TYPE"),
           f1Slope (p.apvts, "f1_slope", "SLOPE"),
           f1Cutoff (p.apvts, "f1_cutoff", "CUTOFF", juce::Colour (0xffff4fd8), false),
@@ -846,6 +868,7 @@ public:
           f1Env (p.apvts, "f1_env", "ENV AMT", juce::Colour (0xffff4fd8), false),
           f1Key (p.apvts, "f1_keytrack", "KEY TRK", juce::Colour (0xffff4fd8), false),
           f1Fm (p.apvts, "f1_fm", "FM", juce::Colour (0xffff4fd8), false),
+          f1Morph (p.apvts, "f1_morph", "MORPH", juce::Colour (0xffff4fd8), false),
           f2Type (p.apvts, "f2_type", "TYPE"),
           f2Slope (p.apvts, "f2_slope", "SLOPE"),
           f2Cutoff (p.apvts, "f2_cutoff", "CUTOFF", juce::Colour (0xffb28aff), false),
@@ -853,15 +876,23 @@ public:
           f2Drive (p.apvts, "f2_drive", "DRIVE", juce::Colour (0xffb28aff), false),
           f2Env (p.apvts, "f2_env", "ENV AMT", juce::Colour (0xffb28aff), false),
           f2Key (p.apvts, "f2_keytrack", "KEY TRK", juce::Colour (0xffb28aff), false),
-          f2Fm (p.apvts, "f2_fm", "FM", juce::Colour (0xffb28aff), false)
+          f2Fm (p.apvts, "f2_fm", "FM", juce::Colour (0xffb28aff), false),
+          f2Morph (p.apvts, "f2_morph", "MORPH", juce::Colour (0xffb28aff), false),
+          osc1Route (p.apvts, "osc1_route", "OSC 1 INTO"),
+          osc2Route (p.apvts, "osc2_route", "OSC 2 INTO"),
+          osc3Route (p.apvts, "sub_route", "OSC 3 + NOISE INTO")
     {
         addAndMakeVisible (filterDisplay);
-        addAll (*this, f1Type, f1Slope, f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm,
-                f2Type, f2Slope, f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm);
+        addAll (*this, f1Type, f1Slope, f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm, f1Morph,
+                f2Type, f2Slope, f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm, f2Morph,
+                osc1Route, osc2Route, osc3Route);
 
         addAndMakeVisible (routing);
         routingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             p.apvts, "filters_parallel", routing);
+
+        updateMorphEnabled();
+        startTimerHz (4);
     }
 
     void paint (juce::Graphics& g) override
@@ -870,22 +901,22 @@ public:
 
         paintSectionTitle (g, "RESPONSE  (drag the markers)", { 14, 12, 400, 16 });
 
-        g.setColour (juce::Colour (0xffff4fd8));
         g.setFont (IlanaTheme::font (13.0f, true));
-        g.fillEllipse (14.0f, 148.0f, 6.0f, 6.0f);
-        g.drawText ("FILTER 1", juce::Rectangle<int> (28, 143, 300, 16), juce::Justification::centredLeft);
+        g.setColour (juce::Colour (0xffff4fd8));
+        g.fillEllipse (14.0f, (float) filter1Title + 5.0f, 6.0f, 6.0f);
+        g.drawText ("FILTER 1", juce::Rectangle<int> (28, filter1Title, 300, 16), juce::Justification::centredLeft);
 
         g.setColour (juce::Colour (0xffb28aff));
-        g.fillEllipse (14.0f, 258.0f, 6.0f, 6.0f);
-        g.drawText ("FILTER 2", juce::Rectangle<int> (28, 253, 300, 16), juce::Justification::centredLeft);
+        g.fillEllipse (14.0f, (float) filter2Title + 5.0f, 6.0f, 6.0f);
+        g.drawText ("FILTER 2", juce::Rectangle<int> (28, filter2Title, 300, 16), juce::Justification::centredLeft);
 
-        paintSectionTitle (g, "ROUTING", { 14, 365, 300, 16 });
+        paintSectionTitle (g, "ROUTING", { 14, routingTitle, 300, 16 });
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (12.5f));
-        g.drawFittedText ("Serial chains Filter 1 into Filter 2, each with its own level controls on the left.  "
-                          "Parallel runs both filters from the oscillators and sums them.",
-                    juce::Rectangle<int> (256, 363, 760, 44), juce::Justification::centredLeft, 2);
+        g.setFont (IlanaTheme::font (12.0f));
+        g.drawFittedText ("Serial runs Filter 1 into Filter 2; Parallel sums them.  Each oscillator can also skip "
+                          "straight to Filter 2 or past both filters.",
+                          routingNote, juce::Justification::centredLeft, 2);
     }
 
     void resized() override
@@ -893,31 +924,73 @@ public:
         auto area = getLocalBounds().reduced (12);
 
         area.removeFromTop (18);
-        filterDisplay.setBounds (area.removeFromTop (110));
+        const auto displayHeight = juce::jlimit (110, 190, area.getHeight() - 330);
+        filterDisplay.setBounds (area.removeFromTop (displayHeight));
+        area.removeFromTop (8);
+
+        const auto rowHeight = juce::jlimit (92, 110, (area.getHeight() - 110) / 2);
+
+        filter1Title = area.getY();
+        area.removeFromTop (18);
+        layoutRow (area.removeFromTop (rowHeight), { &f1Type, &f1Slope, &f1Cutoff, &f1Reso, &f1Drive, &f1Env, &f1Key, &f1Fm, &f1Morph });
+
+        area.removeFromTop (6);
+        filter2Title = area.getY();
+        area.removeFromTop (18);
+        layoutRow (area.removeFromTop (rowHeight), { &f2Type, &f2Slope, &f2Cutoff, &f2Reso, &f2Drive, &f2Env, &f2Key, &f2Fm, &f2Morph });
+
+        area.removeFromTop (8);
+        routingTitle = area.getY();
         area.removeFromTop (18);
 
-        auto row1 = area.removeFromTop (92);
-        layoutRow (row1, { &f1Type, &f1Slope, &f1Cutoff, &f1Reso, &f1Drive, &f1Env, &f1Key, &f1Fm });
-
-        area.removeFromTop (20);
-
-        auto row2 = area.removeFromTop (92);
-        layoutRow (row2, { &f2Type, &f2Slope, &f2Cutoff, &f2Reso, &f2Drive, &f2Env, &f2Key, &f2Fm });
-
-        area.removeFromTop (20);
-
-        auto row3 = area.removeFromTop (50);
+        auto row3 = area.removeFromTop (54);
         routing.setBounds (row3.removeFromLeft (230).reduced (0, 2));
+        row3.removeFromLeft (16);
+
+        for (auto* combo : { &osc1Route, &osc2Route, &osc3Route })
+        {
+            combo->setBounds (row3.removeFromLeft (150).withTrimmedTop (4));
+            row3.removeFromLeft (8);
+        }
+
+        routingNote = row3.reduced (8, 0);
     }
 
 private:
+    // MORPH only does something on the Formant and Morph types.
+    void updateMorphEnabled()
+    {
+        const auto uses = [this] (const char* id)
+        {
+            const auto* value = processorRef.apvts.getRawParameterValue (id);
+            return value != nullptr && FilterType::usesMorph ((int) value->load());
+        };
+
+        for (auto [knob, id] : { std::pair<KnobControl*, const char*> { &f1Morph, "f1_type" }, { &f2Morph, "f2_type" } })
+        {
+            const auto enabled = uses (id);
+
+            if (knob->isEnabled() != enabled)
+            {
+                knob->setEnabled (enabled);
+                knob->setAlpha (enabled ? 1.0f : 0.35f);
+            }
+        }
+    }
+
+    void timerCallback() override { updateMorphEnabled(); }
+
+    IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
     ComboControl f1Type, f1Slope;
-    KnobControl f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm;
+    KnobControl f1Cutoff, f1Reso, f1Drive, f1Env, f1Key, f1Fm, f1Morph;
     ComboControl f2Type, f2Slope;
-    KnobControl f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm;
+    KnobControl f2Cutoff, f2Reso, f2Drive, f2Env, f2Key, f2Fm, f2Morph;
+    ComboControl osc1Route, osc2Route, osc3Route;
     RoutingSwitch routing;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> routingAttachment;
+    int filter1Title = 0, filter2Title = 0, routingTitle = 0;
+    juce::Rectangle<int> routingNote;
 };
 
 class EnvSection : public juce::Component
@@ -2185,8 +2258,15 @@ public:
           feedbackAmount (p.apvts, "fx_feedback_amount", "AMOUNT"),
           feedbackDelay (p.apvts, "fx_feedback_delay", "DELAY MS"),
           feedbackTone (p.apvts, "fx_feedback_tone", "TONE"),
-          feedbackMix (p.apvts, "fx_feedback_mix", "MIX")
+          feedbackMix (p.apvts, "fx_feedback_mix", "MIX"),
+          eqLowFreq (p.apvts, "fx_eq_low_freq", "LOW FREQ"), eqLowGain (p.apvts, "fx_eq_low_gain", "LOW GAIN"),
+          eqMidFreq (p.apvts, "fx_eq_mid_freq", "MID FREQ"), eqMidGain (p.apvts, "fx_eq_mid_gain", "MID GAIN"),
+          eqMidQ (p.apvts, "fx_eq_mid_q", "MID Q"),
+          eqHighFreq (p.apvts, "fx_eq_high_freq", "HIGH FREQ"), eqHighGain (p.apvts, "fx_eq_high_gain", "HIGH GAIN"),
+          eqCurve (p)
     {
+        addAll (*this, eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain);
+        addChildComponent (eqCurve);
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p.apvts.getParameter ("fx_slot1")))
             slotNames = choice->getAllValueStrings();
 
@@ -2251,6 +2331,7 @@ public:
         slotGroups.push_back ({ &octaverMix });
         slotGroups.push_back ({ &vowelMorph, &vowelMix });
         slotGroups.push_back ({ &feedbackAmount, &feedbackDelay, &feedbackTone, &feedbackMix });
+        slotGroups.push_back ({ &eqLowFreq, &eqLowGain, &eqMidFreq, &eqMidGain, &eqMidQ, &eqHighFreq, &eqHighGain });
 
         prevSlotButton.onClick = [this] { moveSelectedSlot (-1); };
         nextSlotButton.onClick = [this] { moveSelectedSlot (1); };
@@ -2574,6 +2655,9 @@ public:
         }
 
         tapGrid.setBounds (tapArea);
+
+        // The EQ's knobs take one row; its curve fills the space under them.
+        eqCurve.setBounds (panel.withTrimmedTop (156).withTrimmedBottom (4));
         loadIrButton.setBounds (440, 15, 90, 18);
         slotBlend.setBounds (280, 15, 150, 18);
     }
@@ -2876,6 +2960,7 @@ private:
                 control->setVisible (type == selectedType);
 
         tapGrid.setVisible (selectedType == 9);
+        eqCurve.setVisible (selectedType == 29);
         loadIrButton.setVisible (selectedType == 13);
 
         paramsAppear = 0.0f;
@@ -3059,6 +3144,8 @@ private:
     ToggleControl stutterReverse;
     KnobControl stutterPitch;
     KnobControl feedbackAmount, feedbackDelay, feedbackTone, feedbackMix;
+    KnobControl eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain;
+    EqCurve eqCurve;
 };
 } // namespace
 
@@ -3239,7 +3326,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     updateSeqTab();
     loadedFingerprint = parameterFingerprint();
 
-    setResizable (true, false);
+    // Drag the corner (or the host's window edge) to any size between 75% and
+    // 200%; the aspect ratio is fixed and the size is remembered.
+    setResizable (true, true);
 
     startTimer (250);
 
@@ -3372,8 +3461,8 @@ void IlanaSynthAudioProcessorEditor::applyUiZoom (float newZoom)
         settings->saveIfNeeded();
     }
 
-    setResizeLimits (juce::roundToInt (795.0f * uiZoom), juce::roundToInt (540.0f * uiZoom),
-                     juce::roundToInt (1590.0f * uiZoom), juce::roundToInt (1080.0f * uiZoom));
+    setResizeLimits (juce::roundToInt ((float) designWidth * 0.75f), juce::roundToInt ((float) designHeight * 0.75f),
+                     designWidth * 2, designHeight * 2);
 
     if (auto* boundsConstrainer = getConstrainer())
         boundsConstrainer->setFixedAspectRatio ((double) designWidth / (double) designHeight);
@@ -3436,6 +3525,14 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
 void IlanaSynthAudioProcessorEditor::timerCallback()
 {
     applyDisplayScale();
+
+    if (zoomNeedsSaving && ! juce::ModifierKeys::getCurrentModifiersRealtime().isAnyMouseButtonDown()
+        && settings != nullptr)
+    {
+        zoomNeedsSaving = false;
+        settings->setValue ("uiZoom", uiZoom);
+        settings->saveIfNeeded();
+    }
 
     updateSeqTab();
 
@@ -3563,6 +3660,14 @@ void IlanaSynthAudioProcessorEditor::resized()
 {
     const auto scale = (float) getWidth() / (float) designWidth;
     IlanaTheme::uiScaleRef() = scale * hostScaleFactor();
+
+    // A corner drag changes the zoom; remember it (saved on the timer so a
+    // drag doesn't hit the disk on every step).
+    if (displayScaleApplied && std::abs (scale - uiZoom) > 0.005f)
+    {
+        uiZoom = scale;
+        zoomNeedsSaving = true;
+    }
 
     content.setBounds (0, 0, designWidth, designHeight);
     content.setTransform (juce::AffineTransform::scale (scale));

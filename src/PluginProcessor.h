@@ -9,9 +9,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "dsp/Biquad.h"
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
+#include "dsp/LfoCurve.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -25,6 +27,9 @@ class IlanaSynthAudioProcessor : public juce::AudioProcessor,
 public:
     static constexpr int numUserSlots = 4;
     static constexpr int numFxSlots = 10;
+    static constexpr int numFxTypes = 29;
+
+    EqSettings getEqSettings() const;
     static constexpr int numLfos = 4;
     static constexpr int maxDestinations = 256;
 
@@ -105,8 +110,11 @@ public:
     double getCurrentBpm() const { return currentBpm.load(); }
     float getArpStepRateHz() const;
     float getSourceDisplayValue (int sourceIndex) const;
-    void setOversampling (bool shouldOversample);
-    bool isOversampling() const { return oversamplingActive.load(); }
+    // 1 (off), 2 or 4. Switching reprepares the voices, so it happens on
+    // the message thread (the audio thread asks for it asynchronously).
+    void setOversampling (int factor);
+    bool isOversampling() const { return oversamplingFactor.load() > 1; }
+    int getOversamplingFactor() const { return oversamplingFactor.load(); }
     double getCurrentSampleRate() const { return displaySampleRate.load(); }
 
     juce::UndoManager& getUndoManager() { return undoManager; }
@@ -155,6 +163,12 @@ public:
     void setLfoCustomPoint (int lfoIndex, int step, float value);
     float getLfoCustomPoint (int lfoIndex, int step) const;
 
+    // The drawable "Curve" LFO shape (message thread).
+    static constexpr int curveShape = 8;
+    LfoCurve getLfoCurve (int lfoIndex) const;
+    void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+    float getLfoCurveValue (int lfoIndex, double phase) const;
+
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
     void panic() { synth.allNotesOff (0, false); }
     float getCpuUsage() const { return cpuUsage.load(); }
@@ -183,7 +197,8 @@ public:
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
 
-    bool loadUserWavetable (int slot, const juce::File& file);
+    bool loadUserWavetable (int slot, const juce::File& file,
+                            Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
     bool loadUserSample (int oscIndex, const juce::File& file);
     const SampleData* getSampleForOsc (int oscIndex) const;
     void flushAsyncUpdates();
@@ -227,6 +242,7 @@ private:
     void processOctaver (juce::AudioBuffer<float>& buffer);
     void processVowel (juce::AudioBuffer<float>& buffer);
     void processFeedback (juce::AudioBuffer<float>& buffer);
+    void processEq (juce::AudioBuffer<float>& buffer);
     void processSlot (int type, juce::AudioBuffer<float>& buffer);
     juce::String captureFxChain();
     juce::ValueTree buildFullState();
@@ -283,7 +299,7 @@ private:
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
     struct LfoIds { juce::String shape, rate, sync, div, retrig, phase; std::array<juce::String, 16> steps; };
-    struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend; };
+    struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, 3> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
@@ -304,6 +320,8 @@ private:
     bool samplesReloadPending = false;
     std::array<juce::String, (size_t) numUserSlots> userTablePaths;
     std::array<juce::String, (size_t) numUserSlots> pendingUserTablePaths;
+    std::array<int, (size_t) numUserSlots> userTableModes {};
+    std::array<int, (size_t) numUserSlots> pendingUserTableModes {};
     std::array<bool, (size_t) numUserSlots> pendingUserTableClear {};
     bool userTablesReloadPending = false;
 
@@ -361,6 +379,9 @@ private:
 
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> lfoCustom {};
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> activeLfoCustom {};
+    std::array<LfoCurve, (size_t) numLfos> lfoCurves;
+    std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> lfoCurveTables {};
+    std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> activeLfoCurveTables {};
     mutable juce::SpinLock lfoShapeLock;
 
     std::atomic<int> previewNoteOn { -1 };
@@ -383,9 +404,13 @@ private:
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
     juce::dsp::Convolution convolution;
-    juce::dsp::Oversampling<float> oversampler { 2, 1,
+    juce::dsp::Oversampling<float> oversampler2x { 2, 1,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
-    std::atomic<bool> oversamplingActive { false };
+    juce::dsp::Oversampling<float> oversampler4x { 2, 2,
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
+    std::atomic<int> oversamplingFactor { 1 };
+    int wantedOversamplingFactor() const;
+    juce::dsp::Oversampling<float>& activeOversampler() { return oversamplingFactor.load() == 4 ? oversampler4x : oversampler2x; }
     juce::MidiBuffer scaledMidiBuffer;
     std::atomic<bool> reverbIrLoaded { false };
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 96000 };
@@ -442,6 +467,7 @@ private:
     float gatedReverbEnvelope = 0.0f;
     float duckEnvelope = 0.0f;
     GranularPitchShift octaverShift[2];
+    Biquad eqBands[2][3];
     Svf vowelFilters[2][3];
     juce::AudioBuffer<float> fxScratch;
     juce::AudioBuffer<float> reverbScratch;

@@ -2267,6 +2267,44 @@ private:
     int hoverStep = -1;
 };
 
+// Each effect family has its own colour: drive/distortion warm, modulation
+// blue-violet, time and space green-cyan, dynamics teal, filters/EQ pink.
+inline juce::Colour fxColour (int type)
+{
+    switch (type)
+    {
+        case 1: case 2: case 3: case 25: case 26: case 28: return juce::Colour (0xffff7a45); // amp, drive, crush, ring, octaver, feedback
+        case 4: case 16: case 19: case 20: case 21:        return juce::Colour (0xff4fd8c8); // comp, gate, utility, OTT, limiter
+        case 6: case 7: case 8: case 14: case 15: case 22: case 23: case 24:
+                                                           return juce::Colour (0xff7d8cff); // phaser .. freq shift
+        case 9: case 10: case 17:                          return juce::Colour (0xff6fe38a); // delay, stutter, tape stop
+        case 11: case 12: case 13:                         return juce::Colour (0xff45c8ff); // smear, freeze, reverb
+        case 5: case 18: case 27: case 29:                 return juce::Colour (0xffff5fb0); // comb, tilt, vowel, EQ
+        default:                                           return juce::Colour (0xff5a5a66);
+    }
+}
+
+// Scrolling content for the FX stack: paints each module's panel and hands
+// clicks back to the page.
+class FxStackContent : public juce::Component
+{
+public:
+    std::function<void (juce::Graphics&)> painter;
+    std::function<void (juce::Point<int>)> onClick;
+
+    void paint (juce::Graphics& g) override
+    {
+        if (painter != nullptr)
+            painter (g);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (onClick != nullptr)
+            onClick (event.getPosition());
+    }
+};
+
 class FxPage : public juce::Component,
                private juce::Timer
 {
@@ -2522,6 +2560,34 @@ public:
         slotBlend.setTooltip ("Parallel blend for the selected slot: 0 is dry only, 1 is the full effect.");
         addAndMakeVisible (slotBlend);
 
+        // Every loaded module's controls live in one scrolling stack.
+        for (auto& group : slotGroups)
+            for (auto* control : group)
+                stackContent.addChildComponent (control);
+
+        stackContent.addChildComponent (tapGrid);
+        stackContent.addChildComponent (eqCurve);
+        stackContent.addChildComponent (loadIrButton);
+        stackContent.painter = [this] (juce::Graphics& g) { paintStack (g); };
+        stackContent.onClick = [this] (juce::Point<int> position)
+        {
+            for (const auto& panel : stackPanels)
+            {
+                if (panel.bounds.contains (position))
+                {
+                    selectedSlot = panel.slot;
+                    bindBlend();
+                    repaint();
+                    stackContent.repaint();
+                }
+            }
+        };
+
+        stackView.setViewedComponent (&stackContent, false);
+        stackView.setScrollBarsShown (true, false);
+        stackView.setScrollBarThickness (8);
+        addAndMakeVisible (stackView);
+
         updateVisibility();
         startTimerHz (30);
     }
@@ -2561,10 +2627,17 @@ public:
             const auto dragSource = cardDragActive && slot == selectedSlot;
             const auto dim = bypassed ? 0.45f : 1.0f;
 
+            const auto typeColour = fxColour (slotType);
+
             if (dragSource)
                 g.setColour (juce::Colour (0xff141416).withAlpha (0.5f));
-            else if (selected)
-                g.setColour (IlanaTheme::accent().withAlpha (0.22f));
+            else if (slotType != 0)
+            {
+                // Loaded modules wear their family colour.
+                juce::ColourGradient rowGradient (typeColour.withAlpha ((selected ? 0.34f : 0.18f) * dim), 0.0f, (float) row.getY(),
+                                                  typeColour.withAlpha ((selected ? 0.16f : 0.06f) * dim), 0.0f, (float) row.getBottom(), false);
+                g.setGradientFill (rowGradient);
+            }
             else
             {
                 juce::ColourGradient rowGradient (juce::Colour (0xff20202a).withMultipliedAlpha (dim), 0.0f, (float) row.getY(),
@@ -2574,12 +2647,18 @@ public:
 
             g.fillRoundedRectangle (row.toFloat(), 6.0f);
 
+            if (slotType != 0 && ! dragSource)
+            {
+                g.setColour (typeColour.withAlpha (dim));
+                g.fillRoundedRectangle (row.toFloat().withWidth (4.0f).reduced (0.0f, 6.0f).translated (2.0f, 0.0f), 2.0f);
+            }
+
             if (! selected && ! dragSource && rowHover[(size_t) slot] > 0.01f)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.07f * rowHover[(size_t) slot]));
                 g.fillRoundedRectangle (row.toFloat(), 6.0f);
             }
-            g.setColour ((selected ? IlanaTheme::accent() : juce::Colour (0xff33333a)).withMultipliedAlpha (dim));
+            g.setColour ((selected ? (slotType != 0 ? typeColour : IlanaTheme::accent()) : juce::Colour (0xff33333a)).withMultipliedAlpha (dim));
             g.drawRoundedRectangle (row.toFloat().reduced (0.5f), 6.0f, selected ? 1.6f : 1.0f);
 
             if (dragSource)
@@ -2593,7 +2672,7 @@ public:
 
             if (slotType != 0 && ! bypassed)
             {
-                g.setColour (IlanaTheme::accent());
+                g.setColour (typeColour);
                 g.fillEllipse (led);
             }
             else
@@ -2729,17 +2808,11 @@ public:
             g.drawRoundedRectangle (ghost, 6.0f, 1.5f);
         }
 
-        if (type != 0 && type < (int) slotGroups.size())
-        {
-            paintSectionTitle (g, getSlotName (type).toUpperCase() + " PARAMETERS", { 336, 38, 400, 14 });
-        }
-        else
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.3f));
-            g.setFont (IlanaTheme::font (13.5f));
-            g.drawText ("Click an empty slot to add an effect; right-click any slot to change it.",
-                        juce::Rectangle<int> (336, 38, 600, 16), juce::Justification::centredLeft);
-        }
+        juce::ignoreUnused (type);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.5f));
+        g.drawText ("Click a slot to add or jump to it, drag to reorder, right-click to change it.",
+                    juce::Rectangle<int> (stackView.getX(), stackView.getY() - 20, 600, 16), juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -2781,33 +2854,9 @@ public:
             clipGain->setBounds (strip.removeFromLeft (160));
         }
 
-        auto tapArea = panel.removeFromBottom (52);
-        panel.removeFromTop (18); // "<MODULE> PARAMETERS" title
-
-        for (auto& group : slotGroups)
-        {
-            auto groupArea = panel;
-
-            if (group.size() > 8)
-            {
-                const auto half = (int) (group.size() + 1) / 2;
-                std::vector<juce::Component*> firstRow (group.begin(), group.begin() + half);
-                std::vector<juce::Component*> secondRow (group.begin() + half, group.end());
-
-                layoutRow (groupArea.removeFromTop (130), firstRow);
-                layoutRow (groupArea.removeFromTop (130), secondRow);
-            }
-            else
-            {
-                layoutRow (groupArea.removeFromTop (150), group);
-            }
-        }
-
-        tapGrid.setBounds (tapArea);
-
-        // The EQ's knobs take one row; its curve fills the space under them.
-        eqCurve.setBounds (panel.withTrimmedTop (156).withTrimmedBottom (4));
-        loadIrButton.setBounds (440, 15, 90, 18);
+        panel.removeFromTop (22); // hint line
+        stackView.setBounds (panel);
+        layoutStack();
         slotBlend.setBounds (280, 15, 150, 18);
     }
 
@@ -2821,7 +2870,9 @@ public:
                 continue;
 
             selectedSlot = slot;
-            updateVisibility();
+            bindBlend();
+            scrollToSlot (slot);
+            stackContent.repaint();
             repaint();
 
             // Empty slots have nothing to bypass or drag, so any click picks a module.
@@ -3102,18 +3153,33 @@ private:
 
     void updateVisibility()
     {
-        const auto selectedType = getSlotType (selectedSlot);
+        std::array<bool, 64> shown {};
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            const auto type = getSlotType (slot);
+
+            if (type > 0 && type < 64)
+                shown[(size_t) type] = true;
+        }
 
         for (int type = 0; type < (int) slotGroups.size(); ++type)
             for (auto* control : slotGroups[(size_t) type])
-                control->setVisible (type == selectedType);
+            {
+                control->setVisible (shown[(size_t) type]);
+                control->setAlpha (1.0f);
+            }
 
-        tapGrid.setVisible (selectedType == 9);
-        eqCurve.setVisible (selectedType == 29);
-        loadIrButton.setVisible (selectedType == 13);
+        tapGrid.setVisible (shown[9]);
+        eqCurve.setVisible (shown[29]);
+        loadIrButton.setVisible (shown[13]);
 
-        paramsAppear = 0.0f;
+        bindBlend();
+        resized();
+    }
 
+    void bindBlend()
+    {
         if (boundBlendSlot != selectedSlot)
         {
             boundBlendSlot = selectedSlot;
@@ -3122,8 +3188,128 @@ private:
             if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (selectedSlot + 1) + "_mix"))
                 slotBlendAttachment = std::make_unique<juce::SliderParameterAttachment> (*parameter, slotBlend, nullptr);
         }
+    }
 
-        resized();
+    // One panel per loaded slot, in chain order. A module type loaded twice
+    // shares its settings, so later copies get a short note instead.
+    void layoutStack()
+    {
+        stackPanels.clear();
+        const auto width = juce::jmax (100, stackView.getWidth() - stackView.getScrollBarThickness() - 4);
+        auto y = 0;
+        std::array<bool, 64> placed {};
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            const auto type = getSlotType (slot);
+
+            if (type <= 0 || type >= (int) slotGroups.size())
+                continue;
+
+            StackPanel panel;
+            panel.slot = slot;
+            panel.type = type;
+            panel.duplicate = placed[(size_t) type];
+            placed[(size_t) type] = true;
+
+            const auto& group = slotGroups[(size_t) type];
+            const auto rows = group.size() > 8 ? 2 : 1;
+            auto height = 30 + (panel.duplicate ? 30 : rows * 112 + 8);
+
+            if (! panel.duplicate && type == 29)
+                height += 130;
+
+            if (! panel.duplicate && type == 9)
+                height += 58;
+
+            panel.bounds = { 0, y, width, height };
+            y += height + 8;
+
+            if (! panel.duplicate)
+            {
+                auto body = panel.bounds.reduced (10, 0);
+                body.removeFromTop (30);
+
+                if (group.size() > 8)
+                {
+                    const auto half = (int) (group.size() + 1) / 2;
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin(), group.begin() + half));
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin() + half, group.end()));
+                }
+                else
+                {
+                    const auto maxWidth = juce::jmin (body.getWidth(), (int) group.size() * 120);
+                    layoutRow (body.removeFromTop (112).withWidth (maxWidth), group);
+                }
+
+                if (type == 29)
+                    eqCurve.setBounds (body.removeFromTop (126).reduced (0, 2));
+
+                if (type == 9)
+                    tapGrid.setBounds (body.removeFromTop (54).reduced (0, 2));
+
+                if (type == 13)
+                    loadIrButton.setBounds (panel.bounds.getRight() - 110, panel.bounds.getY() + 6, 96, 18);
+            }
+
+            stackPanels.push_back (panel);
+        }
+
+        stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
+        stackContent.repaint();
+    }
+
+    void paintStack (juce::Graphics& g)
+    {
+        if (stackPanels.empty())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (13.5f));
+            g.drawText ("The rack is empty.  Click a slot on the left to add an effect.",
+                        stackContent.getLocalBounds().withHeight (60), juce::Justification::centred);
+            return;
+        }
+
+        for (const auto& panel : stackPanels)
+        {
+            const auto colour = fxColour (panel.type);
+            const auto bounds = panel.bounds.toFloat();
+            const auto selected = panel.slot == selectedSlot;
+            const auto bypassed = processorRef.apvts.getParameter ("fx_slot" + juce::String (panel.slot + 1) + "_bypass")->getValue() > 0.5f;
+
+            juce::ColourGradient body (colour.withAlpha (selected ? 0.16f : 0.1f), 0.0f, bounds.getY(),
+                                       juce::Colour (0xff141418).withAlpha (0.9f), 0.0f, bounds.getBottom(), false);
+            g.setGradientFill (body);
+            g.fillRoundedRectangle (bounds, 8.0f);
+            g.setColour (colour.withAlpha (selected ? 0.9f : 0.35f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, selected ? 1.6f : 1.0f);
+
+            auto header = panel.bounds.withHeight (28).reduced (12, 0);
+            g.setColour (colour.withAlpha (bypassed ? 0.4f : 1.0f));
+            g.fillRoundedRectangle (header.removeFromLeft (4).toFloat().reduced (0.0f, 7.0f), 2.0f);
+            header.removeFromLeft (8);
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.drawText (getSlotName (panel.type).toUpperCase(), header, juce::Justification::centredLeft);
+
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.setFont (IlanaTheme::font (11.0f));
+            const auto note = juce::String ("SLOT ") + juce::String (panel.slot + 1) + (bypassed ? "  -  BYPASSED" : "");
+            g.drawText (note, header.withTrimmedRight (panel.type == 13 ? 110 : 0), juce::Justification::centredRight);
+
+            if (panel.duplicate)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.4f));
+                g.drawText ("Shares its settings with the first " + getSlotName (panel.type) + " above.",
+                            panel.bounds.withTrimmedTop (28).reduced (16, 0).withHeight (26), juce::Justification::centredLeft);
+            }
+        }
+    }
+
+    void scrollToSlot (int slot)
+    {
+        for (const auto& panel : stackPanels)
+            if (panel.slot == slot)
+                stackView.setViewPosition (0, juce::jmax (0, panel.bounds.getY() - 4));
     }
 
     void visibilityChanged() override
@@ -3158,12 +3344,6 @@ private:
         dropFlash *= 0.85f;
         chainSweep *= 0.9f;
         paramsAppear = juce::jmin (1.0f, paramsAppear + 0.1f);
-
-        const auto selectedType = getSlotType (selectedSlot);
-
-        if (selectedType < (int) slotGroups.size())
-            for (auto* control : slotGroups[(size_t) selectedType])
-                control->setAlpha (paramsAppear);
 
         const auto showingA = processorRef.isShowingChainA();
 
@@ -3209,6 +3389,17 @@ private:
     juce::Rectangle<int> outputStrip;
     juce::StringArray slotNames;
     std::vector<std::vector<juce::Component*>> slotGroups;
+
+    struct StackPanel
+    {
+        int slot = 0, type = 0;
+        bool duplicate = false;
+        juce::Rectangle<int> bounds;
+    };
+
+    juce::Viewport stackView;
+    FxStackContent stackContent;
+    std::vector<StackPanel> stackPanels;
     int selectedSlot = 0;
     static constexpr int rowHeight = 39;
     int rowsTop = 60;

@@ -15,6 +15,7 @@
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
 #include "dsp/LfoCurve.h"
+#include "dsp/LfoShape.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -81,6 +82,7 @@ public:
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
     bool isSpectralWarpReady (int osc) const { return spectralCache->isReady (osc); }
+    float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
     // (null when its warp is off or still building).
@@ -338,7 +340,7 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase; std::array<juce::String, 16> steps; };
+    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key; std::array<juce::String, 16> steps; };
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, 3> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
@@ -378,6 +380,8 @@ private:
     juce::AudioBuffer<float> lfoBuffers;
     std::array<double, (size_t) numLfos> lfoPhases {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoSampleHolds {};
+    std::array<std::atomic<float>, (size_t) numLfos> lfoLastValues {};
+    std::array<LfoChaos, (size_t) numLfos> lfoChaos;
     juce::Random lfoRandom;
 
     float modWheelValue = 0.0f;

@@ -237,6 +237,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         ids.div = prefix + "_div";
         ids.retrig = prefix + "_retrig";
         ids.phase = prefix + "_phase";
+        ids.key = prefix + "_key";
 
         for (int step = 0; step < 16; ++step)
             ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
@@ -282,6 +283,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
     for (auto& hold : lfoSampleHolds)
         hold.store (lfoRandom.nextFloat() * 2.0f - 1.0f);
+
+    for (auto& chaos : lfoChaos)
+        chaos.reset (lfoRandom);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::createParameterLayout()
@@ -367,7 +371,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "String", "Sample" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "String", "Sample", "Granular" }, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -516,7 +520,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "String", "Sample" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "String", "Sample", "Granular" }, 0);
         addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
@@ -534,6 +538,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id + "_sample_end", id + " Sample End", 0.0f, 1.0f, 1.0f);
         addFloat (id + "_sample_fade_in", id + " Sample Fade In", 0.0f, 1.0f, 0.0f);
         addFloat (id + "_sample_fade_out", id + " Sample Fade Out", 0.0f, 1.0f, 0.0f);
+
+        // Granular mode reads the same sample; its position is Sample Start.
+        addFloat (id + "_grain_size", id + " Grain Size", 10.0f, 500.0f, 80.0f, 0.4f);
+        addFloat (id + "_grain_density", id + " Grain Density", 0.0f, 1.0f, 0.5f);
+        addFloat (id + "_grain_spray", id + " Grain Spray", 0.0f, 1.0f, 0.15f);
+        addFloat (id + "_grain_pitch", id + " Grain Pitch Spray", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_grain_spread", id + " Grain Stereo Spread", 0.0f, 1.0f, 0.6f);
     }
 
     // Arpeggiator
@@ -558,7 +569,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("arp_gate", "Arp Gate", 0.05f, 1.0f, 0.5f);
 
     // LFOs
-    const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps", "Curve" };
+    const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps", "Curve",
+                                       "Smooth Random", "Drunk", "Chaos" };
 
     for (int lfo = 1; lfo <= numLfos; ++lfo)
     {
@@ -570,6 +582,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_div", "LFO" + juce::String (lfo) + " Div", getSyncDivisionNames(), 2);
         addBool (prefix + "_retrig", "LFO" + juce::String (lfo) + " Retrig", false);
         addFloat (prefix + "_phase", "LFO" + juce::String (lfo) + " Start Phase", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_key", "LFO" + juce::String (lfo) + " Key Track", false);
 
         for (int step = 0; step < 16; ++step)
             addFloat (prefix + "_step" + juce::String (step + 1), "LFO" + juce::String (lfo) + " Step " + juce::String (step + 1),
@@ -1120,7 +1133,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.sub.spread = getParam ("sub_spread");
     p.sub.frame = getParam ("sub_frame");
     p.sub.stringMode = (int) getParam ("sub_mode") == 1;
-    p.sub.sampleMode = (int) getParam ("sub_mode") == 2;
+    p.sub.sampleMode = (int) getParam ("sub_mode") >= 2;
+    p.sub.granularMode = (int) getParam ("sub_mode") == 3;
     p.sub.stringExcite = (int) getParam ("sub_excite");
     p.sub.stringDecay = getParam ("sub_string_decay");
     p.sub.stringDamping = getParam ("sub_string_damp");
@@ -1209,7 +1223,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const auto& ids = stringParamIds[(size_t) oscIndex];
         const auto mode = (int) getParam (ids[0].toRawUTF8());
         osc.stringMode = mode == 1;
-        osc.sampleMode = mode == 2;
+        osc.sampleMode = mode == 2 || mode == 3; // granular reads the sample too
+        osc.granularMode = mode == 3;
         osc.stringExcite = (int) getParam (ids[1].toRawUTF8());
         osc.stringDecay = getParam (ids[2].toRawUTF8());
         osc.stringDamping = getParam (ids[3].toRawUTF8());
@@ -1227,6 +1242,18 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.sampleEnd = getParam (ids[4].toRawUTF8());
         osc.sampleFadeIn = getParam (ids[5].toRawUTF8());
         osc.sampleFadeOut = getParam (ids[6].toRawUTF8());
+
+        static const char* grainIds[3][5] {
+            { "osc1_grain_size", "osc1_grain_density", "osc1_grain_spray", "osc1_grain_pitch", "osc1_grain_spread" },
+            { "osc2_grain_size", "osc2_grain_density", "osc2_grain_spray", "osc2_grain_pitch", "osc2_grain_spread" },
+            { "sub_grain_size", "sub_grain_density", "sub_grain_spray", "sub_grain_pitch", "sub_grain_spread" }
+        };
+        const auto* grain = grainIds[juce::jlimit (0, 2, oscIndex)];
+        osc.grainSizeMs = getParam (grain[0]);
+        osc.grainDensity = getParam (grain[1]);
+        osc.grainSpray = getParam (grain[2]);
+        osc.grainPitch = getParam (grain[3]);
+        osc.grainSpread = getParam (grain[4]);
     };
 
     fillStringParams (0, p.osc1);
@@ -1303,7 +1330,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             for (int step = 0; step < 16; ++step)
                 lfoStepValues[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
 
-            lfoParams.perVoice = getParam (ids.retrig.toRawUTF8()) > 0.5f;
+            lfoParams.keyTrack = getParam (ids.key.toRawUTF8()) > 0.5f;
+            lfoParams.perVoice = getParam (ids.retrig.toRawUTF8()) > 0.5f || lfoParams.keyTrack;
             lfoParams.shape = (int) getParam (ids.shape.toRawUTF8());
             lfoParams.baseIncrement = juce::jlimit (0.001, 200.0, rate) / voiceRate;
             lfoParams.startPhase = getParam (ids.phase.toRawUTF8());
@@ -1787,11 +1815,18 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             const auto stepIndex = juce::jlimit (0, 15, (int) (phase * 16.0));
             const auto shape = (int) lfoShapes[lfo];
 
+            auto& chaos = lfoChaos[(size_t) lfo];
+            const auto stateful = LfoShapes::isStateful (shape);
+
+            if (shape == LfoShapes::Chaos)
+                chaos.advance (lfoIncrements[lfo]);
+
             lfoBufferPointers[lfo][i] = shape == 7
                                             ? lfoSteps[lfo][stepIndex]
-                                            : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
-                                                        activeLfoCustom[(size_t) lfo].data(),
-                                                        activeLfoCurveTables[(size_t) lfo].data());
+                                            : (stateful ? chaos.value (shape, phase)
+                                                        : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
+                                                                    activeLfoCustom[(size_t) lfo].data(),
+                                                                    activeLfoCurveTables[(size_t) lfo].data()));
 
             auto nextPhase = phase + lfoIncrements[lfo];
 
@@ -1799,6 +1834,9 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             {
                 nextPhase -= std::floor (nextPhase);
                 lfoSampleHolds[(size_t) lfo].store (lfoRandom.nextFloat() * 2.0f - 1.0f);
+
+                if (stateful)
+                    chaos.onCycle (shape, lfoRandom);
             }
 
             lfoPhases[(size_t) lfo] = nextPhase;
@@ -1816,6 +1854,10 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         }
     }
 
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        if (numSamples > 0)
+            lfoLastValues[(size_t) lfo].store (lfoBufferPointers[lfo][numSamples - 1]);
+
     modWheelDisplay.store (modWheelValue);
     aftertouchDisplay.store (aftertouchValue);
     expressionDisplay.store (expressionValue);
@@ -1830,6 +1872,9 @@ float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
         const auto& lfoId = lfoIds[(size_t) lfoIndex];
         const auto shape = (int) getParam (lfoId.shape.toRawUTF8());
         const auto phase = lfoPhases[(size_t) lfoIndex];
+
+        if (LfoShapes::isStateful (shape))
+            return lfoChaos[(size_t) lfoIndex].value (shape, phase);
 
         return shape == 7 ? getParam (lfoId.steps[(size_t) juce::jlimit (0, 15, (int) (phase * 16.0))].toRawUTF8())
                           : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(),
@@ -1908,6 +1953,9 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         const auto prefix = "lfo" + juce::String (lfoIndex + 1);
         const auto shape = (int) getParam ((prefix + "_shape").toRawUTF8());
         const auto phase = (double) lfoPhaseDisplays[(size_t) lfoIndex].load();
+
+        if (LfoShapes::isStateful (shape))
+            return lfoLastValues[(size_t) lfoIndex].load();
 
         if (shape == 7)
             return getParam ((prefix + "_step"
@@ -3532,8 +3580,20 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
             return factorySamples[(size_t) (factoryIndex - 1)].get();
     }
 
-    const juce::SpinLock::ScopedLockType lock (sampleLock);
-    return sampleSlots[(size_t) oscIndex].get();
+    const SampleData* user = nullptr;
+
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        user = sampleSlots[(size_t) oscIndex].get();
+    }
+
+    // Granular with nothing loaded: grains from the vocal sample rather than silence.
+    if (user == nullptr && ! factorySamples.empty())
+        if (const auto* mode = apvts.getRawParameterValue (oscIndex == 0 ? "osc1_mode" : (oscIndex == 1 ? "osc2_mode" : "sub_mode")))
+            if ((int) mode->load() == 3)
+                return factorySamples[(size_t) juce::jmin (1, (int) factorySamples.size() - 1)].get();
+
+    return user;
 }
 
 bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file)

@@ -5,7 +5,9 @@
 #include <array>
 
 #include "FilterUnit.h"
+#include "GranularOsc.h"
 #include "KarplusStrong.h"
+#include "LfoShape.h"
 #include "Modulation.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
@@ -78,6 +80,13 @@ struct VoiceParams
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
+
+        bool granularMode = false; // also sets sampleMode: grains read the sample
+        float grainSizeMs = 80.0f;
+        float grainDensity = 0.5f;
+        float grainSpray = 0.15f;
+        float grainPitch = 0.0f;
+        float grainSpread = 0.6f;
     };
 
     struct FilterParams
@@ -97,6 +106,7 @@ struct VoiceParams
     struct LfoParams
     {
         bool perVoice = false;
+        bool keyTrack = false;         // rate follows the note: RATE 4 Hz = the note's pitch
         int shape = 0;
         double baseIncrement = 0.0;   // cycles per voice-rate sample, before modulation
         float startPhase = 0.0f;
@@ -272,6 +282,9 @@ private:
     SamplePlayer sample1Unison[VoiceParams::maxBufferedUnison];
     SamplePlayer sample2Unison[VoiceParams::maxBufferedUnison];
     SamplePlayer subSamples[VoiceParams::maxBufferedUnison];
+    GranularOsc grains1[VoiceParams::maxBufferedUnison];
+    GranularOsc grains2[VoiceParams::maxBufferedUnison];
+    GranularOsc grainsSub[VoiceParams::maxBufferedUnison];
     double sampleRatio1[VoiceParams::maxUnison] {}, sampleRatio2[VoiceParams::maxUnison] {};
     double sampleRatioSub[VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
@@ -296,6 +309,7 @@ private:
     double lfoPhases[VoiceParams::numLfos] {};
     double lfoIncrements[VoiceParams::numLfos] {};
     float lfoHolds[VoiceParams::numLfos] {};
+    LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
 
     double sampleRate = 44100.0;

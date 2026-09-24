@@ -217,8 +217,20 @@ public:
           osc1Spectral (p.apvts, "osc1_spectral", "SPECTRAL"), osc2Spectral (p.apvts, "osc2_spectral", "SPECTRAL"),
           subSpectral (p.apvts, "sub_spectral", "SPECTRAL"),
           osc1SpectralAmt (p.apvts, "osc1_spectral_amt", "SPEC AMT"), osc2SpectralAmt (p.apvts, "osc2_spectral_amt", "SPEC AMT"),
-          subSpectralAmt (p.apvts, "sub_spectral_amt", "SPEC AMT")
+          subSpectralAmt (p.apvts, "sub_spectral_amt", "SPEC AMT"),
+          osc1GrainPosition (p.apvts, "osc1_sample_start", "POSITION"), osc1GrainSize (p.apvts, "osc1_grain_size", "SIZE"),
+          osc1GrainDensity (p.apvts, "osc1_grain_density", "DENSITY"), osc1GrainSpray (p.apvts, "osc1_grain_spray", "SPRAY"),
+          osc1GrainPitch (p.apvts, "osc1_grain_pitch", "PITCH RND"), osc1GrainSpread (p.apvts, "osc1_grain_spread", "STEREO"),
+          osc2GrainPosition (p.apvts, "osc2_sample_start", "POSITION"), osc2GrainSize (p.apvts, "osc2_grain_size", "SIZE"),
+          osc2GrainDensity (p.apvts, "osc2_grain_density", "DENSITY"), osc2GrainSpray (p.apvts, "osc2_grain_spray", "SPRAY"),
+          osc2GrainPitch (p.apvts, "osc2_grain_pitch", "PITCH RND"), osc2GrainSpread (p.apvts, "osc2_grain_spread", "STEREO"),
+          subGrainPosition (p.apvts, "sub_sample_start", "POSITION"), subGrainSize (p.apvts, "sub_grain_size", "SIZE"),
+          subGrainDensity (p.apvts, "sub_grain_density", "DENSITY"), subGrainSpray (p.apvts, "sub_grain_spray", "SPRAY"),
+          subGrainPitch (p.apvts, "sub_grain_pitch", "PITCH RND"), subGrainSpread (p.apvts, "sub_grain_spread", "STEREO")
     {
+        addAll (*this, osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread);
+        addAll (*this, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread);
+        addAll (*this, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread);
         addAll (*this, osc1Spectral, osc2Spectral, subSpectral, osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt);
         addAll (*this, osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode,
                 osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend);
@@ -492,12 +504,50 @@ private:
         const auto isSample = mode == 2;
         const auto isString = mode == 1;
         const auto isWavetable = mode == 0;
+        const auto isGranular = mode == 3;
+
 
         std::vector<juce::Component*> top;
         std::vector<juce::Component*> bottom;
 
         const auto addTop = [&top] (juce::Component* item) { if (item != nullptr) top.push_back (item); };
         const auto addBottom = [&bottom] (juce::Component* item) { if (item != nullptr) bottom.push_back (item); };
+
+        if (isGranular)
+        {
+            const auto prefixIndex = juce::jlimit (0, 2, index);
+            juce::Component* on[] { &osc1On, &osc2On, &subOn };
+            juce::Component* modeBox[] { &osc1Mode, &osc2Mode, &subMode };
+            juce::Component* tuned[] { &osc1SampleTuned, &osc2SampleTuned, &subSampleTuned };
+            juce::Component* reverse[] { &osc1SampleReverse, &osc2SampleReverse, &subSampleReverse };
+            juce::Component* uniMode[] { &osc1UniMode, &osc2UniMode, &subUniMode };
+            juce::Component* chord[] { &osc1Chord, &osc2Chord, &subChord };
+            juce::Component* grains[3][6] {
+                { &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread },
+                { &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread },
+                { &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread }
+            };
+            juce::Component* voice[3][6] {
+                { &osc1Level, &osc1Pan, &osc1Semi, &osc1Fine, &osc1Unison, &osc1Detune },
+                { &osc2Level, &osc2Pan, &osc2Semi, &osc2Fine, &osc2Unison, &osc2Detune },
+                { &subLevel, &subPan, &subSemi, &subFine, &subUnison, &subDetune }
+            };
+
+            for (auto* item : { on[prefixIndex], modeBox[prefixIndex], tuned[prefixIndex], reverse[prefixIndex],
+                                uniMode[prefixIndex], chord[prefixIndex] })
+                addTop (item);
+
+            for (auto* item : grains[prefixIndex])
+                addBottom (item);
+
+            for (auto* item : voice[prefixIndex])
+                addBottom (item);
+
+            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
+            layoutSlots (topRow, top);
+            layoutSlots (bottomRow, bottom);
+            return;
+        }
 
         if (index == 0)
         {
@@ -679,9 +729,9 @@ private:
         osc1StringDecay.setVisible (mode1 == 1);
         osc1StringDamp.setVisible (mode1 == 1);
         osc1StringSustain.setVisible (mode1 == 1);
-        osc1SampleTuned.setVisible (mode1 == 2);
+        osc1SampleTuned.setVisible (mode1 >= 2);
         osc1SampleLoop.setVisible (mode1 == 2);
-        osc1SampleReverse.setVisible (mode1 == 2);
+        osc1SampleReverse.setVisible (mode1 >= 2);
         osc1SampleStart.setVisible (mode1 == 2);
         osc1SampleEnd.setVisible (mode1 == 2);
         osc1SampleFadeIn.setVisible (mode1 == 2);
@@ -690,6 +740,14 @@ private:
         osc1WarpAmt.setVisible (mode1 == 0);
         osc1Spectral.setVisible (mode1 == 0);
         osc1SpectralAmt.setVisible (mode1 == 0);
+        osc1GrainPosition.setVisible (mode1 == 3);
+        osc1GrainSize.setVisible (mode1 == 3);
+        osc1GrainDensity.setVisible (mode1 == 3);
+        osc1GrainSpray.setVisible (mode1 == 3);
+        osc1GrainPitch.setVisible (mode1 == 3);
+        osc1GrainSpread.setVisible (mode1 == 3);
+        osc1UniBlend.setVisible (mode1 != 3);
+        osc1Spread.setVisible (mode1 != 3);
 
         const auto mode2 = getMode (1);
         osc2Table.setVisible (mode2 == 0);
@@ -698,9 +756,9 @@ private:
         osc2StringDecay.setVisible (mode2 == 1);
         osc2StringDamp.setVisible (mode2 == 1);
         osc2StringSustain.setVisible (mode2 == 1);
-        osc2SampleTuned.setVisible (mode2 == 2);
+        osc2SampleTuned.setVisible (mode2 >= 2);
         osc2SampleLoop.setVisible (mode2 == 2);
-        osc2SampleReverse.setVisible (mode2 == 2);
+        osc2SampleReverse.setVisible (mode2 >= 2);
         osc2SampleStart.setVisible (mode2 == 2);
         osc2SampleEnd.setVisible (mode2 == 2);
         osc2SampleFadeIn.setVisible (mode2 == 2);
@@ -709,6 +767,14 @@ private:
         osc2WarpAmt.setVisible (mode2 == 0);
         osc2Spectral.setVisible (mode2 == 0);
         osc2SpectralAmt.setVisible (mode2 == 0);
+        osc2GrainPosition.setVisible (mode2 == 3);
+        osc2GrainSize.setVisible (mode2 == 3);
+        osc2GrainDensity.setVisible (mode2 == 3);
+        osc2GrainSpray.setVisible (mode2 == 3);
+        osc2GrainPitch.setVisible (mode2 == 3);
+        osc2GrainSpread.setVisible (mode2 == 3);
+        osc2UniBlend.setVisible (mode2 != 3);
+        osc2Spread.setVisible (mode2 != 3);
 
         const auto mode3 = getMode (2);
         subTable.setVisible (mode3 == 0);
@@ -717,9 +783,9 @@ private:
         subStringDecay.setVisible (mode3 == 1);
         subStringDamp.setVisible (mode3 == 1);
         subStringSustain.setVisible (mode3 == 1);
-        subSampleTuned.setVisible (mode3 == 2);
+        subSampleTuned.setVisible (mode3 >= 2);
         subSampleLoop.setVisible (mode3 == 2);
-        subSampleReverse.setVisible (mode3 == 2);
+        subSampleReverse.setVisible (mode3 >= 2);
         subSampleStart.setVisible (mode3 == 2);
         subSampleEnd.setVisible (mode3 == 2);
         subSampleFadeIn.setVisible (mode3 == 2);
@@ -728,6 +794,14 @@ private:
         subWarpAmt.setVisible (mode3 == 0);
         subSpectral.setVisible (mode3 == 0);
         subSpectralAmt.setVisible (mode3 == 0);
+        subGrainPosition.setVisible (mode3 == 3);
+        subGrainSize.setVisible (mode3 == 3);
+        subGrainDensity.setVisible (mode3 == 3);
+        subGrainSpray.setVisible (mode3 == 3);
+        subGrainPitch.setVisible (mode3 == 3);
+        subGrainSpread.setVisible (mode3 == 3);
+        subUniBlend.setVisible (mode3 != 3);
+        subSpread.setVisible (mode3 != 3);
 
         resized();
     }
@@ -752,21 +826,24 @@ private:
                            &osc1StringDecay, &osc1StringDamp, &osc1StringSustain,
                            &osc1SampleTuned, &osc1SampleLoop, &osc1SampleReverse,
                            &osc1SampleStart, &osc1SampleEnd, &osc1SampleFadeIn, &osc1SampleFadeOut,
-                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1Spectral, &osc1SpectralAmt, &osc1UniMode, &osc1UniBlend },
+                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1Spectral, &osc1SpectralAmt, &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread,
+                           &osc1UniMode, &osc1UniBlend },
                          enabled1);
         setGroupEnabled ({ &osc2Mode, &osc2Table, &osc2Excite, &osc2Frame, &osc2Level, &osc2Pan, &osc2Semi,
                            &osc2Fine, &osc2Unison, &osc2Detune, &osc2Spread,
                            &osc2StringDecay, &osc2StringDamp, &osc2StringSustain,
                            &osc2SampleTuned, &osc2SampleLoop, &osc2SampleReverse,
                            &osc2SampleStart, &osc2SampleEnd, &osc2SampleFadeIn, &osc2SampleFadeOut,
-                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2Spectral, &osc2SpectralAmt, &osc2UniMode, &osc2UniBlend },
+                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2Spectral, &osc2SpectralAmt, &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread,
+                           &osc2UniMode, &osc2UniBlend },
                          enabled2);
         setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subLevel,
                            &subPan, &subSemi, &subFine, &subUnison, &subDetune, &subSpread,
                            &subStringDecay, &subStringDamp, &subStringSustain,
                            &subSampleTuned, &subSampleLoop, &subSampleReverse,
                            &subSampleStart, &subSampleEnd, &subSampleFadeIn, &subSampleFadeOut,
-                           &subChord, &subWarp, &subWarpAmt, &subSpectral, &subSpectralAmt, &subUniMode, &subUniBlend },
+                           &subChord, &subWarp, &subWarpAmt, &subSpectral, &subSpectralAmt, &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread,
+                           &subUniMode, &subUniBlend },
                          enabled3);
 
         const std::array<bool, 3> enabled { enabled1, enabled2, enabled3 };
@@ -833,6 +910,7 @@ private:
     KnobControl osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend;
     ComboControl osc1Spectral, osc2Spectral, subSpectral;
     KnobControl osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt;
+    KnobControl osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread;
 };
 
 // One filter: its type grid, slope switch and only the knobs its model uses.
@@ -1214,7 +1292,8 @@ public:
             displays.push_back (std::move (display));
 
             auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
-            addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->phase);
+            addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
+                    controls->phase);
             controlsList.push_back (std::move (controls));
         }
 
@@ -1253,8 +1332,10 @@ public:
         const auto rowHeight = options.getHeight() / 3;
         c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
         auto toggles = options.removeFromTop (rowHeight);
-        c.sync.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
-        c.retrig.setBounds (toggles.reduced (3, 1));
+        const auto toggleWidth = toggles.getWidth() / 3;
+        c.sync.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.retrig.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.key.setBounds (toggles.reduced (3, 1));
         c.div.setBounds (options.reduced (3, 1));
 
         inner.removeFromLeft (8);
@@ -1276,10 +1357,12 @@ public:
         g.drawText ("LFO " + juce::String (selected + 1), header, juce::Justification::centredLeft);
 
         const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
+        const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
         g.setColour (juce::Colours::white.withAlpha (0.4f));
         g.setFont (IlanaTheme::font (11.0f));
-        g.drawText (retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
-                                                               : "free-running, shared by all voices",
+        g.drawText (key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
+                    : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
+                                                                 : "free-running, shared by all voices",
                     header, juce::Justification::centredRight);
     }
 
@@ -1310,6 +1393,7 @@ private:
               sync (state, "lfo" + juce::String (lfo) + "_sync", "SYNC"),
               div (state, "lfo" + juce::String (lfo) + "_div", "DIVISION"),
               retrig (state, "lfo" + juce::String (lfo) + "_retrig", "RETRIG"),
+              key (state, "lfo" + juce::String (lfo) + "_key", "KEY"),
               phase (state, "lfo" + juce::String (lfo) + "_phase", "START", accent, followsTheme)
         {
         }
@@ -1319,6 +1403,7 @@ private:
         ToggleControl sync;
         ComboControl div;
         ToggleControl retrig;
+        ToggleControl key;
         KnobControl phase;
     };
 
@@ -1334,6 +1419,7 @@ private:
             c.sync.setVisible (visible);
             c.div.setVisible (visible);
             c.retrig.setVisible (visible);
+            c.key.setVisible (visible);
             c.phase.setVisible (visible);
         }
 

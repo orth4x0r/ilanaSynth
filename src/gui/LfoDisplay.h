@@ -200,6 +200,10 @@ public:
         {
             value = curve.valueAt (phase);
         }
+        else if (LfoShapes::isStateful (shape))
+        {
+            value = processorRef.getLfoLiveValue (index);
+        }
         else
         {
             value = lfoShapeValue (shape, phase);

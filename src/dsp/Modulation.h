@@ -254,6 +254,13 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "sub_string_sustain", "Osc3 String Sustain" },
         { "filter_balance", "Filter Balance" },
         { "subosc_level", "Sub Level" },
+        // Appended in v1.1.
+        { "osc1_grain_size", "Osc1 Grain Size" }, { "osc1_grain_density", "Osc1 Grain Density" },
+        { "osc1_grain_spray", "Osc1 Grain Spray" }, { "osc1_grain_pitch", "Osc1 Grain Pitch" },
+        { "osc2_grain_size", "Osc2 Grain Size" }, { "osc2_grain_density", "Osc2 Grain Density" },
+        { "osc2_grain_spray", "Osc2 Grain Spray" }, { "osc2_grain_pitch", "Osc2 Grain Pitch" },
+        { "sub_grain_size", "Osc3 Grain Size" }, { "sub_grain_density", "Osc3 Grain Density" },
+        { "sub_grain_spray", "Osc3 Grain Spray" }, { "sub_grain_pitch", "Osc3 Grain Pitch" },
     };
 
     return list;

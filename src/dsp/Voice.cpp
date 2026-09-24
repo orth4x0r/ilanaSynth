@@ -128,6 +128,10 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
             players[u].prepare (newRate);
 
+    for (auto* clouds : { grains1, grains2, grainsSub })
+        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
+            clouds[u].prepare (newRate);
+
     resonatorL.prepare (newRate);
     resonatorR.prepare (newRate);
 
@@ -137,7 +141,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
 void Voice::syncSamplePlayers()
 {
-    const auto setup = [] (const VoiceParams::OscParams& osc, SamplePlayer* players,
+    const auto setup = [] (const VoiceParams::OscParams& osc, SamplePlayer* players, GranularOsc* clouds,
                            float startMod, float endMod)
     {
         const auto start = juce::jlimit (0.0f, 0.98f, osc.sampleStart + startMod);
@@ -154,13 +158,29 @@ void Voice::syncSamplePlayers()
 
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
             players[u].setParams (sampleParams);
+
+        if (osc.granularMode)
+        {
+            GranularOsc::Params grainParams;
+            grainParams.sample = osc.sample;
+            grainParams.position = juce::jlimit (0.0f, 1.0f, osc.sampleStart + startMod);
+            grainParams.sizeMs = osc.grainSizeMs;
+            grainParams.density = osc.grainDensity;
+            grainParams.spray = osc.grainSpray;
+            grainParams.pitchSpray = osc.grainPitch;
+            grainParams.spread = osc.grainSpread;
+            grainParams.reverse = osc.sampleReverse;
+
+            for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
+                clouds[u].setParams (grainParams);
+        }
     };
 
-    setup (params.osc1, sample1Unison, blockMod (Mod::Destination::Osc1SampleStart),
+    setup (params.osc1, sample1Unison, grains1, blockMod (Mod::Destination::Osc1SampleStart),
            blockMod (Mod::Destination::Osc1SampleEnd));
-    setup (params.osc2, sample2Unison, blockMod (Mod::Destination::Osc2SampleStart),
+    setup (params.osc2, sample2Unison, grains2, blockMod (Mod::Destination::Osc2SampleStart),
            blockMod (Mod::Destination::Osc2SampleEnd));
-    setup (params.sub, subSamples, blockMod (Mod::Destination::SubSampleStart),
+    setup (params.sub, subSamples, grainsSub, blockMod (Mod::Destination::SubSampleStart),
            blockMod (Mod::Destination::SubSampleEnd));
 }
 
@@ -197,6 +217,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     {
         lfoPhases[lfo] = (double) juce::jlimit (0.0f, 1.0f, params.lfos[lfo].startPhase);
         lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
+        lfoChaos[lfo].reset (random);
     }
 
     if (keepRunning)
@@ -250,15 +271,24 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     if (params.osc1.sampleMode && params.osc1Enabled && params.osc1.sample != nullptr)
         for (int u = 0; u < bufferedCount (params.osc1.unison); ++u)
+        {
             sample1Unison[u].trigger();
+            grains1[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
+        }
 
     if (params.osc2.sampleMode && params.osc2Enabled && params.osc2.sample != nullptr)
         for (int u = 0; u < bufferedCount (params.osc2.unison); ++u)
+        {
             sample2Unison[u].trigger();
+            grains2[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
+        }
 
     if (params.sub.sampleMode && params.subEnabled && params.sub.sample != nullptr)
         for (int u = 0; u < bufferedCount (params.sub.unison); ++u)
+        {
             subSamples[u].trigger();
+            grainsSub[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
+        }
 
     lastStringMode1 = params.osc1.stringMode;
     lastStringMode2 = params.osc2.stringMode;
@@ -353,6 +383,10 @@ void Voice::aftertouchChanged (int newValue)
 float Voice::voiceLfoValue (int lfo) const
 {
     const auto& lfoParams = params.lfos[lfo];
+
+    if (LfoShapes::isStateful (lfoParams.shape))
+        return lfoChaos[lfo].value (lfoParams.shape, lfoPhases[lfo]);
+
     return lfoShapeAt (lfoParams.shape, lfoPhases[lfo], lfoHolds[lfo], lfoParams.steps,
                        lfoParams.custom, lfoParams.customSize);
 }
@@ -364,6 +398,11 @@ void Voice::advanceVoiceLfos()
         if (! params.lfos[lfo].perVoice)
             continue;
 
+        const auto shape = params.lfos[lfo].shape;
+
+        if (shape == LfoShapes::Chaos)
+            lfoChaos[lfo].advance (lfoIncrements[lfo]);
+
         lfoValues[lfo] = voiceLfoValue (lfo);
 
         auto next = lfoPhases[lfo] + lfoIncrements[lfo];
@@ -372,6 +411,9 @@ void Voice::advanceVoiceLfos()
         {
             next -= std::floor (next);
             lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
+
+            if (LfoShapes::isStateful (shape))
+                lfoChaos[lfo].onCycle (shape, random);
         }
 
         lfoPhases[lfo] = next;
@@ -493,8 +535,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const D rateDestinations[] { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate };
 
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
+    {
         lfoIncrements[lfo] = params.lfos[lfo].baseIncrement
                              * std::exp2 ((double) blockMod (rateDestinations[lfo]) * (double) lfoRateOctaves);
+
+        // Key tracked: RATE 4 Hz runs at the note's own pitch, 8 Hz an
+        // octave above, 2 Hz an octave below.
+        if (params.lfos[lfo].keyTrack)
+            lfoIncrements[lfo] = juce::jmin (0.45, lfoIncrements[lfo] * currentFrequency / 4.0);
+    }
 
     glideCoeff = params.glideTime > 0.001f
                      ? 1.0f - std::exp (-1.0f / (float) (params.glideTime * sampleRate))
@@ -748,7 +797,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 float sampleL = 0.0f;
                 float sampleR = 0.0f;
 
-                if (params.osc1.sampleMode)
+                if (params.osc1.granularMode)
+                {
+                    grains1[u].process (sampleL, sampleR);
+                    raw = 0.5f * (sampleL + sampleR);
+                }
+                else if (params.osc1.sampleMode)
                 {
                     sample1Unison[u].process (sampleL, sampleR);
                     raw = 0.5f * (sampleL + sampleR);
@@ -805,7 +859,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 float sampleL = 0.0f;
                 float sampleR = 0.0f;
 
-                if (params.osc2.sampleMode)
+                if (params.osc2.granularMode)
+                {
+                    grains2[u].process (sampleL, sampleR);
+                    raw = 0.5f * (sampleL + sampleR);
+                }
+                else if (params.osc2.sampleMode)
                 {
                     sample2Unison[u].process (sampleL, sampleR);
                     raw = 0.5f * (sampleL + sampleR);
@@ -868,7 +927,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 float sampleL = 0.0f;
                 float sampleR = 0.0f;
 
-                if (params.sub.sampleMode)
+                if (params.sub.granularMode)
+                {
+                    grainsSub[u].process (sampleL, sampleR);
+                    raw = 0.5f * (sampleL + sampleR);
+                }
+                else if (params.sub.sampleMode)
                 {
                     subSamples[u].process (sampleL, sampleR);
                     raw = 0.5f * (sampleL + sampleR);
@@ -1040,6 +1104,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
         {
             string1Unison[u].setFrequency (frequencyU);
             sampleRatio1[u] = params.osc1.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
+            grains1[u].setPlaybackRatio (sampleRatio1[u]);
             sample1Unison[u].setPlaybackRatio ((params.osc1.sample != nullptr ? params.osc1.sample->sampleRate / sampleRate : 1.0)
                                                * sampleRatio1[u]);
         }
@@ -1059,6 +1124,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
         {
             string2Unison[u].setFrequency (frequencyU);
             sampleRatio2[u] = params.osc2.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
+            grains2[u].setPlaybackRatio (sampleRatio2[u]);
             sample2Unison[u].setPlaybackRatio ((params.osc2.sample != nullptr ? params.osc2.sample->sampleRate / sampleRate : 1.0)
                                                * sampleRatio2[u]);
         }
@@ -1080,6 +1146,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
             {
                 subStrings[u].setFrequency (frequencyU);
                 sampleRatioSub[u] = params.sub.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
+                grainsSub[u].setPlaybackRatio (sampleRatioSub[u]);
                 subSamples[u].setPlaybackRatio ((params.sub.sample != nullptr ? params.sub.sample->sampleRate / sampleRate : 1.0)
                                                 * sampleRatioSub[u]);
             }

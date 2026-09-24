@@ -3,6 +3,7 @@
 #include <juce_events/juce_events.h>
 
 #include <complex>
+#include <functional>
 #include <iostream>
 #include <set>
 #include <vector>
@@ -13,6 +14,7 @@
 #include "dsp/FilterUnit.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/LfoCurve.h"
+#include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
 #include "dsp/SpectralFreeze.h"
@@ -3764,6 +3766,237 @@ void runSpectralWarpTests()
            "The background worker builds the same warp (diff " + juce::String (difference (offline.first, realtime.first), 6) + ")");
 }
 
+void runChaosLfoTests()
+{
+    juce::Random random (7);
+
+    // Chaos: bounded, uses both halves, and doesn't repeat cycle to cycle.
+    {
+        LfoChaos chaos;
+        chaos.reset (random);
+        std::vector<float> values;
+        auto finite = true;
+
+        for (int i = 0; i < 48000 * 4; ++i)
+        {
+            chaos.advance (2.0 / 48000.0);
+            values.push_back (chaos.value (LfoShapes::Chaos, 0.0));
+            finite = finite && std::isfinite (values.back());
+        }
+
+        const auto [low, high] = std::minmax_element (values.begin(), values.end());
+        auto cycleDifference = 0.0;
+
+        for (int i = 0; i < 24000; ++i)
+            cycleDifference += std::abs ((double) values[(size_t) i + 96000] - (double) values[(size_t) i + 120000]);
+
+        check (finite && *low < -0.4f && *high > 0.4f && *low >= -1.0f && *high <= 1.0f && cycleDifference / 24000.0 > 0.05,
+               "Chaos LFO wanders both ways without repeating (" + juce::String (*low, 2) + " .. " + juce::String (*high, 2)
+                   + ", cycle diff " + juce::String (cycleDifference / 24000.0, 3) + ")");
+    }
+
+    // Drunk: small steps, stays in range. Smooth Random: continuous across cycles.
+    {
+        LfoChaos drunk, smooth;
+        drunk.reset (random);
+        smooth.reset (random);
+        auto maxStep = 0.0f, maxJump = 0.0f;
+        auto inRange = true;
+        auto last = smooth.value (LfoShapes::SmoothRandom, 0.999);
+
+        for (int cycle = 0; cycle < 2000; ++cycle)
+        {
+            const auto before = drunk.target;
+            drunk.onCycle (LfoShapes::Drunk, random);
+            maxStep = juce::jmax (maxStep, std::abs (drunk.target - before));
+            inRange = inRange && std::abs (drunk.target) <= 1.0f;
+
+            smooth.onCycle (LfoShapes::SmoothRandom, random);
+            maxJump = juce::jmax (maxJump, std::abs (smooth.value (LfoShapes::SmoothRandom, 0.0) - last));
+            last = smooth.value (LfoShapes::SmoothRandom, 0.999);
+        }
+
+        check (inRange && maxStep <= 0.4501f, "Drunk LFO takes small steps and stays in range (max step " + juce::String (maxStep, 3) + ")");
+        check (maxJump < 0.01f, "Smooth Random LFO has no jumps between cycles (" + juce::String (maxJump, 4) + ")");
+    }
+
+    // Key tracking: a per-voice LFO at the note's pitch, driving level.
+    const auto render = [] (bool key, int shape)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_table", 8.0f);
+        set ("osc1_frame", 0.0f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        set ("lfo1_shape", (float) shape);
+        set ("lfo1_rate", 12.0f); // key tracked: three times the note
+        set ("lfo1_key", key ? 1.0f : 0.0f);
+        set ("mod1_src", (float) Mod::Source::Lfo1);
+        set ("mod1_dst", (float) Mod::Destination::Osc1Level);
+        set ("mod1_amt", 0.5f);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+
+        for (int block = 0; block < 16; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+
+        return out;
+    };
+
+    // Brightness proxy: mean absolute first difference relative to level.
+    const auto brightness = [] (const std::vector<float>& data)
+    {
+        auto diff = 0.0, level = 0.0;
+
+        for (size_t i = 4096; i < data.size(); ++i)
+        {
+            diff += std::abs ((double) data[i] - (double) data[i - 1]);
+            level += std::abs ((double) data[i]);
+        }
+
+        return diff / juce::jmax (1.0e-9, level);
+    };
+
+    const auto slow = render (false, LfoShapes::Sine);
+    const auto audio = render (true, LfoShapes::Sine);
+    check (brightness (audio) > brightness (slow) * 1.3,
+           "A key-tracked LFO on level is audio-rate AM (brightness " + juce::String (brightness (slow), 4) + " -> "
+               + juce::String (brightness (audio), 4) + ")");
+
+    for (const auto shape : { (int) LfoShapes::SmoothRandom, (int) LfoShapes::Drunk, (int) LfoShapes::Chaos })
+    {
+        const auto out = render (false, shape);
+        auto finite = true;
+        auto peak = 0.0f;
+
+        for (auto value : out)
+        {
+            finite = finite && std::isfinite (value);
+            peak = juce::jmax (peak, std::abs (value));
+        }
+
+        check (finite && peak > 0.01f && peak < 4.0f, "LFO shape " + juce::String (shape) + " drives a voice cleanly (peak " + juce::String (peak, 3) + ")");
+    }
+}
+
+void runGranularTests()
+{
+    const auto render = [] (std::function<void (juce::AudioProcessorValueTreeState&)> setup)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (0);
+
+        auto& state = processor.apvts;
+        const auto set = [&state] (const char* id, float value)
+        {
+            if (auto* parameter = state.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("osc1_mode", 3.0f);
+        set ("osc1_sample_start", 0.3f);
+        set ("f1_cutoff", 20000.0f);
+        set ("f1_env", 0.0f);
+        setup (state);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> left, right;
+
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < 512; ++i)
+            {
+                left.push_back (buffer.getSample (0, i));
+                right.push_back (buffer.getSample (1, i));
+            }
+        }
+
+        return std::make_pair (left, right);
+    };
+
+    const auto stats = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto energy = 0.0, difference = 0.0;
+        auto peak = 0.0f;
+        auto finite = true;
+
+        for (size_t i = 4800; i < a.size(); ++i)
+        {
+            energy += (double) a[i] * a[i];
+            difference += (double) (a[i] - b[i]) * (a[i] - b[i]);
+            peak = juce::jmax (peak, std::abs (a[i]), std::abs (b[i]));
+            finite = finite && std::isfinite (a[i]) && std::isfinite (b[i]);
+        }
+
+        const auto n = (double) (a.size() - 4800);
+        return std::make_tuple (std::sqrt (energy / n), std::sqrt (difference / n), peak, finite);
+    };
+
+    const auto [rms, sideRms, peak, finite] = [&]
+    {
+        const auto out = render ([] (juce::AudioProcessorValueTreeState&) {});
+        return stats (out.first, out.second);
+    }();
+
+    check (finite && rms > 0.01 && peak < 2.0f,
+           "Granular mode sounds with no sample loaded (rms " + juce::String (rms, 4) + ", peak " + juce::String (peak, 3) + ")");
+    check (sideRms > 0.005, "Granular grains are spread across the stereo field (side " + juce::String (sideRms, 4) + ")");
+
+    const auto mono = render ([] (juce::AudioProcessorValueTreeState& state)
+    {
+        if (auto* parameter = state.getParameter ("osc1_grain_spread"))
+            parameter->setValueNotifyingHost (0.0f);
+    });
+    const auto [monoRms, monoSide, monoPeak, monoFinite] = stats (mono.first, mono.second);
+    check (monoFinite && monoSide < 1.0e-4 && monoRms > 0.01, "Granular stereo spread at zero is mono (side " + juce::String (monoSide, 6) + ")");
+
+    // Sparse vs dense clouds stay in the same loudness ballpark.
+    for (const auto density : { 0.0f, 1.0f })
+    {
+        const auto out = render ([density] (juce::AudioProcessorValueTreeState& state)
+        {
+            if (auto* parameter = state.getParameter ("osc1_grain_density"))
+                parameter->setValueNotifyingHost (density);
+        });
+        const auto [densityRms, s2, densityPeak, densityFinite] = stats (out.first, out.second);
+        juce::ignoreUnused (s2);
+        check (densityFinite && densityRms > rms * 0.3 && densityRms < rms * 3.0 && densityPeak < 2.5f,
+               "Granular density " + juce::String (density, 1) + " keeps a sensible level (rms " + juce::String (densityRms, 4) + ")");
+    }
+}
+
 void runFmMatrixTests()
 {
     const auto renderWith = [] (std::function<void (IlanaSynthAudioProcessor&)> setup)
@@ -3952,6 +4185,8 @@ int main()
     runOsc3MigrationTest();
     runFmMatrixTests();
     runSpectralWarpTests();
+    runChaosLfoTests();
+    runGranularTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -3395,6 +3395,71 @@ void runTapeStopLatencyTest()
     check (onset >= 0 && onset < 256, "tape stop adds no latency after release (onset at sample " + juce::String (onset) + ")");
 }
 
+// Trance gate: a Custom open/closed pattern gates the sound step by step,
+// each step lasting DIV (1/16 at 120 BPM = 0.125 s).
+void runTranceGateTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 500);
+    processor.loadFactoryPreset (0);
+    processor.assignFxSlot (1, 16);
+
+    const auto set = [&processor] (const juce::String& id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("fx_gate_div", 4.0f);      // 1/16
+    set ("fx_gate_pattern", 8.0f);  // Custom
+    set ("fx_gate_steps", 4.0f);
+    set ("fx_gate_smooth", 0.0f);
+    set ("fx_gate_mix", 1.0f);
+
+    for (int step = 1; step <= 16; ++step)
+        set ("fx_gate_step" + juce::String (step), step % 2 == 1 ? 1.0f : 0.0f);
+
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 500);
+
+    for (int block = 0; block < 96; ++block) // 1 s
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+
+        processor.processBlock (buffer, midi);
+
+        for (int i = 0; i < 500; ++i)
+            out.push_back (buffer.getSample (0, i));
+    }
+
+    const auto rmsOf = [&out] (int start, int length)
+    {
+        auto sum = 0.0;
+
+        for (int i = start; i < start + length; ++i)
+            sum += (double) out[(size_t) i] * out[(size_t) i];
+
+        return std::sqrt (sum / length);
+    };
+
+    constexpr int stepLength = 6000;
+    auto worstRatio = 1.0e9;
+
+    for (int step = 1; step < 7; step += 2)
+    {
+        // Middles of an open step and the closed step after it.
+        const auto open = rmsOf ((step - 1) * stepLength + 1500, 3000);
+        const auto closed = rmsOf (step * stepLength + 1500, 3000);
+        worstRatio = juce::jmin (worstRatio, open / juce::jmax (1.0e-9, closed));
+    }
+
+    check (worstRatio > 30.0, "trance gate opens and closes on 1/16 steps (open/closed ratio " + juce::String (worstRatio, 1) + ")");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3449,6 +3514,7 @@ int main()
     runCurveLfoTest();
     runFactoryLibraryTest();
     runTapeStopLatencyTest();
+    runTranceGateTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

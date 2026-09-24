@@ -2284,6 +2284,151 @@ inline juce::Colour fxColour (int type)
     }
 }
 
+// Trance gate steps: bar height is each step's level, the playing step
+// lights up. Editing a built-in pattern copies it into Custom first.
+class GateGrid : public juce::Component,
+                 public juce::SettableTooltipClient,
+                 private juce::Timer
+{
+public:
+    explicit GateGrid (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setTooltip ("Drag up/down to set each step's level. Right-click a step to toggle it.");
+        startTimerHz (20);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
+        const auto colour = fxColour (16);
+        const auto steps = numSteps();
+        const auto playing = processorRef.getGateDisplayStep();
+        auto bars = getBarBounds().toFloat();
+        const auto columnWidth = bars.getWidth() / 16.0f;
+
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("STEPS", getLocalBounds().removeFromTop (14).reduced (9, 0), juce::Justification::centredLeft);
+
+        for (int step = 0; step < 16; ++step)
+        {
+            const auto cell = bars.withWidth (columnWidth).reduced (1.5f, 0.0f);
+            bars.removeFromLeft (columnWidth);
+            const auto active = step < steps;
+            const auto value = level (step);
+
+            g.setColour (juce::Colours::white.withAlpha (active ? (step % 4 == 0 ? 0.11f : 0.07f) : 0.02f));
+            g.fillRoundedRectangle (cell, 2.0f);
+
+            if (active && value > 0.001f)
+            {
+                g.setColour (colour.withAlpha (step == playing ? 1.0f : (step == hoverStep ? 0.85f : 0.6f)));
+                g.fillRoundedRectangle (cell.withTop (cell.getBottom() - cell.getHeight() * value), 2.0f);
+            }
+
+            if (active && step == playing)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.7f));
+                g.fillRect (cell.withHeight (2.0f).withY (cell.getBottom() + 2.0f));
+            }
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu())
+        {
+            const auto step = stepAt (event.getPosition());
+            setLevel (step, level (step) > 0.5f ? 0.0f : 1.0f);
+            return;
+        }
+
+        setFromMouse (event);
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu())
+            setFromMouse (event);
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto step = stepAt (event.getPosition());
+
+        if (step != hoverStep)
+        {
+            hoverStep = step;
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverStep = -1;
+        repaint();
+    }
+
+private:
+    juce::Rectangle<int> getBarBounds() const { return getLocalBounds().reduced (8, 10).withTrimmedTop (10); }
+
+    int stepAt (juce::Point<int> position) const
+    {
+        const auto bars = getBarBounds();
+        return juce::jlimit (0, 15, (int) ((float) (position.x - bars.getX()) / ((float) bars.getWidth() / 16.0f)));
+    }
+
+    int numSteps() const { return (int) processorRef.apvts.getRawParameterValue ("fx_gate_steps")->load(); }
+    int pattern() const { return (int) processorRef.apvts.getRawParameterValue ("fx_gate_pattern")->load(); }
+
+    float level (int step) const
+    {
+        if (pattern() == 8)
+            return processorRef.apvts.getRawParameterValue ("fx_gate_step" + juce::String (step + 1))->load();
+
+        return IlanaSynthAudioProcessor::gatePatternLevel (pattern(), step);
+    }
+
+    void setLevel (int step, float value)
+    {
+        // First edit of a built-in pattern: copy it into Custom.
+        if (pattern() != 8)
+        {
+            for (int i = 0; i < 16; ++i)
+                if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (i + 1)))
+                    parameter->setValueNotifyingHost (IlanaSynthAudioProcessor::gatePatternLevel (pattern(), i));
+
+            if (auto* choice = processorRef.apvts.getParameter ("fx_gate_pattern"))
+                choice->setValueNotifyingHost (choice->convertTo0to1 (8.0f));
+        }
+
+        if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (step + 1)))
+            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+
+        repaint();
+    }
+
+    void setFromMouse (const juce::MouseEvent& event)
+    {
+        const auto bars = getBarBounds();
+        auto value = 1.0f - (float) (event.getPosition().y - bars.getY()) / (float) juce::jmax (1, bars.getHeight());
+
+        // Snap near the ends so full and closed steps are easy to hit.
+        value = value > 0.92f ? 1.0f : (value < 0.08f ? 0.0f : value);
+        hoverStep = stepAt (event.getPosition());
+        setLevel (hoverStep, value);
+    }
+
+    void timerCallback() override
+    {
+        if (isShowing())
+            repaint();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    int hoverStep = -1;
+};
+
 // Scrolling content for the FX stack: paints each module's panel and hands
 // clicks back to the page.
 class FxStackContent : public juce::Component
@@ -2384,6 +2529,8 @@ public:
           dimMix (p.apvts, "fx_dim_mix", "MIX"),
           gateDiv (p.apvts, "fx_gate_div", "DIV"),
           gatePattern (p.apvts, "fx_gate_pattern", "PATTERN"),
+          gateSteps (p.apvts, "fx_gate_steps", "STEPS"),
+          gateSwing (p.apvts, "fx_gate_swing", "SWING"),
           gateSmooth (p.apvts, "fx_gate_smooth", "SMOOTH"),
           gateMix (p.apvts, "fx_gate_mix", "MIX"),
           tapeStopTrigger (p.apvts, "fx_tape_stop_trigger", "STOP"),
@@ -2443,7 +2590,7 @@ public:
                 reverbOn, reverbType, reverbSize, reverbDamping, reverbWidth, reverbMix,
                 flangerRate, flangerDepth, flangerFeedback, flangerMix,
                 dimRate, dimDepth, dimMix,
-                gateDiv, gatePattern, gateSmooth, gateMix,
+                gateDiv, gatePattern, gateSteps, gateSwing, gateSmooth, gateMix,
                 tapeStopTrigger, tapeStopTime, tapeStopMix,
                 tiltAmount, tiltLevel,
                 utilGain, utilMono, utilInvert,
@@ -2477,7 +2624,7 @@ public:
         slotGroups.push_back ({ &reverbOn, &reverbType, &reverbSize, &reverbDamping, &reverbWidth, &reverbMix });
         slotGroups.push_back ({ &flangerRate, &flangerDepth, &flangerFeedback, &flangerMix });
         slotGroups.push_back ({ &dimRate, &dimDepth, &dimMix });
-        slotGroups.push_back ({ &gateDiv, &gatePattern, &gateSmooth, &gateMix });
+        slotGroups.push_back ({ &gateDiv, &gatePattern, &gateSteps, &gateSwing, &gateSmooth, &gateMix });
         slotGroups.push_back ({ &tapeStopTrigger, &tapeStopTime, &tapeStopMix });
         slotGroups.push_back ({ &tiltAmount, &tiltLevel });
         slotGroups.push_back ({ &utilGain, &utilMono, &utilInvert });
@@ -2565,6 +2712,8 @@ public:
             for (auto* control : group)
                 stackContent.addChildComponent (control);
 
+        gateGrid = std::make_unique<GateGrid> (p);
+        stackContent.addChildComponent (*gateGrid);
         stackContent.addChildComponent (tapGrid);
         stackContent.addChildComponent (eqCurve);
         stackContent.addChildComponent (loadIrButton);
@@ -3171,6 +3320,7 @@ private:
             }
 
         tapGrid.setVisible (shown[9]);
+        gateGrid->setVisible (shown[16]);
         eqCurve.setVisible (shown[29]);
         loadIrButton.setVisible (shown[13]);
 
@@ -3222,6 +3372,9 @@ private:
             if (! panel.duplicate && type == 9)
                 height += 58;
 
+            if (! panel.duplicate && type == 16)
+                height += 78;
+
             panel.bounds = { 0, y, width, height };
             y += height + 8;
 
@@ -3247,6 +3400,9 @@ private:
 
                 if (type == 9)
                     tapGrid.setBounds (body.removeFromTop (54).reduced (0, 2));
+
+                if (type == 16)
+                    gateGrid->setBounds (body.removeFromTop (74).reduced (0, 2));
 
                 if (type == 13)
                     loadIrButton.setBounds (panel.bounds.getRight() - 110, panel.bounds.getY() + 6, 96, 18);
@@ -3384,6 +3540,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     TapGrid tapGrid;
+    std::unique_ptr<GateGrid> gateGrid;
     std::unique_ptr<ToggleControl> softClip;
     std::unique_ptr<StripKnob> clipGain;
     juce::Rectangle<int> outputStrip;
@@ -3468,7 +3625,7 @@ private:
     KnobControl flangerRate, flangerDepth, flangerFeedback, flangerMix;
     KnobControl dimRate, dimDepth, dimMix;
     ComboControl gateDiv, gatePattern;
-    KnobControl gateSmooth, gateMix;
+    KnobControl gateSteps, gateSwing, gateSmooth, gateMix;
     ToggleControl tapeStopTrigger;
     KnobControl tapeStopTime, tapeStopMix;
     KnobControl tiltAmount, tiltLevel;

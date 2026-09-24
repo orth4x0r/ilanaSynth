@@ -22,6 +22,12 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                          : juce::String (juce::roundToInt (value))) + " Hz";
     };
 
+    if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    if (id == "fx_gate_steps")
+        return juce::String (juce::roundToInt (value)) + " steps";
+
     if (id == "filter_balance")
     {
         if (std::abs (value) < 0.01f)
@@ -205,6 +211,12 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
         return "Cutoff follows the played note (1.0 = full tracking).";
+
+    if (id == "fx_gate_steps")
+        return "Trance gate pattern length. DIV sets the length of each step.";
+
+    if (id == "fx_gate_swing")
+        return "Pushes every second step later for a shuffled gate.";
 
     if (id == "filter_balance")
         return "Parallel mode: fades between Filter 1 and Filter 2. Centre plays both.";

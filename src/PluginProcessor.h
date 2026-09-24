@@ -327,6 +327,7 @@ private:
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<juce::String, 16> tapStepIds;
+    std::array<juce::String, 16> gateStepIds;
     std::array<std::array<juce::String, 7>, 3> sampleParamIds;
 
     static constexpr int numSampleOscs = 3;
@@ -483,6 +484,17 @@ private:
     float gateEnvelope = 1.0f;
     juce::uint16 gateRandomMask = 0xFFFF;
     int gateCycleCount = 8;
+    int gateLastStep = -1;
+    std::atomic<int> gateDisplayStep { -1 };
+    std::atomic<double> hostPpq { 0.0 };
+    std::atomic<bool> hostPlaying { false };
+
+public:
+    // Pattern built-ins as step levels (for the editor and the Custom copy).
+    static float gatePatternLevel (int pattern, int step);
+    int getGateDisplayStep() const { return gateDisplayStep.load(); }
+
+private:
     float tapeStopRate = 1.0f;
     juce::AudioBuffer<float> tapeStopBuffer;
     int tapeStopWrite = 0;

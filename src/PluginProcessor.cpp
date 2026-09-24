@@ -257,7 +257,10 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     }
 
     for (int step = 0; step < 16; ++step)
+    {
         tapStepIds[(size_t) step] = "fx_taps_step" + juce::String (step + 1);
+        gateStepIds[(size_t) step] = "fx_gate_step" + juce::String (step + 1);
+    }
 
     for (int i = 0; i < numUserSlots; ++i)
     {
@@ -562,7 +565,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Effects
     const juce::StringArray fxTypes { "None", "Amp", "Drive", "Crush", "Comp", "Comb", "Phaser",
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
-                                      "Flanger", "Dimension", "Gate", "TapeStop", "Tilt", "Utility",
+                                      "Flanger", "Dimension", "Trance Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
                                       "Octaver", "Vowel", "Feedback", "EQ" };
     for (int slot = 0; slot < numFxSlots; ++slot)
@@ -602,7 +605,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     addChoice ("fx_gate_div", "Gate Div", getSyncDivisionNames(), 4);
     addChoice ("fx_gate_pattern", "Gate Pattern",
-               { "Straight", "Offbeat", "Triplet", "Gallop", "Random", "Dual", "Build", "Break" }, 0);
+               { "Straight", "Offbeat", "Triplet", "Gallop", "Random", "Dual", "Build", "Break", "Custom" }, 0);
+    addInt ("fx_gate_steps", "Gate Steps", 2, 16, 16);
+    addFloat ("fx_gate_swing", "Gate Swing", 0.0f, 0.5f, 0.0f);
+
+    for (int step = 1; step <= 16; ++step)
+        addFloat ("fx_gate_step" + juce::String (step), "Gate Step " + juce::String (step), 0.0f, 1.0f, 1.0f);
     addFloat ("fx_gate_smooth", "Gate Smooth", 0.0f, 1.0f, 0.2f);
     addFloat ("fx_gate_mix", "Gate Mix", 0.0f, 1.0f, 1.0f);
 
@@ -1569,6 +1577,12 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         {
             if (const auto bpm = position->getBpm())
                 currentBpm = *bpm;
+
+            const auto ppq = position->getPpqPosition();
+            hostPlaying = position->getIsPlaying() && ppq.hasValue();
+
+            if (ppq.hasValue())
+                hostPpq = *ppq;
         }
     }
 
@@ -2687,60 +2701,84 @@ void IlanaSynthAudioProcessor::processDimension (juce::AudioBuffer<float>& buffe
     }
 }
 
-void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
+float IlanaSynthAudioProcessor::gatePatternLevel (int pattern, int step)
 {
     static constexpr juce::uint16 gatePatterns[8] = {
         0xFFFF, 0xAAAA, 0x9249, 0xEEEE, 0x0000, 0x3333, 0xF0F0, 0x0F0F
     };
 
+    return (gatePatterns[juce::jlimit (0, 7, pattern)] & (1u << (step & 15))) != 0 ? 1.0f : 0.0f;
+}
+
+// Trance gate. DIV is the length of one step; STEPS the pattern length; the
+// pattern is one of the built-ins or Custom (16 drawable step levels).
+// Locked to the host's beat position while it plays.
+void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
+{
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
-    const auto beats = getSyncDivisionBeats ((int) getParam ("fx_gate_div"));
-    const auto rate = (currentBpm.load() / 60.0) / juce::jmax (0.001, beats);
-    const auto increment = rate / currentSampleRate;
-    const auto pattern = juce::jlimit (0, 7, (int) getParam ("fx_gate_pattern"));
+    const auto stepBeats = juce::jmax (0.001, getSyncDivisionBeats ((int) getParam ("fx_gate_div")));
+    const auto stepsPerSample = (currentBpm.load() / 60.0) / stepBeats / currentSampleRate;
+    const auto pattern = juce::jlimit (0, 8, (int) getParam ("fx_gate_pattern"));
+    const auto steps = juce::jlimit (2, 16, (int) getParam ("fx_gate_steps"));
+    const auto swing = (double) juce::jlimit (0.0f, 0.5f, getParam ("fx_gate_swing"));
     const auto smooth = juce::jlimit (0.0f, 1.0f, getParam ("fx_gate_smooth"));
     const auto mix = getParam ("fx_gate_mix");
-    const auto targetCoeff = 1.0f - smooth * 0.98f;
 
-    if (pattern == 4)
-        gateRandomMask = (juce::uint16) lfoRandom.nextInt (0x10000);
-    else if (pattern == 6 || pattern == 7)
-        gateCycleCount = (gateCycleCount + 1) % 32;
+    // SMOOTH sets the edge times: quick clicks-free edges up to soft swells.
+    const auto attackCoeff = 1.0f - std::exp (-1.0f / ((0.0005f + smooth * 0.03f) * (float) currentSampleRate));
+    const auto releaseCoeff = 1.0f - std::exp (-1.0f / ((0.001f + smooth * 0.12f) * (float) currentSampleRate));
+
+    std::array<float, 16> levels {};
+
+    for (int step = 0; step < 16; ++step)
+        levels[(size_t) step] = pattern == 8 ? getParam (gateStepIds[(size_t) step].toRawUTF8())
+                                             : gatePatternLevel (pattern, step);
+
+    // Position in steps: from the host while playing, else free-running.
+    auto position = hostPlaying.load() ? hostPpq.load() / stepBeats : gatePhase;
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const auto step = juce::jlimit (0, 15, (int) (gatePhase * 16.0));
-        auto open = false;
+        // Swing pushes every second step later within its pair.
+        // (floor-based, so hosts that report negative pre-roll positions work)
+        const auto pairStart = 2.0 * std::floor (position * 0.5);
+        const auto pair = position - pairStart;
+        const auto stepCount = (long long) pairStart + (pair < 1.0 + swing ? 0 : 1);
+        const auto step = (int) (((stepCount % steps) + steps) % steps);
+
+        if (step != gateLastStep)
+        {
+            // New cycle: re-roll Random, advance Build/Break once per cycle.
+            if (step == 0)
+            {
+                gateRandomMask = (juce::uint16) lfoRandom.nextInt (0x10000);
+                gateCycleCount = (gateCycleCount + 1) % 32;
+            }
+
+            gateLastStep = step;
+        }
+
+        auto level = levels[(size_t) step];
 
         if (pattern == 4)
-            open = (gateRandomMask & (1u << step)) != 0;
+            level = (gateRandomMask & (1u << step)) != 0 ? 1.0f : 0.0f;
         else if (pattern == 6)
-            open = step <= gateCycleCount;
+            level = step <= gateCycleCount % steps ? 1.0f : 0.0f;
         else if (pattern == 7)
-            open = step >= gateCycleCount;
-        else
-            open = (gatePatterns[pattern] & (1u << step)) != 0;
+            level = step >= gateCycleCount % steps ? 1.0f : 0.0f;
 
-        const auto target = open ? 1.0f : 0.0f;
-        gateEnvelope += (target - gateEnvelope) * targetCoeff;
+        gateEnvelope += (level - gateEnvelope) * (level > gateEnvelope ? attackCoeff : releaseCoeff);
         const auto applied = 1.0f - (1.0f - gateEnvelope) * mix;
 
         for (int channel = 0; channel < numChannels; ++channel)
             buffer.getWritePointer (channel)[i] *= applied;
 
-        gatePhase += increment;
-
-        if (gatePhase >= 1.0)
-        {
-            gatePhase -= 1.0;
-
-            if (pattern == 4)
-                gateRandomMask = (juce::uint16) lfoRandom.nextInt (0x10000);
-            else if (pattern == 6 || pattern == 7)
-                gateCycleCount = (gateCycleCount + 1) % 32;
-        }
+        position += stepsPerSample;
     }
+
+    gatePhase = std::fmod (position, 64.0);
+    gateDisplayStep = gateLastStep;
 }
 
 void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer)

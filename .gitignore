@@ -1,0 +1,13 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+out/
+.vs/
+.vscode/
+*.user
+
+# Release artifacts (distribute via GitHub Releases instead)
+*.zip
+*.exe
+portable/

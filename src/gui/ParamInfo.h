@@ -1,0 +1,537 @@
+#pragma once
+
+#include <juce_core/juce_core.h>
+
+inline juce::String describeValue (const juce::String& id, float value)
+{
+    const auto asPercent = [value] { return juce::String (juce::roundToInt (value * 100.0f)) + " %"; };
+    const auto asMilliseconds = [value] { return juce::String (juce::roundToInt (value)) + " ms"; };
+    const auto asSeconds = [value]
+    {
+        return value < 1.0f ? juce::String (juce::roundToInt (value * 1000.0f)) + " ms"
+                            : juce::String (value, 2) + " s";
+    };
+    const auto asHertz = [value]
+    {
+        const auto magnitude = std::abs (value);
+
+        return magnitude >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz"
+                                    : juce::String (value, magnitude < 1.0f ? 2 : (magnitude < 10.0f ? 1 : 0)) + " Hz";
+    };
+
+    if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")
+        || id == "lfo1_rate" || id == "lfo2_rate" || id == "mseg_rate" || id == "fx_shifter_shift")
+        return asHertz();
+
+    if (id == "fx_delay_time" || id == "fx_delay_time_r" || id == "fx_feedback_delay"
+        || id == "fx_smear_size" || id == "fx_tape_stop_time" || id == "fx_haas_delay"
+        || id == "fx_comp_attack" || id == "fx_comp_release" || id == "fx_limit_release")
+        return asMilliseconds();
+
+    if (id.endsWith ("_attack") || id == "glide"
+        || ((id.endsWith ("_decay") || id.endsWith ("_release"))
+            && ! id.endsWith ("_string_decay") && id != "res_decay"))
+        return asSeconds();
+
+    if (id.endsWith ("_semi") || id.endsWith ("_fine") || id.endsWith ("_detune")
+        || id == "fx_delay_pitch" || id == "fx_stutter_pitch" || id == "res_offset" || id == "bend_range")
+        return juce::String (value, value == std::floor (value) ? 0 : 1)
+               + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
+
+    if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
+        || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain")
+        return juce::String (value, 1) + " dB";
+
+    if (id == "fx_drive_amount" || id == "fx_amp_drive")
+        return juce::String (value, value < 10.0f ? 1 : 0) + "x";
+
+    if (id.endsWith ("_mix") || id.endsWith ("_amount") || id.endsWith ("_level") || id.endsWith ("_width")
+        || id.endsWith ("_spread") || id.endsWith ("_sustain") || id.endsWith ("_velocity")
+        || id.endsWith ("_damping") || id.endsWith ("_feedback") || id.endsWith ("_curve")
+        || id.endsWith ("_frame") || id.endsWith ("_start") || id.endsWith ("_end")
+        || id.endsWith ("_fade_in") || id.endsWith ("_fade_out") || id == "drift" || id == "ring_mod"
+        || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
+        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
+        || id == "noise_level" || id == "unison_random" || id == "voice_spread"
+        || id.startsWith ("macro") || id.startsWith ("mseg_level")
+        || id == "res_decay" || id.endsWith ("_string_decay"))
+        return asPercent();
+
+    return juce::String (value, value == std::floor (value) ? 0 : 2);
+}
+
+inline juce::String describeParameter (const juce::String& id)
+{
+    // Oscillators (patterned)
+    if (id == "osc1_table" || id == "osc2_table")
+        return "Factory wavetable. Load your own with LOAD WAVETABLE (.wav).";
+
+    if (id == "osc1_frame" || id == "osc2_frame")
+        return "Morphs through the table's frames. Modulate for movement.";
+
+    if (id == "osc1_level" || id == "osc2_level")
+        return "Oscillator output level.";
+
+    if (id == "osc1_pan" || id == "osc2_pan")
+        return "Stereo position of the oscillator.";
+
+    if (id == "osc1_semi" || id == "osc2_semi")
+        return "Pitch offset in semitones. With Hard Sync this sets the sync ratio.";
+
+    if (id == "osc1_fine" || id == "osc2_fine")
+        return "Fine pitch offset in cents.";
+
+    if (id == "osc1_unison" || id == "osc2_unison")
+        return "Stacked detuned copies of the oscillator. More = bigger, costlier.";
+
+    if (id == "osc1_detune" || id == "osc2_detune")
+        return "Unison spread in cents. 20-40 is a classic supersaw.";
+
+    if (id == "osc1_spread" || id == "osc2_spread")
+        return "Stereo spread of the unison stack.";
+
+    if (id == "osc1_mode" || id == "osc2_mode")
+        return "Wavetable, Karplus-Strong string, or a sample you drag onto the card.";
+
+    if (id == "osc1_on" || id == "osc2_on" || id == "sub_on")
+        return "Turns this oscillator on and off. Switching fades in/out so it stays click-free.";
+
+    if (id == "osc1_excite" || id == "osc2_excite")
+        return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string.";
+
+    if (id == "osc1_string_decay" || id == "osc2_string_decay")
+        return "How long the string rings.";
+
+    if (id == "osc1_string_damp" || id == "osc2_string_damp")
+        return "Loop damping - higher is darker and more muted.";
+
+    if (id == "osc1_string_sustain" || id == "osc2_string_sustain")
+        return "Level of the continuous excitation (ignore for Burst).";
+
+    if (id == "sub_level")
+        return "Sub oscillator an octave (or two) below the note.";
+
+    if (id == "sub_shape")
+        return "Sine for clean weight, Square/Saw for grit.";
+
+    if (id == "sub_octave")
+        return "How far below the played note the sub sits.";
+
+    if (id == "noise_level")
+        return "White noise level - hats, breath, destruction.";
+
+    // Cross modulation
+    if (id == "fm_amount")
+        return "Osc2 phase-modulates Osc1. Raise Osc2 Level to hear it.";
+
+    if (id == "fm_feedback")
+        return "Osc1 modulates its own phase. Noisy, chaotic FM.";
+
+    if (id == "ring_mod")
+        return "Ring-modulates Osc1 with Osc2 - metallic and clangy.";
+
+    if (id == "hard_sync")
+        return "Resets Osc2 phase every Osc1 cycle. Tune with Osc2 SEMI for screams.";
+
+    if (id == "f1_fm" || id == "f2_fm")
+        return "Audio-rate cutoff modulation from Osc2. Growl and filter-FM.";
+
+    // Chords & voice
+    if (id == "osc1_chord" || id == "osc2_chord")
+        return "Spreads a chord across the unison voices. Needs Unison above 1.";
+
+    if (id == "voice_spread")
+        return "Random stereo position per voice - instant width for pads.";
+
+    if (id == "unison_random")
+        return "Randomizes unison start phases for a softer, phasey attack.";
+
+    if (id == "mpe_mode")
+        return "Per-note bend and pressure via MIDI channels, +-48 st bend range.";
+
+    if (id == "drift")
+        return "Analog-style per-voice pitch instability.";
+
+    // Filters
+    if (id == "f1_type" || id == "f2_type")
+        return "Low Pass, Band Pass, High Pass or Notch.";
+
+    if (id == "f1_slope" || id == "f2_slope")
+        return "12 dB is gentle, 24 dB is steep and aggressive.";
+
+    if (id == "f1_cutoff" || id == "f2_cutoff")
+        return "Filter frequency. Drag the marker on the response display too.";
+
+    if (id == "f1_reso" || id == "f2_reso")
+        return "Emphasis at the cutoff. High values scream.";
+
+    if (id == "f1_drive" || id == "f2_drive")
+        return "Saturates the signal going into the filter.";
+
+    if (id == "f1_env" || id == "f2_env")
+        return "How much the Filter Envelope moves the cutoff.";
+
+    if (id == "f1_keytrack" || id == "f2_keytrack")
+        return "Cutoff follows the played note (1.0 = full tracking).";
+
+    if (id == "filters_parallel")
+        return "Serial: F1 into F2. Parallel: both filters summed.";
+
+    // Envelopes
+    if (id == "amp_attack" || id == "fe_attack" || id == "me_attack")
+        return "Time to reach full level. Longer = softer entry.";
+
+    if (id == "amp_decay" || id == "fe_decay" || id == "me_decay")
+        return "Time to fall from the peak to the sustain level.";
+
+    if (id == "amp_sustain" || id == "fe_sustain" || id == "me_sustain")
+        return "Held level while the note is down.";
+
+    if (id == "amp_release" || id == "fe_release" || id == "me_release")
+        return "Time to fade after the note is released.";
+
+    if (id == "amp_velocity" || id == "filter_velocity")
+        return "How strongly velocity scales the envelope.";
+
+    if (id == "glide")
+        return "Portamento time between notes.";
+
+    if (id == "bend_range")
+        return "Pitch bend range in semitones.";
+
+    // LFOs (patterned)
+    if (id.startsWith ("lfo1_") || id.startsWith ("lfo2_") || id.startsWith ("lfo3_") || id.startsWith ("lfo4_"))
+    {
+        if (id.endsWith ("_shape"))
+            return "Waveform. Draw = design your own, Steps = 16-step sequencer.";
+
+        if (id.endsWith ("_rate"))
+            return "Speed when Sync is off.";
+
+        if (id.endsWith ("_sync"))
+            return "Locks the LFO to host tempo.";
+
+        if (id.endsWith ("_div"))
+            return "Tempo-synced rate.";
+
+        if (id.endsWith ("_retrig"))
+            return "Restarts the LFO phase on every note.";
+
+        if (id.contains ("_step"))
+            return "Step value when the shape is Steps.";
+
+        return "Low frequency modulator - assign it in the MATRIX tab.";
+    }
+
+    // Mod matrix (patterned)
+    if (id.startsWith ("mod") && (id.endsWith ("_src") || id.endsWith ("_dst") || id.endsWith ("_amt")))
+    {
+        if (id.endsWith ("_src"))
+            return "Modulation source.";
+
+        if (id.endsWith ("_dst"))
+            return "Target of the modulation.";
+
+        return "Depth. Negative values invert the modulation.";
+    }
+
+    // MSEG
+    if (id.startsWith ("mseg_"))
+    {
+        if (id.endsWith ("_level1") || id.endsWith ("_level2") || id.endsWith ("_level3") || id.endsWith ("_level4"))
+            return "MSEG point level. Drag the editor on the SEQ tab.";
+
+        if (id.endsWith ("_time1") || id.endsWith ("_time2") || id.endsWith ("_time3") || id.endsWith ("_time4"))
+            return "MSEG segment length (relative).";
+
+        if (id == "mseg_rate")
+            return "Speed of the multi-segment envelope.";
+
+        if (id == "mseg_loop")
+            return "Loop the shape, or hold the last point.";
+
+        return "Multi-segment envelope mod source.";
+    }
+
+    if (id == "clock_div")
+        return "Tempo-synced rate of the Clocked S&H random source.";
+
+    // Macros
+    if (id.startsWith ("macro"))
+        return "Assign in the MATRIX tab, or drive it with MIDI CC 20-23.";
+
+    // Arp
+    if (id == "arp_on")
+        return "Plays held notes as a pattern. Off = normal playing.";
+
+    if (id == "arp_mode")
+        return "Up, Down, UpDown or Random.";
+
+    if (id == "arp_div")
+        return "Step size, synced to host tempo.";
+
+    if (id == "arp_octaves")
+        return "How many octaves the pattern climbs.";
+
+    if (id == "arp_gate")
+        return "Note length within each step.";
+
+    // Resonator
+    if (id == "res_on")
+        return "Three tuned combs per voice: body or metal.";
+
+    if (id == "res_amount")
+        return "Wet amount of the resonator bank.";
+
+    if (id == "res_decay")
+        return "How long the resonances ring.";
+
+    if (id == "res_offset")
+        return "Resonator tuning in semitones. Inharmonic = metallic.";
+
+    if (id == "res_keytrack")
+        return "1.0 = follows the note, 0 = fixed pitch.";
+
+    // Effects
+    if (id == "fx_drive_on" || id == "fx_drive_amount" || id == "fx_drive_mix")
+        return "Saturation stage - warm to destroyed.";
+
+    if (id == "fx_fold")
+        return "Wavefolder: folds peaks back for harsh, buzzy harmonics.";
+
+    if (id == "fx_crush_on" || id == "fx_crush_bits" || id == "fx_crush_down" || id == "fx_crush_mix")
+        return "Bit crusher: fewer bits and downsample for lo-fi digital filth.";
+
+    if (id == "fx_comb_on" || id == "fx_comb_freq" || id == "fx_comb_feedback" || id == "fx_comb_mix")
+        return "Tuned comb resonator. Try harmonic frequencies with String mode.";
+
+    if (id == "fx_phaser_on" || id == "fx_phaser_rate" || id == "fx_phaser_depth"
+        || id == "fx_phaser_feedback" || id == "fx_phaser_mix")
+        return "Classic sweeping phaser - the Virus move.";
+
+    if (id == "fx_chorus_on" || id == "fx_chorus_rate" || id == "fx_chorus_depth" || id == "fx_chorus_mix")
+        return "Thickening chorus for width.";
+
+    if (id == "fx_delay_on" || id == "fx_delay_time" || id == "fx_delay_sync" || id == "fx_delay_div"
+        || id == "fx_delay_feedback" || id == "fx_delay_damping" || id == "fx_delay_pingpong" || id == "fx_delay_mix")
+        return "Main delay. Damping darkens repeats.";
+
+    if (id == "fx_delay_pitch")
+        return "Pitch-shifts the delay feedback - the Sophie trick.";
+
+    if (id == "fx_delay_wow")
+        return "Tape-style pitch drift of the delay time.";
+
+    if (id == "fx_taps_on" || id == "fx_taps_pattern" || id == "fx_taps_mix")
+        return "Multi-tap rhythmic echoes riding on the delay time.";
+
+    if (id == "fx_stutter_on" || id == "fx_stutter_div" || id == "fx_stutter_mix")
+        return "Loops the current beat-slice. Flip on/off in time for glitches.";
+
+    if (id == "fx_smear_on" || id == "fx_smear_size" || id == "fx_smear_density" || id == "fx_smear_mix")
+        return "Grain cloud: smears the input into a hazy texture.";
+
+    if (id == "fx_freeze_on" || id == "fx_freeze_mix")
+        return "Spectral freeze: holds the current spectrum into a drone.";
+
+    if (id == "fx_reverb_on" || id == "fx_reverb_size" || id == "fx_reverb_damping"
+        || id == "fx_reverb_width" || id == "fx_reverb_mix")
+        return "Space and depth.";
+
+    if (id.endsWith ("_bypass"))
+        return "Bypasses this rack slot without losing its settings.";
+
+    if (id.endsWith ("_solo"))
+        return "Solo (wet only): hear just this slot's output.";
+
+    if (id.startsWith ("fx_slot") && id.endsWith ("_mix"))
+        return "Parallel blend for this slot: 1 = fully through the effect, 0 = dry.";
+
+    if (id.startsWith ("fx_slot"))
+        return "Rack slot: choose which effect lives at this position.";
+
+    if (id.startsWith ("fx_amp_"))
+    {
+        if (id == "fx_amp_mode")
+            return "Tube is warm and asymmetric, Fuzz is hard, Clean is soft.";
+
+        if (id == "fx_amp_drive")
+            return "Input gain into the amp - the main dirt control.";
+
+        if (id == "fx_amp_bass" || id == "fx_amp_mid" || id == "fx_amp_treble")
+            return "Tone stack band gain.";
+
+        return "Amp output level.";
+    }
+
+    if (id.startsWith ("fx_comp_"))
+    {
+        if (id == "fx_comp_threshold")
+            return "Level where compression starts.";
+
+        if (id == "fx_comp_ratio")
+            return "How hard peaks are squashed.";
+
+        if (id == "fx_comp_attack")
+            return "How fast the compressor clamps down.";
+
+        if (id == "fx_comp_release")
+            return "How fast it lets go.";
+
+        if (id == "fx_comp_makeup")
+            return "Output gain to compensate for squashing.";
+
+        return "Dry/wet blend.";
+    }
+
+    if (id == "fx_haas_delay")
+        return "Delays the right channel - width without chorus.";
+
+    if (id == "fx_haas_mix")
+        return "How much of the delayed side you hear.";
+
+    if (id == "fx_reverb_type")
+        return "Room, Hall, Plate, Shimmer, Spring, Gated, or IR (load your own impulse).";
+
+    if (id.startsWith ("fx_stutter_"))
+    {
+        if (id == "fx_stutter_reverse")
+            return "Plays the captured loop backwards.";
+
+        if (id == "fx_stutter_pitch")
+            return "Pitches the captured loop up or down, tape style.";
+
+        return "Stutter: captures and repeats a slice in time.";
+    }
+
+    if (id.startsWith ("fx_feedback_"))
+    {
+        if (id == "fx_feedback_amount")
+            return "How much of the loop feeds back into itself.";
+
+        if (id == "fx_feedback_delay")
+            return "Length of the feedback loop in milliseconds.";
+
+        if (id == "fx_feedback_tone")
+            return "Damps the feedback loop - lower is darker.";
+
+        return "Mix of the recirculating feedback loop.";
+    }
+
+    if (id.startsWith ("fx_flanger_"))
+        return "Flanger: whooshing comb sweep from a very short modulated delay.";
+
+    if (id.startsWith ("fx_dim_"))
+        return "Dimension: lush slow modulated delays - width without wobble.";
+
+    if (id.startsWith ("fx_gate_"))
+        return "Tempo-synced trance gate with shaped patterns and smoothing.";
+
+    if (id == "fx_tape_stop_trigger")
+        return "Trigger the tape-stop: the signal pitches down and halts.";
+
+    if (id == "fx_tape_stop_time" || id == "fx_tape_stop_mix")
+        return "Tape stop timing and blend.";
+
+    if (id == "fx_tilt" || id == "fx_tilt_level")
+        return "Single-knob tone tilt: darker on one side, brighter on the other.";
+
+    if (id.startsWith ("fx_util_"))
+        return "Utility: gain trim, mono maker and polarity invert.";
+
+    if (id.startsWith ("fx_ott_"))
+        return "OTT-style three-band up/down compression. Loud, bright, modern.";
+
+    if (id.startsWith ("fx_limit_"))
+        return "Brickwall-style limiter ceiling and release.";
+
+    if (id == "fx_width" || id == "fx_width_mix")
+        return "Stereo width via mid/side. 0 = mono, 2 = extra wide.";
+
+    if (id.startsWith ("fx_trem_"))
+        return "Tempo-free tremolo with selectable LFO shapes.";
+
+    if (id == "fx_shifter_shift" || id == "fx_shifter_mix")
+        return "Frequency shifter (Hz, not semitones) - inharmonic and metallic.";
+
+    if (id == "fx_ring_freq" || id == "fx_ring_mix")
+        return "Ring modulation with an internal carrier oscillator.";
+
+    if (id == "fx_octaver_mix")
+        return "Octaver: blends in an octave-down granulated layer.";
+
+    if (id == "fx_vowel_morph" || id == "fx_vowel_mix")
+        return "Vowel filter: morphs A-E-I-O-U formant shapes.";
+
+    if (id == "fx_delay_time_r")
+        return "Independent right-channel delay time.";
+
+    if (id == "fx_delay_duck")
+        return "Ducks the delay repeats whenever the dry signal plays.";
+
+    if (id.startsWith ("sub_"))
+    {
+        if (id == "sub_level") return "Level of OSC 3 (the sub).";
+        if (id == "sub_shape") return "Legacy sub waveform, used when Osc3 Table is Shape.";
+        if (id == "sub_octave") return "Base octave of OSC 3: one or two octaves down.";
+        if (id == "sub_mode")
+            return "Wavetable, Karplus-Strong string, or a sample you drag onto the card.";
+        if (id == "sub_table") return "Waveform for OSC 3. Shape follows the SHAPE control.";
+        if (id == "sub_frame") return "Morphs through the table's frames.";
+        if (id == "sub_pan") return "Stereo position of OSC 3.";
+        if (id == "sub_semi") return "Extra pitch offset on top of the octave.";
+        if (id == "sub_fine") return "Fine pitch offset in cents.";
+        if (id == "sub_unison") return "Stacked detuned copies of OSC 3.";
+        if (id == "sub_detune") return "Unison spread in cents.";
+        if (id == "sub_spread") return "Stereo spread of the unison stack.";
+        if (id == "sub_excite") return "String excitation.";
+        if (id.startsWith ("sub_string_")) return "Karplus-Strong string parameter for OSC 3.";
+        if (id == "sub_chord") return "Spreads a chord across the unison voices.";
+
+        return "OSC 3 / sub oscillator.";
+    }
+
+    if (id.startsWith ("f2e_"))
+        return "Filter 2 has its own envelope.";
+
+    if (id.startsWith ("e4_"))
+        return "Envelope 4 - a free mod source for the matrix.";
+
+    if (id.endsWith ("_curve"))
+        return "Envelope tension: positive is snappy, negative is slow then fast.";
+
+    if (id == "master")
+        return "Final output level.";
+
+    if (id == "master_clip")
+        return "Soft-clips the output so extreme patches can't hard-clip.";
+
+    if (id == "master_clip_gain")
+        return "Input gain into the soft clipper. Drive it to squash peaks harder.";
+
+    if (id == "oversampling")
+        return "Renders the oscillators, filters and envelopes at 2x and downsamples, cutting aliasing from FM, sync and wavefolding. Uses more CPU.";
+
+    if (id.endsWith ("_sample_tuned"))
+        return "Tuned follows the played note; untuned plays the file at its original pitch.";
+
+    if (id.endsWith ("_sample_loop"))
+        return "Loops the start/end region instead of playing once.";
+
+    if (id.endsWith ("_sample_reverse"))
+        return "Plays the region backwards. With loop on, it keeps looping backwards.";
+
+    if (id.endsWith ("_sample_start"))
+        return "Start of the playback region, as a fraction of the sample.";
+
+    if (id.endsWith ("_sample_end"))
+        return "End of the playback region, as a fraction of the sample.";
+
+    if (id.endsWith ("_sample_fade_in"))
+        return "Fades in over this fraction of the region, so loops and one-shots never click.";
+
+    if (id.endsWith ("_sample_fade_out"))
+        return "Fades out over this fraction of the region.";
+
+    return {};
+}

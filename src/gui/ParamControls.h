@@ -365,6 +365,8 @@ public:
     }
 
     juce::Slider& getSlider() { return slider; }
+    const juce::String& getParameterId() const { return parameterId; }
+    int getNumRoutings() const { return (int) routings.size(); }
 
     // Compact knobs (bottom strip) have no label or value box: the owner
     // draws those next to the knob.

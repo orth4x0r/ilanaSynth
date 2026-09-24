@@ -133,6 +133,8 @@ target_link_libraries(ilanaSnapshot
         juce::juce_recommended_config_flags
 )
 
+add_test(NAME ui_tests COMMAND ilanaSnapshot --uitest)
+
 # Dev tool: per-preset render fingerprints for regression checks (not shipped).
 juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
 

@@ -2267,6 +2267,70 @@ void runOversamplingTest()
 
     processor.panic();
 }
+// Adding a classic module to an empty slot from the rack menu must make it
+// audible without also hunting for the module's own ON switch.
+void runFxSlotAssignTest()
+{
+    const auto renderTail = [] (bool withReverb)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+
+        if (withReverb)
+            processor.assignFxSlot (1, 13);
+
+        auto tailEnergy = 0.0;
+
+        for (int block = 0; block < 180; ++block)
+        {
+            juce::AudioBuffer<float> buffer (2, 512);
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            else if (block == 25)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+
+            processor.processBlock (buffer, midi);
+
+            // ~1 s after the note off, well past the 0.25 s amp release.
+            if (block >= 120)
+                for (int i = 0; i < 512; ++i)
+                    tailEnergy += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        }
+
+        return tailEnergy;
+    };
+
+    const auto dry = renderTail (false);
+    const auto wet = renderTail (true);
+
+    check (dry < 1.0e-6 && wet > dry + 1.0e-4,
+           "reverb added to a slot is audible straight away (dry tail " + juce::String (dry, 8)
+               + ", wet tail " + juce::String (wet, 6) + ")");
+
+    IlanaSynthAudioProcessor processor;
+    processor.assignFxSlot (2, 10);
+    check (processor.apvts.getRawParameterValue ("fx_stutter_on")->load() < 0.5f,
+           "adding Stutter leaves its momentary trigger off");
+}
+
+void runPresetNameTest()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto names = processor.getFactoryPresetNames();
+    processor.loadFactoryPreset (3);
+    check (processor.getCurrentPresetName() == names[3], "factory preset load records its name");
+
+    juce::MemoryBlock state;
+    processor.getStateInformation (state);
+
+    IlanaSynthAudioProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    check (restored.getCurrentPresetName() == names[3],
+           "preset name survives a host state round trip ('" + restored.getCurrentPresetName() + "')");
+}
 } // namespace
 
 int main()
@@ -2299,6 +2363,8 @@ int main()
     runLegacyPresetFxTest();
     runLfo34Test();
     runOversamplingTest();
+    runFxSlotAssignTest();
+    runPresetNameTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

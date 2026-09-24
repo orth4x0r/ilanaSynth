@@ -30,6 +30,9 @@ public:
     }
     float getCompGainReduction() const { return compGainReduction.load(); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    // Puts a module type into an FX slot and switches on the module's own
+    // enable flag, so a freshly added effect is audible straight away.
+    void assignFxSlot (int slot, int type);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
     bool loadFxChainFromFile (const juce::File& file);
@@ -106,6 +109,11 @@ public:
     void loadFactoryPreset (int index);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
+
+    // The loaded preset's name lives in the state tree so it survives editor
+    // re-opens and host session reloads. Message thread only.
+    juce::String getCurrentPresetName() const { return apvts.state.getProperty ("presetName").toString(); }
+    void setCurrentPresetName (const juce::String& name) { apvts.state.setProperty ("presetName", name, nullptr); }
 
     bool assignModSlot (int sourceIndex, Mod::Destination destination, float depth);
     bool clearModSlotsForTarget (Mod::Destination destination);

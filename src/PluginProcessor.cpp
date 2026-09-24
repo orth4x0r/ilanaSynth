@@ -3312,6 +3312,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     if (index < 0 || index >= (int) presets.size())
         return;
 
+    setCurrentPresetName (presets[(size_t) index].name);
+
     for (auto* parameter : getParameters())
     {
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
@@ -3401,7 +3403,11 @@ bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)
     const auto state = buildFullState();
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
 
-    return xml != nullptr && xml->writeTo (file);
+    if (xml == nullptr || ! xml->writeTo (file))
+        return false;
+
+    setCurrentPresetName (file.getFileNameWithoutExtension());
+    return true;
 }
 
 bool IlanaSynthAudioProcessor::loadPresetFromFile (const juce::File& file)
@@ -3412,6 +3418,7 @@ bool IlanaSynthAudioProcessor::loadPresetFromFile (const juce::File& file)
         return false;
 
     applyFullState (juce::ValueTree::fromXml (*xml));
+    setCurrentPresetName (file.getFileNameWithoutExtension());
     return true;
 }
 
@@ -3545,6 +3552,37 @@ void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeIn
     applyFullState (juce::ValueTree::fromXml (*xml));
 }
 
+void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
+{
+    const auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* parameter = apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("fx_slot" + juce::String (slot), (float) type);
+
+    // Freeze and Stutter are momentary performance triggers, so they are left
+    // off; the classic modules below otherwise stay silent until enabled.
+    const char* enableId = nullptr;
+
+    switch (type)
+    {
+        case 2:  enableId = "fx_drive_on"; break;
+        case 3:  enableId = "fx_crush_on"; break;
+        case 5:  enableId = "fx_comb_on"; break;
+        case 6:  enableId = "fx_phaser_on"; break;
+        case 7:  enableId = "fx_chorus_on"; break;
+        case 9:  enableId = "fx_delay_on"; break;
+        case 11: enableId = "fx_smear_on"; break;
+        case 13: enableId = "fx_reverb_on"; break;
+        default: break;
+    }
+
+    if (enableId != nullptr)
+        set (enableId, 1.0f);
+}
+
 void IlanaSynthAudioProcessor::randomizeFxChain()
 {
     juce::Random random;
@@ -3558,8 +3596,8 @@ void IlanaSynthAudioProcessor::randomizeFxChain()
 
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount - 1);
-        set ("fx_slot" + juce::String (slot), (float) type);
+        const auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount);
+        assignFxSlot (slot, type);
         set ("fx_slot" + juce::String (slot) + "_bypass", 0.0f);
         set ("fx_slot" + juce::String (slot) + "_mix", 0.6f + random.nextFloat() * 0.4f);
     }

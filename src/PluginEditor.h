@@ -104,7 +104,8 @@ private:
 
     juce::ValueTree slotA, slotB;
     bool showingA = true;
-    int currentPresetIndex = 0;
+    int currentPresetIndex = -1;
+    juce::String shownPresetName;
     int themeIndex = 0;
 
     juce::Component* transitionPage = nullptr;

@@ -2437,8 +2437,7 @@ private:
 
                                 if (result >= 1 && result <= 1000)
                                 {
-                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (slotPrefix))
-                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (result - 1)));
+                                    safeThis->processorRef.assignFxSlot (slot + 1, result - 1);
                                 }
                                 else if (result == 1001 || result == 1002)
                                 {
@@ -2829,7 +2828,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         const auto count = processorRef.getNumAllPresets();
 
         if (count > 0)
-            loadPresetIndex ((currentPresetIndex + count - 1) % count);
+            loadPresetIndex ((juce::jmax (0, currentPresetIndex) + count - 1) % count);
     };
     nextButton.onClick = [this]
     {
@@ -3112,6 +3111,11 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
 
     updateSeqTab();
 
+    // Program changes, host state restores and A/B swaps change the preset
+    // behind the editor's back.
+    if (processorRef.getCurrentPresetName() != shownPresetName)
+        updateHeaderButtons();
+
     if (presetLoadFlash > 0.01f)
     {
         presetLoadFlash *= 0.86f;
@@ -3362,7 +3366,6 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
 void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
 {
     processorRef.loadPresetByIndex (index);
-    currentPresetIndex = index;
     presetLoadFlash = 1.0f;
 
     if (getTimerInterval() != 60)
@@ -3435,10 +3438,10 @@ void IlanaSynthAudioProcessorEditor::showHistoryMenu()
 
 void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
 {
-    const auto names = processorRef.getAllPresetNames();
-    const auto name = juce::isPositiveAndBelow (currentPresetIndex, names.size())
-                          ? names[currentPresetIndex]
-                          : juce::String ("PRESETS");
+    shownPresetName = processorRef.getCurrentPresetName();
+    currentPresetIndex = processorRef.getAllPresetNames().indexOf (shownPresetName);
+
+    const auto name = shownPresetName.isNotEmpty() ? shownPresetName : juce::String ("PRESETS");
 
     presetButton.setButtonText (name + (isFavourite (name) ? "  *" : ""));
     favButton.setToggleState (isFavourite (name), juce::dontSendNotification);
@@ -3602,16 +3605,9 @@ void IlanaSynthAudioProcessorEditor::randomize()
         setValue ("mod1_amt", 0.0f);
     }
 
-    setValue ("fx_drive_on", random.nextFloat() < 0.5f ? 1.0f : 0.0f);
-    setValue ("fx_crush_on", random.nextFloat() < 0.3f ? 1.0f : 0.0f);
-    setValue ("fx_stutter_on", random.nextFloat() < 0.2f ? 1.0f : 0.0f);
-    setValue ("fx_comb_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    setValue ("fx_phaser_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
+    // The FX rack has its own DICE; module on-flags alone do nothing without
+    // a slot, so the effects chain is left as it is here.
     setValue ("res_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    setValue ("fx_smear_on", random.nextFloat() < 0.2f ? 1.0f : 0.0f);
-    setValue ("fx_freeze_on", 0.0f);
-    setValue ("fx_taps_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    setValue ("fx_delay_pitch", random.nextFloat() < 0.3f ? (float) (random.nextInt (13) - 6) : 0.0f);
     setValue ("osc1_chord", (float) random.nextInt (7));
     setValue ("voice_spread", randomRange (0.0f, 0.5f));
     setValue ("unison_random", randomRange (0.0f, 1.0f));

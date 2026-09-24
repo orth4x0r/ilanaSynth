@@ -23,7 +23,8 @@ public:
           curveColour (curveColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("Drag the handles to shape the envelope, drag the curve to bend the tension");
+        setTooltip ("Drag a handle to set its stage (it follows the mouse), drag the curve to bend the tension, "
+                    "double-click a handle to reset it");
         startTimerHz (30);
     }
 
@@ -76,12 +77,7 @@ public:
         g.strokePath (path, juce::PathStrokeType (1.8f));
 
         // Stage handles.
-        const juce::Point<float> handles[] = {
-            { geo.xA, geo.yTop },
-            { geo.xD, geo.ySustain },
-            { (geo.xD + geo.xS) * 0.5f, geo.ySustain },
-            { geo.xR - 6.0f, geo.yBottom }
-        };
+        const auto handles = stageHandles (geo);
 
         for (int i = 0; i < 4; ++i)
         {
@@ -144,6 +140,7 @@ private:
         float x0 = 0.0f, xA = 0.0f, xD = 0.0f, xS = 0.0f, xR = 0.0f;
         float yTop = 0.0f, yBottom = 0.0f, ySustain = 0.0f;
         float exponent = 1.0f;
+        float scale = 1.0f;
     };
 
     static void addSegment (juce::Path& path, float x1, float y1, float x2, float y2, bool rising, float exponent)
@@ -161,46 +158,52 @@ private:
         }
     }
 
+    // Time runs on a square-root scale so short and long stages both read.
+    // Each stage's width depends only on its own time, and the overall zoom
+    // is frozen while dragging, so a handle stays exactly under the mouse.
+    static constexpr float holdUnits = 0.55f;
+
+    static float timeUnits (float seconds) { return std::sqrt (juce::jmax (0.0f, seconds)); }
+    static float unitsToSeconds (float units) { return units * units; }
+
+    float fitScale (const juce::Rectangle<float>& plot) const
+    {
+        const auto total = timeUnits (readSeconds ("attack")) + timeUnits (readSeconds ("decay"))
+                           + holdUnits + timeUnits (readSeconds ("release"));
+
+        // A little headroom so the release end is never pinned to the edge,
+        // and a minimum span so tiny envelopes don't zoom in absurdly.
+        return plot.getWidth() / juce::jmax (1.6f, total * 1.15f);
+    }
+
     Geometry layoutGeometry() const
     {
         Geometry geo;
         geo.plot = getLocalBounds().toFloat().reduced (12.0f, 14.0f);
 
-        const auto attack = readSeconds ("attack");
-        const auto decay = readSeconds ("decay");
-        const auto release = readSeconds ("release");
+        const auto scale = dragHandle >= 0 && dragHandle < 4 ? frozenScale : fitScale (geo.plot);
         const auto sustain = readValue ("sustain");
-        const auto weightSustain = 0.32f;
-        const auto unit = (double) geo.plot.getWidth()
-                          / (std::sqrt (attack) + std::sqrt (decay) + (double) weightSustain + std::sqrt (release));
-
-        // Keep every timed stage visible, even when its time is tiny.
-        const auto minStage = juce::jmin (20.0f, geo.plot.getWidth() / 6.0f);
-        auto widthA = juce::jmax (minStage, (float) (std::sqrt (attack) * unit));
-        auto widthD = juce::jmax (minStage, (float) (std::sqrt (decay) * unit));
-        auto widthR = juce::jmax (minStage, (float) (std::sqrt (release) * unit));
-
-        const auto timedTotal = widthA + widthD + widthR;
-
-        if (timedTotal > geo.plot.getWidth() - minStage)
-        {
-            const auto scale = (geo.plot.getWidth() - minStage) / timedTotal;
-            widthA *= scale;
-            widthD *= scale;
-            widthR *= scale;
-        }
 
         geo.x0 = geo.plot.getX();
-        geo.xA = geo.x0 + widthA;
-        geo.xD = geo.xA + widthD;
-        geo.xS = geo.xD + juce::jmax (minStage, geo.plot.getWidth() - (widthA + widthD + widthR));
-        geo.xR = geo.plot.getX() + geo.plot.getWidth();
+        geo.xA = geo.x0 + scale * timeUnits (readSeconds ("attack"));
+        geo.xD = geo.xA + scale * timeUnits (readSeconds ("decay"));
+        geo.xS = geo.xD + scale * holdUnits;
+        geo.xR = geo.xS + scale * timeUnits (readSeconds ("release"));
         geo.yTop = geo.plot.getY();
         geo.yBottom = geo.plot.getBottom();
         geo.ySustain = geo.yBottom - sustain * geo.plot.getHeight();
         geo.exponent = std::exp2 (-readCurve() * 2.0f);
+        geo.scale = scale;
 
         return geo;
+    }
+
+    static std::array<juce::Point<float>, 4> stageHandles (const Geometry& geo)
+    {
+        return { juce::Point<float> { geo.xA, geo.yTop },
+                 juce::Point<float> { geo.xD, geo.ySustain },
+                 juce::Point<float> { (geo.xD + geo.xS) * 0.5f, geo.ySustain },
+                 juce::Point<float> { geo.xR, geo.yBottom } };
     }
 
     std::array<juce::Point<float>, 3> tensionHandlePositions (const Geometry& geo) const
@@ -279,17 +282,25 @@ private:
     int findHandle (juce::Point<float> position) const
     {
         const auto geo = layoutGeometry();
+        const auto handles = stageHandles (geo);
 
-        const juce::Point<float> handles[] = {
-            { geo.xA, geo.yTop },
-            { geo.xD, geo.ySustain },
-            { (geo.xD + geo.xS) * 0.5f, geo.ySustain },
-            { geo.xR - 6.0f, geo.yBottom }
-        };
+        // Closest handle wins, so stacked handles (tiny times) stay reachable.
+        auto best = -1;
+        auto bestDistance = 14.0f;
 
         for (int i = 0; i < 4; ++i)
-            if (handles[i].getDistanceFrom (position) < 14.0f)
-                return i;
+        {
+            const auto distance = handles[(size_t) i].getDistanceFrom (position);
+
+            if (distance < bestDistance)
+            {
+                best = i;
+                bestDistance = distance;
+            }
+        }
+
+        if (best >= 0)
+            return best;
 
         for (const auto& tensionPoint : tensionHandlePositions (geo))
             if (tensionPoint.getDistanceFrom (position) < 12.0f)
@@ -351,6 +362,7 @@ private:
             dragHandle = 4;
 
         lastMousePosition = event.position;
+        frozenScale = fitScale (getLocalBounds().toFloat().reduced (12.0f, 14.0f));
 
         if (dragHandle >= 0)
         {
@@ -360,6 +372,12 @@ private:
             {
                 dragNormalised = dragParameter->getValue();
                 dragParameter->beginChangeGesture();
+
+                // The decay handle also sets sustain.
+                sustainGesture = dragHandle == 1 ? parameterFor ("sustain") : nullptr;
+
+                if (sustainGesture != nullptr)
+                    sustainGesture->beginChangeGesture();
                 updateReadout();
             }
         }
@@ -373,6 +391,12 @@ private:
             dragParameter = nullptr;
         }
 
+        if (sustainGesture != nullptr)
+        {
+            sustainGesture->endChangeGesture();
+            sustainGesture = nullptr;
+        }
+
         dragHandle = -1;
         readout.clear();
         repaint();
@@ -383,30 +407,72 @@ private:
         if (dragHandle < 0 || dragParameter == nullptr)
             return;
 
-        const auto delta = event.position - lastMousePosition;
-        lastMousePosition = event.position;
-
-        if (dragHandle == 4)
+        const auto geo = layoutGeometry();
+        const auto setSeconds = [] (juce::RangedAudioParameter& parameter, float seconds)
         {
-            dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta.y * 0.0035f);
-        }
-        else
-        {
-            dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised + delta.x * 0.0035f);
+            const auto range = parameter.getNormalisableRange();
+            parameter.setValueNotifyingHost (parameter.convertTo0to1 (juce::jlimit (range.start, range.end, seconds)));
+        };
 
-            if (dragHandle == 1 || dragHandle == 2)
+        const auto setSustainFromY = [this, &geo] (float y)
+        {
+            if (auto* sustainParameter = parameterFor ("sustain"))
+                sustainParameter->setValueNotifyingHost (
+                    juce::jlimit (0.0f, 1.0f, (geo.yBottom - y) / juce::jmax (1.0f, geo.plot.getHeight())));
+        };
+
+        // Stage handles map the mouse straight to a time: the distance from
+        // where the stage starts, back through the square-root scale.
+        switch (dragHandle)
+        {
+            case 0:
+                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.x0) / geo.scale));
+                break;
+
+            case 1:
+                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xA) / geo.scale));
+                setSustainFromY (event.position.y);
+                break;
+
+            case 2:
+                setSustainFromY (event.position.y);
+                break;
+
+            case 3:
+                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xS) / geo.scale));
+                break;
+
+            default:
             {
-                if (auto* sustainParameter = parameterFor ("sustain"))
-                {
-                    const auto sustain = juce::jlimit (0.0f, 1.0f,
-                                                       sustainParameter->getValue() - delta.y * 0.0035f);
-                    sustainParameter->setValueNotifyingHost (sustain);
-                }
+                // Tension: drag up for a snappier, more exponential curve.
+                const auto delta = event.position.y - lastMousePosition.y;
+                dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta * 0.004f);
+                dragParameter->setValueNotifyingHost (dragNormalised);
+                break;
             }
         }
 
-        dragParameter->setValueNotifyingHost (dragNormalised);
+        lastMousePosition = event.position;
         updateReadout();
+        repaint();
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        auto handle = findHandle (event.position);
+
+        if (handle < 0 && isNearCurve (event.position))
+            handle = 4;
+
+        if (handle < 0)
+            return;
+
+        if (auto* parameter = parameterFor (suffixForHandle (handle)))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->getDefaultValue());
+            parameter->endChangeGesture();
+        }
     }
 
     void updateReadout()
@@ -433,7 +499,9 @@ private:
     int dragHandle = -1;
     int hoverHandle = -1;
     juce::RangedAudioParameter* dragParameter = nullptr;
+    juce::RangedAudioParameter* sustainGesture = nullptr;
     float dragNormalised = 0.5f;
+    float frozenScale = 1.0f;
     juce::Point<float> lastMousePosition;
     juce::String readout;
 };

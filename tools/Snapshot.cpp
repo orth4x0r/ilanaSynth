@@ -11,6 +11,7 @@
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
 #include "gui/EnvThumbs.h"
+#include "gui/EnvelopeDisplay.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -210,6 +211,23 @@ int runUiTests()
     {
         if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
         {
+            // A press that moves away (a drag to a knob) must not switch pages.
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto now = juce::Time::getCurrentTime();
+            const juce::Point<float> from (20.0f, (float) thumbs->getHeight() * 0.5f);
+            const juce::Point<float> to (from.x + 60.0f, from.y + 40.0f);
+            const auto make = [&] (juce::Point<float> at, bool dragged)
+            {
+                return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                         thumbs, thumbs, now, from, now, 1, dragged);
+            };
+
+            auto& component = static_cast<juce::Component&> (*thumbs);
+            component.mouseDown (make (from, false));
+            component.mouseUp (make (to, true));
+            settle (50);
+            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
+
             thumbs->onSelect (2);
             settle (100);
             expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "clicking an LFO card opens ENV/LFO");
@@ -263,6 +281,83 @@ int runUiTests()
         else
         {
             expect (false, "ENV/LFO page has envelope cards");
+        }
+    }
+
+    // Envelope graph: a dragged handle lands where the mouse is.
+    tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+    settle (200);
+
+    if (auto* page = tabs->getCurrentContentComponent())
+    {
+        std::vector<EnvelopeDisplay*> displays;
+        findAll<EnvelopeDisplay> (*page, displays);
+        EnvelopeDisplay* amp = nullptr;
+
+        for (auto* display : displays)
+            if (visibleInTree (display))
+                amp = display;
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        const auto get = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+
+        if (amp != nullptr)
+        {
+            set ("amp_attack", 0.25f);
+            set ("amp_decay", 0.3f);
+            set ("amp_sustain", 0.5f);
+            set ("amp_release", 0.5f);
+
+            // Mirror of the display's geometry.
+            const auto plot = amp->getLocalBounds().toFloat().reduced (12.0f, 14.0f);
+            const auto total = std::sqrt (0.25f) + std::sqrt (0.3f) + 0.55f + std::sqrt (0.5f);
+            const auto scale = plot.getWidth() / juce::jmax (1.6f, total * 1.15f);
+            const auto xA = plot.getX() + scale * std::sqrt (0.25f);
+            const auto xS = xA + scale * std::sqrt (0.3f) + scale * 0.55f;
+            const auto xR = xS + scale * std::sqrt (0.5f);
+
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto drag = [&] (juce::Point<float> from, juce::Point<float> to)
+            {
+                const auto now = juce::Time::getCurrentTime();
+                const auto make = [&] (juce::Point<float> at, bool dragged)
+                {
+                    return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             amp, amp, now, from, now, 1, dragged);
+                };
+
+                auto& component = static_cast<juce::Component&> (*amp);
+                component.mouseDown (make (from, false));
+                component.mouseDrag (make (to, true));
+                component.mouseUp (make (to, true));
+            };
+
+            drag ({ xA, plot.getY() }, { xA + 30.0f, plot.getY() });
+            const auto expectedAttack = std::pow ((xA + 30.0f - plot.getX()) / scale, 2.0f);
+            expect (std::abs (get ("amp_attack") - expectedAttack) < expectedAttack * 0.03f,
+                    "attack handle follows the mouse (" + juce::String (get ("amp_attack"), 3) + " s, expected "
+                        + juce::String (expectedAttack, 3) + ")");
+
+            // Re-measure with the new attack, then drag the release end.
+            const auto total2 = std::sqrt (get ("amp_attack")) + std::sqrt (0.3f) + 0.55f + std::sqrt (0.5f);
+            const auto scale2 = plot.getWidth() / juce::jmax (1.6f, total2 * 1.15f);
+            const auto xS2 = plot.getX() + scale2 * (std::sqrt (get ("amp_attack")) + std::sqrt (0.3f) + 0.55f);
+            const auto xR2 = xS2 + scale2 * std::sqrt (0.5f);
+            drag ({ xR2, plot.getBottom() }, { xR2 - 25.0f, plot.getBottom() });
+            const auto expectedRelease = std::pow ((xR2 - 25.0f - xS2) / scale2, 2.0f);
+            expect (std::abs (get ("amp_release") - expectedRelease) < expectedRelease * 0.03f,
+                    "release handle follows the mouse (" + juce::String (get ("amp_release"), 3) + " s, expected "
+                        + juce::String (expectedRelease, 3) + ")");
+            juce::ignoreUnused (xR);
+        }
+        else
+        {
+            expect (false, "ENV/LFO shows the amp envelope display");
         }
     }
 

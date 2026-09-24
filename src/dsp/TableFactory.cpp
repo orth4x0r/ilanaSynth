@@ -220,7 +220,7 @@ std::vector<std::vector<float>> TableFactory::generate (int tableIndex)
         case 11:
         {
             // Vowel: morphs A -> E -> I -> O -> U through three formants.
-            const struct Formant { double f1, f2, f3; };
+            struct Formant { double f1, f2, f3; };
             static const Formant vowels[] { { 730.0, 1090.0, 2440.0 }, { 530.0, 1840.0, 2480.0 },
                                             { 270.0, 2290.0, 3010.0 }, { 570.0, 840.0, 2410.0 },
                                             { 300.0, 870.0, 2240.0 } };

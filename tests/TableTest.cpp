@@ -3637,7 +3637,11 @@ void runOsc3MigrationTest()
         setParam (state, "sub_table", 5.0f);
         setParam (state, "sub_octave", 0.0f);
         setParam (state, "sub_semi", 3.0f);
+        setParam (state, "osc1_table", 17.0f); // "User 2" before v1.1
     });
+
+    check ((int) value (*real, "osc1_table") == TableFactory::getNumFactoryTables() + 1,
+           "an old user wavetable choice still points at the same user slot");
 
     check (value (*real, "sub_on") > 0.5f && value (*real, "subosc_on") < 0.5f
                && (int) value (*real, "sub_table") == 1 && (int) value (*real, "sub_semi") == -9,

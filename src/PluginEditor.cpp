@@ -23,6 +23,7 @@
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
 #include "gui/FmDiagram.h"
+#include "gui/TableBrowser.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -243,6 +244,17 @@ public:
                 subSampleTuned, subSampleLoop, subSampleReverse, subSampleStart, subSampleEnd,
                 subSampleFadeIn, subSampleFadeOut, subChord,
                 noiseLevel);
+
+        // The TABLE lists open the wavetable browser.
+        for (auto [control, id, colour] : { std::tuple<ComboControl*, const char*, juce::Colour> { &osc1Table, "osc1_table", IlanaTheme::accent() },
+                                            { &osc2Table, "osc2_table", juce::Colour (0xff5b8cff) },
+                                            { &subTable, "sub_table", juce::Colour (0xffffd447) } })
+        {
+            control->setPopupOverride ([this, control, id = juce::String (id), colour]
+            {
+                TableBrowser::show (processorRef, id, colour, control->getComboBox());
+            });
+        }
 
         voiceSpread = std::make_unique<StripKnob> (p, "voice_spread", "Spread");
         unisonRandom = std::make_unique<StripKnob> (p, "unison_random", "Uni Phase");
@@ -1804,6 +1816,10 @@ public:
 
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
             strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "TABLE");
+            strip->table->setPopupOverride ([this, table = strip->table.get(), id = prefix + "_table", colour]
+            {
+                TableBrowser::show (processorRef, id, colour, table->getComboBox());
+            });
             strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "WARP");
             strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_frame", "FRAME", colour, themed));
             strip->knobs.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_warp_amt", "WARP", colour, themed));

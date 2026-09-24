@@ -12,6 +12,7 @@
 #include "gui/HeaderWidgets.h"
 #include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
+#include "gui/TableBrowser.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
@@ -535,6 +536,14 @@ int main (int argc, char** argv)
 
         settle (500);
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
+    }
+
+    // The wavetable browser on its own.
+    {
+        TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setSize (740, 520);
+        settle (100);
+        save (browser, outDir.getChildFile ("table-browser.png"));
     }
 
     editor.reset();

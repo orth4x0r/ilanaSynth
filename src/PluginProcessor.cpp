@@ -4099,6 +4099,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
+    state.setProperty ("tableSchema", 2, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -4240,6 +4241,29 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                            });
 
         state.setProperty ("osc3Schema", 2, nullptr);
+    }
+
+    // v1.1 added factory wavetables ahead of the four user slots, so older
+    // saved choices of a user slot move up.
+    if ((int) state.getProperty ("tableSchema", 1) < 2)
+    {
+        const auto added = TableFactory::getNumFactoryTables() - 16;
+
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+            const auto id = child.getProperty ("id").toString();
+
+            if (id == "osc1_table" || id == "osc2_table" || id == "sub_table")
+            {
+                const auto table = juce::roundToInt ((float) child.getProperty ("value"));
+
+                if (table >= 16)
+                    child.setProperty ("value", table + added, nullptr);
+            }
+        }
+
+        state.setProperty ("tableSchema", 2, nullptr);
     }
 
     // v1.1 added explicit (FM) destinations ahead of the parameter

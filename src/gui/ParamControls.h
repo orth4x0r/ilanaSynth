@@ -795,6 +795,9 @@ public:
 
     juce::ComboBox& getComboBox() { return combo; }
 
+    // Replace the drop-down list with something else when clicked.
+    void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+
     void resized() override
     {
         auto area = getLocalBounds();
@@ -837,7 +840,21 @@ private:
             repaint();
     }
 
-    juce::ComboBox combo;
+    // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
+    struct PopupCombo : public juce::ComboBox
+    {
+        std::function<void()> popupOverride;
+
+        void showPopup() override
+        {
+            if (popupOverride != nullptr)
+                popupOverride();
+            else
+                juce::ComboBox::showPopup();
+        }
+    };
+
+    PopupCombo combo;
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float appear = 1.0f;

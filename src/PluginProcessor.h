@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "dsp/Biquad.h"
+#include "dsp/Generative.h"
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
@@ -276,6 +277,8 @@ private:
     IlanaSynth synth;
 
     juce::MidiBuffer midiForSynth;
+    juce::MidiBuffer generatedMidi;
+    NoteSpray noteSpray;
     juce::Array<int> arpHeldNotes;
     juce::Array<int> arpChordActive;
     juce::Array<int> arpChordNotes;
@@ -493,6 +496,9 @@ public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).
     static float gatePatternLevel (int pattern, int step);
     int getGateDisplayStep() const { return gateDisplayStep.load(); }
+
+    // Tests only: one arpeggiator note choice from the currently held notes.
+    int pickArpNoteForTest (int mode, int octaves) { return selectArpNote (mode, octaves); }
 
 private:
     float tapeStopRate = 1.0f;

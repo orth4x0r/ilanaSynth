@@ -519,7 +519,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Arpeggiator
     addBool ("arp_on", "Arp On", false);
     addChoice ("arp_mode", "Arp Mode",
-               { "Up", "Down", "UpDown", "Random", "DownUp", "Converge", "Walk", "Chord" }, 0);
+               { "Up", "Down", "UpDown", "Random", "DownUp", "Converge", "Walk", "Chord", "Scale Random" }, 0);
+    addFloat ("arp_chance", "Arp Chance", 0.0f, 1.0f, 1.0f);
+
+    // Generative: scale snapping and note spray
+    addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
+    addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
+    addBool ("gen_snap", "Snap Played Notes", false);
+    addBool ("spray_on", "Note Spray", false);
+    addInt ("spray_count", "Spray Notes", 1, 8, 3);
+    addInt ("spray_range", "Spray Range", 1, 24, 12);
+    addChoice ("spray_direction", "Spray Direction", { "Up", "Down", "Both" }, 2);
+    addFloat ("spray_spread", "Spray Spread", 0.0f, 2000.0f, 0.0f, 0.4f);
+    addFloat ("spray_chance", "Spray Chance", 0.0f, 1.0f, 1.0f);
+    addFloat ("spray_velocity", "Spray Velocity", 0.0f, 1.0f, 0.3f);
     addChoice ("arp_div", "Arp Div", getSyncDivisionNames(), 3);
     addInt ("arp_octaves", "Arp Octaves", 1, 4, 1);
     addFloat ("arp_gate", "Arp Gate", 0.05f, 1.0f, 0.5f);
@@ -770,6 +783,9 @@ float IlanaSynthAudioProcessor::getParam (const char* id) const
 
 void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    noteSpray.reset();
+    generatedMidi.ensureSize (4096);
+
     currentSampleRate = sampleRate;
     displaySampleRate.store (sampleRate);
     baseSampleRate = sampleRate;
@@ -1271,7 +1287,23 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     synth.setVoiceMode ((IlanaSynth::Mode) juce::jlimit (0, 2, (int) getParam ("voice_mode")),
                         (int) getParam ("poly_voices"), getParam ("glide_legato") > 0.5f);
 
-    processArpeggiator (midiMessages, buffer.getNumSamples(), midiForSynth);
+    // Generative stage (scale snap, note spray) feeds the arpeggiator.
+    {
+        NoteSpray::Settings spray;
+        spray.scale = (int) getParam ("gen_scale");
+        spray.root = (int) getParam ("gen_root");
+        spray.snapInput = getParam ("gen_snap") > 0.5f;
+        spray.sprayOn = getParam ("spray_on") > 0.5f;
+        spray.count = (int) getParam ("spray_count");
+        spray.range = (int) getParam ("spray_range");
+        spray.direction = (int) getParam ("spray_direction");
+        spray.spreadSamples = (int) (getParam ("spray_spread") * 0.001 * currentSampleRate);
+        spray.chance = getParam ("spray_chance");
+        spray.velocityRandom = getParam ("spray_velocity");
+        noteSpray.process (midiMessages, generatedMidi, buffer.getNumSamples(), spray);
+    }
+
+    processArpeggiator (generatedMidi, buffer.getNumSamples(), midiForSynth);
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
@@ -3217,6 +3249,20 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
     if (mode == 3)
         return arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves);
 
+    // Scale Random: any scale note from the lowest held note up through the
+    // octaves (random held notes when no scale is set).
+    if (mode == 8)
+    {
+        const auto scale = (int) getParam ("gen_scale");
+
+        if (scale <= 0)
+            return arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves);
+
+        const auto low = arpHeldNotes[0];
+        const auto span = juce::jmax (12 * octaves, arpHeldNotes[count - 1] - low + 1);
+        return Scales::quantize (low + arpRandom.nextInt (span), scale, (int) getParam ("gen_root"));
+    }
+
     if (total <= 1)
         return arpHeldNotes[0];
 
@@ -3340,7 +3386,8 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     const auto gate = juce::jlimit (0.05f, 1.0f, getParam ("arp_gate"));
     const auto gateSamples = juce::jmax (8, (int) ((float) samplesPerStep * gate));
     const auto octaves = juce::jlimit (1, 4, (int) getParam ("arp_octaves"));
-    const auto mode = juce::jlimit (0, 7, (int) getParam ("arp_mode"));
+    const auto mode = juce::jlimit (0, 8, (int) getParam ("arp_mode"));
+    const auto chance = juce::jlimit (0.0f, 1.0f, getParam ("arp_chance"));
 
     int position = 0;
 
@@ -3366,8 +3413,14 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
                 output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), position);
 
             const auto note = selectArpNote (mode, octaves);
+            const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
 
-            if (mode == 7)
+            if (rest)
+            {
+                // A rest step: nothing sounds until the next one.
+                arpActiveNote = -1;
+            }
+            else if (mode == 7)
             {
                 for (auto chordNote : arpChordNotes)
                 {

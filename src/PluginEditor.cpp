@@ -1426,8 +1426,22 @@ public:
           arpMode (p.apvts, "arp_mode", "MODE"),
           arpDiv (p.apvts, "arp_div", "RATE"),
           arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), false),
-          arpGate (p.apvts, "arp_gate", "GATE", arpColour(), false)
+          arpGate (p.apvts, "arp_gate", "GATE", arpColour(), false),
+          arpChance (p.apvts, "arp_chance", "CHANCE", arpColour(), false),
+          genScale (p.apvts, "gen_scale", "SCALE"),
+          genRoot (p.apvts, "gen_root", "ROOT"),
+          genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
+          sprayOn (p.apvts, "spray_on", "SPRAY"),
+          sprayDirection (p.apvts, "spray_direction", "DIRECTION")
     {
+        sprayCount = std::make_unique<StripKnob> (p, "spray_count", "Notes", -1, generateColour(), false);
+        sprayRange = std::make_unique<StripKnob> (p, "spray_range", "Range", -1, generateColour(), false);
+        spraySpread = std::make_unique<StripKnob> (p, "spray_spread", "Spread", -1, generateColour(), false);
+        sprayChance = std::make_unique<StripKnob> (p, "spray_chance", "Chance", -1, generateColour(), false);
+        sprayVelocity = std::make_unique<StripKnob> (p, "spray_velocity", "Vel Random", -1, generateColour(), false);
+        addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
+                *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity);
+
         addAndMakeVisible (step1);
         addAndMakeVisible (step2);
 
@@ -1460,6 +1474,7 @@ public:
 
     static juce::Colour msegColour() { return juce::Colour (0xff6fe3c1); }
     static juce::Colour arpColour() { return juce::Colour (0xffff7ac6); }
+    static juce::Colour generateColour() { return juce::Colour (0xffffd447); }
 
     void paint (juce::Graphics& g) override
     {
@@ -1478,14 +1493,18 @@ public:
 
         IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, arpColour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
         title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
         title (arpCard.reduced (12, 0).removeFromTop (26), "ARPEGGIATOR", arpColour());
+        title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (11.5f));
         g.drawText ("drag points; assign it in the MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
         g.drawText ("hold notes to play the pattern", arpCard.reduced (12, 0).removeFromTop (26),
+                    juce::Justification::centredRight);
+        g.drawText ("scale snap and note spray", generateCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
     }
 
@@ -1504,8 +1523,12 @@ public:
             }
         };
 
-        const auto bottomHeight = juce::jlimit (205, 280, area.getHeight() * 9 / 20);
-        const auto stepHeight = (area.getHeight() - bottomHeight - 16) / 2;
+        // Left: the two step rows and the MSEG. Right: arp and generate.
+        auto right = area.removeFromRight (area.getWidth() * 43 / 100);
+        area.removeFromRight (10);
+
+        const auto msegHeight = juce::jlimit (170, 260, area.getHeight() * 2 / 5);
+        const auto stepHeight = (area.getHeight() - msegHeight - 16) / 2;
 
         auto row = area.removeFromTop (stepHeight);
         stepTitle1 = row.removeFromTop (22).withWidth (80);
@@ -1519,25 +1542,50 @@ public:
         step2.setBounds (row);
 
         area.removeFromTop (8);
-        auto bottom = area;
-
-        msegCard = bottom.removeFromLeft (bottom.getWidth() / 2 - 5);
-        bottom.removeFromLeft (10);
-        arpCard = bottom;
+        msegCard = area;
 
         auto msegArea = msegCard.reduced (10, 0);
         msegArea.removeFromTop (26);
         msegArea.removeFromBottom (8);
-        auto msegControls = msegArea.removeFromRight (juce::jmin (200, msegArea.getWidth() / 3));
+        auto msegControls = msegArea.removeFromRight (juce::jmin (180, msegArea.getWidth() / 3));
         mseg.setBounds (msegArea.reduced (0, 2));
         msegLoop.setBounds (msegControls.removeFromTop (40).reduced (8, 4));
         layoutRow (msegControls, { &msegRate, &clockDiv });
 
+        // Arp card.
+        arpCard = right.removeFromTop ((right.getHeight() - 8) * 47 / 100);
+        right.removeFromTop (8);
+        generateCard = right;
+
         auto arpArea = arpCard.reduced (10, 0);
         arpArea.removeFromTop (26);
         arpArea.removeFromBottom (6);
-        arpDisplay.setBounds (arpArea.removeFromTop (juce::jmax (40, arpArea.getHeight() - 110)).reduced (0, 2));
-        layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate });
+        arpDisplay.setBounds (arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - 104)).reduced (0, 2));
+        layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance });
+
+        // Generate card: scale row, spray row, then the spray amounts.
+        auto generate = generateCard.reduced (10, 0);
+        generate.removeFromTop (26);
+        generate.removeFromBottom (6);
+        const auto rowHeight = generate.getHeight() / 4;
+
+        auto scaleRow = generate.removeFromTop (rowHeight);
+        genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 45 / 100).reduced (3, 1));
+        genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() / 2).reduced (3, 1));
+        genSnap.setBounds (scaleRow.reduced (3, 1));
+
+        auto sprayRow = generate.removeFromTop (rowHeight);
+        sprayOn.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() / 3).reduced (3, 1));
+        sprayDirection.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() / 2).reduced (3, 1));
+        sprayCount->setBounds (sprayRow.reduced (3, 1));
+
+        auto amounts = generate.removeFromTop (rowHeight);
+        sprayRange->setBounds (amounts.removeFromLeft (amounts.getWidth() / 2).reduced (3, 1));
+        spraySpread->setBounds (amounts.reduced (3, 1));
+
+        amounts = generate;
+        sprayChance->setBounds (amounts.removeFromLeft (amounts.getWidth() / 2).reduced (3, 1));
+        sprayVelocity->setBounds (amounts.reduced (3, 1));
     }
 
     void visibilityChanged() override
@@ -1598,9 +1646,19 @@ private:
         const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : 0.45f;
 
         for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
-                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate) })
+                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
+                                          static_cast<juce::Component*> (&arpChance) })
             if (control->getAlpha() != alpha)
                 control->setAlpha (alpha);
+
+        const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
+        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : 0.45f;
+
+        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
+                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
+                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
+            if (control->getAlpha() != sprayAlpha)
+                control->setAlpha (sprayAlpha);
     }
 
     StepEditor step1, step2;
@@ -1612,9 +1670,13 @@ private:
     ArpDisplay arpDisplay;
     ToggleControl arpOn;
     ComboControl arpMode, arpDiv;
-    KnobControl arpOctaves, arpGate;
+    KnobControl arpOctaves, arpGate, arpChance;
+    ComboControl genScale, genRoot;
+    ToggleControl genSnap, sprayOn;
+    ComboControl sprayDirection;
+    std::unique_ptr<StripKnob> sprayCount, sprayRange, spraySpread, sprayChance, sprayVelocity;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
-    juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard;
+    juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
 };
 
 // The overview: everything needed to shape a basic sound on one screen

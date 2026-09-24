@@ -28,6 +28,18 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "fx_gate_steps")
         return juce::String (juce::roundToInt (value)) + " steps";
 
+    if (id == "spray_count")
+        return juce::String (juce::roundToInt (value)) + " notes";
+
+    if (id == "spray_range")
+        return juce::String (juce::roundToInt (value)) + " st";
+
+    if (id == "spray_spread")
+        return juce::String (juce::roundToInt (value)) + " ms";
+
+    if (id == "spray_chance" || id == "spray_velocity" || id == "arp_chance")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     if (id == "filter_balance")
     {
         if (std::abs (value) < 0.01f)
@@ -211,6 +223,33 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
         return "Cutoff follows the played note (1.0 = full tracking).";
+
+    if (id == "gen_scale")
+        return "Scale that sprayed notes and the Scale Random arp snap to.";
+
+    if (id == "gen_snap")
+        return "Also snap the notes you play to the scale.";
+
+    if (id == "spray_on")
+        return "Each played note throws extra notes around itself.";
+
+    if (id == "spray_count")
+        return "How many extra notes each played note can spray.";
+
+    if (id == "spray_range")
+        return "How far (in semitones) the extra notes can land from the played note.";
+
+    if (id == "spray_spread")
+        return "Spreads the extra notes out in time, up to this long after the played note.";
+
+    if (id == "spray_chance")
+        return "Chance that each extra note actually plays.";
+
+    if (id == "spray_velocity")
+        return "Randomises the extra notes' velocity.";
+
+    if (id == "arp_chance")
+        return "Chance that each arp step plays; lower it for gaps and generative patterns.";
 
     if (id == "fx_gate_steps")
         return "Trance gate pattern length. DIV sets the length of each step.";

@@ -4,6 +4,7 @@
 
 #include <complex>
 #include <iostream>
+#include <set>
 #include <vector>
 
 #include "Presets.h"
@@ -3460,6 +3461,117 @@ void runTranceGateTest()
     check (worstRatio > 30.0, "trance gate opens and closes on 1/16 steps (open/closed ratio " + juce::String (worstRatio, 1) + ")");
 }
 
+void runGenerativeTests()
+{
+    // Scale snapping.
+    check (Scales::quantize (61, 1, 0) == 62 && Scales::quantize (66, 1, 0) == 67 && Scales::quantize (60, 1, 0) == 60,
+           "scale snap: C major sends C# up to D, F# up to G, keeps C");
+    check (Scales::quantize (64, 2, 9) == 64 && Scales::quantize (61, 2, 9) == 62,
+           "scale snap: A minor keeps E, moves C# to D");
+
+    // Spray: every extra note is in the scale, released with its parent.
+    NoteSpray spray;
+    NoteSpray::Settings settings;
+    settings.scale = 11; // minor pentatonic
+    settings.root = 0;
+    settings.sprayOn = true;
+    settings.count = 5;
+    settings.range = 12;
+    settings.chance = 1.0f;
+
+    juce::MidiBuffer in, out;
+    in.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    spray.process (in, out, 512, settings);
+
+    std::set<int> sounding;
+    auto allInScale = true;
+
+    for (const auto metadata : out)
+    {
+        const auto message = metadata.getMessage();
+
+        if (message.isNoteOn())
+        {
+            sounding.insert (message.getNoteNumber());
+            allInScale = allInScale && Scales::contains (message.getNoteNumber(), 11, 0);
+        }
+    }
+
+    check (sounding.size() >= 3 && sounding.count (60) == 1 && allInScale,
+           "note spray adds scale notes around the played note (" + juce::String ((int) sounding.size()) + " notes)");
+
+    in.clear();
+    in.addEvent (juce::MidiMessage::noteOff (1, 60), 10);
+    spray.process (in, out, 512, settings);
+    std::set<int> released;
+
+    for (const auto metadata : out)
+        if (metadata.getMessage().isNoteOff())
+            released.insert (metadata.getMessage().getNoteNumber());
+
+    check (released == sounding, "releasing the played note releases every sprayed note");
+
+    // Spread: extra notes arrive later, across blocks.
+    settings.spreadSamples = 4000;
+    in.clear();
+    in.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0);
+    auto starts = 0;
+
+    for (int block = 0; block < 10; ++block)
+    {
+        spray.process (in, out, 512, settings);
+        in.clear();
+
+        for (const auto metadata : out)
+            if (metadata.getMessage().isNoteOn())
+                ++starts;
+    }
+
+    check (starts >= 4, "spread sprayed notes start over time (" + juce::String (starts) + " starts)");
+
+    // Scale Random arp stays in the scale and the range.
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    processor.loadFactoryPreset (0);
+
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    set ("arp_on", 1.0f);
+    set ("arp_mode", 8.0f);
+    set ("arp_div", 5.0f); // 1/32: many steps
+    set ("arp_octaves", 2.0f);
+    set ("gen_scale", 3.0f); // D dorian
+    set ("gen_root", 2.0f);
+
+    auto inKey = true, inRange = true;
+    juce::AudioBuffer<float> buffer (2, 512);
+
+    for (int block = 0; block < 200; ++block)
+    {
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 50, (juce::uint8) 100), 0);
+
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+    }
+
+    // With note 50 held, check the arp's choices over many picks.
+    for (int i = 0; i < 400; ++i)
+    {
+        const auto note = processor.pickArpNoteForTest (8, 2);
+        inKey = inKey && Scales::contains (note, 3, 2);
+        inRange = inRange && note >= 50 && note <= 50 + 24 + 1;
+    }
+
+    check (inKey && inRange, "Scale Random arp picks notes in the scale and the octave range");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -3515,6 +3627,7 @@ int main()
     runFactoryLibraryTest();
     runTapeStopLatencyTest();
     runTranceGateTest();
+    runGenerativeTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -1435,7 +1435,8 @@ void runPresetTuningTest()
     for (int presetIndex = 0; presetIndex < names.size(); ++presetIndex)
     {
         // Sound effects (noise sweeps, sirens, risers) are not meant to be in tune.
-        if (categories[presetIndex] == "FX")
+        // Drums sweep their pitch and generative patches spray extra notes by design.
+        if (categories[presetIndex] == "FX" || categories[presetIndex] == "Drums" || categories[presetIndex] == "Generative")
             continue;
 
         processor.loadFactoryPreset (presetIndex);
@@ -3213,7 +3214,8 @@ void runFactoryLibraryTest()
     processor.prepareToPlay (48000.0, 512);
 
     const auto names = processor.getFactoryPresetNames();
-    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded;
+    juce::StringArray unnamed, unmapped, badSlots, silent, unbounded, drumLevels;
+    const auto categories = processor.getFactoryPresetCategories();
     std::vector<std::pair<double, juce::String>> levels;
 
     const auto setMacros = [&processor] (float value)
@@ -3298,7 +3300,16 @@ void runFactoryLibraryTest()
         if (peak < 0.001f)
             silent.add (names[index]);
 
-        levels.push_back ({ rms, names[index] });
+        // Drums are short hits: judge them by their peak, not a held note's level.
+        if (categories[index] == "Drums")
+        {
+            if (peak < 0.15f || peak > 2.0f)
+                drumLevels.add (names[index] + " (peak " + juce::String (peak, 2) + ")");
+        }
+        else
+        {
+            levels.push_back ({ rms, names[index] });
+        }
 
         setMacros (1.0f);
         double fullRms = 0.0;
@@ -3314,6 +3325,7 @@ void runFactoryLibraryTest()
     check (unmapped.isEmpty(), "every factory macro is mapped (" + unmapped.joinIntoString (", ") + ")");
     check (badSlots.isEmpty(), "factory mod slots all have a destination (" + badSlots.joinIntoString (", ") + ")");
     check (silent.isEmpty(), "every factory preset makes sound (" + silent.joinIntoString (", ") + ")");
+    check (drumLevels.isEmpty(), "factory drums hit at a sensible level (" + drumLevels.joinIntoString (", ") + ")");
     check (unbounded.isEmpty(), "factory presets stay bounded with macros at full (" + unbounded.joinIntoString (", ") + ")");
 
     // Loudness: flag presets far from the library's median level.

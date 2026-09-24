@@ -261,6 +261,8 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "osc2_grain_spray", "Osc2 Grain Spray" }, { "osc2_grain_pitch", "Osc2 Grain Pitch" },
         { "sub_grain_size", "Osc3 Grain Size" }, { "sub_grain_density", "Osc3 Grain Density" },
         { "sub_grain_spray", "Osc3 Grain Spray" }, { "sub_grain_pitch", "Osc3 Grain Pitch" },
+        { "arp_chance", "Arp Chance" }, { "spray_chance", "Spray Chance" }, { "spray_spread", "Spray Spread" },
+        { "fx_gate_swing", "Gate Swing" },
     };
 
     return list;

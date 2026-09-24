@@ -167,7 +167,17 @@ Vowel filter.
 
 ## Installing
 
-### Windows
+### Windows: build and install from source (one click)
+Double-click **`build-and-install.cmd`** in the repository folder. It asks for
+administrator rights, builds the Release VST3 and standalone, copies the VST3
+to `C:\Program Files\Common Files\VST3\ilanaSynth.vst3`, puts the
+standalone in `C:\Program Files\ilanaSynth` with a desktop shortcut, and
+tells you what went wrong if a tool is missing. You need Visual Studio 2022
+(Community or Build Tools) with *Desktop development with C++*, Git, and
+internet the first time (JUCE is downloaded). Close your DAW first, then
+rescan plugins once it finishes. Run it again after pulling changes to update.
+
+### Windows: installer
 1. Run `ilanaSynth-1.0-Windows-Setup.exe` (installs the VST3 and the
    standalone), or copy the `ilanaSynth.vst3` folder to
    `C:\Program Files\Common Files\VST3\`.

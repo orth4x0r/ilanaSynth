@@ -8,7 +8,9 @@ The core of the plan is **one physical modelling engine used in two places**:
 
 **Priorities:** weird hybrids and plucked or bowed strings come first, then keys. Deep FM and the generative and physics-modulation work run alongside.
 
-**CPU budget:** balanced, meaning a rich physical patch should cost about what a heavy unison patch costs today. A QUALITY setting (Eco / Normal / High) trades detail for CPU.
+**CPU budget:** balanced, meaning a rich physical patch should cost about what a heavy unison patch costs today. A QUALITY setting (Eco / Normal / High), added in M3b, trades detail for CPU.
+
+**Engine:** from M3b on, the synth has up to **6 full oscillators** that are also the FM operators, and a **pool of 16 envelopes**. The later milestones build on that engine.
 
 ---
 
@@ -32,6 +34,20 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Sitar bridge buzz**, and a **fret rattle** that gets stronger with velocity.
 - **Sympathetic strings**: up to 6 drone strings. They follow the GENERATE scale, with a manual override, and are shared across voices to save CPU.
 
+### M3b: Oscillator engine (6 oscillators, envelope pool)
+This comes before M4 and M5, which both build on it.
+- **Refactor first, with no sound change.** The three hard-wired oscillators become "oscillator N" throughout the voice, processor and editor. Existing parameter IDs stay (`osc1_*`, `osc2_*`, and `sub_*` for OSC 3), and the preset fingerprints must show no change.
+- **Up to 6 oscillators**, each with every oscillator mode (Wavetable, Physical, Sample, Granular, and later modes). OSC 4–6 default to off, so old patches sound the same, and an oscillator that is off costs no CPU.
+- **Routing**: each oscillator goes to Filter 1, Filter 2, both filters, or no filter. "Both" is new; the others exist today.
+- **FM between any oscillators**: today's 3×3 FM matrix becomes 6×6. M5 builds its operator features on top of this.
+- **Envelope pool**: 16 envelopes, all automatable.
+  - The existing AMP, FLT 1, FLT 2, MOD and ENV 4 become envelopes 1–5 and keep their parameter IDs.
+  - The UI shows only the envelopes in use, with a "+" to add the next. Which ones are shown is saved with the patch, not in the editor settings.
+- **Per-oscillator amp envelope**: each oscillator picks the envelope that shapes its level. The default is envelope 1, the main AMP, which is how it works today. The two filters keep their own envelope slots, and every envelope is also a mod matrix source.
+- **Voice lifetime**: a voice ends only when every envelope controlling an oscillator's level has finished, so a long per-oscillator tail is never cut off.
+- **QUALITY setting** (Eco / Normal / High): 6 oscillators with unison and physical models can outrun any CPU, so this lands here rather than later.
+- **UI**: the OSC page shows six oscillators as a compact list with one expanded card, and the MAIN page's oscillator strip adapts. The mod matrix gets destinations for each oscillator.
+
 ### M4: Acoustic keys
 - **Hammer exciter**: hardness depends on velocity, and the hammer stays in contact with the string briefly.
 - **1–3 coupled strings per note**: a detune control gives the beating and the two-stage decay (a loud attack, then a long quieter tail).
@@ -47,11 +63,11 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Reed** (Wurlitzer-style): a struck reed with a pickup, whose growl feeds into the drives and amps.
 
 ### M5: Deep FM
-- **More operators**: 4 operators plus a noise operator, so the 3×3 matrix becomes 5×5. Old patches map onto operators 1–3.
+- **Operators are the M3b oscillators**: the 6×6 FM matrix from M3b, plus a noise operator. Old patches map onto operators 1–3.
 - **Tuning**: each operator has a frequency ratio that snaps to harmonic, inharmonic or bell sets, or a fixed frequency in Hz.
-- **Per-operator envelopes** (DAHDSR, or an MSEG), plus key-scaling of level and rate.
+- **Per-operator envelopes** from the M3b envelope pool (DAHDSR, or an MSEG), plus key-scaling of level and rate.
 - **16 algorithm presets**: one-click routings in the operator diagram, all still editable.
-- **Non-sine operators**: any operator can be a wavetable, a granular cloud or a physical string from M1–M4.
+- **Non-sine operators**: already true from M3b, since every operator is a full oscillator (wavetable, granular cloud, physical string from M1–M4).
 - **Feedback types**: plain, filtered, and cross-feedback between two operators.
 
 ### M6: Phase distortion (CZ-style)
@@ -109,7 +125,7 @@ The FX plugin adds input gain, a gate/trigger, and an envelope follower as a new
 - **Masking**: individual pulses can be dropped, driven by the M7 sequencers.
 
 ### M14: Vector synthesis
-- **XY pad**: morphs between four sources (the 3 oscillators plus the sub, or four snapshots).
+- **XY pad**: morphs between four sources (any four of the M3b oscillators, or four snapshots).
 - **Movement**: the pad follows a drawable path, the Evolve drift, or joystick and MPE control.
 
 ### M15: FOF formant synthesis
@@ -126,6 +142,7 @@ All new presets are deferred to the end of the roadmap, so they can use every ne
 
 - **Physical instruments**
   - Strings (M1/M3): 10
+  - Oscillator engine layers (M3b): 8
   - Physics LFOs (M2): 6
   - Acoustic keys (M4): 8
   - Electric pianos (M4b): 6
@@ -148,7 +165,7 @@ All new presets are deferred to the end of the roadmap, so they can use every ne
 - **Tuning**: the tuning test. Stretch tuning is accounted for.
 - **Stability**: extreme settings with maximum coupling and feedback must never produce NaN or runaway output.
 - **CPU**: per-quality limits in the heavy-preset CPU test.
-- **Old patches**: migration tests (String → PHYSICAL, Resonator → Classic body, FM 3×3 → 5×5), and preset fingerprints to confirm the original presets still sound the same.
+- **Old patches**: migration tests (String → PHYSICAL, 3 oscillators → 6, the five named envelopes → the envelope pool, FM 3×3 → 6×6, Resonator → Classic body), and preset fingerprints to confirm the original presets still sound the same.
 - **UI**: tests for each new page or card.
 - **Shipping**: each milestone builds and ships on its own.
 
@@ -163,3 +180,7 @@ All new presets are deferred to the end of the roadmap, so they can use every ne
 | Feedback guitar | An exciter type |
 | Sympathetic strings | Follow the GENERATE scale, with a manual override |
 | Presets | Deferred to M17, at the end |
+| Oscillator count | 6 full oscillators (M3b), which are also the FM operators |
+| Envelopes | A pool of 16 automatable envelopes, shown as they are used; a fixed count because hosts need a fixed parameter list |
+| Per-oscillator amp | An envelope picker per oscillator, defaulting to the main AMP |
+| Order | M3b before M4 and M5 |

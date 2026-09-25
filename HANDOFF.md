@@ -26,4 +26,4 @@ M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, af
 
 ## Known gaps
 
-No known M2 or M3 gaps. M4 and later roadmap work remains planned. Nothing has been pushed.
+No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 still await Claude's review. Nothing has been pushed.

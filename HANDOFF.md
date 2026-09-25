@@ -18,6 +18,17 @@ M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, af
 - `python tools/compare_fingerprints.py build/m2m3-before.csv build/m2m3-after-final.csv` reported **0 of 235 changed**.
 - `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe --uitest` passed. `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe snapshots/m2m3` generated physics LFO and OSC bow/buzz/sympathetic snapshots. The Pendulum, Bounce, bow/buzz and manual sympathetic layouts were inspected with no overlaps.
 
+## Claude's M2/M3 review and polish
+
+- Physics LFOs no longer go flat when free-running: once Bounce, Pendulum or Spring settles it is re-excited smoothly (ball thrown back up from the floor, pendulum/spring pushed from rest). Pendulum no longer jumps on retrigger (`resetPhysics` now outputs the displayed swing, not the raw angle).
+- Sympathetic strings: with no GENERATE scale they use an open tuning on the root (root, 5th, octave, 3rd, 5th, octave) instead of a C..F semitone cluster; the loop filter delay is compensated so they ring in tune (measured 0.0 / 0.5 cents at C2 / C5, was flat); `sym_amount` defaults to 50 % so switching ON is audible (still neutral while `sym_on` is off).
+- Bridge buzz now acts inside the string loop (a jawari-style, magnitude-reducing contact curve) instead of an output waveshaper; it cannot sustain or grow the string.
+- OSC page: sympathetic strings are a one-line header with the ON switch; their settings open below only when ON (notes only in MANUAL). The default page fits without scrolling again (outer margin 12 -> 6 px, minimum card 124 px).
+- Integer parameters now use `describeValue` like the floats: drone notes show note names (C3 = MIDI 60) and accept typed names, STRINGS shows "3 strings", SEMI shows "st".
+- State loading collects saved parameter IDs in a set instead of an O(n^2) scan.
+- Tests added: physics motion never goes flat and never jumps, bounces get lower, retriggers start without a jump, sympathetic tuning and open-tuning fallback, buzz stability, integer value text.
+- Verified: all tests pass except the heavy-preset CPU timing check, which failed only because the laptop was on battery (Sol's unmodified M2/M3 also failed then: 73.7 %); fingerprints 0 of 235 changed (`build/m2m3-review.csv`); `--uitest` passes; snapshots inspected. Run the CPU test plugged in and idle.
+
 ## Decisions to review
 
 - Physics motion speed follows the existing free or tempo synced LFO rate. The generic controls mean Height/Bounce, Swing/Damp, Stiff/Damp or Drive/Stick. Kick strength follows note velocity in both global and per-voice paths.
@@ -26,4 +37,4 @@ M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, af
 
 ## Known gaps
 
-No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 still await Claude's review. Nothing has been pushed.
+No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 have been reviewed and polished by Claude. Nothing has been pushed.

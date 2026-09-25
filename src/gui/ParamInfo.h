@@ -35,7 +35,12 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "sym_decay")
         return asPercent();
     if (id.startsWith ("sym_note"))
-        return "MIDI " + juce::String (juce::roundToInt (value));
+    {
+        // Note name with C3 = MIDI 60, as on the keyboard strip.
+        static const char* const names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        const auto note = juce::roundToInt (value);
+        return juce::String (names[((note % 12) + 12) % 12]) + juce::String (note / 12 - 2);
+    }
 
     if (id == "spray_range")
         return juce::String (juce::roundToInt (value)) + " st";
@@ -120,8 +125,9 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";
     if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops.";
     if (id == "sym_count") return "Number of shared drone strings, from one to six.";
-    if (id == "sym_manual") return "Use the six individual MIDI notes instead of the GENERATE scale and root.";
-    if (id.startsWith ("sym_note")) return "Manual drone tuning as a MIDI note number, used when MANUAL is on.";
+    if (id == "sym_manual") return "Tune the strings note by note instead of from the GENERATE scale and root. "
+                                   "With no scale set they use an open tuning on the root (root, fifth, octave, third).";
+    if (id.startsWith ("sym_note")) return "Manual tuning for this drone string, used when MANUAL is on.";
     if (id.endsWith ("_bow_pressure")) return "Bow grip on the string. MPE pressure and channel aftertouch add to it.";
     if (id.endsWith ("_bow_speed")) return "Bow travel speed; changes the sustained tone and scrape.";
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";

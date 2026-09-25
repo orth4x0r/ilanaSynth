@@ -551,12 +551,16 @@ int main (int argc, char** argv)
                         on->setValueNotifyingHost (on->convertTo0to1 (1.0f));
                     if (auto* amount = processor.apvts.getParameter ("sym_amount"))
                         amount->setValueNotifyingHost (amount->convertTo0to1 (0.5f));
-                    viewport->setViewPosition (0, 10000);
+                    // Let the page grow for the opened card, then scroll to it.
                     settle (250);
+                    viewport->setViewPosition (0, 10000);
+                    settle (100);
                     save (*editor, outDir.getChildFile ("osc-sympathetic.png"));
                     if (auto* manual = processor.apvts.getParameter ("sym_manual"))
                         manual->setValueNotifyingHost (manual->convertTo0to1 (1.0f));
                     settle (250);
+                    viewport->setViewPosition (0, 10000);
+                    settle (100);
                     save (*editor, outDir.getChildFile ("osc-sympathetic-manual.png"));
                     viewport->setViewPosition (0, 0);
                 }

@@ -21,6 +21,7 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 
 #include <cmath>
 #include <memory>
+#include <set>
 #include <vector>
 
 namespace
@@ -314,10 +315,34 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                 [id] (float value, int) { return describeValue (id, value); })));
     };
 
+    // Integer parameters use the same value text as the others (units, note
+    // names, "3 strings"), which ParamInfo already describes for them.
     const auto addInt = [&layout] (const juce::String& id, const juce::String& name, int min, int max, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { id, 1 }, name, min, max, def));
+            juce::ParameterID { id, 1 }, name, min, max, def,
+            juce::AudioParameterIntAttributes()
+                .withStringFromValueFunction ([id] (int value, int) { return describeValue (id, (float) value); })
+                .withValueFromStringFunction ([] (const juce::String& text)
+                {
+                    // Note names ("C#3", C3 = 60) as well as plain numbers.
+                    const auto trimmed = text.trim().toUpperCase();
+                    const auto letter = trimmed.isNotEmpty() ? trimmed[0] : 0;
+                    const int offsets[] { 9, 11, 0, 2, 4, 5, 7 }; // A B C D E F G
+
+                    if (letter >= 'A' && letter <= 'G')
+                    {
+                        auto note = offsets[letter - 'A'];
+                        auto rest = trimmed.substring (1);
+
+                        if (rest.startsWithChar ('#')) { ++note; rest = rest.substring (1); }
+                        else if (rest.startsWithChar ('B')) { --note; rest = rest.substring (1); }
+
+                        return note + 12 * (rest.getIntValue() + 2);
+                    }
+
+                    return trimmed.getIntValue();
+                })));
     };
 
     const auto addBool = [&layout] (const juce::String& id, const juce::String& name, bool def)
@@ -584,7 +609,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
     addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
     addBool ("sym_on", "Sympathetic Strings", false);
-    addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.0f);
+    addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.5f);
     addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);
     addInt ("sym_count", "Sympathetic Strings Count", 1, 6, 3);
     addBool ("sym_manual", "Sympathetic Manual Tuning", false);
@@ -4562,17 +4587,18 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
     // JUCE replaceState retains current values for absent parameters. Fill every
     // omitted parameter from its declared default, including future additions.
+    // The saved IDs are collected once, so loading stays linear in the
+    // parameter count.
+    std::set<juce::String> savedIds;
+
+    for (int child = 0; child < state.getNumChildren(); ++child)
+        savedIds.insert (state.getChild (child).getProperty ("id").toString());
+
     for (auto* parameter : getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
         {
             const auto id = static_cast<juce::AudioProcessorParameterWithID*> (ranged)->paramID;
-            auto found = false;
-            for (int child = 0; child < state.getNumChildren(); ++child)
-                if (state.getChild (child).getProperty ("id").toString() == id)
-                {
-                    found = true;
-                    break;
-                }
+            const auto found = savedIds.count (id) > 0;
 
             if (! found)
             {

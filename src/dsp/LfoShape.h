@@ -54,7 +54,10 @@ struct LfoChaos
         position = shape == LfoShapes::Bounce ? 0.2 + 0.8 * (double) a
                  : shape == LfoShapes::Friction ? -1.0 : 1.0;
         velocity = drive = 0.0;
-        physicsOut = (float) (shape == LfoShapes::Bounce ? position * 2.0 - 1.0 : position);
+        // Match what advancePhysics outputs, so a retrigger never jumps.
+        physicsOut = (float) (shape == LfoShapes::Bounce ? position * 2.0 - 1.0
+                            : shape == LfoShapes::Pendulum ? std::sin (position * (0.2 + 1.3 * (double) a))
+                                                            : position);
     }
 
     void kick (float amount)
@@ -73,7 +76,14 @@ struct LfoChaos
             {
                 position = -position;
                 velocity = -velocity * (0.15 + 0.83 * (double) b);
-                if (velocity < 0.015) position = velocity = 0.0;
+
+                // Settled: throw it back up to the drop height, from the floor,
+                // so a free-running LFO keeps bouncing without a jump.
+                if (velocity < 0.015)
+                {
+                    position = 0.0;
+                    velocity = std::sqrt (2.0 * 5.0 * (0.2 + 0.8 * (double) a));
+                }
             }
             physicsOut = (float) (position * 2.0 - 1.0);
         }
@@ -81,12 +91,22 @@ struct LfoChaos
         {
             velocity += (-4.0 * std::sin (position) - (0.05 + 2.0 * (double) b) * velocity) * dt;
             position += velocity * dt;
+
+            // Nearly still: push it from the centre back to its starting swing
+            // (energy of a release from 1 rad), so it never goes flat.
+            if (0.5 * velocity * velocity + 4.0 * (1.0 - std::cos (position)) < 1.0e-4)
+                velocity = std::sqrt (2.0 * 4.0 * (1.0 - std::cos (1.0)));
             physicsOut = (float) std::sin (position * (0.2 + 1.3 * (double) a));
         }
         else if (shape == LfoShapes::Spring)
         {
-            velocity += (-(2.0 + 18.0 * (double) a) * position - (0.05 + 5.0 * (double) b) * velocity) * dt;
+            const auto stiffness = 2.0 + 18.0 * (double) a;
+            velocity += (-stiffness * position - (0.05 + 5.0 * (double) b) * velocity) * dt;
             position += velocity * dt;
+
+            // Settled: pluck it again from rest with its starting energy.
+            if (0.5 * velocity * velocity + 0.5 * stiffness * position * position < 1.0e-4 * stiffness)
+                velocity = std::sqrt (stiffness);
             physicsOut = (float) position;
         }
         else if (shape == LfoShapes::Friction)

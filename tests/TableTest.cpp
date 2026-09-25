@@ -4293,10 +4293,19 @@ void runPhysicsLfoTests()
             last = value;
         }
         check (finite && high - low > 0.1f, "physics LFO shape " + juce::String (shape) + " moves and stays bounded");
+        {
+            // A retrigger starts exactly where the motion continues from.
+            LfoChaos fresh;
+            fresh.resetPhysics (shape, 0.5f);
+            const auto start = fresh.value (shape, 0.0);
+            fresh.advancePhysics (shape, 4.0 / 48000.0, 0.5f, 0.5f);
+            check (std::abs (fresh.value (shape, 0.0) - start) < 0.01f,
+                   "physics LFO shape " + juce::String (shape) + " starts without a jump");
+        }
         if (shape == LfoShapes::Friction)
             check (largestStep > 0.5f, "Friction LFO makes abrupt slips");
-        if (shape == LfoShapes::Bounce || shape == LfoShapes::Pendulum)
-            check (lateEnergy < earlyEnergy * 0.7, "Bounce or Pendulum loses energy over time");
+        if (shape == LfoShapes::Pendulum)
+            check (lateEnergy < earlyEnergy * 0.7, "Pendulum loses energy over time");
         if (shape == LfoShapes::Spring)
             check (low < -0.1f && high > 0.1f, "Spring LFO overshoots");
         state.resetPhysics (shape, 0.5f);
@@ -4329,6 +4338,166 @@ void runPhysicsLfoTests()
     };
     check (std::abs (globalPendulum (true) - globalPendulum (false)) > 0.02f,
            "Pendulum kick adds note energy even without RETRIG");
+}
+
+// Free-running physics LFOs must keep moving (they re-excite once settled)
+// without jumps, and each bounce of the ball must be lower than the last.
+void runPhysicsLfoMotionTest()
+{
+    for (const auto shape : { LfoShapes::Bounce, LfoShapes::Pendulum, LfoShapes::Spring })
+    {
+        LfoChaos state;
+        state.resetPhysics (shape, 0.5f);
+        auto last = state.value (shape, 0.0);
+        auto largestStep = 0.0f, lateLow = 1.0f, lateHigh = -1.0f;
+        constexpr int seconds = 30;
+
+        for (int sample = 0; sample < 48000 * seconds; ++sample)
+        {
+            state.advancePhysics (shape, 4.0 / 48000.0, 0.5f, 0.5f);
+            const auto value = state.value (shape, 0.0);
+            largestStep = juce::jmax (largestStep, std::abs (value - last));
+            last = value;
+
+            if (sample >= 48000 * (seconds - 1))
+            {
+                lateLow = juce::jmin (lateLow, value);
+                lateHigh = juce::jmax (lateHigh, value);
+            }
+        }
+
+        check (lateHigh - lateLow > 0.2f, "free-running physics LFO " + juce::String (shape) + " still moves after 30 s");
+        check (largestStep < 0.05f, "physics LFO " + juce::String (shape) + " re-excites without a jump (largest step "
+                                        + juce::String (largestStep, 4) + ")");
+    }
+
+    LfoChaos ball;
+    ball.resetPhysics (LfoShapes::Bounce, 1.0f);
+    std::vector<float> apexes;
+    auto previous = ball.value (LfoShapes::Bounce, 0.0);
+    auto rising = false;
+
+    for (int sample = 0; sample < 48000 * 3 && apexes.size() < 5; ++sample)
+    {
+        ball.advancePhysics (LfoShapes::Bounce, 1.0 / 48000.0, 1.0f, 0.5f);
+        const auto value = ball.value (LfoShapes::Bounce, 0.0);
+
+        // Equal samples at the top of an arc keep the current direction.
+        if (value > previous)
+            rising = true;
+        else if (value < previous)
+        {
+            if (rising)
+                apexes.push_back (previous);
+
+            rising = false;
+        }
+
+        previous = value;
+    }
+
+    auto lower = apexes.size() >= 4;
+
+    for (size_t i = 1; i < apexes.size(); ++i)
+        lower = lower && apexes[i] < apexes[i - 1];
+
+    check (lower, "each bounce is lower than the last (" + juce::String ((int) apexes.size()) + " apexes)");
+}
+
+void runSympatheticTuningTest()
+{
+    // With no scale, an open tuning on the root instead of a semitone cluster.
+    SympatheticStrings strings;
+    strings.prepare (48000.0);
+    strings.setTuning (0, 2, false, { 48, 55, 60, 64, 67, 72 });
+    const int open[] { 50, 57, 62, 66, 69, 74 };
+    auto matches = true;
+
+    for (int i = 0; i < SympatheticStrings::maxStrings; ++i)
+        matches = matches && strings.noteFor (i) == open[i];
+
+    check (matches, "sympathetic strings use an open tuning on the root when no scale is set");
+
+    // Each string rings at its note, low and high.
+    for (const auto note : { 48, 84 })
+    {
+        SympatheticStrings single;
+        single.prepare (48000.0);
+        single.setTuning (0, 0, true, { note, note, note, note, note, note });
+        std::vector<float> ring (48000);
+
+        for (int i = 0; i < (int) ring.size(); ++i)
+            ring[(size_t) i] = single.process (i < 64 ? 1.0f : 0.0f, 1, 1.0f, 1.0f);
+
+        // Strongest frequency within +-60 cents of the note, in 0.5 cent steps.
+        const auto expected = juce::MidiMessage::getMidiNoteInHertz (note);
+        auto cents = 0.0, bestPower = -1.0;
+
+        for (double offset = -60.0; offset <= 60.0; offset += 0.5)
+        {
+            const auto hz = expected * std::exp2 (offset / 1200.0);
+            double re = 0.0, im = 0.0;
+
+            for (int i = 2000; i < 40000; ++i)
+            {
+                const auto angle = juce::MathConstants<double>::twoPi * hz * (double) i / 48000.0;
+                re += (double) ring[(size_t) i] * std::cos (angle);
+                im += (double) ring[(size_t) i] * std::sin (angle);
+            }
+
+            if (re * re + im * im > bestPower)
+            {
+                bestPower = re * re + im * im;
+                cents = offset;
+            }
+        }
+        check (std::abs (cents) < 10.0, "sympathetic string " + juce::String (note) + " rings in tune ("
+                                            + juce::String (cents, 1) + " cents)");
+    }
+}
+
+void runBridgeBuzzStabilityTest()
+{
+    // In-loop buzz may colour the string but never sustain or grow it.
+    KarplusStrong string (12345);
+    string.prepare (48000.0);
+    string.setFrequency (110.0);
+    string.setParams (KarplusStrong::Excite::Burst, 0.0f, 0.1f, 1.0f);
+    string.setPhysicalParams (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
+    string.setBowAndBuzz (0.5f, 0.5f, 1.0f, 0.0f);
+    string.trigger (1.0f);
+
+    auto early = 0.0, late = 0.0;
+    auto finite = true;
+
+    for (int i = 0; i < 48000 * 6; ++i)
+    {
+        const auto value = string.process();
+        finite = finite && std::isfinite (value);
+
+        if (i < 4800)
+            early = juce::jmax (early, (double) std::abs (value));
+
+        if (i >= 48000 * 5)
+            late = juce::jmax (late, (double) std::abs (value));
+    }
+
+    check (finite && late < early * 0.5, "full bridge buzz decays instead of sustaining (early "
+                                             + juce::String (early, 3) + ", late " + juce::String (late, 3) + ")");
+}
+
+void runIntegerValueTextTest()
+{
+    IlanaSynthAudioProcessor processor;
+    juce::RangedAudioParameter* note = processor.apvts.getParameter ("sym_note1");
+    juce::RangedAudioParameter* count = processor.apvts.getParameter ("sym_count");
+
+    check (note != nullptr && note->getText (note->convertTo0to1 (60.0f), 16) == "C3"
+               && count != nullptr && count->getText (count->convertTo0to1 (3.0f), 16) == "3 strings",
+           "integer parameters show their value text (note names, units)");
+    check (note != nullptr && juce::roundToInt (note->convertFrom0to1 (note->getValueForText ("C#2"))) == 49
+               && juce::roundToInt (note->convertFrom0to1 (note->getValueForText ("67"))) == 67,
+           "note knobs accept typed note names and numbers");
 }
 
 void runMissingParameterDefaultTest()
@@ -4841,6 +5010,10 @@ int main()
     runSpectralWarpTests();
     runChaosLfoTests();
     runPhysicsLfoTests();
+    runPhysicsLfoMotionTest();
+    runSympatheticTuningTest();
+    runBridgeBuzzStabilityTest();
+    runIntegerValueTextTest();
     runMissingParameterDefaultTest();
     runM3PhysicalTests();
     runM3MissingParameterTest();

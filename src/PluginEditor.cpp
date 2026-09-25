@@ -327,7 +327,7 @@ public:
         noiseLevel.setVisible (false);
 
         for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
-                                "osc1_excite", "osc2_excite", "sub_excite", "sym_manual" })
+                                "osc1_excite", "osc2_excite", "sub_excite", "sym_on", "sym_manual" })
             processorRef.apvts.addParameterListener (id, this);
 
         updateModeVisibility();
@@ -337,7 +337,7 @@ public:
     ~OscPage() override
     {
         for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
-                                "osc1_excite", "osc2_excite", "sub_excite", "sym_manual" })
+                                "osc1_excite", "osc2_excite", "sub_excite", "sym_on", "sym_manual" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -415,7 +415,14 @@ public:
             IlanaTheme::paintRecessedPanel (g, symCard.toFloat(), 6.0f);
             g.setColour (IlanaTheme::accent());
             g.setFont (IlanaTheme::font (12.0f, true));
-            g.drawText ("SYMPATHETIC STRINGS", symCard.reduced (14, 4).withHeight (18), juce::Justification::centredLeft);
+            g.drawText ("SYMPATHETIC STRINGS", symCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
+                        juce::Justification::centredLeft);
+
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (11.0f));
+            g.drawText ("shared drone strings that ring with everything you play",
+                        symCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (90),
+                        juce::Justification::centredLeft);
         }
     }
 
@@ -433,14 +440,15 @@ public:
     // card has an extra row of knobs, so it gets extra height.
     int getMinimumHeight() const
     {
-        return 24 + bandGap * 4 + stripHeight + symHeight + minBandHeight * 3 + physicalExtra * numPhysicalBands();
+        return pageMargin * 2 + bandGap * 4 + stripHeight + symCardHeight() + minBandHeight * 3 + physicalExtra * numPhysicalBands();
     }
 
     void resized() override
     {
         bandHeight = juce::jlimit (minBandHeight, 176,
-                                   (getHeight() - 24 - bandGap * 4 - stripHeight - symHeight - physicalExtra * numPhysicalBands()) / 3);
-        auto area = getLocalBounds().reduced (12);
+                                   (getHeight() - pageMargin * 2 - bandGap * 4 - stripHeight - symCardHeight()
+                                    - physicalExtra * numPhysicalBands()) / 3);
+        auto area = getLocalBounds().reduced (12, pageMargin);
 
         for (int band = 0; band < 3; ++band)
         {
@@ -472,22 +480,46 @@ public:
         unisonRandom->setBounds (row.removeFromLeft (third));
         drift->setBounds (row);
 
+        // The shared sympathetic strings: a one-line header with their switch,
+        // which opens into their settings (and the notes, in MANUAL).
         area.removeFromTop (bandGap);
-        symCard = area.removeFromTop (symHeight);
-        auto symArea = symCard.reduced (10, 6);
-        symArea.removeFromTop (18);
-        auto symTop = symArea.removeFromTop (symArea.getHeight() / 2);
-        layoutSlots (symTop, { &symOn, &symAmount, &symDecay, &symCount, &symManual });
-        layoutSlots (symArea, { symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
-                                symNotes[3].get(), symNotes[4].get(), symNotes[5].get() });
+        symCard = area.removeFromTop (symCardHeight());
+        auto symArea = symCard;
+        auto header = symArea.removeFromTop (symHeaderHeight);
+        // ToggleControl keeps 13 px above its button for a label; place it so
+        // the button itself sits centred on the header line.
+        symOn.setBounds (header.getRight() - 84, header.getCentreY() - 13 - 10, 76, 13 + 20);
+
+        if (readBool ("sym_on"))
+        {
+            symArea.reduce (10, 0);
+            layoutSlots (symArea.removeFromTop (symRowHeight), { &symAmount, &symDecay, &symCount, &symManual });
+
+            if (readBool ("sym_manual"))
+                layoutSlots (symArea.removeFromTop (symRowHeight),
+                             { symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
+                               symNotes[3].get(), symNotes[4].get(), symNotes[5].get() });
+        }
     }
 
 private:
     int bandHeight = 137;
     static constexpr int bandGap = 6;
     static constexpr int stripHeight = 50;
-    static constexpr int symHeight = 154;
-    static constexpr int minBandHeight = 128;
+    static constexpr int pageMargin = 6;
+    static constexpr int symHeaderHeight = 28;
+    static constexpr int symRowHeight = 64;
+
+    // The sympathetic card: just its header while the strings are off, one
+    // row of settings when on, plus the notes in MANUAL.
+    int symCardHeight() const
+    {
+        if (! readBool ("sym_on"))
+            return symHeaderHeight;
+
+        return symHeaderHeight + 6 + symRowHeight * (readBool ("sym_manual") ? 2 : 1);
+    }
+    static constexpr int minBandHeight = 124;
     static constexpr int physicalExtra = 140;
 
     int numPhysicalBands() const
@@ -510,7 +542,7 @@ private:
 
     juce::Rectangle<int> bandBounds (int index) const
     {
-        const auto area = getLocalBounds().reduced (12);
+        const auto area = getLocalBounds().reduced (12, pageMargin);
         auto y = area.getY();
 
         for (int band = 0; band < index; ++band)
@@ -859,8 +891,15 @@ private:
             controls.bowPressure.setVisible (bow);
             controls.bowSpeed.setVisible (bow);
         }
-        const auto manual = readBool ("sym_manual");
-        for (auto& note : symNotes) note->setVisible (manual);
+        const auto symOnNow = readBool ("sym_on");
+        const auto manual = symOnNow && readBool ("sym_manual");
+
+        for (auto* control : { (juce::Component*) &symAmount, (juce::Component*) &symDecay,
+                               (juce::Component*) &symCount, (juce::Component*) &symManual })
+            control->setVisible (symOnNow);
+
+        for (auto& note : symNotes)
+            note->setVisible (manual);
         osc1Table.setVisible (mode1 == 0);
         osc1Frame.setVisible (mode1 == 0);
         osc1Excite.setVisible (mode1 == 1);

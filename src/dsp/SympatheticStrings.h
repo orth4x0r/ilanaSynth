@@ -24,20 +24,39 @@ public:
         }
     }
 
+    // Manual notes, or ascending notes of the GENERATE scale from the root.
+    // With no scale set (chromatic), consecutive notes would be a semitone
+    // cluster, so the strings use an open tuning on the root instead.
     void setTuning (int scale, int root, bool manual, const std::array<int, maxStrings>& manualNotes)
     {
-        auto candidate = 48 + juce::jlimit (0, 11, root);
+        constexpr int openTuning[maxStrings] { 0, 7, 12, 16, 19, 24 };
+        const auto base = 48 + juce::jlimit (0, 11, root);
+        auto candidate = base;
+
         for (int i = 0; i < maxStrings; ++i)
         {
-            if (! manual)
+            int note;
+
+            if (manual)
+                note = manualNotes[(size_t) i];
+            else if (scale <= 0)
+                note = base + openTuning[i];
+            else
             {
-                while (candidate < 108 && ! Scales::contains (candidate, scale, root)) ++candidate;
+                while (candidate < 108 && ! Scales::contains (candidate, scale, root))
+                    ++candidate;
+
+                note = candidate++;
             }
-            const auto note = manual ? manualNotes[(size_t) i] : candidate++;
+
             strings[(size_t) i].note = juce::jlimit (36, 96, note);
             const auto frequency = juce::MidiMessage::getMidiNoteInHertz (strings[(size_t) i].note);
+
+            // The loop's one-pole filter adds (1 - a) / a samples of delay at
+            // low frequencies; take it off the delay line so the string rings
+            // at its note rather than flat.
             strings[(size_t) i].period = juce::jlimit (2.0, (double) strings[(size_t) i].delay.size() - 2.0,
-                                                      sampleRate / frequency);
+                                                      sampleRate / frequency - (1.0 - loopFilter) / loopFilter);
         }
     }
 
@@ -59,7 +78,7 @@ public:
             const auto fraction = (float) (read - index);
             const auto delayed = string.delay[(size_t) index]
                                + (string.delay[(size_t) ((index + 1) % size)] - string.delay[(size_t) index]) * fraction;
-            string.filter += (delayed - string.filter) * 0.35f;
+            string.filter += (delayed - string.filter) * (float) loopFilter;
             string.delay[(size_t) string.write] = juce::jlimit (-4.0f, 4.0f,
                 string.filter * feedback + juce::jlimit (-2.0f, 2.0f, input) * 0.035f);
             string.write = (string.write + 1) % size;
@@ -77,6 +96,7 @@ private:
         double period = 200.0;
         float filter = 0.0f;
     };
+    static constexpr double loopFilter = 0.35;
     std::array<String, maxStrings> strings;
     double sampleRate = 48000.0;
 };

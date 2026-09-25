@@ -169,9 +169,6 @@ public:
 
         auto output = delayed;
 
-        if (buzz > 0.0f)
-            output += buzz * 0.35f * (std::tanh (output * 5.0f) - output);
-
         if (rattle > 0.0f && std::abs (delayed) > 0.18f)
             output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity
                       * std::abs (delayed) * 0.12f;
@@ -228,7 +225,19 @@ public:
         if (phase >= 1.0)
             phase -= 1.0;
 
-        buffer[(size_t) writePosition] = lowpassState * feedback + excitation;
+        auto loopValue = lowpassState * feedback;
+
+        // Bridge buzz (jawari): the string grazes the bridge on loud swings,
+        // flattening the peaks on every pass. The curve only ever reduces
+        // magnitude, so it adds bright harmonics that fade with the note but
+        // can never feed energy into the loop.
+        if (buzz > 0.0f)
+        {
+            constexpr auto contact = 0.2f;
+            loopValue -= buzz * 0.6f * (loopValue - contact * std::tanh (loopValue / contact));
+        }
+
+        buffer[(size_t) writePosition] = loopValue + excitation;
         writePosition = (writePosition + 1) % size;
 
         if (slapRemaining > 0)

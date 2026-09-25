@@ -4312,6 +4312,23 @@ void runPhysicsLfoTests()
         }
         check (finite, "physics LFO survives extreme rates and settings");
     }
+
+    const auto globalPendulum = [] (bool kick)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        setParam (processor, "lfo1_shape", (float) LfoShapes::Pendulum);
+        setParam (processor, "lfo1_rate", 4.0f);
+        setParam (processor, "lfo1_kick", kick ? 1.0f : 0.0f);
+        setParam (processor, "lfo1_retrig", 0.0f);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 127), 0);
+        processor.processBlock (buffer, midi);
+        return processor.getLfoLiveValue (0);
+    };
+    check (std::abs (globalPendulum (true) - globalPendulum (false)) > 0.02f,
+           "Pendulum kick adds note energy even without RETRIG");
 }
 
 void runMissingParameterDefaultTest()
@@ -4340,6 +4357,157 @@ void runMissingParameterDefaultTest()
     const auto read = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
     check (read ("lfo1_phys_a") == 0.5f && read ("lfo1_phys_b") == 0.5f && read ("lfo1_kick") == 0.0f,
            "missing new parameters load their declared defaults after a nondefault patch");
+}
+
+void runM3PhysicalTests()
+{
+    {
+        IlanaSynthAudioProcessor processor;
+        for (const auto* id : { "osc1_excite", "osc2_excite", "sub_excite" })
+        {
+            auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
+            check (choice != nullptr && choice->getAllValueStrings().size() == 5
+                   && choice->getAllValueStrings()[4] == "Bow",
+                   juce::String (id) + " appends Bow after the four legacy exciters");
+        }
+    }
+    const auto renderBow = [] (float expression, bool release)
+    {
+        KarplusStrong string (777);
+        string.prepare (48000.0);
+        string.setFrequency (220.0);
+        string.setParams (KarplusStrong::Excite::Bow, 0.0f, 0.35f, 0.15f);
+        string.setBowAndBuzz (0.5f, 0.5f, 0.0f, 0.0f);
+        string.trigger (0.8f);
+        std::array<double, 3> energies {};
+        for (int i = 0; i < 96000; ++i)
+        {
+            const auto value = string.process (expression, ! release || i < 48000);
+            if (i >= 36000 && i < 48000) energies[0] += value * value;
+            if (i >= 60000 && i < 72000) energies[1] += value * value;
+            if (i >= 84000) energies[2] += value * value;
+        }
+        return energies;
+    };
+    const auto bowed = renderBow (0.0f, false);
+    const auto released = renderBow (0.0f, true);
+    const auto pressed = renderBow (1.0f, false);
+    check (bowed[0] > 1.0e-6 && bowed[2] > released[2] * 2.0,
+           "Bow sustains while held and fades after release");
+    check (std::abs (pressed[0] - bowed[0]) > bowed[0] * 0.05,
+           "MPE pressure or channel aftertouch changes bow energy");
+
+    const auto renderContact = [] (float buzz, float rattle, float velocity)
+    {
+        KarplusStrong string (313);
+        string.prepare (48000.0);
+        string.setFrequency (220.0);
+        string.setParams (KarplusStrong::Excite::Burst, 0.0f, 0.15f, 0.95f);
+        string.setBowAndBuzz (0.0f, 0.5f, buzz, rattle);
+        string.trigger (velocity);
+        std::vector<float> samples (10000);
+        for (auto& sample : samples) sample = string.process();
+        return samples;
+    };
+    const auto clean = renderContact (0.0f, 0.0f, 0.9f);
+    const auto buzz = renderContact (1.0f, 0.0f, 0.9f);
+    const auto rattleHigh = renderContact (0.0f, 1.0f, 0.9f);
+    const auto cleanLow = renderContact (0.0f, 0.0f, 0.2f);
+    const auto rattleLow = renderContact (0.0f, 1.0f, 0.2f);
+    const auto delta = [] (const auto& a, const auto& b)
+    {
+        auto total = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) total += std::abs ((double) a[i] - b[i]);
+        return total;
+    };
+    check (delta (clean, buzz) > 0.1, "Bridge buzz changes the waveform");
+    check (delta (clean, rattleHigh) > delta (cleanLow, rattleLow) * 2.0,
+           "Fret rattle grows with velocity");
+    for (const auto& samples : { clean, buzz, rattleHigh })
+    {
+        auto finite = true;
+        for (const auto value : samples) finite = finite && std::isfinite (value) && std::abs (value) <= 8.0f;
+        check (finite, "Physical contact stays finite and bounded");
+    }
+
+    SympatheticStrings drones;
+    drones.prepare (48000.0);
+    const std::array<int, 6> manualNotes { 57, 60, 64, 69, 72, 76 };
+    drones.setTuning (1, 0, false, manualNotes);
+    check (drones.noteFor (0) == 48 && drones.noteFor (1) == 50 && drones.noteFor (2) == 52,
+           "Sympathetic strings follow GENERATE scale and root");
+    drones.setTuning (1, 0, true, manualNotes);
+    check (drones.noteFor (0) == 57 && drones.noteFor (3) == 69,
+           "Manual sympathetic tuning overrides the scale");
+    auto tail = 0.0;
+    auto bounded = true;
+    for (int i = 0; i < 48000; ++i)
+    {
+        const auto input = i < 10000 ? 0.4f * std::sin ((float) i * 2.0f * juce::MathConstants<float>::pi
+                                                          * 220.0f / 48000.0f) : 0.0f;
+        const auto value = drones.process (input, 6, 1.0f, 0.95f);
+        if (i > 20000) tail += std::abs ((double) value);
+        bounded = bounded && std::isfinite (value) && std::abs (value) <= 4.0f;
+    }
+    check (tail > 0.01 && bounded, "Shared sympathetic strings ring after excitation and remain bounded");
+
+    IlanaSynthAudioProcessor heavy;
+    heavy.prepareToPlay (48000.0, 512);
+    const auto swarm = heavy.getFactoryPresetNames().indexOf ("Swarm");
+    if (swarm >= 0) heavy.loadFactoryPreset (swarm);
+    setParam (heavy, "sym_on", 1.0f);
+    setParam (heavy, "sym_amount", 1.0f);
+    setParam (heavy, "sym_count", 6.0f);
+    juce::AudioBuffer<float> heavyBuffer (2, 512);
+    const auto start = juce::Time::getHighResolutionTicks();
+    for (int block = 0; block < 188; ++block)
+    {
+        heavyBuffer.clear();
+        juce::MidiBuffer midi;
+        if (block == 0)
+            for (const auto note : { 48, 52, 55, 59, 62, 67 })
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+        heavy.processBlock (heavyBuffer, midi);
+    }
+    const auto msPerSecond = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start)
+                             * 1000.0 / (188.0 * 512.0 / 48000.0);
+    check (msPerSecond < 400.0, "Six shared sympathetic strings fit the heavy preset CPU budget ("
+                                 + juce::String (msPerSecond, 1) + " ms/s)");
+}
+
+void runM3MissingParameterTest()
+{
+    IlanaSynthAudioProcessor processor;
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    auto xml = std::unique_ptr<juce::XmlElement> (juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize()));
+    check (xml != nullptr, "M3 state migration XML exists");
+    if (xml == nullptr) return;
+    juce::StringArray ids { "sym_on", "sym_amount", "sym_decay", "sym_count", "sym_manual" };
+    for (int i = 1; i <= 6; ++i) ids.add ("sym_note" + juce::String (i));
+    for (const auto* prefix : { "osc1", "osc2", "sub" })
+        for (const auto* suffix : { "_bow_pressure", "_bow_speed", "_bridge_buzz", "_fret_rattle" })
+            ids.add (juce::String (prefix) + suffix);
+    for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+    {
+        auto* next = child->getNextElement();
+        if (ids.contains (child->getStringAttribute ("id"))) xml->removeChildElement (child, true);
+        child = next;
+    }
+    juce::MemoryBlock oldState;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldState);
+    for (const auto& id : ids)
+        if (auto* param = processor.apvts.getParameter (id)) param->setValueNotifyingHost (1.0f);
+    processor.setStateInformation (oldState.getData(), (int) oldState.getSize());
+    auto defaultsRestored = true;
+    for (const auto& id : ids)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        auto* raw = processor.apvts.getRawParameterValue (id);
+        defaultsRestored = defaultsRestored && param != nullptr && raw != nullptr
+                          && std::abs (raw->load() - param->convertFrom0to1 (param->getDefaultValue())) < 0.001f;
+    }
+    check (defaultsRestored, "Every missing M3 parameter loads its declared default");
 }
 
 void runGranularTests()
@@ -4674,6 +4842,8 @@ int main()
     runChaosLfoTests();
     runPhysicsLfoTests();
     runMissingParameterDefaultTest();
+    runM3PhysicalTests();
+    runM3MissingParameterTest();
     runGranularTests();
     runHeavyPresetCpuTest();
     runPhysicalStringTest();

@@ -217,6 +217,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         return;
 
     velocityLevel = velocity;
+    noteHeld = true;
 
     // Per-voice LFOs restart with each articulated note.
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
@@ -267,6 +268,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         const auto pitch = currentFrequency * std::exp2 ((params.osc1.semitones + params.osc1.cents / 100.0) / 12.0);
         for (auto& string : string1Unison)
         {
+            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc1.stringExcite)),
+                              params.osc1.stringSustain, params.osc1.stringDamping, params.osc1.stringDecay);
             string.setFrequency (pitch);
             string.setPhysicalParams (params.osc1.stringStiffness, params.osc1.stringPickup,
                                       params.osc1.stringExcitationPosition, params.osc1.stringPickHardness,
@@ -280,6 +283,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         const auto pitch = currentFrequency * std::exp2 ((params.osc2.semitones + params.osc2.cents / 100.0) / 12.0);
         for (auto& string : string2Unison)
         {
+            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc2.stringExcite)),
+                              params.osc2.stringSustain, params.osc2.stringDamping, params.osc2.stringDecay);
             string.setFrequency (pitch);
             string.setPhysicalParams (params.osc2.stringStiffness, params.osc2.stringPickup,
                                       params.osc2.stringExcitationPosition, params.osc2.stringPickHardness,
@@ -294,6 +299,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
                                                          + params.sub.cents / 100.0) / 12.0);
         for (auto& string : subStrings)
         {
+            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.sub.stringExcite)),
+                              params.sub.stringSustain, params.sub.stringDamping, params.sub.stringDecay);
             string.setFrequency (pitch);
             string.setPhysicalParams (params.sub.stringStiffness, params.sub.stringPickup,
                                       params.sub.stringExcitationPosition, params.sub.stringPickHardness,
@@ -369,6 +376,8 @@ void Voice::stopNote (float, bool allowTailOff)
     // keeps the voice sounding instead.
     if (! allowTailOff && monoPending && monoKeepRunning)
         return;
+
+    noteHeld = false;
 
     if (allowTailOff)
     {
@@ -610,11 +619,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int u = 0; u < juce::jmin (numSubUnison, VoiceParams::maxBufferedUnison); ++u)
     {
-        subStrings[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 3, params.sub.stringExcite)),
+        subStrings[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.sub.stringExcite)),
                                  params.sub.stringSustain, params.sub.stringDamping, params.sub.stringDecay);
         subStrings[u].setPhysicalParams (params.sub.stringStiffness, params.sub.stringPickup,
                                          params.sub.stringExcitationPosition, params.sub.stringPickHardness,
                                          params.sub.stringPickPosition, params.sub.stringSlap);
+        subStrings[u].setBowAndBuzz (params.sub.bowPressure, params.sub.bowSpeed,
+                                     params.sub.bridgeBuzz, params.sub.fretRattle);
     }
 
     if (params.sub.stringMode && ! lastSubStringMode && params.subEnabled)
@@ -706,20 +717,24 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int u = 0; u < juce::jmin (numOsc1Unison, VoiceParams::maxBufferedUnison); ++u)
     {
-        string1Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 3, params.osc1.stringExcite)),
+        string1Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc1.stringExcite)),
                                     params.osc1.stringSustain, params.osc1.stringDamping, params.osc1.stringDecay);
         string1Unison[u].setPhysicalParams (params.osc1.stringStiffness, params.osc1.stringPickup,
                                             params.osc1.stringExcitationPosition, params.osc1.stringPickHardness,
                                             params.osc1.stringPickPosition, params.osc1.stringSlap);
+        string1Unison[u].setBowAndBuzz (params.osc1.bowPressure, params.osc1.bowSpeed,
+                                        params.osc1.bridgeBuzz, params.osc1.fretRattle);
     }
 
     for (int u = 0; u < juce::jmin (numOsc2Unison, VoiceParams::maxBufferedUnison); ++u)
     {
-        string2Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 3, params.osc2.stringExcite)),
+        string2Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc2.stringExcite)),
                                     params.osc2.stringSustain, params.osc2.stringDamping, params.osc2.stringDecay);
         string2Unison[u].setPhysicalParams (params.osc2.stringStiffness, params.osc2.stringPickup,
                                             params.osc2.stringExcitationPosition, params.osc2.stringPickHardness,
                                             params.osc2.stringPickPosition, params.osc2.stringSlap);
+        string2Unison[u].setBowAndBuzz (params.osc2.bowPressure, params.osc2.bowSpeed,
+                                        params.osc2.bridgeBuzz, params.osc2.fretRattle);
     }
 
     if (params.osc1.stringMode && ! lastStringMode1)
@@ -863,7 +878,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
                 else if (params.osc1.stringMode)
                 {
-                    raw = string1Unison[u].process();
+                    raw = string1Unison[u].process (aftertouchValue, noteHeld);
                 }
                 else
                 {
@@ -925,7 +940,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
                 else if (params.osc2.stringMode)
                 {
-                    raw = string2Unison[u].process();
+                    raw = string2Unison[u].process (aftertouchValue, noteHeld);
                 }
                 else
                 {
@@ -993,7 +1008,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
                 else if (params.sub.stringMode)
                 {
-                    raw = subStrings[u].process();
+                    raw = subStrings[u].process (aftertouchValue, noteHeld);
                 }
                 else
                 {

@@ -537,6 +537,29 @@ int main (int argc, char** argv)
                 mode->setValueNotifyingHost (mode->convertTo0to1 (1.0f));
                 settle (300);
                 save (*editor, outDir.getChildFile ("osc-physical.png"));
+                if (auto* excite = processor.apvts.getParameter ("osc1_excite"))
+                    excite->setValueNotifyingHost (excite->convertTo0to1 (4.0f));
+                if (auto* buzz = processor.apvts.getParameter ("osc1_bridge_buzz"))
+                    buzz->setValueNotifyingHost (buzz->convertTo0to1 (0.6f));
+                if (auto* rattle = processor.apvts.getParameter ("osc1_fret_rattle"))
+                    rattle->setValueNotifyingHost (rattle->convertTo0to1 (0.4f));
+                settle (300);
+                save (*editor, outDir.getChildFile ("osc-bow-buzz.png"));
+                if (auto* viewport = dynamic_cast<juce::Viewport*> (tabs->getCurrentContentComponent()))
+                {
+                    if (auto* on = processor.apvts.getParameter ("sym_on"))
+                        on->setValueNotifyingHost (on->convertTo0to1 (1.0f));
+                    if (auto* amount = processor.apvts.getParameter ("sym_amount"))
+                        amount->setValueNotifyingHost (amount->convertTo0to1 (0.5f));
+                    viewport->setViewPosition (0, 10000);
+                    settle (250);
+                    save (*editor, outDir.getChildFile ("osc-sympathetic.png"));
+                    if (auto* manual = processor.apvts.getParameter ("sym_manual"))
+                        manual->setValueNotifyingHost (manual->convertTo0to1 (1.0f));
+                    settle (250);
+                    save (*editor, outDir.getChildFile ("osc-sympathetic-manual.png"));
+                    viewport->setViewPosition (0, 0);
+                }
                 mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
             }
         }

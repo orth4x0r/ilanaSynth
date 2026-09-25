@@ -14,7 +14,8 @@ public:
         Burst = 0,
         Noise,
         Saw,
-        Pulse
+        Pulse,
+        Bow
     };
 
     KarplusStrong()
@@ -76,6 +77,14 @@ public:
         dispersionDelay = 2.0f * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
     }
 
+    void setBowAndBuzz (float pressure, float speed, float bridgeBuzz, float fretRattle)
+    {
+        bowPressure = juce::jlimit (0.0f, 1.0f, pressure);
+        bowSpeed = juce::jlimit (0.0f, 1.0f, speed);
+        buzz = juce::jlimit (0.0f, 1.0f, bridgeBuzz);
+        rattle = juce::jlimit (0.0f, 1.0f, fretRattle);
+    }
+
     void trigger (float velocity)
     {
         if (buffer.empty())
@@ -84,7 +93,7 @@ public:
         const auto level = juce::jlimit (0.0f, 1.0f, velocity);
 
         for (auto& value : buffer)
-            value = (random.nextFloat() * 2.0f - 1.0f) * level;
+            value = (random.nextFloat() * 2.0f - 1.0f) * level * (excite == Excite::Bow ? 0.02f : 1.0f);
 
         // Hardness 1 (the default) keeps the raw burst; lower values soften it.
         if (pickHardness < 1.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
@@ -116,9 +125,10 @@ public:
         dispersionInput[0] = dispersionInput[1] = 0.0f;
         slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
         slapLevel = level;
+        strikeVelocity = level;
     }
 
-    float process()
+    float process (float expression = 0.0f, bool noteHeld = true)
     {
         if (buffer.empty())
             return 0.0f;
@@ -159,6 +169,13 @@ public:
 
         auto output = delayed;
 
+        if (buzz > 0.0f)
+            output += buzz * 0.35f * (std::tanh (output * 5.0f) - output);
+
+        if (rattle > 0.0f && std::abs (delayed) > 0.18f)
+            output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity
+                      * std::abs (delayed) * 0.12f;
+
         if (pickupPosition > 0.0f)
         {
             auto tap = readPosition - period * (double) pickupPosition;
@@ -189,6 +206,18 @@ public:
                 excitation = (phase < 0.5 ? 1.0f : -1.0f) * sustainLevel;
                 break;
 
+            case Excite::Bow:
+                if (noteHeld)
+                {
+                    const auto pressure = juce::jlimit (0.0f, 1.0f, bowPressure + expression * 0.75f);
+                    const auto relativeSpeed = (0.05f + bowSpeed * 0.95f) - delayed;
+                    const auto friction = std::tanh (relativeSpeed * (4.0f + pressure * 20.0f));
+                    const auto bias = std::tanh ((0.05f + bowSpeed * 0.95f) * (4.0f + pressure * 20.0f));
+                    const auto scrape = (random.nextFloat() * 2.0f - 1.0f) * 0.015f * bowSpeed;
+                    excitation = (friction - bias + scrape) * pressure * strikeVelocity * 0.3f;
+                }
+                break;
+
             case Excite::Burst:
             default:
                 break;
@@ -209,7 +238,8 @@ public:
             --slapRemaining;
         }
 
-        if (stiffness == 0.0f && pickupPosition == 0.0f && slapRemaining == 0)
+        if (stiffness == 0.0f && pickupPosition == 0.0f && slapRemaining == 0
+            && buzz == 0.0f && rattle == 0.0f && excite != Excite::Bow)
             return output;
 
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
@@ -246,5 +276,6 @@ private:
     bool slap = false;
     int slapRemaining = 0;
     float slapLevel = 0.0f;
+    float bowPressure = 0.0f, bowSpeed = 0.5f, buzz = 0.0f, rattle = 0.0f, strikeVelocity = 0.0f;
     Excite excite = Excite::Burst;
 };

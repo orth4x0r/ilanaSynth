@@ -140,7 +140,8 @@ private:
 
     float shapeValue (int lfo, int shape, double phase) const
     {
-        phase -= std::floor (phase);
+        phase = LfoShapes::isPhysics (shape) ? juce::jlimit (0.0, 0.999999, phase)
+                                             : phase - std::floor (phase);
 
         switch (shape)
         {

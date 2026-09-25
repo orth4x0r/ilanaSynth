@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. M1 and M2 are complete; later milestones remain planned.
+This is the plan for what comes after v1.1. M1 through M3 are complete; later milestones remain planned.
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -27,7 +27,7 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Spring**: an overshooting wobble (stiffness, damping).
 - **Friction**: sudden stick-slip jumps.
 
-### M3: Bow, buzz and sympathetic strings
+### M3: Bow, buzz and sympathetic strings — done
 - **Bow exciter**: a friction model with pressure and speed. MPE pressure and aftertouch map to bow pressure.
 - **Sitar bridge buzz**, and a **fret rattle** that gets stronger with velocity.
 - **Sympathetic strings**: up to 6 drone strings. They follow the GENERATE scale, with a manual override, and are shared across voices to save CPU.

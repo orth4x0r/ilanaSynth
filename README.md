@@ -77,7 +77,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
   - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 4 user slots.
     - Click the TABLE box for the visual browser.
     - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display.
-  - **Physical**: plucked string with adjustable stiffness (sharp upper partials), damping, pickup and excitation positions, pick hardness and position, and a slap attack. The original excite, decay and sustain controls remain.
+  - **Physical**: plucked or bowed string with adjustable stiffness (sharp upper partials), damping, pickup and excitation positions, pick hardness and position, and a slap attack. Bow adds pressure and speed; MPE pressure and channel aftertouch increase bow pressure. Bridge buzz and velocity-sensitive fret rattle are optional.
   - **Sample**: any `.wav` up to 120 s.
     - Tuned or untuned playback, loop / one-shot, reverse, start and end points, and fades.
     - Five factory samples are built in: Metal Hit, Vocal Ah, Sub Tone, Vinyl Loop and Noise Rise. Right-click the display to pick one.
@@ -89,6 +89,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
 - **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, and chord modes.
 - **SUB**: a dedicated sub oscillator (sine, square or saw, −1 or −2 octaves) plus a noise layer, sharing a filter route.
 - **VOICE**: voice spread, unison phase randomisation and analogue drift.
+- **SYMPATHETIC STRINGS** on the OSC page: one to six shared drone strings ring from the mixed voices before effects. Choose amount and decay; tuning follows the GENERATE scale and root, or switch to six manual MIDI notes.
 
 ### FM
 - A 3×3 matrix: rows modulate columns, and the diagonal is feedback.

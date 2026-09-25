@@ -163,7 +163,8 @@ struct LfoChaos
 // (four random segments, or a stretch of the attractor).
 inline float lfoPreviewValue (int shape, double phase)
 {
-    const auto wrapped = phase - std::floor (phase);
+    const auto wrapped = LfoShapes::isPhysics (shape) ? juce::jlimit (0.0, 0.999999, phase)
+                                                      : phase - std::floor (phase);
 
     if (LfoShapes::isPhysics (shape))
     {

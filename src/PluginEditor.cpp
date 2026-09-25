@@ -135,9 +135,14 @@ class OscPage : public juce::Component,
               excitePos (state, prefix + "_string_excite_pos", "EXCITE POS"),
               hardness (state, prefix + "_string_pick_hardness", "HARDNESS"),
               pickPos (state, prefix + "_string_pick_pos", "PICK POS"),
-              slap (state, prefix + "_string_slap", "SLAP") {}
+              slap (state, prefix + "_string_slap", "SLAP"),
+              bowPressure (state, prefix + "_bow_pressure", "BOW PRESS"),
+              bowSpeed (state, prefix + "_bow_speed", "BOW SPEED"),
+              bridgeBuzz (state, prefix + "_bridge_buzz", "BRIDGE BUZZ"),
+              fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE") {}
 
         KnobControl stiffness, pickup, excitePos, hardness, pickPos;
+        KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
         ToggleControl slap;
     };
 
@@ -243,6 +248,9 @@ public:
           subGrainPosition (p.apvts, "sub_sample_start", "POSITION"), subGrainSize (p.apvts, "sub_grain_size", "SIZE"),
           subGrainDensity (p.apvts, "sub_grain_density", "DENSITY"), subGrainSpray (p.apvts, "sub_grain_spray", "SPRAY"),
           subGrainPitch (p.apvts, "sub_grain_pitch", "PITCH RND"), subGrainSpread (p.apvts, "sub_grain_spread", "STEREO")
+          , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
+          , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
+          , symCount (p.apvts, "sym_count", "STRINGS")
     {
         for (int i = 0; i < 3; ++i)
         {
@@ -250,7 +258,16 @@ public:
             physical[(size_t) i] = std::make_unique<PhysicalControls> (p.apvts, prefix);
             auto& controls = *physical[(size_t) i];
             addAll (*this, controls.stiffness, controls.pickup, controls.excitePos,
-                    controls.hardness, controls.pickPos, controls.slap);
+                    controls.hardness, controls.pickPos, controls.slap,
+                    controls.bowPressure, controls.bowSpeed, controls.bridgeBuzz, controls.fretRattle);
+        }
+
+        addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
+        for (int i = 0; i < 6; ++i)
+        {
+            symNotes[(size_t) i] = std::make_unique<KnobControl> (p.apvts, "sym_note" + juce::String (i + 1),
+                                                                    "NOTE " + juce::String (i + 1));
+            addAndMakeVisible (*symNotes[(size_t) i]);
         }
 
         addAll (*this, osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread);
@@ -309,7 +326,8 @@ public:
         addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
         noiseLevel.setVisible (false);
 
-        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" })
+        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
+                                "osc1_excite", "osc2_excite", "sub_excite", "sym_manual" })
             processorRef.apvts.addParameterListener (id, this);
 
         updateModeVisibility();
@@ -318,7 +336,8 @@ public:
 
     ~OscPage() override
     {
-        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" })
+        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
+                                "osc1_excite", "osc2_excite", "sub_excite", "sym_manual" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -391,6 +410,13 @@ public:
             g.setFont (IlanaTheme::font (12.0f, true));
             g.drawText ("VOICE", voiceStrip.withWidth (70).withTrimmedLeft (14), juce::Justification::centredLeft);
         }
+        if (! symCard.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, symCard.toFloat(), 6.0f);
+            g.setColour (IlanaTheme::accent());
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("SYMPATHETIC STRINGS", symCard.reduced (14, 4).withHeight (18), juce::Justification::centredLeft);
+        }
     }
 
     static juce::Colour oscColour (int index)
@@ -407,13 +433,13 @@ public:
     // card has an extra row of knobs, so it gets extra height.
     int getMinimumHeight() const
     {
-        return 24 + bandGap * 3 + stripHeight + minBandHeight * 3 + physicalExtra * numPhysicalBands();
+        return 24 + bandGap * 4 + stripHeight + symHeight + minBandHeight * 3 + physicalExtra * numPhysicalBands();
     }
 
     void resized() override
     {
         bandHeight = juce::jlimit (minBandHeight, 176,
-                                   (getHeight() - 24 - bandGap * 3 - stripHeight - physicalExtra * numPhysicalBands()) / 3);
+                                   (getHeight() - 24 - bandGap * 4 - stripHeight - symHeight - physicalExtra * numPhysicalBands()) / 3);
         auto area = getLocalBounds().reduced (12);
 
         for (int band = 0; band < 3; ++band)
@@ -445,14 +471,24 @@ public:
         voiceSpread->setBounds (row.removeFromLeft (third));
         unisonRandom->setBounds (row.removeFromLeft (third));
         drift->setBounds (row);
+
+        area.removeFromTop (bandGap);
+        symCard = area.removeFromTop (symHeight);
+        auto symArea = symCard.reduced (10, 6);
+        symArea.removeFromTop (18);
+        auto symTop = symArea.removeFromTop (symArea.getHeight() / 2);
+        layoutSlots (symTop, { &symOn, &symAmount, &symDecay, &symCount, &symManual });
+        layoutSlots (symArea, { symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
+                                symNotes[3].get(), symNotes[4].get(), symNotes[5].get() });
     }
 
 private:
     int bandHeight = 137;
     static constexpr int bandGap = 6;
     static constexpr int stripHeight = 50;
+    static constexpr int symHeight = 154;
     static constexpr int minBandHeight = 128;
-    static constexpr int physicalExtra = 70;
+    static constexpr int physicalExtra = 140;
 
     int numPhysicalBands() const
     {
@@ -621,12 +657,15 @@ private:
             juce::Component* spread[] { &osc1Spread, &osc2Spread, &subSpread };
             auto& controls = *physical[(size_t) index];
 
-            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
+            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 3);
+            auto extraRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
             layoutSlots (topRow, { on[index], modeBox[index], excite[index], &controls.slap,
                                    uniMode[index], chord[index] });
             layoutSlots (middleRow, { decay[index], damp[index], sustain[index], &controls.stiffness,
                                       &controls.pickup, &controls.excitePos, &controls.hardness, &controls.pickPos });
+            layoutSlots (extraRow, { &controls.bowPressure, &controls.bowSpeed,
+                                     &controls.bridgeBuzz, &controls.fretRattle });
             layoutSlots (bottomRow, { level[index], pan[index], semi[index], fine[index], unison[index],
                                       detune[index], blend[index], spread[index] });
             return;
@@ -812,9 +851,16 @@ private:
             const auto visible = getMode (i) == 1;
             for (juce::Component* control : { (juce::Component*) &controls.stiffness, (juce::Component*) &controls.pickup,
                                               (juce::Component*) &controls.excitePos, (juce::Component*) &controls.hardness,
-                                              (juce::Component*) &controls.pickPos, (juce::Component*) &controls.slap })
+                                              (juce::Component*) &controls.pickPos, (juce::Component*) &controls.slap,
+                                              (juce::Component*) &controls.bridgeBuzz, (juce::Component*) &controls.fretRattle })
                 control->setVisible (visible);
+            const auto prefix = i == 2 ? juce::String ("sub") : "osc" + juce::String (i + 1);
+            const auto bow = visible && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
+            controls.bowPressure.setVisible (bow);
+            controls.bowSpeed.setVisible (bow);
         }
+        const auto manual = readBool ("sym_manual");
+        for (auto& note : symNotes) note->setVisible (manual);
         osc1Table.setVisible (mode1 == 0);
         osc1Frame.setVisible (mode1 == 0);
         osc1Excite.setVisible (mode1 == 1);
@@ -919,7 +965,8 @@ private:
             auto& controls = *physical[(size_t) i];
             const auto enabled = i == 0 ? enabled1 : (i == 1 ? enabled2 : enabled3);
             setGroupEnabled ({ &controls.stiffness, &controls.pickup, &controls.excitePos,
-                               &controls.hardness, &controls.pickPos, &controls.slap }, enabled);
+                               &controls.hardness, &controls.pickPos, &controls.slap, &controls.bowPressure,
+                               &controls.bowSpeed, &controls.bridgeBuzz, &controls.fretRattle }, enabled);
         }
 
         setGroupEnabled ({ &osc1Mode, &osc1Table, &osc1Excite, &osc1Frame, &osc1Level, &osc1Pan, &osc1Semi,
@@ -980,6 +1027,10 @@ private:
     // Voice-wide settings that shape how the oscillators stack and drift.
     std::unique_ptr<StripKnob> voiceSpread, unisonRandom, drift;
     juce::Rectangle<int> voiceStrip;
+    juce::Rectangle<int> symCard;
+    ToggleControl symOn, symManual;
+    KnobControl symAmount, symDecay, symCount;
+    std::array<std::unique_ptr<KnobControl>, 6> symNotes;
 
     // The dedicated sub and the noise.
     std::unique_ptr<ToggleControl> subOscOn;

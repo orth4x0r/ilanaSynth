@@ -19,6 +19,7 @@
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
+#include "dsp/SympatheticStrings.h"
 #include "dsp/Modulation.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
@@ -325,6 +326,7 @@ private:
     mutable juce::SpinLock tableLock;
 
     std::array<std::array<juce::String, 11>, 3> stringParamIds;
+    std::array<std::array<juce::String, 4>, 3> bowBuzzIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
     struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };
@@ -481,6 +483,7 @@ private:
     GranularSmear smear[2];
     SpectralFreeze freeze[2];
     Mseg mseg;
+    SympatheticStrings sympatheticStrings;
 
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> haasLine { 4800 };
     float compEnvelope[2] { 0.0f, 0.0f };

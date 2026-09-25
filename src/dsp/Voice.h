@@ -75,6 +75,8 @@ struct VoiceParams
         float stringPickHardness = 1.0f;
         float stringPickPosition = 0.0f;
         bool stringSlap = false;
+        float bowPressure = 0.5f, bowSpeed = 0.5f;
+        float bridgeBuzz = 0.0f, fretRattle = 0.0f;
         int chord = 0;
 
         bool sampleMode = false;
@@ -325,6 +327,7 @@ private:
     double currentFrequency = 440.0;
     double bendSemitones = 0.0;
     float velocityLevel = 1.0f;
+    bool noteHeld = false;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;
     float randomValue = 0.0f;

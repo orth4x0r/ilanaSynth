@@ -30,6 +30,12 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id == "spray_count")
         return juce::String (juce::roundToInt (value)) + " notes";
+    if (id == "sym_count")
+        return juce::String (juce::roundToInt (value)) + " strings";
+    if (id == "sym_decay")
+        return asPercent();
+    if (id.startsWith ("sym_note"))
+        return "MIDI " + juce::String (juce::roundToInt (value));
 
     if (id == "spray_range")
         return juce::String (juce::roundToInt (value)) + " st";
@@ -98,6 +104,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
         || id.endsWith ("_string_pick_hardness") || id.endsWith ("_string_pick_pos")
         || id.endsWith ("_phys_a") || id.endsWith ("_phys_b")
+        || id.endsWith ("_bow_pressure") || id.endsWith ("_bow_speed")
+        || id.endsWith ("_bridge_buzz") || id.endsWith ("_fret_rattle")
+        || id == "sym_amount" || id == "sym_decay"
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
@@ -107,6 +116,16 @@ inline juce::String describeValue (const juce::String& id, float value)
 
 inline juce::String describeParameter (const juce::String& id)
 {
+    if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
+    if (id == "sym_amount") return "How much the shared strings ring in the mix.";
+    if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops.";
+    if (id == "sym_count") return "Number of shared drone strings, from one to six.";
+    if (id == "sym_manual") return "Use the six individual MIDI notes instead of the GENERATE scale and root.";
+    if (id.startsWith ("sym_note")) return "Manual drone tuning as a MIDI note number, used when MANUAL is on.";
+    if (id.endsWith ("_bow_pressure")) return "Bow grip on the string. MPE pressure and channel aftertouch add to it.";
+    if (id.endsWith ("_bow_speed")) return "Bow travel speed; changes the sustained tone and scrape.";
+    if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
+    if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
     // Oscillators (patterned)
     if (id == "osc1_table" || id == "osc2_table")
         return "Factory wavetable. Load your own with LOAD WAVETABLE (.wav).";

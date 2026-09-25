@@ -201,6 +201,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_string_damp", prefix + "_string_sustain",
                                            prefix + "_string_stiffness", prefix + "_string_pickup", prefix + "_string_excite_pos",
                                            prefix + "_string_pick_hardness", prefix + "_string_pick_pos", prefix + "_string_slap" };
+            bowBuzzIds[(size_t) i] = { prefix + "_bow_pressure", prefix + "_bow_speed",
+                                        prefix + "_bridge_buzz", prefix + "_fret_rattle" };
             sampleParamIds[(size_t) i] = { prefix + "_sample_tuned", prefix + "_sample_loop",
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
@@ -402,7 +404,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -536,7 +538,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -550,6 +552,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     for (const auto* prefix : { "osc1", "osc2", "sub" })
     {
+        addFloat (juce::String (prefix) + "_bow_pressure", juce::String (prefix) + " Bow Pressure", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bow_speed", juce::String (prefix) + " Bow Speed", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bridge_buzz", juce::String (prefix) + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
+        addFloat (juce::String (prefix) + "_fret_rattle", juce::String (prefix) + " Fret Rattle", 0.0f, 1.0f, 0.0f);
         const auto id = juce::String (prefix);
 
         addBool (id + "_sample_tuned", id + " Sample Tuned", true);
@@ -577,6 +583,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Generative: scale snapping and note spray
     addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
     addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
+    addBool ("sym_on", "Sympathetic Strings", false);
+    addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.0f);
+    addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);
+    addInt ("sym_count", "Sympathetic Strings Count", 1, 6, 3);
+    addBool ("sym_manual", "Sympathetic Manual Tuning", false);
+    constexpr int defaultSymNotes[] { 48, 55, 60, 64, 67, 72 };
+    for (int i = 1; i <= 6; ++i)
+        addInt ("sym_note" + juce::String (i), "Sympathetic Note " + juce::String (i), 36, 96,
+                defaultSymNotes[i - 1]);
     addBool ("gen_snap", "Snap Played Notes", false);
     addBool ("spray_on", "Note Spray", false);
     addInt ("spray_count", "Spray Notes", 1, 8, 3);
@@ -844,6 +859,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     generatedMidi.ensureSize (4096);
 
     currentSampleRate = sampleRate;
+    sympatheticStrings.prepare (sampleRate);
     displaySampleRate.store (sampleRate);
     baseSampleRate = sampleRate;
     expectedBlockSize = juce::jmax (1, samplesPerBlock);
@@ -1267,6 +1283,11 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.stringPickHardness = getParam (ids[8].toRawUTF8());
         osc.stringPickPosition = getParam (ids[9].toRawUTF8());
         osc.stringSlap = getParam (ids[10].toRawUTF8()) > 0.5f;
+        const auto& extras = bowBuzzIds[(size_t) oscIndex];
+        osc.bowPressure = getParam (extras[0].toRawUTF8());
+        osc.bowSpeed = getParam (extras[1].toRawUTF8());
+        osc.bridgeBuzz = getParam (extras[2].toRawUTF8());
+        osc.fretRattle = getParam (extras[3].toRawUTF8());
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
@@ -1500,6 +1521,28 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         oscDisplayPhases[0].store (phase1);
         oscDisplayPhases[1].store (phase2);
         oscDisplayPhases[2].store (phaseSub);
+    }
+
+    if (getParam ("sym_on") > 0.5f && getParam ("sym_amount") > 0.0f)
+    {
+        const char* const noteIds[] { "sym_note1", "sym_note2", "sym_note3", "sym_note4", "sym_note5", "sym_note6" };
+        std::array<int, SympatheticStrings::maxStrings> notes {};
+        for (int i = 0; i < SympatheticStrings::maxStrings; ++i)
+            notes[(size_t) i] = (int) getParam (noteIds[i]);
+        sympatheticStrings.setTuning ((int) getParam ("gen_scale"), (int) getParam ("gen_root"),
+                                      getParam ("sym_manual") > 0.5f, notes);
+        const auto count = (int) getParam ("sym_count");
+        const auto amount = getParam ("sym_amount");
+        const auto decay = getParam ("sym_decay");
+        auto* left = buffer.getWritePointer (0);
+        auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            const auto input = right != nullptr ? 0.5f * (left[i] + right[i]) : left[i];
+            const auto wet = sympatheticStrings.process (input, count, amount, decay);
+            left[i] += wet;
+            if (right != nullptr) right[i] += wet;
+        }
     }
 
     processEffects (buffer);
@@ -1786,16 +1829,25 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             continue;
 
         for (int lfo = 0; lfo < numLfos; ++lfo)
+        {
+            const auto& ids = lfoIds[(size_t) lfo];
+            const auto shape = (int) getParam (ids.shape.toRawUTF8());
             if (retriggers[lfo])
             {
                 lfoPhases[(size_t) lfo] = 0.0;
-                lfoChaos[(size_t) lfo].resetPhysics ((int) getParam (lfoIds[(size_t) lfo].shape.toRawUTF8()),
-                                                      getParam (lfoIds[(size_t) lfo].physA.toRawUTF8()));
-                lfoPreviousShapes[(size_t) lfo] = (int) getParam (lfoIds[(size_t) lfo].shape.toRawUTF8());
-                if (lfoPreviousShapes[(size_t) lfo] == LfoShapes::Pendulum
-                    && getParam (lfoIds[(size_t) lfo].kick.toRawUTF8()) > 0.5f)
-                    lfoChaos[(size_t) lfo].kick (0.5f);
+                lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA.toRawUTF8()));
+                lfoPreviousShapes[(size_t) lfo] = shape;
             }
+            if (shape == LfoShapes::Pendulum && getParam (ids.kick.toRawUTF8()) > 0.5f)
+            {
+                if (lfoPreviousShapes[(size_t) lfo] != shape)
+                {
+                    lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA.toRawUTF8()));
+                    lfoPreviousShapes[(size_t) lfo] = shape;
+                }
+                lfoChaos[(size_t) lfo].kick (metadata.getMessage().getFloatVelocity());
+            }
+        }
     }
 
     const auto makeRate = [this] (const char* syncId, const char* rateId, const char* divId,

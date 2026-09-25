@@ -438,9 +438,13 @@ private:
     std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> activeLfoCurveTables {};
     mutable juce::SpinLock lfoShapeLock;
 
-    std::atomic<int> previewNoteOn { -1 };
-    std::atomic<int> previewNoteOff { -1 };
-    std::atomic<float> previewVelocity { 0.7f };
+    // On-screen keyboard notes, queued lock-free from the message thread so
+    // none are lost between blocks; they join the MIDI input (and so go
+    // through scale snap, note spray and the arpeggiator).
+    struct PreviewEvent { int note = 0; float velocity = 0.0f; bool isOn = false; };
+    static constexpr int previewQueueSize = 128;
+    juce::AbstractFifo previewFifo { previewQueueSize };
+    std::array<PreviewEvent, (size_t) previewQueueSize> previewEvents {};
     std::atomic<float> cpuUsage { 0.0f };
     std::atomic<int> activeVoiceCount { 0 };
     std::atomic<int> macroLearn { -1 };

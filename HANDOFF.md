@@ -15,6 +15,8 @@ ROADMAP v1.2 M1 is implemented: oscillator mode index 1 is now **Physical**, wit
 
 Claude reviewed M1 and committed polish on top: pick hardness now defaults to 1.0 (the raw burst, i.e. the legacy sound) and softens monotonically below it (previously 0 was raw but 0.01 was softest); old states get each missing M1 parameter's default, not 0; slap scales with velocity; Physical controls show percentages; a Physical OSC card gets 70 px extra height and the page scrolls only when cards cannot fit at their minimum. Fingerprints still 0 of 235 changed (`build/m1-review.csv`), UI tests pass, all M1 tests pass.
 
-Known: the heavy-preset CPU timing test currently fails on this machine for both Codex's M1 commits and the polish (~50-60 % vs a ~40 % idle run), so treat it as load-sensitive, not an M1 regression. The OSC wave display still draws the wavetable in Physical mode (pre-existing from String mode).
+Known: the heavy-preset CPU timing test is load-sensitive (it failed at ~50-60 % while the machine was busy, for Codex's commits too, and passed at 44.5 % once idle), so rerun it before treating a failure as a regression. The OSC wave display still draws the wavetable in Physical mode (pre-existing from String mode).
 
-No open M1 design questions. The M1 commits and Claude's polish commit are not pushed yet. Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.
+On-screen keyboard notes now go through a lock-free queue into the MIDI input (so scale snap, spray and the arp apply); the old single-slot atomics lost note-offs during fast glissandos, leaving stuck notes. User reported "Scale Random doesn't stop after note off": not reproducible over MIDI (see `runScaleRandomReleaseTest`: presets, legato, repeats, velocity-0 offs, channel 2 all stop); the on-screen stuck-note bug is fixed. Awaiting the user's repro details if it persists.
+
+No open M1 design questions. Local `main` has unpushed commits (M1, M1 polish, on-screen keyboard fix). Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.

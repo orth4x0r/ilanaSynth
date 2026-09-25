@@ -1043,15 +1043,23 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         activeLfoCurveTables = lfoCurveTables;
     }
 
-    const auto previewOn = previewNoteOn.exchange (-1);
+    {
+        const auto scope = previewFifo.read (previewFifo.getNumReady());
 
-    if (previewOn >= 0)
-        synth.noteOn (1, previewOn, previewVelocity.load());
+        const auto addPreview = [&midiMessages, this] (int start, int size)
+        {
+            for (int i = start; i < start + size; ++i)
+            {
+                const auto& event = previewEvents[(size_t) i];
+                midiMessages.addEvent (event.isOn ? juce::MidiMessage::noteOn (1, event.note, event.velocity)
+                                                  : juce::MidiMessage::noteOff (1, event.note),
+                                       0);
+            }
+        };
 
-    const auto previewOff = previewNoteOff.exchange (-1);
-
-    if (previewOff >= 0)
-        synth.noteOff (1, previewOff, 0.0f, true);
+        addPreview (scope.startIndex1, scope.blockSize1);
+        addPreview (scope.startIndex2, scope.blockSize2);
+    }
 
     {
         if (wantedOversamplingFactor() != oversamplingFactor.load())
@@ -1594,15 +1602,15 @@ float IlanaSynthAudioProcessor::getLfoCurveValue (int lfoIndex, double phase) co
 
 void IlanaSynthAudioProcessor::triggerPreviewNote (int midiNote, bool isOn, float velocity)
 {
-    if (isOn)
-    {
-        previewVelocity.store (velocity);
-        previewNoteOn.store (midiNote);
-    }
-    else
-    {
-        previewNoteOff.store (midiNote);
-    }
+    if (! juce::isPositiveAndBelow (midiNote, 128))
+        return;
+
+    const auto scope = previewFifo.write (1);
+
+    if (scope.blockSize1 > 0)
+        previewEvents[(size_t) scope.startIndex1] = { midiNote, juce::jlimit (0.0f, 1.0f, velocity), isOn };
+    else if (scope.blockSize2 > 0)
+        previewEvents[(size_t) scope.startIndex2] = { midiNote, juce::jlimit (0.0f, 1.0f, velocity), isOn };
 }
 
 void IlanaSynthAudioProcessor::startMacroLearn (int macroIndex)

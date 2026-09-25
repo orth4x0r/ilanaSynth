@@ -3396,6 +3396,170 @@ void runCurveLfoTest()
     check (high > low * 2.0, "a Curve LFO modulates per voice (centroid " + juce::String (low, 0) + " -> "
                                  + juce::String (high, 0) + " Hz)");
 }
+// Releasing every key must silence the Scale Random arpeggiator, including
+// with note spray, chords, high notes and releases mid-step.
+void runScaleRandomReleaseTest()
+{
+    const auto run = [] (const juce::String& presetName, std::initializer_list<int> notes, int octaves, int holdBlocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        const auto names = processor.getFactoryPresetNames();
+
+        if (presetName.isNotEmpty())
+            processor.loadFactoryPreset (names.indexOf (presetName));
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("arp_on", 1.0f);
+        set ("arp_mode", 8.0f);
+        set ("arp_octaves", (float) octaves);
+
+        if (processor.apvts.getRawParameterValue ("gen_scale")->load() < 0.5f)
+            set ("gen_scale", 1.0f);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+
+        for (int block = 0; block < holdBlocks + 1200; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : notes)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            if (block == holdBlocks)
+                for (auto note : notes)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 17);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+        }
+
+        return processor.getActiveVoiceCount();
+    };
+
+    for (const auto* preset : { "Scale Walker", "Blues Machine", "Hirajoshi Spray", "" })
+        for (int hold : { 3, 40, 187 })
+        {
+            const auto voices = run (preset, { 60, 64, 67 }, 2, hold);
+            check (voices == 0, "Scale Random stops after release (" + juce::String (preset[0] != 0 ? preset : "Init")
+                                    + ", hold " + juce::String (hold) + " blocks, " + juce::String (voices) + " voices left)");
+        }
+
+    check (run ("", { 110, 118 }, 4, 60) == 0, "Scale Random stops after release near the top of the keyboard");
+
+    // Played like a keyboardist: overlapping legato, fast repeats of one key,
+    // note-offs sent as velocity-0 note-ons, and a non-default channel.
+    struct Event { int block, sample, note; bool on; int channel; bool zeroVelocityOff; };
+
+    const auto play = [] (const juce::String& presetName, const std::vector<Event>& events)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        const auto names = processor.getFactoryPresetNames();
+
+        if (presetName.isNotEmpty())
+            processor.loadFactoryPreset (names.indexOf (presetName));
+
+        if (auto* parameter = processor.apvts.getParameter ("arp_on"))
+            parameter->setValueNotifyingHost (1.0f);
+
+        if (auto* parameter = processor.apvts.getParameter ("arp_mode"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (8.0f));
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto lastBlock = 0;
+
+        for (const auto& event : events)
+            lastBlock = juce::jmax (lastBlock, event.block);
+
+        for (int block = 0; block <= lastBlock + 1200; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            for (const auto& event : events)
+                if (event.block == block)
+                    midi.addEvent (event.on ? juce::MidiMessage::noteOn (event.channel, event.note, (juce::uint8) 90)
+                                            : (event.zeroVelocityOff ? juce::MidiMessage::noteOn (event.channel, event.note, (juce::uint8) 0)
+                                                                     : juce::MidiMessage::noteOff (event.channel, event.note)),
+                                   event.sample);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+        }
+
+        return processor.getActiveVoiceCount();
+    };
+
+    std::vector<Event> legato, repeats, zeroOffs, channelTwo;
+
+    for (int i = 0; i < 12; ++i)
+    {
+        const auto note = 55 + (i * 5) % 17;
+        legato.push_back ({ i * 20, 30, note, true, 1, false });
+        legato.push_back ({ i * 20 + 27, 10, note, false, 1, false });   // released after the next key goes down
+        repeats.push_back ({ i * 3, 0, 62, true, 1, false });
+        repeats.push_back ({ i * 3 + 1, 200, 62, false, 1, false });
+        repeats.push_back ({ i * 3 + 1, 201, 62, true, 1, false });     // re-pressed in the same block
+        repeats.push_back ({ i * 3 + 2, 5, 62, false, 1, false });
+        zeroOffs.push_back ({ i * 9, 0, 48 + i, true, 1, false });
+        zeroOffs.push_back ({ i * 9 + 4, 100, 48 + i, false, 1, true });
+        channelTwo.push_back ({ i * 9, 0, 60 + i, true, 2, false });
+        channelTwo.push_back ({ i * 9 + 4, 100, 60 + i, false, 2, false });
+    }
+
+    for (const auto* preset : { "Scale Walker", "Blues Machine", "Hirajoshi Spray" })
+    {
+        const juce::String name (preset);
+        check (play (name, legato) == 0, "Scale Random stops after overlapping legato (" + name + ")");
+        check (play (name, repeats) == 0, "Scale Random stops after fast repeats of one key (" + name + ")");
+        check (play (name, zeroOffs) == 0, "Scale Random stops after velocity-0 note-offs (" + name + ")");
+        check (play (name, channelTwo) == 0, "Scale Random stops on MIDI channel 2 (" + name + ")");
+    }
+
+    // The on-screen keyboard: a fast glissando queues several note-offs
+    // between two audio blocks, and none may be lost.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Scale Walker"));
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer noMidi;
+
+        const auto runBlocks = [&] (int count)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                buffer.clear();
+                noMidi.clear();
+                processor.processBlock (buffer, noMidi);
+            }
+        };
+
+        // Hold a key long enough to sound, then drag across four more keys
+        // faster than one block and let go.
+        processor.triggerPreviewNote (60, true, 0.8f);
+        runBlocks (40);
+
+        for (int note = 61; note < 65; ++note)
+        {
+            processor.triggerPreviewNote (note - 1, false);
+            processor.triggerPreviewNote (note, true, 0.8f);
+        }
+
+        runBlocks (40);
+        processor.triggerPreviewNote (64, false);
+        runBlocks (1200);
+
+        check (processor.getActiveVoiceCount() == 0, "a fast on-screen glissando leaves no stuck notes");
+    }
+}
+
 } // namespace
 
 // Every factory preset (Init aside) has four named, working macros, plays,
@@ -4439,6 +4603,7 @@ int main()
     runHeavyPresetCpuTest();
     runPhysicalStringTest();
     runPhysicalPatchMigrationTest();
+    runScaleRandomReleaseTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

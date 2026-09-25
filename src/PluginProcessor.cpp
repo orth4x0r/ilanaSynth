@@ -244,6 +244,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         ids.retrig = prefix + "_retrig";
         ids.phase = prefix + "_phase";
         ids.key = prefix + "_key";
+        ids.physA = prefix + "_phys_a";
+        ids.physB = prefix + "_phys_b";
+        ids.kick = prefix + "_kick";
 
         for (int step = 0; step < 16; ++step)
             ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
@@ -588,7 +591,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // LFOs
     const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps", "Curve",
-                                       "Smooth Random", "Drunk", "Chaos" };
+                                       "Smooth Random", "Drunk", "Chaos", "Bounce", "Pendulum", "Spring", "Friction" };
 
     for (int lfo = 1; lfo <= numLfos; ++lfo)
     {
@@ -601,6 +604,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_retrig", "LFO" + juce::String (lfo) + " Retrig", false);
         addFloat (prefix + "_phase", "LFO" + juce::String (lfo) + " Start Phase", 0.0f, 1.0f, 0.0f);
         addBool (prefix + "_key", "LFO" + juce::String (lfo) + " Key Track", false);
+        addFloat (prefix + "_phys_a", "LFO" + juce::String (lfo) + " Physics A", 0.0f, 1.0f, 0.5f);
+        addFloat (prefix + "_phys_b", "LFO" + juce::String (lfo) + " Physics B", 0.0f, 1.0f, 0.5f);
+        addBool (prefix + "_kick", "LFO" + juce::String (lfo) + " Pendulum Kick", false);
 
         for (int step = 0; step < 16; ++step)
             addFloat (prefix + "_step" + juce::String (step + 1), "LFO" + juce::String (lfo) + " Step " + juce::String (step + 1),
@@ -1367,6 +1373,9 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             lfoParams.shape = (int) getParam (ids.shape.toRawUTF8());
             lfoParams.baseIncrement = juce::jlimit (0.001, 200.0, rate) / voiceRate;
             lfoParams.startPhase = getParam (ids.phase.toRawUTF8());
+            lfoParams.physA = getParam (ids.physA.toRawUTF8());
+            lfoParams.physB = getParam (ids.physB.toRawUTF8());
+            lfoParams.kick = getParam (ids.kick.toRawUTF8()) > 0.5f;
             lfoParams.steps = lfoStepValues[lfo];
             const auto isCurve = lfoParams.shape == curveShape;
             lfoParams.custom = isCurve ? activeLfoCurveTables[(size_t) lfo].data() : activeLfoCustom[(size_t) lfo].data();
@@ -1778,7 +1787,15 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
         for (int lfo = 0; lfo < numLfos; ++lfo)
             if (retriggers[lfo])
+            {
                 lfoPhases[(size_t) lfo] = 0.0;
+                lfoChaos[(size_t) lfo].resetPhysics ((int) getParam (lfoIds[(size_t) lfo].shape.toRawUTF8()),
+                                                      getParam (lfoIds[(size_t) lfo].physA.toRawUTF8()));
+                lfoPreviousShapes[(size_t) lfo] = (int) getParam (lfoIds[(size_t) lfo].shape.toRawUTF8());
+                if (lfoPreviousShapes[(size_t) lfo] == LfoShapes::Pendulum
+                    && getParam (lfoIds[(size_t) lfo].kick.toRawUTF8()) > 0.5f)
+                    lfoChaos[(size_t) lfo].kick (0.5f);
+            }
     }
 
     const auto makeRate = [this] (const char* syncId, const char* rateId, const char* divId,
@@ -1799,6 +1816,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
     float lfoRates[numLfos] {};
     float lfoShapes[numLfos] {};
+    float lfoPhysA[numLfos] {}, lfoPhysB[numLfos] {};
     float lfoSteps[numLfos][16] {};
     double lfoIncrements[numLfos] {};
 
@@ -1811,6 +1829,14 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         lfoRates[lfo] = makeRate (ids.sync.toRawUTF8(), ids.rate.toRawUTF8(), ids.div.toRawUTF8(),
                                   rateDestinations[lfo]);
         lfoShapes[lfo] = (float) (int) getParam (ids.shape.toRawUTF8());
+        lfoPhysA[lfo] = getParam (ids.physA.toRawUTF8());
+        lfoPhysB[lfo] = getParam (ids.physB.toRawUTF8());
+        if (lfoPreviousShapes[(size_t) lfo] != (int) lfoShapes[lfo])
+        {
+            lfoPreviousShapes[(size_t) lfo] = (int) lfoShapes[lfo];
+            if (LfoShapes::isPhysics ((int) lfoShapes[lfo]))
+                lfoChaos[(size_t) lfo].resetPhysics ((int) lfoShapes[lfo], lfoPhysA[lfo]);
+        }
         lfoIncrements[lfo] = (double) lfoRates[lfo] / currentSampleRate;
 
         for (int step = 0; step < 16; ++step)
@@ -1852,6 +1878,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
             if (shape == LfoShapes::Chaos)
                 chaos.advance (lfoIncrements[lfo]);
+            else if (LfoShapes::isPhysics (shape))
+                chaos.advancePhysics (shape, lfoIncrements[lfo], lfoPhysA[lfo], lfoPhysB[lfo]);
 
             lfoBufferPointers[lfo][i] = shape == 7
                                             ? lfoSteps[lfo][stepIndex]
@@ -1867,7 +1895,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                 nextPhase -= std::floor (nextPhase);
                 lfoSampleHolds[(size_t) lfo].store (lfoRandom.nextFloat() * 2.0f - 1.0f);
 
-                if (stateful)
+                if (stateful && ! LfoShapes::isPhysics (shape))
                     chaos.onCycle (shape, lfoRandom);
             }
 
@@ -4480,14 +4508,15 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     if (asyncNeeded)
         triggerAsyncUpdate();
 
-    // Older String states have no M1 controls. Add neutral values explicitly so
-    // loading one after a Physical patch cannot retain the previous settings.
-    for (const auto& ids : stringParamIds)
-        for (size_t field = 5; field < ids.size(); ++field)
+    // JUCE replaceState retains current values for absent parameters. Fill every
+    // omitted parameter from its declared default, including future additions.
+    for (auto* parameter : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
         {
+            const auto id = static_cast<juce::AudioProcessorParameterWithID*> (ranged)->paramID;
             auto found = false;
             for (int child = 0; child < state.getNumChildren(); ++child)
-                if (state.getChild (child).getProperty ("id").toString() == ids[field])
+                if (state.getChild (child).getProperty ("id").toString() == id)
                 {
                     found = true;
                     break;
@@ -4495,15 +4524,10 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
             if (! found)
             {
-                auto defaultValue = 0.0f;
-
-                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (ids[field])))
-                    defaultValue = ranged->convertFrom0to1 (ranged->getDefaultValue());
-
-                juce::ValueTree parameter ("PARAM");
-                parameter.setProperty ("id", ids[field], nullptr);
-                parameter.setProperty ("value", defaultValue, nullptr);
-                state.appendChild (parameter, nullptr);
+                juce::ValueTree missingParameter ("PARAM");
+                missingParameter.setProperty ("id", id, nullptr);
+                missingParameter.setProperty ("value", ranged->convertFrom0to1 (ranged->getDefaultValue()), nullptr);
+                state.appendChild (missingParameter, nullptr);
             }
         }
 

@@ -1,22 +1,23 @@
 # Current handoff
 
-Updated 2026-09-24. Keep this note to the current state; edit facts in place instead of adding a minor-fix history.
+Updated 2026-09-25. Keep this note to the current state rather than appending a changelog.
 
 ## State
 
-ROADMAP v1.2 M1 is implemented: oscillator mode index 1 is now **Physical**, with stiff-string dispersion, pickup and excitation positions, pick hardness and position, and slap. Existing String parameter IDs and mode index remain; missing M1 values in old states load as neutral defaults. M2 onward is still planned. The user builds and installs the plugin; do not run `build-and-install.cmd`.
+ROADMAP v1.2 M1 and M2 are implemented. M2 adds Bounce, Pendulum, Spring and Friction after all existing LFO choices. Both shared and per-voice LFOs run the new stateful shapes. RETRIG restarts the motion; Pendulum has an optional note kick. Two shape-dependent controls appear on the ENV/LFO page. Missing parameters in old states now load their declared defaults, including the M1 controls. M3 remains planned.
 
 ## Verification
 
-- `cmake --build build --config Release` succeeded for all targets.
-- `build/ilanaTableTest_artefacts/Release/ilanaTableTest.exe` passed, including M1 DSP, migration, tuning, extremes and heavy-preset CPU checks (see `build/m1-tests-final.log`, heavy CPU 40.1%). The timing check needs an otherwise idle machine.
-- `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe --uitest` passed. `snapshots/m1/osc-physical.png` was inspected; the OSC page scrolls when Physical needs taller controls.
-- Fingerprint comparison: `python tools/compare_fingerprints.py build/m1-before-repeatable.csv build/m1-after-repeatable-final.csv` reported **0 of 235 changed**. Both files used the same fingerprint-only RNG seeds and synchronous spectral rendering; two M1 captures also compared as 0 changed. The original unseeded `build/m1-before.csv` remains for reference but is unsuitable for strict comparison because random and background spectral presets vary between runs.
+- Baseline before edits: `cmake --build build --config Release --target ilanaFingerprint`; `build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/m2m3-before.csv` wrote 235 fingerprints.
+- `cmake --build build --config Release` succeeded for all targets. `build/ilanaTableTest_artefacts/Release/ilanaTableTest.exe` passed (0 failures, `build/m2-tests-final.log`), including LFO range, motion, retrigger, extremes, and missing parameter migration. Heavy preset CPU timings were 55–96 ms/s on an idle machine, under the 400 ms/s budget.
+- `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe --uitest` passed. `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe snapshots/m2m3` generated shape snapshots; the Pendulum controls and display were inspected.
+- `python tools/compare_fingerprints.py build/m2m3-before.csv build/m2-after.csv` reported **0 of 235 changed**.
 
-Claude reviewed M1 and committed polish on top: pick hardness now defaults to 1.0 (the raw burst, i.e. the legacy sound) and softens monotonically below it (previously 0 was raw but 0.01 was softest); old states get each missing M1 parameter's default, not 0; slap scales with velocity; Physical controls show percentages; a Physical OSC card gets 70 px extra height and the page scrolls only when cards cannot fit at their minimum. Fingerprints still 0 of 235 changed (`build/m1-review.csv`), UI tests pass, all M1 tests pass.
+## Decisions to review
 
-Known: the heavy-preset CPU timing test is load-sensitive (it failed at ~50-60 % while the machine was busy, for Codex's commits too, and passed at 44.5 % once idle), so rerun it before treating a failure as a regression. The OSC wave display still draws the wavetable in Physical mode (pre-existing from String mode).
+- Physics motion speed follows the existing free or tempo synced LFO rate. The two generic controls mean Height/Bounce, Swing/Damp, Stiff/Damp, or Drive/Stick for the four shapes.
+- Pendulum kick uses note velocity for per-voice LFOs. The shared retrigger path applies a fixed moderate kick because its note velocity is not retained in that path.
 
-On-screen keyboard notes now go through a lock-free queue into the MIDI input (so scale snap, spray and the arp apply); the old single-slot atomics lost note-offs during fast glissandos, leaving stuck notes. User reported "Scale Random doesn't stop after note off": not reproducible over MIDI (see `runScaleRandomReleaseTest`: presets, legato, repeats, velocity-0 offs, channel 2 all stop); the on-screen stuck-note bug is fixed. Awaiting the user's repro details if it persists.
+## Known gaps
 
-No open M1 design questions. M1, the M1 polish and the on-screen keyboard fix are pushed to `origin/main`. Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.
+- M3 is not implemented yet. No changes have been pushed.

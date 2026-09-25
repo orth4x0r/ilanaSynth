@@ -116,6 +116,8 @@ struct VoiceParams
         int shape = 0;
         double baseIncrement = 0.0;   // cycles per voice-rate sample, before modulation
         float startPhase = 0.0f;
+        float physA = 0.5f, physB = 0.5f;
+        bool kick = false;
         const float* steps = nullptr;  // 16 values
         const float* custom = nullptr; // lfoDrawSteps values
         int customSize = 0;

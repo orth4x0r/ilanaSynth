@@ -340,10 +340,11 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key; std::array<juce::String, 16> steps; };
+    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<juce::String, 16> steps; };
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, 3> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
+    std::array<int, (size_t) numLfos> lfoPreviousShapes { -1, -1, -1, -1 };
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<juce::String, 16> tapStepIds;

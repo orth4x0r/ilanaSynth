@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. M1 is complete; later milestones remain planned.
+This is the plan for what comes after v1.1. M1 and M2 are complete; later milestones remain planned.
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -20,7 +20,7 @@ The core of the plan is **one physical modelling engine used in two places**:
 - A pluck exciter, with pick hardness, pick position and a "slap" option.
 - The new PHYSICAL oscillator mode. Old String patches migrate to it and sound the same.
 
-### M2: Physics LFOs
+### M2: Physics LFOs — done
 New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Bounce**: a dropped ball whose bounces speed up as it settles (height, bounciness).
 - **Pendulum**: a swing that slowly loses energy, with an optional kick on each note.

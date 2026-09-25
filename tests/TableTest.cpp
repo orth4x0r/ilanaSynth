@@ -4269,6 +4269,79 @@ void runChaosLfoTests()
     }
 }
 
+void runPhysicsLfoTests()
+{
+    for (const auto shape : { LfoShapes::Bounce, LfoShapes::Pendulum, LfoShapes::Spring, LfoShapes::Friction })
+    {
+        LfoChaos state;
+        state.resetPhysics (shape, 0.5f);
+        const auto initial = state.value (shape, 0.0);
+        auto low = 1.0f, high = -1.0f, largestStep = 0.0f;
+        auto earlyEnergy = 0.0, lateEnergy = 0.0;
+        auto last = initial;
+        auto finite = true;
+        for (int sample = 0; sample < 48000; ++sample)
+        {
+            state.advancePhysics (shape, 4.0 / 48000.0, 0.5f, 0.5f);
+            const auto value = state.value (shape, 0.0);
+            finite = finite && std::isfinite (value) && value >= -1.0f && value <= 1.0f;
+            low = juce::jmin (low, value);
+            high = juce::jmax (high, value);
+            largestStep = juce::jmax (largestStep, std::abs (value - last));
+            if (sample < 12000) earlyEnergy += std::abs ((double) value - (shape == LfoShapes::Bounce ? -1.0 : 0.0));
+            if (sample >= 36000) lateEnergy += std::abs ((double) value - (shape == LfoShapes::Bounce ? -1.0 : 0.0));
+            last = value;
+        }
+        check (finite && high - low > 0.1f, "physics LFO shape " + juce::String (shape) + " moves and stays bounded");
+        if (shape == LfoShapes::Friction)
+            check (largestStep > 0.5f, "Friction LFO makes abrupt slips");
+        if (shape == LfoShapes::Bounce || shape == LfoShapes::Pendulum)
+            check (lateEnergy < earlyEnergy * 0.7, "Bounce or Pendulum loses energy over time");
+        if (shape == LfoShapes::Spring)
+            check (low < -0.1f && high > 0.1f, "Spring LFO overshoots");
+        state.resetPhysics (shape, 0.5f);
+        check (state.value (shape, 0.0) == initial, "physics LFO retrigger restores initial position");
+        for (const auto rate : { 0.01, 40.0, 200.0 })
+        {
+            state.resetPhysics (shape, 1.0f);
+            for (int i = 0; i < 48000; ++i)
+            {
+                state.advancePhysics (shape, rate / 48000.0, 1.0f, 0.0f);
+                finite = finite && std::isfinite (state.value (shape, 0.0));
+            }
+        }
+        check (finite, "physics LFO survives extreme rates and settings");
+    }
+}
+
+void runMissingParameterDefaultTest()
+{
+    IlanaSynthAudioProcessor processor;
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    auto xml = std::unique_ptr<juce::XmlElement> (juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize()));
+    check (xml != nullptr, "state for missing parameter test is readable");
+    if (xml == nullptr) return;
+    for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+    {
+        auto* next = child->getNextElement();
+        if (child->getStringAttribute ("id") == "lfo1_phys_a"
+            || child->getStringAttribute ("id") == "lfo1_phys_b"
+            || child->getStringAttribute ("id") == "lfo1_kick")
+            xml->removeChildElement (child, true);
+        child = next;
+    }
+    juce::MemoryBlock oldState;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldState);
+    for (const auto* id : { "lfo1_phys_a", "lfo1_phys_b", "lfo1_kick" })
+        if (auto* param = processor.apvts.getParameter (id))
+            param->setValueNotifyingHost (param->convertTo0to1 (1.0f));
+    processor.setStateInformation (oldState.getData(), (int) oldState.getSize());
+    const auto read = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+    check (read ("lfo1_phys_a") == 0.5f && read ("lfo1_phys_b") == 0.5f && read ("lfo1_kick") == 0.0f,
+           "missing new parameters load their declared defaults after a nondefault patch");
+}
+
 void runGranularTests()
 {
     const auto render = [] (std::function<void (juce::AudioProcessorValueTreeState&)> setup)
@@ -4599,6 +4672,8 @@ int main()
     runFmMatrixTests();
     runSpectralWarpTests();
     runChaosLfoTests();
+    runPhysicsLfoTests();
+    runMissingParameterDefaultTest();
     runGranularTests();
     runHeavyPresetCpuTest();
     runPhysicalStringTest();

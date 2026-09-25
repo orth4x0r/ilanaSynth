@@ -1426,6 +1426,8 @@ private:
 };
 
 class LfoSection : public juce::Component,
+                   private juce::AudioProcessorValueTreeState::Listener,
+                   private juce::AsyncUpdater,
                    private juce::Timer
 {
 public:
@@ -1444,7 +1446,7 @@ public:
 
             auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
             addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
-                    controls->phase);
+                    controls->phase, controls->physA, controls->physB, controls->kick);
             controlsList.push_back (std::move (controls));
         }
 
@@ -1458,8 +1460,20 @@ public:
         };
 
         updateVisibility();
+        for (int lfo = 1; lfo <= IlanaSynthAudioProcessor::numLfos; ++lfo)
+            processorRef.apvts.addParameterListener ("lfo" + juce::String (lfo) + "_shape", this);
         startTimerHz (10);
     }
+
+    ~LfoSection() override
+    {
+        for (int lfo = 1; lfo <= IlanaSynthAudioProcessor::numLfos; ++lfo)
+            processorRef.apvts.removeParameterListener ("lfo" + juce::String (lfo) + "_shape", this);
+        cancelPendingUpdate();
+    }
+
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { lastShape = -1; timerCallback(); }
 
     void resized() override
     {
@@ -1487,11 +1501,25 @@ public:
         c.sync.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
         c.retrig.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
         c.key.setBounds (toggles.reduced (3, 1));
-        c.div.setBounds (options.reduced (3, 1));
+        auto lastOptions = options;
+        c.div.setBounds (lastOptions.removeFromLeft (lastOptions.getWidth() * 2 / 3).reduced (3, 1));
+        c.kick.setBounds (lastOptions.reduced (3, 1));
 
         inner.removeFromLeft (8);
-        c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
-        c.phase.setBounds (inner.reduced (3, 0));
+        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
+        if (LfoShapes::isPhysics (shape))
+        {
+            auto top = inner.removeFromTop (inner.getHeight() / 2);
+            c.rate.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (2));
+            c.phase.setBounds (top.reduced (2));
+            c.physA.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (2));
+            c.physB.setBounds (inner.reduced (2));
+        }
+        else
+        {
+            c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
+            c.phase.setBounds (inner.reduced (3, 0));
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -1546,6 +1574,9 @@ private:
               retrig (state, "lfo" + juce::String (lfo) + "_retrig", "RETRIG"),
               key (state, "lfo" + juce::String (lfo) + "_key", "KEY"),
               phase (state, "lfo" + juce::String (lfo) + "_phase", "START", accent, followsTheme)
+              , physA (state, "lfo" + juce::String (lfo) + "_phys_a", "HEIGHT", accent, followsTheme)
+              , physB (state, "lfo" + juce::String (lfo) + "_phys_b", "BOUNCE", accent, followsTheme)
+              , kick (state, "lfo" + juce::String (lfo) + "_kick", "KICK")
         {
         }
 
@@ -1556,6 +1587,8 @@ private:
         ToggleControl retrig;
         ToggleControl key;
         KnobControl phase;
+        KnobControl physA, physB;
+        ToggleControl kick;
     };
 
     void updateVisibility()
@@ -1572,6 +1605,10 @@ private:
             c.retrig.setVisible (visible);
             c.key.setVisible (visible);
             c.phase.setVisible (visible);
+            const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape")->load();
+            c.physA.setVisible (visible && LfoShapes::isPhysics (shape));
+            c.physB.setVisible (visible && LfoShapes::isPhysics (shape));
+            c.kick.setVisible (visible && shape == LfoShapes::Pendulum);
         }
 
         thumbs.setSelected (selected);
@@ -1583,12 +1620,22 @@ private:
     // unused one steps back.
     void timerCallback() override
     {
-        if (! isShowing())
-            return;
-
         auto& c = *controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, selected)];
         const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_sync");
         const auto synced = sync != nullptr && sync->load() > 0.5f;
+        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_shape")->load();
+        if (shape != lastShape)
+        {
+            lastShape = shape;
+            const juce::String labelsA[] { "HEIGHT", "SWING", "STIFF", "DRIVE" };
+            const juce::String labelsB[] { "BOUNCE", "DAMP", "DAMP", "STICK" };
+            if (LfoShapes::isPhysics (shape))
+            {
+                c.physA.setLabelText (labelsA[shape - LfoShapes::Bounce]);
+                c.physB.setLabelText (labelsB[shape - LfoShapes::Bounce]);
+            }
+            updateVisibility();
+        }
         const auto rateAlpha = synced ? 0.35f : 1.0f;
         const auto divAlpha = synced ? 1.0f : 0.35f;
 
@@ -1608,6 +1655,7 @@ private:
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
     int selected = 0;
+    int lastShape = -1;
 };
 
 class EnvLfoPage : public juce::Component

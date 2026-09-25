@@ -97,6 +97,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "res_decay" || id.endsWith ("_string_decay") || id.endsWith ("_string_damp")
         || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
         || id.endsWith ("_string_pick_hardness") || id.endsWith ("_string_pick_pos")
+        || id.endsWith ("_phys_a") || id.endsWith ("_phys_b")
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
@@ -398,7 +399,16 @@ inline juce::String describeParameter (const juce::String& id)
         if (id.endsWith ("_shape"))
             return "Waveform. Draw = design your own, Steps = 16-step sequencer. Smooth Random glides to a new "
                    "random value each cycle, Drunk wanders a little from where it was, Chaos follows a Lorenz "
-                   "attractor that never repeats.";
+                   "attractor that never repeats. Bounce, Pendulum, Spring and Friction simulate motion.";
+
+        if (id.endsWith ("_phys_a"))
+            return "Physics shape: Bounce height, Pendulum swing, Spring stiffness, or Friction drive.";
+
+        if (id.endsWith ("_phys_b"))
+            return "Physics shape: Bounce bounciness, Pendulum or Spring damping, or Friction stick time.";
+
+        if (id.endsWith ("_kick"))
+            return "Adds a velocity-scaled kick to a Pendulum on each note.";
 
         if (id.endsWith ("_key"))
             return "Key tracks the rate: the LFO runs per voice at the note's pitch times RATE / 4 Hz, so 4 Hz "

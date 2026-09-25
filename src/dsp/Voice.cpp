@@ -224,6 +224,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         lfoPhases[lfo] = (double) juce::jlimit (0.0f, 1.0f, params.lfos[lfo].startPhase);
         lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
         lfoChaos[lfo].reset (random);
+        lfoChaos[lfo].resetPhysics (params.lfos[lfo].shape, params.lfos[lfo].physA);
+        if (params.lfos[lfo].shape == LfoShapes::Pendulum && params.lfos[lfo].kick)
+            lfoChaos[lfo].kick (velocity);
     }
 
     if (keepRunning)
@@ -436,6 +439,8 @@ void Voice::advanceVoiceLfos()
 
         if (shape == LfoShapes::Chaos)
             lfoChaos[lfo].advance (lfoIncrements[lfo]);
+        else if (LfoShapes::isPhysics (shape))
+            lfoChaos[lfo].advancePhysics (shape, lfoIncrements[lfo], params.lfos[lfo].physA, params.lfos[lfo].physB);
 
         lfoValues[lfo] = voiceLfoValue (lfo);
 
@@ -446,7 +451,7 @@ void Voice::advanceVoiceLfos()
             next -= std::floor (next);
             lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
 
-            if (LfoShapes::isStateful (shape))
+            if (LfoShapes::isStateful (shape) && ! LfoShapes::isPhysics (shape))
                 lfoChaos[lfo].onCycle (shape, random);
         }
 

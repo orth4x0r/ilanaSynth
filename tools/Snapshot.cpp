@@ -591,6 +591,21 @@ int main (int argc, char** argv)
     // The drawable Curve LFO editor.
     if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
     {
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        for (const auto physicsShape : { LfoShapes::Bounce, LfoShapes::Pendulum, LfoShapes::Spring, LfoShapes::Friction })
+        {
+            shape->setValueNotifyingHost (shape->convertTo0to1 ((float) physicsShape));
+            settle (350);
+            save (*editor, outDir.getChildFile ("lfo-physics-" + juce::String (physicsShape) + ".png"));
+        }
+    }
+
+    // The drawable Curve LFO editor.
+    if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
+    {
         shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
         processor.setLfoCurve (0, LfoCurve::preset (9));
         tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));

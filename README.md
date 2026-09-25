@@ -13,7 +13,7 @@ IlanaSynth is a complete sound design machine:
 - **FM:** a 3-operator FM matrix.
 - **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics.
 - **Filters and envelopes:** twelve filter models across two routable filters, and five tension envelopes.
-- **Modulation:** four LFOs with chaos shapes, a step sequencer, an MSEG and a 32-slot modulation matrix.
+- **Modulation:** four LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 32-slot modulation matrix.
 - **Effects:** a 10-slot rack with 29 modules, including a trance gate.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **Resonator:** a tuned resonator after the filters.
@@ -48,6 +48,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
   - Built in the background, and exact in offline bounces.
 - **Granular oscillator mode**: a cloud of grains read from any sample, with position, size, density, spray, pitch spray and stereo spread. The display animates the grains; drag it to move the position.
 - **Chaos LFOs**:
+  - **Physics LFOs** add Bounce, Pendulum, Spring and Friction. Their two controls adapt to the selected shape; Pendulum also has a note kick. RETRIG restarts the motion on each note.
   - Smooth Random, Drunk (random walk) and Chaos (Lorenz attractor) shapes.
   - A **KEY** switch runs an LFO per voice at the note's own pitch, for audio-rate modulation.
 - **Trance gate** with up to 16 editable steps (level per step), swing, smoothing and host sync.

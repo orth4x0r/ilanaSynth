@@ -324,7 +324,7 @@ private:
     void resetUserTableToDefault (int slot);
     mutable juce::SpinLock tableLock;
 
-    std::array<std::array<juce::String, 5>, 3> stringParamIds;
+    std::array<std::array<juce::String, 11>, 3> stringParamIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
     struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };

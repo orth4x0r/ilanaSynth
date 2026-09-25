@@ -69,6 +69,12 @@ struct VoiceParams
         float stringDecay = 0.75f;
         float stringDamping = 0.35f;
         float stringSustain = 0.0f;
+        float stringStiffness = 0.0f;
+        float stringPickup = 0.0f;
+        float stringExcitationPosition = 0.0f;
+        float stringPickHardness = 0.0f;
+        float stringPickPosition = 0.0f;
+        bool stringSlap = false;
         int chord = 0;
 
         bool sampleMode = false;

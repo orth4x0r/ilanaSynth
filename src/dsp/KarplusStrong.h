@@ -22,6 +22,11 @@ public:
     {
     }
 
+    explicit KarplusStrong (int seed)
+        : random (seed)
+    {
+    }
+
     void prepare (double newSampleRate)
     {
         sampleRate = newSampleRate;
@@ -37,6 +42,9 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
+        dispersionState[0] = dispersionState[1] = 0.0f;
+        dispersionInput[0] = dispersionInput[1] = 0.0f;
+        slapRemaining = 0;
     }
 
     void setFrequency (double hz)
@@ -55,6 +63,19 @@ public:
         feedback = 0.90f + decay * 0.0995f;
     }
 
+    void setPhysicalParams (float newStiffness, float newPickup, float newExcitationPosition,
+                            float newPickHardness, float newPickPosition, bool newSlap)
+    {
+        stiffness = juce::jlimit (0.0f, 1.0f, newStiffness);
+        pickupPosition = juce::jlimit (0.0f, 1.0f, newPickup);
+        excitationPosition = juce::jlimit (0.0f, 1.0f, newExcitationPosition);
+        pickHardness = juce::jlimit (0.0f, 1.0f, newPickHardness);
+        pickPosition = juce::jlimit (0.0f, 1.0f, newPickPosition);
+        slap = newSlap;
+        dispersionCoefficient = -0.7f * stiffness;
+        dispersionDelay = 2.0f * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
+    }
+
     void trigger (float velocity)
     {
         if (buffer.empty())
@@ -65,9 +86,35 @@ public:
         for (auto& value : buffer)
             value = (random.nextFloat() * 2.0f - 1.0f) * level;
 
+        if (pickHardness > 0.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
+        {
+            const auto period = juce::jlimit (2, (int) buffer.size() - 1, (int) (sampleRate / frequency));
+            const auto offset = juce::jlimit (1, period - 1, (int) (period * juce::jmax (0.01f, pickPosition)));
+            const auto exciteOffset = juce::jlimit (1, period - 1, (int) (period * excitationPosition));
+            auto smooth = 0.0f;
+
+            for (int i = 0; i < (int) buffer.size(); ++i)
+            {
+                auto value = buffer[(size_t) i];
+                smooth += (value - smooth) * (0.15f + 0.85f * pickHardness);
+
+                if (pickPosition > 0.0f)
+                    value -= 0.75f * buffer[(size_t) ((i + offset) % (int) buffer.size())];
+
+                if (excitationPosition > 0.0f)
+                    value -= 0.6f * buffer[(size_t) ((i + exciteOffset) % (int) buffer.size())];
+
+                buffer[(size_t) i] = pickPosition > 0.0f || pickHardness > 0.0f
+                                         ? juce::jmap (pickHardness, smooth, value) : value;
+            }
+        }
+
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
+        dispersionState[0] = dispersionState[1] = 0.0f;
+        dispersionInput[0] = dispersionInput[1] = 0.0f;
+        slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
     }
 
     float process()
@@ -76,16 +123,52 @@ public:
             return 0.0f;
 
         const auto size = (int) buffer.size();
-        auto readPosition = (double) writePosition - sampleRate / frequency;
+        const auto period = sampleRate / frequency;
+        const auto useDispersion = stiffness > 0.0f && period > 3.5;
+        const auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
+        const auto coefficient = delay < (double) dispersionDelay
+                                     ? (float) ((2.0 - delay) / (2.0 + delay)) : dispersionCoefficient;
+        auto readPosition = (double) writePosition - period
+                            + delay;
 
         while (readPosition < 0.0)
             readPosition += (double) size;
+        while (readPosition >= (double) size)
+            readPosition -= (double) size;
 
         const auto index = (int) readPosition;
         const auto nextIndex = (index + 1) % size;
         const auto fraction = (float) (readPosition - (double) index);
-        const auto delayed = buffer[(size_t) index]
+        const auto rawDelayed = buffer[(size_t) index]
                              + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+
+        auto delayed = rawDelayed;
+
+        if (useDispersion)
+        {
+            for (int stage = 0; stage < 2; ++stage)
+            {
+                const auto next = coefficient * delayed + dispersionInput[stage]
+                                  - coefficient * dispersionState[stage];
+                dispersionInput[stage] = delayed;
+                dispersionState[stage] = next;
+                delayed = next;
+            }
+        }
+
+        auto output = delayed;
+
+        if (pickupPosition > 0.0f)
+        {
+            auto tap = readPosition - period * (double) pickupPosition;
+            while (tap < 0.0)
+                tap += (double) size;
+            const auto tapIndex = (int) tap;
+            const auto tapNext = (tapIndex + 1) % size;
+            const auto tapFraction = (float) (tap - (double) tapIndex);
+            output -= 0.75f * (buffer[(size_t) tapIndex]
+                              + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction);
+        }
 
         lowpassState += (delayed - lowpassState) * lowpassCoefficient;
 
@@ -118,7 +201,17 @@ public:
         buffer[(size_t) writePosition] = lowpassState * feedback + excitation;
         writePosition = (writePosition + 1) % size;
 
-        return delayed;
+        if (slapRemaining > 0)
+        {
+            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, (int) (sampleRate * 0.004));
+            output += (random.nextFloat() * 2.0f - 1.0f) * envelope;
+            --slapRemaining;
+        }
+
+        if (stiffness == 0.0f && pickupPosition == 0.0f && slapRemaining == 0)
+            return output;
+
+        return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
 
 private:
@@ -140,5 +233,16 @@ private:
     float sustainLevel = 0.0f;
     float damping = 0.35f;
     float decay = 0.75f;
+    float stiffness = 0.0f;
+    float pickupPosition = 0.0f;
+    float excitationPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float pickPosition = 0.0f;
+    float dispersionCoefficient = 0.0f;
+    float dispersionDelay = 1.0f;
+    float dispersionState[2] {};
+    float dispersionInput[2] {};
+    bool slap = false;
+    int slapRemaining = 0;
     Excite excite = Excite::Burst;
 };

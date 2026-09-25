@@ -153,6 +153,10 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, &undoManager, "PARAMS", createParameterLayout())
 {
+#if ILANA_FINGERPRINT_BUILD
+    arpRandom.setSeed (31415);
+    lfoRandom.setSeed (27182);
+#endif
     spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
                                                      TableFactory::getNumFactoryTables());
 
@@ -194,7 +198,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             const juce::String prefix (prefixes[i]);
 
             stringParamIds[(size_t) i] = { prefix + "_mode", prefix + "_excite", prefix + "_string_decay",
-                                           prefix + "_string_damp", prefix + "_string_sustain" };
+                                           prefix + "_string_damp", prefix + "_string_sustain",
+                                           prefix + "_string_stiffness", prefix + "_string_pickup", prefix + "_string_excite_pos",
+                                           prefix + "_string_pick_hardness", prefix + "_string_pick_pos", prefix + "_string_slap" };
             sampleParamIds[(size_t) i] = { prefix + "_sample_tuned", prefix + "_sample_loop",
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
@@ -371,7 +377,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "String", "Sample", "Granular" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -397,6 +403,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_stiffness", "Osc3 Stiffness", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_pickup", "Osc3 Pickup Position", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_excite_pos", "Osc3 Excitation Position", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_pick_hardness", "Osc3 Pick Hardness", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_pick_pos", "Osc3 Pick Position", 0.0f, 1.0f, 0.0f);
+    addBool ("sub_string_slap", "Osc3 Slap", false);
     addChoice ("sub_chord", "Osc3 Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
     addFloat ("noise_level", "Noise Level", 0.0f, 1.0f, 0.0f);
 
@@ -520,11 +532,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "String", "Sample", "Granular" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
         addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_stiffness", "Osc" + juce::String (osc) + " Stiffness", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_pickup", "Osc" + juce::String (osc) + " Pickup Position", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_excite_pos", "Osc" + juce::String (osc) + " Excitation Position", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_pick_hardness", "Osc" + juce::String (osc) + " Pick Hardness", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_pick_pos", "Osc" + juce::String (osc) + " Pick Position", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_string_slap", "Osc" + juce::String (osc) + " Slap", false);
     }
 
     for (const auto* prefix : { "osc1", "osc2", "sub" })
@@ -1229,6 +1247,12 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.stringDecay = getParam (ids[2].toRawUTF8());
         osc.stringDamping = getParam (ids[3].toRawUTF8());
         osc.stringSustain = getParam (ids[4].toRawUTF8());
+        osc.stringStiffness = getParam (ids[5].toRawUTF8());
+        osc.stringPickup = getParam (ids[6].toRawUTF8());
+        osc.stringExcitationPosition = getParam (ids[7].toRawUTF8());
+        osc.stringPickHardness = getParam (ids[8].toRawUTF8());
+        osc.stringPickPosition = getParam (ids[9].toRawUTF8());
+        osc.stringSlap = getParam (ids[10].toRawUTF8()) > 0.5f;
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
@@ -4447,6 +4471,28 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
     if (asyncNeeded)
         triggerAsyncUpdate();
+
+    // Older String states have no M1 controls. Add neutral values explicitly so
+    // loading one after a Physical patch cannot retain the previous settings.
+    for (const auto& ids : stringParamIds)
+        for (size_t field = 5; field < ids.size(); ++field)
+        {
+            auto found = false;
+            for (int child = 0; child < state.getNumChildren(); ++child)
+                if (state.getChild (child).getProperty ("id").toString() == ids[field])
+                {
+                    found = true;
+                    break;
+                }
+
+            if (! found)
+            {
+                juce::ValueTree parameter ("PARAM");
+                parameter.setProperty ("id", ids[field], nullptr);
+                parameter.setProperty ("value", 0.0f, nullptr);
+                state.appendChild (parameter, nullptr);
+            }
+        }
 
     apvts.replaceState (state);
 }

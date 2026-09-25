@@ -4,7 +4,7 @@ Updated 2026-09-25. Keep this note to the current state rather than appending a 
 
 ## State
 
-ROADMAP v1.2 milestones M1, M2 and M3 are implemented on local `main` in separate milestone commits. M2 is commit `531a48f`. Existing oscillator modes, exciter choices and LFO shape indices retain their positions. No changes have been pushed.
+ROADMAP v1.2 milestones M1, M2 and M3 are implemented and pushed to `origin/main` (M2 `531a48f`, M3 `da0d6c3`, Claude's polish `6a1fcd1`). Existing oscillator modes, exciter choices and LFO shape indices retain their positions.
 
 M2 adds Bounce, Pendulum, Spring and Friction after the existing LFO shapes. Both global and per-voice render paths share the stateful motion code. RETRIG resets motion; Pendulum's optional velocity-scaled kick works on note-on even without RETRIG. Two per-LFO controls change labels and meaning with the selected physics shape. Missing parameters in old states are filled from their declared defaults before `replaceState`.
 
@@ -37,4 +37,4 @@ M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, af
 
 ## Known gaps
 
-No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 have been reviewed and polished by Claude. Nothing has been pushed.
+No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 have been reviewed and polished by Claude. Everything is pushed; M3b is the next milestone.

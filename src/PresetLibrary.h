@@ -1,4 +1,5 @@
 #pragma once
+#include "dsp/OscillatorIds.h"
 
 // The v1.0 factory library. Each preset is written as a short recipe with
 // the Builder below, and every one maps all four macros.
@@ -113,16 +114,8 @@ public:
         const auto p = prefix (index);
         set (p + "_on", 1);
 
-        if (index == 3)
-        {
-            set ("sub_table", (float) table);
-            set ("sub_level", level);
-        }
-        else
-        {
-            set (p + "_table", (float) table);
-            set (p + "_level", level);
-        }
+        set (p + "_table", (float) table);
+        set (p + "_level", level);
 
         set (p + "_frame", frame);
         set (p + "_semi", (float) semi);
@@ -175,7 +168,7 @@ public:
         const auto p = prefix (index);
         set (p + "_on", 1);
         set (p + "_mode", 1);
-        set (index == 3 ? std::string ("sub_level") : p + "_level", level);
+        set (p + "_level", level);
         set (p + "_excite", (float) excite);
         set (p + "_string_decay", decay);
         set (p + "_string_damp", damp);
@@ -187,13 +180,12 @@ public:
     Builder& sample (int index, int factorySample, float level, bool loop = false)
     {
         const auto p = prefix (index);
-        const auto id = index == 1 ? std::string ("osc1") : index == 2 ? std::string ("osc2") : std::string ("sub");
         set (p + "_on", 1);
         set (p + "_mode", 2);
-        set (index == 3 ? std::string ("sub_level") : p + "_level", level);
-        set (id + "_sample_factory", (float) factorySample);
-        set (id + "_sample_tuned", 1);
-        set (id + "_sample_loop", loop ? 1.0f : 0.0f);
+        set (p + "_level", level);
+        set (p + "_sample_factory", (float) factorySample);
+        set (p + "_sample_tuned", 1);
+        set (p + "_sample_loop", loop ? 1.0f : 0.0f);
         return *this;
     }
 
@@ -466,7 +458,7 @@ public:
     Builder& fmMode (int mode) { return set ("fm_mode", (float) mode); }
 
     // Take an oscillator out of the mix: it still modulates.
-    Builder& modOnly (int index) { return set (index == 1 ? "osc1_out" : index == 2 ? "osc2_out" : "sub_out", 0.0f); }
+    Builder& modOnly (int index) { return set (prefix (index) + "_out", 0.0f); }
 
     Builder& spectral (int index, int mode, float amount)
     {
@@ -529,7 +521,10 @@ public:
     operator FactoryPreset() const { return preset; }
 
 private:
-    static std::string prefix (int index) { return index == 1 ? "osc1" : index == 2 ? "osc2" : "sub"; }
+    static std::string prefix (int index)
+    {
+        return OscillatorIds::prefixes[(size_t) ((index >= 1 && index <= OscillatorIds::count) ? index - 1 : 2)];
+    }
 
     FactoryPreset preset { "", {} };
     int nextSlot = 1;

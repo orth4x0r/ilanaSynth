@@ -252,9 +252,9 @@ public:
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "STRINGS")
     {
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < OscillatorIds::count; ++i)
         {
-            const auto prefix = i == 2 ? juce::String ("sub") : "osc" + juce::String (i + 1);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
             physical[(size_t) i] = std::make_unique<PhysicalControls> (p.apvts, prefix);
             auto& controls = *physical[(size_t) i];
             addAll (*this, controls.stiffness, controls.pickup, controls.excitePos,
@@ -358,7 +358,7 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        for (int band = 0; band < 3; ++band)
+        for (int band = 0; band < OscillatorIds::count; ++band)
         {
             const auto bounds = bandBounds (band);
             const auto tint = oscColour (band);
@@ -440,17 +440,19 @@ public:
     // card has an extra row of knobs, so it gets extra height.
     int getMinimumHeight() const
     {
-        return pageMargin * 2 + bandGap * 4 + stripHeight + symCardHeight() + minBandHeight * 3 + physicalExtra * numPhysicalBands();
+        return pageMargin * 2 + bandGap * (OscillatorIds::count + 1) + stripHeight + symCardHeight()
+               + minBandHeight * OscillatorIds::count + physicalExtra * numPhysicalBands();
     }
 
     void resized() override
     {
         bandHeight = juce::jlimit (minBandHeight, 176,
-                                   (getHeight() - pageMargin * 2 - bandGap * 4 - stripHeight - symCardHeight()
-                                    - physicalExtra * numPhysicalBands()) / 3);
+                                   (getHeight() - pageMargin * 2 - bandGap * (OscillatorIds::count + 1)
+                                    - stripHeight - symCardHeight() - physicalExtra * numPhysicalBands())
+                                       / OscillatorIds::count);
         auto area = getLocalBounds().reduced (12, pageMargin);
 
-        for (int band = 0; band < 3; ++band)
+        for (int band = 0; band < OscillatorIds::count; ++band)
         {
             layoutBand (area.removeFromTop (heightOfBand (band)), band);
             area.removeFromTop (bandGap);
@@ -524,7 +526,12 @@ private:
 
     int numPhysicalBands() const
     {
-        return (getMode (0) == 1 ? 1 : 0) + (getMode (1) == 1 ? 1 : 0) + (getMode (2) == 1 ? 1 : 0);
+        auto count = 0;
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            count += getMode (osc) == 1 ? 1 : 0;
+
+        return count;
     }
 
     int heightOfBand (int index) const
@@ -553,12 +560,14 @@ private:
 
     WaveDisplay& waveDisplay (int index)
     {
-        return index == 0 ? waveDisplay1 : (index == 1 ? waveDisplay2 : waveDisplay3);
+        WaveDisplay* displays[] { &waveDisplay1, &waveDisplay2, &waveDisplay3 };
+        return *displays[juce::jlimit (0, OscillatorIds::count - 1, index)];
     }
 
     juce::TextButton& loadButton (int index)
     {
-        return index == 0 ? loadTableButton1 : (index == 1 ? loadTableButton2 : loadTableButton3);
+        juce::TextButton* buttons[] { &loadTableButton1, &loadTableButton2, &loadTableButton3 };
+        return *buttons[juce::jlimit (0, OscillatorIds::count - 1, index)];
     }
 
     static float slotWeight (juce::Component* item)
@@ -601,7 +610,7 @@ private:
 
     int getMode (int oscIndex) const
     {
-        const auto id = oscIndex == 0 ? "osc1_mode" : (oscIndex == 1 ? "osc2_mode" : "sub_mode");
+        const auto id = juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]) + "_mode";
         const auto* value = processorRef.apvts.getRawParameterValue (id);
         return value != nullptr ? (int) value->load() : 0;
     }
@@ -2255,12 +2264,11 @@ public:
                    { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
           lfoTabs ({}, {}, true)
     {
-        const char* const prefixes[] { "osc1", "osc2", "sub" };
         const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447) };
 
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            const juce::String prefix (prefixes[osc]);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             auto strip = std::make_unique<OscStrip>();
             const auto colour = colours[osc];
             const auto themed = osc == 0;
@@ -2387,16 +2395,18 @@ public:
         updateVisibility();
         updateStrips();
 
-        for (const auto* id : stripParameterIds)
-            processorRef.apvts.addParameterListener (id, this);
+        for (const auto* prefix : OscillatorIds::prefixes)
+            for (const auto* suffix : { "_mode", "_on" })
+                processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
 
         startTimerHz (8);
     }
 
     ~MainPage() override
     {
-        for (const auto* id : stripParameterIds)
-            processorRef.apvts.removeParameterListener (id, this);
+        for (const auto* prefix : OscillatorIds::prefixes)
+            for (const auto* suffix : { "_mode", "_on" })
+                processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
     }
 
     std::function<void (int)> onEditLfo, onEditEnvelope;
@@ -2530,8 +2540,6 @@ private:
         bool shownOn = true;
     };
 
-    static constexpr const char* stripParameterIds[] { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on" };
-
     void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
     void handleAsyncUpdate() override { updateStrips(); }
 
@@ -2544,13 +2552,12 @@ private:
     // Shows the controls for each oscillator's mode and dims a switched-off one.
     void updateStrips()
     {
-        const char* const prefixes[] { "osc1", "osc2", "sub" };
         auto changed = false;
 
         for (int index = 0; index < (int) strips.size(); ++index)
         {
             auto& strip = *strips[(size_t) index];
-            const juce::String prefix (prefixes[index]);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
             const auto mode = juce::jlimit (0, 3, readInt (prefix + "_mode"));
             const auto on = readInt (prefix + "_on") > 0;
 

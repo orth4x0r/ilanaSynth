@@ -195,6 +195,10 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
+            oscCoreIds[(size_t) i] = { prefix + "_on", prefix + "_table", prefix + "_frame", prefix + "_level",
+                                       prefix + "_pan", prefix + "_semi", prefix + "_fine", prefix + "_unison",
+                                       prefix + "_detune", prefix + "_spread", prefix + "_spectral",
+                                       prefix + "_spectral_amt" };
 
             stringParamIds[(size_t) i] = { prefix + "_mode", prefix + "_excite", prefix + "_string_decay",
                                            prefix + "_string_damp", prefix + "_string_sustain",
@@ -1151,59 +1155,27 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     VoiceParams p;
 
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
-        const auto choice = (int) getParam ("osc1_table");
-        p.oscillators[0].table = spectralCache->get (0, choice, getTableForChoice (choice), (int) getParam ("osc1_spectral"),
-                                            getParam ("osc1_spectral_amt"));
+        const auto& ids = oscCoreIds[(size_t) osc];
+        auto& settings = p.oscillators[(size_t) osc];
+        const auto choice = (int) getParam (ids.table.toRawUTF8());
+        settings.table = spectralCache->get (osc, choice, getTableForChoice (choice),
+                                              (int) getParam (ids.spectral.toRawUTF8()),
+                                              getParam (ids.spectralAmount.toRawUTF8()));
+        settings.frame = getParam (ids.frame.toRawUTF8());
+        settings.level = getParam (ids.level.toRawUTF8());
+        settings.pan = getParam (ids.pan.toRawUTF8());
+        settings.semitones = (double) getParam (ids.semi.toRawUTF8());
+        settings.cents = (double) getParam (ids.fine.toRawUTF8());
+        settings.unison = (int) getParam (ids.unison.toRawUTF8());
+        settings.detuneCents = getParam (ids.detune.toRawUTF8());
+        settings.spread = getParam (ids.spread.toRawUTF8());
+        p.oscillatorEnabled[(size_t) osc] = getParam (ids.on.toRawUTF8()) > 0.5f;
     }
-    p.oscillators[0].frame = getParam ("osc1_frame");
-    p.oscillators[0].level = getParam ("osc1_level");
-    p.oscillators[0].pan = getParam ("osc1_pan");
-    p.oscillators[0].semitones = (double) getParam ("osc1_semi");
-    p.oscillators[0].cents = (double) getParam ("osc1_fine");
-    p.oscillators[0].unison = (int) getParam ("osc1_unison");
-    p.oscillators[0].detuneCents = getParam ("osc1_detune");
-    p.oscillators[0].spread = getParam ("osc1_spread");
 
-    p.oscillatorEnabled[0] = getParam ("osc1_on") > 0.5f;
-    p.oscillatorEnabled[1] = getParam ("osc2_on") > 0.5f;
-    p.oscillatorEnabled[2] = getParam ("sub_on") > 0.5f;
-    {
-        const auto choice = (int) getParam ("osc2_table");
-        p.oscillators[1].table = spectralCache->get (1, choice, getTableForChoice (choice), (int) getParam ("osc2_spectral"),
-                                            getParam ("osc2_spectral_amt"));
-    }
-    p.oscillators[1].frame = getParam ("osc2_frame");
-    p.oscillators[1].level = getParam ("osc2_level");
-    p.oscillators[1].pan = getParam ("osc2_pan");
-    p.oscillators[1].semitones = (double) getParam ("osc2_semi");
-    p.oscillators[1].cents = (double) getParam ("osc2_fine");
-    p.oscillators[1].unison = (int) getParam ("osc2_unison");
-    p.oscillators[1].detuneCents = getParam ("osc2_detune");
-    p.oscillators[1].spread = getParam ("osc2_spread");
-
-    p.oscillators[2].level = getParam ("sub_level");
-    p.oscillators[2].pan = getParam ("sub_pan");
-    p.oscillators[2].semitones = (double) getParam ("sub_semi");
-    p.oscillators[2].cents = (double) getParam ("sub_fine");
-    p.oscillators[2].unison = (int) getParam ("sub_unison");
-    p.oscillators[2].detuneCents = getParam ("sub_detune");
-    p.oscillators[2].spread = getParam ("sub_spread");
-    p.oscillators[2].frame = getParam ("sub_frame");
-    p.oscillators[2].stringMode = (int) getParam ("sub_mode") == 1;
-    p.oscillators[2].sampleMode = (int) getParam ("sub_mode") >= 2;
-    p.oscillators[2].granularMode = (int) getParam ("sub_mode") == 3;
-    p.oscillators[2].stringExcite = (int) getParam ("sub_excite");
-    p.oscillators[2].stringDecay = getParam ("sub_string_decay");
-    p.oscillators[2].stringDamping = getParam ("sub_string_damp");
-    p.oscillators[2].stringSustain = getParam ("sub_string_sustain");
     p.oscillators[2].chord = (int) getParam ("sub_chord");
     p.subOctaveOffset = 0;
-    {
-        const auto choice = (int) getParam ("sub_table");
-        p.oscillators[2].table = spectralCache->get (2, choice, getTableForChoice (choice), (int) getParam ("sub_spectral"),
-                                            getParam ("sub_spectral_amt"));
-    }
 
     // Dedicated sub: the Sine, PWM (square) or Analog (saw) table at frame 0.
     {

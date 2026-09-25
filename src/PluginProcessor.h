@@ -328,6 +328,11 @@ private:
 
     std::array<std::array<juce::String, 11>, OscillatorIds::count> stringParamIds;
     std::array<std::array<juce::String, 4>, OscillatorIds::count> bowBuzzIds;
+    struct OscCoreIds
+    {
+        juce::String on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount;
+    };
+    std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
     struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };

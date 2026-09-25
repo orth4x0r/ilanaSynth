@@ -10,7 +10,13 @@ M2 adds Bounce, Pendulum, Spring and Friction after the existing LFO shapes. Bot
 
 M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, aftertouch and MPE pressure response. Bridge buzz and velocity-sensitive fret rattle default off. A processor-level bank of up to six sympathetic strings listens to the summed voice signal before the FX rack, then rings after input stops. It follows the GENERATE scale and root or six manual MIDI notes. All delay storage is allocated in `prepareToPlay`.
 
+M3b phase A is **in progress** on `main`; phase B has **not started**. `4a58064` is an intermediate phase A commit that changes `VoiceParams` and per-voice oscillator storage to indexed arrays, renders the three oscillators in a loop, and centralizes their legacy `osc1`/`osc2`/`sub` ID prefixes. Follow-up phase A work loops the processor's core parameter fill, some OSC page layout code, and MAIN oscillator strip setup/listeners. The oscillator count remains 3, existing IDs are unchanged, and there are no new features yet. The phase A checkpoint and phase B commit are still required. Nothing from M3b has been pushed.
+
 ## Verification
+
+- M3b baseline was captured **before edits** with `build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/m3b-before.csv` (235 presets). The existing target built successfully with `cmake --build build --config Release --target ilanaFingerprint` using sandbox escalation for MSBuild's file tracker.
+- After the intermediate voice commit, `cmake --build build --config Release` built all targets, `ilanaTableTest.exe` passed (0 failures; `build/m3b-phase-a-progress-tests.log`), and `ilanaSnapshot.exe --uitest` passed (0 failures). `compare_fingerprints.py build/m3b-before.csv build/m3b-phase-a-progress.csv` reported **0 of 235 changed**.
+- After the processor and preset-helper changes, `compare_fingerprints.py build/m3b-before.csv build/m3b-preset-prefix.csv` again reported **0 of 235 changed**. After the OSC page loop changes, `ilanaSnapshot.exe --uitest` passed. `cmake --build build --config Release` built all targets, and `ilanaTableTest.exe` passed with 0 failures (`build/m3b-progress-final-tests.log`). The subsequent MAIN strip listener change built `ilanaSnapshot` and passed `--uitest` again. Repeat the complete checks after finishing phase A.
 
 - Before edits: `cmake --build build --config Release --target ilanaFingerprint`; `build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/m2m3-before.csv` wrote 235 repeatable fingerprints.
 - M2: `cmake --build build --config Release` succeeded. `build/ilanaTableTest_artefacts/Release/ilanaTableTest.exe` passed with 0 failures (`build/m2-tests-final.log`); `python tools/compare_fingerprints.py build/m2m3-before.csv build/m2-after.csv` reported 0 of 235 changed.
@@ -31,10 +37,12 @@ M3 adds Bow as the last Physical exciter choice, with bow pressure and speed, af
 
 ## Decisions to review
 
+- During phase A, the old OSC 3 string-mode transition ordering is preserved explicitly because the no-sound-change checkpoint takes precedence. This can be simplified in phase B after the phase A fingerprint checkpoint.
+
 - Physics motion speed follows the existing free or tempo synced LFO rate. The generic controls mean Height/Bounce, Swing/Damp, Stiff/Damp or Drive/Stick. Kick strength follows note velocity in both global and per-voice paths.
 - The shared sympathetic controls live on the OSC page below the voice strip because they act on the combined oscillator output. The card has its own height so the Physical controls keep their knob size and the page scrolls.
 - With scale tuning, the six strings occupy ascending notes from MIDI 48 plus the GENERATE root. Manual mode uses six MIDI note controls. The drone bank is mono in the stereo field to keep one shared resonator.
 
 ## Known gaps
 
-No known M2 or M3 gaps. ROADMAP.md now has **M3b: Oscillator engine** (6 oscillators, a 16-envelope pool, per-oscillator amp envelope, QUALITY setting) before M4 and M5; it is planned, not started. M2/M3 have been reviewed and polished by Claude. Everything is pushed; M3b is the next milestone.
+No known M2 or M3 gaps. M3b phase A remains unfinished: the processor parameter layout and OSC 3 special controls still need a complete indexed representation; OSC and MAIN page control ownership/layout, ParamInfo and Snapshot need the same treatment. After the complete phase A refactor, rerun the full build, table tests, UI test, and 235-preset comparison, then commit phase A. Only then begin phase B: six oscillators, Both routing, 6×6 FM, 16 envelopes, per-oscillator amp envelopes, QUALITY, UI, migration tests, CPU test, README, and final verification. Do not mark ROADMAP M3b done until those pass. M3b has not been pushed.

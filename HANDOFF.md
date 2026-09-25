@@ -19,4 +19,4 @@ Known: the heavy-preset CPU timing test is load-sensitive (it failed at ~50-60 %
 
 On-screen keyboard notes now go through a lock-free queue into the MIDI input (so scale snap, spray and the arp apply); the old single-slot atomics lost note-offs during fast glissandos, leaving stuck notes. User reported "Scale Random doesn't stop after note off": not reproducible over MIDI (see `runScaleRandomReleaseTest`: presets, legato, repeats, velocity-0 offs, channel 2 all stop); the on-screen stuck-note bug is fixed. Awaiting the user's repro details if it persists.
 
-No open M1 design questions. Local `main` has unpushed commits (M1, M1 polish, on-screen keyboard fix). Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.
+No open M1 design questions. M1, the M1 polish and the on-screen keyboard fix are pushed to `origin/main`. Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.

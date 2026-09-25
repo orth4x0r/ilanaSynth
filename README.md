@@ -76,7 +76,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
   - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 4 user slots.
     - Click the TABLE box for the visual browser.
     - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display.
-  - **String**: Karplus–Strong physical model with excite, decay, damp and sustain.
+  - **Physical**: plucked string with adjustable stiffness (sharp upper partials), damping, pickup and excitation positions, pick hardness and position, and a slap attack. The original excite, decay and sustain controls remain.
   - **Sample**: any `.wav` up to 120 s.
     - Tuned or untuned playback, loop / one-shot, reverse, start and end points, and fades.
     - Five factory samples are built in: Metal Hit, Vocal Ah, Sub Tone, Vinyl Loop and Noise Rise. Right-click the display to pick one.
@@ -84,7 +84,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
     - Controls: POSITION, SIZE (10–500 ms), DENSITY, SPRAY, PITCH RND and STEREO.
 - **Spectral warp** (wavetable mode): Stretch, Shift, Odd/Even, Formant, Smear or Harmonic Cut, with an amount. The display shows the warped wave.
 - **Warp modes**: Sync, Bend +, Bend −, PWM, Mirror, Asym, Quantize, FM and Ring.
-- **Unison** up to 16 voices (8 in string, sample and granular modes), with detune, stereo spread, stack mode (Classic, Hypersaw, Octaves, Fifths) and blend.
+- **Unison** up to 16 voices (8 in physical, sample and granular modes), with detune, stereo spread, stack mode (Classic, Hypersaw, Octaves, Fifths) and blend.
 - **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, and chord modes.
 - **SUB**: a dedicated sub oscillator (sine, square or saw, −1 or −2 octaves) plus a noise layer, sharing a filter route.
 - **VOICE**: voice spread, unison phase randomisation and analogue drift.
@@ -264,6 +264,7 @@ The standalone app is in `build/ilanaSynth_artefacts/Release/Standalone/`. If ma
   - To move the tone over time, modulate FRAME instead.
 - Note spray and scale-random arps are random by design, so each playthrough differs.
 - **Old patches:**
+  - String mode loads as Physical at the same mode index. The new controls default to the old string sound.
   - OSC 3 was a sub-style oscillator before 1.1. Old patches are converted automatically on load, including the user wavetable slots, which moved to positions 41–44.
   - Older patches that used the XTRA page keep their settings; the controls now live on the FILTER, OSC and FM pages.
 

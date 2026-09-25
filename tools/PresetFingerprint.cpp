@@ -147,6 +147,7 @@ int main (int argc, char** argv)
     out << "index,name,rms_db,peak,centroid_hz,side_ratio\n";
 
     IlanaSynthAudioProcessor processor;
+    processor.setNonRealtime (true);
     processor.prepareToPlay (48000.0, 256);
 
     const auto names = processor.getFactoryPresetNames();

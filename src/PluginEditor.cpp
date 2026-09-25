@@ -127,7 +127,23 @@ class OscPage : public juce::Component,
                 private juce::AudioProcessorValueTreeState::Listener,
                 private juce::AsyncUpdater
 {
+    struct PhysicalControls
+    {
+        PhysicalControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefix)
+            : stiffness (state, prefix + "_string_stiffness", "STIFF"),
+              pickup (state, prefix + "_string_pickup", "PICKUP"),
+              excitePos (state, prefix + "_string_excite_pos", "EXCITE POS"),
+              hardness (state, prefix + "_string_pick_hardness", "HARDNESS"),
+              pickPos (state, prefix + "_string_pick_pos", "PICK POS"),
+              slap (state, prefix + "_string_slap", "SLAP") {}
+
+        KnobControl stiffness, pickup, excitePos, hardness, pickPos;
+        ToggleControl slap;
+    };
+
 public:
+    std::function<void()> onModeChanged;
+
     explicit OscPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           waveDisplay1 (p, "osc1_table", "osc1_frame", "osc1_unison", "osc1_spread", "osc1_detune", false, {}, "osc1_mode", 0,
@@ -228,6 +244,15 @@ public:
           subGrainDensity (p.apvts, "sub_grain_density", "DENSITY"), subGrainSpray (p.apvts, "sub_grain_spray", "SPRAY"),
           subGrainPitch (p.apvts, "sub_grain_pitch", "PITCH RND"), subGrainSpread (p.apvts, "sub_grain_spread", "STEREO")
     {
+        for (int i = 0; i < 3; ++i)
+        {
+            const auto prefix = i == 2 ? juce::String ("sub") : "osc" + juce::String (i + 1);
+            physical[(size_t) i] = std::make_unique<PhysicalControls> (p.apvts, prefix);
+            auto& controls = *physical[(size_t) i];
+            addAll (*this, controls.stiffness, controls.pickup, controls.excitePos,
+                    controls.hardness, controls.pickPos, controls.slap);
+        }
+
         addAll (*this, osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread);
         addAll (*this, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread);
         addAll (*this, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread);
@@ -297,6 +322,11 @@ public:
             processorRef.apvts.removeParameterListener (id, this);
     }
 
+    bool hasPhysicalMode() const
+    {
+        return getMode (0) == 1 || getMode (1) == 1 || getMode (2) == 1;
+    }
+
     void parameterChanged (const juce::String&, float) override
     {
         // Parameter changes can arrive on the audio thread (host automation),
@@ -331,7 +361,7 @@ public:
             g.setColour (tint.withAlpha (0.85f));
             g.fillRoundedRectangle (strip, 1.5f);
 
-            const std::array<const char*, 4> modeNames { "WAVETABLE", "STRING", "SAMPLE", "GRANULAR" };
+            const std::array<const char*, 4> modeNames { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
             const auto mode = juce::jlimit (0, 3, getMode (band));
 
             g.setColour (tint);
@@ -551,6 +581,37 @@ private:
             return;
         }
 
+        if (isString)
+        {
+            juce::Component* on[] { &osc1On, &osc2On, &subOn };
+            juce::Component* modeBox[] { &osc1Mode, &osc2Mode, &subMode };
+            juce::Component* excite[] { &osc1Excite, &osc2Excite, &subExcite };
+            juce::Component* uniMode[] { &osc1UniMode, &osc2UniMode, &subUniMode };
+            juce::Component* chord[] { &osc1Chord, &osc2Chord, &subChord };
+            juce::Component* decay[] { &osc1StringDecay, &osc2StringDecay, &subStringDecay };
+            juce::Component* damp[] { &osc1StringDamp, &osc2StringDamp, &subStringDamp };
+            juce::Component* sustain[] { &osc1StringSustain, &osc2StringSustain, &subStringSustain };
+            juce::Component* level[] { &osc1Level, &osc2Level, &subLevel };
+            juce::Component* pan[] { &osc1Pan, &osc2Pan, &subPan };
+            juce::Component* semi[] { &osc1Semi, &osc2Semi, &subSemi };
+            juce::Component* fine[] { &osc1Fine, &osc2Fine, &subFine };
+            juce::Component* unison[] { &osc1Unison, &osc2Unison, &subUnison };
+            juce::Component* detune[] { &osc1Detune, &osc2Detune, &subDetune };
+            juce::Component* blend[] { &osc1UniBlend, &osc2UniBlend, &subUniBlend };
+            juce::Component* spread[] { &osc1Spread, &osc2Spread, &subSpread };
+            auto& controls = *physical[(size_t) index];
+
+            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
+            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
+            layoutSlots (topRow, { on[index], modeBox[index], excite[index], &controls.slap,
+                                   uniMode[index], chord[index] });
+            layoutSlots (middleRow, { decay[index], damp[index], sustain[index], &controls.stiffness,
+                                      &controls.pickup, &controls.excitePos, &controls.hardness, &controls.pickPos });
+            layoutSlots (bottomRow, { level[index], pan[index], semi[index], fine[index], unison[index],
+                                      detune[index], blend[index], spread[index] });
+            return;
+        }
+
         if (index == 0)
         {
             addTop (&osc1On);
@@ -725,6 +786,15 @@ private:
     void updateModeVisibility()
     {
         const auto mode1 = getMode (0);
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& controls = *physical[(size_t) i];
+            const auto visible = getMode (i) == 1;
+            for (juce::Component* control : { (juce::Component*) &controls.stiffness, (juce::Component*) &controls.pickup,
+                                              (juce::Component*) &controls.excitePos, (juce::Component*) &controls.hardness,
+                                              (juce::Component*) &controls.pickPos, (juce::Component*) &controls.slap })
+                control->setVisible (visible);
+        }
         osc1Table.setVisible (mode1 == 0);
         osc1Frame.setVisible (mode1 == 0);
         osc1Excite.setVisible (mode1 == 1);
@@ -806,6 +876,8 @@ private:
         subSpread.setVisible (mode3 != 3);
 
         resized();
+        if (onModeChanged != nullptr)
+            onModeChanged();
     }
 
     static void setGroupEnabled (std::initializer_list<juce::Component*> controls, bool enabled)
@@ -822,6 +894,13 @@ private:
         const auto enabled1 = readBool ("osc1_on");
         const auto enabled2 = readBool ("osc2_on");
         const auto enabled3 = readBool ("sub_on");
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& controls = *physical[(size_t) i];
+            const auto enabled = i == 0 ? enabled1 : (i == 1 ? enabled2 : enabled3);
+            setGroupEnabled ({ &controls.stiffness, &controls.pickup, &controls.excitePos,
+                               &controls.hardness, &controls.pickPos, &controls.slap }, enabled);
+        }
 
         setGroupEnabled ({ &osc1Mode, &osc1Table, &osc1Excite, &osc1Frame, &osc1Level, &osc1Pan, &osc1Semi,
                            &osc1Fine, &osc1Unison, &osc1Detune, &osc1Spread,
@@ -875,6 +954,7 @@ private:
     juce::TextButton loadTableButton2 { "LOAD .WAV" };
     juce::TextButton loadTableButton3 { "LOAD .WAV" };
     std::unique_ptr<juce::FileChooser> tableChooser;
+    std::array<std::unique_ptr<PhysicalControls>, 3> physical;
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
@@ -913,6 +993,26 @@ private:
     ComboControl osc1Spectral, osc2Spectral, subSpectral;
     KnobControl osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt;
     KnobControl osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread;
+};
+
+class OscPageViewport : public juce::Viewport
+{
+public:
+    explicit OscPageViewport (IlanaSynthAudioProcessor& processor)
+    {
+        setScrollBarsShown (true, false);
+        auto* page = new OscPage (processor);
+        page->onModeChanged = [this] { resized(); };
+        setViewedComponent (page, true);
+    }
+
+    void resized() override
+    {
+        juce::Viewport::resized();
+        if (auto* page = dynamic_cast<OscPage*> (getViewedComponent()))
+            page->setSize (juce::jmax (1, getWidth() - getScrollBarThickness()),
+                           page->hasPhysicalMode() ? 620 : getHeight());
+    }
 };
 
 // One filter: its type grid, slope switch and only the knobs its model uses.
@@ -4283,7 +4383,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
     tabs.addTab ("MAIN", juce::Colour (0xff18181c), mainPage, true);
-    tabs.addTab ("OSC", juce::Colour (0xff18181c), new OscPage (p), true);
+    tabs.addTab ("OSC", juce::Colour (0xff18181c), new OscPageViewport (p), true);
     tabs.addTab ("FILTER", juce::Colour (0xff18181c), new FilterPage (p), true);
     tabs.addTab ("ENV/LFO", juce::Colour (0xff18181c), envLfoPage, true);
 

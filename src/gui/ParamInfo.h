@@ -133,7 +133,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Stereo spread of the unison stack.";
 
     if (id == "osc1_mode" || id == "osc2_mode")
-        return "Wavetable, Karplus-Strong string, a sample you drag onto the card, or Granular: a cloud of tiny "
+        return "Wavetable, Physical string, a sample you drag onto the card, or Granular: a cloud of tiny "
                "grains read from that sample (a vocal until you load your own).";
 
     if (id == "osc1_on" || id == "osc2_on" || id == "sub_on")
@@ -150,6 +150,24 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "osc1_string_sustain" || id == "osc2_string_sustain")
         return "Level of the continuous excitation (ignore for Burst).";
+
+    if (id.endsWith ("_string_stiffness"))
+        return "String stiffness. Higher values push upper harmonics sharp.";
+
+    if (id.endsWith ("_string_pickup"))
+        return "Pickup position. Move it to change the string's harmonic notches.";
+
+    if (id.endsWith ("_string_excite_pos"))
+        return "Excitation position on the string. Changes which harmonics ring.";
+
+    if (id.endsWith ("_string_pick_hardness"))
+        return "Pick hardness. Harder picks give a brighter attack.";
+
+    if (id.endsWith ("_string_pick_pos"))
+        return "Where the pick strikes the string. Changes the attack spectrum.";
+
+    if (id.endsWith ("_string_slap"))
+        return "Adds a short noisy slap to the start of each pluck.";
 
     if (id == "sub_level")
         return "Oscillator 3 level.";
@@ -482,7 +500,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Bit crusher: fewer bits and downsample for lo-fi digital filth.";
 
     if (id == "fx_comb_on" || id == "fx_comb_freq" || id == "fx_comb_feedback" || id == "fx_comb_mix")
-        return "Tuned comb resonator. Try harmonic frequencies with String mode.";
+        return "Tuned comb resonator. Try harmonic frequencies with Physical mode.";
 
     if (id == "fx_phaser_on" || id == "fx_phaser_rate" || id == "fx_phaser_depth"
         || id == "fx_phaser_feedback" || id == "fx_phaser_mix")
@@ -654,7 +672,7 @@ inline juce::String describeParameter (const juce::String& id)
         if (id == "sub_shape") return "Sub oscillator shape: sine, square or saw.";
         if (id == "sub_octave") return "Sub oscillator octave: one or two octaves down.";
         if (id == "sub_mode")
-            return "Wavetable, Karplus-Strong string, a sample you drag onto the card, or Granular: a cloud of tiny "
+            return "Wavetable, Physical string, a sample you drag onto the card, or Granular: a cloud of tiny "
                "grains read from that sample (a vocal until you load your own).";
         if (id == "sub_table") return "Wavetable for OSC 3.";
         if (id == "sub_frame") return "Morphs through the table's frames.";
@@ -665,7 +683,7 @@ inline juce::String describeParameter (const juce::String& id)
         if (id == "sub_detune") return "Unison spread in cents.";
         if (id == "sub_spread") return "Stereo spread of the unison stack.";
         if (id == "sub_excite") return "String excitation.";
-        if (id.startsWith ("sub_string_")) return "Karplus-Strong string parameter for OSC 3.";
+        if (id.startsWith ("sub_string_")) return "Physical string parameter for OSC 3.";
         if (id == "sub_chord") return "Spreads a chord across the unison voices.";
 
         return "OSC 3 / sub oscillator.";

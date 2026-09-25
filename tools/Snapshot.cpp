@@ -530,6 +530,17 @@ int main (int argc, char** argv)
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + tabs->getTabNames()[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
 
+        if (tabs->getTabNames()[i] == "OSC")
+        {
+            if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
+            {
+                mode->setValueNotifyingHost (mode->convertTo0to1 (1.0f));
+                settle (300);
+                save (*editor, outDir.getChildFile ("osc-physical.png"));
+                mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
+            }
+        }
+
         // Every sub-tab past the first on this page.
         std::vector<SubTabBar*> bars;
 

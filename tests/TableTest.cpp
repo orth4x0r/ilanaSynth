@@ -650,6 +650,172 @@ void runKarplusStrongTest()
            "KS sustained excitation keeps ringing (late rms " + juce::String (sustainedLate, 5) + ")");
 }
 
+void runPhysicalStringTest()
+{
+    const auto render = [] (float stiffness, float pickup, float excitePos,
+                            float hardness, float pickPos, bool slap)
+    {
+        KarplusStrong string (12345);
+        string.prepare (48000.0);
+        string.setFrequency (220.0);
+        string.setParams (KarplusStrong::Excite::Burst, 0.0f, 0.12f, 0.99f);
+        string.setPhysicalParams (stiffness, pickup, excitePos, hardness, pickPos, slap);
+        string.trigger (1.0f);
+
+        std::vector<float> samples (24000);
+        for (auto& sample : samples)
+            sample = string.process();
+        return samples;
+    };
+
+    const auto legacy = render (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    const auto stiff = render (1.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    const auto pickup = render (0.0f, 0.5f, 0.0f, 0.0f, 0.0f, false);
+    const auto excitation = render (0.0f, 0.0f, 0.5f, 0.0f, 0.0f, false);
+    const auto soft = render (0.0f, 0.0f, 0.0f, 0.0f, 0.25f, false);
+    const auto hard = render (0.0f, 0.0f, 0.0f, 1.0f, 0.25f, false);
+    const auto slapped = render (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, true);
+
+    const auto powerAt = [] (const std::vector<float>& samples, double hz)
+    {
+        double real = 0.0, imaginary = 0.0;
+        for (int i = 1500; i < 22000; ++i)
+        {
+            const auto angle = juce::MathConstants<double>::twoPi * hz * (double) i / 48000.0;
+            real += (double) samples[(size_t) i] * std::cos (angle);
+            imaginary += (double) samples[(size_t) i] * std::sin (angle);
+        }
+        return real * real + imaginary * imaginary;
+    };
+
+    const auto peakNear = [&powerAt] (const std::vector<float>& samples, int centre)
+    {
+        auto bestFrequency = 0;
+        auto bestPower = 0.0;
+        for (int hz = centre - 24; hz <= centre + 24; ++hz)
+        {
+            const auto power = powerAt (samples, (double) hz);
+            if (power > bestPower)
+            {
+                bestPower = power;
+                bestFrequency = hz;
+            }
+        }
+        return std::pair<int, double> { bestFrequency, bestPower };
+    };
+
+    const auto legacyEighth = peakNear (legacy, 1760).first;
+    const auto stiffEighth = peakNear (stiff, 1760).first;
+    check (stiffEighth > legacyEighth + 2,
+           "stiffness sharpens the eighth partial (" + juce::String (legacyEighth) + " -> " + juce::String (stiffEighth) + " Hz)");
+
+    const auto harmonicRatio = [&peakNear] (const std::vector<float>& samples)
+    {
+        return peakNear (samples, 440).second / juce::jmax (1.0, peakNear (samples, 220).second);
+    };
+    check (harmonicRatio (pickup) < harmonicRatio (legacy) * 0.5,
+           "pickup position creates a second-harmonic comb notch");
+    check (harmonicRatio (excitation) < harmonicRatio (legacy) * 0.7,
+           "excitation position creates a second-harmonic comb notch");
+
+    const auto attackBrightness = [] (const std::vector<float>& samples)
+    {
+        auto energy = 0.0;
+        for (int i = 1; i < 192; ++i)
+        {
+            const auto difference = (double) samples[(size_t) i] - samples[(size_t) (i - 1)];
+            energy += difference * difference;
+        }
+        return energy;
+    };
+    check (attackBrightness (hard) > attackBrightness (soft) * 1.5,
+           "pick hardness brightens the attack");
+    check (attackBrightness (slapped) > attackBrightness (legacy) * 1.2,
+           "slap adds a short attack transient");
+
+    for (const auto& samples : { stiff, pickup, excitation, hard, slapped })
+    {
+        auto finite = true;
+        auto peak = 0.0f;
+        for (auto sample : samples)
+        {
+            finite = finite && std::isfinite (sample);
+            peak = juce::jmax (peak, std::abs (sample));
+        }
+        check (finite && peak <= 8.0f, "physical string output stays finite and bounded");
+    }
+
+    for (double frequency : { 15.0, 440.0, 12000.0 })
+    {
+        KarplusStrong extreme (12345);
+        extreme.prepare (48000.0);
+        extreme.setFrequency (frequency);
+        extreme.setParams (KarplusStrong::Excite::Noise, 1.0f, 0.0f, 1.0f);
+        extreme.setPhysicalParams (1.0f, 1.0f, 1.0f, 1.0f, 1.0f, true);
+        extreme.trigger (1.0f);
+        auto finite = true;
+        auto peak = 0.0f;
+        for (int i = 0; i < 48000; ++i)
+        {
+            const auto sample = extreme.process();
+            finite = finite && std::isfinite (sample);
+            peak = juce::jmax (peak, std::abs (sample));
+        }
+        check (finite && peak <= 8.0f, "extreme Physical settings stay bounded at " + juce::String (frequency, 0) + " Hz");
+    }
+}
+
+void runPhysicalPatchMigrationTest()
+{
+    IlanaSynthAudioProcessor source;
+    source.prepareToPlay (48000.0, 256);
+    if (auto* mode = source.apvts.getParameter ("osc1_mode"))
+        mode->setValueNotifyingHost (mode->convertTo0to1 (1.0f));
+    if (auto* decay = source.apvts.getParameter ("osc1_string_decay"))
+        decay->setValueNotifyingHost (decay->convertTo0to1 (0.83f));
+
+    juce::MemoryBlock saved;
+    source.getStateInformation (saved);
+    auto xml = std::unique_ptr<juce::XmlElement> (juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize()));
+    check (xml != nullptr, "legacy String patch state can be read");
+    if (xml == nullptr)
+        return;
+
+    for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+    {
+        auto* next = child->getNextElement();
+        const auto id = child->getStringAttribute ("id");
+        if (id.contains ("_string_stiffness") || id.contains ("_string_pickup")
+            || id.contains ("_string_excite_pos") || id.contains ("_string_pick_hardness")
+            || id.contains ("_string_pick_pos") || id.contains ("_string_slap"))
+            xml->removeChildElement (child, true);
+        child = next;
+    }
+
+    juce::MemoryBlock oldState;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldState);
+    IlanaSynthAudioProcessor loaded;
+    loaded.prepareToPlay (48000.0, 256);
+    if (auto* stiffness = loaded.apvts.getParameter ("osc1_string_stiffness"))
+        stiffness->setValueNotifyingHost (1.0f);
+    loaded.setStateInformation (oldState.getData(), (int) oldState.getSize());
+
+    const auto read = [&loaded] (const char* id)
+    {
+        const auto* value = loaded.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : -1.0f;
+    };
+    auto* choice = dynamic_cast<juce::AudioParameterChoice*> (loaded.apvts.getParameter ("osc1_mode"));
+    check (choice != nullptr && choice->getIndex() == 1 && choice->getAllValueStrings()[1] == "Physical",
+           "old String mode loads at the Physical choice index");
+    check (std::abs (read ("osc1_string_decay") - 0.83f) < 0.01f,
+           "old String settings survive the mode rename");
+    check (read ("osc1_string_stiffness") == 0.0f && read ("osc1_string_pickup") == 0.0f
+           && read ("osc1_string_excite_pos") == 0.0f && read ("osc1_string_pick_hardness") == 0.0f
+           && read ("osc1_string_pick_pos") == 0.0f && read ("osc1_string_slap") == 0.0f,
+           "old String patch receives legacy-sounding Physical defaults");
+}
+
 void runFactoryTableContentTest()
 {
     for (int tableIndex = 0; tableIndex < TableFactory::getNumFactoryTables(); ++tableIndex)
@@ -4245,6 +4411,8 @@ int main()
     runChaosLfoTests();
     runGranularTests();
     runHeavyPresetCpuTest();
+    runPhysicalStringTest();
+    runPhysicalPatchMigrationTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

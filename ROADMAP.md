@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. Nothing in it is built yet.
+This is the plan for what comes after v1.1. M1 is complete; later milestones remain planned.
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -14,7 +14,7 @@ The core of the plan is **one physical modelling engine used in two places**:
 
 ## v1.2: Physical engine, keys, deep FM
 
-### M1: String core and PHYSICAL mode
+### M1: String core and PHYSICAL mode — done
 - A stiff-string model. Stiffness pushes the overtones slightly sharp, which is what gives a piano its shimmer.
 - Controls: damping, pickup position and excitation position.
 - A pluck exciter, with pick hardness, pick position and a "slap" option.

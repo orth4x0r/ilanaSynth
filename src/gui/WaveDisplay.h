@@ -145,7 +145,7 @@ public:
 
     void drawModeTag (juce::Graphics& g) const
     {
-        const char* const names[] { "WAVETABLE", "STRING", "SAMPLE", "GRANULAR" };
+        const char* const names[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
         const auto index = juce::jlimit (0, 3, modeId.isNotEmpty() ? readChoice (modeId) : 0);
         const juce::String tag (names[index]);
         const auto tagBounds = juce::Rectangle<float> (8.0f, 6.0f, (float) tag.length() * 5.4f + 12.0f, 13.0f);

@@ -152,6 +152,7 @@ target_compile_definitions(ilanaFingerprint PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     ILANA_TEST_BUILD=1
+    ILANA_FINGERPRINT_BUILD=1
     JucePlugin_Name="ilanaSynth"
 )
 

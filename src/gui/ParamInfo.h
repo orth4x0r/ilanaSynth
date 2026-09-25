@@ -94,7 +94,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
-        || id == "res_decay" || id.endsWith ("_string_decay")
+        || id == "res_decay" || id.endsWith ("_string_decay") || id.endsWith ("_string_damp")
+        || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
+        || id.endsWith ("_string_pick_hardness") || id.endsWith ("_string_pick_pos")
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();

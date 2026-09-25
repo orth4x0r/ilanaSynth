@@ -86,7 +86,8 @@ public:
         for (auto& value : buffer)
             value = (random.nextFloat() * 2.0f - 1.0f) * level;
 
-        if (pickHardness > 0.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
+        // Hardness 1 (the default) keeps the raw burst; lower values soften it.
+        if (pickHardness < 1.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
         {
             const auto period = juce::jlimit (2, (int) buffer.size() - 1, (int) (sampleRate / frequency));
             const auto offset = juce::jlimit (1, period - 1, (int) (period * juce::jmax (0.01f, pickPosition)));
@@ -104,8 +105,7 @@ public:
                 if (excitationPosition > 0.0f)
                     value -= 0.6f * buffer[(size_t) ((i + exciteOffset) % (int) buffer.size())];
 
-                buffer[(size_t) i] = pickPosition > 0.0f || pickHardness > 0.0f
-                                         ? juce::jmap (pickHardness, smooth, value) : value;
+                buffer[(size_t) i] = juce::jmap (pickHardness, smooth, value);
             }
         }
 
@@ -115,6 +115,7 @@ public:
         dispersionState[0] = dispersionState[1] = 0.0f;
         dispersionInput[0] = dispersionInput[1] = 0.0f;
         slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
+        slapLevel = level;
     }
 
     float process()
@@ -204,7 +205,7 @@ public:
         if (slapRemaining > 0)
         {
             const auto envelope = (float) slapRemaining / (float) juce::jmax (1, (int) (sampleRate * 0.004));
-            output += (random.nextFloat() * 2.0f - 1.0f) * envelope;
+            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * slapLevel;
             --slapRemaining;
         }
 
@@ -236,7 +237,7 @@ private:
     float stiffness = 0.0f;
     float pickupPosition = 0.0f;
     float excitationPosition = 0.0f;
-    float pickHardness = 0.0f;
+    float pickHardness = 1.0f;
     float pickPosition = 0.0f;
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
@@ -244,5 +245,6 @@ private:
     float dispersionInput[2] {};
     bool slap = false;
     int slapRemaining = 0;
+    float slapLevel = 0.0f;
     Excite excite = Excite::Burst;
 };

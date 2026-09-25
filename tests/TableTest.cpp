@@ -668,13 +668,13 @@ void runPhysicalStringTest()
         return samples;
     };
 
-    const auto legacy = render (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
-    const auto stiff = render (1.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
-    const auto pickup = render (0.0f, 0.5f, 0.0f, 0.0f, 0.0f, false);
-    const auto excitation = render (0.0f, 0.0f, 0.5f, 0.0f, 0.0f, false);
+    const auto legacy = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
+    const auto stiff = render (1.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
+    const auto pickup = render (0.0f, 0.5f, 0.0f, 1.0f, 0.0f, false);
+    const auto excitation = render (0.0f, 0.0f, 0.5f, 1.0f, 0.0f, false);
     const auto soft = render (0.0f, 0.0f, 0.0f, 0.0f, 0.25f, false);
     const auto hard = render (0.0f, 0.0f, 0.0f, 1.0f, 0.25f, false);
-    const auto slapped = render (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, true);
+    const auto slapped = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, true);
 
     const auto powerAt = [] (const std::vector<float>& samples, double hz)
     {
@@ -730,6 +730,32 @@ void runPhysicalStringTest()
     };
     check (attackBrightness (hard) > attackBrightness (soft) * 1.5,
            "pick hardness brightens the attack");
+
+    // Softening must grow steadily as hardness drops from the neutral 1.0,
+    // with no jump just below it.
+    const auto slightlySoft = render (0.0f, 0.0f, 0.0f, 0.95f, 0.0f, false);
+    const auto halfSoft = render (0.0f, 0.0f, 0.0f, 0.5f, 0.0f, false);
+    const auto fullySoft = render (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    check (attackBrightness (slightlySoft) > attackBrightness (legacy) * 0.8
+               && attackBrightness (legacy) > attackBrightness (halfSoft)
+               && attackBrightness (halfSoft) > attackBrightness (fullySoft),
+           "pick hardness softens the attack monotonically below 1.0");
+
+    // A quiet pluck gets a quiet slap.
+    const auto slapAt = [] (float velocity)
+    {
+        KarplusStrong string (12345);
+        string.prepare (48000.0);
+        string.setFrequency (220.0);
+        string.setParams (KarplusStrong::Excite::Burst, 0.0f, 0.12f, 0.99f);
+        string.setPhysicalParams (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, true);
+        string.trigger (velocity);
+        auto peak = 0.0f;
+        for (int i = 0; i < 192; ++i)
+            peak = juce::jmax (peak, std::abs (string.process()));
+        return peak;
+    };
+    check (slapAt (0.2f) < slapAt (1.0f) * 0.5f, "slap follows velocity");
     check (attackBrightness (slapped) > attackBrightness (legacy) * 1.2,
            "slap adds a short attack transient");
 
@@ -811,7 +837,7 @@ void runPhysicalPatchMigrationTest()
     check (std::abs (read ("osc1_string_decay") - 0.83f) < 0.01f,
            "old String settings survive the mode rename");
     check (read ("osc1_string_stiffness") == 0.0f && read ("osc1_string_pickup") == 0.0f
-           && read ("osc1_string_excite_pos") == 0.0f && read ("osc1_string_pick_hardness") == 0.0f
+           && read ("osc1_string_excite_pos") == 0.0f && read ("osc1_string_pick_hardness") == 1.0f
            && read ("osc1_string_pick_pos") == 0.0f && read ("osc1_string_slap") == 0.0f,
            "old String patch receives legacy-sounding Physical defaults");
 }

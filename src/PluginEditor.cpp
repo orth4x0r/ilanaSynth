@@ -322,11 +322,6 @@ public:
             processorRef.apvts.removeParameterListener (id, this);
     }
 
-    bool hasPhysicalMode() const
-    {
-        return getMode (0) == 1 || getMode (1) == 1 || getMode (2) == 1;
-    }
-
     void parameterChanged (const juce::String&, float) override
     {
         // Parameter changes can arrive on the audio thread (host automation),
@@ -408,15 +403,22 @@ public:
         }
     }
 
+    // Height the page needs so every card keeps its minimum size; a Physical
+    // card has an extra row of knobs, so it gets extra height.
+    int getMinimumHeight() const
+    {
+        return 24 + bandGap * 3 + stripHeight + minBandHeight * 3 + physicalExtra * numPhysicalBands();
+    }
+
     void resized() override
     {
-        constexpr int stripHeight = 50;
-        bandHeight = juce::jlimit (128, 176, (getHeight() - 24 - bandGap * 3 - stripHeight) / 3);
+        bandHeight = juce::jlimit (minBandHeight, 176,
+                                   (getHeight() - 24 - bandGap * 3 - stripHeight - physicalExtra * numPhysicalBands()) / 3);
         auto area = getLocalBounds().reduced (12);
 
         for (int band = 0; band < 3; ++band)
         {
-            layoutBand (area.removeFromTop (bandHeight), band);
+            layoutBand (area.removeFromTop (heightOfBand (band)), band);
             area.removeFromTop (bandGap);
         }
 
@@ -448,6 +450,19 @@ public:
 private:
     int bandHeight = 137;
     static constexpr int bandGap = 6;
+    static constexpr int stripHeight = 50;
+    static constexpr int minBandHeight = 128;
+    static constexpr int physicalExtra = 70;
+
+    int numPhysicalBands() const
+    {
+        return (getMode (0) == 1 ? 1 : 0) + (getMode (1) == 1 ? 1 : 0) + (getMode (2) == 1 ? 1 : 0);
+    }
+
+    int heightOfBand (int index) const
+    {
+        return bandHeight + (getMode (index) == 1 ? physicalExtra : 0);
+    }
 
     bool readBool (const juce::String& id) const
     {
@@ -459,8 +474,13 @@ private:
 
     juce::Rectangle<int> bandBounds (int index) const
     {
-        const auto row = getLocalBounds().reduced (12).removeFromTop (bandHeight * 3 + bandGap * 2);
-        return { row.getX(), row.getY() + index * (bandHeight + bandGap), row.getWidth(), bandHeight };
+        const auto area = getLocalBounds().reduced (12);
+        auto y = area.getY();
+
+        for (int band = 0; band < index; ++band)
+            y += heightOfBand (band) + bandGap;
+
+        return { area.getX(), y, area.getWidth(), heightOfBand (index) };
     }
 
     WaveDisplay& waveDisplay (int index)
@@ -1010,8 +1030,13 @@ public:
     {
         juce::Viewport::resized();
         if (auto* page = dynamic_cast<OscPage*> (getViewedComponent()))
-            page->setSize (juce::jmax (1, getWidth() - getScrollBarThickness()),
-                           page->hasPhysicalMode() ? 620 : getHeight());
+        {
+            // Scroll only when the cards cannot fit at their minimum height.
+            const auto needed = page->getMinimumHeight();
+            const auto scrolls = needed > getHeight();
+            page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)),
+                           juce::jmax (getHeight(), needed));
+        }
     }
 };
 

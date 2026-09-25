@@ -406,7 +406,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("sub_string_stiffness", "Osc3 Stiffness", 0.0f, 1.0f, 0.0f);
     addFloat ("sub_string_pickup", "Osc3 Pickup Position", 0.0f, 1.0f, 0.0f);
     addFloat ("sub_string_excite_pos", "Osc3 Excitation Position", 0.0f, 1.0f, 0.0f);
-    addFloat ("sub_string_pick_hardness", "Osc3 Pick Hardness", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_string_pick_hardness", "Osc3 Pick Hardness", 0.0f, 1.0f, 1.0f);
     addFloat ("sub_string_pick_pos", "Osc3 Pick Position", 0.0f, 1.0f, 0.0f);
     addBool ("sub_string_slap", "Osc3 Slap", false);
     addChoice ("sub_chord", "Osc3 Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
@@ -540,7 +540,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (prefix + "_string_stiffness", "Osc" + juce::String (osc) + " Stiffness", 0.0f, 1.0f, 0.0f);
         addFloat (prefix + "_string_pickup", "Osc" + juce::String (osc) + " Pickup Position", 0.0f, 1.0f, 0.0f);
         addFloat (prefix + "_string_excite_pos", "Osc" + juce::String (osc) + " Excitation Position", 0.0f, 1.0f, 0.0f);
-        addFloat (prefix + "_string_pick_hardness", "Osc" + juce::String (osc) + " Pick Hardness", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_string_pick_hardness", "Osc" + juce::String (osc) + " Pick Hardness", 0.0f, 1.0f, 1.0f);
         addFloat (prefix + "_string_pick_pos", "Osc" + juce::String (osc) + " Pick Position", 0.0f, 1.0f, 0.0f);
         addBool (prefix + "_string_slap", "Osc" + juce::String (osc) + " Slap", false);
     }
@@ -4487,9 +4487,14 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
             if (! found)
             {
+                auto defaultValue = 0.0f;
+
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (ids[field])))
+                    defaultValue = ranged->convertFrom0to1 (ranged->getDefaultValue());
+
                 juce::ValueTree parameter ("PARAM");
                 parameter.setProperty ("id", ids[field], nullptr);
-                parameter.setProperty ("value", 0.0f, nullptr);
+                parameter.setProperty ("value", defaultValue, nullptr);
                 state.appendChild (parameter, nullptr);
             }
         }

@@ -72,7 +72,7 @@ struct VoiceParams
         float stringStiffness = 0.0f;
         float stringPickup = 0.0f;
         float stringExcitationPosition = 0.0f;
-        float stringPickHardness = 0.0f;
+        float stringPickHardness = 1.0f;
         float stringPickPosition = 0.0f;
         bool stringSlap = false;
         int chord = 0;

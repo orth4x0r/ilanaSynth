@@ -13,4 +13,8 @@ ROADMAP v1.2 M1 is implemented: oscillator mode index 1 is now **Physical**, wit
 - `build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe --uitest` passed. `snapshots/m1/osc-physical.png` was inspected; the OSC page scrolls when Physical needs taller controls.
 - Fingerprint comparison: `python tools/compare_fingerprints.py build/m1-before-repeatable.csv build/m1-after-repeatable-final.csv` reported **0 of 235 changed**. Both files used the same fingerprint-only RNG seeds and synchronous spectral rendering; two M1 captures also compared as 0 changed. The original unseeded `build/m1-before.csv` remains for reference but is unsuitable for strict comparison because random and background spectral presets vary between runs.
 
-No open M1 design questions. Local commits for M1 have not been pushed. Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.
+Claude reviewed M1 and committed polish on top: pick hardness now defaults to 1.0 (the raw burst, i.e. the legacy sound) and softens monotonically below it (previously 0 was raw but 0.01 was softest); old states get each missing M1 parameter's default, not 0; slap scales with velocity; Physical controls show percentages; a Physical OSC card gets 70 px extra height and the page scrolls only when cards cannot fit at their minimum. Fingerprints still 0 of 235 changed (`build/m1-review.csv`), UI tests pass, all M1 tests pass.
+
+Known: the heavy-preset CPU timing test currently fails on this machine for both Codex's M1 commits and the polish (~50-60 % vs a ~40 % idle run), so treat it as load-sensitive, not an M1 regression. The OSC wave display still draws the wavetable in Physical mode (pre-existing from String mode).
+
+No open M1 design questions. The M1 commits and Claude's polish commit are not pushed yet. Use the code and Git diff as the source of truth; `README.md` covers features, and `ROADMAP.md` covers future work.

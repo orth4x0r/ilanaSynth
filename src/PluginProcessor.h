@@ -21,6 +21,7 @@
 #include "dsp/Svf.h"
 #include "dsp/SympatheticStrings.h"
 #include "dsp/Modulation.h"
+#include "dsp/OscillatorIds.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
@@ -325,8 +326,8 @@ private:
     void resetUserTableToDefault (int slot);
     mutable juce::SpinLock tableLock;
 
-    std::array<std::array<juce::String, 11>, 3> stringParamIds;
-    std::array<std::array<juce::String, 4>, 3> bowBuzzIds;
+    std::array<std::array<juce::String, 11>, OscillatorIds::count> stringParamIds;
+    std::array<std::array<juce::String, 4>, OscillatorIds::count> bowBuzzIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
     struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };
@@ -344,16 +345,16 @@ private:
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
     struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<juce::String, 16> steps; };
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
-    std::array<OscShapeIds, 3> oscShapeIds;
+    std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     std::array<int, (size_t) numLfos> lfoPreviousShapes { -1, -1, -1, -1 };
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<juce::String, 16> tapStepIds;
     std::array<juce::String, 16> gateStepIds;
-    std::array<std::array<juce::String, 7>, 3> sampleParamIds;
+    std::array<std::array<juce::String, 7>, OscillatorIds::count> sampleParamIds;
 
-    static constexpr int numSampleOscs = 3;
+    static constexpr int numSampleOscs = OscillatorIds::count;
     std::vector<std::shared_ptr<SampleData>> sampleSlots;
     std::array<std::shared_ptr<SampleData>, 5> factorySamples;
     std::array<std::array<std::shared_ptr<SampleData>, 3>, (size_t) numSampleOscs> retiredSamples;

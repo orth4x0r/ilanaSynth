@@ -316,22 +316,22 @@ void runVoiceSmokeTest()
     voice.setCurrentPlaybackSampleRate (48000.0);
 
     VoiceParams p;
-    p.osc1.table = &table1;
-    p.osc1.frame = 0.5f;
-    p.osc1.level = 0.8f;
-    p.osc1.unison = 4;
-    p.osc1.detuneCents = 20.0f;
-    p.osc1.spread = 0.5f;
+    p.oscillators[0].table = &table1;
+    p.oscillators[0].frame = 0.5f;
+    p.oscillators[0].level = 0.8f;
+    p.oscillators[0].unison = 4;
+    p.oscillators[0].detuneCents = 20.0f;
+    p.oscillators[0].spread = 0.5f;
 
-    p.osc2Enabled = true;
-    p.osc2.table = &table2;
-    p.osc2.frame = 0.3f;
-    p.osc2.level = 0.5f;
-    p.osc2.semitones = -12.0;
-    p.osc2.unison = 2;
+    p.oscillatorEnabled[1] = true;
+    p.oscillators[1].table = &table2;
+    p.oscillators[1].frame = 0.3f;
+    p.oscillators[1].level = 0.5f;
+    p.oscillators[1].semitones = -12.0;
+    p.oscillators[1].unison = 2;
 
-    p.sub.table = &table1;
-    p.sub.level = 0.5f;
+    p.oscillators[2].table = &table1;
+    p.oscillators[2].level = 0.5f;
     p.noiseLevel = 0.1f;
 
     p.filter1.cutoffHz = 800.0f;
@@ -421,10 +421,10 @@ void runFrameModulationTest()
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
-        p.osc1.table = &table;
-        p.osc1.frame = frameParam;
-        p.osc1.level = 1.0f;
-        p.osc1.unison = 1;
+        p.oscillators[0].table = &table;
+        p.oscillators[0].frame = frameParam;
+        p.oscillators[0].level = 1.0f;
+        p.oscillators[0].unison = 1;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter1.drive = 1.0f;
@@ -507,14 +507,14 @@ void runCrossModulationTest()
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
-        p.osc1.table = &table1;
-        p.osc1.frame = 0.4f;
-        p.osc1.level = 0.8f;
-        p.osc2Enabled = true;
-        p.osc2.table = &table2;
-        p.osc2.frame = 0.5f;
-        p.osc2.level = 0.7f;
-        p.osc2.semitones = 7.0;
+        p.oscillators[0].table = &table1;
+        p.oscillators[0].frame = 0.4f;
+        p.oscillators[0].level = 0.8f;
+        p.oscillatorEnabled[1] = true;
+        p.oscillators[1].table = &table2;
+        p.oscillators[1].frame = 0.5f;
+        p.oscillators[1].level = 0.7f;
+        p.oscillators[1].semitones = 7.0;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;
@@ -592,13 +592,13 @@ void runKarplusStrongTest()
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
-        p.osc1.table = &table;
-        p.osc1.stringMode = true;
-        p.osc1.stringExcite = excite;
-        p.osc1.stringDecay = decay;
-        p.osc1.stringDamping = damping;
-        p.osc1.stringSustain = sustain;
-        p.osc1.level = 0.9f;
+        p.oscillators[0].table = &table;
+        p.oscillators[0].stringMode = true;
+        p.oscillators[0].stringExcite = excite;
+        p.oscillators[0].stringDecay = decay;
+        p.oscillators[0].stringDamping = damping;
+        p.oscillators[0].stringSustain = sustain;
+        p.oscillators[0].level = 0.9f;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;
@@ -874,10 +874,10 @@ void runWeirdDspTest()
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
-        p.osc1.table = &table;
-        p.osc1.frame = 0.4f;
-        p.osc1.level = 0.8f;
-        p.osc1.unison = 1;
+        p.oscillators[0].table = &table;
+        p.oscillators[0].frame = 0.4f;
+        p.oscillators[0].level = 0.8f;
+        p.oscillators[0].unison = 1;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;
@@ -923,8 +923,8 @@ void runWeirdDspTest()
 
     const auto [chorded, chordFinite] = renderVoice ([] (VoiceParams& p)
     {
-        p.osc1.unison = 4;
-        p.osc1.detuneCents = 5.0f;
+        p.oscillators[0].unison = 4;
+        p.oscillators[0].detuneCents = 5.0f;
         p.osc1Chord = 4;
     });
 
@@ -1074,11 +1074,11 @@ void runSampleOscTest()
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
-        p.osc1.sampleMode = true;
-        p.osc1.sample = sample.get();
-        p.osc1.sampleTuned = true;
-        p.osc1.level = 0.9f;
-        p.osc1.unison = 1;
+        p.oscillators[0].sampleMode = true;
+        p.oscillators[0].sample = sample.get();
+        p.oscillators[0].sampleTuned = true;
+        p.oscillators[0].level = 0.9f;
+        p.oscillators[0].unison = 1;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;
@@ -1130,7 +1130,7 @@ void runSampleOscTest()
 
     const auto [untuned, untunedFinite] = renderVoice (72, 8192, [] (VoiceParams& p)
     {
-        p.osc1.sampleTuned = false;
+        p.oscillators[0].sampleTuned = false;
     });
     const auto untunedFrequency = fundamentalOf (untuned, sampleRate);
     check (untunedFinite && std::abs (untunedFrequency - 261.63) < 8.0,
@@ -1142,39 +1142,39 @@ void runSampleOscTest()
 
     const auto [looped, loopedFinite] = renderVoice (60, 16384, [] (VoiceParams& p)
     {
-        p.osc1.sampleLoop = true;
+        p.oscillators[0].sampleLoop = true;
     });
     check (loopedFinite && peakOf (looped, 8000, 16384) > 0.2f,
            "looped sample keeps playing (tail peak " + juce::String (peakOf (looped, 8000, 16384), 4) + ")");
 
     const auto [reversed, reversedFinite] = renderVoice (60, 16384, [] (VoiceParams& p)
     {
-        p.osc1.sampleReverse = true;
-        p.osc1.sampleLoop = true;
+        p.oscillators[0].sampleReverse = true;
+        p.oscillators[0].sampleLoop = true;
     });
     check (reversedFinite && peakOf (reversed, 0, 4096) > 0.2f && peakOf (reversed, 8000, 16384) > 0.2f,
            "reverse loop plays and wraps (peak " + juce::String (peakOf (reversed, 8000, 16384), 4) + ")");
 
     const auto [region, regionFinite] = renderVoice (60, 8192, [] (VoiceParams& p)
     {
-        p.osc1.sampleStart = 0.5f;
-        p.osc1.sampleEnd = 1.0f;
+        p.oscillators[0].sampleStart = 0.5f;
+        p.oscillators[0].sampleEnd = 1.0f;
     });
     check (regionFinite && peakOf (region, 0, 4096) > 0.2f,
            "start/end region renders audio (peak " + juce::String (peakOf (region, 0, 4096), 4) + ")");
 
     const auto [faded, fadedFinite] = renderVoice (60, 8192, [] (VoiceParams& p)
     {
-        p.osc1.sampleFadeIn = 0.5f;
-        p.osc1.sampleFadeOut = 0.5f;
+        p.oscillators[0].sampleFadeIn = 0.5f;
+        p.oscillators[0].sampleFadeOut = 0.5f;
     });
     check (fadedFinite && std::abs (faded[0]) < 0.02f && peakOf (faded, 0, 4096) > 0.1f,
            "fade in/out attenuate the region edges (first " + juce::String (std::abs (faded[0]), 5) + ")");
 
     const auto [collapsed, collapsedFinite] = renderVoice (60, 8192, [] (VoiceParams& p)
     {
-        p.osc1.sampleStart = 0.7f;
-        p.osc1.sampleEnd = 0.2f;
+        p.oscillators[0].sampleStart = 0.7f;
+        p.oscillators[0].sampleEnd = 0.2f;
     });
     check (collapsedFinite, "collapsed start/end region stays finite");
 
@@ -1219,9 +1219,9 @@ void runSampleOscTest()
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
-        p.osc1.sampleMode = true;
-        p.osc1.sample = nullptr;
-        p.osc1.level = 0.9f;
+        p.oscillators[0].sampleMode = true;
+        p.oscillators[0].sample = nullptr;
+        p.oscillators[0].level = 0.9f;
         p.filter1.cutoffHz = 20000.0f;
         p.filter2.cutoffHz = 20000.0f;
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
@@ -1232,7 +1232,7 @@ void runSampleOscTest()
         warmup.clear();
         voice.renderNextBlock (warmup, 0, 2048);
 
-        p.osc1.sample = sample.get();
+        p.oscillators[0].sample = sample.get();
         voice.setParams (p);
 
         juce::AudioBuffer<float> buffer (1, 8192);
@@ -1253,10 +1253,10 @@ void runSampleOscTest()
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
-        p.osc1.sampleMode = true;
-        p.osc1.sample = sample.get();
-        p.osc1.level = 0.9f;
-        p.osc1Enabled = false;
+        p.oscillators[0].sampleMode = true;
+        p.oscillators[0].sample = sample.get();
+        p.oscillators[0].level = 0.9f;
+        p.oscillatorEnabled[0] = false;
         p.filter1.cutoffHz = 20000.0f;
         p.filter2.cutoffHz = 20000.0f;
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
@@ -1267,7 +1267,7 @@ void runSampleOscTest()
         warmup.clear();
         voice.renderNextBlock (warmup, 0, 1024);
 
-        p.osc1Enabled = true;
+        p.oscillatorEnabled[0] = true;
         voice.setParams (p);
 
         juce::AudioBuffer<float> buffer (1, 8192);
@@ -1293,10 +1293,10 @@ void runSampleOscTest()
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
-        p.osc1.sampleMode = true;
-        p.osc1.sample = sample.get();
-        p.osc1.level = 0.9f;
-        p.osc1.unison = 1;
+        p.oscillators[0].sampleMode = true;
+        p.oscillators[0].sample = sample.get();
+        p.oscillators[0].level = 0.9f;
+        p.oscillators[0].unison = 1;
         p.filter1.cutoffHz = 20000.0f;
         p.filter2.cutoffHz = 20000.0f;
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
@@ -1307,7 +1307,7 @@ void runSampleOscTest()
         warmup.clear();
         voice.renderNextBlock (warmup, 0, 1024);
 
-        p.osc1.unison = 4;
+        p.oscillators[0].unison = 4;
         voice.setParams (p);
 
         juce::AudioBuffer<float> buffer (1, 8192);
@@ -1371,16 +1371,16 @@ void runOsc2Test()
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
-        p.osc1.table = &sineTable;
-        p.osc1.level = 0.0f;
-        p.osc2Enabled = true;
-        p.osc2.table = &sineTable;
-        p.osc2.level = 0.9f;
-        p.osc2.semitones = (double) semitones;
-        p.osc2.stringMode = stringMode;
-        p.osc2.stringExcite = 0;
-        p.osc2.stringDecay = 0.8f;
-        p.osc2.stringDamping = 0.25f;
+        p.oscillators[0].table = &sineTable;
+        p.oscillators[0].level = 0.0f;
+        p.oscillatorEnabled[1] = true;
+        p.oscillators[1].table = &sineTable;
+        p.oscillators[1].level = 0.9f;
+        p.oscillators[1].semitones = (double) semitones;
+        p.oscillators[1].stringMode = stringMode;
+        p.oscillators[1].stringExcite = 0;
+        p.oscillators[1].stringDecay = 0.8f;
+        p.oscillators[1].stringDamping = 0.25f;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;
@@ -1447,11 +1447,11 @@ void runOscLevelTest()
     const auto makeParams = [&sineTable] (float level)
     {
         VoiceParams p;
-        p.osc1.table = &sineTable;
-        p.osc1.level = 0.0f;
-        p.osc2Enabled = true;
-        p.osc2.table = &sineTable;
-        p.osc2.level = level;
+        p.oscillators[0].table = &sineTable;
+        p.oscillators[0].level = 0.0f;
+        p.oscillatorEnabled[1] = true;
+        p.oscillators[1].table = &sineTable;
+        p.oscillators[1].level = level;
         p.filter1.cutoffHz = 20000.0f;
         p.filter1.resonance = 0.0f;
         p.filter2.cutoffHz = 20000.0f;

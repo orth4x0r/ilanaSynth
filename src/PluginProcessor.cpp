@@ -192,11 +192,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         factorySamples[(size_t) i] = SampleFactory::generate (i);
 
     {
-        const char* const prefixes[] { "osc1", "osc2", "sub" };
-
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < OscillatorIds::count; ++i)
         {
-            const juce::String prefix (prefixes[i]);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
 
             stringParamIds[(size_t) i] = { prefix + "_mode", prefix + "_excite", prefix + "_string_decay",
                                            prefix + "_string_damp", prefix + "_string_sustain",
@@ -262,11 +260,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     }
 
     {
-        const char* const prefixes[] { "osc1", "osc2", "sub" };
-
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            const juce::String prefix (prefixes[osc]);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             oscShapeIds[(size_t) osc] = { prefix + "_warp", prefix + "_warp_amt", prefix + "_uni_mode", prefix + "_uni_blend",
                                           prefix + "_route" };
         }
@@ -358,43 +354,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             juce::ParameterID { id, 1 }, name, choices, def));
     };
 
-    // Osc 1
-    addBool ("osc1_on", "Osc1 On", true);
-    addChoice ("osc1_table", "Osc1 Table", getOscTableChoices(), 7);
-    addFloat ("osc1_frame", "Osc1 Frame", 0.0f, 1.0f, 0.35f);
-    addFloat ("osc1_level", "Osc1 Level", 0.0f, 1.0f, 0.8f);
-    addFloat ("osc1_pan", "Osc1 Pan", -1.0f, 1.0f, 0.0f);
-    addInt ("osc1_semi", "Osc1 Semi", -24, 24, 0);
-    addFloat ("osc1_fine", "Osc1 Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
-    addInt ("osc1_unison", "Osc1 Unison", 1, VoiceParams::maxUnison, 1);
-    addFloat ("osc1_detune", "Osc1 Detune", 0.0f, 50.0f, 15.0f);
-    addFloat ("osc1_spread", "Osc1 Spread", 0.0f, 1.0f, 0.5f);
-    addChoice ("osc1_warp", "Osc1 Warp", Warp::getNames(), 0);
-    addFloat ("osc1_warp_amt", "Osc1 Warp Amount", 0.0f, 1.0f, 0.0f);
-    addChoice ("osc1_spectral", "Osc1 Spectral Warp", SpectralWarp::getNames(), 0);
-    addFloat ("osc1_spectral_amt", "Osc1 Spectral Amount", 0.0f, 1.0f, 0.5f);
-    addChoice ("osc1_uni_mode", "Osc1 Unison Mode", UnisonMode::getNames(), 0);
-    addFloat ("osc1_uni_blend", "Osc1 Unison Blend", 0.0f, 1.0f, 1.0f);
-    addChoice ("osc1_route", "Osc1 Filter Route", FilterRoute::getNames(), 0);
+    // OSC 1 and 2 retain their original parameter order and defaults.
+    for (int osc = 0; osc < 2; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        const auto first = osc == 0;
+        const auto id = [&prefix] (const char* suffix) { return prefix + "_" + suffix; };
 
-    // Osc 2
-    addBool ("osc2_on", "Osc2 On", false);
-    addChoice ("osc2_table", "Osc2 Table", getOscTableChoices(), 1);
-    addFloat ("osc2_frame", "Osc2 Frame", 0.0f, 1.0f, 0.0f);
-    addFloat ("osc2_level", "Osc2 Level", 0.0f, 1.0f, 0.6f);
-    addFloat ("osc2_pan", "Osc2 Pan", -1.0f, 1.0f, 0.0f);
-    addInt ("osc2_semi", "Osc2 Semi", -24, 24, 0);
-    addFloat ("osc2_fine", "Osc2 Fine", -100.0f, 100.0f, -7.0f, 1.0f, 1.0f);
-    addInt ("osc2_unison", "Osc2 Unison", 1, VoiceParams::maxUnison, 1);
-    addFloat ("osc2_detune", "Osc2 Detune", 0.0f, 50.0f, 15.0f);
-    addFloat ("osc2_spread", "Osc2 Spread", 0.0f, 1.0f, 0.5f);
-    addChoice ("osc2_warp", "Osc2 Warp", Warp::getNames(), 0);
-    addFloat ("osc2_warp_amt", "Osc2 Warp Amount", 0.0f, 1.0f, 0.0f);
-    addChoice ("osc2_spectral", "Osc2 Spectral Warp", SpectralWarp::getNames(), 0);
-    addFloat ("osc2_spectral_amt", "Osc2 Spectral Amount", 0.0f, 1.0f, 0.5f);
-    addChoice ("osc2_uni_mode", "Osc2 Unison Mode", UnisonMode::getNames(), 0);
-    addFloat ("osc2_uni_blend", "Osc2 Unison Blend", 0.0f, 1.0f, 1.0f);
-    addChoice ("osc2_route", "Osc2 Filter Route", FilterRoute::getNames(), 0);
+        addBool (id ("on"), name + " On", first);
+        addChoice (id ("table"), name + " Table", getOscTableChoices(), first ? 7 : 1);
+        addFloat (id ("frame"), name + " Frame", 0.0f, 1.0f, first ? 0.35f : 0.0f);
+        addFloat (id ("level"), name + " Level", 0.0f, 1.0f, first ? 0.8f : 0.6f);
+        addFloat (id ("pan"), name + " Pan", -1.0f, 1.0f, 0.0f);
+        addInt (id ("semi"), name + " Semi", -24, 24, 0);
+        addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, first ? 0.0f : -7.0f, 1.0f, 1.0f);
+        addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
+        addFloat (id ("detune"), name + " Detune", 0.0f, 50.0f, 15.0f);
+        addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);
+        addChoice (id ("warp"), name + " Warp", Warp::getNames(), 0);
+        addFloat (id ("warp_amt"), name + " Warp Amount", 0.0f, 1.0f, 0.0f);
+        addChoice (id ("spectral"), name + " Spectral Warp", SpectralWarp::getNames(), 0);
+        addFloat (id ("spectral_amt"), name + " Spectral Amount", 0.0f, 1.0f, 0.5f);
+        addChoice (id ("uni_mode"), name + " Unison Mode", UnisonMode::getNames(), 0);
+        addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
+        addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
+    }
 
     // OSC 3: a full oscillator like OSC 1 and 2 (its ids keep the old "sub_"
     // prefix so saved patches still line up; see migrateLegacyOsc3).
@@ -1168,55 +1153,55 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     {
         const auto choice = (int) getParam ("osc1_table");
-        p.osc1.table = spectralCache->get (0, choice, getTableForChoice (choice), (int) getParam ("osc1_spectral"),
+        p.oscillators[0].table = spectralCache->get (0, choice, getTableForChoice (choice), (int) getParam ("osc1_spectral"),
                                             getParam ("osc1_spectral_amt"));
     }
-    p.osc1.frame = getParam ("osc1_frame");
-    p.osc1.level = getParam ("osc1_level");
-    p.osc1.pan = getParam ("osc1_pan");
-    p.osc1.semitones = (double) getParam ("osc1_semi");
-    p.osc1.cents = (double) getParam ("osc1_fine");
-    p.osc1.unison = (int) getParam ("osc1_unison");
-    p.osc1.detuneCents = getParam ("osc1_detune");
-    p.osc1.spread = getParam ("osc1_spread");
+    p.oscillators[0].frame = getParam ("osc1_frame");
+    p.oscillators[0].level = getParam ("osc1_level");
+    p.oscillators[0].pan = getParam ("osc1_pan");
+    p.oscillators[0].semitones = (double) getParam ("osc1_semi");
+    p.oscillators[0].cents = (double) getParam ("osc1_fine");
+    p.oscillators[0].unison = (int) getParam ("osc1_unison");
+    p.oscillators[0].detuneCents = getParam ("osc1_detune");
+    p.oscillators[0].spread = getParam ("osc1_spread");
 
-    p.osc1Enabled = getParam ("osc1_on") > 0.5f;
-    p.osc2Enabled = getParam ("osc2_on") > 0.5f;
-    p.subEnabled = getParam ("sub_on") > 0.5f;
+    p.oscillatorEnabled[0] = getParam ("osc1_on") > 0.5f;
+    p.oscillatorEnabled[1] = getParam ("osc2_on") > 0.5f;
+    p.oscillatorEnabled[2] = getParam ("sub_on") > 0.5f;
     {
         const auto choice = (int) getParam ("osc2_table");
-        p.osc2.table = spectralCache->get (1, choice, getTableForChoice (choice), (int) getParam ("osc2_spectral"),
+        p.oscillators[1].table = spectralCache->get (1, choice, getTableForChoice (choice), (int) getParam ("osc2_spectral"),
                                             getParam ("osc2_spectral_amt"));
     }
-    p.osc2.frame = getParam ("osc2_frame");
-    p.osc2.level = getParam ("osc2_level");
-    p.osc2.pan = getParam ("osc2_pan");
-    p.osc2.semitones = (double) getParam ("osc2_semi");
-    p.osc2.cents = (double) getParam ("osc2_fine");
-    p.osc2.unison = (int) getParam ("osc2_unison");
-    p.osc2.detuneCents = getParam ("osc2_detune");
-    p.osc2.spread = getParam ("osc2_spread");
+    p.oscillators[1].frame = getParam ("osc2_frame");
+    p.oscillators[1].level = getParam ("osc2_level");
+    p.oscillators[1].pan = getParam ("osc2_pan");
+    p.oscillators[1].semitones = (double) getParam ("osc2_semi");
+    p.oscillators[1].cents = (double) getParam ("osc2_fine");
+    p.oscillators[1].unison = (int) getParam ("osc2_unison");
+    p.oscillators[1].detuneCents = getParam ("osc2_detune");
+    p.oscillators[1].spread = getParam ("osc2_spread");
 
-    p.sub.level = getParam ("sub_level");
-    p.sub.pan = getParam ("sub_pan");
-    p.sub.semitones = (double) getParam ("sub_semi");
-    p.sub.cents = (double) getParam ("sub_fine");
-    p.sub.unison = (int) getParam ("sub_unison");
-    p.sub.detuneCents = getParam ("sub_detune");
-    p.sub.spread = getParam ("sub_spread");
-    p.sub.frame = getParam ("sub_frame");
-    p.sub.stringMode = (int) getParam ("sub_mode") == 1;
-    p.sub.sampleMode = (int) getParam ("sub_mode") >= 2;
-    p.sub.granularMode = (int) getParam ("sub_mode") == 3;
-    p.sub.stringExcite = (int) getParam ("sub_excite");
-    p.sub.stringDecay = getParam ("sub_string_decay");
-    p.sub.stringDamping = getParam ("sub_string_damp");
-    p.sub.stringSustain = getParam ("sub_string_sustain");
-    p.sub.chord = (int) getParam ("sub_chord");
+    p.oscillators[2].level = getParam ("sub_level");
+    p.oscillators[2].pan = getParam ("sub_pan");
+    p.oscillators[2].semitones = (double) getParam ("sub_semi");
+    p.oscillators[2].cents = (double) getParam ("sub_fine");
+    p.oscillators[2].unison = (int) getParam ("sub_unison");
+    p.oscillators[2].detuneCents = getParam ("sub_detune");
+    p.oscillators[2].spread = getParam ("sub_spread");
+    p.oscillators[2].frame = getParam ("sub_frame");
+    p.oscillators[2].stringMode = (int) getParam ("sub_mode") == 1;
+    p.oscillators[2].sampleMode = (int) getParam ("sub_mode") >= 2;
+    p.oscillators[2].granularMode = (int) getParam ("sub_mode") == 3;
+    p.oscillators[2].stringExcite = (int) getParam ("sub_excite");
+    p.oscillators[2].stringDecay = getParam ("sub_string_decay");
+    p.oscillators[2].stringDamping = getParam ("sub_string_damp");
+    p.oscillators[2].stringSustain = getParam ("sub_string_sustain");
+    p.oscillators[2].chord = (int) getParam ("sub_chord");
     p.subOctaveOffset = 0;
     {
         const auto choice = (int) getParam ("sub_table");
-        p.sub.table = spectralCache->get (2, choice, getTableForChoice (choice), (int) getParam ("sub_spectral"),
+        p.oscillators[2].table = spectralCache->get (2, choice, getTableForChoice (choice), (int) getParam ("sub_spectral"),
                                             getParam ("sub_spectral_amt"));
     }
 
@@ -1327,12 +1312,12 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.sampleFadeIn = getParam (ids[5].toRawUTF8());
         osc.sampleFadeOut = getParam (ids[6].toRawUTF8());
 
-        static const char* grainIds[3][5] {
+        static const char* grainIds[OscillatorIds::count][5] {
             { "osc1_grain_size", "osc1_grain_density", "osc1_grain_spray", "osc1_grain_pitch", "osc1_grain_spread" },
             { "osc2_grain_size", "osc2_grain_density", "osc2_grain_spray", "osc2_grain_pitch", "osc2_grain_spread" },
             { "sub_grain_size", "sub_grain_density", "sub_grain_spray", "sub_grain_pitch", "sub_grain_spread" }
         };
-        const auto* grain = grainIds[juce::jlimit (0, 2, oscIndex)];
+        const auto* grain = grainIds[juce::jlimit (0, OscillatorIds::count - 1, oscIndex)];
         osc.grainSizeMs = getParam (grain[0]);
         osc.grainDensity = getParam (grain[1]);
         osc.grainSpray = getParam (grain[2]);
@@ -1340,12 +1325,13 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.grainSpread = getParam (grain[4]);
     };
 
-    fillStringParams (0, p.osc1);
-    fillStringParams (1, p.osc2);
-    fillStringParams (2, p.sub);
-    fillSampleParams (0, p.osc1);
-    fillSampleParams (1, p.osc2);
-    fillSampleParams (2, p.sub);
+    VoiceParams::OscParams* oscillators[OscillatorIds::count] { &p.oscillators[0], &p.oscillators[1], &p.oscillators[2] };
+
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        fillStringParams (osc, *oscillators[osc]);
+        fillSampleParams (osc, *oscillators[osc]);
+    }
 
     p.osc1Chord = (int) getParam ("osc1_chord");
     p.osc2Chord = (int) getParam ("osc2_chord");
@@ -1439,9 +1425,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.route = (int) getParam (ids.route.toRawUTF8());
     };
 
-    fillWarpAndUnison (0, p.osc1);
-    fillWarpAndUnison (1, p.osc2);
-    fillWarpAndUnison (2, p.sub);
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        fillWarpAndUnison (osc, *oscillators[osc]);
 
     synth.setVoiceMode ((IlanaSynth::Mode) juce::jlimit (0, 2, (int) getParam ("voice_mode")),
                         (int) getParam ("poly_voices"), getParam ("glide_legato") > 0.5f);

@@ -102,15 +102,12 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
     sampleRate = newRate;
 
-    frameSmooth1.reset (newRate, 0.02);
-    frameSmooth2.reset (newRate, 0.02);
-    subFrameSmooth.reset (newRate, 0.02);
-    levelSmooth1.reset (newRate, 0.02);
-    levelSmooth2.reset (newRate, 0.02);
-    subSmooth.reset (newRate, 0.02);
-    osc1EnableSmooth.reset (newRate, 0.02);
-    osc2EnableSmooth.reset (newRate, 0.02);
-    subEnableSmooth.reset (newRate, 0.02);
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        frameSmooth[osc].reset (newRate, 0.02);
+        levelSmooth[osc].reset (newRate, 0.02);
+        oscEnableSmooth[osc].reset (newRate, 0.02);
+    }
     noiseSmooth.reset (newRate, 0.02);
     subOscLevelSmooth.reset (newRate, 0.02);
     subOscEnableSmooth.reset (newRate, 0.02);
@@ -122,21 +119,18 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     modEnv.setSampleRate (newRate);
     env4.setSampleRate (newRate);
 
-    for (auto* oscs : { osc1Unison, osc2Unison, subUnison })
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
         for (int u = 0; u < VoiceParams::maxUnison; ++u)
-            oscs[u].setSampleRate (newRate);
+            oscUnison[osc][u].setSampleRate (newRate);
 
-    for (auto* strings : { string1Unison, string2Unison, subStrings })
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
-            strings[u].prepare (newRate);
-
-    for (auto* players : { sample1Unison, sample2Unison, subSamples })
-        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
-            players[u].prepare (newRate);
-
-    for (auto* clouds : { grains1, grains2, grainsSub })
-        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
-            clouds[u].prepare (newRate);
+        {
+            stringUnison[osc][u].prepare (newRate);
+            sampleUnison[osc][u].prepare (newRate);
+            grains[osc][u].prepare (newRate);
+        }
+    }
 
     resonatorL.prepare (newRate);
     resonatorR.prepare (newRate);
@@ -182,12 +176,16 @@ void Voice::syncSamplePlayers()
         }
     };
 
-    setup (params.osc1, sample1Unison, grains1, blockMod (Mod::Destination::Osc1SampleStart),
-           blockMod (Mod::Destination::Osc1SampleEnd));
-    setup (params.osc2, sample2Unison, grains2, blockMod (Mod::Destination::Osc2SampleStart),
-           blockMod (Mod::Destination::Osc2SampleEnd));
-    setup (params.sub, subSamples, grainsSub, blockMod (Mod::Destination::SubSampleStart),
-           blockMod (Mod::Destination::SubSampleEnd));
+    constexpr Mod::Destination startDestinations[] { Mod::Destination::Osc1SampleStart,
+                                                      Mod::Destination::Osc2SampleStart,
+                                                      Mod::Destination::SubSampleStart };
+    constexpr Mod::Destination endDestinations[] { Mod::Destination::Osc1SampleEnd,
+                                                    Mod::Destination::Osc2SampleEnd,
+                                                    Mod::Destination::SubSampleEnd };
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        setup (params.oscillators[osc], sampleUnison[osc], grains[osc],
+               blockMod (startDestinations[osc]), blockMod (endDestinations[osc]));
 }
 
 void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound*, int currentPitchWheelPosition)
@@ -255,56 +253,32 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         auto phase = basePhase + jitter;
         phase -= std::floor (phase);
 
-        osc1Unison[u].resetPhase (phase);
-        osc2Unison[u].resetPhase (phase);
-        subUnison[u].resetPhase (phase);
+        for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+            oscUnison[osc][u].resetPhase (phase);
     }
 
     resonatorL.reset();
     resonatorR.reset();
 
-    if (params.osc1.stringMode && params.osc1Enabled)
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
-        const auto pitch = currentFrequency * std::exp2 ((params.osc1.semitones + params.osc1.cents / 100.0) / 12.0);
-        for (auto& string : string1Unison)
-        {
-            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc1.stringExcite)),
-                              params.osc1.stringSustain, params.osc1.stringDamping, params.osc1.stringDecay);
-            string.setFrequency (pitch);
-            string.setPhysicalParams (params.osc1.stringStiffness, params.osc1.stringPickup,
-                                      params.osc1.stringExcitationPosition, params.osc1.stringPickHardness,
-                                      params.osc1.stringPickPosition, params.osc1.stringSlap);
-            string.trigger (velocity);
-        }
-    }
+        const auto& settings = params.oscillators[osc];
 
-    if (params.osc2.stringMode && params.osc2Enabled)
-    {
-        const auto pitch = currentFrequency * std::exp2 ((params.osc2.semitones + params.osc2.cents / 100.0) / 12.0);
-        for (auto& string : string2Unison)
-        {
-            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc2.stringExcite)),
-                              params.osc2.stringSustain, params.osc2.stringDamping, params.osc2.stringDecay);
-            string.setFrequency (pitch);
-            string.setPhysicalParams (params.osc2.stringStiffness, params.osc2.stringPickup,
-                                      params.osc2.stringExcitationPosition, params.osc2.stringPickHardness,
-                                      params.osc2.stringPickPosition, params.osc2.stringSlap);
-            string.trigger (velocity);
-        }
-    }
+        if (! settings.stringMode || ! params.oscillatorEnabled[osc])
+            continue;
 
-    if (params.sub.stringMode && params.subEnabled)
-    {
-        const auto pitch = currentFrequency * std::exp2 ((params.sub.semitones + params.subOctaveOffset
-                                                         + params.sub.cents / 100.0) / 12.0);
-        for (auto& string : subStrings)
+        const auto pitch = currentFrequency
+                           * std::exp2 ((settings.semitones + (osc == 2 ? params.subOctaveOffset : 0)
+                                         + settings.cents / 100.0) / 12.0);
+
+        for (auto& string : stringUnison[osc])
         {
-            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.sub.stringExcite)),
-                              params.sub.stringSustain, params.sub.stringDamping, params.sub.stringDecay);
+            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, settings.stringExcite)),
+                              settings.stringSustain, settings.stringDamping, settings.stringDecay);
             string.setFrequency (pitch);
-            string.setPhysicalParams (params.sub.stringStiffness, params.sub.stringPickup,
-                                      params.sub.stringExcitationPosition, params.sub.stringPickHardness,
-                                      params.sub.stringPickPosition, params.sub.stringSlap);
+            string.setPhysicalParams (settings.stringStiffness, settings.stringPickup,
+                                      settings.stringExcitationPosition, settings.stringPickHardness,
+                                      settings.stringPickPosition, settings.stringSlap);
             string.trigger (velocity);
         }
     }
@@ -313,53 +287,35 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     const auto bufferedCount = [] (int unison) { return juce::jlimit (1, VoiceParams::maxBufferedUnison, unison); };
 
-    if (params.osc1.sampleMode && params.osc1Enabled && params.osc1.sample != nullptr)
-        for (int u = 0; u < bufferedCount (params.osc1.unison); ++u)
-        {
-            sample1Unison[u].trigger();
-            grains1[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
-        }
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto& settings = params.oscillators[osc];
 
-    if (params.osc2.sampleMode && params.osc2Enabled && params.osc2.sample != nullptr)
-        for (int u = 0; u < bufferedCount (params.osc2.unison); ++u)
-        {
-            sample2Unison[u].trigger();
-            grains2[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
-        }
+        if (settings.sampleMode && params.oscillatorEnabled[osc] && settings.sample != nullptr)
+            for (int u = 0; u < bufferedCount (settings.unison); ++u)
+            {
+                sampleUnison[osc][u].trigger();
+                grains[osc][u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
+            }
 
-    if (params.sub.sampleMode && params.subEnabled && params.sub.sample != nullptr)
-        for (int u = 0; u < bufferedCount (params.sub.unison); ++u)
-        {
-            subSamples[u].trigger();
-            grainsSub[u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
-        }
+        lastStringMode[osc] = settings.stringMode;
+        lastSampleMode[osc] = settings.sampleMode;
+        previousOsc[osc] = 0.0f;
+    }
 
-    lastStringMode1 = params.osc1.stringMode;
-    lastStringMode2 = params.osc2.stringMode;
-    lastSubStringMode = params.sub.stringMode;
-    lastSampleMode1 = params.osc1.sampleMode;
-    lastSampleMode2 = params.osc2.sampleMode;
-    lastSubSampleMode = params.sub.sampleMode;
-
-    previousOsc1 = 0.0f;
-    previousOsc2 = 0.0f;
-    previousOsc3 = 0.0f;
     driftValue = driftRandom.nextFloat() * 2.0f - 1.0f;
     driftTarget = driftValue;
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R })
         filter->reset();
 
-    frameSmooth1.setCurrentAndTargetValue (params.osc1.frame);
-    frameSmooth2.setCurrentAndTargetValue (params.osc2.frame);
-    subFrameSmooth.setCurrentAndTargetValue (params.sub.frame);
-    levelSmooth1.setCurrentAndTargetValue (params.osc1.level);
-    levelSmooth2.setCurrentAndTargetValue (params.osc2.level);
-    subSmooth.setCurrentAndTargetValue (params.sub.level);
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        frameSmooth[osc].setCurrentAndTargetValue (params.oscillators[osc].frame);
+        levelSmooth[osc].setCurrentAndTargetValue (params.oscillators[osc].level);
+        oscEnableSmooth[osc].setCurrentAndTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
+    }
     noiseSmooth.setCurrentAndTargetValue (params.noiseLevel);
-    osc1EnableSmooth.setCurrentAndTargetValue (params.osc1Enabled ? 1.0f : 0.0f);
-    osc2EnableSmooth.setCurrentAndTargetValue (params.osc2Enabled ? 1.0f : 0.0f);
-    subEnableSmooth.setCurrentAndTargetValue (params.subEnabled ? 1.0f : 0.0f);
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
 
@@ -522,15 +478,22 @@ void Voice::updateUnisonLayout()
             gains[u] *= norm;
     };
 
-    layout (params.osc1, numOsc1Unison, params.osc1Chord,
-            juce::jlimit (0.0f, 100.0f, params.osc1.detuneCents + blockMod (Mod::Destination::Osc1Detune) * detuneRange),
-            params.osc1.unisonBlend + blockMod (Mod::Destination::Osc1Blend), unisonOffset1, unisonGains1);
-    layout (params.osc2, numOsc2Unison, params.osc2Chord,
-            juce::jlimit (0.0f, 100.0f, params.osc2.detuneCents + blockMod (Mod::Destination::Osc2Detune) * detuneRange),
-            params.osc2.unisonBlend + blockMod (Mod::Destination::Osc2Blend), unisonOffset2, unisonGains2);
-    layout (params.sub, numSubUnison, params.sub.chord,
-            juce::jlimit (0.0f, 100.0f, params.sub.detuneCents + blockMod (Mod::Destination::SubDetune) * detuneRange),
-            params.sub.unisonBlend + blockMod (Mod::Destination::SubBlend), unisonOffsetSub, unisonGainsSub);
+    constexpr Mod::Destination detuneDestinations[] { Mod::Destination::Osc1Detune,
+                                                       Mod::Destination::Osc2Detune,
+                                                       Mod::Destination::SubDetune };
+    constexpr Mod::Destination blendDestinations[] { Mod::Destination::Osc1Blend,
+                                                      Mod::Destination::Osc2Blend,
+                                                      Mod::Destination::SubBlend };
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto& settings = params.oscillators[osc];
+        const auto chord = osc == 0 ? params.osc1Chord : (osc == 1 ? params.osc2Chord : settings.chord);
+        layout (settings, numOscUnison[osc], chord,
+                juce::jlimit (0.0f, 100.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
+                settings.unisonBlend + blockMod (blendDestinations[osc]),
+                unisonOffset[osc], unisonGains[osc]);
+    }
 }
 
 void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples)
@@ -602,37 +565,44 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         return (osc.stringMode || osc.sampleMode) ? VoiceParams::maxBufferedUnison : VoiceParams::maxUnison;
     };
 
-    numOsc1Unison = juce::jlimit (1, unisonLimit (params.osc1), params.osc1.unison);
-    numOsc2Unison = juce::jlimit (1, unisonLimit (params.osc2), params.osc2.unison);
-    numSubUnison = juce::jlimit (1, unisonLimit (params.sub), params.sub.unison);
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto& settings = params.oscillators[osc];
+        numOscUnison[osc] = juce::jlimit (1, unisonLimit (settings), settings.unison);
+    }
 
     updateUnisonLayout();
 
-    for (int u = 0; u < numOsc1Unison; ++u)
-        osc1Unison[u].setWavetable (params.osc1.table);
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        for (int u = 0; u < numOscUnison[osc]; ++u)
+            oscUnison[osc][u].setWavetable (params.oscillators[osc].table);
 
-    for (int u = 0; u < numOsc2Unison; ++u)
-        osc2Unison[u].setWavetable (params.osc2.table);
-
-    for (int u = 0; u < numSubUnison; ++u)
-        subUnison[u].setWavetable (params.sub.table);
-
-    for (int u = 0; u < juce::jmin (numSubUnison, VoiceParams::maxBufferedUnison); ++u)
+    const auto configureStrings = [this] (int osc)
     {
-        subStrings[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.sub.stringExcite)),
-                                 params.sub.stringSustain, params.sub.stringDamping, params.sub.stringDecay);
-        subStrings[u].setPhysicalParams (params.sub.stringStiffness, params.sub.stringPickup,
-                                         params.sub.stringExcitationPosition, params.sub.stringPickHardness,
-                                         params.sub.stringPickPosition, params.sub.stringSlap);
-        subStrings[u].setBowAndBuzz (params.sub.bowPressure, params.sub.bowSpeed,
-                                     params.sub.bridgeBuzz, params.sub.fretRattle);
-    }
+        const auto& settings = params.oscillators[osc];
 
-    if (params.sub.stringMode && ! lastSubStringMode && params.subEnabled)
-        for (int u = 0; u < juce::jmin (numSubUnison, VoiceParams::maxBufferedUnison); ++u)
-            subStrings[u].trigger (velocityLevel);
+        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+        {
+            auto& string = stringUnison[osc][u];
+            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, settings.stringExcite)),
+                              settings.stringSustain, settings.stringDamping, settings.stringDecay);
+            string.setPhysicalParams (settings.stringStiffness, settings.stringPickup,
+                                      settings.stringExcitationPosition, settings.stringPickHardness,
+                                      settings.stringPickPosition, settings.stringSlap);
+            string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed,
+                                  settings.bridgeBuzz, settings.fretRattle);
+        }
+    };
 
-    lastSubStringMode = params.sub.stringMode;
+    // Keep OSC 3's original transition order until the behaviour-preserving
+    // checkpoint; its string transition is recorded before sample sync.
+    configureStrings (2);
+
+    if (params.oscillators[2].stringMode && ! lastStringMode[2] && params.oscillatorEnabled[2])
+        for (int u = 0; u < juce::jmin (numOscUnison[2], VoiceParams::maxBufferedUnison); ++u)
+            stringUnison[2][u].trigger (velocityLevel);
+
+    lastStringMode[2] = params.oscillators[2].stringMode;
 
     const auto panMod = juce::jlimit (-1.0f, 1.0f, blockMod (D::Pan));
 
@@ -654,38 +624,35 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
     };
 
-    computePans (params.osc1, numOsc1Unison, blockMod (D::Osc1Pan), blockMod (D::Osc1Spread), panGain1L, panGain1R);
-    computePans (params.osc2, numOsc2Unison, blockMod (D::Osc2Pan), blockMod (D::Osc2Spread), panGain2L, panGain2R);
-    computePans (params.sub, numSubUnison, blockMod (D::SubPan), blockMod (D::SubSpread), panGainSubL, panGainSubR);
+    constexpr D panDestinations[] { D::Osc1Pan, D::Osc2Pan, D::SubPan };
+    constexpr D spreadDestinations[] { D::Osc1Spread, D::Osc2Spread, D::SubSpread };
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        computePans (params.oscillators[osc], numOscUnison[osc],
+                     blockMod (panDestinations[osc]), blockMod (spreadDestinations[osc]),
+                     panGainL[osc], panGainR[osc]);
+
     computePans (VoiceParams::OscParams {}, 1, 0.0f, 0.0f, &panGainSubOscL, &panGainSubOscR);
 
-    frameSmooth1.setTargetValue (params.osc1.frame);
-    frameSmooth2.setTargetValue (params.osc2.frame);
-    subFrameSmooth.setTargetValue (params.sub.frame);
-    levelSmooth1.setTargetValue (params.osc1.level);
-    levelSmooth2.setTargetValue (params.osc2.level);
-    subSmooth.setTargetValue (params.sub.level);
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        frameSmooth[osc].setTargetValue (params.oscillators[osc].frame);
+        levelSmooth[osc].setTargetValue (params.oscillators[osc].level);
+        oscEnableSmooth[osc].setTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
+    }
+
     noiseSmooth.setTargetValue (params.noiseLevel);
-    osc1EnableSmooth.setTargetValue (params.osc1Enabled ? 1.0f : 0.0f);
-    osc2EnableSmooth.setTargetValue (params.osc2Enabled ? 1.0f : 0.0f);
-    subEnableSmooth.setTargetValue (params.subEnabled ? 1.0f : 0.0f);
     subOscLevelSmooth.setTargetValue (params.subOscLevel);
     subOscEnableSmooth.setTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
     subOsc.setWavetable (params.subOscTable);
 
-    const auto osc1Active = params.osc1Enabled && (params.osc1.stringMode || params.osc1.sampleMode || params.osc1.table != nullptr);
-    const auto osc2Active = params.osc2Enabled && (params.osc2.stringMode || params.osc2.sampleMode || params.osc2.table != nullptr);
-    const auto subActive = params.subEnabled && (params.sub.stringMode || params.sub.sampleMode || params.sub.table != nullptr);
-
-    const auto modeChanged1 = params.osc1.stringMode != lastStringMode1 || params.osc1.sampleMode != lastSampleMode1;
-    const auto modeChanged2 = params.osc2.stringMode != lastStringMode2 || params.osc2.sampleMode != lastSampleMode2;
-    const auto modeChangedSub = params.sub.stringMode != lastSubStringMode || params.sub.sampleMode != lastSubSampleMode;
+    const bool modeChanged[VoiceParams::numOscillators] {
+        params.oscillators[0].stringMode != lastStringMode[0] || params.oscillators[0].sampleMode != lastSampleMode[0],
+        params.oscillators[1].stringMode != lastStringMode[1] || params.oscillators[1].sampleMode != lastSampleMode[1],
+        params.oscillators[2].stringMode != lastStringMode[2] || params.oscillators[2].sampleMode != lastSampleMode[2]
+    };
 
     syncSamplePlayers();
-
-    const auto sampleChanged1 = params.osc1.sampleMode && params.osc1Enabled && params.osc1.sample != nullptr;
-    const auto sampleChanged2 = params.osc2.sampleMode && params.osc2Enabled && params.osc2.sample != nullptr;
-    const auto sampleChangedSub = params.sub.sampleMode && params.subEnabled && params.sub.sample != nullptr;
 
     const auto retriggerNewPlayers = [] (SamplePlayer* players, bool wasSampling, bool wasEnabled,
                                          int previousCount, int count)
@@ -696,75 +663,40 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             players[u].trigger();
     };
 
-    if (sampleChanged1)
-        retriggerNewPlayers (sample1Unison, lastSampleMode1, lastEnabled1, lastUnison1, numOsc1Unison);
-
-    if (sampleChanged2)
-        retriggerNewPlayers (sample2Unison, lastSampleMode2, lastEnabled2, lastUnison2, numOsc2Unison);
-
-    if (sampleChangedSub)
-        retriggerNewPlayers (subSamples, lastSubSampleMode, lastEnabledSub, lastUnisonSub, numSubUnison);
-
-    lastSampleMode1 = params.osc1.sampleMode;
-    lastSampleMode2 = params.osc2.sampleMode;
-    lastSubSampleMode = params.sub.sampleMode;
-    lastEnabled1 = params.osc1Enabled;
-    lastEnabled2 = params.osc2Enabled;
-    lastEnabledSub = params.subEnabled;
-    lastUnison1 = numOsc1Unison;
-    lastUnison2 = numOsc2Unison;
-    lastUnisonSub = numSubUnison;
-
-    for (int u = 0; u < juce::jmin (numOsc1Unison, VoiceParams::maxBufferedUnison); ++u)
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
-        string1Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc1.stringExcite)),
-                                    params.osc1.stringSustain, params.osc1.stringDamping, params.osc1.stringDecay);
-        string1Unison[u].setPhysicalParams (params.osc1.stringStiffness, params.osc1.stringPickup,
-                                            params.osc1.stringExcitationPosition, params.osc1.stringPickHardness,
-                                            params.osc1.stringPickPosition, params.osc1.stringSlap);
-        string1Unison[u].setBowAndBuzz (params.osc1.bowPressure, params.osc1.bowSpeed,
-                                        params.osc1.bridgeBuzz, params.osc1.fretRattle);
+        const auto& settings = params.oscillators[osc];
+        const auto sampling = settings.sampleMode && params.oscillatorEnabled[osc] && settings.sample != nullptr;
+
+        if (sampling)
+            retriggerNewPlayers (sampleUnison[osc], lastSampleMode[osc], lastEnabled[osc],
+                                 lastUnison[osc], numOscUnison[osc]);
+
+        lastSampleMode[osc] = settings.sampleMode;
+        lastEnabled[osc] = params.oscillatorEnabled[osc];
+        lastUnison[osc] = numOscUnison[osc];
     }
 
-    for (int u = 0; u < juce::jmin (numOsc2Unison, VoiceParams::maxBufferedUnison); ++u)
-    {
-        string2Unison[u].setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, params.osc2.stringExcite)),
-                                    params.osc2.stringSustain, params.osc2.stringDamping, params.osc2.stringDecay);
-        string2Unison[u].setPhysicalParams (params.osc2.stringStiffness, params.osc2.stringPickup,
-                                            params.osc2.stringExcitationPosition, params.osc2.stringPickHardness,
-                                            params.osc2.stringPickPosition, params.osc2.stringSlap);
-        string2Unison[u].setBowAndBuzz (params.osc2.bowPressure, params.osc2.bowSpeed,
-                                        params.osc2.bridgeBuzz, params.osc2.fretRattle);
-    }
+    for (int osc = 0; osc < 2; ++osc)
+        configureStrings (osc);
 
-    if (params.osc1.stringMode && ! lastStringMode1)
-        for (int u = 0; u < juce::jmin (numOsc1Unison, VoiceParams::maxBufferedUnison); ++u)
-            string1Unison[u].trigger (velocityLevel);
+    if (params.oscillators[0].stringMode && ! lastStringMode[0])
+        for (int u = 0; u < juce::jmin (numOscUnison[0], VoiceParams::maxBufferedUnison); ++u)
+            stringUnison[0][u].trigger (velocityLevel);
 
-    if (modeChanged1)
-    {
-        osc1EnableSmooth.setCurrentAndTargetValue (0.0f);
-        osc1EnableSmooth.setTargetValue (params.osc1Enabled ? 1.0f : 0.0f);
-    }
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        if (modeChanged[osc])
+        {
+            oscEnableSmooth[osc].setCurrentAndTargetValue (0.0f);
+            oscEnableSmooth[osc].setTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
+        }
 
-    if (modeChanged2)
-    {
-        osc2EnableSmooth.setCurrentAndTargetValue (0.0f);
-        osc2EnableSmooth.setTargetValue (params.osc2Enabled ? 1.0f : 0.0f);
-    }
+    if (params.oscillators[1].stringMode && ! lastStringMode[1])
+        for (int u = 0; u < juce::jmin (numOscUnison[1], VoiceParams::maxBufferedUnison); ++u)
+            stringUnison[1][u].trigger (velocityLevel);
 
-    if (modeChangedSub)
-    {
-        subEnableSmooth.setCurrentAndTargetValue (0.0f);
-        subEnableSmooth.setTargetValue (params.subEnabled ? 1.0f : 0.0f);
-    }
-
-    if (params.osc2.stringMode && ! lastStringMode2)
-        for (int u = 0; u < juce::jmin (numOsc2Unison, VoiceParams::maxBufferedUnison); ++u)
-            string2Unison[u].trigger (velocityLevel);
-
-    lastStringMode1 = params.osc1.stringMode;
-    lastStringMode2 = params.osc2.stringMode;
+    for (int osc = 0; osc < 2; ++osc)
+        lastStringMode[osc] = params.oscillators[osc].stringMode;
 
     const auto resonatorAmount = juce::jlimit (0.0f, 1.0f, params.resonatorAmount + blockMod (D::ResAmount));
     const auto resonatorDecay = juce::jlimit (0.0f, 1.0f, params.resonatorDecay + blockMod (D::ResDecay));
@@ -781,16 +713,23 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const auto ampVelScale = 1.0f - params.ampVelocity + params.ampVelocity * velocityLevel;
     auto* mods = sampleMods.data();
 
-    const auto route1 = juce::jlimit (0, FilterRoute::Count - 1, params.osc1.route);
-    const auto route2 = juce::jlimit (0, FilterRoute::Count - 1, params.osc2.route);
-    const auto routeSub = juce::jlimit (0, FilterRoute::Count - 1, params.sub.route);
+    constexpr D frameDestinations[] { D::Osc1Frame, D::Osc2Frame, D::SubFrame };
+    constexpr D levelDestinations[] { D::Osc1Level, D::Osc2Level, D::SubLevel };
+    constexpr D warpDestinations[] { D::Osc1Warp, D::Osc2Warp, D::SubWarp };
+    int routes[VoiceParams::numOscillators] {};
+    bool active[VoiceParams::numOscillators] {};
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto& settings = params.oscillators[osc];
+        routes[osc] = juce::jlimit (0, FilterRoute::Count - 1, settings.route);
+        active[osc] = params.oscillatorEnabled[osc]
+                      && (settings.stringMode || settings.sampleMode || settings.table != nullptr);
+    }
+
     const auto routeSubOsc = juce::jlimit (0, FilterRoute::Count - 1, params.subOscRoute);
     const auto subOscActive = params.subOscEnabled && params.subOscTable != nullptr;
     const auto subOscFrames = WavetableOscillator::frameReadFor (params.subOscTable, 0.0f);
-
-    const auto warp1Mode = params.osc1.warpMode;
-    const auto warp2Mode = params.osc2.warpMode;
-    const auto warpSubMode = params.sub.warpMode;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -809,229 +748,131 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                  || mods[(int) D::Filter1Fm] != 0.0f || mods[(int) D::Filter2Fm] != 0.0f)
             updateFilterCoefficients (mods, filterValue, filter2Value);
 
-        // One stereo bus per filter route; with every oscillator on Default
-        // only bus 0 is used and the signal flow is exactly the classic one.
+        // Keep the old operator order: 1, sync, 2, ring, then 3.
         float busL[FilterRoute::Count] {};
         float busR[FilterRoute::Count] {};
-        auto osc1Mono = 0.0f;
-        auto osc2Mono = 0.0f;
-        auto osc3Mono = 0.0f;
+        float oscMono[VoiceParams::numOscillators] {};
 
-        // FM matrix: each oscillator hears the others (and itself) from the
-        // previous sample. Phase mode offsets the phase (as FM always did);
-        // through-zero and exponential bend the frequency instead.
         const auto fmAmount = params.fmAmount + mods[(int) D::FmAmount];
         const auto fmFeedback = params.fmFeedback + mods[(int) D::FmFeedback];
         const auto fm3to1 = params.fmMatrix[2][0] + mods[(int) D::Fm3to1];
-        const auto fmInput1 = (double) (fmAmount * previousOsc2 + fmFeedback * previousOsc1) + (double) (fm3to1 * previousOsc3);
-        const auto fmInput2 = (double) ((params.fmMatrix[0][1] + mods[(int) D::Fm1to2]) * previousOsc1
-                                        + (params.fmMatrix[1][1] + mods[(int) D::Fm2Feedback]) * previousOsc2
-                                        + (params.fmMatrix[2][1] + mods[(int) D::Fm3to2]) * previousOsc3);
-        const auto fmInput3 = (double) ((params.fmMatrix[0][2] + mods[(int) D::Fm1to3]) * previousOsc1
-                                        + (params.fmMatrix[1][2] + mods[(int) D::Fm2to3]) * previousOsc2
-                                        + (params.fmMatrix[2][2] + mods[(int) D::Fm3Feedback]) * previousOsc3);
+        const double fmInput[VoiceParams::numOscillators] {
+            (double) (fmAmount * previousOsc[1] + fmFeedback * previousOsc[0]) + (double) (fm3to1 * previousOsc[2]),
+            (double) ((params.fmMatrix[0][1] + mods[(int) D::Fm1to2]) * previousOsc[0]
+                      + (params.fmMatrix[1][1] + mods[(int) D::Fm2Feedback]) * previousOsc[1]
+                      + (params.fmMatrix[2][1] + mods[(int) D::Fm3to2]) * previousOsc[2]),
+            (double) ((params.fmMatrix[0][2] + mods[(int) D::Fm1to3]) * previousOsc[0]
+                      + (params.fmMatrix[1][2] + mods[(int) D::Fm2to3]) * previousOsc[1]
+                      + (params.fmMatrix[2][2] + mods[(int) D::Fm3Feedback]) * previousOsc[2])
+        };
 
         const auto fmPhase = [this] (double input) { return params.fmMode == 0 ? input : 0.0; };
         const auto fmRate = [this] (double input)
         {
             if (params.fmMode == 1)
-                return 1.0 + 4.0 * input;               // through-zero: up to +-4x the pitch
+                return 1.0 + 4.0 * input;
 
             if (params.fmMode == 2)
-                return std::exp2 (juce::jlimit (-4.0, 4.0, 2.0 * input)); // exponential: up to +-2 octaves
+                return std::exp2 (juce::jlimit (-4.0, 4.0, 2.0 * input));
 
             return 1.0;
         };
 
-        auto phaseModulation = fmPhase (fmInput1);
-        const auto rate1 = fmRate (fmInput1);
-
-        const auto warp1Amount = juce::jlimit (0.0f, 1.0f, params.osc1.warpAmount + mods[(int) D::Osc1Warp]);
-
-        if (warp1Mode == Warp::Fm)
-            phaseModulation += (double) (warp1Amount * previousOsc2);
-
-        const auto enable1 = osc1EnableSmooth.getNextValue();
-
-        if (osc1Active || enable1 > 0.0005f)
+        for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         {
-            const auto frame = juce::jlimit (0.0f, 1.0f, frameSmooth1.getNextValue() + mods[(int) D::Osc1Frame]);
-            const auto level = juce::jlimit (0.0f, 1.0f, levelSmooth1.getNextValue() + mods[(int) D::Osc1Level]);
-            const auto ring = warp1Mode == Warp::Ring ? 1.0f + (previousOsc2 - 1.0f) * warp1Amount : 1.0f;
-            const auto frames = WavetableOscillator::frameReadFor (params.osc1.table, frame);
+            const auto& settings = params.oscillators[osc];
+            const auto warpAmount = juce::jlimit (0.0f, 1.0f,
+                                                  settings.warpAmount + mods[(int) warpDestinations[osc]]);
+            const auto enable = oscEnableSmooth[osc].getNextValue();
+            const auto level = osc == 2 ? juce::jlimit (0.0f, 1.0f,
+                                                        levelSmooth[osc].getNextValue() + mods[(int) levelDestinations[osc]])
+                                        : 0.0f;
+            const auto shouldRender = (active[osc] || enable > 0.0005f) && (osc != 2 || level > 0.0f);
 
-            for (int u = 0; u < numOsc1Unison; ++u)
+            if (shouldRender)
             {
-                float raw = 0.0f;
-                float sampleL = 0.0f;
-                float sampleR = 0.0f;
+                const auto frame = juce::jlimit (0.0f, 1.0f,
+                                                 frameSmooth[osc].getNextValue() + mods[(int) frameDestinations[osc]]);
+                const auto renderLevel = osc == 2 ? level : juce::jlimit (0.0f, 1.0f,
+                                                   levelSmooth[osc].getNextValue() + mods[(int) levelDestinations[osc]]);
+                const auto warpSource = osc == 0 ? previousOsc[1] : oscMono[0];
+                const auto phase = fmPhase (fmInput[osc])
+                                   + (settings.warpMode == Warp::Fm ? (double) (warpAmount * warpSource) : 0.0);
+                const auto rate = fmRate (fmInput[osc]);
+                const auto ring = settings.warpMode == Warp::Ring
+                                      ? 1.0f + (warpSource - 1.0f) * warpAmount : 1.0f;
+                const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
 
-                if (params.osc1.granularMode)
+                for (int u = 0; u < numOscUnison[osc]; ++u)
                 {
-                    grains1[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.osc1.sampleMode)
-                {
-                    sample1Unison[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.osc1.stringMode)
-                {
-                    raw = string1Unison[u].process (aftertouchValue, noteHeld);
-                }
-                else
-                {
-                    osc1Unison[u].setFramePosition (frame);
-                    raw = osc1Unison[u].getNextSample (phaseModulation, frames, rate1) * ring;
-                }
+                    float raw = 0.0f;
+                    float sampleL = 0.0f;
+                    float sampleR = 0.0f;
 
-                const auto gain = unisonGains1[u] * level * enable1;
-                osc1Mono += raw * gain;
+                    if (settings.granularMode)
+                    {
+                        grains[osc][u].process (sampleL, sampleR);
+                        raw = 0.5f * (sampleL + sampleR);
+                    }
+                    else if (settings.sampleMode)
+                    {
+                        sampleUnison[osc][u].process (sampleL, sampleR);
+                        raw = 0.5f * (sampleL + sampleR);
+                    }
+                    else if (settings.stringMode)
+                    {
+                        raw = stringUnison[osc][u].process (aftertouchValue, noteHeld);
+                    }
+                    else
+                    {
+                        oscUnison[osc][u].setFramePosition (frame);
+                        raw = oscUnison[osc][u].getNextSample (phase, frames, rate) * ring;
+                    }
 
-                if (params.oscOut[0])
-                {
-                    busL[route1] += (params.osc1.sampleMode ? sampleL : raw) * gain * panGain1L[u];
-                    busR[route1] += (params.osc1.sampleMode ? sampleR : raw) * gain * panGain1R[u];
+                    const auto gain = unisonGains[osc][u] * renderLevel * enable;
+                    oscMono[osc] += raw * gain;
+
+                    if (params.oscOut[osc])
+                    {
+                        busL[routes[osc]] += (settings.sampleMode ? sampleL : raw) * gain * panGainL[osc][u];
+                        busR[routes[osc]] += (settings.sampleMode ? sampleR : raw) * gain * panGainR[osc][u];
+                    }
                 }
             }
-        }
-        else
-        {
-            frameSmooth1.getNextValue();
-            levelSmooth1.getNextValue();
-        }
-
-        if (params.hardSync && osc2Active && osc1Active && ! params.osc1.stringMode && ! params.osc2.stringMode
-            && ! params.osc1.sampleMode && ! params.osc2.sampleMode
-            && osc1Unison[0].wrappedThisSample())
-        {
-            for (int u = 0; u < numOsc2Unison; ++u)
-                osc2Unison[u].resetPhase();
-        }
-
-        const auto enable2 = osc2EnableSmooth.getNextValue();
-        const auto warp2Amount = juce::jlimit (0.0f, 1.0f, params.osc2.warpAmount + mods[(int) D::Osc2Warp]);
-
-        if (osc2Active || enable2 > 0.0005f)
-        {
-            const auto frame = juce::jlimit (0.0f, 1.0f, frameSmooth2.getNextValue() + mods[(int) D::Osc2Frame]);
-            const auto level = juce::jlimit (0.0f, 1.0f, levelSmooth2.getNextValue() + mods[(int) D::Osc2Level]);
-            const auto phaseMod2 = (warp2Mode == Warp::Fm ? (double) (warp2Amount * osc1Mono) : 0.0) + fmPhase (fmInput2);
-            const auto rate2 = fmRate (fmInput2);
-            const auto ring = warp2Mode == Warp::Ring ? 1.0f + (osc1Mono - 1.0f) * warp2Amount : 1.0f;
-            const auto frames = WavetableOscillator::frameReadFor (params.osc2.table, frame);
-
-            for (int u = 0; u < numOsc2Unison; ++u)
+            else
             {
-                float raw = 0.0f;
-                float sampleL = 0.0f;
-                float sampleR = 0.0f;
+                frameSmooth[osc].getNextValue();
 
-                if (params.osc2.granularMode)
-                {
-                    grains2[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.osc2.sampleMode)
-                {
-                    sample2Unison[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.osc2.stringMode)
-                {
-                    raw = string2Unison[u].process (aftertouchValue, noteHeld);
-                }
-                else
-                {
-                    osc2Unison[u].setFramePosition (frame);
-                    raw = osc2Unison[u].getNextSample (phaseMod2, frames, rate2) * ring;
-                }
+                if (osc != 2)
+                    levelSmooth[osc].getNextValue();
+            }
 
-                const auto gain = unisonGains2[u] * level * enable2;
-                osc2Mono += raw * gain;
+            if (osc == 0 && params.hardSync && active[1] && active[0]
+                && ! params.oscillators[0].stringMode && ! params.oscillators[1].stringMode
+                && ! params.oscillators[0].sampleMode && ! params.oscillators[1].sampleMode
+                && oscUnison[0][0].wrappedThisSample())
+                for (int u = 0; u < numOscUnison[1]; ++u)
+                    oscUnison[1][u].resetPhase();
 
-                if (params.oscOut[1])
-                {
-                    busL[route2] += (params.osc2.sampleMode ? sampleL : raw) * gain * panGain2L[u];
-                    busR[route2] += (params.osc2.sampleMode ? sampleR : raw) * gain * panGain2R[u];
-                }
+            if (osc == 1)
+            {
+                const auto ringMod = params.ringMod + mods[(int) D::RingMod];
+
+                if (ringMod > 0.0f && active[0] && active[1])
+                    for (int bus = 0; bus < FilterRoute::Count; ++bus)
+                    {
+                        busL[bus] += (busL[bus] * oscMono[1] - busL[bus]) * ringMod;
+                        busR[bus] += (busR[bus] * oscMono[1] - busR[bus]) * ringMod;
+                    }
+
+                previousOsc[0] = juce::jlimit (-2.0f, 2.0f, oscMono[0]);
+                previousOsc[1] = juce::jlimit (-2.0f, 2.0f, oscMono[1]);
+            }
+            else if (osc == 2)
+            {
+                previousOsc[2] = juce::jlimit (-2.0f, 2.0f, oscMono[2]);
             }
         }
-        else
-        {
-            frameSmooth2.getNextValue();
-            levelSmooth2.getNextValue();
-        }
-
-        const auto ringMod = params.ringMod + mods[(int) D::RingMod];
-
-        if (ringMod > 0.0f && osc1Active && osc2Active)
-        {
-            for (int bus = 0; bus < FilterRoute::Count; ++bus)
-            {
-                busL[bus] += (busL[bus] * osc2Mono - busL[bus]) * ringMod;
-                busR[bus] += (busR[bus] * osc2Mono - busR[bus]) * ringMod;
-            }
-        }
-
-        previousOsc1 = juce::jlimit (-2.0f, 2.0f, osc1Mono);
-        previousOsc2 = juce::jlimit (-2.0f, 2.0f, osc2Mono);
-
-        const auto subLevel = juce::jlimit (0.0f, 1.0f, subSmooth.getNextValue() + mods[(int) D::SubLevel]);
-        const auto enableSub = subEnableSmooth.getNextValue();
-
-        if (subLevel > 0.0f && (subActive || enableSub > 0.0005f))
-        {
-            const auto frame = juce::jlimit (0.0f, 1.0f, subFrameSmooth.getNextValue() + mods[(int) D::SubFrame]);
-            const auto warpSubAmount = juce::jlimit (0.0f, 1.0f, params.sub.warpAmount + mods[(int) D::SubWarp]);
-            const auto phaseModSub = (warpSubMode == Warp::Fm ? (double) (warpSubAmount * osc1Mono) : 0.0) + fmPhase (fmInput3);
-            const auto rateSub = fmRate (fmInput3);
-            const auto ring = warpSubMode == Warp::Ring ? 1.0f + (osc1Mono - 1.0f) * warpSubAmount : 1.0f;
-            const auto frames = WavetableOscillator::frameReadFor (params.sub.table, frame);
-
-            for (int u = 0; u < numSubUnison; ++u)
-            {
-                float raw = 0.0f;
-                float sampleL = 0.0f;
-                float sampleR = 0.0f;
-
-                if (params.sub.granularMode)
-                {
-                    grainsSub[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.sub.sampleMode)
-                {
-                    subSamples[u].process (sampleL, sampleR);
-                    raw = 0.5f * (sampleL + sampleR);
-                }
-                else if (params.sub.stringMode)
-                {
-                    raw = subStrings[u].process (aftertouchValue, noteHeld);
-                }
-                else
-                {
-                    subUnison[u].setFramePosition (frame);
-                    raw = subUnison[u].getNextSample (phaseModSub, frames, rateSub) * ring;
-                }
-
-                const auto gain = unisonGainsSub[u] * subLevel * enableSub;
-                osc3Mono += raw * gain;
-
-                if (params.oscOut[2])
-                {
-                    busL[routeSub] += (params.sub.sampleMode ? sampleL : raw) * gain * panGainSubL[u];
-                    busR[routeSub] += (params.sub.sampleMode ? sampleR : raw) * gain * panGainSubR[u];
-                }
-            }
-        }
-        else
-        {
-            subFrameSmooth.getNextValue();
-        }
-
-        previousOsc3 = juce::jlimit (-2.0f, 2.0f, osc3Mono);
 
         // Dedicated sub: plain table at frame 0, centre pan.
         const auto subOscLevel = subOscLevelSmooth.getNextValue();
@@ -1125,9 +966,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         return (float) juce::jlimit (0.0, 1.0, player.getSourcePosition() / (double) data->getNumSamples());
     };
 
-    lastSamplePosition1 = params.osc1.sampleMode ? samplePositionOf (sample1Unison[0], params.osc1.sample) : -1.0f;
-    lastSamplePosition2 = params.osc2.sampleMode ? samplePositionOf (sample2Unison[0], params.osc2.sample) : -1.0f;
-    lastSamplePositionSub = params.sub.sampleMode ? samplePositionOf (subSamples[0], params.sub.sample) : -1.0f;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        lastSamplePosition[osc] = params.oscillators[osc].sampleMode
+                                      ? samplePositionOf (sampleUnison[osc][0], params.oscillators[osc].sample) : -1.0f;
 
     if (! ampEnv.isActive())
         clearCurrentNote();
@@ -1155,69 +996,35 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
 
     // Warp amounts move at sub-block rate: the table-level choice behind them
     // is too costly to redo every sample.
-    const auto warp1 = juce::jlimit (0.0f, 1.0f, params.osc1.warpAmount + mods[(int) D::Osc1Warp]);
-    const auto warp2 = juce::jlimit (0.0f, 1.0f, params.osc2.warpAmount + mods[(int) D::Osc2Warp]);
-    const auto warpSub = juce::jlimit (0.0f, 1.0f, params.sub.warpAmount + mods[(int) D::SubWarp]);
+    constexpr D warpDestinations[] { D::Osc1Warp, D::Osc2Warp, D::SubWarp };
+    constexpr D pitchDestinations[] { D::Osc1Pitch, D::Osc2Pitch, D::SubPitch };
 
-    const auto pitch1 = std::exp2 ((params.osc1.semitones + params.osc1.cents / 100.0 + bendSemitones
-                                    + (double) mods[(int) D::Osc1Pitch] * 48.0) / 12.0);
-    const auto baseFreq1 = driftedFrequency * pitch1;
-
-    for (int u = 0; u < numOsc1Unison; ++u)
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
-        const auto frequencyU = baseFreq1 * std::exp2 (unisonOffset1[u] / 12.0);
-        osc1Unison[u].setFrequency (frequencyU);
-        osc1Unison[u].setWarp (params.osc1.warpMode, warp1);
+        const auto& settings = params.oscillators[osc];
 
-        if (u < VoiceParams::maxBufferedUnison)
+        if (osc == 2 && settings.level <= 0.0f)
+            continue;
+
+        const auto warp = juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]]);
+        const auto pitch = std::exp2 ((settings.semitones + (osc == 2 ? (double) params.subOctaveOffset : 0.0)
+                                       + settings.cents / 100.0 + bendSemitones
+                                       + (double) mods[(int) pitchDestinations[osc]] * 48.0) / 12.0);
+        const auto baseFreq = driftedFrequency * pitch;
+
+        for (int u = 0; u < numOscUnison[osc]; ++u)
         {
-            string1Unison[u].setFrequency (frequencyU);
-            sampleRatio1[u] = params.osc1.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
-            grains1[u].setPlaybackRatio (sampleRatio1[u]);
-            sample1Unison[u].setPlaybackRatio ((params.osc1.sample != nullptr ? params.osc1.sample->sampleRate / sampleRate : 1.0)
-                                               * sampleRatio1[u]);
-        }
-    }
-
-    const auto pitch2 = std::exp2 ((params.osc2.semitones + params.osc2.cents / 100.0 + bendSemitones
-                                    + (double) mods[(int) D::Osc2Pitch] * 48.0) / 12.0);
-    const auto baseFreq2 = driftedFrequency * pitch2;
-
-    for (int u = 0; u < numOsc2Unison; ++u)
-    {
-        const auto frequencyU = baseFreq2 * std::exp2 (unisonOffset2[u] / 12.0);
-        osc2Unison[u].setFrequency (frequencyU);
-        osc2Unison[u].setWarp (params.osc2.warpMode, warp2);
-
-        if (u < VoiceParams::maxBufferedUnison)
-        {
-            string2Unison[u].setFrequency (frequencyU);
-            sampleRatio2[u] = params.osc2.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
-            grains2[u].setPlaybackRatio (sampleRatio2[u]);
-            sample2Unison[u].setPlaybackRatio ((params.osc2.sample != nullptr ? params.osc2.sample->sampleRate / sampleRate : 1.0)
-                                               * sampleRatio2[u]);
-        }
-    }
-
-    if (params.sub.level > 0.0f)
-    {
-        const auto subPitch = std::exp2 ((params.sub.semitones + (double) params.subOctaveOffset
-                                          + params.sub.cents / 100.0 + bendSemitones
-                                          + (double) mods[(int) D::SubPitch] * 48.0) / 12.0);
-
-        for (int u = 0; u < numSubUnison; ++u)
-        {
-            const auto frequencyU = driftedFrequency * subPitch * std::exp2 (unisonOffsetSub[u] / 12.0);
-            subUnison[u].setFrequency (frequencyU);
-            subUnison[u].setWarp (params.sub.warpMode, warpSub);
+            const auto frequencyU = baseFreq * std::exp2 (unisonOffset[osc][u] / 12.0);
+            oscUnison[osc][u].setFrequency (frequencyU);
+            oscUnison[osc][u].setWarp (settings.warpMode, warp);
 
             if (u < VoiceParams::maxBufferedUnison)
             {
-                subStrings[u].setFrequency (frequencyU);
-                sampleRatioSub[u] = params.sub.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
-                grainsSub[u].setPlaybackRatio (sampleRatioSub[u]);
-                subSamples[u].setPlaybackRatio ((params.sub.sample != nullptr ? params.sub.sample->sampleRate / sampleRate : 1.0)
-                                                * sampleRatioSub[u]);
+                stringUnison[osc][u].setFrequency (frequencyU);
+                sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
+                grains[osc][u].setPlaybackRatio (sampleRatio[osc][u]);
+                sampleUnison[osc][u].setPlaybackRatio ((settings.sample != nullptr ? settings.sample->sampleRate / sampleRate : 1.0)
+                                                       * sampleRatio[osc][u]);
             }
         }
     }
@@ -1241,8 +1048,8 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     const auto velocityEnvScale = 1.0f - params.filterVelocity + params.filterVelocity * velocityLevel;
 
-    const auto fmOctaves1 = (double) (params.filter1Fm + mods[(int) D::Filter1Fm]) * (double) previousOsc2 * 4.0;
-    const auto fmOctaves2 = (double) (params.filter2Fm + mods[(int) D::Filter2Fm]) * (double) previousOsc2 * 4.0;
+    const auto fmOctaves1 = (double) (params.filter1Fm + mods[(int) D::Filter1Fm]) * (double) previousOsc[1] * 4.0;
+    const auto fmOctaves2 = (double) (params.filter2Fm + mods[(int) D::Filter2Fm]) * (double) previousOsc[1] * 4.0;
 
     const auto keyOctaves1 = (double) params.filter1.keyTrack * (double) keyTrackOctaves;
     const auto envOctaves1 = (double) (params.filter1.envAmount + mods[(int) D::Filter1Env] * envAmountRange)

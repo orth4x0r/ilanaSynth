@@ -9,6 +9,7 @@
 #include "KarplusStrong.h"
 #include "LfoShape.h"
 #include "Modulation.h"
+#include "OscillatorIds.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
 #include "SamplePlayer.h"
@@ -41,6 +42,7 @@ inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2"
 
 struct VoiceParams
 {
+    static constexpr int numOscillators = OscillatorIds::count;
     static constexpr int maxUnison = 16;
     // String and sample unison each carry a long delay/sample buffer, so they
     // stop at 8 voices; wavetable unison goes to 16.
@@ -125,12 +127,8 @@ struct VoiceParams
         int customSize = 0;
     };
 
-    OscParams osc1;
-    bool osc1Enabled = true;
-    OscParams osc2;
-    bool osc2Enabled = false;
-    OscParams sub;
-    bool subEnabled = true;
+    std::array<OscParams, numOscillators> oscillators;
+    std::array<bool, numOscillators> oscillatorEnabled { true, false, true };
     int subOctaveOffset = -12;
 
     float fmAmount = 0.0f;
@@ -228,13 +226,12 @@ public:
     float getLastAmpValue() const { return lastAmpValue; }
     float getLastSamplePosition (int oscIndex) const
     {
-        return oscIndex == 0 ? lastSamplePosition1 : (oscIndex == 1 ? lastSamplePosition2 : lastSamplePositionSub);
+        return lastSamplePosition[(size_t) juce::jlimit (0, VoiceParams::numOscillators - 1, oscIndex)];
     }
 
     float getLastWavetablePhase (int oscIndex) const
     {
-        const auto* unison = oscIndex == 0 ? osc1Unison : (oscIndex == 1 ? osc2Unison : subUnison);
-        return unison[0].getPhase();
+        return oscUnison[juce::jlimit (0, VoiceParams::numOscillators - 1, oscIndex)][0].getPhase();
     }
     float getLastFilterValue() const { return lastFilterValue; }
     float getLastFilter2Value() const { return lastFilter2Value; }
@@ -283,20 +280,11 @@ private:
 
     VoiceParams params;
 
-    WavetableOscillator osc1Unison[VoiceParams::maxUnison];
-    WavetableOscillator osc2Unison[VoiceParams::maxUnison];
-    WavetableOscillator subUnison[VoiceParams::maxUnison];
-    KarplusStrong string1Unison[VoiceParams::maxBufferedUnison];
-    KarplusStrong string2Unison[VoiceParams::maxBufferedUnison];
-    KarplusStrong subStrings[VoiceParams::maxBufferedUnison];
-    SamplePlayer sample1Unison[VoiceParams::maxBufferedUnison];
-    SamplePlayer sample2Unison[VoiceParams::maxBufferedUnison];
-    SamplePlayer subSamples[VoiceParams::maxBufferedUnison];
-    GranularOsc grains1[VoiceParams::maxBufferedUnison];
-    GranularOsc grains2[VoiceParams::maxBufferedUnison];
-    GranularOsc grainsSub[VoiceParams::maxBufferedUnison];
-    double sampleRatio1[VoiceParams::maxUnison] {}, sampleRatio2[VoiceParams::maxUnison] {};
-    double sampleRatioSub[VoiceParams::maxUnison] {};
+    WavetableOscillator oscUnison[VoiceParams::numOscillators][VoiceParams::maxUnison];
+    KarplusStrong stringUnison[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    SamplePlayer sampleUnison[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    GranularOsc grains[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
 
     FilterUnit filter1L, filter1R, filter2L, filter2R;
@@ -304,10 +292,10 @@ private:
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;
     juce::Random random;
 
-    juce::SmoothedValue<float> frameSmooth1, frameSmooth2, subFrameSmooth;
-    juce::SmoothedValue<float> levelSmooth1, levelSmooth2;
-    juce::SmoothedValue<float> subSmooth, noiseSmooth;
-    juce::SmoothedValue<float> osc1EnableSmooth, osc2EnableSmooth, subEnableSmooth;
+    juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
+    juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];
+    juce::SmoothedValue<float> noiseSmooth;
+    juce::SmoothedValue<float> oscEnableSmooth[VoiceParams::numOscillators];
     WavetableOscillator subOsc;
     juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;
 
@@ -336,48 +324,31 @@ private:
     float expressionValue = 1.0f;
 
     float lastAmpValue = 0.0f;
-    float lastSamplePosition1 = -1.0f;
-    float lastSamplePosition2 = -1.0f;
-    float lastSamplePositionSub = -1.0f;
+    float lastSamplePosition[VoiceParams::numOscillators] { -1.0f, -1.0f, -1.0f };
     float lastFilterValue = 0.0f;
     float lastFilter2Value = 0.0f;
     float lastModValue = 0.0f;
     float lastEnv4Value = 0.0f;
 
-    int numOsc1Unison = 1;
-    int numOsc2Unison = 1;
-    int numSubUnison = 1;
-    float panGain1L[VoiceParams::maxUnison] {}, panGain1R[VoiceParams::maxUnison] {};
-    float panGain2L[VoiceParams::maxUnison] {}, panGain2R[VoiceParams::maxUnison] {};
-    float panGainSubL[VoiceParams::maxUnison] {}, panGainSubR[VoiceParams::maxUnison] {};
+    int numOscUnison[VoiceParams::numOscillators] { 1, 1, 1 };
+    float panGainL[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
+    float panGainR[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     float panGainSubOscL = 0.7071f, panGainSubOscR = 0.7071f;
-    float previousOsc3 = 0.0f;
+    float previousOsc[VoiceParams::numOscillators] {};
     // Per-unison-voice pitch offsets (semitones) and gains from the unison
     // mode, detune and blend.
-    double unisonOffset1[VoiceParams::maxUnison] {}, unisonOffset2[VoiceParams::maxUnison] {};
-    double unisonOffsetSub[VoiceParams::maxUnison] {};
-    float unisonGains1[VoiceParams::maxUnison] {}, unisonGains2[VoiceParams::maxUnison] {};
-    float unisonGainsSub[VoiceParams::maxUnison] {};
+    double unisonOffset[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
+    float unisonGains[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     float glideCoeff = 1.0f;
     bool hasPlayedNote = false;
 
-    float previousOsc1 = 0.0f;
-    float previousOsc2 = 0.0f;
     float driftValue = 0.0f;
     float driftTarget = 0.0f;
     juce::Random driftRandom;
-    bool lastStringMode1 = false;
-    bool lastStringMode2 = false;
-    bool lastSubStringMode = false;
-    bool lastSampleMode1 = false;
-    bool lastSampleMode2 = false;
-    bool lastSubSampleMode = false;
-    bool lastEnabled1 = true;
-    bool lastEnabled2 = false;
-    bool lastEnabledSub = true;
-    int lastUnison1 = 1;
-    int lastUnison2 = 1;
-    int lastUnisonSub = 1;
+    bool lastStringMode[VoiceParams::numOscillators] {};
+    bool lastSampleMode[VoiceParams::numOscillators] {};
+    bool lastEnabled[VoiceParams::numOscillators] { true, false, true };
+    int lastUnison[VoiceParams::numOscillators] { 1, 1, 1 };
     float voicePan = 0.0f;
 
     bool monoPending = false;

@@ -9,7 +9,7 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 - **Release:** v1.2 is done (M1–M6b). The version is 1.2.0 (CMake, header, installer) and tagged `v1.2.0`. The installer has not been rebuilt.
 - **Next:** M7 (v1.3), starting with M7.1, the Generative card. The roadmap after v1.2 was regrouped on 2026-09-26: M7 = generative, bodies, electric pianos, wavetable editor, audio input (old M7, M8, M4b, M8b, M9); M8 = west coast, filters, feedback guitar/Evolve, polish (old M10–M12); M9 portability (old M12b); M10 presets (old M17); v1.4 is M11–M14 (old M13–M16).
 - **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26), with the UI/debug pass and the 1.2 release commit. Push only when the user asks.
-- **Plugin:** built locally, not installed.
+- **Plugin:** installed to `C:Program FilesCommon FilesVST3` (2026-09-26, with the signal-flow fix).
 - **Folder cleanup (2026-09-26):** old snapshots, demos, fit runs, logs and the v1.1 portable binaries are deleted. `build/` keeps the CMake tree, `build/reference/` (the Iowa piano notes, for M17) and `build/fit-best-final.json`; `snapshots/v12` is the latest UI set. Demos come back with `ILANA_RENDER_DEMO=build/demo`.
 
 ## Demos

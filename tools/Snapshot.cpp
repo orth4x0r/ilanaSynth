@@ -893,6 +893,9 @@ int main (int argc, char** argv)
         tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
         settle (400);
         save (*editor, outDir.getChildFile ("fm-dx-keys.png"));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        settle (300);
+        save (*editor, outDir.getChildFile ("filter-six-osc.png"));
 
         set ("osc1_mode", 0.0f);
         set ("osc1_table", 8.0f);

@@ -3,9 +3,11 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "../dsp/FilterUnit.h"
+#include "../dsp/OscillatorIds.h"
 #include "IlanaLookAndFeel.h"
 
 // Base for small custom controls bound to one choice/bool parameter.
@@ -184,16 +186,18 @@ public:
         const auto resOn = read ("res_on") > 0.5f;
         const auto mouse = getMouseXYRelative().toFloat();
         const auto over = isMouseOver();
+        const auto count = (int) layout.sources.size();
 
         // Wires from each source.
-        for (int osc = 0; osc < numSources; ++osc)
+        for (int row = 0; row < count; ++row)
         {
-            const auto on = osc == 3 ? (read ("subosc_on") > 0.5f || read ("noise_level") > 0.001f)
-                                     : read (osc == 0 ? "osc1_on" : (osc == 1 ? "osc2_on" : "sub_on")) > 0.5f;
+            const auto osc = layout.sources[(size_t) row];
+            const auto on = osc == subNoise ? (read ("subosc_on") > 0.5f || read ("noise_level") > 0.001f)
+                                            : read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f;
             const auto route = (int) read (routeId (osc));
             const auto colour = oscColour (osc).withAlpha (on ? 0.85f : 0.2f);
-            const auto start = layout.osc[(size_t) osc].getCentre().withX (layout.osc[(size_t) osc].getRight());
-            const auto yOffset = ((float) osc - 1.5f) * 3.0f;
+            const auto start = layout.osc[(size_t) row].getCentre().withX (layout.osc[(size_t) row].getRight());
+            const auto yOffset = ((float) row - 0.5f * (float) (count - 1)) * 3.0f;
 
             const auto wireTo = [&] (juce::Rectangle<float> target)
             {
@@ -232,9 +236,12 @@ public:
         drawWire (g, { layout.res.getRight(), layout.res.getCentreY() }, { layout.out.getX(), layout.out.getCentreY() }, chainColour);
 
         // Blocks.
-        for (int osc = 0; osc < numSources; ++osc)
-            drawBlock (g, layout.osc[(size_t) osc], osc == 3 ? "SUB+N" : "OSC " + juce::String (osc + 1), oscColour (osc),
-                       true, over && layout.osc[(size_t) osc].contains (mouse));
+        for (int row = 0; row < count; ++row)
+        {
+            const auto osc = layout.sources[(size_t) row];
+            drawBlock (g, layout.osc[(size_t) row], osc == subNoise ? "SUB+N" : "OSC " + juce::String (osc + 1), oscColour (osc),
+                       true, over && layout.osc[(size_t) row].contains (mouse));
+        }
 
         drawBlock (g, layout.f1, "F1", juce::Colour (0xffff4fd8), true, false);
         drawBlock (g, layout.f2, "F2", juce::Colour (0xffb28aff), true, false);
@@ -258,11 +265,11 @@ public:
     {
         const auto layout = computeLayout();
 
-        for (int osc = 0; osc < numSources; ++osc)
+        for (size_t row = 0; row < layout.sources.size(); ++row)
         {
-            if (layout.osc[(size_t) osc].contains (event.position))
+            if (layout.osc[row].contains (event.position))
             {
-                showRouteMenu (osc);
+                showRouteMenu (layout.sources[row]);
                 return;
             }
         }
@@ -278,34 +285,46 @@ public:
         const auto layout = computeLayout();
         juce::String tip = "Signal flow\nClick an oscillator to route it, the badge to switch serial/parallel, RES for the resonator.";
 
-        for (int osc = 0; osc < numSources; ++osc)
-            if (layout.osc[(size_t) osc].contains (event.position))
-                tip = "Click to choose where " + juce::String (osc == 3 ? "the sub and noise go." : "OSC " + juce::String (osc + 1) + " goes.");
+        for (size_t row = 0; row < layout.sources.size(); ++row)
+            if (layout.osc[row].contains (event.position))
+            {
+                const auto osc = layout.sources[row];
+                tip = "Click to choose where " + juce::String (osc == subNoise ? "the sub and noise go." : "OSC " + juce::String (osc + 1) + " goes.");
+            }
 
         setTooltip (tip);
     }
 
 private:
-    static constexpr int numSources = 4;
+    // Sources are the oscillators the patch has added, then the sub + noise.
+    static constexpr int subNoise = OscillatorIds::count;
 
     struct Layout
     {
-        std::array<juce::Rectangle<float>, numSources> osc;
+        std::vector<int> sources;
+        std::vector<juce::Rectangle<float>> osc;
         juce::Rectangle<float> f1, f2, res, out, bypass, badge;
     };
 
     Layout computeLayout() const
     {
         Layout layout;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc))
+                layout.sources.push_back (osc);
+
+        layout.sources.push_back (subNoise);
+        const auto count = (int) layout.sources.size();
+
         auto area = getLocalBounds().toFloat().reduced (10.0f, 8.0f);
         const auto blockHeight = juce::jmin (24.0f, area.getHeight() / 4.8f);
-        const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / 5.0f);
-        const auto rowGap = (area.getHeight() - sourceHeight * (float) numSources) / (float) (numSources - 1);
+        const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / ((float) juce::jmax (4, count) * 1.25f));
+        const auto rowGap = count > 1 ? (area.getHeight() - sourceHeight * (float) count) / (float) (count - 1) : 0.0f;
 
         auto oscColumn = area.removeFromLeft (juce::jmin (78.0f, area.getWidth() * 0.18f));
 
-        for (int osc = 0; osc < numSources; ++osc)
-            layout.osc[(size_t) osc] = oscColumn.withHeight (sourceHeight).withY (oscColumn.getY() + (float) osc * (sourceHeight + rowGap));
+        for (int row = 0; row < count; ++row)
+            layout.osc.push_back (oscColumn.withHeight (sourceHeight).withY (oscColumn.getY() + (float) row * (sourceHeight + rowGap)));
 
         layout.out = area.removeFromRight (46.0f).withSizeKeepingCentre (46.0f, blockHeight);
         area.removeFromRight (18.0f);
@@ -339,18 +358,19 @@ private:
 
     static juce::Colour oscColour (int osc)
     {
+        // OSC 1-6 match the FM page; the sub + noise keeps its orange.
         const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
+                                       juce::Colour (0xff6fe3c1), juce::Colour (0xffff7f9e), juce::Colour (0xffb28aff),
                                        juce::Colour (0xffff9f43) };
-        return colours[juce::jlimit (0, numSources - 1, osc)];
+        return colours[juce::jlimit (0, subNoise, osc)];
     }
 
-    static const char* routeId (int osc)
+    static juce::String routeId (int osc)
     {
-        const char* const ids[] { "osc1_route", "osc2_route", "sub_route", "subosc_route" };
-        return ids[juce::jlimit (0, numSources - 1, osc)];
+        return osc == subNoise ? juce::String ("subosc_route") : juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_route";
     }
 
-    float read (const char* id) const
+    float read (const juce::String& id) const
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();

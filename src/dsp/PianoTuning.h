@@ -5,7 +5,7 @@
 #include <array>
 
 // The piano model's internal constants (Hammer exciter, soundboard), in one
-// place. They were fitted (together with the Grand Piano preset's knobs) to
+// place. They were fitted (together with the Hammered Strings preset's knobs) to
 // real grand piano recordings (University of Iowa
 // MIS, E1/C4/C7 at mf and ff) with tools/fit_piano.py; the test binary can
 // override them (ILANA_PIANO_TUNING="name=value;...") for that fitting. The

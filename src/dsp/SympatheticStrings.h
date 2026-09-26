@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Generative.h"
+#include "TunedString.h"
 #include <array>
 #include <cmath>
 #include <vector>
@@ -15,13 +16,14 @@ public:
     void prepare (double rate)
     {
         sampleRate = juce::jmax (1.0, rate);
-        const auto capacity = (size_t) std::ceil (sampleRate / 40.0) + 4;
         for (auto& string : strings)
-        {
-            string.delay.assign (capacity, 0.0f);
-            string.write = 0;
-            string.filter = 0.0f;
-        }
+            string.loop.allocate ((int) std::ceil (sampleRate / 40.0) + 4);
+    }
+
+    void reset()
+    {
+        for (auto& string : strings)
+            string.loop.reset();
     }
 
     // Manual notes, or ascending notes of the GENERATE scale from the root.
@@ -50,53 +52,44 @@ public:
             }
 
             strings[(size_t) i].note = juce::jlimit (36, 96, note);
-            const auto frequency = juce::MidiMessage::getMidiNoteInHertz (strings[(size_t) i].note);
-
-            // The loop's one-pole filter adds (1 - a) / a samples of delay at
-            // low frequencies; take it off the delay line so the string rings
-            // at its note rather than flat.
-            strings[(size_t) i].period = juce::jlimit (2.0, (double) strings[(size_t) i].delay.size() - 2.0,
-                                                      sampleRate / frequency - (1.0 - loopFilter) / loopFilter);
+            strings[(size_t) i].frequency = juce::MidiMessage::getMidiNoteInHertz (strings[(size_t) i].note);
         }
     }
 
     int noteFor (int index) const { return strings[(size_t) juce::jlimit (0, maxStrings - 1, index)].note; }
 
+    // DECAY is the strings' ring time: 0.25 s to 12 s.
     float process (float input, int count, float amount, float decay)
     {
         if (amount <= 0.0f || count <= 0) return 0.0f;
-        const auto feedback = 0.93f + 0.0695f * juce::jlimit (0.0f, 1.0f, decay);
+        count = juce::jmin (count, maxStrings);
+        if (decay != lastDecay)
+        {
+            lastDecay = decay;
+            t60 = 0.25 * std::pow (48.0, (double) juce::jlimit (0.0f, 1.0f, decay));
+        }
+        const auto drive = juce::jlimit (-2.0f, 2.0f, input) * inputGain;
         auto output = 0.0f;
-        for (int i = 0; i < juce::jmin (count, maxStrings); ++i)
+        for (int i = 0; i < count; ++i)
         {
             auto& string = strings[(size_t) i];
-            const auto size = (int) string.delay.size();
-            if (size < 4) continue;
-            auto read = (double) string.write - string.period;
-            if (read < 0.0) read += size;
-            const auto index = (int) read;
-            const auto fraction = (float) (read - index);
-            const auto delayed = string.delay[(size_t) index]
-                               + (string.delay[(size_t) ((index + 1) % size)] - string.delay[(size_t) index]) * fraction;
-            string.filter += (delayed - string.filter) * (float) loopFilter;
-            string.delay[(size_t) string.write] = juce::jlimit (-4.0f, 4.0f,
-                string.filter * feedback + juce::jlimit (-2.0f, 2.0f, input) * 0.035f);
-            string.write = (string.write + 1) % size;
-            output += delayed;
+            string.loop.tune (sampleRate, string.frequency, t60, loopFilter);
+            output += string.loop.process (drive);
         }
-        const auto wet = output * amount * (0.8f / (float) juce::jmax (1, count));
+        // Any one note only wakes one or two strings: scale by sqrt (count).
+        const auto wet = output * amount / std::sqrt ((float) count);
         return std::isfinite (wet) ? juce::jlimit (-4.0f, 4.0f, wet) : 0.0f;
     }
 
 private:
     struct String
     {
-        std::vector<float> delay;
-        int write = 0, note = 48;
-        double period = 200.0;
-        float filter = 0.0f;
+        TunedString loop;
+        int note = 48;
+        double frequency = 130.81;
     };
-    static constexpr double loopFilter = 0.35;
+    static constexpr float loopFilter = 0.5f, inputGain = 0.022f;
     std::array<String, maxStrings> strings;
-    double sampleRate = 48000.0;
+    double sampleRate = 48000.0, t60 = 1.0;
+    float lastDecay = -1.0f;
 };

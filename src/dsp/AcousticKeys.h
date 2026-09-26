@@ -1,5 +1,7 @@
 #pragma once
 
+#include "TunedString.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <array>
@@ -235,29 +237,19 @@ public:
     void prepare (double rate)
     {
         sampleRate = juce::jmax (1.0, rate);
-        const auto capacity = (size_t) std::ceil (sampleRate / 60.0) + 4;
-
         for (int s = 0; s < numStrings; ++s)
         {
-            auto& string = strings[(size_t) s];
-            string.delay.assign (capacity, 0.0f);
-            const auto frequency = juce::MidiMessage::getMidiNoteInHertz (36 + s);
-            string.period = juce::jlimit (2.0, (double) capacity - 2.0,
-                                          sampleRate / frequency - (1.0 - loopFilter) / loopFilter);
-            string.pan = (s % 2 == 0) ? 0.3f : 0.7f;
+            strings[(size_t) s].loop.allocate ((int) std::ceil (sampleRate / 60.0) + 4);
+            strings[(size_t) s].pan = (s % 2 == 0) ? 0.3f : 0.7f;
         }
-
+        lastStretch = -1.0f;
         reset();
     }
 
     void reset()
     {
         for (auto& string : strings)
-        {
-            std::fill (string.delay.begin(), string.delay.end(), 0.0f);
-            string.write = 0;
-            string.filter = 0.0f;
-        }
+            string.loop.reset();
 
         bloomRemaining = 0;
         energy = 0.0f;
@@ -274,18 +266,47 @@ public:
         pedalDown = down;
     }
 
-    bool isRinging() const { return pedalDown || energy > 1.0e-6f; }
+    // The strings follow the voices' STRETCH tuning, or the played notes
+    // would miss them by a few cents, and a string ringing for seconds only
+    // answers within a fraction of a hertz.
+    void setStretch (float stretch)
+    {
+        if (stretch == lastStretch)
+            return;
+
+        lastStretch = stretch;
+        const auto cents = [stretch] (int note)
+        {
+            const auto distance = (double) (note - 60) / 40.0;
+            return (double) stretch * 35.0 * (distance < 0.0 ? -1.0 : 1.0) * distance * distance;
+        };
+        for (int s = 0; s < numStrings; ++s)
+        {
+            // The octave above is stretched: so is this string's second partial.
+            const auto note = 36 + s;
+            strings[(size_t) s].frequency = juce::MidiMessage::getMidiNoteInHertz (note) * std::exp2 (cents (note) / 1200.0);
+            strings[(size_t) s].secondPartial = 2.0 * std::exp2 ((cents (note + 12) - cents (note)) / 1200.0);
+        }
+    }
+
+    bool isRinging() const { return pedalDown || energy > 1.0e-7f; }
 
     void process (float* left, float* right, int numSamples, float amount)
     {
-        // Dampers down: strings stop within a few hundred milliseconds.
-        const auto feedback = pedalDown ? 0.9975f : 0.9f;
+        // Undamped, the bass strings ring for many seconds (a little less up
+        // the keyboard); with the dampers down they stop within a fraction of
+        // a second.
+        for (auto& string : strings)
+            string.loop.tune (sampleRate, string.frequency,
+                              pedalDown ? 9.0 * std::pow (65.4 / string.frequency, 0.5) : 0.2, loopFilter,
+                              string.secondPartial);
+
         auto blockEnergy = 0.0f;
 
         for (int i = 0; i < numSamples; ++i)
         {
             auto input = 0.5f * (left[i] + (right != nullptr ? right[i] : left[i]));
-            input = pedalDown ? juce::jlimit (-2.0f, 2.0f, input) * 0.012f * amount : 0.0f;
+            input = pedalDown ? juce::jlimit (-2.0f, 2.0f, input) * inputGain * amount : 0.0f;
 
             if (bloomRemaining > 0)
             {
@@ -297,23 +318,13 @@ public:
 
             for (auto& string : strings)
             {
-                const auto size = (int) string.delay.size();
-                auto read = (double) string.write - string.period;
-                if (read < 0.0)
-                    read += size;
-                const auto index = (int) read;
-                const auto fraction = (float) (read - index);
-                const auto delayed = string.delay[(size_t) index]
-                                     + (string.delay[(size_t) ((index + 1) % size)] - string.delay[(size_t) index]) * fraction;
-                string.filter += (delayed - string.filter) * (float) loopFilter;
-                string.delay[(size_t) string.write] = juce::jlimit (-4.0f, 4.0f, string.filter * feedback + input);
-                string.write = (string.write + 1) % size;
-                outLeft += delayed * (1.0f - string.pan);
-                outRight += delayed * string.pan;
-                blockEnergy += delayed * delayed;
+                const auto value = string.loop.process (input);
+                outLeft += value * (1.0f - string.pan);
+                outRight += value * string.pan;
+                blockEnergy += value * value;
             }
 
-            const auto gain = 1.6f * amount / (float) numStrings;
+            const auto gain = outputGain * amount;
             left[i] += std::isfinite (outLeft) ? outLeft * gain : 0.0f;
             if (right != nullptr)
                 right[i] += std::isfinite (outRight) ? outRight * gain : 0.0f;
@@ -325,19 +336,18 @@ public:
 private:
     struct String
     {
-        std::vector<float> delay;
-        int write = 0;
-        double period = 200.0;
-        float filter = 0.0f, pan = 0.5f;
+        TunedString loop;
+        double frequency = 65.4, secondPartial = 2.0;
+        float pan = 0.5f;
     };
 
-    static constexpr double loopFilter = 0.45;
+    static constexpr float loopFilter = 0.55f, inputGain = 0.04f, outputGain = 0.5f;
     std::array<String, numStrings> strings;
     juce::Random random { 7331 };
     double sampleRate = 48000.0;
     bool pedalDown = false;
     int bloomRemaining = 0;
-    float bloomLevel = 0.0f, energy = 0.0f;
+    float bloomLevel = 0.0f, energy = 0.0f, lastStretch = -1.0f;
 };
 
 // Mechanical noises: the key returning (a wooden "thock"), the damper felt

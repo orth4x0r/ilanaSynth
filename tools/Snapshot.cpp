@@ -702,8 +702,8 @@ int main (int argc, char** argv)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
     }
 
-    // M4: the Grand Piano preset on the OSC page.
-    if (const auto program = processor.getFactoryPresetNames().indexOf ("Grand Piano"); program >= 0)
+    // M4: the Hammered Strings preset on the OSC page.
+    if (const auto program = processor.getFactoryPresetNames().indexOf ("Hammered Strings"); program >= 0)
     {
         processor.loadFactoryPreset (program);
         tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));

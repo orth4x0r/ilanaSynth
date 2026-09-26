@@ -147,7 +147,7 @@ inline juce::String describeParameter (const juce::String& id)
     }
     if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";
-    if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops.";
+    if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops: from a quarter second to 12 seconds.";
     if (id == "sym_count") return "Number of shared drone strings, from one to six.";
     if (id == "sym_manual") return "Tune the strings note by note instead of from the GENERATE scale and root. "
                                    "With no scale set they use an open tuning on the root (root, fifth, octave, third).";

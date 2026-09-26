@@ -66,7 +66,7 @@ The OSC page, MAIN and FM show only the added oscillators (see Polish below). Ne
 **Third round: matched against real piano recordings** (user: "too buzzy, sounds like a digitally plucked string").
 - Reference notes: University of Iowa MIS grand, `Piano.{mf,ff}.{E1,C4,C7}.aiff`, downloaded with the user's OK to `build/reference/` (not committed).
 - `python tools/analyse_note.py <midi> file...` prints per-partial levels over time, decay dB/s, inharmonicity and between-partial noise. It reads wav/aiff.
-- `ILANA_NOTE_DEBUG="Grand Piano"` writes `build/note-debug/ours.{mf,ff}.{E1,C4,C7}.wav` (dry, 6 s), plus bare-string and soundboard probes.
+- `ILANA_NOTE_DEBUG="Hammered Strings"` writes `build/note-debug/ours.{mf,ff}.{E1,C4,C7}.wav` (dry, 6 s), plus bare-string and soundboard probes.
 
 Findings and fixes:
 1. **The loss filter is designed in seconds** (Bank model: loss ∝ f²). DECAY is the fundamental's T60: 0.5·50^decay at C4, ×(261.6/f)^0.6. DAMP sets the T60 at 2 kHz: 60·(0.3/60)^damp s. The old per-pass low-pass left bass partials above 3 kHz ringing for seconds, which was the digital-pluck buzz.
@@ -91,7 +91,38 @@ Now (ours vs real, mf):
 - **Error:** 632 (before fitting) → 90.7. Onset 150→27, decay 132→56, noise 107→14, mf→ff gain 142→1, register balance 34→1. The velocity response is now realistic (curve 4.57, amp velocity 0.97): ~14–20 dB from mf to ff, as in the recordings.
 - Other hammer presets inherit the engine defaults. Their levels were re-checked: fingerprints −12..−20 dB, demo peaks < 0.95.
 
-**Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
+**Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only.
+
+## Sympathetic strings debug pass (Claude, 2026-09-26)
+
+The user suspected the sympathetic strings did not work, and said the piano presets do not yet sound like a piano, so they should be renamed (the engine is kept for sound design).
+
+- **SYM strings were nearly silent.** After a note on a string's pitch, the tail was ~33 dB under the note at the default DECAY. There were three causes:
+  - linear interpolation, a few cents off and lossy;
+  - DECAY set as feedback per period (so pitch-dependent, and very short at 0.75);
+  - output divided by the string count.
+- **New `src/dsp/TunedString.h`**, shared by SYM and the pedal resonance: an integer delay, a Thiran fraction and a one-pole loss. It is tuned to the exact phase delay at the note, then refined on the loop's actual resonance peak (the loss filter's slope pulls it flat in the treble). The fundamental's T60 is exact in seconds. The loss filter is brightened when needed so treble strings can reach their T60 (the feedback cap had limited a 1 kHz string to ~0.5 s).
+  - An optional first-order dispersion allpass puts the second partial at a set ratio. The pedal strings use it to follow STRETCH: a stretch-tuned octave above then lands on their 2nd partial (it missed by ~2.5 cents, more than the ~0.2 Hz resonance width).
+- **SYM:** DECAY is 0.25·48^decay s (0.25–12 s; 4.6 s at the default). Output is scaled by 1/√count. Switching SYM off clears the strings.
+  - Result: the tail sits ~18 dB under an on-pitch note, and ~45 dB under an off-pitch one.
+- **Pedal resonance:** its 24 strings are TunedStrings following STRETCH. T60 is 9·√(65.4/f) s with the dampers up and 0.2 s down, and the gains were raised.
+  - Result at PEDAL RES 1: the halo after the note is +10.7 dB, and +1.3 dB while the note sounds (before: <1 dB).
+- **Tests** (`runSympatheticResonanceTest`, also in `ILANA_M4_TEST`):
+  - pitch within 0.3 cents at 65, 247 and 1047 Hz, with and without dispersion;
+  - T60 exact;
+  - SYM on-pitch against off-pitch;
+  - pedal halo.
+  - The old SYM tuning test is tightened from 10 to 0.5 cents (it now uses a Hann window; the rectangular one was biased).
+- **Renamed** (same slots, so saved sessions are unaffected): Grand Piano → **Hammered Strings** (still the fit benchmark), Pedal Bloom Piano → **Pedal Bloom**, Upright Honky → **Honky Hammers**, Prepared Piano → **Bolted Strings**, Bowed Piano → **Bowed Board**, Osc-Struck Piano → **Osc-Struck Strings**.
+- **Bolted Strings:** its attacks were flattened against the limiter. Max sample step went 1.37 → 0.58 with hammer 0.9 → 0.7, master +4 → +1 dB, and limiter −4.5 → −1.5 dB.
+- **UI:** manual SYM notes beyond STRINGS are dimmed. The DECAY tooltip gives the range in seconds.
+- **Demos:** `ILANA_RENDER_DEMO` also writes A/B pairs (SYM off/on on Pizzicato, pedal resonance off/on on Pedal Bloom).
+- **Verified:**
+  - all targets build;
+  - `ilanaTableTest` has 0 failures, and `--uitest` has 0 failures;
+  - fingerprints: 0 of 235 old presets changed (`build/sym-fp.csv`; only the six renamed Keys presets differ).
+  - The heavy-patch CPU check failed once at 58%. Every path was uniformly ~1.3× slower, including untouched ones: the machine was on the "Silent" power plan. A later run measured 45%.
+  - Glitch Gate once came out 21 dB under the library median (random S&H with a synced gate); it passes on rerun.
 
 ## Polish (Claude, 2026-09-25, committed as c24b26d)
 

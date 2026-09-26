@@ -98,8 +98,8 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **SUB**: a dedicated sub oscillator (sine, square or saw, −1 or −2 octaves) plus a noise layer, sharing a filter route.
 - **VOICE**: voice spread, unison phase randomisation and analogue drift.
 - **QUALITY** beside oversampling: Eco caps each oscillator at four unison voices; Normal keeps the original rendering; High uses two half-step wavetable reads per output sample.
-- **ACOUSTIC KEYS** on the OSC page, shared by every voice: a **soundboard** body (mix, tone for lid and mic position, size), **stretch tuning**, **pedal resonance** (with the sustain pedal, CC64, down the keyboard's strings ring in sympathy, with a bloom as the dampers lift) and **mechanical noises** (key release, damper felt, pedal), each with a level. Presets: Grand Piano, Pedal Bloom Piano, Upright Honky, Prepared Piano, Bowed Piano and Osc-Struck Piano.
-- **SYMPATHETIC STRINGS** on the OSC page: one to six shared drone strings ring from the mixed voices before effects. Choose amount and decay; tuning follows the GENERATE scale and root, or switch to six manual MIDI notes.
+- **ACOUSTIC KEYS** on the OSC page, shared by every voice: a **soundboard** body (mix, tone for lid and mic position, size), **stretch tuning**, **pedal resonance** (with the sustain pedal, CC64, down the keyboard's strings ring in sympathy, with a bloom as the dampers lift) and **mechanical noises** (key release, damper felt, pedal), each with a level. Presets: Hammered Strings, Pedal Bloom, Honky Hammers, Bolted Strings, Bowed Board and Osc-Struck Strings (a hammered-string engine fitted towards a real grand, not yet a convincing piano, so the names do not claim one).
+- **SYMPATHETIC STRINGS** on the OSC page: one to six shared drone strings ring from the mixed voices before effects. Choose amount and decay (a quarter second to 12 s ring time); tuning follows the GENERATE scale and root, or switch to six manual MIDI notes.
 
 ### FM
 - A 6×6 matrix: rows modulate columns, and the diagonal is feedback.

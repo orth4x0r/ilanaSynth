@@ -2428,7 +2428,7 @@ inline std::vector<FactoryPreset> build()
     // ======================================================================
 
     // Fitted to real grand piano recordings (tools/fit_piano.py).
-    add (B ("Grand Piano", "Keys")
+    add (B ("Hammered Strings", "Keys")
              .piano (1, 0.8f, 0.739f, 3, 0.9f, 0.378f, 0.6f, 0.766f, 0.984f, 0.286f, 0.45f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (0.8f, 0.786f, 0.0965f, 0.751f, 0.5f, 0.25f)
@@ -2440,7 +2440,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
 
-    add (B ("Pedal Bloom Piano", "Keys")
+    add (B ("Pedal Bloom", "Keys")
              .piano (1, 0.75f, 0.3f, 3, 1.8f, 0.8f, 0.5f, 0.8f, 0.94f, 0.3f, 0.45f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (0.6f, 0.5f, 0.35f, 0.85f, 1.0f, 0.35f)
@@ -2452,7 +2452,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Hall, 0.8f, 0.3f));
 
-    add (B ("Upright Honky", "Keys")
+    add (B ("Honky Hammers", "Keys")
              .piano (1, 0.8f, 0.7f, 3, 7.0f, 0.6f, 0.7f, 0.6f, 0.8f, 0.2f, 0.5f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (1.0f, 0.55f, 0.3f, 0.3f, 0.3f, 0.5f)
@@ -2464,10 +2464,10 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.35f, 0.12f));
 
-    add (B ("Prepared Piano", "Keys")
+    add (B ("Bolted Strings", "Keys")
              // Bolts between the strings: very stiff, detuned, gong-like
              // partials. Rubber wedges: a damped, woody thud. Screws: buzz.
-             .piano (1, 1.0f, 0.9f, 2, 14.0f, 0.3f, 0.5f, 0.3f, 0.72f, 0.5f, 0.88f)
+             .piano (1, 1.0f, 0.7f, 2, 14.0f, 0.3f, 0.5f, 0.3f, 0.72f, 0.5f, 0.88f)
              .set ("osc1_bridge_buzz", 0.3f).set ("osc1_fret_rattle", 0.35f).set ("osc1_string_excite_pos", 0.43f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (0.2f, 0.6f, 0.55f, 0.45f, 0.3f, 0.5f)
@@ -2477,9 +2477,9 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "SCREWS", { { param ("osc1_bridge_buzz"), 0.4f }, { param ("osc1_fret_rattle"), 0.3f } })
              .macro (3, "RUBBER", { { param ("osc1_string_damp"), 0.35f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
-             .master (4.0f).fx ({ FxLimiter, FxReverb }).limiter (-4.5f).reverb (Room, 0.5f, 0.18f));
+             .master (1.0f).fx ({ FxLimiter, FxReverb }).limiter (-1.5f).reverb (Room, 0.5f, 0.18f));
 
-    add (B ("Bowed Piano", "Keys")
+    add (B ("Bowed Board", "Keys")
              .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.3f, 0.4f, 0.6f, 0.98f, 0.35f)
              // Rosined line drawn across the strings.
              .set ("osc1_excite", 4).set ("osc1_bow_pressure", 0.55f).set ("osc1_bow_speed", 0.45f)
@@ -2493,7 +2493,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
              .master (-3.0f).fx ({ FxLimiter, FxReverb }).limiter (-2.0f).reverb (Hall, 0.85f, 0.32f));
 
-    add (B ("Osc-Struck Piano", "Keys")
+    add (B ("Osc-Struck Strings", "Keys")
              .piano (1, 0.8f, 0.5f, 2, 2.0f, 0.5f, 0.6f, 0.6f, 0.97f, 0.25f)
              .set ("osc1_excite", 6).set ("osc1_string_sustain", 0.45f)
              .osc2 (DriveSaw, 0.3f, 0.0f, 12).modOnly (2).fmRoute (2, 1, 0.6f)

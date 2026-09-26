@@ -534,6 +534,7 @@ private:
     SpectralFreeze freeze[2];
     Mseg mseg;
     SympatheticStrings sympatheticStrings;
+    bool sympatheticWasOn = false;
 
     // M4 acoustic keys, shared by every voice (base rate, after the voices).
     Soundboard soundboard;

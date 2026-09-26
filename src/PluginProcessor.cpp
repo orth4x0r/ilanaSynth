@@ -1670,7 +1670,12 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     processAcousticKeys (buffer, midiForSynth);
 
-    if (getParam ("sym_on") > 0.5f && getParam ("sym_amount") > 0.0f)
+    const auto symOn = getParam ("sym_on") > 0.5f && getParam ("sym_amount") > 0.0f;
+    if (! symOn && sympatheticWasOn)
+        sympatheticStrings.reset();   // no stale ringing when switched back on
+    sympatheticWasOn = symOn;
+
+    if (symOn)
     {
         const char* const noteIds[] { "sym_note1", "sym_note2", "sym_note3", "sym_note4", "sym_note5", "sym_note6" };
         std::array<int, SympatheticStrings::maxStrings> notes {};
@@ -2207,6 +2212,7 @@ void IlanaSynthAudioProcessor::processAcousticKeys (juce::AudioBuffer<float>& bu
     auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
     const auto numSamples = buffer.getNumSamples();
 
+    pedalResonance.setStretch (getParam ("stretch"));
     if (pedalAmount > 0.0f && pedalResonance.isRinging())
         pedalResonance.process (left, right, numSamples, pedalAmount);
 

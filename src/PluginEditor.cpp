@@ -304,7 +304,7 @@ public:
             for (const auto* suffix : { "_mode", "_on", "_excite" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
 
-        for (const auto* id : { "sym_on", "sym_manual", "sb_on" })
+        for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
             processorRef.apvts.addParameterListener (id, this);
 
         // Phase Plant style: remove any oscillator, add the next hidden one.
@@ -349,7 +349,7 @@ public:
             for (const auto* suffix : { "_mode", "_on", "_excite" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
 
-        for (const auto* id : { "sym_on", "sym_manual", "sb_on" })
+        for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -969,6 +969,11 @@ private:
         const auto boardOn = readBool ("sb_on");
         for (auto* control : { &sbMix, &sbTone, &sbSize })
             control->setAlpha (boardOn ? 1.0f : 0.4f);
+
+        // Manual notes past STRINGS are not sounding.
+        const auto stringCount = juce::roundToInt (processorRef.apvts.getRawParameterValue ("sym_count")->load());
+        for (int i = 0; i < (int) symNotes.size(); ++i)
+            symNotes[(size_t) i]->setAlpha (i < stringCount ? 1.0f : 0.4f);
 
         for (int index = 0; index < OscillatorIds::count; ++index)
         {

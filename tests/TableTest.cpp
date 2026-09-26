@@ -1638,7 +1638,7 @@ void runPresetTuningTest()
         // strings inharmonic and detuned) and granular patches with grain
         // pitch spray (each grain is randomly transposed, from a time-seeded
         // generator, so the estimate varied from run to run).
-        auto pitchByDesign = names[presetIndex] == "Prepared Piano";
+        auto pitchByDesign = names[presetIndex] == "Bolted Strings";
         for (const auto* prefix : OscillatorIds::prefixes)
         {
             const juce::String p (prefix);
@@ -4453,7 +4453,7 @@ void runSympatheticTuningTest()
         const auto expected = juce::MidiMessage::getMidiNoteInHertz (note);
         auto cents = 0.0, bestPower = -1.0;
 
-        for (double offset = -60.0; offset <= 60.0; offset += 0.5)
+        for (double offset = -60.0; offset <= 60.0; offset += 0.1)
         {
             const auto hz = expected * std::exp2 (offset / 1200.0);
             double re = 0.0, im = 0.0;
@@ -4461,8 +4461,9 @@ void runSympatheticTuningTest()
             for (int i = 2000; i < 40000; ++i)
             {
                 const auto angle = juce::MathConstants<double>::twoPi * hz * (double) i / 48000.0;
-                re += (double) ring[(size_t) i] * std::cos (angle);
-                im += (double) ring[(size_t) i] * std::sin (angle);
+                const auto window = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (i - 2000) / 38000.0);
+                re += window * ring[(size_t) i] * std::cos (angle);
+                im += window * ring[(size_t) i] * std::sin (angle);
             }
 
             if (re * re + im * im > bestPower)
@@ -4471,7 +4472,7 @@ void runSympatheticTuningTest()
                 cents = offset;
             }
         }
-        check (std::abs (cents) < 10.0, "sympathetic string " + juce::String (note) + " rings in tune ("
+        check (std::abs (cents) < 0.5, "sympathetic string " + juce::String (note) + " rings in tune ("
                                             + juce::String (cents, 1) + " cents)");
     }
 }
@@ -5774,15 +5775,30 @@ void renderKeysDemos (const juce::File& folder)
     const double sampleRate = 48000.0;
     constexpr int blockSize = 256;
 
-    for (const auto* name : { "Grand Piano", "Pedal Bloom Piano", "Upright Honky", "Prepared Piano",
-                              "Bowed Piano", "Osc-Struck Piano" })
+    // The Keys presets, plus A/B pairs for the sympathetic strings and the
+    // pedal resonance.
+    struct Demo { juce::String file, preset; std::vector<std::pair<const char*, float>> settings; };
+    std::vector<Demo> demos;
+    for (const auto* name : { "Hammered Strings", "Pedal Bloom", "Honky Hammers", "Bolted Strings",
+                              "Bowed Board", "Osc-Struck Strings" })
+        demos.push_back ({ name, name, {} });
+    demos.push_back ({ "AB Sym off - Pizzicato", "Pizzicato", {} });
+    demos.push_back ({ "AB Sym on - Pizzicato", "Pizzicato",
+                       { { "sym_on", 1.0f }, { "sym_amount", 0.8f }, { "sym_count", 6.0f }, { "sym_decay", 0.8f } } });
+    demos.push_back ({ "AB Pedal res off - Pedal Bloom", "Pedal Bloom", { { "pedal_res", 0.0f } } });
+    demos.push_back ({ "AB Pedal res on - Pedal Bloom", "Pedal Bloom", {} });
+
+    for (const auto& demo : demos)
     {
+        const auto* name = demo.file.toRawUTF8();
         IlanaSynthAudioProcessor processor;
-        const auto index = processor.getFactoryPresetNames().indexOf (name);
+        const auto index = processor.getFactoryPresetNames().indexOf (demo.preset);
         if (index < 0)
             continue;
 
         processor.loadFactoryPreset (index);
+        for (const auto& [id, value] : demo.settings)
+            setParam (processor, id, value);
         processor.prepareToPlay (sampleRate, blockSize);
         const auto seconds = 9.0;
         juce::AudioBuffer<float> output (2, (int) (seconds * sampleRate));
@@ -5862,6 +5878,112 @@ void renderKeysDemos (const juce::File& folder)
     }
 }
 
+// Level (dB RMS) while a note is held (0.1-0.5 s) and after its release
+// (1-3 s), optionally with the sustain pedal down throughout.
+std::pair<double, double> heldAndTail (const juce::String& preset, int note, bool pedal,
+                                       const std::vector<std::pair<const char*, float>>& settings)
+{
+    IlanaSynthAudioProcessor processor;
+    if (preset.isNotEmpty())
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (preset));
+    for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        processor.assignFxSlot (slot, 0);
+    for (const auto& [id, value] : settings)
+        setParam (processor, id, value);
+    processor.prepareToPlay (48000.0, 480);
+    juce::AudioBuffer<float> buffer (2, 480);
+    double held = 0.0, tail = 0.0;
+    for (int block = 0; block < 300; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        if (block == 0 && pedal) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+        if (block == 1) midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+        if (block == 50) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+        processor.processBlock (buffer, midi);
+        const auto rms = buffer.getRMSLevel (0, 0, 480);
+        if (block >= 10 && block < 50) held += rms * rms / 40.0;
+        if (block >= 100 && block < 300) tail += rms * rms / 200.0;
+    }
+    return { juce::Decibels::gainToDecibels (std::sqrt (held), -200.0),
+             juce::Decibels::gainToDecibels (std::sqrt (tail), -200.0) };
+}
+
+// The resonance must actually be heard: exact tuning of the string loops,
+// SYM strings ringing after a note on their pitch (and not after one off it),
+// and the pedal resonance adding a halo.
+void runSympatheticResonanceTest()
+{
+    for (const auto partial : { 2.0, 2.0 * std::exp2 (6.0 / 1200.0) })
+        for (const auto frequency : { 65.41, 246.94, 1046.5 })
+        {
+            TunedString string;
+            string.allocate (900);
+            string.tune (48000.0, frequency, 9.0, 0.55f, partial);
+            std::vector<float> ring (48000);
+            for (int i = 0; i < (int) ring.size(); ++i)
+                ring[(size_t) i] = string.process (i == 0 ? 1.0f : 0.0f);
+            const auto peakCents = [&ring] (double centre)
+            {
+                auto best = 0.0, bestPower = -1.0;
+                for (double cents = -10.0; cents <= 10.0; cents += 0.1)
+                {
+                    const auto hz = centre * std::exp2 (cents / 1200.0);
+                    double re = 0.0, im = 0.0;
+                    for (int i = 4800; i < (int) ring.size(); ++i)
+                    {
+                        const auto angle = juce::MathConstants<double>::twoPi * hz * (double) i / 48000.0;
+                        const auto window = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (i - 4800)
+                                                                  / (double) (ring.size() - 4800));
+                        re += window * ring[(size_t) i] * std::cos (angle);
+                        im += window * ring[(size_t) i] * std::sin (angle);
+                    }
+                    if (re * re + im * im > bestPower) { bestPower = re * re + im * im; best = cents; }
+                }
+                return best;
+            };
+            // Rings for its T60 (9 s: -4.7 dB between 0.2 s and 0.9 s), treble too.
+            const auto rmsAt = [&ring, frequency] (int start)   // the fundamental alone
+            {
+                double re = 0.0, im = 0.0;
+                for (int i = start; i < start + 4800; ++i)
+                {
+                    const auto angle = juce::MathConstants<double>::twoPi * frequency * (double) i / 48000.0;
+                    const auto window = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (i - start) / 4800.0);
+                    re += window * ring[(size_t) i] * std::cos (angle);
+                    im += window * ring[(size_t) i] * std::sin (angle);
+                }
+                return 10.0 * std::log10 (re * re + im * im + 1e-30);
+            };
+            const auto drop = rmsAt (9600) - rmsAt (43200);
+            check (drop > 4.0 && drop < 5.5, "tuned string " + juce::String (frequency) + " Hz rings for its T60 (drop "
+                                                 + juce::String (drop, 1) + " dB, expected 4.7)");
+
+            // (The second partial is only placed for the pedal strings, below 250 Hz.)
+            const auto first = peakCents (frequency), second = frequency < 500.0 ? peakCents (frequency * partial) : 0.0;
+            check (std::abs (first) < 0.3 && std::abs (second) < 0.3,
+                   "tuned string " + juce::String (frequency) + " Hz rings in tune (" + juce::String (first, 1)
+                       + " cents; 2nd partial " + juce::String (second, 1) + " cents off its target)");
+        }
+
+    const std::vector<std::pair<const char*, float>> dry { { "amp_release", 0.02f } };
+    auto withSym = dry;
+    withSym.insert (withSym.end(), { { "sym_on", 1.0f }, { "sym_amount", 1.0f }, { "sym_count", 6.0f } });
+    const auto onPitch = heldAndTail ("", 60, false, withSym);
+    const auto offPitch = heldAndTail ("", 61, false, withSym);
+    const auto dryNote = heldAndTail ("", 60, false, dry);
+    check (onPitch.second > onPitch.first - 20.0 && offPitch.second < onPitch.second - 25.0
+               && dryNote.second < -150.0,
+           "SYM strings ring on after a note on their pitch (" + juce::String (onPitch.second - onPitch.first, 1)
+               + " dB under the note), not after one off it (" + juce::String (offPitch.second - offPitch.first, 1) + " dB)");
+
+    const auto pedalOff = heldAndTail ("Hammered Strings", 60, true, { { "pedal_res", 0.0f } });
+    const auto pedalOn = heldAndTail ("Hammered Strings", 60, true, { { "pedal_res", 1.0f } });
+    check (pedalOn.second > pedalOff.second + 5.0 && pedalOn.first < pedalOff.first + 3.0,
+           "pedal resonance adds a halo after the note (+" + juce::String (pedalOn.second - pedalOff.second, 1)
+               + " dB), not while it sounds (+" + juce::String (pedalOn.first - pedalOff.first, 1) + " dB)");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -5888,6 +6010,8 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M4_TEST", "").isNotEmpty())
     {
         runM4Tests();
+        runSympatheticTuningTest();
+        runSympatheticResonanceTest();
         std::cout << (failures == 0 ? "M4 TESTS PASSED" : "M4 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -5951,6 +6075,7 @@ int main()
     runPhysicsLfoTests();
     runPhysicsLfoMotionTest();
     runSympatheticTuningTest();
+    runSympatheticResonanceTest();
     runBridgeBuzzStabilityTest();
     runIntegerValueTextTest();
     runMissingParameterDefaultTest();

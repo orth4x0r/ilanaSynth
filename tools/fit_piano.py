@@ -2,7 +2,7 @@
 
 usage: python tools/fit_piano.py [iterations]
 
-Renders the Grand Piano preset (E1, C4, C7 at mf and ff) through
+Renders the Hammered Strings preset (E1, C4, C7 at mf and ff) through
 ilanaTableTest (ILANA_NOTE_DEBUG), with engine constants
 (ILANA_PIANO_TUNING) and preset parameters (ILANA_PRESET_OVERRIDES) varied,
 and compares with the University of Iowa MIS notes in build/reference/:
@@ -151,7 +151,7 @@ def render(values, tag):
     folder = os.path.join(FIT, tag)
     os.makedirs(folder, exist_ok=True)
     env = dict(os.environ)
-    env["ILANA_NOTE_DEBUG"] = "Grand Piano"
+    env["ILANA_NOTE_DEBUG"] = "Hammered Strings"
     env["ILANA_NOTE_FOLDER"] = folder
     env["ILANA_PIANO_TUNING"] = ";".join(f"{n}={values[n]:.6g}" for n, kind, *_ in PARAMETERS if kind == "tuning")
     env["ILANA_PRESET_OVERRIDES"] = ";".join(f"{n}={values[n]:.6g}" for n, kind, *_ in PARAMETERS if kind == "preset")

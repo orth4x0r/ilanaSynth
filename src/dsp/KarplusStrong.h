@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <vector>
 
 class KarplusStrong
@@ -49,12 +50,14 @@ public:
         dispersionInput[0] = dispersionInput[1] = 0.0f;
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
+        hammerDc = 0.0f;
         bridgeInput = 0.0f;
     }
 
     void setFrequency (double hz)
     {
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
+        updateHammerFeedback();
     }
 
     void setParams (Excite newExcite, float newSustainLevel, float newDamping, float newDecay)
@@ -66,6 +69,7 @@ public:
 
         lowpassCoefficient = 1.0f - damping * 0.96f;
         feedback = 0.90f + decay * 0.0995f;
+        updateHammerFeedback();
     }
 
     void setPhysicalParams (float newStiffness, float newPickup, float newExcitationPosition,
@@ -113,6 +117,7 @@ public:
         {
             std::fill (buffer.begin(), buffer.end(), 0.0f);
             bowNeckWrite = bowBridgeWrite = 0;
+            bowDcInput = bowDcOutput = 0.0f;
             lowpassState = 0.0f;
             strikeVelocity = level;
             bowRamp = 0.0f;
@@ -147,11 +152,16 @@ public:
                 // Softer felt compresses more: a rounder, lower-peaked push.
                 hammerShape = 1.0f + 2.0f * (1.0f - hardness);
                 hammerLevel = std::pow (level, 1.3f) * 8.0f / std::sqrt ((float) hammerLength / 20.0f + 1.0f);
+                // No hammer hits a note's strings exactly evenly; the
+                // difference is what feeds the aftersound of coupled strings.
+                hammerLevel *= 0.85f + 0.3f * random.nextFloat();
                 // Strike point along the string; 1/8 by default like a grand.
                 hammerOffset = juce::jmax (1.0, (double) (sampleRate / frequency)
                                                     * (excitationPosition > 0.0f ? (double) excitationPosition : 0.125));
                 hammerElapsed = 0;
                 hammerTotal = hammerLength + (int) std::ceil (hammerOffset) + 1;
+                hammerDc = 0.0f;
+                hammerDcCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi / sampleRate));
             }
             return;
         }
@@ -278,8 +288,12 @@ public:
                     // one reflected from the near end arrives a strike
                     // distance later and notches out the harmonics that have
                     // a node at the strike point.
+                    // In the treble the felt stays on longer than the pulse
+                    // takes to come back, so the notch smears out: fade the
+                    // reflection rather than cancel the strike.
                     const auto elapsed = (double) hammerElapsed++;
-                    excitation = hammerForce (elapsed) - hammerForce (elapsed - hammerOffset);
+                    const auto reflection = (float) juce::jlimit (0.25, 1.0, hammerOffset / (0.5 * (double) hammerLength));
+                    excitation = hammerForce (elapsed) - reflection * hammerForce (elapsed - hammerOffset);
                 }
                 break;
 
@@ -302,6 +316,14 @@ public:
             phase -= 1.0;
 
         auto loopValue = lowpassState * feedback;
+
+        // A hammer's push has a net area, and a piano string's loop keeps DC
+        // almost forever: bleed it away slowly (1 Hz, far below any note).
+        if (excite == Excite::Hammer)
+        {
+            hammerDc += (loopValue - hammerDc) * hammerDcCoefficient;
+            loopValue -= hammerDc;
+        }
 
         // Dampers: once the key is up, felt lands on the string. The loss is
         // per trip round the loop, so low strings die away more slowly.
@@ -337,6 +359,27 @@ public:
     }
 
 private:
+    // A piano string's decay is set in seconds, not per trip round the loop:
+    // otherwise the treble (many trips per second) would die almost at once.
+    // DECAY maps to a T60 at middle C of 0.5-25 s, and higher strings ring
+    // shorter, but only gently: T60 falls as (261.6 / f)^0.7.
+    void updateHammerFeedback()
+    {
+        if (excite != Excite::Hammer)
+            return;
+
+        const auto t60Middle = 0.5 * std::pow (50.0, (double) decay);
+        const auto t60 = juce::jlimit (0.05, 40.0, t60Middle * std::pow (261.63 / frequency, 0.7));
+
+        // DAMP's loop low-pass also takes a little off the fundamental on
+        // every pass, which in the treble would swamp DECAY: make it up, so
+        // DAMP only shapes the upper partials.
+        const auto w = juce::MathConstants<double>::twoPi * frequency / sampleRate;
+        const auto a = (double) lowpassCoefficient;
+        const auto gainAtFundamental = a / std::abs (std::complex<double> (1.0, 0.0) - (1.0 - a) * std::polar (1.0, -w));
+        feedback = (float) juce::jmin (0.99995, std::pow (10.0, -3.0 / (t60 * frequency)) / juce::jmax (0.1, gainAtFundamental));
+    }
+
     // A bowed string as two waveguides either side of the bow (the STK
     // Bowed model): waves reflect, inverted, at the nut and at the bridge,
     // where the string also loses energy. The bow grips while the string
@@ -397,7 +440,12 @@ private:
         bowBridgeWrite = (bowBridgeWrite + 1) % half;
         bowNeckWrite = (bowNeckWrite + 1) % half;
 
-        const auto output = bridgeOut * bowOutputGain;
+        // The bow's steady push leaves an offset on the bridge: block DC.
+        const auto blocked = bridgeOut - bowDcInput + 0.995f * bowDcOutput;
+        bowDcInput = bridgeOut;
+        bowDcOutput = std::isfinite (blocked) ? blocked : 0.0f;
+
+        const auto output = bowDcOutput * bowOutputGain;
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
 
@@ -445,9 +493,11 @@ private:
     float hammerHardness = 0.5f, damper = 0.0f, bridgeInput = 0.0f;
     float bowRamp = 0.0f, bowRampCoefficient = 0.001f;
     int bowNeckWrite = 0, bowBridgeWrite = 0;
+    float bowDcInput = 0.0f, bowDcOutput = 0.0f;
     static constexpr float bowOutputGain = 2.0f;
     float hammerLevel = 0.0f, hammerShape = 1.0f;
     double hammerOffset = 1.0;
     int hammerLength = 1, hammerElapsed = 0, hammerTotal = 0;
+    float hammerDc = 0.0f, hammerDcCoefficient = 0.0001f;
     Excite excite = Excite::Burst;
 };

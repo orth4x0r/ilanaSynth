@@ -946,7 +946,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     bridge /= (float) juce::jmax (1, count);
 
                     for (int u = 0; u < count; ++u)
-                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.06f * bridge);
+                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.03f * bridge);
                 }
             }
             else

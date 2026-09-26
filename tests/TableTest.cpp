@@ -5648,6 +5648,102 @@ void runM4Tests()
     }
 }
 
+// ILANA_RENDER_DEMO=<folder>: renders the M4 Keys presets to .wav files for
+// listening (a pedalled arpeggio and chord, then a low and a high note).
+void renderKeysDemos (const juce::File& folder)
+{
+    folder.createDirectory();
+    const double sampleRate = 48000.0;
+    constexpr int blockSize = 256;
+
+    for (const auto* name : { "Grand Piano", "Pedal Bloom Piano", "Upright Honky", "Prepared Piano",
+                              "Bowed Piano", "Osc-Struck Piano" })
+    {
+        IlanaSynthAudioProcessor processor;
+        const auto index = processor.getFactoryPresetNames().indexOf (name);
+        if (index < 0)
+            continue;
+
+        processor.loadFactoryPreset (index);
+        processor.prepareToPlay (sampleRate, blockSize);
+        const auto seconds = 9.0;
+        juce::AudioBuffer<float> output (2, (int) (seconds * sampleRate));
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        const auto at = [sampleRate] (double time) { return (int) (time * sampleRate); };
+
+        struct Event { double time; juce::MidiMessage message; };
+        std::vector<Event> events {
+            { 0.0, juce::MidiMessage::controllerEvent (1, 64, 127) },
+            { 0.05, juce::MidiMessage::noteOn (1, 48, (juce::uint8) 70) },
+            { 0.35, juce::MidiMessage::noteOn (1, 55, (juce::uint8) 80) },
+            { 0.65, juce::MidiMessage::noteOn (1, 64, (juce::uint8) 90) },
+            { 0.95, juce::MidiMessage::noteOn (1, 72, (juce::uint8) 100) },
+            { 1.25, juce::MidiMessage::noteOn (1, 76, (juce::uint8) 110) },
+            { 1.3, juce::MidiMessage::noteOff (1, 48) }, { 1.3, juce::MidiMessage::noteOff (1, 55) },
+            { 1.3, juce::MidiMessage::noteOff (1, 64) }, { 1.3, juce::MidiMessage::noteOff (1, 72) },
+            { 1.6, juce::MidiMessage::noteOff (1, 76) },
+            { 3.4, juce::MidiMessage::controllerEvent (1, 64, 0) },
+            { 3.8, juce::MidiMessage::noteOn (1, 57, (juce::uint8) 120) }, { 3.8, juce::MidiMessage::noteOn (1, 60, (juce::uint8) 115) },
+            { 3.8, juce::MidiMessage::noteOn (1, 64, (juce::uint8) 110) },
+            { 5.3, juce::MidiMessage::noteOff (1, 57) }, { 5.3, juce::MidiMessage::noteOff (1, 60) },
+            { 5.3, juce::MidiMessage::noteOff (1, 64) },
+            { 5.8, juce::MidiMessage::noteOn (1, 28, (juce::uint8) 110) }, { 7.0, juce::MidiMessage::noteOff (1, 28) },
+            { 7.2, juce::MidiMessage::noteOn (1, 96, (juce::uint8) 90) }, { 8.2, juce::MidiMessage::noteOff (1, 96) },
+        };
+
+        for (int start = 0; start < output.getNumSamples(); start += blockSize)
+        {
+            const auto length = juce::jmin (blockSize, output.getNumSamples() - start);
+            buffer.setSize (2, length, false, false, true);
+            buffer.clear();
+            juce::MidiBuffer midi;
+            for (const auto& event : events)
+                if (at (event.time) >= start && at (event.time) < start + length)
+                    midi.addEvent (event.message, at (event.time) - start);
+            processor.processBlock (buffer, midi);
+            for (int channel = 0; channel < 2; ++channel)
+                output.copyFrom (channel, start, buffer, channel, 0, length);
+        }
+
+        // Levels per section, DC and the largest sample step (clicks).
+        {
+            const auto rmsDb = [&] (double from, double to)
+            {
+                auto total = 0.0;
+                for (int i = at (from); i < at (to); ++i)
+                {
+                    const auto mid = 0.5 * (output.getSample (0, i) + output.getSample (1, i));
+                    total += mid * mid;
+                }
+                return 10.0 * std::log10 (total / juce::jmax (1, at (to) - at (from)) + 1.0e-24);
+            };
+            auto dc = 0.0, step = 0.0;
+            for (int i = 1; i < output.getNumSamples(); ++i)
+            {
+                dc += output.getSample (0, i);
+                step = juce::jmax (step, (double) std::abs (output.getSample (0, i) - output.getSample (0, i - 1)));
+            }
+            std::cout << name << ": dc " << dc / output.getNumSamples() << " max step " << step
+                      << " | arp " << rmsDb (0.1, 1.3) << " pedal-held " << rmsDb (2.4, 3.3) << " after-lift " << rmsDb (3.55, 3.75)
+                      << " chord " << rmsDb (3.9, 5.2) << " low " << rmsDb (5.9, 6.9) << " high " << rmsDb (7.3, 8.1)
+                      << " tail " << rmsDb (8.6, 9.0) << " dB" << std::endl;
+        }
+
+        const auto file = folder.getChildFile (juce::String (name) + ".wav");
+        file.deleteFile();
+        juce::WavAudioFormat format;
+        if (auto stream = file.createOutputStream())
+            if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (
+                    format.createWriterFor (stream.get(), sampleRate, 2, 24, {}, 0)))
+            {
+                stream.release();
+                writer->writeFromAudioSampleBuffer (output, 0, output.getNumSamples());
+                std::cout << "wrote " << file.getFullPathName() << "  peak " << output.getMagnitude (0, output.getNumSamples())
+                          << std::endl;
+            }
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -5656,6 +5752,12 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
     {
         runPhase2StateAndCpuTest();
+        return 0;
+    }
+
+    if (const auto demo = juce::SystemStats::getEnvironmentVariable ("ILANA_RENDER_DEMO", ""); demo.isNotEmpty())
+    {
+        renderKeysDemos (juce::File (demo));
         return 0;
     }
 

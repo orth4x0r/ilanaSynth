@@ -70,15 +70,18 @@ inline void fillDestinations (juce::ComboBox& combo)
         item (effects, (int) destination);
 
     const auto& params = Mod::getParamDestinations();
+    juce::PopupMenu keys;
 
     for (int i = 0; i < (int) params.size(); ++i)
     {
         const juce::String id (params[(size_t) i].id);
-        item (id.startsWith ("fx_") ? effects : global, Mod::paramDestinationFor (i));
+        auto& menu = i >= Mod::numLegacyParamDestinations ? keys : (id.startsWith ("fx_") ? effects : global);
+        item (menu, Mod::paramDestinationFor (i));
     }
 
     root->addSubMenu ("Effects", effects);
     root->addSubMenu ("Global", global);
+    root->addSubMenu ("Physical & Keys", keys);
 }
 } // namespace MatrixMenus
 

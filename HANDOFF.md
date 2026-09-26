@@ -46,6 +46,13 @@ The OSC page, MAIN and FM show only the added oscillators (see Polish below). Ne
 
 **Verified:** all targets build; `ilanaTableTest` 0 failures, with a new `runM4Tests` (also `ILANA_M4_TEST=1` alone); `ilanaSnapshot --uitest` 0 failures; fingerprints **0 of 235 changed** (`build/m4-fp.csv`). New snapshots: `lfo-pool-full/main`, `keys-grand-osc[-scrolled]`. The Grain Choir tuning estimate is still occasionally flaky (seen once this session, passed on rerun).
 
+**Debug pass after the first M4 commit.**
+- Hammer strings set their decay as a T60 in seconds: DECAY maps to 0.5–25 s at middle C, falling as (261.6/f)^0.7. The loop low-pass loss at the fundamental is compensated (Hammer only), so the treble no longer dies at once.
+- Hammer strikes vary ±15% per string, which feeds the coupled aftersound. Coupling loss is `0.03 × COUPLING`.
+- The strike-point reflection fades in the treble. A 1 Hz in-loop DC bleed (Hammer only) and an output DC blocker on the bow remove offsets.
+- The Osc-Struck modulation sign was fixed. The matrix menu has a "Physical & Keys" submenu for the new destinations.
+- `ILANA_RENDER_DEMO=<folder> ilanaTableTest.exe` renders the six Keys presets to .wav and prints section levels, DC and the largest step.
+
 **Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
 
 ## Polish (Claude, 2026-09-25, committed as c24b26d)

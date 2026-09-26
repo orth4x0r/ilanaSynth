@@ -10,12 +10,13 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 - **Next:** M7, the Generative card (v1.3).
 - **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26), with the UI/debug pass and the 1.2 release commit. Push only when the user asks.
 - **Plugin:** built locally, not installed.
+- **Folder cleanup (2026-09-26):** old snapshots, demos, fit runs, logs and the v1.1 portable binaries are deleted. `build/` keeps the CMake tree, `build/reference/` (the Iowa piano notes, for M17) and `build/fit-best-final.json`; `snapshots/v12` is the latest UI set. Demos come back with `ILANA_RENDER_DEMO=build/demo`.
 
 ## Demos
 `ILANA_RENDER_DEMO=build/demo` writes `build/demo/fm-pd/` (DX reference patches and the CZ waves) alongside the keys demos.
 
 ## Rules that still apply
-- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`: 0 of 241 changed.
+- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`: 0 of 241 changed. `build/fingerprints-v1.2.csv` is the v1.2 baseline.
 - **Parameter IDs and choice indices are never renumbered.** New choices, destinations and sources are appended.
   - Mod destinations: the 115 legacy parameter destinations are fixed at 96..210; OSC 4–6 start at 211; newer parameters are appended after `Destination::Count` (`paramDestinationFor`), in list order (M4's 89, then M5/M6's 52). `maxDestinations` is 512 (394 used).
   - LFO 5–16 and ENV 6–16 are appended sources. Mod slots 33–64 are appended parameters.
@@ -35,7 +36,7 @@ build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 `ILANA_M5_TEST=1 ilanaTableTest.exe` runs only the M5/M6/M6b tests (about a minute).
 
 ## Open issues
-- **CPU tests on this machine:** it runs Windows' "Silent" power plan with background load, and the heavy-patch test swings 42–84% between identical runs (limit 50%). Compare builds by alternating runs (`ILANA_BENCH=1`). Measured that way, M5/M6 cost about +2% (heavy 42.4% against 41.6%).
+- **CPU tests on this machine:** it runs Windows' "Silent" power plan with background load, and the heavy-patch test swings 42–84% between identical runs (limit 50%). Compare builds by alternating runs (`ILANA_BENCH=1`) against a baseline build in a worktree (`git worktree add ../ilana-baseline <commit>`, then configure with `-DFETCHCONTENT_SOURCE_DIR_JUCE=<this build>/_deps/juce-src`). Measured that way, M5/M6 cost about +2% (heavy 42.4% against 41.6%).
 - **Flaky tests:** the Grain Choir tuning estimate, Glitch Gate's loudness. Both pass on rerun.
 - **Plain FM feedback** splits into a buzz at half the sample rate above about 0.2 (the one-sample loop does this in any ideal renderer too). It is kept for old patches; the new Filtered type is the fix.
 - **Host automation** of a choice parameter whose list grew (warp, amp envelope, mod destination) maps to other entries, because hosts store it normalised. Saved sessions are fine (they store the index).

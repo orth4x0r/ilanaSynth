@@ -1634,6 +1634,22 @@ void runPresetTuningTest()
         processor.loadFactoryPreset (presetIndex);
         processor.panic();
 
+        // Also not meant to be in tune: a prepared piano (bolts make its
+        // strings inharmonic and detuned) and granular patches with grain
+        // pitch spray (each grain is randomly transposed, from a time-seeded
+        // generator, so the estimate varied from run to run).
+        auto pitchByDesign = names[presetIndex] == "Prepared Piano";
+        for (const auto* prefix : OscillatorIds::prefixes)
+        {
+            const juce::String p (prefix);
+            if (processor.apvts.getRawParameterValue (p + "_on")->load() > 0.5f
+                && (int) processor.apvts.getRawParameterValue (p + "_mode")->load() == 3
+                && processor.apvts.getRawParameterValue (p + "_grain_pitch")->load() > 0.0f)
+                pitchByDesign = true;
+        }
+        if (pitchByDesign)
+            continue;
+
         // Measure the dry voice: effects (tape shift, freeze, taps...) may
         // legitimately obscure pitch and are not part of oscillator tuning.
         for (const auto* id : { "fx_drive_on", "fx_crush_on", "fx_comb_on", "fx_phaser_on",
@@ -5323,6 +5339,54 @@ void runM4Tests()
         check (std::abs (firm - soft) > soft * 0.1, "bow pressure changes the tone");
     }
 
+    // Piano stiffness: a hammered bass string's upper partials run sharp by
+    // sqrt (1 + B n^2), and the fundamental stays in tune.
+    {
+        const auto partialRatio = [] (double f0, float stiffness, int n)
+        {
+            KarplusStrong string (8);
+            string.prepare (48000.0);
+            string.setFrequency (f0);
+            string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.1f, 0.95f);
+            string.setPhysicalParams (stiffness, 0.0f, 0.0f, 1.0f, 0.0f, false);
+            string.setKeysParams (1.0f, 0.0f);
+            string.trigger (1.0f);
+            constexpr int order = 16;
+            constexpr int size = 1 << order;
+            std::vector<float> work ((size_t) size * 2, 0.0f);
+            for (int i = 0; i < 2400; ++i)
+                string.process();
+            for (int i = 0; i < size; ++i)
+                work[(size_t) i] = string.process() * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size));
+            juce::dsp::FFT fft (order);
+            fft.performFrequencyOnlyForwardTransform (work.data());
+            const auto binHz = 48000.0 / size;
+            // Strongest bin within +/-4 % of each harmonic slot, refined
+            // with a parabola through its neighbours.
+            const auto peakNear = [&] (double hz)
+            {
+                auto best = 0; auto bestValue = 0.0f;
+                for (auto bin = (int) (hz * 0.96 / binHz); bin <= (int) (hz * 1.04 / binHz); ++bin)
+                    if (work[(size_t) bin] > bestValue) { bestValue = work[(size_t) bin]; best = bin; }
+                const auto l = work[(size_t) best - 1], c = work[(size_t) best], r = work[(size_t) best + 1];
+                const auto shift = 0.5 * (l - r) / juce::jmax (1.0e-9, (double) (l - 2.0f * c + r));
+                return (best + juce::jlimit (-0.5, 0.5, shift)) * binHz;
+            };
+            // Against the nominal pitch: at 41 Hz the FFT places the
+            // fundamental itself too coarsely to divide by. Tuning is
+            // judged on the 4th partial, which stiffness barely moves.
+            return std::make_pair (peakNear (4 * f0) / 4.0, peakNear (n * f0) / (n * f0));
+        };
+        const auto stiff = partialRatio (41.2, 0.5f, 10);
+        const auto plain = partialRatio (41.2, 0.0f, 10);
+        const auto expected = std::sqrt (1.0 + 3.16e-4 * 100.0) / std::sqrt (1.0 + 3.16e-4);
+        std::cout << "  piano stiffness E1: 10th partial ratio " << stiff.second << " (expected " << expected
+                  << ", plain " << plain.second << "), 4th partial / 4 " << stiff.first << " Hz" << std::endl;
+        check (std::abs (stiff.second - expected) < 0.008, "a stiff piano string's partials stretch like a real string's");
+        check (std::abs (plain.second - 1.0) < 0.004, "with no stiffness the partials stay harmonic");
+        check (std::abs (1200.0 * std::log2 (stiff.first / 41.2)) < 20.0, "the stiff string stays in tune");
+    }
+
     // Damper: once the key is up the string stops quickly.
     {
         const auto render = [] (float damper)
@@ -5648,6 +5712,56 @@ void runM4Tests()
     }
 }
 
+// ILANA_NOTE_DEBUG=<preset>: one note at a time, level every 100 ms.
+void debugPresetNotes (const juce::String& presetName)
+{
+    for (const auto stiffness : { 0.0f, 0.5f })
+        for (const auto frequency : { 41.2, 261.6, 1046.5, 2093.0 })
+        {
+            KarplusStrong string (3);
+            string.prepare (48000.0);
+            string.setFrequency (frequency);
+            string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.1f, 0.9f);
+            string.setPhysicalParams (stiffness, 0.0f, 0.0f, 1.0f, 0.0f, false);
+            string.setKeysParams (0.5f, 0.0f);
+            string.trigger (0.8f);
+            std::cout << "string " << frequency << " Hz stiff " << stiffness << ":";
+            for (int block = 0; block < 10; ++block)
+            {
+                auto total = 0.0;
+                for (int i = 0; i < 4800; ++i)
+                {
+                    const auto value = string.process();
+                    total += value * value;
+                }
+                std::cout << " " << juce::roundToInt (10.0 * std::log10 (total / 4800.0 + 1.0e-12));
+            }
+            std::cout << std::endl;
+        }
+
+    for (const auto note : { 28, 40, 60, 84, 96 })
+    {
+        IlanaSynthAudioProcessor processor;
+        const auto index = processor.getFactoryPresetNames().indexOf (presetName);
+        if (index < 0) { std::cout << "no preset " << presetName << std::endl; return; }
+        processor.loadFactoryPreset (index);
+        processor.prepareToPlay (48000.0, 480);
+        juce::AudioBuffer<float> buffer (2, 480);
+        std::cout << "note " << note << ":";
+        for (int block = 0; block < 150; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            if (block == 100) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+            processor.processBlock (buffer, midi);
+            if (block % 10 == 9)
+                std::cout << " " << juce::roundToInt (juce::Decibels::gainToDecibels (buffer.getRMSLevel (0, 0, 480), -120.0f));
+        }
+        std::cout << "  voices " << processor.getActiveVoiceCount() << std::endl;
+    }
+}
+
 // ILANA_RENDER_DEMO=<folder>: renders the M4 Keys presets to .wav files for
 // listening (a pedalled arpeggio and chord, then a low and a high note).
 void renderKeysDemos (const juce::File& folder)
@@ -5752,6 +5866,12 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
     {
         runPhase2StateAndCpuTest();
+        return 0;
+    }
+
+    if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_DEBUG", ""); preset.isNotEmpty())
+    {
+        debugPresetNotes (preset);
         return 0;
     }
 

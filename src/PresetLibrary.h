@@ -2428,7 +2428,7 @@ inline std::vector<FactoryPreset> build()
     // ======================================================================
 
     add (B ("Grand Piano", "Keys")
-             .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.6f, 0.6f, 0.8f, 0.9f)
+             .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.6f, 0.6f, 0.8f, 0.9f, 0.25f, 0.45f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (0.8f, 0.45f, 0.6f, 0.6f, 0.5f, 0.25f)
              .filter1 (LP, 18000.0f, 0.0f)
@@ -2440,7 +2440,7 @@ inline std::vector<FactoryPreset> build()
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
 
     add (B ("Pedal Bloom Piano", "Keys")
-             .piano (1, 0.75f, 0.3f, 3, 1.8f, 0.8f, 0.5f, 0.8f, 0.94f, 0.3f)
+             .piano (1, 0.75f, 0.3f, 3, 1.8f, 0.8f, 0.5f, 0.8f, 0.94f, 0.3f, 0.45f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (0.6f, 0.5f, 0.35f, 0.85f, 1.0f, 0.35f)
              .filter1 (LP, 12000.0f, 0.0f)
@@ -2452,7 +2452,7 @@ inline std::vector<FactoryPreset> build()
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Hall, 0.8f, 0.3f));
 
     add (B ("Upright Honky", "Keys")
-             .piano (1, 0.8f, 0.7f, 3, 7.0f, 0.6f, 0.7f, 0.6f, 0.8f, 0.2f, 0.3f)
+             .piano (1, 0.8f, 0.7f, 3, 7.0f, 0.6f, 0.7f, 0.6f, 0.8f, 0.2f, 0.5f)
              .set ("osc2_on", 0).set ("sub_on", 0)
              .keysBody (1.0f, 0.55f, 0.3f, 0.3f, 0.3f, 0.5f)
              .filter1 (LP, 9000.0f, 0.0f)
@@ -2464,17 +2464,19 @@ inline std::vector<FactoryPreset> build()
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.35f, 0.12f));
 
     add (B ("Prepared Piano", "Keys")
-             .piano (1, 1.0f, 0.8f, 2, 3.0f, 0.5f, 0.5f, 0.5f, 0.7f, 0.2f, 0.55f)
-             .set ("osc1_bridge_buzz", 0.55f).set ("osc1_fret_rattle", 0.6f).set ("osc1_string_excite_pos", 0.3f)
+             // Bolts between the strings: very stiff, detuned, gong-like
+             // partials. Rubber wedges: a damped, woody thud. Screws: buzz.
+             .piano (1, 1.0f, 0.9f, 2, 14.0f, 0.3f, 0.5f, 0.3f, 0.72f, 0.5f, 0.88f)
+             .set ("osc1_bridge_buzz", 0.3f).set ("osc1_fret_rattle", 0.35f).set ("osc1_string_excite_pos", 0.43f)
              .set ("osc2_on", 0).set ("sub_on", 0)
-             .keysBody (0.4f, 0.5f, 0.55f, 0.5f, 0.3f, 0.45f)
+             .keysBody (0.2f, 0.6f, 0.55f, 0.45f, 0.3f, 0.5f)
              .filter1 (LP, 14000.0f, 0.0f)
              .amp (0.001f, 4.0f, 1.0f, 0.9f).velocity (0.35f)
-             .macro (1, "SCREWS", { { param ("osc1_bridge_buzz"), 0.4f } })
-             .macro (2, "BOLTS", { { param ("osc1_fret_rattle"), 0.35f } })
-             .macro (3, "POSITION", { { param ("osc1_string_excite_pos"), 0.4f } })
+             .macro (1, "BOLTS", { { param ("osc1_string_stiffness"), -0.4f } })
+             .macro (2, "SCREWS", { { param ("osc1_bridge_buzz"), 0.4f }, { param ("osc1_fret_rattle"), 0.3f } })
+             .macro (3, "RUBBER", { { param ("osc1_string_damp"), 0.35f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
-             .master (7.0f).fx ({ FxLimiter, FxReverb }).limiter (-7.5f).reverb (Room, 0.5f, 0.18f));
+             .master (4.0f).fx ({ FxLimiter, FxReverb }).limiter (-4.5f).reverb (Room, 0.5f, 0.18f));
 
     add (B ("Bowed Piano", "Keys")
              .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.3f, 0.4f, 0.6f, 0.98f, 0.35f)

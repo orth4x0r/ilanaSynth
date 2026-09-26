@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -46,8 +47,8 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        dispersionState[0] = dispersionState[1] = 0.0f;
-        dispersionInput[0] = dispersionInput[1] = 0.0f;
+        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
+        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
         hammerDc = 0.0f;
@@ -58,11 +59,13 @@ public:
     {
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
         updateHammerFeedback();
+        updatePianoDispersion();
     }
 
     void setParams (Excite newExcite, float newSustainLevel, float newDamping, float newDecay)
     {
         excite = newExcite;
+        updateDispersionDelay();
         sustainLevel = juce::jlimit (0.0f, 1.0f, newSustainLevel);
         damping = juce::jlimit (0.0f, 1.0f, newDamping);
         decay = juce::jlimit (0.0f, 1.0f, newDecay);
@@ -70,6 +73,7 @@ public:
         lowpassCoefficient = 1.0f - damping * 0.96f;
         feedback = 0.90f + decay * 0.0995f;
         updateHammerFeedback();
+        updatePianoDispersion();
     }
 
     void setPhysicalParams (float newStiffness, float newPickup, float newExcitationPosition,
@@ -82,7 +86,8 @@ public:
         pickPosition = juce::jlimit (0.0f, 1.0f, newPickPosition);
         slap = newSlap;
         dispersionCoefficient = -0.7f * stiffness;
-        dispersionDelay = 2.0f * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
+        updateDispersionDelay();
+        updatePianoDispersion();
     }
 
     void setBowAndBuzz (float pressure, float speed, float bridgeBuzz, float fretRattle)
@@ -102,8 +107,11 @@ public:
     }
 
     // Force arriving from the bridge (the other strings of the same note);
-    // it is added on the next sample.
-    void addBridgeInput (float value) { bridgeInput += value; }
+    // it is added on the next sample. It acts once per trip round the loop,
+    // so scale it by pitch: the same loss per second in every register
+    // (calibrated at C3; lower strings keep their long bass sustain),
+    // rather than wiping out the treble.
+    void addBridgeInput (float value) { bridgeInput += value * (float) juce::jmin (1.0, 130.81 / frequency); }
 
     void trigger (float velocity)
     {
@@ -135,34 +143,15 @@ public:
             writePosition = 0;
             lowpassState = 0.0f;
             phase = 0.0;
-            dispersionState[0] = dispersionState[1] = 0.0f;
-            dispersionInput[0] = dispersionInput[1] = 0.0f;
+            std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
+            std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
             slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
             slapLevel = level;
             strikeVelocity = level;
             bridgeInput = 0.0f;
 
             if (excite == Excite::Hammer)
-            {
-                const auto hardness = juce::jlimit (0.0f, 1.0f, hammerHardness * 0.75f + level * 0.5f - 0.1f);
-                // Treble hammers are small and light: shorter contact up high.
-                const auto registerScale = juce::jlimit (0.35, 2.0, std::pow (220.0 / frequency, 0.35));
-                const auto contactMs = (0.5 + 3.5 * (1.0 - (double) hardness)) * registerScale;
-                hammerLength = juce::jmax (4, (int) (sampleRate * contactMs * 0.001));
-                // Softer felt compresses more: a rounder, lower-peaked push.
-                hammerShape = 1.0f + 2.0f * (1.0f - hardness);
-                hammerLevel = std::pow (level, 1.3f) * 8.0f / std::sqrt ((float) hammerLength / 20.0f + 1.0f);
-                // No hammer hits a note's strings exactly evenly; the
-                // difference is what feeds the aftersound of coupled strings.
-                hammerLevel *= 0.85f + 0.3f * random.nextFloat();
-                // Strike point along the string; 1/8 by default like a grand.
-                hammerOffset = juce::jmax (1.0, (double) (sampleRate / frequency)
-                                                    * (excitationPosition > 0.0f ? (double) excitationPosition : 0.125));
-                hammerElapsed = 0;
-                hammerTotal = hammerLength + (int) std::ceil (hammerOffset) + 1;
-                hammerDc = 0.0f;
-                hammerDcCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi / sampleRate));
-            }
+                startHammer (level);
             return;
         }
 
@@ -195,8 +184,8 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        dispersionState[0] = dispersionState[1] = 0.0f;
-        dispersionInput[0] = dispersionInput[1] = 0.0f;
+        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
+        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
         slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
         slapLevel = level;
         strikeVelocity = level;
@@ -212,10 +201,20 @@ public:
 
         const auto size = (int) buffer.size();
         const auto period = sampleRate / frequency;
-        const auto useDispersion = stiffness > 0.0f && period > 3.5;
-        const auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
-        const auto coefficient = delay < (double) dispersionDelay
-                                     ? (float) ((2.0 - delay) / (2.0 + delay)) : dispersionCoefficient;
+        const auto hammered = excite == Excite::Hammer;
+        const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
+        const auto stages = (double) dispersionStages();
+        auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
+        auto coefficient = delay < (double) dispersionDelay
+                               ? (float) ((stages - delay) / (stages + delay)) : dispersionCoefficient;
+
+        // Piano strings: the designed allpass, and the loop's exact delay at
+        // the fundamental taken off so the note stays in tune.
+        if (hammered)
+        {
+            delay = pianoLoopDelay;
+            coefficient = pianoCoefficient;
+        }
         auto readPosition = (double) writePosition - period
                             + delay;
 
@@ -234,7 +233,7 @@ public:
 
         if (useDispersion)
         {
-            for (int stage = 0; stage < 2; ++stage)
+            for (int stage = 0; stage < dispersionStages(); ++stage)
             {
                 const auto next = coefficient * delayed + dispersionInput[stage]
                                   - coefficient * dispersionState[stage];
@@ -284,16 +283,8 @@ public:
             case Excite::Hammer:
                 if (hammerElapsed < hammerTotal)
                 {
-                    // The strike launches two pulses along the string; the
-                    // one reflected from the near end arrives a strike
-                    // distance later and notches out the harmonics that have
-                    // a node at the strike point.
-                    // In the treble the felt stays on longer than the pulse
-                    // takes to come back, so the notch smears out: fade the
-                    // reflection rather than cancel the strike.
-                    const auto elapsed = (double) hammerElapsed++;
-                    const auto reflection = (float) juce::jlimit (0.25, 1.0, hammerOffset / (0.5 * (double) hammerLength));
-                    excitation = hammerForce (elapsed) - reflection * hammerForce (elapsed - hammerOffset);
+                    excitation = hammerExcitation();
+                    output += hammerThump();
                 }
                 break;
 
@@ -359,6 +350,176 @@ public:
     }
 
 private:
+    // Piano strings are much stiffer than the lengths of wire the Physical
+    // mode was built for: more allpass stages make the upper partials
+    // audibly sharp, as in a real piano's bass.
+    static constexpr int maxDispersionStages = 8;
+    int dispersionStages() const { return excite == Excite::Hammer ? maxDispersionStages : 2; }
+    void updateDispersionDelay()
+    {
+        dispersionDelay = (float) dispersionStages() * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
+    }
+
+    // A stiff piano string's partials run sharp: partial n sits at
+    // n f0 sqrt (1 + B n^2), and that stretch (largest in the bass, where the
+    // loop is long) is much of what makes a piano sound like one. STIFF maps
+    // to the inharmonicity B; the allpass coefficient is solved so that a
+    // reference partial lands where B puts it, and the loop is shortened by
+    // the exact allpass and damping delay at the fundamental.
+    static double allpassPhaseDelay (double a, double w)
+    {
+        const auto e = std::polar (1.0, -w);
+        return -std::arg ((a + e) / (1.0 + a * e)) / w;
+    }
+
+    double lowpassPhaseDelay (double w) const
+    {
+        const auto a = (double) lowpassCoefficient;
+        return -std::arg (a / (1.0 - (1.0 - a) * std::polar (1.0, -w))) / w;
+    }
+
+    void updatePianoDispersion()
+    {
+        if (excite != Excite::Hammer)
+            return;
+
+        if (std::abs (frequency - pianoFrequency) < frequency * 0.002 && stiffness == pianoStiffness
+            && lowpassCoefficient == pianoLowpass)
+            return;
+
+        pianoFrequency = frequency;
+        pianoStiffness = stiffness;
+        pianoLowpass = lowpassCoefficient;
+
+        const auto period = sampleRate / frequency;
+        const auto w0 = juce::MathConstants<double>::twoPi / period;
+        const auto dampingDelay = lowpassPhaseDelay (w0);
+        pianoCoefficient = 0.0f;
+        pianoLoopDelay = juce::jmin (dampingDelay, period - 1.25);
+
+        const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
+        if (stiffness <= 0.0f || reference < 2 || period < 8.0)
+            return;
+
+        const auto b = 1.0e-5 * std::pow (10.0, 3.0 * (double) stiffness);
+        const auto n = (double) reference;
+        const auto wTarget = n * w0 * std::sqrt (1.0 + b * n * n) / std::sqrt (1.0 + b);
+        const auto needed = juce::MathConstants<double>::twoPi * n / wTarget - period; // negative
+        const auto stages = (double) maxDispersionStages;
+        const auto error = [&] (double a) { return stages * (allpassPhaseDelay (a, wTarget) - allpassPhaseDelay (a, w0)) - needed; };
+
+        auto low = -0.95, high = 0.0;
+        if (error (low) > 0.0)
+            high = low; // as far as the filter goes
+        else
+            for (int iteration = 0; iteration < 30; ++iteration)
+            {
+                const auto middle = 0.5 * (low + high);
+                (error (middle) > 0.0 ? high : low) = middle;
+            }
+
+        // The loop cannot be shorter than the filters' own delay.
+        auto a = high;
+        while (a < -0.01 && stages * allpassPhaseDelay (a, w0) + dampingDelay > period - 2.0)
+            a *= 0.8;
+
+        pianoCoefficient = (float) a;
+        pianoLoopDelay = stages * allpassPhaseDelay (a, w0) + dampingDelay;
+    }
+
+    // Commuted piano synthesis (Smith and Van Duyne): rather than model the
+    // hammer, string and soundboard together, the string is driven by what
+    // the hammer and board would give it. That is the felt's push (shorter
+    // and brighter for harder hammers and faster keys), plus the board's
+    // knock: a short burst of wooden resonance, longer in the bass, brighter
+    // for a harder strike. Both pass the strike point, which notches out the
+    // partials with a node there.
+    void startHammer (float level)
+    {
+        const auto hardness = juce::jlimit (0.0f, 1.0f, hammerHardness * 0.75f + level * 0.5f - 0.1f);
+        const auto period = sampleRate / frequency;
+        // 0 in the treble .. 1 in the deep bass.
+        const auto bassness = (float) juce::jlimit (0.0, 1.0, std::log2 (523.25 / frequency) / 4.0);
+
+        // Treble hammers are small and light: they leave the string within
+        // half a cycle, so the strike still reaches the note itself.
+        const auto registerScale = juce::jlimit (0.2, 2.2, std::sqrt (220.0 / frequency));
+        const auto contactMs = (0.5 + 3.0 * (1.0 - (double) hardness)) * registerScale;
+        hammerLength = juce::jlimit (4, juce::jmax (4, (int) (period * 0.5)), (int) (sampleRate * contactMs * 0.001));
+        // Softer felt compresses more: a rounder, lower-peaked push.
+        hammerShape = 1.0f + 2.0f * (1.0f - hardness);
+        // Same strike energy in every register: a short treble contact pushes harder.
+        hammerLevel = std::pow (level, 1.3f) * 8.0f * std::sqrt (20.0f / (float) (hammerLength + 20));
+        // No hammer hits a note's strings exactly evenly; the difference is
+        // what feeds the aftersound of coupled strings.
+        hammerLevel *= 0.85f + 0.3f * random.nextFloat();
+
+        // Strike point along the string; 1/8 by default like a grand.
+        const auto offset = period * (excitationPosition > 0.0f ? (double) excitationPosition : 0.125);
+        hammerOffset = juce::jlimit (1.0, (double) hammerHistorySize - 1.0, offset);
+        hammerReflection = (float) juce::jlimit (0.35, 0.9, hammerOffset / (0.5 * (double) hammerLength));
+
+        // The board's knock: filtered noise with a fast decay.
+        const auto knockSeconds = 0.012 + 0.045 * (double) bassness;
+        knockLength = (int) (sampleRate * knockSeconds * 4.0);
+        knockDecay = (float) std::exp (-1.0 / (sampleRate * knockSeconds));
+        const auto knockCutoff = 700.0 + 5500.0 * (double) (hardness * hardness);
+        knockCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * knockCutoff / sampleRate));
+        // Filtering lowers the noise's level; put it back, then set it to
+        // about a tenth of the felt's push.
+        const auto filteredLevel = std::sqrt (knockCoefficient / (2.0f - knockCoefficient)) * 0.8f;
+        knockLevel = hammerLevel * 0.1f / juce::jmax (0.05f, filteredLevel);
+        knockEnvelope = 1.0f;
+        knockLow1 = knockLow2 = 0.0f;
+
+        // Heard directly too: the thump of felt and wood, strongest in the bass.
+        thumpLength = (int) (sampleRate * 0.03);
+        thumpDecay = (float) std::exp (-1.0 / (sampleRate * 0.007));
+        thumpCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * (160.0 + 240.0 * (double) hardness) / sampleRate));
+        thumpLevel = std::pow (level, 1.5f) * (0.25f + 0.6f * bassness);
+        thumpEnvelope = 1.0f;
+        thumpLow1 = thumpLow2 = 0.0f;
+
+        std::fill (hammerHistory.begin(), hammerHistory.end(), 0.0f);
+        hammerHistoryWrite = 0;
+        hammerElapsed = 0;
+        hammerTotal = juce::jmax (hammerLength, knockLength) + (int) std::ceil (hammerOffset) + 2;
+        hammerDc = 0.0f;
+        hammerDcCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi / sampleRate));
+    }
+
+    float hammerExcitation()
+    {
+        const auto elapsed = hammerElapsed++;
+        auto raw = hammerForce ((double) elapsed);
+
+        if (elapsed < knockLength)
+        {
+            const auto noise = random.nextFloat() * 2.0f - 1.0f;
+            knockLow1 += (noise - knockLow1) * knockCoefficient;
+            knockLow2 += (knockLow1 - knockLow2) * knockCoefficient;
+            raw += knockLow2 * knockEnvelope * knockLevel;
+            knockEnvelope *= knockDecay;
+        }
+
+        hammerHistory[(size_t) hammerHistoryWrite] = raw;
+        const auto readIndex = (hammerHistoryWrite - (int) hammerOffset + hammerHistorySize) % hammerHistorySize;
+        hammerHistoryWrite = (hammerHistoryWrite + 1) % hammerHistorySize;
+        return raw - hammerReflection * hammerHistory[(size_t) readIndex];
+    }
+
+    float hammerThump()
+    {
+        if (hammerElapsed > thumpLength)
+            return 0.0f;
+
+        const auto noise = random.nextFloat() * 2.0f - 1.0f;
+        thumpLow1 += (noise - thumpLow1) * thumpCoefficient;
+        thumpLow2 += (thumpLow1 - thumpLow2) * thumpCoefficient;
+        thumpEnvelope *= thumpDecay;
+        return thumpLow2 * thumpEnvelope * thumpLevel * 6.0f;
+    }
+
     // A piano string's decay is set in seconds, not per trip round the loop:
     // otherwise the treble (many trips per second) would die almost at once.
     // DECAY maps to a T60 at middle C of 0.5-25 s, and higher strings ring
@@ -484,8 +645,8 @@ private:
     float pickPosition = 0.0f;
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
-    float dispersionState[2] {};
-    float dispersionInput[2] {};
+    float dispersionState[maxDispersionStages] {};
+    float dispersionInput[maxDispersionStages] {};
     bool slap = false;
     int slapRemaining = 0;
     float slapLevel = 0.0f;
@@ -498,6 +659,15 @@ private:
     float hammerLevel = 0.0f, hammerShape = 1.0f;
     double hammerOffset = 1.0;
     int hammerLength = 1, hammerElapsed = 0, hammerTotal = 0;
+    float hammerReflection = 0.9f;
+    float pianoCoefficient = 0.0f, pianoStiffness = -1.0f, pianoLowpass = -1.0f;
+    double pianoLoopDelay = 0.0, pianoFrequency = 0.0;
+    static constexpr int hammerHistorySize = 512;
+    std::array<float, hammerHistorySize> hammerHistory {};
+    int hammerHistoryWrite = 0;
+    int knockLength = 0, thumpLength = 0;
+    float knockDecay = 0.0f, knockCoefficient = 0.1f, knockLevel = 0.0f, knockEnvelope = 0.0f, knockLow1 = 0.0f, knockLow2 = 0.0f;
+    float thumpDecay = 0.0f, thumpCoefficient = 0.02f, thumpLevel = 0.0f, thumpEnvelope = 0.0f, thumpLow1 = 0.0f, thumpLow2 = 0.0f;
     float hammerDc = 0.0f, hammerDcCoefficient = 0.0001f;
     Excite excite = Excite::Burst;
 };

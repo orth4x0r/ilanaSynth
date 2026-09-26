@@ -1119,10 +1119,11 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
     {
         const auto amount = settings.registerMap;
         const auto t = keyTrackValue; // -1 at C2, +1 at C6
-        stiffness = juce::jlimit (0.0f, 1.0f, stiffness + amount * (0.08f + 0.3f * juce::jmax (0.0f, t)
-                                                                         + 0.12f * juce::jmax (0.0f, -t)));
+        // Wound bass strings are less stiff than the plain treble ones.
+        stiffness = juce::jlimit (0.0f, 1.0f, stiffness + amount * (0.08f + 0.35f * juce::jmax (0.0f, t)
+                                                                         - 0.1f * juce::jmax (0.0f, -t)));
         damping = juce::jlimit (0.0f, 1.0f, damping - amount * 0.25f * t);
-        decay = juce::jlimit (0.0f, 1.0f, decay - amount * 0.15f * t);
+        decay = juce::jlimit (0.0f, 1.0f, decay - amount * 0.05f * t);
     }
 
     string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 6, settings.stringExcite)),

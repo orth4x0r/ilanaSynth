@@ -53,6 +53,16 @@ The OSC page, MAIN and FM show only the added oscillators (see Polish below). Ne
 - The Osc-Struck modulation sign was fixed. The matrix menu has a "Physical & Keys" submenu for the new destinations.
 - `ILANA_RENDER_DEMO=<folder> ilanaTableTest.exe` renders the six Keys presets to .wav and prints section levels, DC and the largest step.
 
+**Second listening round (user: C7 inaudible, E1 synthy, hammer wrong, Prepared not right).**
+- **C7 inaudible:** the coupling (bridge) loss acted once per trip round the loop, so it wiped out the treble. `addBridgeInput` now scales by `min(1, 130.81 / f)`: the same loss per second at and above C3.
+- **Treble contact:** the hammer contact is capped at half a period.
+- **Commuted hammer** (`startHammer` / `hammerExcitation` / `hammerThump`): felt pulse, plus a filtered-noise board knock (12–57 ms, longer in the bass, brighter with hardness) through the strike-point comb (512-sample history). A direct felt-and-wood thump goes to the output.
+- **Real inharmonicity** (`updatePianoDispersion`, Hammer only): STIFF maps to B = 1e-5·10^(3·stiff). An 8-stage allpass coefficient is solved by bisection so a reference partial lands at n·f0·√(1+Bn²). The loop is shortened by the exact allpass and damping phase delay at f0. Tested: E1 10th partial 1.0178 against 1.0155 expected.
+- **Register map:** less stiffness in the (wound) bass. The soundboard low-cuts its direct path below ~90 Hz, scaled by mix.
+- **Presets:** stiffness around 0.45–0.5 (Prepared 0.88: bolts). Prepared Piano was reworked (detune 14 ct, rubber damp, off-centre strike).
+- **Tuning test:** it now skips Prepared Piano and granular patches with grain pitch spray (Grain Choir's long-standing flake: time-seeded grain pitch randomness).
+- **`ILANA_NOTE_DEBUG=<preset>`** prints bare-string levels by register and per-note levels every 100 ms.
+
 **Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
 
 ## Polish (Claude, 2026-09-25, committed as c24b26d)

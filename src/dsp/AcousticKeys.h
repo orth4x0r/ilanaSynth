@@ -67,6 +67,8 @@ public:
 
         for (auto& state : toneState)
             state[0] = state[1] = 0.0f;
+        for (auto& state : bassState)
+            state[0] = state[1] = 0.0f;
     }
 
     void process (float* left, float* right, int numSamples, float mix, float tone, float size)
@@ -79,6 +81,9 @@ public:
         const auto corner = 450.0 + 6000.0 * (double) (tone * tone);
         const auto toneCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * corner / sampleRate));
         const auto brightness = 0.05f + 1.35f * tone; // how much of the unfiltered top end passes
+        // A soundboard barely radiates the lowest fundamentals: the deep bass
+        // is heard mostly through its overtones.
+        const auto bassCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 90.0 / sampleRate));
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -92,7 +97,11 @@ public:
                 for (int m = 0; m < numModes; ++m)
                     body += modes[(size_t) channel][(size_t) m].process (mono) * modeGains[(size_t) channel][(size_t) m];
 
-                auto out = input[channel] * (1.0f - 0.4f * mix) + body * mix * 2.2f;
+                auto& bass = bassState[channel];
+                bass[0] += (input[channel] - bass[0]) * bassCoefficient;
+                bass[1] += (bass[0] - bass[1]) * bassCoefficient;
+                const auto direct = input[channel] - bass[1] * 0.8f * mix;
+                auto out = direct * (1.0f - 0.4f * mix) + body * mix * 2.2f;
                 // Two one-poles: -12 dB/octave above the lid corner.
                 auto& state = toneState[channel];
                 state[0] += (out - state[0]) * toneCoefficient;
@@ -141,6 +150,7 @@ private:
     std::array<std::array<AcousticKeysDetail::Mode, numModes>, 2> modes;
     std::array<std::array<float, numModes>, 2> modeGains {};
     float toneState[2][2] {};
+    float bassState[2][2] {};
     double sampleRate = 48000.0;
     float lastSize = -1.0f;
 };

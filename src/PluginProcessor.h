@@ -20,6 +20,7 @@
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
 #include "dsp/SympatheticStrings.h"
+#include "dsp/AcousticKeys.h"
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/SamplePlayer.h"
@@ -35,8 +36,12 @@ public:
     static constexpr int numFxTypes = 29;
 
     EqSettings getEqSettings() const;
-    static constexpr int numLfos = 4;
-    static constexpr int maxDestinations = 256;
+    static constexpr int numLfos = Mod::numLfoSources;
+    // LFO 1-4 keep lfoBuffers channels 0-3; the clocked S&H and MSEG sit at
+    // 4 and 5, and LFO 5-16 follow.
+    static constexpr int lfoChannel (int lfo) { return lfo < 4 ? lfo : lfo + 2; }
+    static constexpr int numLfoChannels = numLfos + 2;
+    static constexpr int maxDestinations = 512;
 
     float getFxMod (Mod::Destination destination, float depth) const
     {
@@ -262,6 +267,11 @@ public:
     void addOscillator (int index);
     void removeOscillator (int index);
     bool isOscillatorShown (int index) const;
+    // Added to the patch, or routed in the matrix (message thread).
+    bool isLfoShown (int index) const;
+    // Colours for LFO cards and chips: the first four as before, the rest
+    // around the hue wheel.
+    static juce::Colour lfoColour (int index);
 
     bool loadUserWavetable (int slot, const juce::File& file,
                             Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
@@ -353,6 +363,7 @@ private:
 
     std::array<std::array<juce::String, 11>, OscillatorIds::count> stringParamIds;
     std::array<std::array<juce::String, 4>, OscillatorIds::count> bowBuzzIds;
+    std::array<std::array<juce::String, 4>, OscillatorIds::count> keysParamIds;
     struct OscCoreIds
     {
         juce::String on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
@@ -377,7 +388,9 @@ private:
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     std::array<LfoIds, (size_t) numLfos> lfoIds;
-    std::array<int, (size_t) numLfos> lfoPreviousShapes { -1, -1, -1, -1 };
+    std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
+    // Which LFOs a mod slot uses: LFO 5-16 only render in full when routed.
+    std::array<bool, (size_t) numLfos> lfoRouted {};
     struct FxSlotIds { juce::String type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<juce::String, 16> tapStepIds;
@@ -418,6 +431,8 @@ private:
     std::array<std::atomic<float>, (size_t) numLfos> lfoLastValues {};
     std::array<LfoChaos, (size_t) numLfos> lfoChaos;
     juce::Random lfoRandom;
+    juce::Random lfoPoolRandom { 31415 };
+    juce::Random& randomForLfo (int lfo) { return lfo < 4 ? lfoRandom : lfoPoolRandom; }
 
     float modWheelValue = 0.0f;
     float aftertouchValue = 0.0f;
@@ -519,6 +534,14 @@ private:
     SpectralFreeze freeze[2];
     Mseg mseg;
     SympatheticStrings sympatheticStrings;
+
+    // M4 acoustic keys, shared by every voice (base rate, after the voices).
+    Soundboard soundboard;
+    PedalResonance pedalResonance;
+    MechanicalNoise mechanicalNoise;
+    bool keysPedalDown = false, soundboardWasOn = false;
+    std::array<bool, 128> pedalHeldNotes {};
+    void processAcousticKeys (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi);
 
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> haasLine { 4800 };
     float compEnvelope[2] { 0.0f, 0.0f };

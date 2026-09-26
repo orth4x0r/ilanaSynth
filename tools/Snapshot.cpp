@@ -685,6 +685,40 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
     }
 
+    // The LFO pool, every card revealed, the last one selected.
+    {
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (13);
+        settle (400);
+        save (*editor, outDir.getChildFile ("lfo-pool-full.png"));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("MAIN"));
+        settle (300);
+        save (*editor, outDir.getChildFile ("lfo-pool-main.png"));
+        for (int lfo = 3; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
+    }
+
+    // M4: the Grand Piano preset on the OSC page.
+    if (const auto program = processor.getFactoryPresetNames().indexOf ("Grand Piano"); program >= 0)
+    {
+        processor.loadFactoryPreset (program);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        settle (500);
+        save (*editor, outDir.getChildFile ("keys-grand-osc.png"));
+        if (auto* viewport = dynamic_cast<juce::Viewport*> (tabs->getCurrentContentComponent()))
+        {
+            viewport->setViewPosition (0, 10000);
+            settle (200);
+            save (*editor, outDir.getChildFile ("keys-grand-osc-scrolled.png"));
+            viewport->setViewPosition (0, 0);
+        }
+        processor.loadFactoryPreset (0);
+    }
+
     // Added oscillators: MAIN and OSC scroll, FM grows its matrix.
     {
         processor.addOscillator (3);

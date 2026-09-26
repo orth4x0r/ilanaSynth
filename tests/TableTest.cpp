@@ -432,7 +432,7 @@ void runFrameModulationTest()
         p.filter2.resonance = 0.0f;
         p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
         p.macros[0] = macroValue;
-        p.lfo1 = lfoSource;
+        p.lfoBuffers[0] = lfoSource;
         p.addModSlot (source, Mod::Destination::Osc1Frame, modDepth);
 
         voice.setParams (p);
@@ -3014,8 +3014,9 @@ void runMatrixTests()
     check (Mod::shape (slot, 0.5f) < 0.1f, "positive curve bends the response (0.5 -> "
                                               + juce::String (Mod::shape (slot, 0.5f), 3) + ")");
 
-    check (Mod::numExplicitDestinations + (int) Mod::getParamDestinations().size() == Mod::firstNewExplicitDestination
-               && Mod::getDestinationNames().size() == Mod::getNumDestinations(),
+    check (Mod::numExplicitDestinations + Mod::numLegacyParamDestinations == Mod::firstNewExplicitDestination
+               && Mod::getDestinationNames().size() == Mod::getNumDestinations()
+               && Mod::getNumDestinations() <= IlanaSynthAudioProcessor::maxDestinations,
            "parameter destinations end exactly where the OSC 4-6 destinations begin");
     check (Mod::getExplicitDestinationNames().size() == Mod::numExplicitDestinations,
            "destination names match the destination list ("
@@ -4538,7 +4539,7 @@ void runM3PhysicalTests()
         for (const auto* id : { "osc1_excite", "osc2_excite", "sub_excite" })
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
-            check (choice != nullptr && choice->getAllValueStrings().size() == 5
+            check (choice != nullptr && choice->getAllValueStrings().size() >= 5
                    && choice->getAllValueStrings()[4] == "Bow",
                    juce::String (id) + " appends Bow after the four legacy exciters");
         }
@@ -5198,6 +5199,455 @@ void runM3bEngineTests()
            "six-oscillator Normal and Eco stay within budget and Eco is cheaper");
 }
 
+// M4: acoustic keys and the LFO pool.
+double bandEnergy (const std::vector<float>& samples, size_t start, size_t end)
+{
+    auto total = 0.0;
+    for (auto i = start; i < juce::jmin (end, samples.size()); ++i)
+        total += (double) samples[i] * samples[i];
+    return total / (double) juce::jmax ((size_t) 1, juce::jmin (end, samples.size()) - start);
+}
+
+double centroidOf (const std::vector<float>& samples, size_t start, double sampleRate)
+{
+    constexpr int order = 12;
+    constexpr int size = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<float> work ((size_t) size * 2, 0.0f);
+    for (int i = 0; i < size && start + (size_t) i < samples.size(); ++i)
+        work[(size_t) i] = samples[start + (size_t) i]
+                           * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size));
+    fft.performFrequencyOnlyForwardTransform (work.data());
+    double weighted = 0.0, total = 0.0;
+    for (int bin = 1; bin < size / 2; ++bin)
+    {
+        weighted += bin * sampleRate / size * work[(size_t) bin];
+        total += work[(size_t) bin];
+    }
+    return total > 0.0 ? weighted / total : 0.0;
+}
+
+void runM4Tests()
+{
+    std::cout << "M4 acoustic keys" << std::endl;
+
+    {
+        IlanaSynthAudioProcessor processor;
+        for (const auto* id : { "osc1_excite", "osc2_excite", "sub_excite", "osc4_excite" })
+        {
+            auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
+            check (choice != nullptr && choice->getAllValueStrings().size() == 7
+                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer"
+                       && choice->getAllValueStrings()[6] == "Osc In",
+                   juce::String (id) + " appends Hammer and Osc In after Bow");
+        }
+    }
+
+    // Hammer: velocity and felt hardness both brighten; velocity also louder.
+    const auto hammer = [] (float velocity, float hardness, double frequency = 220.0)
+    {
+        KarplusStrong string (91);
+        string.prepare (48000.0);
+        string.setFrequency (frequency);
+        string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.2f, 0.9f);
+        string.setKeysParams (hardness, 0.0f);
+        string.trigger (velocity);
+        std::vector<float> samples (48000);
+        for (auto& sample : samples)
+            sample = string.process();
+        return samples;
+    };
+    {
+        const auto soft = hammer (0.3f, 0.5f);
+        const auto loud = hammer (1.0f, 0.5f);
+        const auto felt = hammer (0.8f, 0.0f);
+        const auto hard = hammer (0.8f, 1.0f);
+        const auto softLevel = std::sqrt (bandEnergy (soft, 0, 9600));
+        const auto loudLevel = std::sqrt (bandEnergy (loud, 0, 9600));
+        const auto softBright = centroidOf (soft, 200, 48000.0), loudBright = centroidOf (loud, 200, 48000.0);
+        const auto feltBright = centroidOf (felt, 200, 48000.0), hardBright = centroidOf (hard, 200, 48000.0);
+        std::cout << "  hammer rms soft " << softLevel << " loud " << loudLevel << ", centroid soft " << softBright
+                  << " loud " << loudBright << " felt " << feltBright << " hard " << hardBright << std::endl;
+        check (loudLevel > softLevel * 2.0, "a faster hammer is louder");
+        check (loudBright > softBright * 1.15, "a faster hammer is brighter");
+        check (hardBright > feltBright * 1.15, "a harder hammer is brighter");
+        check (loudLevel > 0.05 && loudLevel < 2.0, "hammer level is in a sensible range (" + juce::String (loudLevel) + ")");
+        auto finite = true;
+        for (const auto& samples : { soft, loud, felt, hard })
+            for (auto value : samples)
+                finite = finite && std::isfinite (value);
+        check (finite, "hammer output stays finite");
+
+        // A reset string with the Hammer exciter is silent.
+        KarplusStrong string (5);
+        string.prepare (48000.0);
+        string.setFrequency (110.0);
+        string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.2f, 0.9f);
+        string.reset();
+        auto peak = 0.0f;
+        for (int i = 0; i < 4800; ++i)
+            peak = juce::jmax (peak, std::abs (string.process()));
+        check (peak == 0.0f, "an untriggered hammer string stays silent");
+    }
+
+    // Bow (rebuilt in M4 on the STK friction table): a steady, pitched tone
+    // at a level comparable to a pluck, that fades once released.
+    {
+        const auto bow = [] (float pressure, float speed, bool release)
+        {
+            KarplusStrong string (4242);
+            string.prepare (48000.0);
+            string.setFrequency (220.0);
+            string.setParams (KarplusStrong::Excite::Bow, 0.0f, 0.3f, 0.9f);
+            string.setBowAndBuzz (pressure, speed, 0.0f, 0.0f);
+            string.trigger (0.8f);
+            std::vector<float> samples (96000);
+            for (int i = 0; i < 96000; ++i)
+                samples[(size_t) i] = string.process (0.0f, ! release || i < 48000);
+            return samples;
+        };
+        const auto held = bow (0.5f, 0.5f, false);
+        const auto released = bow (0.5f, 0.5f, true);
+        const auto level = std::sqrt (bandEnergy (held, 24000, 48000));
+        const auto lateLevel = std::sqrt (bandEnergy (held, 72000, 96000));
+        const std::vector<float> steady (held.begin() + 24000, held.begin() + 48000);
+        const auto pitch = fundamentalOf (steady, 48000.0);
+        const auto soft = std::sqrt (bandEnergy (bow (0.1f, 0.5f, false), 24000, 48000));
+        const auto firm = std::sqrt (bandEnergy (bow (0.9f, 0.5f, false), 24000, 48000));
+        std::cout << "  bow rms " << level << " late " << lateLevel << " pitch " << pitch << " Hz, pressure 0.1 "
+                  << soft << " 0.9 " << firm << ", released " << std::sqrt (bandEnergy (released, 84000, 96000)) << std::endl;
+        check (level > 0.05 && level < 1.5, "a bowed string sounds at a pluck-like level (" + juce::String (level) + ")");
+        check (lateLevel > level * 0.5, "the bow sustains while held");
+        check (std::abs (1200.0 * std::log2 (pitch / 220.0)) < 30.0, "a bowed string plays in tune (" + juce::String (pitch) + " Hz)");
+        check (bandEnergy (released, 84000, 96000) < bandEnergy (held, 84000, 96000) * 0.01, "the bowed string fades after release");
+        check (std::abs (firm - soft) > soft * 0.1, "bow pressure changes the tone");
+    }
+
+    // Damper: once the key is up the string stops quickly.
+    {
+        const auto render = [] (float damper)
+        {
+            KarplusStrong string (17);
+            string.prepare (48000.0);
+            string.setFrequency (261.63);
+            string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.2f, 0.95f);
+            string.setKeysParams (0.5f, damper);
+            string.trigger (0.8f);
+            std::vector<float> samples (48000);
+            for (int i = 0; i < 48000; ++i)
+                samples[(size_t) i] = string.process (0.0f, i < 9600);
+            return samples;
+        };
+        const auto free = render (0.0f);
+        const auto damped = render (1.0f);
+        const auto ratio = bandEnergy (damped, 24000, 28800) / juce::jmax (1.0e-12, bandEnergy (free, 24000, 28800));
+        std::cout << "  damper energy ratio 0.3 s after release " << ratio << std::endl;
+        check (ratio < 1.0e-3, "the damper stops the string after release (-30 dB)");
+        check (std::abs (bandEnergy (free, 0, 9600) - bandEnergy (damped, 0, 9600)) < 1.0e-9,
+               "the damper does nothing while the key is held");
+    }
+
+    // Coupled strings: the in-phase sound dies fast, the detuned aftersound rings on.
+    {
+        const auto render = [] (float couple)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.prepareToPlay (48000.0, 512);
+            setParam (processor, "osc1_mode", 1.0f);
+            setParam (processor, "osc1_excite", 5.0f);
+            setParam (processor, "osc1_unison", 3.0f);
+            setParam (processor, "osc1_detune", 2.0f);
+            setParam (processor, "osc1_couple", couple);
+            setParam (processor, "osc1_string_decay", 0.97f);
+            setParam (processor, "osc1_string_damp", 0.2f);
+            setParam (processor, "osc2_on", 0.0f);
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "subosc_on", 0.0f);
+            setParam (processor, "amp_sustain", 1.0f);
+            setParam (processor, "f1_cutoff", 20000.0f);
+            std::vector<float> samples;
+            juce::AudioBuffer<float> buffer (2, 512);
+            for (int block = 0; block < 94 * 3; ++block)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+                processor.processBlock (buffer, midi);
+                for (int i = 0; i < 512; ++i)
+                    samples.push_back (buffer.getSample (0, i));
+            }
+            return samples;
+        };
+        const auto slope = [] (const std::vector<float>& s, size_t a, size_t b)
+        {
+            // dB per second between two 50 ms windows.
+            const auto ea = bandEnergy (s, a, a + 2400), eb = bandEnergy (s, b, b + 2400);
+            return 10.0 * std::log10 (juce::jmax (1.0e-20, eb) / juce::jmax (1.0e-20, ea)) / ((double) (b - a) / 48000.0);
+        };
+        const auto plain = render (0.0f);
+        const auto coupled = render (1.0f);
+        const auto early = slope (coupled, 2400, 19200), late = slope (coupled, 72000, 120000);
+        const auto plainEarly = slope (plain, 2400, 19200);
+        std::cout << "  coupled decay early " << early << " dB/s, late " << late << " dB/s, uncoupled early "
+                  << plainEarly << " dB/s" << std::endl;
+        check (early < late - 6.0, "coupled strings decay in two stages (fast prompt sound, slow aftersound)");
+        check (early < plainEarly - 3.0, "coupling speeds up the prompt decay");
+        check (bandEnergy (coupled, 120000, 144000) > 0.0, "the aftersound is still ringing after 2.5 s");
+    }
+
+    // Stretch tuning: the top of the keyboard is sharp, the middle unchanged.
+    {
+        const auto pitch = [] (int note, float stretch)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.prepareToPlay (48000.0, 512);
+            setParam (processor, "stretch", stretch);
+            setParam (processor, "osc2_on", 0.0f);
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "subosc_on", 0.0f);
+            setParam (processor, "osc1_table", 0.0f);
+            setParam (processor, "f1_cutoff", 20000.0f);
+            double centroid = 0.0;
+            std::vector<float> samples;
+            renderPeakAndCentroid (processor, note, 40, centroid, &samples);
+            return fundamentalOf (samples, 48000.0);
+        };
+        const auto top = pitch (96, 1.0f), topPlain = pitch (96, 0.0f);
+        const auto middle = pitch (60, 1.0f), middlePlain = pitch (60, 0.0f);
+        const auto topCents = 1200.0 * std::log2 (top / topPlain);
+        const auto middleCents = 1200.0 * std::log2 (middle / middlePlain);
+        std::cout << "  stretch: C7 " << topCents << " cents, C4 " << middleCents << " cents" << std::endl;
+        check (topCents > 15.0 && topCents < 40.0, "full stretch tuning raises C7 by 15-40 cents");
+        check (std::abs (middleCents) < 2.0, "stretch tuning leaves middle C alone");
+    }
+
+    // Soundboard, pedal resonance and mechanical noises (processor-level).
+    const auto renderKeys = [] (std::function<void (IlanaSynthAudioProcessor&)> setup,
+                                std::function<void (int, juce::MidiBuffer&)> events, int blocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        setParam (processor, "osc1_mode", 1.0f);
+        setParam (processor, "osc1_excite", 5.0f);
+        setParam (processor, "osc2_on", 0.0f);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "subosc_on", 0.0f);
+        setParam (processor, "amp_release", 0.05f);
+        setup (processor);
+        std::vector<float> samples;
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            events (block, midi);
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 512; ++i)
+                samples.push_back (buffer.getSample (0, i));
+        }
+        return samples;
+    };
+    const auto noteThenOff = [] (int block, juce::MidiBuffer& midi)
+    {
+        if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        if (block == 20) midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+    };
+    {
+        const auto dry = renderKeys ([] (auto&) {}, noteThenOff, 40);
+        const auto board = renderKeys ([] (auto& p) { setParam (p, "sb_on", 1.0f); setParam (p, "sb_mix", 1.0f); },
+                                       noteThenOff, 40);
+        auto difference = 0.0;
+        auto finite = true;
+        for (size_t i = 0; i < dry.size(); ++i)
+        {
+            difference += std::abs ((double) dry[i] - board[i]);
+            finite = finite && std::isfinite (board[i]);
+        }
+        check (difference > 1.0 && finite, "the soundboard colours the sound and stays finite");
+        const auto silent = renderKeys ([] (auto& p) { setParam (p, "sb_on", 1.0f); }, [] (int, auto&) {}, 20);
+        check (bandEnergy (silent, 0, silent.size()) == 0.0, "the soundboard is silent with no input");
+
+        // Brightness: energy of the first difference (a gentle high-pass)
+        // relative to the whole signal.
+        const auto darkBright = [&] (float tone)
+        {
+            const auto samples = renderKeys ([tone] (auto& p)
+            {
+                setParam (p, "sb_on", 1.0f);
+                setParam (p, "sb_tone", tone);
+                setParam (p, "osc1_hammer_hard", 1.0f);
+            }, noteThenOff, 20);
+            auto edges = 0.0, total = 0.0;
+            for (size_t i = 1; i < samples.size(); ++i)
+            {
+                edges += std::pow ((double) samples[i] - samples[i - 1], 2.0);
+                total += (double) samples[i] * samples[i];
+            }
+            return edges / juce::jmax (1.0e-20, total);
+        };
+        const auto dark = darkBright (0.0f), bright = darkBright (1.0f);
+        std::cout << "  soundboard tone brightness dark " << dark << " bright " << bright << std::endl;
+        check (bright > dark * 3.0, "soundboard TONE opens the lid");
+    }
+    {
+        const auto pedalEvents = [] (bool pedal)
+        {
+            return [pedal] (int block, juce::MidiBuffer& midi)
+            {
+                if (block == 0 && pedal) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+                if (block == 2) midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 110), 0);
+                if (block == 12) midi.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
+                if (block == 12) midi.addEvent (juce::MidiMessage::allNotesOff (1), 1);
+                if (block == 100 && pedal) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), 0);
+            };
+        };
+        // Make the voice itself short so only the resonance is left afterwards.
+        const auto setup = [] (float amount)
+        {
+            return [amount] (IlanaSynthAudioProcessor& p)
+            {
+                setParam (p, "pedal_res", amount);
+                setParam (p, "osc1_damper", 1.0f);
+            };
+        };
+        const auto withPedal = renderKeys (setup (1.0f), pedalEvents (true), 160);
+        const auto noResonance = renderKeys (setup (0.0f), pedalEvents (true), 160);
+        const auto window = [] (int block) { return (size_t) block * 512; };
+        const auto tail = bandEnergy (withPedal, window (60), window (90));
+        const auto tailOff = bandEnergy (noResonance, window (60), window (90));
+        const auto afterLift = bandEnergy (withPedal, window (140), window (160));
+        std::cout << "  pedal resonance tail " << tail << " (without " << tailOff << "), after lift " << afterLift << std::endl;
+        check (tail > tailOff * 10.0 && tail > 1.0e-9, "with the pedal down the strings ring in sympathy");
+        check (afterLift < tail * 0.01, "lifting the pedal damps the sympathetic strings");
+    }
+    {
+        const auto keysOnly = [] (const char* id)
+        {
+            return [id] (IlanaSynthAudioProcessor& p)
+            {
+                setParam (p, "osc1_on", 0.0f); // silence the voice: only the mechanism is left
+                setParam (p, id, 1.0f);
+            };
+        };
+        const auto quiet = renderKeys ([] (auto& p) { setParam (p, "osc1_on", 0.0f); }, noteThenOff, 30);
+        const auto keyNoise = renderKeys (keysOnly ("mech_key"), noteThenOff, 30);
+        const auto damperNoise = renderKeys (keysOnly ("mech_damper"), noteThenOff, 30);
+        const auto pedalNoise = renderKeys (keysOnly ("mech_pedal"), [] (int block, juce::MidiBuffer& midi)
+        {
+            if (block == 1) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+            if (block == 10) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), 0);
+        }, 30);
+        const auto window = [] (int block) { return (size_t) block * 512; };
+        check (bandEnergy (quiet, 0, quiet.size()) == 0.0, "no mechanical noise when the levels are zero");
+        check (bandEnergy (keyNoise, window (20), window (24)) > 1.0e-7, "key release makes a thock");
+        check (bandEnergy (damperNoise, window (20), window (26)) > 1.0e-8, "the damper lands with a felt noise");
+        check (bandEnergy (pedalNoise, window (1), window (6)) > 1.0e-7
+                   && bandEnergy (pedalNoise, window (10), window (16)) > 1.0e-7,
+               "the pedal mechanism sounds on press and release");
+        check (bandEnergy (keyNoise, window (28), window (30)) < 1.0e-12, "mechanical noises end");
+    }
+
+    // Osc In: the string is driven by what the FM matrix feeds it.
+    {
+        const auto render = [&] (float route)
+        {
+            return renderKeys ([route] (IlanaSynthAudioProcessor& p)
+            {
+                setParam (p, "osc1_excite", 6.0f);
+                setParam (p, "osc1_string_sustain", 0.8f);
+                setParam (p, "osc2_on", 1.0f);
+                setParam (p, "osc2_out", 0.0f);
+                setParam (p, "fm_amount", route); // OSC 2 -> OSC 1
+            }, [] (int block, juce::MidiBuffer& midi)
+            {
+                if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+            }, 30);
+        };
+        const auto driven = bandEnergy (render (0.8f), 5000, 15000);
+        const auto idle = bandEnergy (render (0.0f), 5000, 15000);
+        std::cout << "  osc in: driven " << driven << " idle " << idle << std::endl;
+        check (driven > 1.0e-5 && driven > idle * 100.0, "an Osc In string is played by the FM matrix input");
+    }
+
+    // Register map and all keys features together: a full piano stays finite.
+    {
+        const auto piano = renderKeys ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "osc1_unison", 3.0f);
+            setParam (p, "osc1_detune", 1.5f);
+            setParam (p, "osc1_couple", 1.0f);
+            setParam (p, "osc1_register", 1.0f);
+            setParam (p, "osc1_damper", 0.7f);
+            setParam (p, "osc1_hammer_hard", 1.0f);
+            setParam (p, "stretch", 1.0f);
+            setParam (p, "sb_on", 1.0f);
+            setParam (p, "pedal_res", 1.0f);
+            for (const auto* id : { "mech_key", "mech_damper", "mech_pedal" })
+                setParam (p, id, 1.0f);
+        }, [] (int block, juce::MidiBuffer& midi)
+        {
+            if (block == 0) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+            if (block % 4 == 0 && block < 80)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 21 + (block * 7) % 88, (juce::uint8) 127), 0);
+            if (block % 4 == 2 && block < 80)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 21 + ((block - 2) * 7) % 88), 0);
+            if (block == 90) midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), 0);
+        }, 140);
+        auto finite = true;
+        auto peak = 0.0f;
+        for (auto value : piano)
+        {
+            finite = finite && std::isfinite (value);
+            peak = juce::jmax (peak, std::abs (value));
+        }
+        std::cout << "  full piano peak " << peak << std::endl;
+        check (finite && peak < 4.0 && peak > 0.01, "a full piano across the keyboard stays finite and bounded");
+    }
+
+    // LFO pool: LFO 7 routed to the cutoff moves the sound; its state saves.
+    {
+        const auto render = [] (float depth)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.prepareToPlay (48000.0, 512);
+            setParam (processor, "lfo7_rate", 3.0f);
+            setParam (processor, "mod1_src", (float) Mod::Source::Lfo7);
+            setParam (processor, "mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+            setParam (processor, "mod1_amt", depth);
+            setParam (processor, "f1_cutoff", 800.0f);
+            double centroid = 0.0;
+            std::vector<float> samples;
+            renderPeakAndCentroid (processor, 48, 100, centroid, &samples);
+            return samples;
+        };
+        const auto still = render (0.0f), moving = render (0.8f);
+        auto difference = 0.0;
+        for (size_t i = 0; i < still.size(); ++i)
+            difference += std::abs ((double) still[i] - moving[i]);
+        check (difference > 10.0, "LFO 7 modulates the filter when routed");
+        check (Mod::lfoIndexFor (Mod::Source::Lfo16) == 15 && Mod::lfoSourceFor (15) == Mod::Source::Lfo16
+                   && Mod::lfoRateDestinationFor (4) == Mod::Destination::Lfo5Rate,
+               "LFO pool index helpers agree");
+        check ((int) Mod::Destination::Count <= IlanaSynthAudioProcessor::maxDestinations,
+               "every destination fits the modulation arrays");
+
+        IlanaSynthAudioProcessor processor;
+        processor.setLfoCurve (9, LfoCurve::preset (5));
+        processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, 9, true);
+        setParam (processor, "lfo10_shape", 8.0f);
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (restored.getLfoCurve (9).toString() == LfoCurve::preset (5).toString()
+                   && restored.isRevealed (IlanaSynthAudioProcessor::Module::Lfo, 9)
+                   && restored.apvts.getRawParameterValue ("lfo10_shape")->load() == 8.0f,
+               "LFO 10's curve, shape and card survive a state round trip");
+        check (restored.isLfoShown (9) && ! restored.isLfoShown (10), "only added or routed LFOs are shown");
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -5207,6 +5657,13 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M4_TEST", "").isNotEmpty())
+    {
+        runM4Tests();
+        std::cout << (failures == 0 ? "M4 TESTS PASSED" : "M4 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M3B_TEST", "").isNotEmpty())
@@ -5278,6 +5735,7 @@ int main()
     runPhysicalStringTest();
     runPhysicalPatchMigrationTest();
     runScaleRandomReleaseTest();
+    runM4Tests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

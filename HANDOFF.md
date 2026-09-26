@@ -1,6 +1,6 @@
 # Current handoff
 
-Updated 2026-09-25. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit concurrently.
+Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit concurrently.
 
 ## State
 
@@ -30,7 +30,25 @@ The OSC page, MAIN and FM show only the added oscillators (see Polish below). Ne
 - Shown modules are bitmasks in the patch state: `oscRevealMask`, `envRevealMask`, `lfoRevealMask`. Each defaults to `0b111` when absent. A legacy `envRevealCount` from the first M3b build loads as the first N envelopes. An oscillator that is on, an envelope in use, or a routed LFO always shows, whatever the mask says.
 - Existing modulation destination indices stay fixed. The 30 new OSC 4–6 targets occupy appended explicit destination indices after the pre-existing parameter destination segment; the total stays under 256.
 
-## Polish (Claude, 2026-09-25, uncommitted)
+## M4 (Claude, 2026-09-26)
+
+**LFO pool.** `numLfos` is 16 in the processor and voice (`Mod::numLfoSources`). LFO 5–16 are appended sources (`Lfo5..Lfo16`, after `Env16`) and rate destinations (`Lfo5Rate..`, after `Osc6Spread`). Helpers: `Mod::lfoIndexFor`, `lfoSourceFor`, `lfoRateDestinationFor`. `lfoBuffers` keeps LFO 1–4 on channels 0–3 and clock/MSEG on 4/5; LFO 5–16 use channels 6–17 (`lfoChannel`). LFO 1–4 always render; 5–16 render only when a mod slot uses them (`lfoRouted`), otherwise their phase just advances. **LFO 5–16 draw randomness from separate generators** (`lfoPoolRandom` in processor and voice). Sharing `lfoRandom` / the voice `random` shifted Swarm's sound; keep it that way. The UI is the same reveal model as the envelopes (`isLfoShown`, scrolling card bars, step-row pickers list the shown LFOs). `maxDestinations` is 512.
+
+**Second parameter-destination segment.** The 115 legacy parameter destinations are fixed at 96..210 because OSC 4–6 start at 211. New modulatable parameters are appended to `getParamDestinations()` after entry 115 and numbered from `Destination::Count` (`paramDestinationFor`, `paramDestinationIndex`, `numLegacyParamDestinations`). This covers the M4 keys params, the M3 bow/buzz/rattle/stiffness, and OSC 4–6 string and grain params (an M3b gap). The knob mod-ring map also gained OSC 4–6 (another M3b gap).
+
+**Acoustic keys.**
+- `KarplusStrong` gains the `Hammer` and `External` (Osc In) exciters, dampers, a bridge input, and a rebuilt Bow (`processBowed`: two waveguides in the string's buffer halves, STK friction table, 30 ms bow ramp).
+- Voice adds `configureString` (register map), stretch tuning in `startNote`, and coupling: in-phase bridge loss across a note's unison strings.
+- `src/dsp/AcousticKeys.h` (`Soundboard`, `PedalResonance`, `MechanicalNoise`) runs in `processAcousticKeys` after the voices at base rate, fed by the synth MIDI (note-offs, CC64).
+- New params (all default off/neutral): `<osc>_hammer_hard/_couple/_damper/_register`, `stretch`, `sb_on/_mix/_tone/_size`, `pedal_res`, `mech_key/_damper/_pedal`. Excite choices append "Hammer", "Osc In".
+- Six Keys presets were added (indices 235–240); 0 of the 235 older presets changed.
+- The Bow rebuild changes the sound of patches that use Bow. No factory preset did before M4.
+
+**Verified:** all targets build; `ilanaTableTest` 0 failures, with a new `runM4Tests` (also `ILANA_M4_TEST=1` alone); `ilanaSnapshot --uitest` 0 failures; fingerprints **0 of 235 changed** (`build/m4-fp.csv`). New snapshots: `lfo-pool-full/main`, `keys-grand-osc[-scrolled]`. The Grain Choir tuning estimate is still occasionally flaky (seen once this session, passed on rerun).
+
+**Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
+
+## Polish (Claude, 2026-09-25, committed as c24b26d)
 
 The user rejected the compact/expanded OSC list: "make them as big as they used to be, 3 by default, each time you add one you just gotta scroll... think Phase Plant."
 

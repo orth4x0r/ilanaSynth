@@ -47,7 +47,7 @@ struct VoiceParams
     // String and sample unison each carry a long delay/sample buffer, so they
     // stop at 8 voices; wavetable unison goes to 16.
     static constexpr int maxBufferedUnison = 8;
-    static constexpr int numLfos = 4;
+    static constexpr int numLfos = Mod::numLfoSources;
 
     struct OscParams
     {
@@ -80,6 +80,9 @@ struct VoiceParams
         bool stringSlap = false;
         float bowPressure = 0.5f, bowSpeed = 0.5f;
         float bridgeBuzz = 0.0f, fretRattle = 0.0f;
+        // M4 keys: felt hardness, strings sharing the bridge, dampers on
+        // release, and how much the string changes from bass to treble.
+        float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;
         int chord = 0;
 
         bool sampleMode = false;
@@ -142,6 +145,7 @@ struct VoiceParams
     float drift = 0.0f;
 
     float voiceSpread = 0.0f;
+    float stretch = 0.0f; // M4: piano stretch tuning, 0 = equal temperament
     float unisonRandom = 0.0f;
 
     float filter1Fm = 0.0f;
@@ -184,10 +188,7 @@ struct VoiceParams
 
     float macros[4] { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    const float* lfo1 = nullptr;
-    const float* lfo2 = nullptr;
-    const float* lfo3 = nullptr;
-    const float* lfo4 = nullptr;
+    const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice
     const float* clockSh = nullptr;
     const float* mseg = nullptr;
     LfoParams lfos[numLfos];
@@ -281,6 +282,7 @@ private:
                        float filter2Value, float modValue, float env4Value) const;
     void advanceVoiceLfos();
     bool hasActiveAmpEnvelope() const;
+    void configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const;
     float voiceLfoValue (int lfo) const;
     float blockMod (Mod::Destination destination) const { return blockMods[(size_t) destination]; }
 
@@ -317,6 +319,7 @@ private:
     std::array<TensionAdsr, 11> extraEnvs;
     std::array<float, 11> extraEnvValues {};
     juce::Random random;
+    juce::Random lfoPoolRandom { 27183 };
 
     juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];

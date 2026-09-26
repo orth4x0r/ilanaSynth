@@ -48,7 +48,9 @@ This comes before M4 and M5, which both build on it.
 - **QUALITY setting** (Eco / Normal / High): 6 oscillators with unison and physical models can outrun any CPU, so this lands here rather than later.
 - **UI**: Phase Plant-style modules. Three full-size oscillators (and three envelopes and LFOs) by default, a "+" to add more, and the pages scroll. The FM page shows only the added oscillators. The mod matrix gets destinations for each oscillator.
 
-### M4: Acoustic keys
+### M4: Acoustic keys — DONE
+- **LFO pool**: 16 LFOs (added to M4), shown three at a time with a "+" like the envelopes; LFO 5–16 render only when routed.
+- **Bow rebuilt**: the M3 bow becomes a two-waveguide stick-slip friction model (STK-style), so it sustains at a real level.
 - **Hammer exciter**: hardness depends on velocity, and the hammer stays in contact with the string briefly.
 - **1–3 coupled strings per note**: a detune control gives the beating and the two-stage decay (a loud attack, then a long quieter tail).
 - **Soundboard body**, with a tone control for lid or mic position.

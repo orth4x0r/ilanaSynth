@@ -207,6 +207,16 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     monoKeepRunning = false;
 
     baseFrequency = juce::MidiMessage::getMidiNoteInHertz (midiNoteNumber);
+
+    // Stretch tuning (Railsback): bass a little flat, treble sharp, about
+    // +/-35 cents at the ends of the keyboard when fully on.
+    if (params.stretch > 0.0f)
+    {
+        const auto distance = (double) (midiNoteNumber - 60) / 40.0;
+        const auto cents = (double) params.stretch * 35.0 * (distance < 0.0 ? -1.0 : 1.0) * distance * distance;
+        baseFrequency *= std::exp2 (cents / 1200.0);
+    }
+
     keyTrackValue = juce::jlimit (-1.0f, 1.0f, (float) (midiNoteNumber - 60) / 48.0f);
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
 
@@ -230,8 +240,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
     {
         lfoPhases[lfo] = (double) juce::jlimit (0.0f, 1.0f, params.lfos[lfo].startPhase);
-        lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
-        lfoChaos[lfo].reset (random);
+        // LFO 5-16 use their own generator so the voice's random sequence
+        // (pans, drift, noise) stays as it was before the LFO pool.
+        auto& lfoRandom = lfo < 4 ? random : lfoPoolRandom;
+        lfoHolds[lfo] = lfoRandom.nextFloat() * 2.0f - 1.0f;
+        lfoChaos[lfo].reset (lfoRandom);
         lfoChaos[lfo].resetPhysics (params.lfos[lfo].shape, params.lfos[lfo].physA);
         if (params.lfos[lfo].shape == LfoShapes::Pendulum && params.lfos[lfo].kick)
             lfoChaos[lfo].kick (velocity);
@@ -285,12 +298,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
         {
             auto& string = stringFor (osc, u);
-            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, settings.stringExcite)),
-                              settings.stringSustain, settings.stringDamping, settings.stringDecay);
             string.setFrequency (pitch);
-            string.setPhysicalParams (settings.stringStiffness, settings.stringPickup,
-                                      settings.stringExcitationPosition, settings.stringPickHardness,
-                                      settings.stringPickPosition, settings.stringSlap);
+            configureString (string, settings);
             string.trigger (velocity);
         }
     }
@@ -435,10 +444,11 @@ void Voice::advanceVoiceLfos()
         if (next >= 1.0)
         {
             next -= std::floor (next);
-            lfoHolds[lfo] = random.nextFloat() * 2.0f - 1.0f;
+            auto& lfoRandom = lfo < 4 ? random : lfoPoolRandom;
+            lfoHolds[lfo] = lfoRandom.nextFloat() * 2.0f - 1.0f;
 
             if (LfoShapes::isStateful (shape) && ! LfoShapes::isPhysics (shape))
-                lfoChaos[lfo].onCycle (shape, random);
+                lfoChaos[lfo].onCycle (shape, lfoRandom);
         }
 
         lfoPhases[lfo] = next;
@@ -577,12 +587,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         if (params.extraEnvNeeded[(size_t) env])
             extraEnvs[(size_t) env].setParameters (params.extraEnvs[(size_t) env]);
 
-    const D rateDestinations[] { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate };
-
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
     {
         lfoIncrements[lfo] = params.lfos[lfo].baseIncrement
-                             * std::exp2 ((double) blockMod (rateDestinations[lfo]) * (double) lfoRateOctaves);
+                             * std::exp2 ((double) blockMod (Mod::lfoRateDestinationFor (lfo)) * (double) lfoRateOctaves);
 
         // Key tracked: RATE 4 Hz runs at the note's own pitch, 8 Hz an
         // octave above, 2 Hz an octave below.
@@ -622,14 +630,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
         {
-            auto& string = stringFor (osc, u);
-            string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 4, settings.stringExcite)),
-                              settings.stringSustain, settings.stringDamping, settings.stringDecay);
-            string.setPhysicalParams (settings.stringStiffness, settings.stringPickup,
-                                      settings.stringExcitationPosition, settings.stringPickHardness,
-                                      settings.stringPickPosition, settings.stringSlap);
-            string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed,
-                                  settings.bridgeBuzz, settings.fretRattle);
+            configureString (stringFor (osc, u), settings);
         }
     };
 
@@ -823,6 +824,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         float busL[FilterRoute::Count] {};
         float busR[FilterRoute::Count] {};
         float oscMono[VoiceParams::numOscillators] {};
+        float stringOut[VoiceParams::maxBufferedUnison] {};
 
         const auto fmAmount = params.fmAmount + mods[(int) D::FmAmount];
         const auto fmFeedback = params.fmFeedback + mods[(int) D::FmFeedback];
@@ -901,7 +903,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                     else if (settings.stringMode)
                     {
-                        raw = stringFor (osc, u).process (aftertouchValue, noteHeld);
+                        raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
+                        stringOut[u] = raw;
                     }
                     else
                     {
@@ -928,6 +931,22 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         busL[routes[osc]] += (settings.sampleMode ? sampleL : raw) * gain * panGainL[osc][u];
                         busR[routes[osc]] += (settings.sampleMode ? sampleR : raw) * gain * panGainR[osc][u];
                     }
+                }
+
+                // Coupled strings: the strings of one note share the bridge,
+                // which soaks up their in-phase motion. The in-phase part of
+                // the note dies fast (the prompt sound); as the detuned
+                // strings drift apart, the rest rings on (the aftersound).
+                if (settings.stringMode && ! settings.sampleMode && settings.couple > 0.0f)
+                {
+                    const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
+                    auto bridge = 0.0f;
+                    for (int u = 0; u < count; ++u)
+                        bridge += stringOut[u];
+                    bridge /= (float) juce::jmax (1, count);
+
+                    for (int u = 0; u < count; ++u)
+                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.06f * bridge);
                 }
             }
             else
@@ -1086,6 +1105,33 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         lastLifetimeValue = 0.0f;
         clearCurrentNote();
     }
+}
+
+void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const
+{
+    auto stiffness = settings.stringStiffness;
+    auto damping = settings.stringDamping;
+    auto decay = settings.stringDecay;
+
+    // Register map: short, stiff, bright treble strings; long, looser bass
+    // strings that ring longer.
+    if (settings.registerMap > 0.0f)
+    {
+        const auto amount = settings.registerMap;
+        const auto t = keyTrackValue; // -1 at C2, +1 at C6
+        stiffness = juce::jlimit (0.0f, 1.0f, stiffness + amount * (0.08f + 0.3f * juce::jmax (0.0f, t)
+                                                                         + 0.12f * juce::jmax (0.0f, -t)));
+        damping = juce::jlimit (0.0f, 1.0f, damping - amount * 0.25f * t);
+        decay = juce::jlimit (0.0f, 1.0f, decay - amount * 0.15f * t);
+    }
+
+    string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 6, settings.stringExcite)),
+                      settings.stringSustain, damping, decay);
+    string.setPhysicalParams (stiffness, settings.stringPickup,
+                              settings.stringExcitationPosition, settings.stringPickHardness,
+                              settings.stringPickPosition, settings.stringSlap);
+    string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
+    string.setKeysParams (settings.hammerHardness, settings.damper);
 }
 
 bool Voice::hasActiveAmpEnvelope() const
@@ -1249,12 +1295,11 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         return shared != nullptr ? shared[sampleIndex] : 0.0f;
     };
 
+    if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
+        return lfoSource (lfo, params.lfoBuffers[lfo]);
+
     switch (source)
     {
-        case Mod::Source::Lfo1:       return lfoSource (0, params.lfo1);
-        case Mod::Source::Lfo2:       return lfoSource (1, params.lfo2);
-        case Mod::Source::Lfo3:       return lfoSource (2, params.lfo3);
-        case Mod::Source::Lfo4:       return lfoSource (3, params.lfo4);
         case Mod::Source::ModEnv:     return modValue;
         case Mod::Source::FilterEnv:  return filterValue;
         case Mod::Source::AmpEnv:     return ampValue;

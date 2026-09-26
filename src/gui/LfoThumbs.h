@@ -12,7 +12,8 @@
 #include "ParamControls.h"
 
 // The patch's LFOs at a glance, Phase Plant style: the added and the routed
-// ones, then a "+" card for the next. Each card shows its waveform, a live
+// ones, then a "+" card for the next. Cards keep one size (four fit the view)
+// and the bar scrolls sideways when there are more. Each card shows its waveform, a live
 // phase dot, its rate and whether it is routed anywhere. Clicking a card
 // selects that LFO for editing; dragging a card onto a knob routes it there;
 // right-click removes it.
@@ -32,6 +33,23 @@ public:
     }
 
     std::function<void (int)> onSelect;
+    std::function<void()> onLayoutChanged;
+
+    // The width the bar is seen through: four cards fill it.
+    void setViewWidth (int width) { viewWidth = width; }
+
+    int getPreferredWidth() const
+    {
+        return juce::jmax (viewWidth, (int) std::ceil ((float) numCards() * (cardWidth() + gap) - gap));
+    }
+
+    juce::Rectangle<int> boundsOfCard (int lfo) const
+    {
+        const auto visible = visibleLfos();
+        const auto position = std::find (visible.begin(), visible.end(), lfo);
+        return position == visible.end() ? juce::Rectangle<int>()
+                                         : cardBounds ((int) (position - visible.begin())).toNearestInt();
+    }
 
     void setSelected (int index)
     {
@@ -46,7 +64,7 @@ public:
         for (int position = 0; position < (int) visible.size(); ++position)
             paintCard (g, visible[(size_t) position], cardBounds (position));
 
-        if ((int) visible.size() < IlanaSynthAudioProcessor::numLfos)
+        if (numCards() > (int) visible.size())
         {
             const auto card = cardBounds ((int) visible.size());
             IlanaTheme::paintWell (g, card, 6.0f);
@@ -84,7 +102,7 @@ public:
                     break;
                 }
 
-            repaint();
+            layoutChanged();
         }
         else if (index >= 0 && onSelect != nullptr)
         {
@@ -109,8 +127,7 @@ public:
                 const auto position = (int) (std::find (visible.begin(), visible.end(), index) - visible.begin());
                 auto image = createComponentSnapshot (cardBounds (position).toNearestInt(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
-                const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
-                container->startDragging ("modsource:" + juce::String ((int) sources[index]), this,
+                container->startDragging ("modsource:" + juce::String ((int) Mod::lfoSourceFor (index)), this,
                                           juce::ScaledImage (image), true);
             }
         }
@@ -123,8 +140,7 @@ public:
         if (index != hoverIndex)
         {
             hoverIndex = index;
-            const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
-            highlightedModSource() = index >= 0 ? (int) sources[index] : 0;
+            highlightedModSource() = index >= 0 ? (int) Mod::lfoSourceFor (index) : 0;
             repaint();
         }
     }
@@ -137,20 +153,31 @@ public:
     }
 
 private:
+    static constexpr float gap = 8.0f;
+
     std::vector<int> visibleLfos() const
     {
         std::vector<int> visible;
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            if (processorRef.isRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo) || isRouted (lfo))
+            if (processorRef.isLfoShown (lfo))
                 visible.push_back (lfo);
         return visible;
     }
 
+    int numCards() const
+    {
+        const auto visible = (int) visibleLfos().size();
+        return visible + (visible < IlanaSynthAudioProcessor::numLfos ? 1 : 0);
+    }
+
+    float cardWidth() const
+    {
+        return ((float) (viewWidth > 0 ? viewWidth : getWidth()) - gap * 3.0f) / 4.0f;
+    }
+
     juce::Rectangle<float> cardBounds (int position) const
     {
-        const auto gap = 8.0f;
-        const auto width = ((float) getWidth() - gap * 3.0f) / 4.0f;
-        return { (float) position * (width + gap), 0.0f, width, (float) getHeight() };
+        return { (float) position * (cardWidth() + gap), 0.0f, cardWidth(), (float) getHeight() };
     }
 
     // An LFO index, -2 for the "+" card, or -1.
@@ -158,11 +185,19 @@ private:
     {
         const auto visible = visibleLfos();
 
-        for (int i = 0; i < IlanaSynthAudioProcessor::numLfos; ++i)
+        for (int i = 0; i < numCards(); ++i)
             if (cardBounds (i).contains (position.toFloat()))
-                return i < (int) visible.size() ? visible[(size_t) i] : (i == (int) visible.size() ? -2 : -1);
+                return i < (int) visible.size() ? visible[(size_t) i] : -2;
 
         return -1;
+    }
+
+    void layoutChanged()
+    {
+        lastCardCount = numCards();
+        if (onLayoutChanged != nullptr)
+            onLayoutChanged();
+        repaint();
     }
 
     void showCardMenu (int lfo)
@@ -184,7 +219,7 @@ private:
                 safeThis->selected = remaining.empty() ? 0 : remaining.front();
                 safeThis->onSelect (safeThis->selected);
             }
-            safeThis->repaint();
+            safeThis->layoutChanged();
         });
     }
 
@@ -198,13 +233,13 @@ private:
 
     bool isRouted (int lfo) const
     {
-        const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
+        const auto source = Mod::lfoSourceFor (lfo);
 
         for (int slot = 0; slot < Mod::maxSlots; ++slot)
         {
             const auto routing = processorRef.readModSlot (slot);
 
-            if (routing.destination != 0 && (routing.source == sources[lfo] || routing.aux == sources[lfo]))
+            if (routing.destination != 0 && (routing.source == source || routing.aux == source))
                 return true;
         }
 
@@ -308,7 +343,12 @@ private:
     void timerCallback() override
     {
         if (isShowing())
+        {
+            // Routing an LFO elsewhere, or loading a patch, can add a card.
+            if (numCards() != lastCardCount)
+                layoutChanged();
             repaint();
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -316,4 +356,6 @@ private:
     std::array<float, 8> sampleHoldPreview {};
     int selected = 0;
     int hoverIndex = -1;
+    int viewWidth = 0;
+    int lastCardCount = -1;
 };

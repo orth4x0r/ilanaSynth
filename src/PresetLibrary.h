@@ -176,6 +176,38 @@ public:
         return *this;
     }
 
+    // M4: a hammered piano string (Physical, Hammer exciter) with 1-3
+    // coupled strings per note.
+    Builder& piano (int index, float level, float hardness, int strings, float detune, float couple,
+                    float damper, float registerMap, float decay = 0.975f, float damp = 0.25f, float stiffness = 0.2f)
+    {
+        const auto p = prefix (index);
+        string (index, level, 5, decay, damp);
+        set (p + "_hammer_hard", hardness);
+        set (p + "_unison", (float) strings);
+        set (p + "_detune", detune);
+        set (p + "_spread", 0.35f);
+        set (p + "_couple", couple);
+        set (p + "_damper", damper);
+        set (p + "_register", registerMap);
+        return set (p + "_string_stiffness", stiffness);
+    }
+
+    // M4: the shared piano parts: stretch tuning, soundboard, pedal
+    // resonance and the mechanism's noises.
+    Builder& keysBody (float stretch, float boardMix, float tone, float size, float pedalRes, float mechanical)
+    {
+        set ("stretch", stretch);
+        set ("sb_on", boardMix > 0.0f ? 1.0f : 0.0f);
+        set ("sb_mix", boardMix);
+        set ("sb_tone", tone);
+        set ("sb_size", size);
+        set ("pedal_res", pedalRes);
+        set ("mech_key", mechanical);
+        set ("mech_damper", mechanical);
+        return set ("mech_pedal", mechanical);
+    }
+
     // Built-in sample: 1 metal hit, 2 vocal ah, 3 sub tone, 4 vinyl loop, 5 noise rise.
     Builder& sample (int index, int factorySample, float level, bool loop = false)
     {
@@ -2390,6 +2422,88 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
              .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
+
+    // ======================================================================
+    // M4: acoustic keys
+    // ======================================================================
+
+    add (B ("Grand Piano", "Keys")
+             .piano (1, 0.8f, 0.5f, 3, 1.2f, 0.8f, 0.6f, 0.8f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.8f, 0.45f, 0.6f, 0.6f, 0.5f, 0.25f)
+             .filter1 (LP, 18000.0f, 0.0f)
+             .amp (0.001f, 5.0f, 1.0f, 1.2f).velocity (0.35f)
+             .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
+             .macro (2, "LID", { { param ("sb_tone"), 0.35f } })
+             .macro (3, "PEDAL", { { param ("pedal_res"), 0.45f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
+    add (B ("Pedal Bloom Piano", "Keys")
+             .piano (1, 0.75f, 0.3f, 3, 1.8f, 1.0f, 0.5f, 0.8f, 0.985f, 0.3f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.6f, 0.5f, 0.35f, 0.85f, 1.0f, 0.35f)
+             .filter1 (LP, 12000.0f, 0.0f)
+             .amp (0.001f, 6.0f, 1.0f, 2.0f).velocity (0.3f)
+             .macro (1, "BLOOM", { { param ("pedal_res"), -0.5f } })
+             .macro (2, "FELT", { { param ("osc1_hammer_hard"), -0.3f } })
+             .macro (3, "LID", { { param ("sb_tone"), 0.4f } })
+             .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
+             .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Hall, 0.8f, 0.3f));
+
+    add (B ("Upright Honky", "Keys")
+             .piano (1, 0.8f, 0.7f, 3, 7.0f, 0.6f, 0.7f, 0.6f, 0.965f, 0.2f, 0.3f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (1.0f, 0.55f, 0.3f, 0.3f, 0.3f, 0.5f)
+             .filter1 (LP, 9000.0f, 0.0f)
+             .amp (0.001f, 4.0f, 1.0f, 0.8f).velocity (0.35f)
+             .macro (1, "HONKY", { { D::Osc1Detune, 0.3f } })
+             .macro (2, "LID", { { param ("sb_tone"), 0.4f } })
+             .macro (3, "MECHANICS", { { param ("mech_key"), 0.4f }, { param ("mech_damper"), 0.4f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.35f, 0.12f));
+
+    add (B ("Prepared Piano", "Keys")
+             .piano (1, 1.0f, 0.8f, 2, 3.0f, 0.5f, 0.5f, 0.5f, 0.96f, 0.2f, 0.55f)
+             .set ("osc1_bridge_buzz", 0.55f).set ("osc1_fret_rattle", 0.6f).set ("osc1_string_excite_pos", 0.3f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.4f, 0.5f, 0.55f, 0.5f, 0.3f, 0.45f)
+             .filter1 (LP, 14000.0f, 0.0f)
+             .amp (0.001f, 4.0f, 1.0f, 0.9f).velocity (0.35f)
+             .macro (1, "SCREWS", { { param ("osc1_bridge_buzz"), 0.4f } })
+             .macro (2, "BOLTS", { { param ("osc1_fret_rattle"), 0.35f } })
+             .macro (3, "POSITION", { { param ("osc1_string_excite_pos"), 0.4f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (7.0f).fx ({ FxLimiter, FxReverb }).limiter (-7.5f).reverb (Room, 0.5f, 0.18f));
+
+    add (B ("Bowed Piano", "Keys")
+             .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.3f, 0.4f, 0.6f, 0.98f, 0.35f)
+             // Rosined line drawn across the strings.
+             .set ("osc1_excite", 4).set ("osc1_bow_pressure", 0.55f).set ("osc1_bow_speed", 0.45f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.5f, 0.55f, 0.45f, 0.8f, 0.8f, 0.0f)
+             .filter1 (LP, 8000.0f, 0.0f)
+             .amp (0.4f, 1.0f, 1.0f, 2.0f)
+             .macro (1, "PRESSURE", { { param ("osc1_bow_pressure"), 0.4f } })
+             .macro (2, "SPEED", { { param ("osc1_bow_speed"), 0.4f } })
+             .macro (3, "BODY", { { param ("sb_mix"), 0.35f } })
+             .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
+             .master (-3.0f).fx ({ FxLimiter, FxReverb }).limiter (-2.0f).reverb (Hall, 0.85f, 0.32f));
+
+    add (B ("Osc-Struck Piano", "Keys")
+             .piano (1, 0.8f, 0.5f, 2, 2.0f, 0.5f, 0.6f, 0.6f, 0.97f, 0.25f)
+             .set ("osc1_excite", 6).set ("osc1_string_sustain", 0.45f)
+             .osc2 (DriveSaw, 0.3f, 0.5f, 12).modOnly (2).fmRoute (2, 1, 0.6f)
+             .set ("sub_on", 0)
+             .env4 (0.001f, 0.25f, 0.0f, 0.1f).mod (Env4, D::Osc2Level, -0.5f)
+             .keysBody (0.6f, 0.45f, 0.55f, 0.6f, 0.4f, 0.0f)
+             .filter1 (LP, 12000.0f, 0.0f)
+             .amp (0.001f, 5.0f, 1.0f, 1.0f).velocity (0.5f)
+             .macro (1, "DRIVE", { { D::FmAmount, 0.35f } })
+             .macro (2, "OSC TONE", { { D::Osc2Frame, 0.4f } })
+             .macro (3, "SUSTAIN", { { param ("osc1_string_sustain"), 0.4f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (-3.0f).fx ({ FxLimiter, FxReverb }).limiter (-2.0f).reverb (Room, 0.5f, 0.18f));
 
     return list;
 }

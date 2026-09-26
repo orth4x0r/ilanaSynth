@@ -122,6 +122,8 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_phys_a") || id.endsWith ("_phys_b")
         || id.endsWith ("_bow_pressure") || id.endsWith ("_bow_speed")
         || id.endsWith ("_bridge_buzz") || id.endsWith ("_fret_rattle")
+        || id.endsWith ("_hammer_hard") || id.endsWith ("_couple") || id.endsWith ("_damper") || id.endsWith ("_register")
+        || id == "stretch" || id.startsWith ("sb_") || id == "pedal_res" || id.startsWith ("mech_")
         || id == "sym_amount" || id == "sym_decay"
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
@@ -154,6 +156,24 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_bow_speed")) return "Bow travel speed; changes the sustained tone and scrape.";
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
     if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
+    if (isOscParameter (id, "_hammer_hard"))
+        return "Hammer felt hardness (Hammer exciter). Harder felt and faster keys give a shorter contact and a brighter tone.";
+    if (isOscParameter (id, "_couple"))
+        return "The note's strings share the bridge: set UNISON to 2-3 and a small DETUNE for a fast first decay "
+               "and a long, beating aftersound, as in a piano.";
+    if (isOscParameter (id, "_damper")) return "How quickly the dampers stop the string once the key (and the sustain pedal) is up.";
+    if (isOscParameter (id, "_register"))
+        return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
+    if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
+    if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
+    if (id == "sb_mix") return "How much soundboard resonance is heard.";
+    if (id == "sb_tone") return "Lid and mic position: closed and dark to open and bright.";
+    if (id == "sb_size") return "Soundboard size: a bigger board is lower and rings longer.";
+    if (id == "pedal_res")
+        return "With the sustain pedal (CC64) down, the whole keyboard's strings ring in sympathy, shared by all voices.";
+    if (id == "mech_key") return "The wooden thock of a key returning when you let it go.";
+    if (id == "mech_damper") return "The felt of a damper landing on the strings.";
+    if (id == "mech_pedal") return "The sustain pedal mechanism, on press and release.";
     // Oscillators (patterned)
     if (isOscParameter (id, "_table", false))
         return "Factory wavetable. Load your own with LOAD WAVETABLE (.wav).";

@@ -34,8 +34,13 @@ enum class Source
     Lfo4,
     Env6, Env7, Env8, Env9, Env10, Env11, Env12, Env13,
     Env14, Env15, Env16,
+    // The LFO pool (M4): LFO 5-16.
+    Lfo5, Lfo6, Lfo7, Lfo8, Lfo9, Lfo10, Lfo11, Lfo12,
+    Lfo13, Lfo14, Lfo15, Lfo16,
     Count
 };
+
+constexpr int numLfoSources = 16;
 
 inline int lfoIndexFor (Source source)
 {
@@ -45,8 +50,19 @@ inline int lfoIndexFor (Source source)
         case Source::Lfo2: return 1;
         case Source::Lfo3: return 2;
         case Source::Lfo4: return 3;
-        default: return -1;
+        default:
+            if (source >= Source::Lfo5 && source <= Source::Lfo16)
+                return 4 + (int) source - (int) Source::Lfo5;
+            return -1;
     }
+}
+
+// The source for LFO index 0..15.
+inline Source lfoSourceFor (int index)
+{
+    constexpr Source first[] { Source::Lfo1, Source::Lfo2, Source::Lfo3, Source::Lfo4 };
+    return index < 4 ? first[juce::jlimit (0, 3, index)]
+                     : (Source) ((int) Source::Lfo5 + juce::jlimit (0, numLfoSources - 5, index - 4));
 }
 
 // Sources that swing both ways (-1..1); the rest run 0..1.
@@ -58,7 +74,7 @@ inline bool isBipolarSource (Source source)
         case Source::KeyTrack: case Source::Random: case Source::ClockSh: case Source::Mseg:
             return true;
         default:
-            return false;
+            return source >= Source::Lfo5 && source <= Source::Lfo16;
     }
 }
 
@@ -193,8 +209,20 @@ enum class Destination
     Osc5Detune, Osc5Pan, Osc5Warp, Osc5Blend, Osc5Spread,
     Osc6Pitch, Osc6Frame, Osc6Level, Osc6SampleStart, Osc6SampleEnd,
     Osc6Detune, Osc6Pan, Osc6Warp, Osc6Blend, Osc6Spread,
+    // The LFO pool (M4).
+    Lfo5Rate, Lfo6Rate, Lfo7Rate, Lfo8Rate, Lfo9Rate, Lfo10Rate, Lfo11Rate, Lfo12Rate,
+    Lfo13Rate, Lfo14Rate, Lfo15Rate, Lfo16Rate,
     Count
 };
+
+// The rate destination for LFO index 0..15.
+inline Destination lfoRateDestinationFor (int index)
+{
+    constexpr Destination first[] { Destination::Lfo1Rate, Destination::Lfo2Rate,
+                                    Destination::Lfo3Rate, Destination::Lfo4Rate };
+    return index < 4 ? first[juce::jlimit (0, 3, index)]
+                     : (Destination) ((int) Destination::Lfo5Rate + juce::jlimit (0, 11, index - 4));
+}
 
 // Explicit destinations before the FM matrix was added: saved patches that
 // point at a parameter destination (numbered after these) are shifted on load.
@@ -222,7 +250,7 @@ struct ParamDestination
 
 inline const std::vector<ParamDestination>& getParamDestinations()
 {
-    static const std::vector<ParamDestination> list {
+    static std::vector<ParamDestination> list {
         { "master", "Master Volume" },
         { "master_clip_gain", "Clip Gain" },
         { "arp_gate", "Arp Gate" },
@@ -287,15 +315,87 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         { "fx_gate_swing", "Gate Swing" },
     };
 
+    // M4: a second segment of parameter destinations, numbered after every
+    // explicit destination (Destination::Count onwards) so all older indices
+    // keep their meaning. Generated names live in static storage.
+    static const bool extended = []
+    {
+        static std::vector<juce::String> storage;
+        storage.reserve (512);
+        const auto add = [] (const juce::String& id, const juce::String& name)
+        {
+            storage.push_back (id);
+            const auto* idText = storage.back().toRawUTF8();
+            storage.push_back (name);
+            list.push_back ({ idText, storage.back().toRawUTF8() });
+        };
+
+        const char* prefixes[] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_hammer_hard", name + "Hammer");
+            add (prefix + "_couple", name + "Coupling");
+            add (prefix + "_damper", name + "Damper");
+            add (prefix + "_register", name + "Register");
+            add (prefix + "_string_stiffness", name + "Stiffness");
+            add (prefix + "_bridge_buzz", name + "Bridge Buzz");
+            add (prefix + "_fret_rattle", name + "Fret Rattle");
+            add (prefix + "_bow_pressure", name + "Bow Pressure");
+            add (prefix + "_bow_speed", name + "Bow Speed");
+            add (prefix + "_string_excite_pos", name + "Excite Position");
+
+            if (osc >= 3) // OSC 4-6 came after the legacy segment was fixed
+            {
+                add (prefix + "_string_decay", name + "String Decay");
+                add (prefix + "_string_damp", name + "String Damp");
+                add (prefix + "_string_sustain", name + "String Sustain");
+                add (prefix + "_grain_size", name + "Grain Size");
+                add (prefix + "_grain_density", name + "Grain Density");
+                add (prefix + "_grain_spray", name + "Grain Spray");
+                add (prefix + "_grain_pitch", name + "Grain Pitch");
+            }
+        }
+
+        add ("stretch", "Stretch Tuning");
+        add ("sb_mix", "Soundboard Mix");
+        add ("sb_tone", "Soundboard Tone");
+        add ("sb_size", "Soundboard Size");
+        add ("pedal_res", "Pedal Resonance");
+        add ("mech_key", "Key Noise");
+        add ("mech_damper", "Damper Noise");
+        add ("mech_pedal", "Pedal Noise");
+        return true;
+    }();
+    juce::ignoreUnused (extended);
+
     return list;
 }
 
-inline int getNumDestinations() { return (int) Destination::Count; }
+// The parameter destinations saved before M4 (indices 96..210).
+constexpr int numLegacyParamDestinations = 115;
 
+// Destination index of entry i of getParamDestinations().
+inline int paramDestinationFor (int i)
+{
+    return i < numLegacyParamDestinations ? numExplicitDestinations + i
+                                          : (int) Destination::Count + (i - numLegacyParamDestinations);
+}
+
+inline int getNumDestinations()
+{
+    return (int) Destination::Count + (int) getParamDestinations().size() - numLegacyParamDestinations;
+}
+
+// Entry of getParamDestinations() for a destination index, or -1.
 inline int paramDestinationIndex (int destination)
 {
-    const auto index = destination - numExplicitDestinations;
-    return juce::isPositiveAndBelow (index, (int) getParamDestinations().size()) ? index : -1;
+    if (destination >= numExplicitDestinations && destination < numExplicitDestinations + numLegacyParamDestinations)
+        return destination - numExplicitDestinations;
+
+    const auto index = numLegacyParamDestinations + destination - (int) Destination::Count;
+    return destination >= (int) Destination::Count && index < (int) getParamDestinations().size() ? index : -1;
 }
 
 inline int destinationForParamId (const juce::String& id)
@@ -304,7 +404,7 @@ inline int destinationForParamId (const juce::String& id)
 
     for (int i = 0; i < (int) list.size(); ++i)
         if (id == list[(size_t) i].id)
-            return numExplicitDestinations + i;
+            return paramDestinationFor (i);
 
     return 0;
 }
@@ -370,6 +470,8 @@ inline juce::StringArray getSourceNames()
              "Env 5", "Filter 2 Env", "LFO 3", "LFO 4" };
     for (int env = 6; env <= 16; ++env)
         names.add ("Env " + juce::String (env));
+    for (int lfo = 5; lfo <= numLfoSources; ++lfo)
+        names.add ("LFO " + juce::String (lfo));
     return names;
 }
 
@@ -401,14 +503,21 @@ inline juce::StringArray getExplicitDestinationNames()
 inline juce::StringArray getDestinationNames()
 {
     auto names = getExplicitDestinationNames();
+    const auto& params = getParamDestinations();
 
-    for (const auto& param : getParamDestinations())
-        names.add (param.name);
+    for (int i = 0; i < numLegacyParamDestinations; ++i)
+        names.add (params[(size_t) i].name);
 
     for (int osc = 4; osc <= 6; ++osc)
         for (const auto* target : { "Pitch", "Frame", "Level", "Sample Start", "Sample End",
                                     "Detune", "Pan", "Warp", "Unison Blend", "Spread" })
             names.add ("Osc" + juce::String (osc) + " " + target);
+
+    for (int lfo = 5; lfo <= numLfoSources; ++lfo)
+        names.add ("LFO" + juce::String (lfo) + " Rate");
+
+    for (int i = numLegacyParamDestinations; i < (int) params.size(); ++i)
+        names.add (params[(size_t) i].name);
 
     return names;
 }

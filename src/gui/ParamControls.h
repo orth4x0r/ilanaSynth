@@ -30,6 +30,12 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
           D::Osc2Blend, D::Osc2SampleStart, D::Osc2SampleEnd },
         { "sub", D::SubPitch, D::SubFrame, D::SubLevel, D::SubPan, D::SubDetune, D::SubSpread, D::SubWarp,
           D::SubBlend, D::SubSampleStart, D::SubSampleEnd },
+        { "osc4", D::Osc4Pitch, D::Osc4Frame, D::Osc4Level, D::Osc4Pan, D::Osc4Detune, D::Osc4Spread, D::Osc4Warp,
+          D::Osc4Blend, D::Osc4SampleStart, D::Osc4SampleEnd },
+        { "osc5", D::Osc5Pitch, D::Osc5Frame, D::Osc5Level, D::Osc5Pan, D::Osc5Detune, D::Osc5Spread, D::Osc5Warp,
+          D::Osc5Blend, D::Osc5SampleStart, D::Osc5SampleEnd },
+        { "osc6", D::Osc6Pitch, D::Osc6Frame, D::Osc6Level, D::Osc6Pan, D::Osc6Detune, D::Osc6Spread, D::Osc6Warp,
+          D::Osc6Blend, D::Osc6SampleStart, D::Osc6SampleEnd },
     };
 
     for (const auto& osc : oscs)
@@ -89,6 +95,10 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
         if (id == entry.id)
             return explicitDest (entry.destination, entry.scale);
 
+    for (int lfo = 4; lfo < Mod::numLfoSources; ++lfo)
+        if (id == "lfo" + juce::String (lfo + 1) + "_rate")
+            return explicitDest (Mod::lfoRateDestinationFor (lfo), 0.3f);
+
     // Everything else that can be modulated is a plain-parameter destination,
     // offset in the knob's own normalised range.
     return { Mod::destinationForParamId (id), 1.0f };
@@ -104,6 +114,9 @@ inline int& highlightedModSource()
 
 inline juce::Colour modSourceColour (int sourceIndex)
 {
+    if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 4)
+        return IlanaSynthAudioProcessor::lfoColour (lfo);
+
     switch (sourceIndex)
     {
         case 1:  return juce::Colour (0xffff8a3b);
@@ -605,11 +618,22 @@ private:
         if (ringConfig.destination != 0)
         {
             const auto sources = Mod::getSourceNames();
-            juce::PopupMenu sourceMenu;
+            juce::PopupMenu sourceMenu, lfoMenu, envMenu, otherMenu;
 
             for (int i = 1; i < sources.size(); ++i)
-                sourceMenu.addItem (i + 1, sources[i], true, routesFrom (i));
+            {
+                const auto source = (Mod::Source) i;
+                const auto isEnvelope = source == Mod::Source::AmpEnv || source == Mod::Source::FilterEnv
+                                        || source == Mod::Source::FilterEnv2 || source == Mod::Source::ModEnv
+                                        || source == Mod::Source::Env4
+                                        || (source >= Mod::Source::Env6 && source <= Mod::Source::Env16);
+                auto& target = Mod::lfoIndexFor (source) >= 0 ? lfoMenu : (isEnvelope ? envMenu : otherMenu);
+                target.addItem (i + 1, sources[i], true, routesFrom (i));
+            }
 
+            sourceMenu.addSubMenu ("LFOs", lfoMenu);
+            sourceMenu.addSubMenu ("Envelopes", envMenu);
+            sourceMenu.addSubMenu ("Performance and more", otherMenu);
             menu.addSubMenu ("Modulate with", sourceMenu);
 
             if (! routings.empty())

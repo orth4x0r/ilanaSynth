@@ -206,6 +206,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_string_pick_hardness", prefix + "_string_pick_pos", prefix + "_string_slap" };
             bowBuzzIds[(size_t) i] = { prefix + "_bow_pressure", prefix + "_bow_speed",
                                         prefix + "_bridge_buzz", prefix + "_fret_rattle" };
+            keysParamIds[(size_t) i] = { prefix + "_hammer_hard", prefix + "_couple",
+                                          prefix + "_damper", prefix + "_register" };
             sampleParamIds[(size_t) i] = { prefix + "_sample_tuned", prefix + "_sample_loop",
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
@@ -296,11 +298,13 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
     synth.setNoteStealingEnabled (true);
 
-    for (auto& hold : lfoSampleHolds)
-        hold.store (lfoRandom.nextFloat() * 2.0f - 1.0f);
+    // LFO 1-4 draw from lfoRandom exactly as before the pool; LFO 5-16 have
+    // their own generator so they never shift anyone else's random sequence.
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        lfoSampleHolds[(size_t) lfo].store (randomForLfo (lfo).nextFloat() * 2.0f - 1.0f);
 
-    for (auto& chaos : lfoChaos)
-        chaos.reset (lfoRandom);
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        lfoChaos[(size_t) lfo].reset (randomForLfo (lfo));
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::createParameterLayout()
@@ -421,7 +425,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -555,7 +559,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -867,7 +871,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -934,6 +938,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     }
     addChoice ("quality", "Quality", { "Eco", "Normal", "High" }, 1);
 
+    // M4 acoustic keys. Everything defaults to off, so old patches are unchanged.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_hammer_hard", name + " Hammer Hardness", 0.0f, 1.0f, 0.5f);
+        addFloat (prefix + "_couple", name + " String Coupling", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_damper", name + " Damper", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_register", name + " Register Map", 0.0f, 1.0f, 0.0f);
+    }
+    addFloat ("stretch", "Stretch Tuning", 0.0f, 1.0f, 0.0f);
+    addBool ("sb_on", "Soundboard", false);
+    addFloat ("sb_mix", "Soundboard Mix", 0.0f, 1.0f, 0.5f);
+    addFloat ("sb_tone", "Soundboard Tone", 0.0f, 1.0f, 0.5f);
+    addFloat ("sb_size", "Soundboard Size", 0.0f, 1.0f, 0.5f);
+    addFloat ("pedal_res", "Pedal Resonance", 0.0f, 1.0f, 0.0f);
+    addFloat ("mech_key", "Key Noise", 0.0f, 1.0f, 0.0f);
+    addFloat ("mech_damper", "Damper Noise", 0.0f, 1.0f, 0.0f);
+    addFloat ("mech_pedal", "Pedal Noise", 0.0f, 1.0f, 0.0f);
+
     return layout;
 }
 
@@ -970,6 +994,11 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     currentSampleRate = sampleRate;
     sympatheticStrings.prepare (sampleRate);
+    soundboard.prepare (sampleRate);
+    pedalResonance.prepare (sampleRate);
+    mechanicalNoise.prepare (sampleRate);
+    keysPedalDown = false;
+    pedalHeldNotes.fill (false);
     displaySampleRate.store (sampleRate);
     baseSampleRate = sampleRate;
     expectedBlockSize = juce::jmax (1, samplesPerBlock);
@@ -988,7 +1017,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     scaledMidiBuffer.ensureSize (1024);
 
-    lfoBuffers.setSize (6, expectedBlockSize * oversamplingFactor.load(), false, false, true);
+    lfoBuffers.setSize (numLfoChannels, expectedBlockSize * oversamplingFactor.load(), false, false, true);
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -1137,7 +1166,7 @@ void IlanaSynthAudioProcessor::setOversampling (int factor)
     synth.setCurrentPlaybackSampleRate (voiceRate);
     mseg.prepare (voiceRate);
     mseg.reset();
-    lfoBuffers.setSize (6, expectedBlockSize * factor, false, false, true);
+    lfoBuffers.setSize (numLfoChannels, expectedBlockSize * factor, false, false, true);
     scaledMidiBuffer.ensureSize (1024);
 
     suspendProcessing (false);
@@ -1198,6 +1227,25 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             triggerAsyncUpdate();
     }
 
+    // Read every mod slot once; switched-on slots are packed for the voices
+    // and evaluated synth-wide for the effects and the knob rings.
+    Mod::Slot activeSlots[Mod::maxSlots];
+    auto numActiveSlots = 0;
+
+    for (int i = 0; i < Mod::maxSlots; ++i)
+    {
+        const auto slot = readModSlot (i);
+
+        if (slot.isActive())
+            activeSlots[numActiveSlots++] = slot;
+    }
+
+    lfoRouted.fill (false);
+    for (int i = 0; i < numActiveSlots; ++i)
+        for (const auto source : { activeSlots[i].source, activeSlots[i].aux })
+            if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
+                lfoRouted[(size_t) lfo] = true;
+
     const auto factor = oversamplingFactor.load();
 
     if (factor > 1)
@@ -1233,19 +1281,6 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
         lfoPhaseDisplays[(size_t) lfo].store ((float) lfoPhases[(size_t) lfo]);
-
-    // Read every mod slot once; switched-on slots are packed for the voices
-    // and evaluated synth-wide for the effects and the knob rings.
-    Mod::Slot activeSlots[Mod::maxSlots];
-    auto numActiveSlots = 0;
-
-    for (int i = 0; i < Mod::maxSlots; ++i)
-    {
-        const auto slot = readModSlot (i);
-
-        if (slot.isActive())
-            activeSlots[numActiveSlots++] = slot;
-    }
 
     evaluateGlobalModulation (activeSlots, numActiveSlots);
 
@@ -1392,6 +1427,11 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.bowSpeed = getParam (extras[1].toRawUTF8());
         osc.bridgeBuzz = getParam (extras[2].toRawUTF8());
         osc.fretRattle = getParam (extras[3].toRawUTF8());
+        const auto& keys = keysParamIds[(size_t) oscIndex];
+        osc.hammerHardness = getParam (keys[0].toRawUTF8());
+        osc.couple = getParam (keys[1].toRawUTF8());
+        osc.damper = getParam (keys[2].toRawUTF8());
+        osc.registerMap = getParam (keys[3].toRawUTF8());
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
@@ -1421,6 +1461,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     }
 
     p.voiceSpread = getParam ("voice_spread");
+    p.stretch = getParam ("stretch");
     p.unisonRandom = getParam ("unison_random");
     p.filter1Fm = getParam ("f1_fm");
     p.filter2Fm = getParam ("f2_fm");
@@ -1442,10 +1483,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.macros[2] = getParam ("macro3");
     p.macros[3] = getParam ("macro4");
 
-    p.lfo1 = lfoBuffers.getReadPointer (0);
-    p.lfo2 = lfoBuffers.getReadPointer (1);
-    p.lfo3 = lfoBuffers.getReadPointer (2);
-    p.lfo4 = lfoBuffers.getReadPointer (3);
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        p.lfoBuffers[lfo] = lfoBuffers.getReadPointer (lfoChannel (lfo));
 
     p.numModSlots = numActiveSlots;
     p.numActiveDestinations = 0;
@@ -1628,6 +1667,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         for (int env = 0; env < 11; ++env)
             envMonitorExtra[(size_t) env].store (extraEnvValues[(size_t) env]);
     }
+
+    processAcousticKeys (buffer, midiForSynth);
 
     if (getParam ("sym_on") > 0.5f && getParam ("sym_amount") > 0.0f)
     {
@@ -1863,7 +1904,7 @@ bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)
 void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffer& midiMessages)
 {
     if (lfoBuffers.getNumSamples() < numSamples)
-        lfoBuffers.setSize (6, numSamples, false, false, true);
+        lfoBuffers.setSize (numLfoChannels, numSamples, false, false, true);
 
     if (auto* transport = getPlayHead())
     {
@@ -1982,10 +2023,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     {
         const auto& ids = lfoIds[(size_t) lfo];
 
-        const Mod::Destination rateDestinations[] { Mod::Destination::Lfo1Rate, Mod::Destination::Lfo2Rate,
-                                                    Mod::Destination::Lfo3Rate, Mod::Destination::Lfo4Rate };
         lfoRates[lfo] = makeRate (ids.sync.toRawUTF8(), ids.rate.toRawUTF8(), ids.div.toRawUTF8(),
-                                  rateDestinations[lfo]);
+                                  Mod::lfoRateDestinationFor (lfo));
         lfoShapes[lfo] = (float) (int) getParam (ids.shape.toRawUTF8());
         lfoPhysA[lfo] = getParam (ids.physA.toRawUTF8());
         lfoPhysB[lfo] = getParam (ids.physB.toRawUTF8());
@@ -2004,10 +2043,17 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     float* lfoBufferPointers[numLfos] {};
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        lfoBufferPointers[lfo] = lfoBuffers.getWritePointer (lfo);
+        lfoBufferPointers[lfo] = lfoBuffers.getWritePointer (lfoChannel (lfo));
+
+    // LFO 1-4 always render, as before the pool. LFO 5-16 render only when a
+    // mod slot uses them; otherwise their phase just moves on for the cards.
+    bool renderLfo[numLfos] {};
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        renderLfo[lfo] = lfo < 4 || lfoRouted[(size_t) lfo];
 
     auto* clockBuffer = lfoBuffers.getWritePointer (4);
     auto* msegBuffer = lfoBuffers.getWritePointer (5);
+    static_assert (lfoChannel (3) == 3 && lfoChannel (4) == 6, "clock and MSEG keep channels 4 and 5");
 
     const auto clockBeats = getSyncDivisionBeats ((int) getParam ("clock_div"));
     const auto clockRate = (currentBpm.load() / 60.0) / juce::jmax (0.001, clockBeats);
@@ -2027,6 +2073,9 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     {
         for (int lfo = 0; lfo < numLfos; ++lfo)
         {
+            if (! renderLfo[lfo])
+                continue;
+
             const auto phase = lfoPhases[(size_t) lfo];
             const auto stepIndex = juce::jlimit (0, 15, (int) (phase * 16.0));
             const auto shape = (int) lfoShapes[lfo];
@@ -2051,10 +2100,10 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             if (nextPhase >= 1.0)
             {
                 nextPhase -= std::floor (nextPhase);
-                lfoSampleHolds[(size_t) lfo].store (lfoRandom.nextFloat() * 2.0f - 1.0f);
+                lfoSampleHolds[(size_t) lfo].store (randomForLfo (lfo).nextFloat() * 2.0f - 1.0f);
 
                 if (stateful && ! LfoShapes::isPhysics (shape))
-                    chaos.onCycle (shape, lfoRandom);
+                    chaos.onCycle (shape, randomForLfo (lfo));
             }
 
             lfoPhases[(size_t) lfo] = nextPhase;
@@ -2073,14 +2122,104 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     }
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        if (numSamples > 0)
-            lfoLastValues[(size_t) lfo].store (lfoBufferPointers[lfo][numSamples - 1]);
+    {
+        if (renderLfo[lfo])
+        {
+            if (numSamples > 0)
+                lfoLastValues[(size_t) lfo].store (lfoBufferPointers[lfo][numSamples - 1]);
+            continue;
+        }
+
+        // Unrouted: silence for the voices, the phase moves on for the cards.
+        juce::FloatVectorOperations::clear (lfoBufferPointers[lfo], numSamples);
+        auto phase = lfoPhases[(size_t) lfo] + lfoIncrements[lfo] * (double) numSamples;
+        phase -= std::floor (phase);
+        lfoPhases[(size_t) lfo] = phase;
+        const auto shape = (int) lfoShapes[lfo];
+        lfoLastValues[(size_t) lfo].store (LfoShapes::isStateful (shape) || shape == 7
+                                               ? 0.0f
+                                               : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
+                                                           activeLfoCustom[(size_t) lfo].data(),
+                                                           activeLfoCurveTables[(size_t) lfo].data()));
+    }
 
     modWheelDisplay.store (modWheelValue);
     aftertouchDisplay.store (aftertouchValue);
     expressionDisplay.store (expressionValue);
     clockShDisplay.store (clockShValue);
     msegDisplay.store (numSamples > 0 ? msegBuffer[numSamples - 1] : 0.0f);
+}
+
+// Pedal resonance, the soundboard and mechanical noises: after the voices,
+// at the base rate. Each part costs nothing while it is off.
+void IlanaSynthAudioProcessor::processAcousticKeys (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi)
+{
+    const auto keyNoise = getParam ("mech_key");
+    const auto damperNoise = getParam ("mech_damper");
+    const auto pedalNoise = getParam ("mech_pedal");
+    const auto pedalAmount = getParam ("pedal_res");
+    using Kind = MechanicalNoise::Kind;
+
+    for (const auto metadata : midi)
+    {
+        const auto& message = metadata.getMessage();
+        const auto offset = metadata.samplePosition;
+
+        if (message.isNoteOff())
+        {
+            const auto note = message.getNoteNumber();
+            mechanicalNoise.trigger (Kind::KeyRelease, note, keyNoise, offset);
+
+            // With the pedal down the damper stays up until the pedal lifts.
+            if (keysPedalDown)
+                pedalHeldNotes[(size_t) note] = true;
+            else
+                mechanicalNoise.trigger (Kind::Damper, note, damperNoise, offset);
+        }
+        else if (message.isNoteOn())
+        {
+            pedalHeldNotes[(size_t) message.getNoteNumber()] = false;
+        }
+        else if (message.isSustainPedalOn() && ! keysPedalDown)
+        {
+            keysPedalDown = true;
+            mechanicalNoise.trigger (Kind::PedalDown, -1, pedalNoise, offset);
+            pedalResonance.setPedal (true, pedalAmount);
+        }
+        else if (message.isSustainPedalOff() && keysPedalDown)
+        {
+            keysPedalDown = false;
+            mechanicalNoise.trigger (Kind::PedalUp, -1, pedalNoise, offset);
+            pedalResonance.setPedal (false, pedalAmount);
+
+            // Every damper that was held up lands at once.
+            auto landed = 0;
+            for (int note = 0; note < 128; ++note)
+                if (std::exchange (pedalHeldNotes[(size_t) note], false) && landed < 6)
+                {
+                    mechanicalNoise.trigger (Kind::Damper, note, damperNoise * 0.6f, offset + landed * 24);
+                    ++landed;
+                }
+        }
+    }
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+    const auto numSamples = buffer.getNumSamples();
+
+    if (pedalAmount > 0.0f && pedalResonance.isRinging())
+        pedalResonance.process (left, right, numSamples, pedalAmount);
+
+    const auto soundboardOn = getParam ("sb_on") > 0.5f;
+    if (soundboardOn)
+    {
+        if (! soundboardWasOn)
+            soundboard.reset();
+        soundboard.process (left, right, numSamples, getParam ("sb_mix"), getParam ("sb_tone"), getParam ("sb_size"));
+    }
+    soundboardWasOn = soundboardOn;
+
+    mechanicalNoise.process (left, right, numSamples);
 }
 
 float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
@@ -2147,7 +2286,7 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
 
     for (int i = 0; i < (int) paramDestinations.size(); ++i)
     {
-        const auto offset = totals[Mod::numExplicitDestinations + i];
+        const auto offset = totals[Mod::paramDestinationFor (i)];
 
         if (offset != 0.0f && paramDestinations[(size_t) i].parameter != nullptr)
         {
@@ -4520,6 +4659,36 @@ bool IlanaSynthAudioProcessor::isOscillatorShown (int index) const
 
     const auto* on = apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_on");
     return on != nullptr && on->load() > 0.5f;
+}
+
+bool IlanaSynthAudioProcessor::isLfoShown (int index) const
+{
+    if (isRevealed (Module::Lfo, index))
+        return true;
+
+    const auto source = Mod::lfoSourceFor (index);
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = readModSlot (slot);
+
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+            return true;
+    }
+
+    return false;
+}
+
+juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
+{
+    switch (index)
+    {
+        case 0: return juce::Colour (0xffff8a3b);
+        case 1: return juce::Colour (0xff35c8ff);
+        case 2: return juce::Colour (0xff6fe3c1);
+        case 3: return juce::Colour (0xffe3a56f);
+        default: return juce::Colour::fromHSV ((float) (index - 4) / 12.0f + 0.04f, 0.5f, 0.95f, 1.0f);
+    }
 }
 
 void IlanaSynthAudioProcessor::addOscillator (int index)

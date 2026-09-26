@@ -140,10 +140,15 @@ class OscPage : public juce::Component,
               bowPressure (state, prefix + "_bow_pressure", "BOW PRESS"),
               bowSpeed (state, prefix + "_bow_speed", "BOW SPEED"),
               bridgeBuzz (state, prefix + "_bridge_buzz", "BRIDGE BUZZ"),
-              fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE") {}
+              fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE"),
+              hammer (state, prefix + "_hammer_hard", "HAMMER"),
+              couple (state, prefix + "_couple", "COUPLING"),
+              damper (state, prefix + "_damper", "DAMPER"),
+              registerMap (state, prefix + "_register", "REGISTER") {}
 
         KnobControl stiffness, pickup, excitePos, hardness, pickPos;
         KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
+        KnobControl hammer, couple, damper, registerMap;
         ToggleControl slap;
     };
 
@@ -207,6 +212,10 @@ public:
           , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "STRINGS")
+          , sbOn (p.apvts, "sb_on", "BOARD"), sbMix (p.apvts, "sb_mix", "BODY MIX"), sbTone (p.apvts, "sb_tone", "TONE")
+          , sbSize (p.apvts, "sb_size", "SIZE"), stretch (p.apvts, "stretch", "STRETCH")
+          , pedalRes (p.apvts, "pedal_res", "PEDAL RES"), mechKey (p.apvts, "mech_key", "KEY NOISE")
+          , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
     {
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
@@ -227,10 +236,13 @@ public:
             addAll (*this, physicalControls.stiffness, physicalControls.pickup, physicalControls.excitePos,
                     physicalControls.hardness, physicalControls.pickPos, physicalControls.slap,
                     physicalControls.bowPressure, physicalControls.bowSpeed,
-                    physicalControls.bridgeBuzz, physicalControls.fretRattle);
+                    physicalControls.bridgeBuzz, physicalControls.fretRattle,
+                    physicalControls.hammer, physicalControls.couple,
+                    physicalControls.damper, physicalControls.registerMap);
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
+        addAll (*this, sbOn, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         for (int i = 0; i < 6; ++i)
         {
             symNotes[(size_t) i] = std::make_unique<KnobControl> (p.apvts, "sym_note" + juce::String (i + 1),
@@ -292,7 +304,7 @@ public:
             for (const auto* suffix : { "_mode", "_on", "_excite" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
 
-        for (const auto* id : { "sym_on", "sym_manual" })
+        for (const auto* id : { "sym_on", "sym_manual", "sb_on" })
             processorRef.apvts.addParameterListener (id, this);
 
         // Phase Plant style: remove any oscillator, add the next hidden one.
@@ -337,7 +349,7 @@ public:
             for (const auto* suffix : { "_mode", "_on", "_excite" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
 
-        for (const auto* id : { "sym_on", "sym_manual" })
+        for (const auto* id : { "sym_on", "sym_manual", "sb_on" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -442,6 +454,20 @@ public:
                         symCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (90),
                         juce::Justification::centredLeft);
         }
+
+        if (! keysCard.isEmpty())
+        {
+            IlanaTheme::paintRecessedPanel (g, keysCard.toFloat(), 6.0f);
+            g.setColour (IlanaTheme::accent());
+            g.setFont (IlanaTheme::font (12.0f, true));
+            g.drawText ("ACOUSTIC KEYS", keysCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
+                        juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (11.0f));
+            g.drawText ("soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer",
+                        keysCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (14),
+                        juce::Justification::centredLeft);
+        }
     }
 
     static juce::Colour oscColour (int index)
@@ -467,7 +493,7 @@ public:
             if (shown[(size_t) band])
                 height += heightOfBand (band) + bandGap;
 
-        return height + (anyHidden() ? addCardHeight + bandGap : 0);
+        return height + (anyHidden() ? addCardHeight + bandGap : 0) + keysCardHeight + bandGap;
     }
 
     void resized() override
@@ -538,6 +564,12 @@ public:
                              { symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                                symNotes[3].get(), symNotes[4].get(), symNotes[5].get() });
         }
+
+        area.removeFromTop (bandGap);
+        keysCard = area.removeFromTop (keysCardHeight);
+        auto keysArea = keysCard.withTrimmedTop (symHeaderHeight).reduced (10, 0);
+        layoutSlots (keysArea.removeFromTop (symRowHeight),
+                     { &sbOn, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
     }
 
 private:
@@ -558,6 +590,7 @@ private:
     static constexpr int pageMargin = 6;
     static constexpr int symHeaderHeight = 28;
     static constexpr int symRowHeight = 64;
+    static constexpr int keysCardHeight = 28 + 64 + 6;
 
     // The sympathetic card: just its header while the strings are off, one
     // row of settings when on, plus the notes in MANUAL.
@@ -706,8 +739,9 @@ private:
                                       &physicalControls.stiffness, &physicalControls.pickup,
                                       &physicalControls.excitePos, &physicalControls.hardness,
                                       &physicalControls.pickPos });
-            layoutSlots (extraRow, { &physicalControls.bowPressure, &physicalControls.bowSpeed,
-                                     &physicalControls.bridgeBuzz, &physicalControls.fretRattle });
+            layoutSlots (extraRow, { &physicalControls.hammer, &physicalControls.bowPressure, &physicalControls.bowSpeed,
+                                     &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
+                                     &physicalControls.couple, &physicalControls.damper, &physicalControls.registerMap });
             layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
                                       &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
             return;
@@ -833,7 +867,7 @@ private:
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
-                 &phys.slap, &waveDisplay (i), &loadButton (i), removeButtons[(size_t) i].get() };
+                 &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap, &waveDisplay (i), &loadButton (i), removeButtons[(size_t) i].get() };
     }
 
     void updateModeVisibility()
@@ -863,7 +897,10 @@ private:
                                               (juce::Component*) &physicalControls.pickPos,
                                               (juce::Component*) &physicalControls.slap,
                                               (juce::Component*) &physicalControls.bridgeBuzz,
-                                              (juce::Component*) &physicalControls.fretRattle })
+                                              (juce::Component*) &physicalControls.fretRattle,
+                                              (juce::Component*) &physicalControls.couple,
+                                              (juce::Component*) &physicalControls.damper,
+                                              (juce::Component*) &physicalControls.registerMap })
                 control->setVisible (stringVisible);
 
             const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
@@ -871,6 +908,8 @@ private:
                              && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
             physicalControls.bowPressure.setVisible (bow);
             physicalControls.bowSpeed.setVisible (bow);
+            physicalControls.hammer.setVisible (stringVisible
+                                                && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 5.0f);
 
             auto& osc = *controls[(size_t) i];
             osc.table.setVisible (mode == 0);
@@ -927,6 +966,10 @@ private:
 
     void updateEnabled()
     {
+        const auto boardOn = readBool ("sb_on");
+        for (auto* control : { &sbMix, &sbTone, &sbSize })
+            control->setAlpha (boardOn ? 1.0f : 0.4f);
+
         for (int index = 0; index < OscillatorIds::count; ++index)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
@@ -936,7 +979,9 @@ private:
                                &physicalControls.excitePos, &physicalControls.hardness,
                                &physicalControls.pickPos, &physicalControls.slap,
                                &physicalControls.bowPressure, &physicalControls.bowSpeed,
-                               &physicalControls.bridgeBuzz, &physicalControls.fretRattle }, enabled);
+                               &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
+                               &physicalControls.hammer, &physicalControls.couple,
+                               &physicalControls.damper, &physicalControls.registerMap }, enabled);
 
             auto& osc = *controls[(size_t) index];
             setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
@@ -980,6 +1025,12 @@ private:
     juce::Rectangle<int> symCard;
     ToggleControl symOn, symManual;
     KnobControl symAmount, symDecay, symCount;
+
+    // Acoustic keys (M4): soundboard, stretch tuning, pedal resonance and
+    // the mechanism's noises, shared by every voice.
+    juce::Rectangle<int> keysCard;
+    ToggleControl sbOn;
+    KnobControl sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal;
     std::array<std::unique_ptr<KnobControl>, 6> symNotes;
 
     // The dedicated sub and the noise.
@@ -1249,6 +1300,19 @@ private:
     juce::Rectangle<int> flowTitle, resonatorCard, balanceCard;
 };
 
+// Scrolls a sideways card bar so the given card is in view.
+inline void scrollToCard (juce::Viewport& view, juce::Rectangle<int> card)
+{
+    if (card.isEmpty())
+        return;
+
+    const auto x = view.getViewPositionX();
+    if (card.getX() < x)
+        view.setViewPosition (card.getX(), 0);
+    else if (card.getRight() > x + view.getViewWidth())
+        view.setViewPosition (card.getRight() - view.getViewWidth(), 0);
+}
+
 class EnvSection : public juce::Component
 {
 public:
@@ -1439,15 +1503,7 @@ private:
         thumbs.setSelected (selected);
         resized();
 
-        // Bring the selected card into view.
-        if (const auto card = thumbs.boundsOfCard (selected); ! card.isEmpty())
-        {
-            const auto x = thumbView.getViewPositionX();
-            if (card.getX() < x)
-                thumbView.setViewPosition (card.getX(), 0);
-            else if (card.getRight() > x + thumbView.getViewWidth())
-                thumbView.setViewPosition (card.getRight() - thumbView.getViewWidth(), 0);
-        }
+        scrollToCard (thumbView, thumbs.boundsOfCard (selected));
 
         repaint();
     }
@@ -1478,7 +1534,12 @@ public:
           settings (settingsRef),
           thumbs (p, [] (int index) { return lfoColour (index); })
     {
-        addAndMakeVisible (thumbs);
+        // Cards keep one size and scroll sideways past four.
+        thumbView.setViewedComponent (&thumbs, false);
+        thumbView.setScrollBarsShown (false, true);
+        thumbView.setScrollBarThickness (6);
+        addAndMakeVisible (thumbView);
+        thumbs.onLayoutChanged = [this] { resized(); repaint(); };
 
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         {
@@ -1521,7 +1582,11 @@ public:
     {
         auto area = getLocalBounds();
 
-        thumbs.setBounds (area.removeFromTop (58));
+        thumbs.setViewWidth (area.getWidth());
+        const auto thumbWidth = thumbs.getPreferredWidth();
+        const auto scrolls = thumbWidth > area.getWidth();
+        thumbView.setBounds (area.removeFromTop (58 + (scrolls ? thumbView.getScrollBarThickness() + 2 : 0)));
+        thumbs.setSize (thumbWidth, 58);
         area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
@@ -1594,7 +1659,8 @@ public:
             case 1: return juce::Colour (0xff35c8ff);
             case 2: return juce::Colour (0xff6fe3c1);
             case 3: return juce::Colour (0xffe3a56f);
-            default: return IlanaTheme::accent();
+            case 0: return IlanaTheme::accent();
+            default: return IlanaSynthAudioProcessor::lfoColour (index);
         }
     }
 
@@ -1655,6 +1721,7 @@ private:
 
         thumbs.setSelected (selected);
         resized();
+        scrollToCard (thumbView, thumbs.boundsOfCard (selected));
         repaint();
     }
 
@@ -1693,6 +1760,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
+    juce::Viewport thumbView;
     LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
@@ -2059,12 +2127,17 @@ public:
         const auto layoutPicker = [this] (int rowIndex, juce::Rectangle<int> header)
         {
             header.removeFromLeft (80);
+            auto& buttons = lfoButtons[(size_t) rowIndex];
+            auto count = 0;
 
-            for (auto& button : lfoButtons[(size_t) rowIndex])
-            {
-                button.setBounds (header.removeFromLeft (58).reduced (2, 0));
-                header.removeFromLeft (2);
-            }
+            for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                count += buttons[(size_t) lfo].isVisible() ? 1 : 0;
+
+            const auto width = juce::jmin (60, header.getWidth() / juce::jmax (1, count));
+
+            for (auto& button : buttons)
+                if (button.isVisible())
+                    button.setBounds (header.removeFromLeft (width).reduced (2, 0));
         };
 
         // Left: the two step rows and the MSEG. Right: arp and generate.
@@ -2181,6 +2254,22 @@ private:
     // Arp controls step back while the arp is off.
     void timerCallback() override
     {
+        // The step-row pickers list the patch's LFOs (and whatever a row shows).
+        auto pickersChanged = false;
+        for (int row = 0; row < 2; ++row)
+            for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            {
+                auto& button = lfoButtons[(size_t) row][(size_t) lfo];
+                const auto shown = processorRef.isLfoShown (lfo) || button.getToggleState();
+                if (button.isVisible() != shown)
+                {
+                    button.setVisible (shown);
+                    pickersChanged = true;
+                }
+            }
+        if (pickersChanged)
+            resized();
+
         const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
         const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : 0.45f;
 
@@ -2384,7 +2473,11 @@ public:
         }
 
         lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
-        addAndMakeVisible (lfoThumbs);
+        lfoThumbView.setViewedComponent (&lfoThumbs, false);
+        lfoThumbView.setScrollBarsShown (false, true);
+        lfoThumbView.setScrollBarThickness (6);
+        addAndMakeVisible (lfoThumbView);
+        lfoThumbs.onLayoutChanged = [this] { resized(); };
 
         filterTabs.onSelect = [this] (int) { updateVisibility(); };
         envTabs.onSelect = [this] (int) { updateVisibility(); };
@@ -2426,7 +2519,8 @@ public:
             case 1: return juce::Colour (0xff35c8ff);
             case 2: return juce::Colour (0xff6fe3c1);
             case 3: return juce::Colour (0xffe3a56f);
-            default: return IlanaTheme::accent();
+            case 0: return IlanaTheme::accent();
+            default: return IlanaSynthAudioProcessor::lfoColour (index);
         }
     }
 
@@ -2539,7 +2633,11 @@ public:
 
         {
             auto inner = lfoCard.reduced (10).withTrimmedTop (18);
-            lfoThumbs.setBounds (inner.removeFromTop (juce::jmax (40, inner.getHeight() - 52)));
+            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - 52));
+            lfoThumbs.setViewWidth (cards.getWidth());
+            const auto thumbWidth = lfoThumbs.getPreferredWidth();
+            lfoThumbView.setBounds (cards);
+            lfoThumbs.setSize (thumbWidth, cards.getHeight() - (thumbWidth > cards.getWidth() ? lfoThumbView.getScrollBarThickness() + 1 : 0));
             inner.removeFromTop (4);
 
             for (auto& set : lfoSets)
@@ -2746,6 +2844,7 @@ private:
     static constexpr int addButtonHeight = 36;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
     FilterDisplay filterDisplay;
+    juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;
     CardTabs filterTabs, envTabs, lfoTabs;
     std::vector<std::unique_ptr<OscStrip>> strips;

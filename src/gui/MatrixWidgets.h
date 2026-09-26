@@ -58,7 +58,9 @@ inline void fillDestinations (juce::ComboBox& combo)
                           D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
                           D::F2eAttack, D::F2eDecay, D::F2eSustain, D::F2eRelease,
                           D::E4Attack, D::E4Decay, D::E4Sustain, D::E4Release });
-    group ("LFOs & MSEG", { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate, D::MsegRate });
+    group ("LFOs & MSEG", { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate, D::Lfo5Rate, D::Lfo6Rate,
+                            D::Lfo7Rate, D::Lfo8Rate, D::Lfo9Rate, D::Lfo10Rate, D::Lfo11Rate, D::Lfo12Rate,
+                            D::Lfo13Rate, D::Lfo14Rate, D::Lfo15Rate, D::Lfo16Rate, D::MsegRate });
 
     juce::PopupMenu effects, global;
 
@@ -72,7 +74,7 @@ inline void fillDestinations (juce::ComboBox& combo)
     for (int i = 0; i < (int) params.size(); ++i)
     {
         const juce::String id (params[(size_t) i].id);
-        item (id.startsWith ("fx_") ? effects : global, Mod::numExplicitDestinations + i);
+        item (id.startsWith ("fx_") ? effects : global, Mod::paramDestinationFor (i));
     }
 
     root->addSubMenu ("Effects", effects);

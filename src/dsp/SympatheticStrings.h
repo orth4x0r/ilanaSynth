@@ -88,7 +88,7 @@ private:
         int note = 48;
         double frequency = 130.81;
     };
-    static constexpr float loopFilter = 0.5f, inputGain = 0.022f;
+    static constexpr float loopFilter = 0.5f, inputGain = 0.066f;   // 3x (+9.5 dB) after listening, 2026-09-26
     std::array<String, maxStrings> strings;
     double sampleRate = 48000.0, t60 = 1.0;
     float lastDecay = -1.0f;

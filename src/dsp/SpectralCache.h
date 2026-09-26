@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "SpectralWarp.h"
+#include "OscillatorIds.h"
 #include "Wavetable.h"
 
 // Builds spectrally warped copies of the factory wavetables on a worker
@@ -19,7 +20,7 @@
 class SpectralCache : private juce::Thread
 {
 public:
-    static constexpr int numOscillators = 3;
+    static constexpr int numOscillators = OscillatorIds::count;
     static constexpr int amountSteps = 64;
 
     // factoryTable(i) must return a table that lives for the whole session.

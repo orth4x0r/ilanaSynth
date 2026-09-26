@@ -7,7 +7,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 
-// The FM matrix as operators: three oscillators, with an arrow for every
+// The FM matrix as operators: six oscillators, with an arrow for every
 // route (thicker = deeper) and a loop for feedback. Drag from one oscillator
 // to another to add that route (or remove it if it's already there); drag
 // onto the same oscillator for feedback. Click an oscillator to switch its
@@ -25,7 +25,7 @@ public:
     }
 
     // [source][target] parameter ids.
-    static const char* routeId (int source, int target)
+    static juce::String routeId (int source, int target)
     {
         static const char* ids[3][3] {
             { "fm_feedback", "fm_1to2", "fm_1to3" },
@@ -33,13 +33,17 @@ public:
             { "fm_3to1", "fm_3to2", "fm_fb3" }
         };
 
-        return ids[source][target];
+        if (source < 3 && target < 3)
+            return ids[source][target];
+        return source == target ? "fm_fb" + juce::String (source + 1)
+                                : "fm_" + juce::String (source + 1) + "to" + juce::String (target + 1);
     }
 
     static juce::Colour oscColour (int osc)
     {
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447) };
-        return colours[juce::jlimit (0, 2, osc)];
+        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
+                                       juce::Colour (0xff6fe3c1), juce::Colour (0xffff7f9e), juce::Colour (0xffb28aff) };
+        return colours[juce::jlimit (0, OscillatorIds::count - 1, osc)];
     }
 
     void paint (juce::Graphics& g) override
@@ -49,9 +53,9 @@ public:
         const auto radius = operatorRadius();
 
         // Routes between different oscillators.
-        for (int source = 0; source < 3; ++source)
+        for (int source = 0; source < OscillatorIds::count; ++source)
         {
-            for (int target = 0; target < 3; ++target)
+            for (int target = 0; target < OscillatorIds::count; ++target)
             {
                 const auto amount = read (routeId (source, target));
 
@@ -65,7 +69,7 @@ public:
                 {
                     // Feedback: a loop above (or below) the operator.
                     const auto centre = centres[(size_t) source];
-                    const auto up = source == 2 ? 1.0f : -1.0f;
+                    const auto up = source >= 3 ? 1.0f : -1.0f;
                     const auto loop = juce::Rectangle<float> (radius * 1.1f, radius * 1.1f)
                                           .withCentre ({ centre.x, centre.y + up * radius * 1.25f });
                     g.setColour (colour);
@@ -113,8 +117,8 @@ public:
 
         auto anyRoute = false;
 
-        for (int source = 0; source < 3; ++source)
-            for (int target = 0; target < 3; ++target)
+        for (int source = 0; source < OscillatorIds::count; ++source)
+            for (int target = 0; target < OscillatorIds::count; ++target)
                 anyRoute = anyRoute || read (routeId (source, target)) > 0.001f;
 
         if (! anyRoute)
@@ -133,12 +137,13 @@ public:
         }
 
         // Operators.
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
             const auto centre = centres[(size_t) osc];
             const auto colour = oscColour (osc);
-            const auto out = read (osc == 0 ? "osc1_out" : (osc == 1 ? "osc2_out" : "sub_out")) > 0.5f;
-            const auto on = read (osc == 0 ? "osc1_on" : (osc == 1 ? "osc2_on" : "sub_on")) > 0.5f;
+            const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+            const auto out = read (prefix + "_out") > 0.5f;
+            const auto on = read (prefix + "_on") > 0.5f;
             const auto circle = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
 
             // A soft halo that breathes while this operator sounds.
@@ -202,7 +207,7 @@ public:
         if (target >= 0 && event.getDistanceFromDragStart() < 6)
         {
             // A click: toggle the operator's output.
-            toggle (source == 0 ? "osc1_out" : (source == 1 ? "osc2_out" : "sub_out"));
+            toggle (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_out");
         }
         else if (target >= 0)
         {
@@ -219,35 +224,36 @@ public:
     }
 
 private:
-    float operatorRadius() const { return juce::jlimit (26.0f, 44.0f, (float) juce::jmin (getWidth(), getHeight()) * 0.11f); }
+    float operatorRadius() const { return juce::jlimit (18.0f, 31.0f, (float) juce::jmin (getWidth(), getHeight()) * 0.065f); }
 
-    std::array<juce::Point<float>, 3> operatorCentres() const
+    std::array<juce::Point<float>, OscillatorIds::count> operatorCentres() const
     {
-        // An upside-down triangle centred in the view: OSC 1 and 2 on top, OSC 3 below.
+        // Six operators around a circle leave room for bidirectional arrows.
         const auto bounds = getLocalBounds().toFloat().reduced (operatorRadius() * 1.6f);
-        const auto centre = bounds.getCentre().translated (0.0f, -bounds.getHeight() * 0.04f);
-        const auto spread = juce::jmin (bounds.getWidth() * 0.5f, bounds.getHeight() * 0.62f);
-        const auto angle = [&] (float degrees)
+        std::array<juce::Point<float>, OscillatorIds::count> centres;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            const auto radians = juce::degreesToRadians (degrees);
-            return centre + juce::Point<float> (std::cos (radians), std::sin (radians)) * spread;
-        };
-
-        return { angle (-150.0f), angle (-30.0f), angle (90.0f) };
+            const auto angle = juce::MathConstants<float>::twoPi * (float) osc / (float) OscillatorIds::count
+                               - juce::MathConstants<float>::halfPi;
+            centres[(size_t) osc] = bounds.getCentre()
+                                    + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.37f,
+                                                          std::sin (angle) * bounds.getHeight() * 0.36f);
+        }
+        return centres;
     }
 
     int oscAt (juce::Point<float> position) const
     {
         const auto centres = operatorCentres();
 
-        for (int osc = 0; osc < 3; ++osc)
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (centres[(size_t) osc].getDistanceFrom (position) <= operatorRadius() + 4.0f)
                 return osc;
 
         return -1;
     }
 
-    float read (const char* id) const
+    float read (const juce::String& id) const
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();
@@ -255,7 +261,7 @@ private:
         return 0.0f;
     }
 
-    void toggle (const char* id)
+    void toggle (const juce::String& id)
     {
         if (auto* parameter = processorRef.apvts.getParameter (id))
         {

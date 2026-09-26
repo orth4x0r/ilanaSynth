@@ -116,12 +116,12 @@ public:
     float getDisplayFrequency() const { return displayFrequency.load(); }
     float getSamplePosition (int oscIndex) const
     {
-        return displaySamplePositions[(size_t) juce::jlimit (0, 2, oscIndex)].load();
+        return displaySamplePositions[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)].load();
     }
 
     float getWavetablePhase (int oscIndex) const
     {
-        return oscDisplayPhases[(size_t) juce::jlimit (0, 2, oscIndex)].load();
+        return oscDisplayPhases[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)].load();
     }
     double getCurrentBpm() const { return currentBpm.load(); }
     float getArpStepRateHz() const;
@@ -237,6 +237,12 @@ public:
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
+    float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
+    int getRevealedEnvelopeCount() const { return revealedEnvelopeCount.load(); }
+    void revealNextEnvelope()
+    {
+        revealedEnvelopeCount.store (juce::jmin (16, revealedEnvelopeCount.load() + 1));
+    }
 
     bool loadUserWavetable (int slot, const juce::File& file,
                             Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
@@ -434,8 +440,8 @@ private:
     std::array<std::atomic<float>, (size_t) numLfos> lfoPhaseDisplays {};
     std::atomic<float> displayPhase { 0.0f };
     std::atomic<float> displayFrequency { 0.0f };
-    std::array<std::atomic<float>, 3> displaySamplePositions {};
-    std::array<std::atomic<float>, 3> oscDisplayPhases {};
+    std::array<std::atomic<float>, OscillatorIds::count> displaySamplePositions {};
+    std::array<std::atomic<float>, OscillatorIds::count> oscDisplayPhases {};
 
     std::vector<float> scopeLeft, scopeRight;
     std::atomic<int> scopeWritePos { 0 };
@@ -468,6 +474,8 @@ private:
     std::atomic<float> envMonitorFilter2 { 0.0f };
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
+    std::array<std::atomic<float>, 11> envMonitorExtra {};
+    std::atomic<int> revealedEnvelopeCount { 5 };
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;

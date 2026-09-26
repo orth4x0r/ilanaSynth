@@ -32,6 +32,8 @@ enum class Source
     FilterEnv2,
     Lfo3,
     Lfo4,
+    Env6, Env7, Env8, Env9, Env10, Env11, Env12, Env13,
+    Env14, Env15, Env16,
     Count
 };
 
@@ -64,6 +66,9 @@ inline bool isBipolarSource (Source source)
 // whole synth).
 inline bool isPerVoiceSource (Source source)
 {
+    if (source >= Source::Env6 && source <= Source::Env16)
+        return true;
+
     switch (source)
     {
         case Source::ModEnv: case Source::FilterEnv: case Source::AmpEnv: case Source::Velocity:
@@ -179,6 +184,15 @@ enum class Destination
     Fm3to2,
     Fm2Feedback,
     Fm3Feedback,
+    // The 115 parameter destinations occupy indices 96..210 in saved states.
+    // New explicit oscillator targets start after them to preserve every old
+    // destination choice index.
+    Osc4Pitch = 211, Osc4Frame, Osc4Level, Osc4SampleStart, Osc4SampleEnd,
+    Osc4Detune, Osc4Pan, Osc4Warp, Osc4Blend, Osc4Spread,
+    Osc5Pitch, Osc5Frame, Osc5Level, Osc5SampleStart, Osc5SampleEnd,
+    Osc5Detune, Osc5Pan, Osc5Warp, Osc5Blend, Osc5Spread,
+    Osc6Pitch, Osc6Frame, Osc6Level, Osc6SampleStart, Osc6SampleEnd,
+    Osc6Detune, Osc6Pan, Osc6Warp, Osc6Blend, Osc6Spread,
     Count
 };
 
@@ -186,7 +200,15 @@ enum class Destination
 // point at a parameter destination (numbered after these) are shifted on load.
 constexpr int explicitDestinationsV10 = 89;
 
-constexpr int numExplicitDestinations = (int) Destination::Count;
+constexpr int numExplicitDestinations = 96;
+static_assert ((int) Destination::Fm3Feedback + 1 == numExplicitDestinations);
+constexpr int firstNewExplicitDestination = (int) Destination::Osc4Pitch;
+
+inline bool isExplicitDestination (int destination)
+{
+    return destination < numExplicitDestinations
+           || (destination >= firstNewExplicitDestination && destination < (int) Destination::Count);
+}
 
 // Every other continuous parameter (effects and a few globals) can also be
 // modulated. These are applied once per block to the parameter itself, so
@@ -268,7 +290,7 @@ inline const std::vector<ParamDestination>& getParamDestinations()
     return list;
 }
 
-inline int getNumDestinations() { return numExplicitDestinations + (int) getParamDestinations().size(); }
+inline int getNumDestinations() { return (int) Destination::Count; }
 
 inline int paramDestinationIndex (int destination)
 {
@@ -342,10 +364,13 @@ inline float auxScale (Source aux, float value)
 
 inline juce::StringArray getSourceNames()
 {
-    return { "None", "LFO 1", "LFO 2", "Mod Env", "Filter Env", "Amp Env", "Velocity",
+    juce::StringArray names { "None", "LFO 1", "LFO 2", "Mod Env", "Filter Env", "Amp Env", "Velocity",
              "Key Track", "Random", "Mod Wheel", "Aftertouch", "Expression",
              "Macro 1", "Macro 2", "Macro 3", "Macro 4", "Clocked S&H", "MSEG",
              "Env 4", "Filter 2 Env", "LFO 3", "LFO 4" };
+    for (int env = 6; env <= 16; ++env)
+        names.add ("Env " + juce::String (env));
+    return names;
 }
 
 inline juce::StringArray getExplicitDestinationNames()
@@ -379,6 +404,11 @@ inline juce::StringArray getDestinationNames()
 
     for (const auto& param : getParamDestinations())
         names.add (param.name);
+
+    for (int osc = 4; osc <= 6; ++osc)
+        for (const auto* target : { "Pitch", "Frame", "Level", "Sample Start", "Sample End",
+                                    "Detune", "Pan", "Warp", "Unison Blend", "Spread" })
+            names.add ("Osc" + juce::String (osc) + " " + target);
 
     return names;
 }

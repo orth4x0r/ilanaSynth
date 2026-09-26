@@ -9,10 +9,10 @@ An aggressive wavetable synthesizer for VST3, built with JUCE.
 ## What it is
 
 IlanaSynth is a complete sound design machine:
-- **Oscillators:** three identical oscillators, each with wavetable, physical-modelling string, sample and granular modes, plus a dedicated sub.
-- **FM:** a 3-operator FM matrix.
+- **Oscillators:** six full oscillators, each with wavetable, physical-modelling string, sample and granular modes, plus a dedicated sub. OSC 4–6 start off.
+- **FM:** a 6-operator FM matrix.
 - **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics.
-- **Filters and envelopes:** twelve filter models across two routable filters, and five tension envelopes.
+- **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** four LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 32-slot modulation matrix.
 - **Effects:** a 10-slot rack with 29 modules, including a trance gate.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
@@ -72,7 +72,9 @@ It all sits in a hardware-inspired interface with 235 factory presets.
 
 ## Features
 
-### Oscillators (3, identical)
+### Oscillators (6)
+
+The OSC page shows six compact rows. Click a row to expand its controls. Each row has its own ON switch, mode, level and waveform. OSC 4–6 are off in old patches and new Init patches.
 - Four modes per oscillator:
   - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 4 user slots.
     - Click the TABLE box for the visual browser.
@@ -86,13 +88,14 @@ It all sits in a hardware-inspired interface with 235 factory presets.
 - **Spectral warp** (wavetable mode): Stretch, Shift, Odd/Even, Formant, Smear or Harmonic Cut, with an amount. The display shows the warped wave.
 - **Warp modes**: Sync, Bend +, Bend −, PWM, Mirror, Asym, Quantize, FM and Ring.
 - **Unison** up to 16 voices (8 in physical, sample and granular modes), with detune, stereo spread, stack mode (Classic, Hypersaw, Octaves, Fifths) and blend.
-- **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, and chord modes.
+- **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, chord modes, and an amp envelope picker (ENV 1–16).
 - **SUB**: a dedicated sub oscillator (sine, square or saw, −1 or −2 octaves) plus a noise layer, sharing a filter route.
 - **VOICE**: voice spread, unison phase randomisation and analogue drift.
+- **QUALITY** beside oversampling: Eco caps each oscillator at four unison voices; Normal keeps the original rendering; High uses two half-step wavetable reads per output sample.
 - **SYMPATHETIC STRINGS** on the OSC page: one to six shared drone strings ring from the mixed voices before effects. Choose amount and decay; tuning follows the GENERATE scale and root, or switch to six manual MIDI notes.
 
 ### FM
-- A 3×3 matrix: rows modulate columns, and the diagonal is feedback.
+- A 6×6 matrix: rows modulate columns, and the diagonal is feedback.
 - Styles: Phase, Through-Zero or Exponential.
 - Each oscillator has an OUT switch; turn it off to make that oscillator a pure modulator.
 - The operator diagram:
@@ -113,13 +116,14 @@ It all sits in a hardware-inspired interface with 235 factory presets.
 - Controls: cutoff, resonance (self-oscillating at the top), drive, envelope amount, key tracking, audio-rate FM and morph.
 - **Routing:**
   - **Serial** (F1 into F2) or **parallel**, with a BALANCE control between the two filters in parallel.
-  - Each source can go to Filter 1, Filter 2 or skip the filters: click a source in the signal-flow diagram.
+  - Each source can go to Filter 1, Filter 2, both filters in parallel, or skip the filters.
 - Drag the markers on the response display to set cutoff and resonance.
 - **Resonator**: a tuned body after the filters, with amount, decay, offset and key tracking.
 
 ### Envelopes & LFOs
-- **5 tension envelopes**: AMP, FILTER 1, FILTER 2, MOD and ENV 4.
+- **16 tension envelopes**: AMP, FILTER 1, FILTER 2, MOD, ENV 5 and ENV 6–16. The five original parameter sets keep their saved IDs.
   - They're shown as cards that mark the ones in use. Drag a card onto a knob to modulate it.
+  - The ENV page starts with the five familiar cards. Click **+** to reveal another; revealed cards are saved in the patch, and assigned envelopes show automatically.
   - Drag the graph's handles for A / D / S / R, and drag a curve to bend its tension. Double-click a handle to reset it.
 - **4 LFOs**:
   - Shapes: Sine, Triangle, Saw up, Saw down, Square, S&H, Draw, Steps, Curve, Smooth Random, Drunk and Chaos.
@@ -142,11 +146,11 @@ It all sits in a hardware-inspired interface with 235 factory presets.
     - chance and velocity randomness
 
 ### Modulation
-- **Matrix**: 32 slots, 22 sources and over 200 destinations.
+- **Matrix**: 32 slots with ENV 6–16 as additional sources and OSC 4–6 as additional destinations.
   - Each slot has depth, a response curve, polarity (Natural, Unipolar, Bipolar), a **Via** source that scales the routing, and bypass.
 - **Sources**:
   - LFO 1–4 and the MSEG
-  - the MOD / FILTER 1 / FILTER 2 / AMP / ENV 4 envelopes
+  - the MOD / FILTER 1 / FILTER 2 / AMP / ENV 5 envelopes, plus ENV 6–16
   - velocity, key track and random
   - mod wheel, aftertouch and expression
   - 4 macros and a clocked sample & hold

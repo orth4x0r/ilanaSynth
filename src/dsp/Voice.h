@@ -35,9 +35,9 @@ inline juce::StringArray getNames() { return { "Classic", "Hypersaw", "Octaves",
 // serial/parallel switch (into Filter 1 when serial, both when parallel).
 namespace FilterRoute
 {
-enum { Default = 0, Filter1, Filter2, Direct, Count };
+enum { Default = 0, Filter1, Filter2, Direct, Both, Count };
 
-inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2", "No filter" }; }
+inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2", "No filter", "Both" }; }
 } // namespace FilterRoute
 
 struct VoiceParams
@@ -65,6 +65,7 @@ struct VoiceParams
         int warpMode = 0;
         float warpAmount = 0.0f;
         int route = 0; // FilterRoute
+        int ampEnv = 0; // 0..15, ENV 1..16
 
         bool stringMode = false;
         int stringExcite = 0;
@@ -171,6 +172,10 @@ struct VoiceParams
     TensionAdsr::Parameters filter2Env { 0.01f, 0.4f, 0.4f, 0.3f, 0.0f };
     TensionAdsr::Parameters modEnv { 0.05f, 0.4f, 0.5f, 0.3f, 0.0f };
     TensionAdsr::Parameters env4 { 0.05f, 0.4f, 0.5f, 0.3f, 0.0f };
+    std::array<TensionAdsr::Parameters, 11> extraEnvs {};
+    std::array<float, 11> extraEnvVelocity {};
+    std::array<bool, 11> extraEnvNeeded {};
+    int quality = 1;
     float ampVelocity = 0.5f;
     float filterVelocity = 0.5f;
 
@@ -222,6 +227,8 @@ public:
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     float getLastAmpValue() const { return lastAmpValue; }
+    float getLastLifetimeValue() const { return lastLifetimeValue; }
+    float getLastExtraEnvValue (int index) const { return extraEnvValues[(size_t) juce::jlimit (0, 10, index)]; }
     float getLastSamplePosition (int oscIndex) const
     {
         return lastSamplePosition[(size_t) juce::jlimit (0, VoiceParams::numOscillators - 1, oscIndex)];
@@ -273,21 +280,42 @@ private:
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
     void advanceVoiceLfos();
+    bool hasActiveAmpEnvelope() const;
     float voiceLfoValue (int lfo) const;
     float blockMod (Mod::Destination destination) const { return blockMods[(size_t) destination]; }
 
     VoiceParams params;
 
     WavetableOscillator oscUnison[VoiceParams::numOscillators][VoiceParams::maxUnison];
-    KarplusStrong stringUnison[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    // Keep the first three banks' default-construction seed sequence exactly
+    // as before M3b. Extra banks use explicit seeds and do not advance the
+    // shared KarplusStrong counter used by existing presets.
+    KarplusStrong stringUnison[3][VoiceParams::maxBufferedUnison];
+    struct ExtraStringBank
+    {
+        explicit ExtraStringBank (int osc) : voices {
+            KarplusStrong (osc * 100003 + 0), KarplusStrong (osc * 100003 + 1),
+            KarplusStrong (osc * 100003 + 2), KarplusStrong (osc * 100003 + 3),
+            KarplusStrong (osc * 100003 + 4), KarplusStrong (osc * 100003 + 5),
+            KarplusStrong (osc * 100003 + 6), KarplusStrong (osc * 100003 + 7) } {}
+        KarplusStrong voices[VoiceParams::maxBufferedUnison];
+    };
+    ExtraStringBank extraStringUnison[3] { ExtraStringBank (3), ExtraStringBank (4), ExtraStringBank (5) };
+    KarplusStrong& stringFor (int osc, int unison)
+    {
+        return osc < 3 ? stringUnison[osc][unison] : extraStringUnison[osc - 3].voices[unison];
+    }
     SamplePlayer sampleUnison[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
     GranularOsc grains[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
     double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
 
     FilterUnit filter1L, filter1R, filter2L, filter2R;
+    FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;
 
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;
+    std::array<TensionAdsr, 11> extraEnvs;
+    std::array<float, 11> extraEnvValues {};
     juce::Random random;
 
     juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
@@ -299,8 +327,8 @@ private:
 
     // Modulation evaluated at the start of each block, for everything that
     // doesn't need to move within a block (envelope times, pans, detune...).
-    std::array<float, (size_t) Mod::numExplicitDestinations> blockMods {};
-    std::array<float, (size_t) Mod::numExplicitDestinations> sampleMods {};
+    std::array<float, (size_t) Mod::Destination::Count> blockMods {};
+    std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};
     double lfoIncrements[VoiceParams::numLfos] {};
@@ -322,6 +350,7 @@ private:
     float expressionValue = 1.0f;
 
     float lastAmpValue = 0.0f;
+    float lastLifetimeValue = 0.0f;
     float lastSamplePosition[VoiceParams::numOscillators] { -1.0f, -1.0f, -1.0f };
     float lastFilterValue = 0.0f;
     float lastFilter2Value = 0.0f;

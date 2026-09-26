@@ -42,6 +42,12 @@ inline void fillDestinations (juce::ComboBox& combo)
                              D::Osc2Blend, D::Osc2Warp, D::Osc2SampleStart, D::Osc2SampleEnd });
     group ("Oscillator 3", { D::SubPitch, D::SubFrame, D::SubLevel, D::SubPan, D::SubDetune, D::SubSpread,
                              D::SubBlend, D::SubWarp, D::SubSampleStart, D::SubSampleEnd, D::NoiseLevel });
+    group ("Oscillator 4", { D::Osc4Pitch, D::Osc4Frame, D::Osc4Level, D::Osc4Pan, D::Osc4Detune,
+                             D::Osc4Spread, D::Osc4Blend, D::Osc4Warp, D::Osc4SampleStart, D::Osc4SampleEnd });
+    group ("Oscillator 5", { D::Osc5Pitch, D::Osc5Frame, D::Osc5Level, D::Osc5Pan, D::Osc5Detune,
+                             D::Osc5Spread, D::Osc5Blend, D::Osc5Warp, D::Osc5SampleStart, D::Osc5SampleEnd });
+    group ("Oscillator 6", { D::Osc6Pitch, D::Osc6Frame, D::Osc6Level, D::Osc6Pan, D::Osc6Detune,
+                             D::Osc6Spread, D::Osc6Blend, D::Osc6Warp, D::Osc6SampleStart, D::Osc6SampleEnd });
     group ("Filters", { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
                         D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
     group ("Voice", { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });

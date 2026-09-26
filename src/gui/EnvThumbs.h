@@ -3,12 +3,14 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <algorithm>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
 
-// All five envelopes at a glance, like the LFO cards: each card draws its
+// Revealed and assigned envelopes at a glance: each card draws its
 // ADSR shape and marks whether the envelope is doing anything in the patch.
 // Click to edit; drag a card onto a knob to route it there.
 class EnvThumbBar : public juce::Component,
@@ -17,21 +19,25 @@ class EnvThumbBar : public juce::Component,
 public:
     struct Env
     {
-        const char* title;
-        const char* prefix;
+        juce::String title;
+        juce::String prefix;
         Mod::Source source;
         juce::Colour colour;
     };
 
-    explicit EnvThumbBar (IlanaSynthAudioProcessor& p, std::array<Env, 5> envsIn)
-        : processorRef (p), envs (envsIn)
+    explicit EnvThumbBar (IlanaSynthAudioProcessor& p, std::vector<Env> envsIn)
+        : processorRef (p), envs (std::move (envsIn))
     {
         startTimerHz (10);
     }
 
-    static constexpr int numEnvs = 5;
-
     std::function<void (int)> onSelect;
+    std::function<void()> onLayoutChanged;
+    int getPreferredHeight() const
+    {
+        const auto visible = visibleEnvelopes().size();
+        return visible + (visible < envs.size() ? 1 : 0) > 8 ? 96 : 48;
+    }
 
     void setSelected (int index)
     {
@@ -41,8 +47,18 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        for (int env = 0; env < numEnvs; ++env)
-            paintCard (g, env, cardBounds (env));
+        const auto visible = visibleEnvelopes();
+        const auto count = (int) visible.size() + (visible.size() < envs.size() ? 1 : 0);
+        for (int position = 0; position < (int) visible.size(); ++position)
+            paintCard (g, visible[(size_t) position], cardBounds (position, count));
+        if (count > (int) visible.size())
+        {
+            const auto card = cardBounds (count - 1, count);
+            IlanaTheme::paintWell (g, card, 6.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.setFont (IlanaTheme::font (21.0f, true));
+            g.drawText ("+", card, juce::Justification::centred);
+        }
     }
 
     // Select on release, and only for a click: a drag assigns the source to
@@ -54,7 +70,18 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
-        if (index >= 0 && onSelect != nullptr)
+        if (index == -2)
+        {
+            const auto previous = visibleEnvelopes().size();
+            do
+            {
+                processorRef.revealNextEnvelope();
+            } while (visibleEnvelopes().size() == previous && processorRef.getRevealedEnvelopeCount() < 16);
+            if (onLayoutChanged != nullptr)
+                onLayoutChanged();
+            repaint();
+        }
+        else if (index >= 0 && onSelect != nullptr)
         {
             selected = index;
             onSelect (index);
@@ -73,7 +100,9 @@ public:
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (cardBounds (index).toNearestInt(), true, 1.0f);
+                const auto visible = visibleEnvelopes();
+                const auto position = (int) (std::find (visible.begin(), visible.end(), index) - visible.begin());
+                auto image = createComponentSnapshot (cardBounds (position, (int) visible.size() + (visible.size() < envs.size() ? 1 : 0)).toNearestInt(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
                 container->startDragging ("modsource:" + juce::String ((int) envs[(size_t) index].source), this,
                                           juce::ScaledImage (image), true);
@@ -101,18 +130,33 @@ public:
     }
 
 private:
-    juce::Rectangle<float> cardBounds (int index) const
+    std::vector<int> visibleEnvelopes() const
     {
-        const auto gap = 8.0f;
-        const auto width = ((float) getWidth() - gap * (float) (numEnvs - 1)) / (float) numEnvs;
-        return { (float) index * (width + gap), 0.0f, width, (float) getHeight() };
+        std::vector<int> visible;
+        for (int env = 0; env < (int) envs.size(); ++env)
+            if (env < processorRef.getRevealedEnvelopeCount() || isInUse (env))
+                visible.push_back (env);
+        return visible;
+    }
+
+    juce::Rectangle<float> cardBounds (int position, int count) const
+    {
+        const auto columns = count > 8 ? 8 : juce::jmax (1, count);
+        const auto gap = 6.0f;
+        const auto width = ((float) getWidth() - gap * (float) (columns - 1)) / (float) columns;
+        const auto rows = count > 8 ? 2 : 1;
+        const auto height = ((float) getHeight() - gap * (float) (rows - 1)) / (float) rows;
+        return { (float) (position % columns) * (width + gap),
+                 (float) (position / columns) * (height + gap), width, height };
     }
 
     int indexAt (juce::Point<int> position) const
     {
-        for (int i = 0; i < numEnvs; ++i)
-            if (cardBounds (i).contains (position.toFloat()))
-                return i;
+        const auto visible = visibleEnvelopes();
+        const auto count = (int) visible.size() + (visible.size() < envs.size() ? 1 : 0);
+        for (int i = 0; i < count; ++i)
+            if (cardBounds (i, count).contains (position.toFloat()))
+                return i < (int) visible.size() ? visible[(size_t) i] : -2;
 
         return -1;
     }
@@ -140,11 +184,15 @@ private:
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
             return true;
 
+        for (const auto* prefix : OscillatorIds::prefixes)
+            if ((int) readParam (juce::String (prefix) + "_amp_env") == env)
+                return true;
+
         for (int slot = 0; slot < Mod::maxSlots; ++slot)
         {
             const auto routing = processorRef.readModSlot (slot);
 
-            if (routing.isActive() && (routing.source == info.source || routing.aux == info.source))
+            if (routing.destination != 0 && (routing.source == info.source || routing.aux == info.source))
                 return true;
         }
 
@@ -222,11 +270,18 @@ private:
     void timerCallback() override
     {
         if (isShowing())
+        {
+            const auto preferred = getPreferredHeight();
+            if (preferred != lastPreferredHeight && onLayoutChanged != nullptr)
+                onLayoutChanged();
+            lastPreferredHeight = preferred;
             repaint();
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    std::array<Env, numEnvs> envs;
+    std::vector<Env> envs;
     int selected = 0;
     int hoverIndex = -1;
+    int lastPreferredHeight = 48;
 };

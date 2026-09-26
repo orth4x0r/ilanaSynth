@@ -6,6 +6,6 @@
 // subosc_* oscillator is not part of this indexed oscillator bank.
 namespace OscillatorIds
 {
-inline constexpr int count = 3;
-inline constexpr std::array<const char*, count> prefixes { "osc1", "osc2", "sub" };
+inline constexpr int count = 6;
+inline constexpr std::array<const char*, count> prefixes { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
 } // namespace OscillatorIds

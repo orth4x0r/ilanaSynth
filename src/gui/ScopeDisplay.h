@@ -75,6 +75,12 @@ public:
         addAndMakeVisible (oversamplingButton);
         oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             processor.apvts, "oversampling", oversamplingButton);
+        qualityBox.addItemList ({ "Eco", "Normal", "High" }, 1);
+        qualityBox.setTooltip ("Quality: Eco caps unison at four voices; Normal preserves the original sound; "
+                               "High uses two wavetable reads per sample for smoother highs.");
+        addAndMakeVisible (qualityBox);
+        qualityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+            processor.apvts, "quality", qualityBox);
 
         scopeSamplesL.assign (fftSize, 0.0f);
         scopeSamplesR.assign (fftSize, 0.0f);
@@ -87,6 +93,7 @@ public:
 
     void resized() override
     {
+        qualityBox.setBounds (getWidth() - 314, 7, 86, 18);
         oversamplingButton.setBounds (getWidth() - 222, 7, 60, 18);
         factorBox.setBounds (getWidth() - 158, 7, 50, 18);
         holdButton.setBounds (getWidth() - 106, 7, 48, 18);
@@ -480,6 +487,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> oversamplingAttachment;
     juce::ComboBox factorBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> factorAttachment;
+    juce::ComboBox qualityBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> qualityAttachment;
 
     std::vector<float> scopeSamplesL, scopeSamplesR, windowBuffer;
     std::vector<std::complex<float>> fftInput, fftOutput;

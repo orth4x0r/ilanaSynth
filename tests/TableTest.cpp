@@ -4949,6 +4949,220 @@ void runFmMatrixTests()
            "old parameter-destination routings are renumbered (" + juce::String (migrated) + ")");
 }
 
+void runM3bEngineTests()
+{
+    const auto render = [] (std::function<void (IlanaSynthAudioProcessor&)> configure, int blocks = 24, int note = 57)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "subosc_on", 0.0f);
+        setParam (processor, "noise_level", 0.0f);
+        setParam (processor, "osc2_on", 0.0f);
+        setParam (processor, "f1_cutoff", 20000.0f);
+        setParam (processor, "f1_env", 0.0f);
+        configure (processor);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        std::vector<float> samples;
+        const auto peak = renderPeakAndCentroid (processor, note, blocks, centroid, &samples);
+        return std::make_pair (peak, samples);
+    };
+    const auto difference = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        double sum = 0.0;
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            sum += std::abs ((double) a[i] - b[i]);
+        return sum / (double) juce::jmax ((size_t) 1, juce::jmin (a.size(), b.size()));
+    };
+
+    const auto baseline = render ([] (auto&) {});
+    const auto normal = render ([] (auto& p) { setParam (p, "quality", 1.0f); });
+    check (difference (baseline.second, normal.second) == 0.0, "Normal quality is the legacy default sample for sample");
+    const auto highNormal = render ([] (auto& p) { setParam (p, "osc1_table", 6.0f); }, 24, 93);
+    const auto highQuality = render ([] (auto& p)
+    {
+        setParam (p, "osc1_table", 6.0f);
+        setParam (p, "quality", 2.0f);
+    }, 24, 93);
+    const auto stepEnergy = [] (const std::vector<float>& samples)
+    {
+        double energy = 0.0;
+        for (size_t i = 1; i < samples.size(); ++i)
+            energy += std::pow ((double) samples[i] - samples[i - 1], 2.0);
+        return energy;
+    };
+    check (std::isfinite (highQuality.first) && highQuality.first > 0.001f
+               && stepEnergy (highQuality.second) < stepEnergy (highNormal.second),
+           "High quality smooths high-note wavetable steps");
+    for (int osc = 4; osc <= 6; ++osc)
+    {
+        const auto prefix = "osc" + juce::String (osc);
+        for (int mode = 0; mode < 4; ++mode)
+        {
+            const auto sound = render ([&] (auto& p)
+            {
+                setParam (p, "osc1_on", 0.0f);
+                setParam (p, prefix + "_on", 1.0f);
+                setParam (p, prefix + "_mode", (float) mode);
+                setParam (p, prefix + "_sample_factory", 1.0f);
+            });
+            auto finite = true;
+            for (auto sample : sound.second) finite = finite && std::isfinite (sample);
+            check (finite && sound.first > 0.0001f, prefix + " mode " + juce::String (mode) + " renders finite audio");
+        }
+        const auto off = render ([&] (auto& p)
+        {
+            setParam (p, prefix + "_on", 0.0f);
+            setParam (p, prefix + "_mode", 1.0f);
+            setParam (p, prefix + "_unison", 8.0f);
+        });
+        check (difference (baseline.second, off.second) == 0.0, prefix + " disabled leaves audio sample for sample unchanged");
+    }
+
+    const auto both = render ([] (auto& p)
+    {
+        setParam (p, "osc1_route", (float) FilterRoute::Both);
+        setParam (p, "f1_cutoff", 20.0f);
+        setParam (p, "f2_cutoff", 20000.0f);
+    });
+    const auto f1 = render ([] (auto& p)
+    {
+        setParam (p, "osc1_route", (float) FilterRoute::Filter1);
+        setParam (p, "f1_cutoff", 20.0f);
+        setParam (p, "f2_cutoff", 20000.0f);
+    });
+    check (both.first > f1.first * 2.0f, "Both route reaches Filter 2 when Filter 1 is closed");
+
+    // Every cell has an audible effect with its source silent in the output.
+    // The target alone is compared against the same two-oscillator patch.
+    for (int source = 1; source <= 6; ++source)
+        for (int target = 1; target <= 6; ++target)
+        {
+            const auto id = source == target ? (source == 1 ? juce::String ("fm_feedback") : "fm_fb" + juce::String (source))
+                                             : (source == 2 && target == 1 ? juce::String ("fm_amount")
+                                                                           : "fm_" + juce::String (source) + "to" + juce::String (target));
+            const auto setup = [&] (auto& p)
+            {
+                setParam (p, "osc1_on", 0.0f);
+                for (int osc = 1; osc <= 6; ++osc)
+                {
+                    const auto prefix = osc == 3 ? juce::String ("sub") : "osc" + juce::String (osc);
+                    setParam (p, prefix + "_on", osc == source || osc == target ? 1.0f : 0.0f);
+                    setParam (p, prefix + "_table", 8.0f);
+                    setParam (p, prefix + "_out", osc == target ? 1.0f : 0.0f);
+                }
+            };
+            const auto dry = render (setup, 20);
+            const auto wet = render ([&] (auto& p) { setup (p); setParam (p, id, 0.75f); }, 20);
+            check (difference (dry.second, wet.second) > 0.00001, "FM cell changes target: " + id);
+        }
+
+    const auto envDry = render ([] (auto& p) { setParam (p, "env6_sustain", 1.0f); });
+    const auto envWet = render ([] (auto& p)
+    {
+        setParam (p, "env6_sustain", 1.0f);
+        setParam (p, "mod1_src", (float) Mod::Source::Env6);
+        setParam (p, "mod1_dst", (float) Mod::Destination::Osc1Pitch);
+        setParam (p, "mod1_amt", 0.2f);
+    });
+    check (difference (envDry.second, envWet.second) > 0.0001, "ENV 6 works as a per-voice matrix source");
+
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "osc1_on", 0.0f);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "subosc_on", 0.0f);
+        setParam (processor, "osc4_on", 1.0f);
+        setParam (processor, "osc4_amp_env", 5.0f); // ENV 6, zero based
+        setParam (processor, "amp_release", 0.005f);
+        setParam (processor, "env6_sustain", 1.0f);
+        setParam (processor, "env6_release", 2.0f);
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int block = 0; block < 270; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+            if (block == 8) midi.addEvent (juce::MidiMessage::noteOff (1, 57), 0);
+            processor.processBlock (buffer, midi);
+            if (block == 60) check (processor.getActiveVoiceCount() == 1, "long OSC 4 envelope outlives AMP");
+        }
+        check (processor.getActiveVoiceCount() == 0, "OSC 4 envelope eventually releases the voice");
+    }
+
+    {
+        IlanaSynthAudioProcessor processor;
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+        auto xml = std::unique_ptr<juce::XmlElement> (juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()));
+        for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+        {
+            auto* next = child->getNextElement();
+            const auto id = child->getStringAttribute ("id");
+            if (id.startsWith ("osc4_") || id.startsWith ("osc5_") || id.startsWith ("osc6_")
+                || id.startsWith ("env6_") || id == "quality")
+                xml->removeChildElement (child, true);
+            child = next;
+        }
+        xml->removeAttribute ("envRevealCount");
+        juce::MemoryBlock legacy;
+        juce::AudioProcessor::copyXmlToBinary (*xml, legacy);
+        setParam (processor, "osc4_on", 1.0f);
+        setParam (processor, "osc4_amp_env", 5.0f);
+        setParam (processor, "env6_release", 9.0f);
+        setParam (processor, "quality", 2.0f);
+        processor.setStateInformation (legacy.getData(), (int) legacy.getSize());
+        const auto get = [&] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+        const auto releaseDefault = processor.apvts.getParameter ("env6_release")->convertFrom0to1 (
+            processor.apvts.getParameter ("env6_release")->getDefaultValue());
+        check (get ("osc4_on") == 0.0f && get ("osc4_amp_env") == 0.0f
+                   && std::abs (get ("env6_release") - releaseDefault) < 0.001f && get ("quality") == 1.0f,
+               "pre-M3b state resets new parameters to neutral defaults (osc4 " + juce::String (get ("osc4_on"))
+                   + ", amp env " + juce::String (get ("osc4_amp_env")) + ", release "
+                   + juce::String (get ("env6_release"), 4) + ", quality " + juce::String (get ("quality")) + ")");
+        check (processor.getRevealedEnvelopeCount() == 5, "pre-M3b state defaults to five revealed envelopes");
+        processor.revealNextEnvelope();
+        juce::MemoryBlock revealedState;
+        processor.getStateInformation (revealedState);
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (revealedState.getData(), (int) revealedState.getSize());
+        check (restored.getRevealedEnvelopeCount() == 6, "envelope reveal count survives a patch state round trip");
+    }
+
+    const auto sixOscCpu = [] (int quality)
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "quality", (float) quality);
+        setParam (processor, "subosc_on", 0.0f);
+        setParam (processor, "sub_on", 1.0f);
+        for (int osc = 1; osc <= 6; ++osc)
+        {
+            const auto prefix = osc == 3 ? juce::String ("sub") : "osc" + juce::String (osc);
+            setParam (processor, prefix + "_on", 1.0f);
+            setParam (processor, prefix + "_unison", 6.0f);
+        }
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto start = juce::Time::getHighResolutionTicks();
+        for (int block = 0; block < 188; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (const auto note : { 48, 52, 55, 59, 62, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+        }
+        return juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start) * 500.0;
+    };
+    const auto normalCpu = sixOscCpu (1);
+    const auto ecoCpu = sixOscCpu (0);
+    std::cout << "  cpu: six oscillators Normal " << normalCpu << " ms/s, Eco " << ecoCpu << " ms/s" << std::endl;
+    check (normalCpu < 400.0 && ecoCpu < 400.0 && ecoCpu < normalCpu,
+           "six-oscillator Normal and Eco stay within budget and Eco is cheaper");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -4958,6 +5172,12 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M3B_TEST", "").isNotEmpty())
+    {
+        runM3bEngineTests();
+        return failures == 0 ? 0 : 1;
     }
 
     std::cout << "ilanaSynth table tests" << std::endl;
@@ -5007,6 +5227,7 @@ int main()
     runGenerativeTests();
     runOsc3MigrationTest();
     runFmMatrixTests();
+    runM3bEngineTests();
     runSpectralWarpTests();
     runChaosLfoTests();
     runPhysicsLfoTests();

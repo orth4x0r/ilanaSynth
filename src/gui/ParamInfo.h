@@ -132,6 +132,17 @@ inline juce::String describeValue (const juce::String& id, float value)
 
 inline juce::String describeParameter (const juce::String& id)
 {
+    if (id == "quality")
+        return "Eco caps each oscillator at four unison voices; Normal preserves the original engine; "
+               "High averages two wavetable reads per sample for smoother highs.";
+    if (isOscParameter (id, "_amp_env"))
+        return "Envelope controlling this oscillator's level. ENV 1 is the original AMP envelope.";
+    if (id.startsWith ("env") && juce::isPositiveAndBelow (id.substring (3).getIntValue() - 6, 11))
+    {
+        if (id.endsWith ("_velocity")) return "How strongly note velocity scales this envelope when used as a source.";
+        if (id.endsWith ("_curve")) return "Envelope tension: positive reaches the target early, negative reaches it late.";
+        return "ADSR stage for this per-voice envelope. Assign it in the matrix or as an oscillator amp envelope.";
+    }
     if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";
     if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops.";

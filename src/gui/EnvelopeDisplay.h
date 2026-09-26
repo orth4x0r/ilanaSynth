@@ -223,6 +223,9 @@ private:
 
     float readMonitor() const
     {
+        if (paramPrefix.startsWith ("env"))
+            return processorRef.getEnvMonitorExtra (paramPrefix.substring (3).getIntValue() - 6);
+
         if (paramPrefix == "fe")
             return processorRef.getEnvMonitorFilter();
 

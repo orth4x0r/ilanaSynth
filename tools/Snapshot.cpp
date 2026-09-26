@@ -406,7 +406,7 @@ int runUiTests()
         }
     }
 
-    // MAIN's oscillator cards follow each mode: granular shows grain knobs, not FRAME.
+    // MAIN keeps all six compact oscillator rows visible in every mode.
     {
         tabs->setCurrentTabIndex (tabIndex ("MAIN"));
 
@@ -419,20 +419,20 @@ int runUiTests()
             settle (400);
             std::vector<KnobControl*> mainKnobs;
             findAll<KnobControl> (*editor, mainKnobs);
-            auto grainSize = false, frame = false;
+            auto level = false, grainSize = false;
 
             for (auto* knob : mainKnobs)
             {
                 if (! visibleInTree (knob))
                     continue;
 
+                level = level || knob->getParameterId() == prefix + "_level";
                 grainSize = grainSize || knob->getParameterId() == prefix + "_grain_size";
-                frame = frame || knob->getParameterId() == prefix + "_frame";
             }
 
-            expect (grainSize && ! frame,
+            expect (level && ! grainSize,
                     "MAIN's OSC " + juce::String (osc + 1)
-                        + " card shows grain controls in granular mode");
+                        + " compact row shows level in granular mode");
 
             if (auto* mode = processor.apvts.getParameter (prefix + "_mode"))
                 mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
@@ -598,12 +598,22 @@ int main (int argc, char** argv)
         {
             if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
             {
-                for (int env = 1; env < EnvThumbBar::numEnvs; ++env)
+                for (int env = 1; env < 5; ++env)
                 {
                     envCards->onSelect (env);
                     settle (300);
                     save (*editor, outDir.getChildFile (stem + "-env" + juce::String (env + 1) + ".png"));
                 }
+
+                processor.revealNextEnvelope();
+                envCards->onSelect (5);
+                settle (300);
+                save (*editor, outDir.getChildFile ("env-pool-revealed.png"));
+                while (processor.getRevealedEnvelopeCount() < 16)
+                    processor.revealNextEnvelope();
+                envCards->onSelect (15);
+                settle (300);
+                save (*editor, outDir.getChildFile ("env-pool-full.png"));
 
                 envCards->onSelect (0);
             }

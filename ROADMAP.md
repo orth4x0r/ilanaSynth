@@ -34,7 +34,7 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Sitar bridge buzz**, and a **fret rattle** that gets stronger with velocity.
 - **Sympathetic strings**: up to 6 drone strings. They follow the GENERATE scale, with a manual override, and are shared across voices to save CPU.
 
-### M3b: Oscillator engine (6 oscillators, envelope pool)
+### M3b: Oscillator engine (6 oscillators, envelope pool) — DONE
 This comes before M4 and M5, which both build on it.
 - **Refactor first, with no sound change.** The three hard-wired oscillators become "oscillator N" throughout the voice, processor and editor. Existing parameter IDs stay (`osc1_*`, `osc2_*`, and `sub_*` for OSC 3), and the preset fingerprints must show no change.
 - **Up to 6 oscillators**, each with every oscillator mode (Wavetable, Physical, Sample, Granular, and later modes). OSC 4–6 default to off, so old patches sound the same, and an oscillator that is off costs no CPU.

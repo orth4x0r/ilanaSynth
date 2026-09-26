@@ -41,7 +41,7 @@ public:
           followsTheme (followsThemeIn),
           subTableMapping (subTableMappingIn)
     {
-        const juce::String samplePrefix = oscIndex == 0 ? "osc1" : (oscIndex == 1 ? "osc2" : "sub");
+        const juce::String samplePrefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
         startId = samplePrefix + "_sample_start";
         endId = samplePrefix + "_sample_end";
         fadeInId = samplePrefix + "_sample_fade_in";
@@ -171,8 +171,8 @@ public:
         juce::PopupMenu menu;
         menu.addSectionHeader ("Factory Samples");
 
-        const auto paramId = oscIndex == 0 ? "osc1_sample_factory"
-                                           : (oscIndex == 1 ? "osc2_sample_factory" : "sub_sample_factory");
+        const auto paramId = juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)])
+                             + "_sample_factory";
         const auto current = (int) readPlain (paramId);
 
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
@@ -282,7 +282,7 @@ private:
 
     void drawGrainCloud (juce::Graphics& g, juce::Rectangle<float> plot, float centreY, float halfHeight) const
     {
-        const auto prefix = oscIndex == 0 ? juce::String ("osc1") : (oscIndex == 1 ? juce::String ("osc2") : juce::String ("sub"));
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
         const auto position = juce::jlimit (0.0f, 1.0f, readPlain (startId));
         const auto spray = readPlain (prefix + "_grain_spray");
         const auto density = readPlain (prefix + "_grain_density");

@@ -406,31 +406,37 @@ int runUiTests()
         }
     }
 
-    // MAIN's oscillator cards follow the mode: granular shows grain knobs, not FRAME.
+    // MAIN's oscillator cards follow each mode: granular shows grain knobs, not FRAME.
     {
         tabs->setCurrentTabIndex (tabIndex ("MAIN"));
 
-        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
-            mode->setValueNotifyingHost (mode->convertTo0to1 (3.0f));
-
-        settle (400);
-        std::vector<KnobControl*> mainKnobs;
-        findAll<KnobControl> (*editor, mainKnobs);
-        auto grainSize = false, frame = false;
-
-        for (auto* knob : mainKnobs)
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            if (! visibleInTree (knob))
-                continue;
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+            if (auto* mode = processor.apvts.getParameter (prefix + "_mode"))
+                mode->setValueNotifyingHost (mode->convertTo0to1 (3.0f));
 
-            grainSize = grainSize || knob->getParameterId() == "osc1_grain_size";
-            frame = frame || knob->getParameterId() == "osc1_frame";
+            settle (400);
+            std::vector<KnobControl*> mainKnobs;
+            findAll<KnobControl> (*editor, mainKnobs);
+            auto grainSize = false, frame = false;
+
+            for (auto* knob : mainKnobs)
+            {
+                if (! visibleInTree (knob))
+                    continue;
+
+                grainSize = grainSize || knob->getParameterId() == prefix + "_grain_size";
+                frame = frame || knob->getParameterId() == prefix + "_frame";
+            }
+
+            expect (grainSize && ! frame,
+                    "MAIN's OSC " + juce::String (osc + 1)
+                        + " card shows grain controls in granular mode");
+
+            if (auto* mode = processor.apvts.getParameter (prefix + "_mode"))
+                mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
         }
-
-        expect (grainSize && ! frame, "MAIN's OSC 1 card shows grain controls in granular mode (grain " + juce::String ((int) grainSize) + ", frame " + juce::String ((int) frame) + ")");
-
-        if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
-            mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
     }
 
     // An empty FX rack offers one-click effects.

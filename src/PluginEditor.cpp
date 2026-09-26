@@ -146,108 +146,62 @@ class OscPage : public juce::Component,
         ToggleControl slap;
     };
 
+    struct OscControls
+    {
+        OscControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefix)
+            : on (state, prefix + "_on", "ON"),
+              mode (state, prefix + "_mode", "MODE"),
+              table (state, prefix + "_table", "TABLE"),
+              excite (state, prefix + "_excite", "EXCITE"),
+              frame (state, prefix + "_frame", "FRAME"),
+              level (state, prefix + "_level", "LEVEL"),
+              pan (state, prefix + "_pan", "PAN"),
+              semi (state, prefix + "_semi", "SEMI"),
+              fine (state, prefix + "_fine", "FINE"),
+              unison (state, prefix + "_unison", "UNISON"),
+              detune (state, prefix + "_detune", "DETUNE"),
+              spread (state, prefix + "_spread", "SPREAD"),
+              stringDecay (state, prefix + "_string_decay", "DECAY"),
+              stringDamp (state, prefix + "_string_damp", "DAMP"),
+              stringSustain (state, prefix + "_string_sustain", "SUSTAIN"),
+              sampleTuned (state, prefix + "_sample_tuned", "TUNED"),
+              sampleLoop (state, prefix + "_sample_loop", "LOOP"),
+              sampleReverse (state, prefix + "_sample_reverse", "REVERSE"),
+              sampleStart (state, prefix + "_sample_start", "START"),
+              sampleEnd (state, prefix + "_sample_end", "END"),
+              sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
+              sampleFadeOut (state, prefix + "_sample_fade_out", "FADE OUT"),
+              chord (state, prefix + "_chord", "CHORD"),
+              warp (state, prefix + "_warp", "WARP"),
+              uniMode (state, prefix + "_uni_mode", "UNISON"),
+              warpAmt (state, prefix + "_warp_amt", "WARP AMT"),
+              uniBlend (state, prefix + "_uni_blend", "BLEND"),
+              spectral (state, prefix + "_spectral", "SPECTRAL"),
+              spectralAmt (state, prefix + "_spectral_amt", "SPEC AMT"),
+              grainPosition (state, prefix + "_sample_start", "POSITION"),
+              grainSize (state, prefix + "_grain_size", "SIZE"),
+              grainDensity (state, prefix + "_grain_density", "DENSITY"),
+              grainSpray (state, prefix + "_grain_spray", "SPRAY"),
+              grainPitch (state, prefix + "_grain_pitch", "PITCH RND"),
+              grainSpread (state, prefix + "_grain_spread", "STEREO") {}
+
+        ToggleControl on, sampleTuned, sampleLoop, sampleReverse;
+        ComboControl mode, table, excite, chord, warp, uniMode, spectral;
+        KnobControl frame, level, pan, semi, fine, unison, detune, spread;
+        KnobControl stringDecay, stringDamp, stringSustain;
+        KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut;
+        KnobControl warpAmt, uniBlend, spectralAmt;
+        KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
+    };
+
 public:
     std::function<void()> onModeChanged;
 
     explicit OscPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
-          waveDisplay1 (p, "osc1_table", "osc1_frame", "osc1_unison", "osc1_spread", "osc1_detune", false, {}, "osc1_mode", 0,
-                        IlanaTheme::accent(), true),
-          waveDisplay2 (p, "osc2_table", "osc2_frame", "osc2_unison", "osc2_spread", "osc2_detune", false, {}, "osc2_mode", 1,
-                        juce::Colour (0xff5b8cff)),
-          waveDisplay3 (p, "sub_table", "sub_frame", "sub_unison", "sub_spread", "sub_detune", false, {}, "sub_mode", 2,
-                        juce::Colour (0xffffd447)),
-          osc1On (p.apvts, "osc1_on", "ON"),
-          osc1Mode (p.apvts, "osc1_mode", "MODE"),
-          osc1Table (p.apvts, "osc1_table", "TABLE"),
-          osc1Excite (p.apvts, "osc1_excite", "EXCITE"),
-          osc1Frame (p.apvts, "osc1_frame", "FRAME"),
-          osc1Level (p.apvts, "osc1_level", "LEVEL"),
-          osc1Pan (p.apvts, "osc1_pan", "PAN"),
-          osc1Semi (p.apvts, "osc1_semi", "SEMI"),
-          osc1Fine (p.apvts, "osc1_fine", "FINE"),
-          osc1Unison (p.apvts, "osc1_unison", "UNISON"),
-          osc1Detune (p.apvts, "osc1_detune", "DETUNE"),
-          osc1Spread (p.apvts, "osc1_spread", "SPREAD"),
-          osc1StringDecay (p.apvts, "osc1_string_decay", "DECAY"),
-          osc1StringDamp (p.apvts, "osc1_string_damp", "DAMP"),
-          osc1StringSustain (p.apvts, "osc1_string_sustain", "SUSTAIN"),
-          osc1SampleTuned (p.apvts, "osc1_sample_tuned", "TUNED"),
-          osc1SampleLoop (p.apvts, "osc1_sample_loop", "LOOP"),
-          osc1SampleReverse (p.apvts, "osc1_sample_reverse", "REVERSE"),
-          osc1SampleStart (p.apvts, "osc1_sample_start", "START"),
-          osc1SampleEnd (p.apvts, "osc1_sample_end", "END"),
-          osc1SampleFadeIn (p.apvts, "osc1_sample_fade_in", "FADE IN"),
-          osc1SampleFadeOut (p.apvts, "osc1_sample_fade_out", "FADE OUT"),
-          osc1Chord (p.apvts, "osc1_chord", "CHORD"),
-          osc2On (p.apvts, "osc2_on", "ON"),
-          osc2Mode (p.apvts, "osc2_mode", "MODE"),
-          osc2Table (p.apvts, "osc2_table", "TABLE"),
-          osc2Excite (p.apvts, "osc2_excite", "EXCITE"),
-          osc2Frame (p.apvts, "osc2_frame", "FRAME"),
-          osc2Level (p.apvts, "osc2_level", "LEVEL"),
-          osc2Pan (p.apvts, "osc2_pan", "PAN"),
-          osc2Semi (p.apvts, "osc2_semi", "SEMI"),
-          osc2Fine (p.apvts, "osc2_fine", "FINE"),
-          osc2Unison (p.apvts, "osc2_unison", "UNISON"),
-          osc2Detune (p.apvts, "osc2_detune", "DETUNE"),
-          osc2Spread (p.apvts, "osc2_spread", "SPREAD"),
-          osc2StringDecay (p.apvts, "osc2_string_decay", "DECAY"),
-          osc2StringDamp (p.apvts, "osc2_string_damp", "DAMP"),
-          osc2StringSustain (p.apvts, "osc2_string_sustain", "SUSTAIN"),
-          osc2SampleTuned (p.apvts, "osc2_sample_tuned", "TUNED"),
-          osc2SampleLoop (p.apvts, "osc2_sample_loop", "LOOP"),
-          osc2SampleReverse (p.apvts, "osc2_sample_reverse", "REVERSE"),
-          osc2SampleStart (p.apvts, "osc2_sample_start", "START"),
-          osc2SampleEnd (p.apvts, "osc2_sample_end", "END"),
-          osc2SampleFadeIn (p.apvts, "osc2_sample_fade_in", "FADE IN"),
-          osc2SampleFadeOut (p.apvts, "osc2_sample_fade_out", "FADE OUT"),
-          osc2Chord (p.apvts, "osc2_chord", "CHORD"),
-          subOn (p.apvts, "sub_on", "ON"),
-          subMode (p.apvts, "sub_mode", "MODE"),
-          subTable (p.apvts, "sub_table", "TABLE"),
-          subExcite (p.apvts, "sub_excite", "EXCITE"),
           subShape (p.apvts, "sub_shape", "SHAPE"),
           subOctave (p.apvts, "sub_octave", "OCT"),
-          subFrame (p.apvts, "sub_frame", "FRAME"),
-          subLevel (p.apvts, "sub_level", "LEVEL"),
-          subPan (p.apvts, "sub_pan", "PAN"),
-          subSemi (p.apvts, "sub_semi", "SEMI"),
-          subFine (p.apvts, "sub_fine", "FINE"),
-          subUnison (p.apvts, "sub_unison", "UNISON"),
-          subDetune (p.apvts, "sub_detune", "DETUNE"),
-          subSpread (p.apvts, "sub_spread", "SPREAD"),
-          subStringDecay (p.apvts, "sub_string_decay", "DECAY"),
-          subStringDamp (p.apvts, "sub_string_damp", "DAMP"),
-          subStringSustain (p.apvts, "sub_string_sustain", "SUSTAIN"),
-          subSampleTuned (p.apvts, "sub_sample_tuned", "TUNED"),
-          subSampleLoop (p.apvts, "sub_sample_loop", "LOOP"),
-          subSampleReverse (p.apvts, "sub_sample_reverse", "REVERSE"),
-          subSampleStart (p.apvts, "sub_sample_start", "START"),
-          subSampleEnd (p.apvts, "sub_sample_end", "END"),
-          subSampleFadeIn (p.apvts, "sub_sample_fade_in", "FADE IN"),
-          subSampleFadeOut (p.apvts, "sub_sample_fade_out", "FADE OUT"),
-          subChord (p.apvts, "sub_chord", "CHORD"),
-          noiseLevel (p.apvts, "noise_level", "NOISE"),
-          osc1Warp (p.apvts, "osc1_warp", "WARP"), osc1UniMode (p.apvts, "osc1_uni_mode", "UNISON"),
-          osc2Warp (p.apvts, "osc2_warp", "WARP"), osc2UniMode (p.apvts, "osc2_uni_mode", "UNISON"),
-          subWarp (p.apvts, "sub_warp", "WARP"), subUniMode (p.apvts, "sub_uni_mode", "UNISON"),
-          osc1WarpAmt (p.apvts, "osc1_warp_amt", "WARP AMT"), osc1UniBlend (p.apvts, "osc1_uni_blend", "BLEND"),
-          osc2WarpAmt (p.apvts, "osc2_warp_amt", "WARP AMT"), osc2UniBlend (p.apvts, "osc2_uni_blend", "BLEND"),
-          subWarpAmt (p.apvts, "sub_warp_amt", "WARP AMT"), subUniBlend (p.apvts, "sub_uni_blend", "BLEND"),
-          osc1Spectral (p.apvts, "osc1_spectral", "SPECTRAL"), osc2Spectral (p.apvts, "osc2_spectral", "SPECTRAL"),
-          subSpectral (p.apvts, "sub_spectral", "SPECTRAL"),
-          osc1SpectralAmt (p.apvts, "osc1_spectral_amt", "SPEC AMT"), osc2SpectralAmt (p.apvts, "osc2_spectral_amt", "SPEC AMT"),
-          subSpectralAmt (p.apvts, "sub_spectral_amt", "SPEC AMT"),
-          osc1GrainPosition (p.apvts, "osc1_sample_start", "POSITION"), osc1GrainSize (p.apvts, "osc1_grain_size", "SIZE"),
-          osc1GrainDensity (p.apvts, "osc1_grain_density", "DENSITY"), osc1GrainSpray (p.apvts, "osc1_grain_spray", "SPRAY"),
-          osc1GrainPitch (p.apvts, "osc1_grain_pitch", "PITCH RND"), osc1GrainSpread (p.apvts, "osc1_grain_spread", "STEREO"),
-          osc2GrainPosition (p.apvts, "osc2_sample_start", "POSITION"), osc2GrainSize (p.apvts, "osc2_grain_size", "SIZE"),
-          osc2GrainDensity (p.apvts, "osc2_grain_density", "DENSITY"), osc2GrainSpray (p.apvts, "osc2_grain_spray", "SPRAY"),
-          osc2GrainPitch (p.apvts, "osc2_grain_pitch", "PITCH RND"), osc2GrainSpread (p.apvts, "osc2_grain_spread", "STEREO"),
-          subGrainPosition (p.apvts, "sub_sample_start", "POSITION"), subGrainSize (p.apvts, "sub_grain_size", "SIZE"),
-          subGrainDensity (p.apvts, "sub_grain_density", "DENSITY"), subGrainSpray (p.apvts, "sub_grain_spray", "SPRAY"),
-          subGrainPitch (p.apvts, "sub_grain_pitch", "PITCH RND"), subGrainSpread (p.apvts, "sub_grain_spread", "STEREO")
+          noiseLevel (p.apvts, "noise_level", "NOISE")
           , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "STRINGS")
@@ -255,11 +209,23 @@ public:
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
+            controls[(size_t) i] = std::make_unique<OscControls> (p.apvts, prefix);
+            waveDisplays[(size_t) i] = std::make_unique<WaveDisplay> (
+                p, prefix + "_table", prefix + "_frame", prefix + "_unison",
+                prefix + "_spread", prefix + "_detune", false, juce::String {},
+                prefix + "_mode", i, oscColour (i), i == 0);
+            loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD .WAV");
+        }
+
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
             physical[(size_t) i] = std::make_unique<PhysicalControls> (p.apvts, prefix);
-            auto& controls = *physical[(size_t) i];
-            addAll (*this, controls.stiffness, controls.pickup, controls.excitePos,
-                    controls.hardness, controls.pickPos, controls.slap,
-                    controls.bowPressure, controls.bowSpeed, controls.bridgeBuzz, controls.fretRattle);
+            auto& physicalControls = *physical[(size_t) i];
+            addAll (*this, physicalControls.stiffness, physicalControls.pickup, physicalControls.excitePos,
+                    physicalControls.hardness, physicalControls.pickPos, physicalControls.slap,
+                    physicalControls.bowPressure, physicalControls.bowSpeed,
+                    physicalControls.bridgeBuzz, physicalControls.fretRattle);
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
@@ -270,46 +236,40 @@ public:
             addAndMakeVisible (*symNotes[(size_t) i]);
         }
 
-        addAll (*this, osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread);
-        addAll (*this, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread);
-        addAll (*this, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread);
-        addAll (*this, osc1Spectral, osc2Spectral, subSpectral, osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt);
-        addAll (*this, osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode,
-                osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend);
+        for (auto& item : controls)
+        {
+            auto& osc = *item;
+            addAll (*this, osc.grainPosition, osc.grainSize, osc.grainDensity,
+                    osc.grainSpray, osc.grainPitch, osc.grainSpread,
+                    osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode,
+                    osc.warpAmt, osc.uniBlend);
 
-        addAndMakeVisible (waveDisplay1);
-        addAndMakeVisible (waveDisplay2);
-        addAndMakeVisible (waveDisplay3);
+            addAll (*this, osc.on, osc.mode, osc.table, osc.excite,
+                    osc.frame, osc.level, osc.pan, osc.semi, osc.fine,
+                    osc.unison, osc.detune, osc.spread, osc.stringDecay,
+                    osc.stringDamp, osc.stringSustain, osc.sampleTuned,
+                    osc.sampleLoop, osc.sampleReverse, osc.sampleStart,
+                    osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
+                    osc.chord);
+        }
 
-        setupLoadButton (loadTableButton1, "osc1_table", 0);
-        setupLoadButton (loadTableButton2, "osc2_table", 0);
-        setupLoadButton (loadTableButton3, "sub_table", 0);
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            addAndMakeVisible (waveDisplay (i));
+            setupLoadButton (loadButton (i),
+                             juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table", 0);
+            addAndMakeVisible (loadButton (i));
+        }
 
-        addAndMakeVisible (loadTableButton1);
-        addAndMakeVisible (loadTableButton2);
-        addAndMakeVisible (loadTableButton3);
-
-        addAll (*this,
-                osc1On, osc1Mode, osc1Table, osc1Excite, osc1Frame, osc1Level, osc1Pan, osc1Semi,
-                osc1Fine, osc1Unison, osc1Detune, osc1Spread, osc1StringDecay, osc1StringDamp, osc1StringSustain,
-                osc1SampleTuned, osc1SampleLoop, osc1SampleReverse, osc1SampleStart, osc1SampleEnd,
-                osc1SampleFadeIn, osc1SampleFadeOut, osc1Chord,
-                osc2On, osc2Mode, osc2Table, osc2Excite, osc2Frame, osc2Level, osc2Pan, osc2Semi,
-                osc2Fine, osc2Unison, osc2Detune, osc2Spread, osc2StringDecay, osc2StringDamp, osc2StringSustain,
-                osc2SampleTuned, osc2SampleLoop, osc2SampleReverse, osc2SampleStart, osc2SampleEnd,
-                osc2SampleFadeIn, osc2SampleFadeOut, osc2Chord,
-                subOn, subMode, subTable, subExcite, subShape, subOctave, subFrame, subLevel, subPan, subSemi,
-                subFine, subUnison, subDetune, subSpread, subStringDecay, subStringDamp, subStringSustain,
-                subSampleTuned, subSampleLoop, subSampleReverse, subSampleStart, subSampleEnd,
-                subSampleFadeIn, subSampleFadeOut, subChord,
-                noiseLevel);
+        addAll (*this, subShape, subOctave, noiseLevel);
 
         // The TABLE lists open the wavetable browser.
-        for (auto [control, id, colour] : { std::tuple<ComboControl*, const char*, juce::Colour> { &osc1Table, "osc1_table", IlanaTheme::accent() },
-                                            { &osc2Table, "osc2_table", juce::Colour (0xff5b8cff) },
-                                            { &subTable, "sub_table", juce::Colour (0xffffd447) } })
+        for (int i = 0; i < OscillatorIds::count; ++i)
         {
-            control->setPopupOverride ([this, control, id = juce::String (id), colour]
+            auto* control = &controls[(size_t) i]->table;
+            const auto id = juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table";
+            const auto colour = oscColour (i);
+            control->setPopupOverride ([this, control, id, colour]
             {
                 TableBrowser::show (processorRef, id, colour, control->getComboBox());
             });
@@ -326,8 +286,11 @@ public:
         addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
         noiseLevel.setVisible (false);
 
-        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
-                                "osc1_excite", "osc2_excite", "sub_excite", "sym_on", "sym_manual" })
+        for (const auto* prefix : OscillatorIds::prefixes)
+            for (const auto* suffix : { "_mode", "_on", "_excite" })
+                processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
+
+        for (const auto* id : { "sym_on", "sym_manual" })
             processorRef.apvts.addParameterListener (id, this);
 
         updateModeVisibility();
@@ -336,8 +299,11 @@ public:
 
     ~OscPage() override
     {
-        for (const auto* id : { "osc1_mode", "osc2_mode", "sub_mode", "osc1_on", "osc2_on", "sub_on",
-                                "osc1_excite", "osc2_excite", "sub_excite", "sym_on", "sym_manual" })
+        for (const auto* prefix : OscillatorIds::prefixes)
+            for (const auto* suffix : { "_mode", "_on", "_excite" })
+                processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
+
+        for (const auto* id : { "sym_on", "sym_manual" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -560,14 +526,12 @@ private:
 
     WaveDisplay& waveDisplay (int index)
     {
-        WaveDisplay* displays[] { &waveDisplay1, &waveDisplay2, &waveDisplay3 };
-        return *displays[juce::jlimit (0, OscillatorIds::count - 1, index)];
+        return *waveDisplays[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)];
     }
 
     juce::TextButton& loadButton (int index)
     {
-        juce::TextButton* buttons[] { &loadTableButton1, &loadTableButton2, &loadTableButton3 };
-        return *buttons[juce::jlimit (0, OscillatorIds::count - 1, index)];
+        return *loadButtons[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)];
     }
 
     static float slotWeight (juce::Component* item)
@@ -642,169 +606,67 @@ private:
         const auto addTop = [&top] (juce::Component* item) { if (item != nullptr) top.push_back (item); };
         const auto addBottom = [&bottom] (juce::Component* item) { if (item != nullptr) bottom.push_back (item); };
 
+        auto& osc = *controls[(size_t) index];
+
         if (isGranular)
         {
-            const auto prefixIndex = juce::jlimit (0, 2, index);
-            juce::Component* on[] { &osc1On, &osc2On, &subOn };
-            juce::Component* modeBox[] { &osc1Mode, &osc2Mode, &subMode };
-            juce::Component* tuned[] { &osc1SampleTuned, &osc2SampleTuned, &subSampleTuned };
-            juce::Component* reverse[] { &osc1SampleReverse, &osc2SampleReverse, &subSampleReverse };
-            juce::Component* uniMode[] { &osc1UniMode, &osc2UniMode, &subUniMode };
-            juce::Component* chord[] { &osc1Chord, &osc2Chord, &subChord };
-            juce::Component* grains[3][6] {
-                { &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread },
-                { &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread },
-                { &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread }
-            };
-            juce::Component* voice[3][6] {
-                { &osc1Level, &osc1Pan, &osc1Semi, &osc1Fine, &osc1Unison, &osc1Detune },
-                { &osc2Level, &osc2Pan, &osc2Semi, &osc2Fine, &osc2Unison, &osc2Detune },
-                { &subLevel, &subPan, &subSemi, &subFine, &subUnison, &subDetune }
-            };
-
-            for (auto* item : { on[prefixIndex], modeBox[prefixIndex], tuned[prefixIndex], reverse[prefixIndex],
-                                uniMode[prefixIndex], chord[prefixIndex] })
-                addTop (item);
-
-            for (auto* item : grains[prefixIndex])
-                addBottom (item);
-
-            for (auto* item : voice[prefixIndex])
-                addBottom (item);
-
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, top);
-            layoutSlots (bottomRow, bottom);
+            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.sampleTuned, &osc.sampleReverse,
+                                   &osc.uniMode, &osc.chord });
+            layoutSlots (bottomRow, { &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
+                                      &osc.grainSpray, &osc.grainPitch, &osc.grainSpread,
+                                      &osc.level, &osc.pan, &osc.semi, &osc.fine,
+                                      &osc.unison, &osc.detune });
             return;
         }
 
         if (isString)
         {
-            juce::Component* on[] { &osc1On, &osc2On, &subOn };
-            juce::Component* modeBox[] { &osc1Mode, &osc2Mode, &subMode };
-            juce::Component* excite[] { &osc1Excite, &osc2Excite, &subExcite };
-            juce::Component* uniMode[] { &osc1UniMode, &osc2UniMode, &subUniMode };
-            juce::Component* chord[] { &osc1Chord, &osc2Chord, &subChord };
-            juce::Component* decay[] { &osc1StringDecay, &osc2StringDecay, &subStringDecay };
-            juce::Component* damp[] { &osc1StringDamp, &osc2StringDamp, &subStringDamp };
-            juce::Component* sustain[] { &osc1StringSustain, &osc2StringSustain, &subStringSustain };
-            juce::Component* level[] { &osc1Level, &osc2Level, &subLevel };
-            juce::Component* pan[] { &osc1Pan, &osc2Pan, &subPan };
-            juce::Component* semi[] { &osc1Semi, &osc2Semi, &subSemi };
-            juce::Component* fine[] { &osc1Fine, &osc2Fine, &subFine };
-            juce::Component* unison[] { &osc1Unison, &osc2Unison, &subUnison };
-            juce::Component* detune[] { &osc1Detune, &osc2Detune, &subDetune };
-            juce::Component* blend[] { &osc1UniBlend, &osc2UniBlend, &subUniBlend };
-            juce::Component* spread[] { &osc1Spread, &osc2Spread, &subSpread };
-            auto& controls = *physical[(size_t) index];
-
+            auto& physicalControls = *physical[(size_t) index];
             auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 3);
             auto extraRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { on[index], modeBox[index], excite[index], &controls.slap,
-                                   uniMode[index], chord[index] });
-            layoutSlots (middleRow, { decay[index], damp[index], sustain[index], &controls.stiffness,
-                                      &controls.pickup, &controls.excitePos, &controls.hardness, &controls.pickPos });
-            layoutSlots (extraRow, { &controls.bowPressure, &controls.bowSpeed,
-                                     &controls.bridgeBuzz, &controls.fretRattle });
-            layoutSlots (bottomRow, { level[index], pan[index], semi[index], fine[index], unison[index],
-                                      detune[index], blend[index], spread[index] });
+            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.excite, &physicalControls.slap,
+                                   &osc.uniMode, &osc.chord });
+            layoutSlots (middleRow, { &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
+                                      &physicalControls.stiffness, &physicalControls.pickup,
+                                      &physicalControls.excitePos, &physicalControls.hardness,
+                                      &physicalControls.pickPos });
+            layoutSlots (extraRow, { &physicalControls.bowPressure, &physicalControls.bowSpeed,
+                                     &physicalControls.bridgeBuzz, &physicalControls.fretRattle });
+            layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
+                                      &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
             return;
         }
 
-        if (index == 0)
-        {
-            addTop (&osc1On);
-            addTop (&osc1Mode);
-            addTop (isSample ? (juce::Component*) &osc1SampleTuned
-                             : (isString ? (juce::Component*) &osc1Excite : (juce::Component*) &osc1Table));
-            addTop (isSample ? (juce::Component*) &osc1SampleLoop : nullptr);
-            addTop (isSample ? (juce::Component*) &osc1SampleReverse : nullptr);
-            addTop (isWavetable ? (juce::Component*) &osc1Warp : nullptr);
-            addTop (isWavetable ? (juce::Component*) &osc1Spectral : nullptr);
-            addTop (&osc1UniMode);
-            addTop (&osc1Chord);
+        addTop (&osc.on);
+        addTop (&osc.mode);
+        addTop (isSample ? (juce::Component*) &osc.sampleTuned
+                         : (isString ? (juce::Component*) &osc.excite : (juce::Component*) &osc.table));
+        addTop (isSample ? (juce::Component*) &osc.sampleLoop : nullptr);
+        addTop (isSample ? (juce::Component*) &osc.sampleReverse : nullptr);
+        addTop (isWavetable ? (juce::Component*) &osc.warp : nullptr);
+        addTop (isWavetable ? (juce::Component*) &osc.spectral : nullptr);
+        addTop (&osc.uniMode);
+        addTop (&osc.chord);
 
-            addBottom (isSample ? (juce::Component*) &osc1SampleStart
-                                : (isString ? (juce::Component*) &osc1StringDecay : (juce::Component*) &osc1Frame));
-            addBottom (isWavetable ? (juce::Component*) &osc1WarpAmt : nullptr);
-            addBottom (isWavetable ? (juce::Component*) &osc1SpectralAmt : nullptr);
-            addBottom (isSample ? (juce::Component*) &osc1SampleEnd
-                                : (isString ? (juce::Component*) &osc1StringDamp : nullptr));
-            addBottom (isSample ? (juce::Component*) &osc1SampleFadeIn
-                                : (isString ? (juce::Component*) &osc1StringSustain : nullptr));
-            addBottom (isSample ? (juce::Component*) &osc1SampleFadeOut : nullptr);
-            addBottom (&osc1Level);
-            addBottom (&osc1Pan);
-            addBottom (&osc1Semi);
-            addBottom (&osc1Fine);
-            addBottom (&osc1Unison);
-            addBottom (&osc1Detune);
-            addBottom (&osc1UniBlend);
-            addBottom (&osc1Spread);
-        }
-        else if (index == 1)
-        {
-            addTop (&osc2On);
-            addTop (&osc2Mode);
-            addTop (isSample ? (juce::Component*) &osc2SampleTuned
-                             : (isString ? (juce::Component*) &osc2Excite : (juce::Component*) &osc2Table));
-            addTop (isSample ? (juce::Component*) &osc2SampleLoop : nullptr);
-            addTop (isSample ? (juce::Component*) &osc2SampleReverse : nullptr);
-            addTop (isWavetable ? (juce::Component*) &osc2Warp : nullptr);
-            addTop (isWavetable ? (juce::Component*) &osc2Spectral : nullptr);
-            addTop (&osc2UniMode);
-            addTop (&osc2Chord);
-
-            addBottom (isSample ? (juce::Component*) &osc2SampleStart
-                                : (isString ? (juce::Component*) &osc2StringDecay : (juce::Component*) &osc2Frame));
-            addBottom (isWavetable ? (juce::Component*) &osc2WarpAmt : nullptr);
-            addBottom (isWavetable ? (juce::Component*) &osc2SpectralAmt : nullptr);
-            addBottom (isSample ? (juce::Component*) &osc2SampleEnd
-                                : (isString ? (juce::Component*) &osc2StringDamp : nullptr));
-            addBottom (isSample ? (juce::Component*) &osc2SampleFadeIn
-                                : (isString ? (juce::Component*) &osc2StringSustain : nullptr));
-            addBottom (isSample ? (juce::Component*) &osc2SampleFadeOut : nullptr);
-            addBottom (&osc2Level);
-            addBottom (&osc2Pan);
-            addBottom (&osc2Semi);
-            addBottom (&osc2Fine);
-            addBottom (&osc2Unison);
-            addBottom (&osc2Detune);
-            addBottom (&osc2UniBlend);
-            addBottom (&osc2Spread);
-        }
-        else
-        {
-            addTop (&subOn);
-            addTop (&subMode);
-            addTop (isSample ? (juce::Component*) &subSampleTuned
-                             : (isString ? (juce::Component*) &subExcite : (juce::Component*) &subTable));
-            addTop (isSample ? (juce::Component*) &subSampleLoop : nullptr);
-            addTop (isSample ? (juce::Component*) &subSampleReverse : nullptr);
-            addTop (isWavetable ? (juce::Component*) &subWarp : nullptr);
-            addTop (isWavetable ? (juce::Component*) &subSpectral : nullptr);
-            addTop (&subUniMode);
-            addTop (&subChord);
-
-            addBottom (isSample ? (juce::Component*) &subSampleStart
-                                : (isString ? (juce::Component*) &subStringDecay : (juce::Component*) &subFrame));
-            addBottom (isWavetable ? (juce::Component*) &subWarpAmt : nullptr);
-            addBottom (isWavetable ? (juce::Component*) &subSpectralAmt : nullptr);
-            addBottom (isSample ? (juce::Component*) &subSampleEnd
-                                : (isString ? (juce::Component*) &subStringDamp : nullptr));
-            addBottom (isSample ? (juce::Component*) &subSampleFadeIn
-                                : (isString ? (juce::Component*) &subStringSustain : nullptr));
-            addBottom (isSample ? (juce::Component*) &subSampleFadeOut : nullptr);
-            addBottom (&subLevel);
-            addBottom (&subPan);
-            addBottom (&subSemi);
-            addBottom (&subFine);
-            addBottom (&subUnison);
-            addBottom (&subDetune);
-            addBottom (&subUniBlend);
-            addBottom (&subSpread);
-        }
+        addBottom (isSample ? (juce::Component*) &osc.sampleStart
+                            : (isString ? (juce::Component*) &osc.stringDecay : (juce::Component*) &osc.frame));
+        addBottom (isWavetable ? (juce::Component*) &osc.warpAmt : nullptr);
+        addBottom (isWavetable ? (juce::Component*) &osc.spectralAmt : nullptr);
+        addBottom (isSample ? (juce::Component*) &osc.sampleEnd
+                            : (isString ? (juce::Component*) &osc.stringDamp : nullptr));
+        addBottom (isSample ? (juce::Component*) &osc.sampleFadeIn
+                            : (isString ? (juce::Component*) &osc.stringSustain : nullptr));
+        addBottom (isSample ? (juce::Component*) &osc.sampleFadeOut : nullptr);
+        addBottom (&osc.level);
+        addBottom (&osc.pan);
+        addBottom (&osc.semi);
+        addBottom (&osc.fine);
+        addBottom (&osc.unison);
+        addBottom (&osc.detune);
+        addBottom (&osc.uniBlend);
+        addBottom (&osc.spread);
 
         controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
         layoutSlots (topRow, top);
@@ -841,7 +703,7 @@ private:
     {
         chooserOpen = true;
 
-        for (int index = 0; index < 3; ++index)
+        for (int index = 0; index < OscillatorIds::count; ++index)
             loadButton (index).setEnabled (false);
 
         if (tableChooser == nullptr)
@@ -885,21 +747,56 @@ private:
 
     void updateModeVisibility()
     {
-        const auto mode1 = getMode (0);
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < OscillatorIds::count; ++i)
         {
-            auto& controls = *physical[(size_t) i];
-            const auto visible = getMode (i) == 1;
-            for (juce::Component* control : { (juce::Component*) &controls.stiffness, (juce::Component*) &controls.pickup,
-                                              (juce::Component*) &controls.excitePos, (juce::Component*) &controls.hardness,
-                                              (juce::Component*) &controls.pickPos, (juce::Component*) &controls.slap,
-                                              (juce::Component*) &controls.bridgeBuzz, (juce::Component*) &controls.fretRattle })
-                control->setVisible (visible);
-            const auto prefix = i == 2 ? juce::String ("sub") : "osc" + juce::String (i + 1);
-            const auto bow = visible && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
-            controls.bowPressure.setVisible (bow);
-            controls.bowSpeed.setVisible (bow);
+            const auto mode = getMode (i);
+            const auto stringVisible = mode == 1;
+            auto& physicalControls = *physical[(size_t) i];
+
+            for (juce::Component* control : { (juce::Component*) &physicalControls.stiffness,
+                                              (juce::Component*) &physicalControls.pickup,
+                                              (juce::Component*) &physicalControls.excitePos,
+                                              (juce::Component*) &physicalControls.hardness,
+                                              (juce::Component*) &physicalControls.pickPos,
+                                              (juce::Component*) &physicalControls.slap,
+                                              (juce::Component*) &physicalControls.bridgeBuzz,
+                                              (juce::Component*) &physicalControls.fretRattle })
+                control->setVisible (stringVisible);
+
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
+            const auto bow = stringVisible
+                             && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
+            physicalControls.bowPressure.setVisible (bow);
+            physicalControls.bowSpeed.setVisible (bow);
+
+            auto& osc = *controls[(size_t) i];
+            osc.table.setVisible (mode == 0);
+            osc.frame.setVisible (mode == 0);
+            osc.excite.setVisible (mode == 1);
+            osc.stringDecay.setVisible (mode == 1);
+            osc.stringDamp.setVisible (mode == 1);
+            osc.stringSustain.setVisible (mode == 1);
+            osc.sampleTuned.setVisible (mode >= 2);
+            osc.sampleLoop.setVisible (mode == 2);
+            osc.sampleReverse.setVisible (mode >= 2);
+            osc.sampleStart.setVisible (mode == 2);
+            osc.sampleEnd.setVisible (mode == 2);
+            osc.sampleFadeIn.setVisible (mode == 2);
+            osc.sampleFadeOut.setVisible (mode == 2);
+            osc.warp.setVisible (mode == 0);
+            osc.warpAmt.setVisible (mode == 0);
+            osc.spectral.setVisible (mode == 0);
+            osc.spectralAmt.setVisible (mode == 0);
+            osc.grainPosition.setVisible (mode == 3);
+            osc.grainSize.setVisible (mode == 3);
+            osc.grainDensity.setVisible (mode == 3);
+            osc.grainSpray.setVisible (mode == 3);
+            osc.grainPitch.setVisible (mode == 3);
+            osc.grainSpread.setVisible (mode == 3);
+            osc.uniBlend.setVisible (mode != 3);
+            osc.spread.setVisible (mode != 3);
         }
+
         const auto symOnNow = readBool ("sym_on");
         const auto manual = symOnNow && readBool ("sym_manual");
 
@@ -909,85 +806,6 @@ private:
 
         for (auto& note : symNotes)
             note->setVisible (manual);
-        osc1Table.setVisible (mode1 == 0);
-        osc1Frame.setVisible (mode1 == 0);
-        osc1Excite.setVisible (mode1 == 1);
-        osc1StringDecay.setVisible (mode1 == 1);
-        osc1StringDamp.setVisible (mode1 == 1);
-        osc1StringSustain.setVisible (mode1 == 1);
-        osc1SampleTuned.setVisible (mode1 >= 2);
-        osc1SampleLoop.setVisible (mode1 == 2);
-        osc1SampleReverse.setVisible (mode1 >= 2);
-        osc1SampleStart.setVisible (mode1 == 2);
-        osc1SampleEnd.setVisible (mode1 == 2);
-        osc1SampleFadeIn.setVisible (mode1 == 2);
-        osc1SampleFadeOut.setVisible (mode1 == 2);
-        osc1Warp.setVisible (mode1 == 0);
-        osc1WarpAmt.setVisible (mode1 == 0);
-        osc1Spectral.setVisible (mode1 == 0);
-        osc1SpectralAmt.setVisible (mode1 == 0);
-        osc1GrainPosition.setVisible (mode1 == 3);
-        osc1GrainSize.setVisible (mode1 == 3);
-        osc1GrainDensity.setVisible (mode1 == 3);
-        osc1GrainSpray.setVisible (mode1 == 3);
-        osc1GrainPitch.setVisible (mode1 == 3);
-        osc1GrainSpread.setVisible (mode1 == 3);
-        osc1UniBlend.setVisible (mode1 != 3);
-        osc1Spread.setVisible (mode1 != 3);
-
-        const auto mode2 = getMode (1);
-        osc2Table.setVisible (mode2 == 0);
-        osc2Frame.setVisible (mode2 == 0);
-        osc2Excite.setVisible (mode2 == 1);
-        osc2StringDecay.setVisible (mode2 == 1);
-        osc2StringDamp.setVisible (mode2 == 1);
-        osc2StringSustain.setVisible (mode2 == 1);
-        osc2SampleTuned.setVisible (mode2 >= 2);
-        osc2SampleLoop.setVisible (mode2 == 2);
-        osc2SampleReverse.setVisible (mode2 >= 2);
-        osc2SampleStart.setVisible (mode2 == 2);
-        osc2SampleEnd.setVisible (mode2 == 2);
-        osc2SampleFadeIn.setVisible (mode2 == 2);
-        osc2SampleFadeOut.setVisible (mode2 == 2);
-        osc2Warp.setVisible (mode2 == 0);
-        osc2WarpAmt.setVisible (mode2 == 0);
-        osc2Spectral.setVisible (mode2 == 0);
-        osc2SpectralAmt.setVisible (mode2 == 0);
-        osc2GrainPosition.setVisible (mode2 == 3);
-        osc2GrainSize.setVisible (mode2 == 3);
-        osc2GrainDensity.setVisible (mode2 == 3);
-        osc2GrainSpray.setVisible (mode2 == 3);
-        osc2GrainPitch.setVisible (mode2 == 3);
-        osc2GrainSpread.setVisible (mode2 == 3);
-        osc2UniBlend.setVisible (mode2 != 3);
-        osc2Spread.setVisible (mode2 != 3);
-
-        const auto mode3 = getMode (2);
-        subTable.setVisible (mode3 == 0);
-        subFrame.setVisible (mode3 == 0);
-        subExcite.setVisible (mode3 == 1);
-        subStringDecay.setVisible (mode3 == 1);
-        subStringDamp.setVisible (mode3 == 1);
-        subStringSustain.setVisible (mode3 == 1);
-        subSampleTuned.setVisible (mode3 >= 2);
-        subSampleLoop.setVisible (mode3 == 2);
-        subSampleReverse.setVisible (mode3 >= 2);
-        subSampleStart.setVisible (mode3 == 2);
-        subSampleEnd.setVisible (mode3 == 2);
-        subSampleFadeIn.setVisible (mode3 == 2);
-        subSampleFadeOut.setVisible (mode3 == 2);
-        subWarp.setVisible (mode3 == 0);
-        subWarpAmt.setVisible (mode3 == 0);
-        subSpectral.setVisible (mode3 == 0);
-        subSpectralAmt.setVisible (mode3 == 0);
-        subGrainPosition.setVisible (mode3 == 3);
-        subGrainSize.setVisible (mode3 == 3);
-        subGrainDensity.setVisible (mode3 == 3);
-        subGrainSpray.setVisible (mode3 == 3);
-        subGrainPitch.setVisible (mode3 == 3);
-        subGrainSpread.setVisible (mode3 == 3);
-        subUniBlend.setVisible (mode3 != 3);
-        subSpread.setVisible (mode3 != 3);
 
         resized();
         if (onModeChanged != nullptr)
@@ -1005,51 +823,32 @@ private:
 
     void updateEnabled()
     {
-        const auto enabled1 = readBool ("osc1_on");
-        const auto enabled2 = readBool ("osc2_on");
-        const auto enabled3 = readBool ("sub_on");
-        for (int i = 0; i < 3; ++i)
+        for (int index = 0; index < OscillatorIds::count; ++index)
         {
-            auto& controls = *physical[(size_t) i];
-            const auto enabled = i == 0 ? enabled1 : (i == 1 ? enabled2 : enabled3);
-            setGroupEnabled ({ &controls.stiffness, &controls.pickup, &controls.excitePos,
-                               &controls.hardness, &controls.pickPos, &controls.slap, &controls.bowPressure,
-                               &controls.bowSpeed, &controls.bridgeBuzz, &controls.fretRattle }, enabled);
-        }
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+            const auto enabled = readBool (prefix + "_on");
+            auto& physicalControls = *physical[(size_t) index];
+            setGroupEnabled ({ &physicalControls.stiffness, &physicalControls.pickup,
+                               &physicalControls.excitePos, &physicalControls.hardness,
+                               &physicalControls.pickPos, &physicalControls.slap,
+                               &physicalControls.bowPressure, &physicalControls.bowSpeed,
+                               &physicalControls.bridgeBuzz, &physicalControls.fretRattle }, enabled);
 
-        setGroupEnabled ({ &osc1Mode, &osc1Table, &osc1Excite, &osc1Frame, &osc1Level, &osc1Pan, &osc1Semi,
-                           &osc1Fine, &osc1Unison, &osc1Detune, &osc1Spread,
-                           &osc1StringDecay, &osc1StringDamp, &osc1StringSustain,
-                           &osc1SampleTuned, &osc1SampleLoop, &osc1SampleReverse,
-                           &osc1SampleStart, &osc1SampleEnd, &osc1SampleFadeIn, &osc1SampleFadeOut,
-                           &osc1Chord, &osc1Warp, &osc1WarpAmt, &osc1Spectral, &osc1SpectralAmt, &osc1GrainPosition, &osc1GrainSize, &osc1GrainDensity, &osc1GrainSpray, &osc1GrainPitch, &osc1GrainSpread,
-                           &osc1UniMode, &osc1UniBlend },
-                         enabled1);
-        setGroupEnabled ({ &osc2Mode, &osc2Table, &osc2Excite, &osc2Frame, &osc2Level, &osc2Pan, &osc2Semi,
-                           &osc2Fine, &osc2Unison, &osc2Detune, &osc2Spread,
-                           &osc2StringDecay, &osc2StringDamp, &osc2StringSustain,
-                           &osc2SampleTuned, &osc2SampleLoop, &osc2SampleReverse,
-                           &osc2SampleStart, &osc2SampleEnd, &osc2SampleFadeIn, &osc2SampleFadeOut,
-                           &osc2Chord, &osc2Warp, &osc2WarpAmt, &osc2Spectral, &osc2SpectralAmt, &osc2GrainPosition, &osc2GrainSize, &osc2GrainDensity, &osc2GrainSpray, &osc2GrainPitch, &osc2GrainSpread,
-                           &osc2UniMode, &osc2UniBlend },
-                         enabled2);
-        setGroupEnabled ({ &subMode, &subTable, &subExcite, &subFrame, &subLevel,
-                           &subPan, &subSemi, &subFine, &subUnison, &subDetune, &subSpread,
-                           &subStringDecay, &subStringDamp, &subStringSustain,
-                           &subSampleTuned, &subSampleLoop, &subSampleReverse,
-                           &subSampleStart, &subSampleEnd, &subSampleFadeIn, &subSampleFadeOut,
-                           &subChord, &subWarp, &subWarpAmt, &subSpectral, &subSpectralAmt, &subGrainPosition, &subGrainSize, &subGrainDensity, &subGrainSpray, &subGrainPitch, &subGrainSpread,
-                           &subUniMode, &subUniBlend },
-                         enabled3);
+            auto& osc = *controls[(size_t) index];
+            setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
+                               &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune,
+                               &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
+                               &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse,
+                               &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
+                               &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
+                               &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
+                               &osc.grainSpray, &osc.grainPitch, &osc.grainSpread,
+                               &osc.uniMode, &osc.uniBlend }, enabled);
 
-        const std::array<bool, 3> enabled { enabled1, enabled2, enabled3 };
-
-        for (int index = 0; index < 3; ++index)
-        {
-            const auto alpha = enabled[(size_t) index] ? 1.0f : 0.3f;
+            const auto alpha = enabled ? 1.0f : 0.3f;
             waveDisplay (index).setAlpha (alpha);
-            waveDisplay (index).setEnabled (enabled[(size_t) index]);
-            loadButton (index).setEnabled (! chooserOpen && enabled[(size_t) index]);
+            waveDisplay (index).setEnabled (enabled);
+            loadButton (index).setEnabled (! chooserOpen && enabled);
             loadButton (index).setAlpha (alpha);
         }
     }
@@ -1063,13 +862,11 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    WaveDisplay waveDisplay1, waveDisplay2, waveDisplay3;
-    std::array<juce::Rectangle<int>, 3> controlBay {};
-    juce::TextButton loadTableButton1 { "LOAD .WAV" };
-    juce::TextButton loadTableButton2 { "LOAD .WAV" };
-    juce::TextButton loadTableButton3 { "LOAD .WAV" };
+    std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waveDisplays;
+    std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons;
     std::unique_ptr<juce::FileChooser> tableChooser;
-    std::array<std::unique_ptr<PhysicalControls>, 3> physical;
+    std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
@@ -1085,33 +882,9 @@ private:
     std::unique_ptr<StripKnob> subOscLevel, noiseStrip;
     juce::Rectangle<int> subStrip;
 
-    ToggleControl osc1On;
-    ComboControl osc1Mode, osc1Table, osc1Excite;
-    KnobControl osc1Frame, osc1Level, osc1Pan, osc1Semi, osc1Fine, osc1Unison, osc1Detune, osc1Spread;
-    KnobControl osc1StringDecay, osc1StringDamp, osc1StringSustain;
-    ToggleControl osc1SampleTuned, osc1SampleLoop, osc1SampleReverse;
-    KnobControl osc1SampleStart, osc1SampleEnd, osc1SampleFadeIn, osc1SampleFadeOut;
-    ComboControl osc1Chord;
-    ToggleControl osc2On;
-    ComboControl osc2Mode, osc2Table, osc2Excite;
-    KnobControl osc2Frame, osc2Level, osc2Pan, osc2Semi, osc2Fine, osc2Unison, osc2Detune, osc2Spread;
-    KnobControl osc2StringDecay, osc2StringDamp, osc2StringSustain;
-    ToggleControl osc2SampleTuned, osc2SampleLoop, osc2SampleReverse;
-    KnobControl osc2SampleStart, osc2SampleEnd, osc2SampleFadeIn, osc2SampleFadeOut;
-    ComboControl osc2Chord;
-    ToggleControl subOn;
-    ComboControl subMode, subTable, subExcite, subShape, subOctave;
-    KnobControl subFrame, subLevel, subPan, subSemi, subFine, subUnison, subDetune, subSpread;
-    KnobControl subStringDecay, subStringDamp, subStringSustain;
-    ToggleControl subSampleTuned, subSampleLoop, subSampleReverse;
-    KnobControl subSampleStart, subSampleEnd, subSampleFadeIn, subSampleFadeOut;
-    ComboControl subChord;
+    std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
+    ComboControl subShape, subOctave;
     KnobControl noiseLevel;
-    ComboControl osc1Warp, osc1UniMode, osc2Warp, osc2UniMode, subWarp, subUniMode;
-    KnobControl osc1WarpAmt, osc1UniBlend, osc2WarpAmt, osc2UniBlend, subWarpAmt, subUniBlend;
-    ComboControl osc1Spectral, osc2Spectral, subSpectral;
-    KnobControl osc1SpectralAmt, osc2SpectralAmt, subSpectralAmt;
-    KnobControl osc1GrainPosition, osc1GrainSize, osc1GrainDensity, osc1GrainSpray, osc1GrainPitch, osc1GrainSpread, osc2GrainPosition, osc2GrainSize, osc2GrainDensity, osc2GrainSpray, osc2GrainPitch, osc2GrainSpread, subGrainPosition, subGrainSize, subGrainDensity, subGrainSpray, subGrainPitch, subGrainSpread;
 };
 
 class OscPageViewport : public juce::Viewport

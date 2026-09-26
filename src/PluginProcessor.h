@@ -330,7 +330,7 @@ private:
     std::array<std::array<juce::String, 4>, OscillatorIds::count> bowBuzzIds;
     struct OscCoreIds
     {
-        juce::String on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount;
+        juce::String on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
     };
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
 
@@ -358,6 +358,7 @@ private:
     std::array<juce::String, 16> tapStepIds;
     std::array<juce::String, 16> gateStepIds;
     std::array<std::array<juce::String, 7>, OscillatorIds::count> sampleParamIds;
+    std::array<std::array<juce::String, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;
     std::vector<std::shared_ptr<SampleData>> sampleSlots;

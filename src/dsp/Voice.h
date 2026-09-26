@@ -133,15 +133,13 @@ struct VoiceParams
 
     float fmAmount = 0.0f;
     float fmFeedback = 0.0f;
-    float fmMatrix[3][3] {};      // [source][target]: oscillator 1, 2, 3
+    float fmMatrix[numOscillators][numOscillators] {}; // [source][target]
     int fmMode = 0;               // 0 phase, 1 through-zero, 2 exponential
-    bool oscOut[3] { true, true, true };
+    std::array<bool, numOscillators> oscOut { true, true, true };
     float ringMod = 0.0f;
     bool hardSync = false;
     float drift = 0.0f;
 
-    int osc1Chord = 0;
-    int osc2Chord = 0;
     float voiceSpread = 0.0f;
     float unisonRandom = 0.0f;
 

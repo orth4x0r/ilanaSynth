@@ -925,7 +925,7 @@ void runWeirdDspTest()
     {
         p.oscillators[0].unison = 4;
         p.oscillators[0].detuneCents = 5.0f;
-        p.osc1Chord = 4;
+        p.oscillators[0].chord = 4;
     });
 
     const auto difference = [&plain] (const std::vector<float>& other)

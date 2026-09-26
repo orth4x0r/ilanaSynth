@@ -488,8 +488,7 @@ void Voice::updateUnisonLayout()
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
         const auto& settings = params.oscillators[osc];
-        const auto chord = osc == 0 ? params.osc1Chord : (osc == 1 ? params.osc2Chord : settings.chord);
-        layout (settings, numOscUnison[osc], chord,
+        layout (settings, numOscUnison[osc], settings.chord,
                 juce::jlimit (0.0f, 100.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
                 settings.unisonBlend + blockMod (blendDestinations[osc]),
                 unisonOffset[osc], unisonGains[osc]);

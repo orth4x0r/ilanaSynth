@@ -1,6 +1,17 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include "../dsp/OscillatorIds.h"
+
+inline bool isOscParameter (const juce::String& id, const char* suffix, bool includeLegacyThird = true)
+{
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        if ((includeLegacyThird || osc != 2)
+            && id == juce::String (OscillatorIds::prefixes[(size_t) osc]) + suffix)
+            return true;
+
+    return false;
+}
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
@@ -133,50 +144,50 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
     if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
     // Oscillators (patterned)
-    if (id == "osc1_table" || id == "osc2_table")
+    if (isOscParameter (id, "_table", false))
         return "Factory wavetable. Load your own with LOAD WAVETABLE (.wav).";
 
-    if (id == "osc1_frame" || id == "osc2_frame")
+    if (isOscParameter (id, "_frame", false))
         return "Morphs through the table's frames. Modulate for movement.";
 
-    if (id == "osc1_level" || id == "osc2_level")
+    if (isOscParameter (id, "_level", false))
         return "Oscillator output level.";
 
-    if (id == "osc1_pan" || id == "osc2_pan")
+    if (isOscParameter (id, "_pan", false))
         return "Stereo position of the oscillator.";
 
-    if (id == "osc1_semi" || id == "osc2_semi")
+    if (isOscParameter (id, "_semi", false))
         return "Pitch offset in semitones. With Hard Sync this sets the sync ratio.";
 
-    if (id == "osc1_fine" || id == "osc2_fine")
+    if (isOscParameter (id, "_fine", false))
         return "Fine pitch offset in cents.";
 
-    if (id == "osc1_unison" || id == "osc2_unison")
+    if (isOscParameter (id, "_unison", false))
         return "Stacked detuned copies of the oscillator. More = bigger, costlier.";
 
-    if (id == "osc1_detune" || id == "osc2_detune")
+    if (isOscParameter (id, "_detune", false))
         return "Unison spread in cents. 20-40 is a classic supersaw.";
 
-    if (id == "osc1_spread" || id == "osc2_spread")
+    if (isOscParameter (id, "_spread", false))
         return "Stereo spread of the unison stack.";
 
-    if (id == "osc1_mode" || id == "osc2_mode")
+    if (isOscParameter (id, "_mode", false))
         return "Wavetable, Physical string, a sample you drag onto the card, or Granular: a cloud of tiny "
                "grains read from that sample (a vocal until you load your own).";
 
-    if (id == "osc1_on" || id == "osc2_on" || id == "sub_on")
+    if (isOscParameter (id, "_on"))
         return "Turns this oscillator on and off. Switching fades in/out so it stays click-free.";
 
-    if (id == "osc1_excite" || id == "osc2_excite")
+    if (isOscParameter (id, "_excite", false))
         return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string.";
 
-    if (id == "osc1_string_decay" || id == "osc2_string_decay")
+    if (isOscParameter (id, "_string_decay", false))
         return "How long the string rings.";
 
-    if (id == "osc1_string_damp" || id == "osc2_string_damp")
+    if (isOscParameter (id, "_string_damp", false))
         return "Loop damping - higher is darker and more muted.";
 
-    if (id == "osc1_string_sustain" || id == "osc2_string_sustain")
+    if (isOscParameter (id, "_string_sustain", false))
         return "Level of the continuous excitation (ignore for Burst).";
 
     if (id.endsWith ("_string_stiffness"))
@@ -235,7 +246,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Audio-rate cutoff modulation from Osc2. Growl and filter-FM.";
 
     // Chords & voice
-    if (id == "osc1_chord" || id == "osc2_chord")
+    if (isOscParameter (id, "_chord", false))
         return "Spreads a chord across the unison voices. Needs Unison above 1.";
 
     if (id == "voice_spread")
@@ -290,7 +301,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "fm_mode")
         return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
 
-    if (id == "osc1_out" || id == "osc2_out" || id == "sub_out")
+    if (isOscParameter (id, "_out"))
         return "Off makes this oscillator a silent modulator: it still drives FM but isn't heard.";
 
     if (id.startsWith ("fm_fb") || id == "fm_feedback")

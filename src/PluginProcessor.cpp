@@ -198,7 +198,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             oscCoreIds[(size_t) i] = { prefix + "_on", prefix + "_table", prefix + "_frame", prefix + "_level",
                                        prefix + "_pan", prefix + "_semi", prefix + "_fine", prefix + "_unison",
                                        prefix + "_detune", prefix + "_spread", prefix + "_spectral",
-                                       prefix + "_spectral_amt" };
+                                       prefix + "_spectral_amt", prefix + "_chord", prefix + "_out" };
 
             stringParamIds[(size_t) i] = { prefix + "_mode", prefix + "_excite", prefix + "_string_decay",
                                            prefix + "_string_damp", prefix + "_string_sustain",
@@ -210,6 +210,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
                                            prefix + "_sample_fade_out" };
+            grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
+                                         prefix + "_grain_spray", prefix + "_grain_pitch",
+                                         prefix + "_grain_spread" };
         }
     }
 
@@ -507,9 +510,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fm_fb2", "FM Osc2 Feedback", 0.0f, 1.0f, 0.0f);
     addFloat ("fm_fb3", "FM Osc3 Feedback", 0.0f, 1.0f, 0.0f);
     addChoice ("fm_mode", "FM Mode", { "Phase", "Through-Zero", "Exponential" }, 0);
-    addBool ("osc1_out", "Osc1 Output", true);
-    addBool ("osc2_out", "Osc2 Output", true);
-    addBool ("sub_out", "Osc3 Output", true);
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        addBool (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_out",
+                 "Osc" + juce::String (osc + 1) + " Output", true);
     addFloat ("ring_mod", "Ring Mod", 0.0f, 1.0f, 0.0f);
     addBool ("hard_sync", "Hard Sync", false);
     addFloat ("f1_fm", "F1 Audio FM", -1.0f, 1.0f, 0.0f);
@@ -1171,10 +1174,10 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         settings.unison = (int) getParam (ids.unison.toRawUTF8());
         settings.detuneCents = getParam (ids.detune.toRawUTF8());
         settings.spread = getParam (ids.spread.toRawUTF8());
+        settings.chord = (int) getParam (ids.chord.toRawUTF8());
         p.oscillatorEnabled[(size_t) osc] = getParam (ids.on.toRawUTF8()) > 0.5f;
     }
 
-    p.oscillators[2].chord = (int) getParam ("sub_chord");
     p.subOctaveOffset = 0;
 
     // Dedicated sub: the Sine, PWM (square) or Analog (saw) table at frame 0.
@@ -1244,9 +1247,8 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     p.fmMatrix[1][1] = getParam ("fm_fb2");
     p.fmMatrix[2][2] = getParam ("fm_fb3");
     p.fmMode = (int) getParam ("fm_mode");
-    p.oscOut[0] = getParam ("osc1_out") > 0.5f;
-    p.oscOut[1] = getParam ("osc2_out") > 0.5f;
-    p.oscOut[2] = getParam ("sub_out") > 0.5f;
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        p.oscOut[(size_t) osc] = getParam (oscCoreIds[(size_t) osc].out.toRawUTF8()) > 0.5f;
 
     const auto fillStringParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
     {
@@ -1284,17 +1286,12 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         osc.sampleFadeIn = getParam (ids[5].toRawUTF8());
         osc.sampleFadeOut = getParam (ids[6].toRawUTF8());
 
-        static const char* grainIds[OscillatorIds::count][5] {
-            { "osc1_grain_size", "osc1_grain_density", "osc1_grain_spray", "osc1_grain_pitch", "osc1_grain_spread" },
-            { "osc2_grain_size", "osc2_grain_density", "osc2_grain_spray", "osc2_grain_pitch", "osc2_grain_spread" },
-            { "sub_grain_size", "sub_grain_density", "sub_grain_spray", "sub_grain_pitch", "sub_grain_spread" }
-        };
-        const auto* grain = grainIds[juce::jlimit (0, OscillatorIds::count - 1, oscIndex)];
-        osc.grainSizeMs = getParam (grain[0]);
-        osc.grainDensity = getParam (grain[1]);
-        osc.grainSpray = getParam (grain[2]);
-        osc.grainPitch = getParam (grain[3]);
-        osc.grainSpread = getParam (grain[4]);
+        const auto& grain = grainParamIds[(size_t) oscIndex];
+        osc.grainSizeMs = getParam (grain[0].toRawUTF8());
+        osc.grainDensity = getParam (grain[1].toRawUTF8());
+        osc.grainSpray = getParam (grain[2].toRawUTF8());
+        osc.grainPitch = getParam (grain[3].toRawUTF8());
+        osc.grainSpread = getParam (grain[4].toRawUTF8());
     };
 
     VoiceParams::OscParams* oscillators[OscillatorIds::count] { &p.oscillators[0], &p.oscillators[1], &p.oscillators[2] };
@@ -1305,8 +1302,6 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         fillSampleParams (osc, *oscillators[osc]);
     }
 
-    p.osc1Chord = (int) getParam ("osc1_chord");
-    p.osc2Chord = (int) getParam ("osc2_chord");
     p.voiceSpread = getParam ("voice_spread");
     p.unisonRandom = getParam ("unison_random");
     p.filter1Fm = getParam ("f1_fm");

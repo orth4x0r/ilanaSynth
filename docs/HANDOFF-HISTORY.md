@@ -178,5 +178,5 @@ Done in one pass at the user's request ("the three phases"), then a debug pass a
 - All targets build, with no warnings from the changed files.
 - Fingerprints: **0 of 241** changed (`build/m5-before.csv` against `build/m5-after.csv`).
 - `ilanaSnapshot --uitest`: 0 failures (new: algorithm click, operator panel, PD chain row, envelope knobs, slot 60 row).
-- `ilanaTableTest`: see the final run in HANDOFF / the commit message.
+- `ilanaTableTest`: every functional test passes (`build/m5-full2.txt`). The one failure is the load-dependent heavy-patch CPU check: 67 % inside the long run, 41–42 % in isolated runs (`ILANA_BENCH=1`). `ILANA_M5_TEST=1` passes.
 - CPU: alternating runs against a baseline build of `363862c` in `../ilana-baseline`: heavy 42.4 % against 41.6 %, extreme 85 % against 83 %.

@@ -308,8 +308,10 @@ private:
         const auto decay = std::sqrt (readParam (prefix + "_decay"));
         const auto sustain = juce::jlimit (0.0f, 1.0f, readParam (prefix + "_sustain"));
         const auto release = std::sqrt (readParam (prefix + "_release"));
+        const auto delay = std::sqrt (readParam (prefix + "_delay"));
+        const auto peakHold = std::sqrt (readParam (prefix + "_hold"));
         const auto hold = 0.35f;
-        const auto total = juce::jmax (0.001f, attack + decay + hold + release);
+        const auto total = juce::jmax (0.001f, delay + attack + peakHold + decay + hold + release);
 
         const auto plot = inner.reduced (0.0f, 3.0f);
         const auto xAt = [&plot, total] (float t) { return plot.getX() + plot.getWidth() * t / total; };
@@ -317,9 +319,11 @@ private:
 
         juce::Path path;
         path.startNewSubPath (xAt (0.0f), yAt (0.0f));
-        path.lineTo (xAt (attack), yAt (1.0f));
-        path.lineTo (xAt (attack + decay), yAt (sustain));
-        path.lineTo (xAt (attack + decay + hold), yAt (sustain));
+        path.lineTo (xAt (delay), yAt (0.0f));
+        path.lineTo (xAt (delay + attack), yAt (1.0f));
+        path.lineTo (xAt (delay + attack + peakHold), yAt (1.0f));
+        path.lineTo (xAt (delay + attack + peakHold + decay), yAt (sustain));
+        path.lineTo (xAt (delay + attack + peakHold + decay + hold), yAt (sustain));
         path.lineTo (xAt (total), yAt (0.0f));
 
         auto fill = path;

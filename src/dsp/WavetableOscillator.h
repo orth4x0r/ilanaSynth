@@ -28,15 +28,55 @@ enum
     Quantize,
     Fm,
     Ring,
+    // M6: Casio CZ-style phase distortion. Appended, so saved indices keep
+    // their meaning.
+    PdSaw,
+    PdSquare,
+    PdPulse,
+    PdRes1,
+    PdRes2,
+    PdRes3,
     Count
 };
 
 inline juce::StringArray getNames()
 {
-    return { "Off", "Sync", "Bend +", "Bend -", "PWM", "Mirror", "Asym", "Quantize", "FM", "Ring" };
+    return { "Off", "Sync", "Bend +", "Bend -", "PWM", "Mirror", "Asym", "Quantize", "FM", "Ring",
+             "PD Saw", "PD Square", "PD Pulse", "PD Res I", "PD Res II", "PD Res III" };
 }
 
 inline bool isPhaseWarp (int mode) { return mode >= Sync && mode <= Quantize; }
+inline bool isPhaseDistortion (int mode) { return mode >= PdSaw && mode <= PdRes3; }
+inline bool isResonance (int mode) { return mode >= PdRes1 && mode <= PdRes3; }
+
+// The oscillator applies these itself (FM and Ring need another oscillator).
+inline bool isOscillatorWarp (int mode) { return isPhaseWarp (mode) || isPhaseDistortion (mode); }
+
+// The second stage of the PD chain offers only the warps an oscillator can
+// apply on its own: every mode except FM and Ring.
+inline juce::StringArray getStageTwoNames()
+{
+    auto names = getNames();
+    names.removeString ("FM");
+    names.removeString ("Ring");
+    return names;
+}
+
+inline int modeForStageTwoChoice (int choice) { return choice < Fm ? choice : choice + 2; }
+
+// PD knee and resonance settings, shared by the oscillator and the displays.
+inline double pdKnee (int mode, double a)
+{
+    switch (mode)
+    {
+        case PdSaw:
+        case PdSquare: return 0.5 - a * 0.49;
+        case PdPulse:  return 1.0 - a * 0.95;
+        default:       return 1.0;
+    }
+}
+
+inline double pdResonance (double a) { return 1.0 + a * 15.0; }
 
 // How much a warp raises the highest harmonic, so the oscillator can pick a
 // band-limited table level that won't alias as badly.
@@ -50,6 +90,12 @@ inline double harmonicStretch (int mode, float amount)
         case Pwm:       return 1.0 / (1.0 - (double) amount * 0.95);
         case Mirror:    return 1.0 + (double) amount;
         case Asym:      return 0.5 / (0.5 - (double) amount * 0.47);
+        case PdSaw:
+        case PdSquare:  return 0.5 / pdKnee (mode, (double) amount);
+        case PdPulse:   return 1.0 / pdKnee (mode, (double) amount);
+        case PdRes1:
+        case PdRes2:
+        case PdRes3:    return pdResonance ((double) amount);
         default:        return 1.0;
     }
 }
@@ -108,6 +154,66 @@ inline double apply (int mode, float amount, double phase, bool& silent)
             return phase;
     }
 }
+
+// Phase distortion, as on the Casio CZ: the CZ reads a cosine through a bent
+// phase. Tables here are sine-phase, so the bend happens a quarter cycle on
+// (where a sine table reads as a cosine) and is shifted back. With the Sine
+// table the result is the CZ wave (inverted and a quarter cycle late, which
+// is inaudible); any other table gets the same bend.
+//
+// The resonance modes are a sine at 1..16x the pitch that restarts every
+// cycle, faded by a window (a falling saw, a triangle or a trapezoid) so the
+// restart doesn't click. gain carries the window.
+inline double applyPhaseDistortion (int mode, float amount, double phase, float& gain)
+{
+    const auto a = (double) juce::jlimit (0.0f, 1.0f, amount);
+    gain = 1.0f;
+
+    if (isResonance (mode))
+    {
+        // Fades in from the plain wave over the first quarter of the knob.
+        const auto depth = juce::jmin (1.0, a * 4.0);
+        double window;
+
+        if (mode == PdRes1)      window = 1.0 - phase;
+        else if (mode == PdRes2) window = 1.0 - std::abs (2.0 * phase - 1.0);
+        else                     window = juce::jmin (1.0, 2.0 * (1.0 - phase));
+
+        gain = (float) (1.0 - depth * (1.0 - window));
+        const auto p = phase * pdResonance (a);
+        return p - fastFloor (p);
+    }
+
+    auto q = phase + 0.25;
+    q -= fastFloor (q);
+    const auto d = pdKnee (mode, a);
+    double bent = q;
+
+    switch (mode)
+    {
+        case PdSaw:
+            bent = q < d ? 0.5 * q / d : 0.5 + 0.5 * (q - d) / (1.0 - d);
+            break;
+
+        case PdSquare:
+        {
+            const auto half = q < 0.5 ? q : q - 0.5;
+            const auto rise = half < d ? 0.5 * half / d : 0.5;
+            bent = q < 0.5 ? rise : 0.5 + rise;
+            break;
+        }
+
+        case PdPulse:
+            bent = q < d ? q / d : 1.0;
+            break;
+
+        default:
+            break;
+    }
+
+    bent -= 0.25;
+    return bent - fastFloor (bent);
+}
 } // namespace Warp
 
 class WavetableOscillator
@@ -133,7 +239,7 @@ public:
 
     void setWarp (int newMode, float newAmount)
     {
-        const auto mode = Warp::isPhaseWarp (newMode) ? newMode : Warp::Off;
+        const auto mode = Warp::isOscillatorWarp (newMode) ? newMode : Warp::Off;
         const auto amount = juce::jlimit (0.0f, 1.0f, newAmount);
 
         if (mode == warpMode && std::abs (amount - warpAmount) < 1.0e-4f)
@@ -141,6 +247,20 @@ public:
 
         warpMode = mode;
         warpAmount = amount;
+        updateLevel();
+    }
+
+    // The PD chain's second stage, applied after the first.
+    void setWarp2 (int newMode, float newAmount)
+    {
+        const auto mode = Warp::isOscillatorWarp (newMode) ? newMode : Warp::Off;
+        const auto amount = juce::jlimit (0.0f, 1.0f, newAmount);
+
+        if (mode == warpMode2 && std::abs (amount - warpAmount2) < 1.0e-4f)
+            return;
+
+        warpMode2 = mode;
+        warpAmount2 = amount;
         updateLevel();
     }
 
@@ -197,9 +317,17 @@ public:
 
         auto value = 0.0f;
         auto silent = false;
+        auto warpGain = 1.0f;
 
         if (warpMode != Warp::Off && warpAmount > 0.0f)
-            modulatedPhase = Warp::apply (warpMode, warpAmount, modulatedPhase, silent);
+            modulatedPhase = applyStage (warpMode, warpAmount, modulatedPhase, silent, warpGain);
+
+        if (warpMode2 != Warp::Off && warpAmount2 > 0.0f && ! silent)
+        {
+            auto gain2 = 1.0f;
+            modulatedPhase = applyStage (warpMode2, warpAmount2, modulatedPhase, silent, gain2);
+            warpGain *= gain2;
+        }
 
         if (! silent)
         {
@@ -218,6 +346,9 @@ public:
             {
                 value = value0;
             }
+
+            if (warpGain != 1.0f)
+                value *= warpGain;
         }
 
         phase += frequency / sampleRate * incrementScale;
@@ -235,6 +366,17 @@ public:
     }
 
 private:
+    static double applyStage (int mode, float amount, double phase, bool& silent, float& gain)
+    {
+        if (Warp::isPhaseDistortion (mode))
+        {
+            silent = false;
+            return Warp::applyPhaseDistortion (mode, amount, phase, gain);
+        }
+
+        return Warp::apply (mode, amount, phase, silent);
+    }
+
     static float cubicInterpolate (const float* data, int index, float frac) noexcept
     {
         const auto y0 = data[index];
@@ -250,7 +392,10 @@ private:
 
     void updateLevel()
     {
-        const auto stretch = warpMode != Warp::Off ? Warp::harmonicStretch (warpMode, warpAmount) : 1.0;
+        auto stretch = warpMode != Warp::Off ? Warp::harmonicStretch (warpMode, warpAmount) : 1.0;
+
+        if (warpMode2 != Warp::Off)
+            stretch *= Warp::harmonicStretch (warpMode2, warpAmount2);
 
         currentLevel = table != nullptr && sampleRate > 0.0
                            ? table->getLevelForFrequency (frequency * stretch, sampleRate)
@@ -265,5 +410,7 @@ private:
     int currentLevel = 0;
     int warpMode = Warp::Off;
     float warpAmount = 0.0f;
+    int warpMode2 = Warp::Off;
+    float warpAmount2 = 0.0f;
     bool wrapped = false;
 };

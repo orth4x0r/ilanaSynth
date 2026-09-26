@@ -366,6 +366,30 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("mech_key", "Key Noise");
         add ("mech_damper", "Damper Noise");
         add ("mech_pedal", "Pedal Noise");
+
+        // M5/M6 (keep order: presets store the index).
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_warp2_amt", name + "Warp 2");
+            add (prefix + "_pd_env_amt", name + "Warp Env");
+            add (prefix + "_key_level", name + "Key Level");
+        }
+
+        for (int osc = 1; osc <= 6; ++osc)
+            add ("fm_noise" + juce::String (osc), "FM Noise > Osc" + juce::String (osc));
+        add ("fm_noise_color", "FM Noise Colour");
+
+        // The FM cells added with OSC 4-6 (the nine original ones are
+        // explicit, per-voice destinations).
+        for (int source = 1; source <= 6; ++source)
+            for (int target = 1; target <= 6; ++target)
+                if (source > 3 || target > 3)
+                    add (source == target ? "fm_fb" + juce::String (source)
+                                          : "fm_" + juce::String (source) + "to" + juce::String (target),
+                         source == target ? "FM Osc" + juce::String (source) + " Feedback"
+                                          : "FM Osc" + juce::String (source) + " > Osc" + juce::String (target));
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -432,7 +456,8 @@ struct Slot
     }
 };
 
-constexpr int maxSlots = 32;
+// M6b: 64 slots. Slots 1-32 keep their parameter IDs; 33-64 are appended.
+constexpr int maxSlots = 64;
 
 // Shapes a raw source value by the slot's polarity and curve.
 inline float shape (const Slot& slot, float value)

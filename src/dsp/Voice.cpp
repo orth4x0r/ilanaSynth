@@ -120,6 +120,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     env4.setSampleRate (newRate);
     for (auto& env : extraEnvs)
         env.setSampleRate (newRate);
+    envMseg.prepare (newRate);
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -228,6 +229,17 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     pitchWheelMoved (currentPitchWheelPosition);
 
+    // Level key scaling: KEY LVL 1 is +6 dB per octave above C3 (and -6 dB
+    // per octave below); negative tilts the other way. Modulating operators
+    // use it to keep FM brightness even across the keyboard.
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto keyLevel = params.oscillators[osc].keyLevel;
+        keyLevelGain[osc] = keyLevel != 0.0f
+                                ? juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (keyLevel * 6.0f * keyTrackOctaves, -120.0f))
+                                : 1.0f;
+    }
+
     // Legato: the note just changes pitch; envelopes, phases and filters
     // carry on from where they are.
     if (legato)
@@ -261,6 +273,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         env4.retrigger();
         for (auto& env : extraEnvs)
             env.retrigger();
+        envMseg.reset();
         return;
     }
 
@@ -291,9 +304,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         if (! settings.stringMode || ! params.oscillatorEnabled[osc])
             continue;
 
-        const auto pitch = currentFrequency
-                           * std::exp2 ((settings.semitones + (osc == 2 ? params.subOctaveOffset : 0)
-                                         + settings.cents / 100.0) / 12.0);
+        const auto pitch = settings.tuneMode == OscTuning::Semitones
+                               ? currentFrequency
+                                     * std::exp2 ((settings.semitones + (osc == 2 ? params.subOctaveOffset : 0)
+                                                   + settings.cents / 100.0) / 12.0)
+                               : oscFrequencyFactor (settings);
 
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
         {
@@ -348,6 +363,13 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     env4.noteOn();
     for (auto& env : extraEnvs)
         env.noteOn();
+
+    envMseg.reset();
+    msegEnvValue = 0.0f;
+    fmNoiseState = 0.0f;
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        feedbackHistory[osc] = feedbackFiltered[osc] = 0.0f;
 }
 
 void Voice::stopNote (float, bool allowTailOff)
@@ -572,20 +594,42 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         return env;
     };
 
+    // Rate key scaling (M5): every stage time shrinks up the keyboard, as a
+    // struck or plucked note dies faster the higher it is.
+    const auto keyScaled = [this] (TensionAdsr::Parameters env, int index)
+    {
+        const auto rate = params.envKeyRate[(size_t) index];
+
+        if (rate == 0.0f)
+            return env;
+
+        const auto factor = std::exp2 (-rate * keyTrackOctaves);
+        env.attack *= factor;
+        env.decay *= factor;
+        env.release *= factor;
+        env.delay *= factor;
+        env.hold *= factor;
+        return env;
+    };
+
     using D = Mod::Destination;
-    ampEnv.setParameters (modulatedEnvelope (params.ampEnv, blockMod (D::AmpAttack), blockMod (D::AmpDecay),
-                                             blockMod (D::AmpSustain), blockMod (D::AmpRelease)));
-    filterEnv.setParameters (modulatedEnvelope (params.filterEnv, blockMod (D::FeAttack), blockMod (D::FeDecay),
-                                                blockMod (D::FeSustain), blockMod (D::FeRelease)));
-    filter2Env.setParameters (modulatedEnvelope (params.filter2Env, blockMod (D::F2eAttack), blockMod (D::F2eDecay),
-                                                 blockMod (D::F2eSustain), blockMod (D::F2eRelease)));
-    modEnv.setParameters (modulatedEnvelope (params.modEnv, blockMod (D::MeAttack), blockMod (D::MeDecay),
-                                             blockMod (D::MeSustain), blockMod (D::MeRelease)));
-    env4.setParameters (modulatedEnvelope (params.env4, blockMod (D::E4Attack), blockMod (D::E4Decay),
-                                           blockMod (D::E4Sustain), blockMod (D::E4Release)));
+    ampEnv.setParameters (keyScaled (modulatedEnvelope (params.ampEnv, blockMod (D::AmpAttack), blockMod (D::AmpDecay),
+                                                        blockMod (D::AmpSustain), blockMod (D::AmpRelease)), 0));
+    filterEnv.setParameters (keyScaled (modulatedEnvelope (params.filterEnv, blockMod (D::FeAttack), blockMod (D::FeDecay),
+                                                           blockMod (D::FeSustain), blockMod (D::FeRelease)), 1));
+    filter2Env.setParameters (keyScaled (modulatedEnvelope (params.filter2Env, blockMod (D::F2eAttack), blockMod (D::F2eDecay),
+                                                            blockMod (D::F2eSustain), blockMod (D::F2eRelease)), 2));
+    modEnv.setParameters (keyScaled (modulatedEnvelope (params.modEnv, blockMod (D::MeAttack), blockMod (D::MeDecay),
+                                                        blockMod (D::MeSustain), blockMod (D::MeRelease)), 3));
+    env4.setParameters (keyScaled (modulatedEnvelope (params.env4, blockMod (D::E4Attack), blockMod (D::E4Decay),
+                                                      blockMod (D::E4Sustain), blockMod (D::E4Release)), 4));
     for (int env = 0; env < (int) extraEnvs.size(); ++env)
         if (params.extraEnvNeeded[(size_t) env])
-            extraEnvs[(size_t) env].setParameters (params.extraEnvs[(size_t) env]);
+            extraEnvs[(size_t) env].setParameters (keyScaled (params.extraEnvs[(size_t) env], env + 5));
+
+    if (params.msegEnvNeeded)
+        envMseg.setParams (params.msegShape.levels, params.msegShape.times,
+                           params.msegShape.rateHz, params.msegShape.loop);
 
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
     {
@@ -806,6 +850,34 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const auto subOscActive = params.subOscEnabled && params.subOscTable != nullptr;
     const auto subOscFrames = WavetableOscillator::frameReadFor (params.subOscTable, 0.0f);
 
+    // M5 operator extras. Each is skipped while unused, so older patches
+    // render exactly as before.
+    auto anyAltFeedback = false;
+    auto anyNoiseOperator = false;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
+        anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
+    }
+    const auto noiseCutoff = juce::jmin (0.45 * sampleRate,
+                                         200.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, params.fmNoiseColour)));
+    const auto noiseCoeff = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * noiseCutoff / sampleRate));
+
+    // The matrix amount from source to target, with the legacy cells' own
+    // modulation destinations.
+    const auto fmAmountAt = [this] (const float* sampleMods, int source, int target)
+    {
+        const auto amount = params.fmMatrix[source][target];
+
+        if (source >= 3 || target >= 3)
+            return amount;
+
+        static constexpr D legacy[3][3] { { D::FmFeedback, D::Fm1to2, D::Fm1to3 },
+                                          { D::FmAmount, D::Fm2Feedback, D::Fm2to3 },
+                                          { D::Fm3to1, D::Fm3to2, D::Fm3Feedback } };
+        return amount + sampleMods[(int) legacy[source][target]];
+    };
+
     for (int i = 0; i < numSamples; ++i)
     {
         const auto ampValue = ampEnv.getNextSample();
@@ -816,17 +888,19 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         for (int env = 0; env < (int) extraEnvs.size(); ++env)
             if (params.extraEnvNeeded[(size_t) env])
                 extraEnvValues[(size_t) env] = extraEnvs[(size_t) env].getNextSample();
-        const float envelopeValues[16] { ampValue, filterValue, filter2Value, modValue, env4Value,
+        if (params.msegEnvNeeded)
+            msegEnvValue = juce::jlimit (0.0f, 1.0f, envMseg.getNextValue());
+        const float envelopeValues[17] { ampValue, filterValue, filter2Value, modValue, env4Value,
                                          extraEnvValues[0], extraEnvValues[1], extraEnvValues[2],
                                          extraEnvValues[3], extraEnvValues[4], extraEnvValues[5],
                                          extraEnvValues[6], extraEnvValues[7], extraEnvValues[8],
-                                         extraEnvValues[9], extraEnvValues[10] };
+                                         extraEnvValues[9], extraEnvValues[10], msegEnvValue };
 
         advanceVoiceLfos();
         evaluateMods (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
         if ((i & 15) == 0)
-            updateSubBlock (mods, filterValue, filter2Value);
+            updateSubBlock (mods, filterValue, filter2Value, envelopeValues);
         else if (params.filter1Fm != 0.0f || params.filter2Fm != 0.0f
                  || mods[(int) D::Filter1Fm] != 0.0f || mods[(int) D::Filter2Fm] != 0.0f)
             updateFilterCoefficients (mods, filterValue, filter2Value);
@@ -853,6 +927,52 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             for (int source = target < 3 ? 3 : 0; source < VoiceParams::numOscillators; ++source)
                 fmInput[target] += (double) params.fmMatrix[source][target] * (double) previousOsc[source];
 
+        // Filtered and cross feedback replace an operator's plain self term.
+        if (anyAltFeedback)
+        {
+            double cross[VoiceParams::numOscillators] {};
+
+            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+            {
+                const auto type = params.oscillators[osc].feedbackType;
+
+                if (type == FmFeedback::Plain || ! active[osc])
+                    continue;
+
+                auto sum = 0.0;
+                for (int source = 0; source < VoiceParams::numOscillators; ++source)
+                    if (source != osc)
+                        sum += (double) fmAmountAt (mods, source, osc) * (double) previousOsc[source];
+
+                const auto self = (double) fmAmountAt (mods, osc, osc);
+
+                if (type == FmFeedback::Filtered)
+                {
+                    sum += self * (double) feedbackFiltered[osc];
+                }
+                else
+                {
+                    const auto partner = FmFeedback::partnerOf (osc);
+                    sum += self * (double) previousOsc[partner];
+                    cross[partner] += self * (double) previousOsc[osc];
+                }
+
+                fmInput[osc] = sum;
+            }
+
+            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                fmInput[osc] += cross[osc];
+        }
+
+        // The noise operator: coloured noise into any oscillator's FM input.
+        if (anyNoiseOperator)
+        {
+            fmNoiseState += noiseCoeff * ((fmNoiseRandom.nextFloat() * 2.0f - 1.0f) - fmNoiseState);
+
+            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                fmInput[osc] += (double) (params.fmNoise[osc] * fmNoiseState);
+        }
+
         const auto fmPhase = [this] (double input) { return params.fmMode == 0 ? input : 0.0; };
         const auto fmRate = [this] (double input)
         {
@@ -873,8 +993,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 continue;
             }
             const auto& settings = params.oscillators[osc];
-            const auto warpAmount = juce::jlimit (0.0f, 1.0f,
-                                                  settings.warpAmount + mods[(int) warpDestinations[osc]]);
+            const auto warpAmount = settings.pdEnv > 0
+                                        ? juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]]
+                                                                        + settings.pdEnvAmount * envelopeValues[juce::jlimit (0, 16, settings.pdEnv - 1)])
+                                        : juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]]);
             const auto enable = oscEnableSmooth[osc].getNextValue();
             const auto level = osc == 2 ? juce::jlimit (0.0f, 1.0f,
                                                         levelSmooth[osc].getNextValue() + mods[(int) levelDestinations[osc]])
@@ -933,9 +1055,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         }
                     }
 
-                    const auto selectedEnv = envelopeValues[juce::jlimit (0, 15, settings.ampEnv)];
+                    const auto selectedEnv = envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
                     const auto gain = unisonGains[osc][u] * renderLevel * enable
-                                      * (alternateAmpRouting ? selectedEnv : 1.0f);
+                                      * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
                     oscMono[osc] += raw * gain;
 
                     if (params.oscOut[osc])
@@ -992,6 +1114,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 previousOsc[osc] = juce::jlimit (-2.0f, 2.0f, oscMono[osc]);
             }
         }
+
+        if (anyAltFeedback)
+            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                if (params.oscillators[osc].feedbackType == FmFeedback::Filtered)
+                {
+                    // The average of two samples (the DX7's feedback filter)
+                    // through a gentle one-pole: calm, saw-like feedback.
+                    const auto average = 0.5f * (previousOsc[osc] + feedbackHistory[osc]);
+                    feedbackFiltered[osc] += feedbackCoeff[osc] * (average - feedbackFiltered[osc]);
+                    feedbackHistory[osc] = previousOsc[osc];
+                }
 
         // Dedicated sub: plain table at frame 0, centre pan.
         const auto subOscLevel = subOscLevelSmooth.getNextValue();
@@ -1089,7 +1222,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                 if (params.oscillatorEnabled[osc])
                     lastLifetimeValue = juce::jmax (lastLifetimeValue,
-                                                    envelopeValues[juce::jlimit (0, 15, params.oscillators[osc].ampEnv)]);
+                                                    envelopeValues[juce::jlimit (0, 16, params.oscillators[osc].ampEnv)]);
         lastFilterValue = filterValue;
         lastFilter2Value = filter2Value;
         lastModValue = modValue;
@@ -1152,8 +1285,9 @@ bool Voice::hasActiveAmpEnvelope() const
         if (! params.oscillatorEnabled[osc])
             continue;
         anyOscillator = true;
-        const auto selected = juce::jlimit (0, 15, params.oscillators[osc].ampEnv);
-        const auto active = selected == 0 ? ampEnv.isActive()
+        const auto selected = juce::jlimit (0, 16, params.oscillators[osc].ampEnv);
+        // The MSEG envelope lives as long as ENV 1 (it has no release).
+        const auto active = selected == 0 || selected == 16 ? ampEnv.isActive()
                             : selected == 1 ? filterEnv.isActive()
                             : selected == 2 ? filter2Env.isActive()
                             : selected == 3 ? modEnv.isActive()
@@ -1165,7 +1299,19 @@ bool Voice::hasActiveAmpEnvelope() const
     return (params.subOscEnabled || params.noiseLevel > 0.0f || ! anyOscillator) && ampEnv.isActive();
 }
 
-void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue)
+// A ratio or fixed-pitch operator's frequency before pitch modulation. Semi
+// and fine still apply on top; a fixed pitch ignores the note, bend and glide.
+double Voice::oscFrequencyFactor (const VoiceParams::OscParams& settings) const
+{
+    const auto offset = std::exp2 ((settings.semitones + settings.cents / 100.0) / 12.0);
+
+    if (settings.tuneMode == OscTuning::Fixed)
+        return juce::jlimit (0.5, 20000.0, settings.fixedHz) * offset;
+
+    return currentFrequency * settings.ratio * offset;
+}
+
+void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues)
 {
     using D = Mod::Destination;
 
@@ -1203,17 +1349,46 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
         if (osc == 2 && settings.level <= 0.0f)
             continue;
 
-        const auto warp = juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]]);
-        const auto pitch = std::exp2 ((settings.semitones + (osc == 2 ? (double) params.subOctaveOffset : 0.0)
-                                       + settings.cents / 100.0 + bendSemitones
-                                       + (double) mods[(int) pitchDestinations[osc]] * 48.0) / 12.0);
-        const auto baseFreq = driftedFrequency * pitch;
+        // The warp envelope (the CZ's DCW) opens both stages of the PD chain.
+        const auto envelopeWarp = settings.pdEnv > 0
+                                      ? settings.pdEnvAmount * envelopeValues[juce::jlimit (0, 16, settings.pdEnv - 1)]
+                                      : 0.0f;
+        const auto warp = settings.pdEnv > 0
+                              ? juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]] + envelopeWarp)
+                              : juce::jlimit (0.0f, 1.0f, settings.warpAmount + mods[(int) warpDestinations[osc]]);
+        const auto warp2 = juce::jlimit (0.0f, 1.0f, settings.warpAmount2 + envelopeWarp);
+
+        double baseFreq;
+
+        if (settings.tuneMode == OscTuning::Semitones)
+        {
+            const auto pitch = std::exp2 ((settings.semitones + (osc == 2 ? (double) params.subOctaveOffset : 0.0)
+                                           + settings.cents / 100.0 + bendSemitones
+                                           + (double) mods[(int) pitchDestinations[osc]] * 48.0) / 12.0);
+            baseFreq = driftedFrequency * pitch;
+        }
+        else
+        {
+            // Ratio operators follow the note (with bend, glide and drift);
+            // fixed ones follow only their own pitch modulation.
+            const auto modulation = std::exp2 ((double) mods[(int) pitchDestinations[osc]] * 4.0);
+            baseFreq = settings.tuneMode == OscTuning::Fixed
+                           ? oscFrequencyFactor (settings) * modulation
+                           : settings.ratio * std::exp2 ((settings.semitones + settings.cents / 100.0 + bendSemitones) / 12.0)
+                                 * driftedFrequency * modulation;
+        }
+
+        if (settings.feedbackType == FmFeedback::Filtered)
+            feedbackCoeff[osc] = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi
+                                                           * juce::jlimit (500.0, 0.45 * sampleRate, 8.0 * baseFreq)
+                                                           / sampleRate));
 
         for (int u = 0; u < numOscUnison[osc]; ++u)
         {
             const auto frequencyU = baseFreq * std::exp2 (unisonOffset[osc][u] / 12.0);
             oscUnison[osc][u].setFrequency (frequencyU);
             oscUnison[osc][u].setWarp (settings.warpMode, warp);
+            oscUnison[osc][u].setWarp2 (settings.warpMode2, warp2);
 
             if (u < VoiceParams::maxBufferedUnison)
             {

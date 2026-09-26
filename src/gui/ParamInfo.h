@@ -56,6 +56,24 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "spray_range")
         return juce::String (juce::roundToInt (value)) + " st";
 
+    // M5 operators, M6 phase distortion, DAHDSR extras.
+    if (isOscParameter (id, "_ratio"))
+        return "x" + juce::String (value, value < 10.0f ? 3 : 2);
+    if (isOscParameter (id, "_fixed_hz"))
+        return value >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz" : juce::String (value, value < 100.0f ? 2 : 1) + " Hz";
+    if (isOscParameter (id, "_key_level"))
+        return (value > 0.0f ? "+" : "") + juce::String (value * 6.0f, 1) + " dB/oct";
+    if (isOscParameter (id, "_warp2_amt"))
+        return asPercent();
+    if (isOscParameter (id, "_pd_env_amt"))
+        return (value > 0.0f ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
+        return value <= 0.0005f ? juce::String ("Off") : asSeconds();
+    if (id.endsWith ("_hold"))
+        return value <= 0.0005f ? juce::String ("Off") : asSeconds();
+    if (id.endsWith ("_keyrate"))
+        return asPercent();
+
     if (id == "spray_spread")
         return juce::String (juce::roundToInt (value)) + " ms";
 
@@ -138,7 +156,42 @@ inline juce::String describeParameter (const juce::String& id)
         return "Eco caps each oscillator at four unison voices; Normal preserves the original engine; "
                "High averages two wavetable reads per sample for smoother highs.";
     if (isOscParameter (id, "_amp_env"))
-        return "Envelope controlling this oscillator's level. ENV 1 is the original AMP envelope.";
+        return "Envelope controlling this oscillator's level (as an FM operator, how deep it modulates). "
+               "ENV 1 is the original AMP envelope; MSEG runs the MSEG shape once per note.";
+    if (isOscParameter (id, "_tune"))
+        return "How the operator is tuned: in semitones (as before), as a ratio of the played note, "
+               "or at a fixed frequency that ignores the keyboard (for drums and formants). SEMI and FINE still apply.";
+    if (isOscParameter (id, "_ratio"))
+        return "Frequency ratio to the played note, used when TUNING is Ratio. SNAP pulls it to the nearest ratio of a set.";
+    if (isOscParameter (id, "_ratio_snap"))
+        return "Ratio set: Harmonic (whole numbers, clean tones), Inharmonic (square roots: metallic), "
+               "Bell (partials of a tuned bell and a struck bar), or Free.";
+    if (isOscParameter (id, "_fixed_hz"))
+        return "The operator's frequency when TUNING is Fixed Hz.";
+    if (isOscParameter (id, "_key_level"))
+        return "Level key scaling: louder (positive) or quieter (negative) towards the top of the keyboard, "
+               "up to 6 dB per octave from C3. On a modulator it keeps FM brightness even across the keys.";
+    if (isOscParameter (id, "_fb_type"))
+        return "Feedback style for this operator's FB cell: Plain, Filtered (smoothed like a DX7, calmer at high "
+               "amounts), or Cross (the amount runs between this oscillator and its pair: 1-2, 3-4, 5-6).";
+    if (isOscParameter (id, "_warp2"))
+        return "The second stage of the PD chain: a second warp applied after the first.";
+    if (isOscParameter (id, "_warp2_amt"))
+        return "How far the second warp stage bends the wave.";
+    if (isOscParameter (id, "_pd_env"))
+        return "An envelope that opens the warp, like the Casio CZ's DCW: it adds to both warp amounts.";
+    if (isOscParameter (id, "_pd_env_amt"))
+        return "How far the warp envelope moves the warp amounts (negative closes them).";
+    if (id.startsWith ("fm_noise") && id != "fm_noise_color")
+        return "The noise operator: how much noise frequency-modulates this oscillator (breath, grit, cymbals).";
+    if (id == "fm_noise_color")
+        return "Noise operator colour: dark rumble to full white noise.";
+    if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
+        return "DAHDSR: a wait after the note starts before the attack.";
+    if (id.endsWith ("_hold"))
+        return "DAHDSR: how long the envelope holds at the peak before the decay.";
+    if (id.endsWith ("_keyrate"))
+        return "Rate key scaling: every stage gets shorter up the keyboard (at 100 %, half as long per octave above C3).";
     if (id.startsWith ("env") && juce::isPositiveAndBelow (id.substring (3).getIntValue() - 6, 11))
     {
         if (id.endsWith ("_velocity")) return "How strongly note velocity scales this envelope when used as a source.";
@@ -402,7 +455,9 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_warp"))
         return "Bends how the oscillator reads its wavetable: Sync squeezes cycles in, Bend pushes the wave "
                "forwards or back, PWM squashes it into part of the cycle, Mirror plays it there and back, Asym "
-               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others).";
+               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others). "
+               "PD modes are Casio CZ phase distortion (try the Sine table): Saw, Square and Pulse bend a sine into "
+               "those shapes; Res I-III are the CZ's resonant waves, a sweepable formant.";
 
     if (id.endsWith ("_warp_amt"))
         return "How hard the warp bends the wave. Modulate it for movement.";

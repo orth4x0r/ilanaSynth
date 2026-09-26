@@ -155,7 +155,7 @@ public:
                 "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
                 "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
                 "Try SPECTRAL on an oscillator, the Chaos and Drunk LFO shapes, or KEY on an LFO for audio-rate growl.",
-                "MATRIX has 32 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
+                "MATRIX has 64 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
             };
 
             const juce::StringArray workflowTips {

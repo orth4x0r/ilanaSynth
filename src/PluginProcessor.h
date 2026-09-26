@@ -267,6 +267,17 @@ public:
     void addOscillator (int index);
     void removeOscillator (int index);
     bool isOscillatorShown (int index) const;
+
+    // M5: sets the FM matrix and the operators' outputs to one of the
+    // FmAlgorithms (adding the operators it needs). Existing routes keep
+    // their amounts. Message thread.
+    void applyFmAlgorithm (int index);
+    // The algorithm the current routing matches, or -1.
+    int findMatchingFmAlgorithm() const;
+    // [source][target] FM parameter id, 0-based.
+    static juce::String fmRouteId (int source, int target);
+    // An operator's sounding ratio after SNAP (for display).
+    double getSnappedRatio (int osc) const;
     // Added to the patch, or routed in the matrix (message thread).
     bool isLfoShown (int index) const;
     // Colours for LFO cards and chips: the first four as before, the rest
@@ -387,6 +398,18 @@ private:
     struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<juce::String, 16> steps; };
     struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
+    // M5/M6 operator and phase-distortion settings.
+    struct OperatorIds
+    {
+        juce::String tune, ratio, snap, fixedHz, keyLevel, feedbackType, warp2, warp2Amount, pdEnv, pdEnvAmount;
+    };
+    std::array<OperatorIds, OscillatorIds::count> operatorIds;
+    std::array<juce::String, OscillatorIds::count> fmNoiseIds;
+    // DAHDSR extras and rate key scaling for ENV 1..16.
+    struct EnvelopeExtraIds { juce::String delay, hold, keyRate; };
+    std::array<EnvelopeExtraIds, 16> envelopeExtraIds;
+    std::array<juce::String, Mseg::numPoints> msegLevelIds, msegTimeIds;
+
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
     // Which LFOs a mod slot uses: LFO 5-16 only render in full when routed.

@@ -118,6 +118,47 @@ public:
             }
         }
 
+        // The noise operator: a small node in the corner, drawn only while it
+        // modulates something.
+        {
+            const auto node = noiseNode();
+            auto anyNoise = false;
+
+            for (const auto target : shown)
+            {
+                const auto amount = read ("fm_noise" + juce::String (target + 1));
+
+                if (amount < 0.001f)
+                    continue;
+
+                anyNoise = true;
+                const auto to = centres[(size_t) target];
+                const auto direction = (to - node.getCentre()) / juce::jmax (1.0f, node.getCentre().getDistanceFrom (to));
+                juce::Path arrow;
+                arrow.addArrow ({ node.getCentre() + direction * node.getWidth() * 0.5f, to - direction * (radius + 6.0f) },
+                                1.2f + amount * 4.0f, 8.0f + amount * 4.0f, 10.0f);
+                g.setColour (juce::Colour (0xffc8c8d0).withAlpha (0.3f + 0.5f * amount));
+                g.fillPath (arrow);
+            }
+
+            if (anyNoise)
+            {
+                g.setColour (juce::Colour (0xff17171b));
+                g.fillEllipse (node);
+                g.setColour (juce::Colour (0xffc8c8d0));
+                g.drawEllipse (node.reduced (1.0f), 1.6f);
+
+                // A few speckles for noise.
+                juce::Random speckle (7);
+                for (int dot = 0; dot < 14; ++dot)
+                    g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (
+                        node.getCentre() + juce::Point<float> (speckle.nextFloat() - 0.5f, speckle.nextFloat() - 0.5f) * node.getWidth() * 0.55f));
+
+                g.setFont (IlanaTheme::font (9.5f, true));
+                g.drawText ("NOISE", node.translated (0.0f, node.getHeight() * 0.62f).toNearestInt(), juce::Justification::centred);
+            }
+        }
+
         auto anyRoute = false;
 
         for (const auto source : shown)
@@ -128,8 +169,8 @@ public:
         {
             g.setColour (juce::Colours::white.withAlpha (0.35f));
             g.setFont (IlanaTheme::font (12.5f));
-            g.drawText ("Drag from one oscillator to another to add FM", getLocalBounds().removeFromBottom (30),
-                        juce::Justification::centred);
+            g.drawText ("Drag from one oscillator to another to add FM, or pick an algorithm above",
+                        getLocalBounds().removeFromBottom ((int) hintHeight + 4), juce::Justification::centred);
         }
 
         // Drag in progress.
@@ -237,9 +278,11 @@ private:
         return shown;
     }
 
+    static constexpr float hintHeight = 24.0f;
+
     float operatorRadius() const
     {
-        const auto size = (float) juce::jmin (getWidth(), getHeight());
+        const auto size = (float) juce::jmin (getWidth(), getHeight() - (int) hintHeight);
         return shownOscillators().size() <= 3 ? juce::jlimit (26.0f, 44.0f, size * 0.11f)
                                               : juce::jlimit (20.0f, 36.0f, size * 0.085f);
     }
@@ -248,7 +291,8 @@ private:
     {
         const auto shown = shownOscillators();
         const auto count = (int) shown.size();
-        const auto bounds = getLocalBounds().toFloat().reduced (operatorRadius() * 1.6f);
+        // The bottom strip holds the hint text and the noise node.
+        const auto bounds = getLocalBounds().toFloat().withTrimmedBottom (hintHeight).reduced (operatorRadius() * 1.6f);
         std::array<juce::Point<float>, OscillatorIds::count> centres {};
 
         if (count <= 3)
@@ -268,17 +312,26 @@ private:
             return centres;
         }
 
-        // More operators sit around a ring, which leaves room for arrows both ways.
+        // More operators sit around a ring, which leaves room for arrows both
+        // ways. It starts half a step before the top, so four make a square
+        // and six a flat hexagon that uses a wide, short area well.
         for (int i = 0; i < count; ++i)
         {
-            const auto angle = juce::MathConstants<float>::twoPi * (float) i / (float) count
+            const auto angle = juce::MathConstants<float>::twoPi * ((float) i - 0.5f) / (float) count
                                - juce::MathConstants<float>::halfPi;
             centres[(size_t) shown[(size_t) i]] = bounds.getCentre()
-                                                  + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.4f,
-                                                                        std::sin (angle) * bounds.getHeight() * 0.4f);
+                                                  + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.45f,
+                                                                        std::sin (angle) * bounds.getHeight() * 0.5f);
         }
 
+
         return centres;
+    }
+
+    juce::Rectangle<float> noiseNode() const
+    {
+        const auto size = operatorRadius() * 1.1f;
+        return juce::Rectangle<float> (size, size).withPosition (14.0f, (float) getHeight() - size - 22.0f);
     }
 
     int oscAt (juce::Point<float> position) const

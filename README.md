@@ -10,10 +10,10 @@ An aggressive wavetable synthesizer for VST3, built with JUCE.
 
 IlanaSynth is a complete sound design machine:
 - **Oscillators:** six full oscillators, each with wavetable, physical-modelling string, sample and granular modes, plus a dedicated sub. OSC 4–6 start off.
-- **FM:** a 6-operator FM matrix.
-- **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics.
+- **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
+- **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics and Casio CZ-style phase distortion.
 - **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
-- **Modulation:** four LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 32-slot modulation matrix.
+- **Modulation:** four LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
 - **Effects:** a 10-slot rack with 29 modules, including a trance gate.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **Resonator:** a tuned resonator after the filters.
@@ -92,9 +92,11 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - **Granular**: grains from the oscillator's sample (a vocal until you load your own).
     - Controls: POSITION, SIZE (10–500 ms), DENSITY, SPRAY, PITCH RND and STEREO.
 - **Spectral warp** (wavetable mode): Stretch, Shift, Odd/Even, Formant, Smear or Harmonic Cut, with an amount. The display shows the warped wave.
-- **Warp modes**: Sync, Bend +, Bend −, PWM, Mirror, Asym, Quantize, FM and Ring.
+- **Warp modes**: Sync, Bend +, Bend −, PWM, Mirror, Asym, Quantize, FM and Ring, and the Casio CZ's phase distortion: PD Saw, PD Square, PD Pulse and the resonant PD Res I–III (try them on the Sine table).
+  - Picking a warp opens a **WARP CHAIN** row: a second warp stage after the first, and a **WARP ENV** (any envelope or the MSEG) that opens both, like the CZ's DCW.
+  - The display draws the warped wave.
 - **Unison** up to 16 voices (8 in physical, sample and granular modes), with detune, stereo spread, stack mode (Classic, Hypersaw, Octaves, Fifths) and blend.
-- **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, chord modes, and an amp envelope picker (ENV 1–16).
+- **Per-oscillator controls**: level, pan, semitone and fine tuning, a filter route, chord modes, and an amp envelope picker (ENV 1–16, or the MSEG as a one-shot envelope).
 - **SUB**: a dedicated sub oscillator (sine, square or saw, −1 or −2 octaves) plus a noise layer, sharing a filter route.
 - **VOICE**: voice spread, unison phase randomisation and analogue drift.
 - **QUALITY** beside oversampling: Eco caps each oscillator at four unison voices; Normal keeps the original rendering; High uses two half-step wavetable reads per output sample.
@@ -109,6 +111,12 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - Drag from one oscillator to another to add or remove a route.
   - Drag onto an oscillator itself for feedback.
   - Click an oscillator to toggle its output.
+- **Algorithms**: 16 one-click routings, from a 2-operator stack to seven DX7 algorithms. Click one to route the operators (it adds the ones it needs); the amounts stay editable, and the one the patch matches is lit.
+- **Operator panel** (OP 1–6):
+  - **TUNING**: Semitones, Ratio (with **SNAP** to harmonic, inharmonic or bell ratios) or Fixed Hz.
+  - **FB TYPE**: Plain, Filtered (smoothed like a DX7: calm even at high amounts) or Cross (between the pairs 1-2, 3-4, 5-6).
+  - **ENVELOPE** (any of the 16, or the MSEG), LEVEL and **KEY LVL** (level key scaling).
+- **Noise operator**: a NOISE row that frequency-modulates any oscillator with noise, with a colour control.
 - Ring mod and hard sync (1 > 2).
 - Every route is a modulation destination.
 
@@ -132,6 +140,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - They're shown as cards that mark the ones in use. Drag a card onto a knob to modulate it.
   - The ENV page starts with AMP, FILTER 1 and FILTER 2. Click **+** to add another; the cards keep their size and the row scrolls sideways past five. Right-click a card to remove it. Envelopes in use (assigned in the matrix, as an amp envelope or by a filter's env amount) always show. LFOs work the same way: three cards and a **+**. What is shown is saved in the patch.
   - Drag the graph's handles for A / D / S / R, and drag a curve to bend its tension. Double-click a handle to reset it.
+  - Each is a DAHDSR: **DELAY** and **HOLD** knobs, plus **KEY RATE**, which shortens every stage up the keyboard.
 - **16 LFOs** (LFO 1–3 shown by default, **+** for more; the card row scrolls past four):
   - Shapes: Sine, Triangle, Saw up, Saw down, Square, S&H, Draw, Steps, Curve, Smooth Random, Drunk, Chaos, and the physics shapes Bounce, Pendulum, Spring and Friction.
   - LFO 5–16 cost nothing until a mod slot uses them.
@@ -154,7 +163,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
     - chance and velocity randomness
 
 ### Modulation
-- **Matrix**: 32 slots with ENV 6–16 as additional sources and OSC 4–6 as additional destinations.
+- **Matrix**: 64 slots with ENV 6–16 as additional sources and OSC 4–6 as additional destinations.
   - Each slot has depth, a response curve, polarity (Natural, Unipolar, Bipolar), a **Via** source that scales the routing, and bypass.
 - **Sources**:
   - LFO 1–4 and the MSEG

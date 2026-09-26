@@ -14,6 +14,10 @@ public:
         float sustain = 0.8f;
         float release = 0.25f;
         float curve = 0.0f;
+        // M5 DAHDSR: a wait before the attack and a hold at the peak. Both
+        // default to zero, which skips their stages entirely.
+        float delay = 0.0f;
+        float hold = 0.0f;
     };
 
     void setSampleRate (double newSampleRate) { sampleRate = juce::jmax (1.0, newSampleRate); }
@@ -26,6 +30,8 @@ public:
         params.release = juce::jmax (0.0005f, params.release);
         params.sustain = juce::jlimit (0.0f, 1.0f, params.sustain);
         params.curve = juce::jlimit (-1.0f, 1.0f, params.curve);
+        params.delay = juce::jmax (0.0f, params.delay);
+        params.hold = juce::jmax (0.0f, params.hold);
 
         exponent = std::exp2 (-(double) params.curve * 2.0);
     }
@@ -37,9 +43,12 @@ public:
         currentValue = 0.0f;
     }
 
+    // Starts in the delay stage, which hands over to the attack on the first
+    // sample when there is no delay (the voice may set the parameters only
+    // after the note starts).
     void noteOn()
     {
-        stage = Stage::Attack;
+        stage = Stage::Delay;
         position = 0.0;
         currentValue = 0.0f;
         attackStart = 0.0f;
@@ -69,8 +78,36 @@ public:
 
     float getNextSample()
     {
+        if (stage == Stage::Delay)
+        {
+            if (position < (double) params.delay * sampleRate)
+            {
+                position += 1.0;
+                currentValue = 0.0f;
+                return currentValue;
+            }
+
+            stage = Stage::Attack;
+            position = 0.0;
+        }
+
         switch (stage)
         {
+
+            case Stage::Hold:
+            {
+                position += 1.0;
+                currentValue = 1.0f;
+
+                if (position >= (double) params.hold * sampleRate)
+                {
+                    stage = Stage::Decay;
+                    position = 0.0;
+                }
+
+                break;
+            }
+
             case Stage::Attack:
             {
                 position += 1.0;
@@ -79,7 +116,7 @@ public:
                 if (position >= length)
                 {
                     currentValue = 1.0f;
-                    stage = Stage::Decay;
+                    stage = params.hold > 0.0f ? Stage::Hold : Stage::Decay;
                     position = 0.0;
                 }
                 else
@@ -134,6 +171,7 @@ public:
                 break;
             }
 
+            case Stage::Delay:
             case Stage::Idle:
             default:
                 currentValue = 0.0f;
@@ -150,6 +188,8 @@ private:
     enum class Stage
     {
         Idle,
+        Delay,
+        Hold,
         Attack,
         Decay,
         Sustain,

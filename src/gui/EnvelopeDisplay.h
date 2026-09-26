@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <tuple>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
@@ -59,12 +60,22 @@ public:
 
         const auto geo = layoutGeometry();
 
-        juce::Path path;
-        path.startNewSubPath (geo.x0, geo.yBottom);
-        addSegment (path, geo.x0, geo.yBottom, geo.xA, geo.yTop, true, geo.exponent);
-        addSegment (path, geo.xA, geo.yTop, geo.xD, geo.ySustain, false, geo.exponent);
-        path.lineTo (geo.xS, geo.ySustain);
-        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponent);
+        const auto path = curvePath (geo);
+
+        // DAHDSR: the delay and hold stretches get a faint band and a label.
+        g.setFont (IlanaTheme::font (10.0f, true));
+        for (const auto& [from, to, name] : { std::tuple<float, float, const char*> { geo.x0, geo.xStart, "DELAY" },
+                                              std::tuple<float, float, const char*> { geo.xA, geo.xH, "HOLD" } })
+        {
+            if (to - from < 2.0f)
+                continue;
+
+            const auto band = juce::Rectangle<float> (from, geo.yTop, to - from, geo.yBottom - geo.yTop);
+            g.setColour (curveColour.withAlpha (0.06f));
+            g.fillRect (band);
+            g.setColour (curveColour.withAlpha (0.55f));
+            g.drawText (name, band.withTrimmedTop (band.getHeight() - 16.0f).toNearestInt(), juce::Justification::centred);
+        }
 
         auto filled = path;
         filled.lineTo (geo.x0, geo.yBottom);
@@ -137,11 +148,26 @@ private:
     struct Geometry
     {
         juce::Rectangle<float> plot;
-        float x0 = 0.0f, xA = 0.0f, xD = 0.0f, xS = 0.0f, xR = 0.0f;
+        // Note start, attack start (after the delay), peak, hold end, decay
+        // end, sustain end, release end.
+        float x0 = 0.0f, xStart = 0.0f, xA = 0.0f, xH = 0.0f, xD = 0.0f, xS = 0.0f, xR = 0.0f;
         float yTop = 0.0f, yBottom = 0.0f, ySustain = 0.0f;
         float exponent = 1.0f;
         float scale = 1.0f;
     };
+
+    static juce::Path curvePath (const Geometry& geo)
+    {
+        juce::Path path;
+        path.startNewSubPath (geo.x0, geo.yBottom);
+        path.lineTo (geo.xStart, geo.yBottom);
+        addSegment (path, geo.xStart, geo.yBottom, geo.xA, geo.yTop, true, geo.exponent);
+        path.lineTo (geo.xH, geo.yTop);
+        addSegment (path, geo.xH, geo.yTop, geo.xD, geo.ySustain, false, geo.exponent);
+        path.lineTo (geo.xS, geo.ySustain);
+        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponent);
+        return path;
+    }
 
     static void addSegment (juce::Path& path, float x1, float y1, float x2, float y2, bool rising, float exponent)
     {
@@ -168,7 +194,8 @@ private:
 
     float fitScale (const juce::Rectangle<float>& plot) const
     {
-        const auto total = timeUnits (readSeconds ("attack")) + timeUnits (readSeconds ("decay"))
+        const auto total = timeUnits (readSeconds ("delay")) + timeUnits (readSeconds ("attack"))
+                           + timeUnits (readSeconds ("hold")) + timeUnits (readSeconds ("decay"))
                            + holdUnits + timeUnits (readSeconds ("release"));
 
         // A little headroom so the release end is never pinned to the edge,
@@ -185,8 +212,10 @@ private:
         const auto sustain = readValue ("sustain");
 
         geo.x0 = geo.plot.getX();
-        geo.xA = geo.x0 + scale * timeUnits (readSeconds ("attack"));
-        geo.xD = geo.xA + scale * timeUnits (readSeconds ("decay"));
+        geo.xStart = geo.x0 + scale * timeUnits (readSeconds ("delay"));
+        geo.xA = geo.xStart + scale * timeUnits (readSeconds ("attack"));
+        geo.xH = geo.xA + scale * timeUnits (readSeconds ("hold"));
+        geo.xD = geo.xH + scale * timeUnits (readSeconds ("decay"));
         geo.xS = geo.xD + scale * holdUnits;
         geo.xR = geo.xS + scale * timeUnits (readSeconds ("release"));
         geo.yTop = geo.plot.getY();
@@ -209,9 +238,9 @@ private:
     std::array<juce::Point<float>, 3> tensionHandlePositions (const Geometry& geo) const
     {
         return {
-            juce::Point<float> { (geo.x0 + geo.xA) * 0.5f,
+            juce::Point<float> { (geo.xStart + geo.xA) * 0.5f,
                                  juce::jmap (std::pow (0.5f, geo.exponent), geo.yBottom, geo.yTop) },
-            juce::Point<float> { (geo.xA + geo.xD) * 0.5f,
+            juce::Point<float> { (geo.xH + geo.xD) * 0.5f,
                                  geo.yBottom - (readValue ("sustain")
                                                 + (1.0f - readValue ("sustain")) * std::pow (0.5f, geo.exponent))
                                                     * geo.plot.getHeight() },
@@ -316,12 +345,7 @@ private:
     {
         const auto geo = layoutGeometry();
 
-        juce::Path path;
-        path.startNewSubPath (geo.x0, geo.yBottom);
-        addSegment (path, geo.x0, geo.yBottom, geo.xA, geo.yTop, true, geo.exponent);
-        addSegment (path, geo.xA, geo.yTop, geo.xD, geo.ySustain, false, geo.exponent);
-        path.lineTo (geo.xS, geo.ySustain);
-        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponent);
+        const auto path = curvePath (geo);
 
         juce::Point<float> nearest;
         const auto distance = path.getNearestPoint (position, nearest);
@@ -429,11 +453,11 @@ private:
         switch (dragHandle)
         {
             case 0:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.x0) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xStart) / geo.scale));
                 break;
 
             case 1:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xA) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xH) / geo.scale));
                 setSustainFromY (event.position.y);
                 break;
 

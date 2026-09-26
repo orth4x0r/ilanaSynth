@@ -129,7 +129,17 @@ public:
             const auto framePosition = frame * (float) (frameCount - 1);
             const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (framePosition));
 
-            drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 1.6f);
+            // With a warp (or the PD chain) on, the trace is the warped cycle
+            // at the knob settings, over a faint copy of the plain frame.
+            if (hasWarp())
+            {
+                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour.withAlpha (0.25f), 1.0f);
+                drawWarpedFrame (g, table, frameIndex, plot, centreY, halfHeight);
+            }
+            else
+            {
+                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 1.6f);
+            }
 
             const auto markerX = plot.getX() + plot.getWidth() * frame;
             g.setColour (juce::Colours::white.withAlpha (0.2f));
@@ -694,6 +704,83 @@ private:
 
         g.setColour (colour);
         g.strokePath (path, juce::PathStrokeType (thickness));
+    }
+
+    // The phase warps the oscillator applies itself (not FM or Ring), for
+    // the preview.
+    struct WarpStages
+    {
+        int mode1 = 0, mode2 = 0;
+        float amount1 = 0.0f, amount2 = 0.0f;
+    };
+
+    WarpStages readWarp() const
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
+        WarpStages stages;
+        stages.mode1 = readChoice (prefix + "_warp");
+        stages.amount1 = readPlain (prefix + "_warp_amt");
+        stages.mode2 = Warp::modeForStageTwoChoice (readChoice (prefix + "_warp2"));
+        stages.amount2 = readPlain (prefix + "_warp2_amt");
+
+        if (! Warp::isOscillatorWarp (stages.mode1)) stages.amount1 = 0.0f;
+        if (! Warp::isOscillatorWarp (stages.mode2)) stages.amount2 = 0.0f;
+        return stages;
+    }
+
+    bool hasWarp() const
+    {
+        if (subTableMapping || (modeId.isNotEmpty() && readChoice (modeId) != 0))
+            return false;
+
+        const auto stages = readWarp();
+        return stages.amount1 > 0.0f || stages.amount2 > 0.0f;
+    }
+
+    void drawWarpedFrame (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot,
+                          float centreY, float halfHeight) const
+    {
+        const auto width = (int) plot.getWidth();
+
+        if (width < 2)
+            return;
+
+        const auto stages = readWarp();
+        const auto* data = table->getFrameData (0, frameIndex);
+        juce::Path path;
+
+        const auto applyStage = [] (int mode, float amount, double phase, bool& silent, float& gain)
+        {
+            if (amount <= 0.0f)
+                return phase;
+
+            if (Warp::isPhaseDistortion (mode))
+                return Warp::applyPhaseDistortion (mode, amount, phase, gain);
+
+            return Warp::apply (mode, amount, phase, silent);
+        };
+
+        for (int x = 0; x < width; ++x)
+        {
+            auto silent = false;
+            auto gain = 1.0f, gain2 = 1.0f;
+            auto phase = juce::jlimit (0.0, 0.999999, (double) x / (double) (width - 1));
+            phase = applyStage (stages.mode1, stages.amount1, phase, silent, gain);
+            if (! silent)
+                phase = applyStage (stages.mode2, stages.amount2, phase, silent, gain2);
+
+            const auto index = (int) (phase * (double) Wavetable::frameSize);
+            const auto sample = silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+            const auto y = centreY - sample * halfHeight;
+
+            if (x == 0)
+                path.startNewSubPath (plot.getX(), y);
+            else
+                path.lineTo (plot.getX() + (float) x, y);
+        }
+
+        g.setColour (traceColour);
+        g.strokePath (path, juce::PathStrokeType (1.6f));
     }
 
     IlanaSynthAudioProcessor& processorRef;

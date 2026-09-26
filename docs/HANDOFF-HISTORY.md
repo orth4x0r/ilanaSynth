@@ -140,3 +140,43 @@ The user rejected the compact/expanded OSC list: "make them as big as they used 
 ## Known gaps
 
 No known M3b sound or UI gaps. The factory tuning test has occasionally reported Grain Choir around 39 cents out on one run; it passed in the final run with the same audio implementation. Nothing from M3b has been pushed. The plugin was built locally but not installed.
+
+## M5 Deep FM, M6 phase distortion, M6b 64-slot matrix (Claude, 2026-09-26)
+
+Done in one pass at the user's request ("the three phases"), then a debug pass and a polish pass.
+
+**M5 Deep FM.**
+- **Tuning** (`OscTuning` in `Voice.h`): `oscN_tune` Semitones / Ratio / Fixed Hz. `oscN_ratio` (0.0625–32) snaps with `oscN_ratio_snap`: Free, Harmonic (0.25, 0.5, 1..32), Inharmonic (square roots of non-squares up to 128, plus √2/2 and √3/2), Bell (hum 0.5, prime, tierce 1.2, quint, nominal, 2.5, 2.667, bar modes 2.756 / 5.404 / 8.933 / 13.34, and a few octaves). SEMI and FINE apply on top. Ratio follows note, bend, glide and drift; Fixed Hz (`oscN_fixed_hz`) follows only its pitch modulation. Strings use the same pitch.
+- **Key scaling:** `oscN_key_level` is ±6 dB per octave from C3 (gain clamped to 4). `ampN/feN/.../envN_keyrate` halves every stage time per octave at 100 %.
+- **Envelopes:** DAHDSR. `*_delay` and `*_hold` for all 16 (prefixes `amp fe f2e me e4 env6..env16`). The delay stage decides lazily on its first sample, because the voice sets envelope parameters after `startNote` (the first note skipped its delay otherwise); zero delay is bit-identical. **MSEG as an envelope:** amp envelope choice 16 runs the MSEG shape per voice (`envMseg`), clamped to 0..1; the voice lives as long as ENV 1.
+- **Feedback types** (`oscN_fb_type`, `FmFeedback`): Plain (the old one-sample loop), Filtered (a DX7-style two-sample average through a one-pole at 8× the operator's pitch), Cross (the FB cell runs both ways between pairs 1-2, 3-4, 5-6). Only computed when some active oscillator uses a non-plain type.
+- **Noise operator:** `fm_noise1..6` into each oscillator's FM input, `fm_noise_color` from a 200 Hz one-pole to white. Own generator (`fmNoiseRandom`, seed 31337).
+- **Algorithms:** `src/dsp/FmAlgorithms.h`, 16 of them: nine small ones (2–4 operators) and seven after DX7 algorithms 1, 5, 7, 16, 19, 22 and 32. `applyFmAlgorithm` adds the operators it needs, clears other routes, keeps the amounts of routes it keeps (new ones start at 35 %, feedback 15 %) and sets OUT. `findMatchingFmAlgorithm` prefers the match with the most operators (Pair + Sine also satisfies 2-Op Stack).
+- **Reference and fit:** there is no recording to fit, so the reference is an ideal phase-modulation renderer in the test (`renderFmReference`: `sin()` operators, the same routes one sample late, `TensionAdsr` envelopes). Three DX-style patches (keys with a 14:1 tine, a √12 / 2.756 bell, a 1:1 feedback bass) match it with a mean partial error of **0.017, 0.006 and 0.007 dB**. Two operators match Bessel sideband levels (J0/J1/J2 at index 1.5) within **0.02 dB**. The first bass fit failed at 4.9 dB: at feedback 0.25 the ideal renderer and the engine both fall into a period-2 (half-sample-rate) oscillation, locked in opposite phase. The reference bass now uses 0.12, and a test checks that Filtered feedback avoids the buzz (0.011 against 0.79 for Plain).
+
+**M6 phase distortion.**
+- Warp modes appended: PD Saw, PD Square, PD Pulse, PD Res I–III (10–15). `Warp::applyPhaseDistortion`: the CZ reads a cosine through a bent phase; here the bend happens a quarter cycle on (where a sine table reads as a cosine) and is shifted back, so the Sine table gives the CZ wave inverted and a quarter cycle late (inaudible), and any table gets the same bend. The resonant waves are a sine at 1 + 15 × amount restarting each cycle under a saw / triangle / trapezoid window (zero-DC; it fades in over the first quarter of the knob). They match the CZ formulas (`czReference` in the test) to float precision, and their harmonics to 0.000 dB.
+- **PD chain:** `oscN_warp2` / `oscN_warp2_amt`, a second stage after the first. Its list skips FM and Ring (`Warp::getStageTwoNames`, `modeForStageTwoChoice`). Band-limiting uses both stages' stretch.
+- **Warp envelope (DCW):** `oscN_pd_env` (Off, ENV 1–16, MSEG) and `oscN_pd_env_amt` (−1..1). It adds to both stages' amounts at the 16-sample update rate.
+
+**M6b.** `Mod::maxSlots` is 64. Slots 33–64 are appended after every other parameter, so slots 1–32 keep their places. The matrix page only builds rows that are in use, and now refreshes when shown (it had waited for its timer). With eight notes, an empty matrix measured 108 ms/s and all 64 slots 297 ms/s.
+
+**New modulation destinations** (block-rate parameter destinations, appended after the M4 list): per oscillator Warp 2, Warp Env and Key Level; FM Noise > Osc1..6 and FM Noise Colour; and the 27 FM cells added with OSC 4–6 (the nine original ones are per-voice). 394 of 512 destinations are in use.
+
+**UI.**
+- FM page: an algorithm strip (small routing pictures, the matching one lit), the diagram (a flat hexagon for six operators, a noise node when noise is routed), an operator panel (OP 1–6: TUNING, SNAP, FB TYPE, ENVELOPE, RATIO or FIXED, SEMI, FINE, LEVEL, KEY LVL, with "sounds at x…" after SNAP), and a NOISE row in the matrix with NOISE COLOUR in the top strip. Diagonal cells read FB, FB~ (filtered) or FB<> (cross).
+- OSC card: a WARP CHAIN row (WARP 2, WARP 2 AMT, WARP ENV, ENV AMT) opens when a warp is picked. The wave display draws the warped cycle over a faint copy of the frame.
+- ENV: a second row with DELAY, HOLD and KEY RATE. The graph and the envelope cards draw delay and hold.
+
+**Debug pass.**
+- The envelope delay (above).
+- The matrix page refresh (above).
+- The LFO panel could show a hidden LFO restored from the saved selection ("LFO 14" with three LFOs shown); it now falls back to the first shown LFO.
+- A ratio "×" in a narrow string literal came out as mojibake under MSVC; it is now "x".
+
+**Verified.**
+- All targets build, with no warnings from the changed files.
+- Fingerprints: **0 of 241** changed (`build/m5-before.csv` against `build/m5-after.csv`).
+- `ilanaSnapshot --uitest`: 0 failures (new: algorithm click, operator panel, PD chain row, envelope knobs, slot 60 row).
+- `ilanaTableTest`: see the final run in HANDOFF / the commit message.
+- CPU: alternating runs against a baseline build of `363862c` in `../ilana-baseline`: heavy 42.4 % against 41.6 %, extreme 85 % against 83 %.

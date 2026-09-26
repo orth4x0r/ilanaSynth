@@ -23,6 +23,7 @@
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
 #include "gui/FmDiagram.h"
+#include "gui/FmWidgets.h"
 #include "gui/TableBrowser.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
@@ -190,10 +191,17 @@ class OscPage : public juce::Component,
               grainDensity (state, prefix + "_grain_density", "DENSITY"),
               grainSpray (state, prefix + "_grain_spray", "SPRAY"),
               grainPitch (state, prefix + "_grain_pitch", "PITCH RND"),
-              grainSpread (state, prefix + "_grain_spread", "STEREO") {}
+              grainSpread (state, prefix + "_grain_spread", "STEREO"),
+              warp2 (state, prefix + "_warp2", "WARP 2"),
+              pdEnv (state, prefix + "_pd_env", "WARP ENV"),
+              warp2Amt (state, prefix + "_warp2_amt", "WARP 2 AMT"),
+              pdEnvAmt (state, prefix + "_pd_env_amt", "ENV AMT") {}
 
         ToggleControl on, sampleTuned, sampleLoop, sampleReverse;
         ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral;
+        // M6: the PD chain's second stage and the warp (DCW) envelope.
+        ComboControl warp2, pdEnv;
+        KnobControl warp2Amt, pdEnvAmt;
         KnobControl frame, level, pan, semi, fine, unison, detune, spread;
         KnobControl stringDecay, stringDamp, stringSustain;
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut;
@@ -256,7 +264,7 @@ public:
             addAll (*this, osc.grainPosition, osc.grainSize, osc.grainDensity,
                     osc.grainSpray, osc.grainPitch, osc.grainSpread,
                     osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode,
-                    osc.warpAmt, osc.uniBlend);
+                    osc.warpAmt, osc.uniBlend, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
 
             addAll (*this, osc.on, osc.mode, osc.table, osc.excite,
                     osc.frame, osc.level, osc.pan, osc.semi, osc.fine,
@@ -301,7 +309,7 @@ public:
         noiseLevel.setVisible (false);
 
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on", "_excite" })
+            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
 
         for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
@@ -346,7 +354,7 @@ public:
     ~OscPage() override
     {
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on", "_excite" })
+            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
 
         for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
@@ -423,6 +431,18 @@ public:
 
             if (! controlBay[(size_t) band].isEmpty())
                 IlanaTheme::paintRecessedPanel (g, controlBay[(size_t) band].toFloat(), 6.0f);
+
+            if (! chainLabel[(size_t) band].isEmpty())
+            {
+                IlanaTheme::paintRecessedPanel (g, chainBay[(size_t) band].toFloat(), 6.0f);
+                const auto label = chainLabel[(size_t) band];
+                g.setColour (tint.withAlpha (0.8f));
+                g.setFont (IlanaTheme::font (11.0f, true));
+                g.drawText ("WARP CHAIN", label.withHeight (18), juce::Justification::centredLeft);
+                g.setColour (juce::Colours::white.withAlpha (0.35f));
+                g.setFont (IlanaTheme::font (10.0f));
+                g.drawFittedText ("second stage and\nthe DCW envelope", label.withTrimmedTop (18), juce::Justification::topLeft, 2);
+            }
         }
 
         if (! subStrip.isEmpty())
@@ -604,9 +624,24 @@ private:
     static constexpr int minBandHeight = 124;
     static constexpr int physicalExtra = 140;
 
+    static constexpr int warpChainExtra = 58;
+
+    // A wavetable oscillator with a warp picked opens a row for the PD
+    // chain's second stage and the warp envelope.
+    bool showsWarpChain (int index) const
+    {
+        if (getMode (index) != 0)
+            return false;
+
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)]);
+        const auto* warp = processorRef.apvts.getRawParameterValue (prefix + "_warp");
+        const auto* warp2 = processorRef.apvts.getRawParameterValue (prefix + "_warp2");
+        return (warp != nullptr && warp->load() > 0.5f) || (warp2 != nullptr && warp2->load() > 0.5f);
+    }
+
     int heightOfBand (int index) const
     {
-        return bandHeight + (getMode (index) == 1 ? physicalExtra : 0);
+        return bandHeight + (getMode (index) == 1 ? physicalExtra : 0) + (showsWarpChain (index) ? warpChainExtra : 0);
     }
 
     bool readBool (const juce::String& id) const
@@ -698,6 +733,17 @@ private:
 
         auto topRow = content.removeFromTop (38);
         content.removeFromTop (3);
+        chainLabel[(size_t) index] = {};
+
+        if (showsWarpChain (index))
+        {
+            auto chainRow = content.removeFromBottom (warpChainExtra).withTrimmedTop (4);
+            chainBay[(size_t) index] = chainRow.expanded (4, 0);
+            auto& chainControls = *controls[(size_t) index];
+            chainLabel[(size_t) index] = chainRow.removeFromLeft (120).reduced (8, 6);
+            layoutSlots (chainRow, { &chainControls.warp2, &chainControls.warp2Amt, &chainControls.pdEnv, &chainControls.pdEnvAmt });
+        }
+
         auto bottomRow = content;
 
         const auto mode = getMode (index);
@@ -865,7 +911,7 @@ private:
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
-                 &osc.grainSpread, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
+                 &osc.grainSpread, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap, &waveDisplay (i), &loadButton (i), removeButtons[(size_t) i].get() };
     }
@@ -929,6 +975,11 @@ private:
             osc.warpAmt.setVisible (mode == 0);
             osc.spectral.setVisible (mode == 0);
             osc.spectralAmt.setVisible (mode == 0);
+            const auto chain = showsWarpChain (i);
+            osc.warp2.setVisible (chain);
+            osc.warp2Amt.setVisible (chain);
+            osc.pdEnv.setVisible (chain);
+            osc.pdEnvAmt.setVisible (chain);
             osc.grainPosition.setVisible (mode == 3);
             osc.grainSize.setVisible (mode == 3);
             osc.grainDensity.setVisible (mode == 3);
@@ -997,7 +1048,8 @@ private:
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread,
-                               &osc.uniMode, &osc.uniBlend, &osc.ampEnv }, enabled);
+                               &osc.uniMode, &osc.uniBlend, &osc.ampEnv,
+                               &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt }, enabled);
 
             const auto alpha = enabled ? 1.0f : 0.3f;
             waveDisplay (index).setAlpha (alpha);
@@ -1018,6 +1070,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waveDisplays;
     std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
+    std::array<juce::Rectangle<int>, OscillatorIds::count> chainLabel {}, chainBay {};
+
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons;
     juce::TextButton addButton;
     std::unique_ptr<juce::FileChooser> tableChooser;
@@ -1375,6 +1429,16 @@ public:
         units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, nullptr, &meCurve } });
         units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, nullptr, &e4Curve } });
 
+        // M5 DAHDSR and rate key scaling: a second row on every envelope.
+        {
+            const char* const prefixes[] { "amp", "fe", "f2e", "me", "e4" };
+            const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+                                           juce::Colour (0xff8fff3b), juce::Colour (0xffffd447) };
+
+            for (int env = 0; env < 5; ++env)
+                addStageTwoKnobs (p, prefixes[env], colours[env], units[(size_t) env], env == 0);
+        }
+
         for (int env = 6; env <= 16; ++env)
         {
             const auto prefix = "env" + juce::String (env);
@@ -1394,6 +1458,7 @@ public:
             for (auto& knob : extra.knobs)
                 knobs.push_back (knob.get());
             units.push_back ({ extra.display.get(), std::move (knobs) });
+            addStageTwoKnobs (p, prefix, colour, units.back(), false);
             extraUnits.push_back (std::move (extra));
         }
 
@@ -1436,8 +1501,17 @@ public:
         panel = area;
         auto inner = panel.reduced (10, 6);
         inner.removeFromTop (20);
-        layoutFixed (inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), 140)),
-                     units[(size_t) unitIndex].knobs);
+        // First row: the ADSR, velocity and tension as before; second row:
+        // delay, hold and key rate.
+        const auto& knobs = units[(size_t) unitIndex].knobs;
+        const std::vector<juce::Component*> first (knobs.begin(), knobs.begin() + juce::jmin ((int) knobs.size(), 6));
+        const std::vector<juce::Component*> second (knobs.begin() + (int) first.size(), knobs.end());
+        const auto rowHeight = juce::jmin (inner.getHeight() / 2, 96);
+        auto rows = inner.withSizeKeepingCentre (inner.getWidth(), rowHeight * 2);
+        layoutFixed (rows.removeFromTop (rowHeight), first);
+
+        if (! second.empty())
+            layoutFixed (rows.withWidth (rows.getWidth() * (int) second.size() / 6), second);
     }
 
     void paint (juce::Graphics& g) override
@@ -1479,6 +1553,24 @@ private:
         juce::Component* display = nullptr;
         std::vector<juce::Component*> knobs;
     };
+
+    void addStageTwoKnobs (IlanaSynthAudioProcessor& p, const juce::String& prefix, juce::Colour colour, Unit& unit,
+                           bool followsTheme)
+    {
+        const char* const suffixes[] { "_delay", "_hold", "_keyrate" };
+        const char* const labels[] { "DELAY", "HOLD", "KEY RATE" };
+
+        for (int i = 0; i < 3; ++i)
+        {
+            auto knob = std::make_unique<KnobControl> (p.apvts, prefix + suffixes[i], labels[i], colour, followsTheme);
+            addChildComponent (*knob);
+            unit.knobs.push_back (knob.get());
+            stageTwoKnobs.push_back (std::move (knob));
+        }
+    }
+
+    std::vector<std::unique_ptr<KnobControl>> stageTwoKnobs;
+
 
     static void layoutFixed (juce::Rectangle<int> area, const std::vector<juce::Component*>& items)
     {
@@ -1706,6 +1798,15 @@ private:
 
     void updateVisibility()
     {
+        // A remembered selection can point at an LFO this patch doesn't show.
+        if (! processorRef.isLfoShown (selected))
+            for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                if (processorRef.isLfoShown (lfo))
+                {
+                    selected = lfo;
+                    break;
+                }
+
         for (int lfo = 0; lfo < (int) displays.size(); ++lfo)
         {
             displays[(size_t) lfo]->setVisible (lfo == selected);
@@ -1823,20 +1924,47 @@ private:
     int lfoBottom = 0;
 };
 
-// FM between six oscillators: the operator diagram on the left, the
-// full matrix of amounts on the right (rows = from, columns = to), plus the
-// FM style, each oscillator's output switch, ring mod and hard sync.
+// FM between six oscillators: the algorithms, the operator diagram and the
+// selected operator's settings on the left; the full matrix of amounts on the
+// right (rows = from, columns = to, plus the noise operator), with the FM
+// style, each oscillator's output switch, ring mod and hard sync.
 class FmPage : public juce::Component,
                private juce::Timer
 {
+    // One operator's M5 settings (tuning, key scaling, feedback style) and
+    // the oscillator controls that matter most when it is an operator.
+    struct OperatorControls
+    {
+        OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefix, juce::Colour colour)
+            : tune (state, prefix + "_tune", "TUNING"),
+              snap (state, prefix + "_ratio_snap", "SNAP"),
+              feedbackType (state, prefix + "_fb_type", "FB TYPE"),
+              ampEnv (state, prefix + "_amp_env", "ENVELOPE"),
+              ratio (state, prefix + "_ratio", "RATIO", colour, false),
+              fixedHz (state, prefix + "_fixed_hz", "FIXED", colour, false),
+              semi (state, prefix + "_semi", "SEMI", colour, false),
+              fine (state, prefix + "_fine", "FINE", colour, false),
+              level (state, prefix + "_level", "LEVEL", colour, false),
+              keyLevel (state, prefix + "_key_level", "KEY LVL", colour, false) {}
+
+        ComboControl tune, snap, feedbackType, ampEnv;
+        KnobControl ratio, fixedHz, semi, fine, level, keyLevel;
+
+        std::vector<juce::Component*> all()
+        {
+            return { &tune, &snap, &feedbackType, &ampEnv, &ratio, &fixedHz, &semi, &fine, &level, &keyLevel };
+        }
+    };
+
 public:
     explicit FmPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           diagram (p),
+          algorithms (p),
           mode (p.apvts, "fm_mode", "FM MODE"),
           hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
     {
-        addAll (*this, diagram, mode, hardSync);
+        addAll (*this, diagram, algorithms, mode, hardSync);
         ringMod = std::make_unique<StripKnob> (p, "ring_mod", "Ring Mod", -1, fmColour(), false);
         addAndMakeVisible (*ringMod);
 
@@ -1853,19 +1981,71 @@ public:
             outs[(size_t) source] = std::make_unique<ToggleControl> (
                 p.apvts, juce::String (OscillatorIds::prefixes[(size_t) source]) + "_out", "OUT");
             addAndMakeVisible (*outs[(size_t) source]);
+
+            noiseKnobs[(size_t) source] = std::make_unique<KnobControl> (p.apvts, "fm_noise" + juce::String (source + 1), "",
+                                                                          noiseColour(), false);
+            addAndMakeVisible (*noiseKnobs[(size_t) source]);
+
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) source]);
+            operators[(size_t) source] = std::make_unique<OperatorControls> (p.apvts, prefix, FmDiagram::oscColour (source));
+            for (auto* control : operators[(size_t) source]->all())
+                addChildComponent (control);
+
+            auto button = std::make_unique<juce::TextButton> ("OP " + juce::String (source + 1));
+            button->setClickingTogglesState (false);
+            button->setColour (juce::TextButton::buttonOnColourId, FmDiagram::oscColour (source).withAlpha (0.55f));
+            button->onClick = [this, source] { selectOperator (source); };
+            addAndMakeVisible (*button);
+            operatorButtons[(size_t) source] = std::move (button);
         }
 
+        noiseColourKnob = std::make_unique<StripKnob> (p, "fm_noise_color", "Noise Colour", -1, noiseColour(), false);
+        addAndMakeVisible (*noiseColourKnob);
+
+        for (const auto* prefix : OscillatorIds::prefixes)
+            tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + "_tune"));
+
         refreshShown();
+        selectOperator (0);
         startTimerHz (12);
     }
 
     static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }
+    static juce::Colour noiseColour() { return juce::Colour (0xffc8c8d0); }
+
+    int getSelectedOperator() const { return selectedOperator; }
+
+    void selectOperator (int op)
+    {
+        selectedOperator = juce::jlimit (0, OscillatorIds::count - 1, op);
+
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            operatorButtons[(size_t) i]->setToggleState (i == selectedOperator, juce::dontSendNotification);
+
+        updateOperatorVisibility();
+        resized();
+        repaint();
+    }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "OPERATORS", { 14, 10, 300, 16 });
+        paintSectionTitle (g, "ALGORITHMS", { 14, 10, 300, 16 });
+        paintSectionTitle (g, "OPERATORS", operatorsTitle);
         IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
+
+        // The selected operator's settings.
+        {
+            const auto colour = FmDiagram::oscColour (selectedOperator);
+            IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
+            g.setColour (colour);
+            g.setFont (IlanaTheme::font (12.5f, true));
+            g.drawText ("OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR",
+                        operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.55f));
+            g.setFont (IlanaTheme::font (11.5f));
+            g.drawText (soundingText(), operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
+        }
 
         g.setColour (fmColour());
         g.setFont (IlanaTheme::font (13.0f, true));
@@ -1875,29 +2055,35 @@ public:
         g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
 
         // Matrix cells: tinted by the source, brighter the deeper the route.
+        const auto paintCell = [&g] (juce::Rectangle<float> cell, float amount, juce::Colour colour)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.22f));
+            g.fillRoundedRectangle (cell, 6.0f);
+            g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
+            g.fillRoundedRectangle (cell, 6.0f);
+            g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
+            g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
+        };
+
         for (const auto source : shown)
         {
             for (const auto target : shown)
             {
                 const auto cell = cells[(size_t) source][(size_t) target].toFloat();
-                const auto* value = processorRef.apvts.getRawParameterValue (FmDiagram::routeId (source, target));
-                const auto amount = value != nullptr ? juce::jlimit (0.0f, 1.0f, value->load()) : 0.0f;
                 const auto colour = FmDiagram::oscColour (source);
-
-                g.setColour (juce::Colours::black.withAlpha (0.22f));
-                g.fillRoundedRectangle (cell, 6.0f);
-                g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
-                g.fillRoundedRectangle (cell, 6.0f);
-                g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
-                g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
+                paintCell (cell, read (FmDiagram::routeId (source, target)), colour);
 
                 if (source == target)
                 {
                     g.setColour (colour.withAlpha (0.6f));
                     g.setFont (IlanaTheme::font (9.5f, true));
-                    g.drawText ("FB", cell.reduced (6.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
+                    const auto type = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type"));
+                    g.drawText (type == FmFeedback::Filtered ? "FB~" : type == FmFeedback::Cross ? "FB<>" : "FB",
+                                cell.reduced (6.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
                 }
             }
+
+            paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
         }
 
         // Column and row headings.
@@ -1909,19 +2095,42 @@ public:
             g.drawText ("TO OSC " + juce::String (i + 1), columnHeads[(size_t) i], juce::Justification::centred);
             g.drawText ("OSC " + juce::String (i + 1), rowHeads[(size_t) i].withHeight (18), juce::Justification::centredLeft);
         }
+
+        g.setColour (noiseColour());
+        g.drawText ("NOISE", noiseHead.withHeight (18), juce::Justification::centredLeft);
+    }
+
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            algorithms.refreshMatch();
     }
 
     // The matrix follows the oscillators added to the patch.
     void timerCallback() override
     {
-        if (refreshShown())
+        const auto tuneChanged = [this]
         {
+            auto changed = false;
+            for (size_t i = 0; i < tuneValues.size(); ++i)
+            {
+                const auto value = tuneValues[i] != nullptr ? juce::roundToInt (tuneValues[i]->load()) : 0;
+                changed = changed || value != lastTune[i];
+                lastTune[i] = value;
+            }
+            return changed;
+        }();
+
+        if (refreshShown() || tuneChanged)
+        {
+            updateOperatorVisibility();
             resized();
             repaint();
         }
         else if (isShowing())
         {
             repaint (matrixCard);
+            repaint (operatorCard.withHeight (26));
         }
     }
 
@@ -1936,6 +2145,10 @@ public:
             return false;
 
         shown = nowShown;
+
+        if (std::find (shown.begin(), shown.end(), selectedOperator) == shown.end() && ! shown.empty())
+            selectedOperator = shown.front();
+
         return true;
     }
 
@@ -1946,16 +2159,116 @@ public:
 
         matrixCard = area.removeFromRight (area.getWidth() * 48 / 100);
         area.removeFromRight (10);
+
+        // Left column: algorithms, the diagram, the selected operator.
+        algorithms.setBounds (area.removeFromTop (area.getWidth() >= 16 * 38 ? 50 : 92));
+        area.removeFromTop (6);
+        operatorsTitle = area.removeFromTop (18).withX (14).withWidth (300);
+        operatorCard = area.removeFromBottom (juce::jmin (176, area.getHeight() / 2));
+        area.removeFromBottom (8);
         diagram.setBounds (area);
 
+        layoutOperatorCard();
+        layoutMatrix();
+    }
+
+private:
+    float read (const juce::String& id) const
+    {
+        if (const auto* value = processorRef.apvts.getRawParameterValue (id))
+            return value->load();
+
+        return 0.0f;
+    }
+
+    // "sounds at x1.414 of the note" and the like, after SNAP.
+    juce::String soundingText() const
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) selectedOperator]);
+        const auto tune = juce::roundToInt (read (prefix + "_tune"));
+
+        if (tune == OscTuning::Ratio)
+            return "sounds at x" + juce::String (processorRef.getSnappedRatio (selectedOperator), 3) + " the note";
+
+        if (tune == OscTuning::Fixed)
+            return "fixed at " + describeValue (prefix + "_fixed_hz", read (prefix + "_fixed_hz"));
+
+        return "tuned in semitones";
+    }
+
+    void updateOperatorVisibility()
+    {
+        for (int op = 0; op < OscillatorIds::count; ++op)
+        {
+            const auto isShown = std::find (shown.begin(), shown.end(), op) != shown.end();
+            operatorButtons[(size_t) op]->setVisible (isShown);
+
+            auto& controls = *operators[(size_t) op];
+            const auto selected = op == selectedOperator;
+            const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_tune"));
+
+            for (auto* control : controls.all())
+                control->setVisible (selected);
+
+            controls.ratio.setVisible (selected && tune == OscTuning::Ratio);
+            controls.snap.setVisible (selected && tune == OscTuning::Ratio);
+            controls.fixedHz.setVisible (selected && tune == OscTuning::Fixed);
+        }
+    }
+
+    void layoutOperatorCard()
+    {
+        auto inner = operatorCard.reduced (10, 0);
+        inner.removeFromTop (26);
+
+        auto tabs = inner.removeFromTop (22);
+        const auto tabWidth = juce::jmin (64, tabs.getWidth() / OscillatorIds::count);
+
+        for (int op = 0; op < OscillatorIds::count; ++op)
+            if (std::find (shown.begin(), shown.end(), op) != shown.end())
+                operatorButtons[(size_t) op]->setBounds (tabs.removeFromLeft (tabWidth).reduced (2, 0));
+
+        inner.removeFromTop (6);
+        auto& controls = *operators[(size_t) selectedOperator];
+        const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
+
+        auto topRow = inner.removeFromTop (46);
+        std::vector<juce::Component*> top { &controls.tune };
+        if (tune == OscTuning::Ratio)
+            top.push_back (&controls.snap);
+        top.push_back (&controls.feedbackType);
+        top.push_back (&controls.ampEnv);
+
+        const auto topWidth = topRow.getWidth() / (int) top.size();
+        for (auto* item : top)
+            item->setBounds (topRow.removeFromLeft (topWidth).reduced (3, 1));
+
+        inner.removeFromTop (4);
+        std::vector<juce::Component*> bottom;
+        if (tune == OscTuning::Ratio)
+            bottom.push_back (&controls.ratio);
+        if (tune == OscTuning::Fixed)
+            bottom.push_back (&controls.fixedHz);
+        for (auto* item : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel })
+            bottom.push_back (item);
+
+        const auto knobWidth = juce::jmin (90, inner.getWidth() / (int) bottom.size());
+        for (auto* item : bottom)
+            item->setBounds (inner.removeFromLeft (knobWidth).reduced (3, 0));
+    }
+
+    void layoutMatrix()
+    {
         auto inner = matrixCard.reduced (10, 0);
         inner.removeFromTop (26);
         inner.removeFromBottom (8);
 
-        // Mode, ring mod and sync across the top.
+        // Mode, ring mod, the noise colour and sync across the top.
         auto top = inner.removeFromTop (48);
-        mode.setBounds (top.removeFromLeft (top.getWidth() * 36 / 100).reduced (3, 1));
-        ringMod->setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 1));
+        const auto topWidth = top.getWidth();
+        mode.setBounds (top.removeFromLeft (topWidth * 21 / 100).reduced (3, 1));
+        ringMod->setBounds (top.removeFromLeft (topWidth * 25 / 100).reduced (3, 1));
+        noiseColourKnob->setBounds (top.removeFromLeft (topWidth * 30 / 100).reduced (3, 1));
         hardSync.setBounds (top.reduced (3, 1));
         inner.removeFromTop (6);
 
@@ -1963,6 +2276,7 @@ public:
         {
             const auto sourceShown = std::find (shown.begin(), shown.end(), source) != shown.end();
             outs[(size_t) source]->setVisible (sourceShown);
+            noiseKnobs[(size_t) source]->setVisible (sourceShown);
 
             for (int target = 0; target < OscillatorIds::count; ++target)
                 knobs[(size_t) source][(size_t) target]->setVisible (
@@ -1978,7 +2292,19 @@ public:
             columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
 
         inner.removeFromTop (4);
-        const auto rowHeight = inner.getHeight() / count;
+
+        const auto rowHeight = inner.getHeight() / (count + 1);
+
+        const auto layoutRow = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
+        {
+            for (const auto target : shown)
+            {
+                auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
+                storeCell (target, cell);
+                const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
+                knobFor (target).setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+            }
+        };
 
         for (const auto source : shown)
         {
@@ -1987,28 +2313,39 @@ public:
             rowHeads[(size_t) source] = head.withTrimmedTop (head.getHeight() / 2 - 26);
             outs[(size_t) source]->setBounds (rowHeads[(size_t) source].withTrimmedTop (20).withHeight (40).reduced (0, 2));
 
-            for (const auto target : shown)
-            {
-                auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
-                cells[(size_t) source][(size_t) target] = cell;
-                const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
-                knobs[(size_t) source][(size_t) target]->setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
-            }
+            layoutRow (row,
+                       [this, source] (int target) -> juce::Component& { return *knobs[(size_t) source][(size_t) target]; },
+                       [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
         }
+
+        auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
+        auto head = row.removeFromLeft (70);
+        noiseHead = head.withTrimmedTop (head.getHeight() / 2 - 26);
+        layoutRow (row,
+
+                   [this] (int target) -> juce::Component& { return *noiseKnobs[(size_t) target]; },
+                   [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
     }
 
-private:
     IlanaSynthAudioProcessor& processorRef;
     FmDiagram diagram;
+    FmAlgorithmStrip algorithms;
     ComboControl mode;
     ToggleControl hardSync;
     std::unique_ptr<StripKnob> ringMod;
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
-    std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads;
+    std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
+    std::unique_ptr<StripKnob> noiseColourKnob;
+    std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;
+    std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard;
-    std::vector<int> shown { 0, 1, 2 };
+    juce::Rectangle<int> matrixCard, operatorCard, operatorsTitle, noiseHead;
+    std::vector<std::atomic<float>*> tuneValues;
+    std::array<int, OscillatorIds::count> lastTune {};
+    std::vector<int> shown;
+    int selectedOperator = 0;
 };
 
 class SeqPage : public juce::Component,
@@ -2997,6 +3334,13 @@ public:
         headerArea = area.removeFromTop (18);
         viewport.setBounds (area);
         layoutList();
+    }
+
+    // Switching to the tab shows the current routings straight away.
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            updateRows();
     }
 
 private:

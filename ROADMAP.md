@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **M1–M4 are done. Next up: M5 (Deep FM).**
+This is the plan for what comes after v1.1. **M1–M4 and M6b are done. M5 and M6 are built and fitted, and wait for their listening round. Next up: M7 (Generative card).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -76,7 +76,8 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Hammer exciter**, 1–3 coupled strings per note, soundboard, sustain pedal resonance, stretch tuning, register map and mechanical noises.
 - **Fitted** to the Iowa MIS grand recordings (E1, C4, C7 at mf and ff). The fit error went from 632 to 90.7. It is still not a convincing piano, so the presets are named as hammered-string instruments rather than pianos.
 
-### M5: Deep FM
+### M5: Deep FM — built, listening round to do
+Fitted to an ideal phase-modulation renderer (EP, bell and bass patches: mean partial error 0.006–0.017 dB) and to Bessel sideband levels (0.02 dB).
 - **Operators are the M3b oscillators**: the 6×6 FM matrix from M3b, plus a noise operator. Old patches map onto operators 1–3.
 - **Tuning**: each operator has a frequency ratio that snaps to harmonic, inharmonic or bell sets, or a fixed frequency in Hz.
 - **Per-operator envelopes** from the M3b envelope pool (DAHDSR, or an MSEG), plus key-scaling of level and rate.
@@ -85,13 +86,14 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Feedback types**: plain, filtered, and cross-feedback between two operators.
 - **Reference**: classic DX-style patches (electric piano, bell, bass), matched by ear and spectrum as a check that the operators and envelopes behave as expected.
 
-### M6: Phase distortion (CZ-style)
+### M6: Phase distortion (CZ-style) — built, listening round to do
+The waves match the CZ formulas to within float precision. The resonant waves use a zero-DC windowed sine (the CZ's spectrum shape, without its DC offset).
 - **New warp modes**: PD Saw, PD Square, PD Pulse, and PD Resonance I, II and III.
 - **PD envelope**: an optional per-oscillator envelope on warp depth, like the CZ's DCW.
 - **PD chain**: two phase-distortion stages in series.
 - **Reference**: the CZ waveforms, compared by waveform and spectrum.
 
-### M6b: Modulation depth (64-slot matrix)
+### M6b: Modulation depth (64-slot matrix) — done
 This comes at the end of v1.2. It is cheap, and the 16 envelopes and 16 LFOs already outgrow 32 slots.
 - **The matrix grows from 32 to 64 slots.** Hosts need a fixed parameter list, so the extra slots are always declared.
 - **Old patches**: slots 1–32 keep their parameter IDs, and slots 33–64 default to empty, so nothing changes in old presets.

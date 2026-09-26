@@ -14,6 +14,7 @@
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
 #include "gui/EnvelopeDisplay.h"
+#include "gui/FmWidgets.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -490,6 +491,94 @@ int runUiTests()
         }
     }
 
+    // M5/M6/M6b pages.
+    {
+        const auto visibleKnob = [&] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == id && ! knob->getBounds().isEmpty())
+                    return true;
+            return false;
+        };
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        // FM: clicking an algorithm routes the operators.
+        tabs->setCurrentTabIndex (tabIndex ("FM"));
+        settle (300);
+
+        if (auto* strip = findChild<FmAlgorithmStrip> (*editor))
+        {
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto at = strip->getCellCentre (10).toFloat();
+            const auto now = juce::Time::getCurrentTime();
+            const juce::MouseEvent click (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                          strip, strip, now, at, now, 1, false);
+            static_cast<juce::Component&> (*strip).mouseDown (click);
+            static_cast<juce::Component&> (*strip).mouseUp (click);
+            settle (400);
+            expect (processor.findMatchingFmAlgorithm() == 10 && processor.isOscillatorShown (5),
+                    "clicking algorithm 11 (DX 5 Keys) routes six operators");
+            expect (visibleKnob ("fm_6to5") && visibleKnob ("fm_noise6"),
+                    "the FM matrix grows to six operators, with the noise row");
+        }
+        else
+        {
+            expect (false, "the FM page has the algorithm strip");
+        }
+
+        // The operator panel follows the selected operator and its tuning.
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        for (auto* button : buttons)
+            if (button->getButtonText() == "OP 2" && visibleInTree (button))
+                button->triggerClick();
+        set ("osc2_tune", (float) OscTuning::Ratio);
+        settle (400);
+        expect (visibleKnob ("osc2_ratio") && ! visibleKnob ("osc1_ratio") && ! visibleKnob ("osc2_fixed_hz"),
+                "selecting OP 2 in Ratio tuning shows its RATIO knob");
+        set ("osc2_tune", (float) OscTuning::Fixed);
+        settle (400);
+        expect (visibleKnob ("osc2_fixed_hz") && ! visibleKnob ("osc2_ratio"), "Fixed tuning swaps RATIO for FIXED");
+
+        // OSC: picking a warp opens the PD chain row.
+        tabs->setCurrentTabIndex (tabIndex ("OSC"));
+        settle (300);
+        set ("osc1_mode", 0.0f);
+        set ("osc1_warp", 0.0f);
+        set ("osc1_warp2", 0.0f);
+        settle (300);
+        const auto hiddenBefore = ! visibleKnob ("osc1_warp2_amt");
+        set ("osc1_warp", (float) Warp::PdSaw);
+        settle (300);
+        expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
+                "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
+
+        // ENV: DAHDSR and key-rate knobs.
+        tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+        settle (300);
+        expect (visibleKnob ("amp_delay") && visibleKnob ("amp_hold") && visibleKnob ("amp_keyrate"),
+                "the amp envelope shows DELAY, HOLD and KEY RATE");
+
+        // MATRIX: a routing in slot 60 shows up as a row.
+        set ("mod60_src", (float) Mod::Source::Lfo3);
+        set ("mod60_dst", (float) Mod::Destination::Filter1Cutoff);
+        set ("mod60_amt", 0.3f);
+        tabs->setCurrentTabIndex (tabIndex ("MATRIX"));
+        settle (400);
+        std::vector<MatrixRow*> matrixRows;
+        findAll<MatrixRow> (*editor, matrixRows);
+        auto slot60 = false;
+        for (auto* row : matrixRows)
+            slot60 = slot60 || (row->isVisible() && row->getSlotIndex() == 59);
+        expect (matrixRows.size() == (size_t) Mod::maxSlots && slot60, "the matrix page has 64 rows and shows slot 60");
+    }
+
     // Header: next steps to the following preset and the display follows.
     std::vector<IconButton*> buttons;
     findAll<IconButton> (*editor, buttons);
@@ -748,6 +837,39 @@ int main (int argc, char** argv)
         }
         processor.removeOscillator (4);
         processor.removeOscillator (3);
+    }
+
+    // M5/M6: a six-operator algorithm, a PD chain and a DAHDSR envelope.
+    {
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        processor.applyFmAlgorithm (10);
+        set ("osc1_tune", 1.0f);
+        set ("fm_noise3", 0.2f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-dx-keys.png"));
+
+        set ("osc1_mode", 0.0f);
+        set ("osc1_table", 8.0f);
+        set ("osc1_warp", (float) Warp::PdRes2);
+        set ("osc1_warp_amt", 0.4f);
+        set ("osc1_warp2", 8.0f);
+        set ("osc1_warp2_amt", 0.3f);
+        set ("osc1_pd_env", 2.0f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        settle (400);
+        save (*editor, outDir.getChildFile ("osc-pd-chain.png"));
+
+        set ("amp_delay", 0.15f);
+        set ("amp_hold", 0.3f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        settle (400);
+        save (*editor, outDir.getChildFile ("env-dahdsr.png"));
     }
 
     // The wavetable browser on its own.

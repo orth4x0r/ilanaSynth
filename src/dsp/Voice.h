@@ -3,12 +3,15 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <array>
+#include <cmath>
+#include <vector>
 
 #include "FilterUnit.h"
 #include "GranularOsc.h"
 #include "KarplusStrong.h"
 #include "LfoShape.h"
 #include "Modulation.h"
+#include "Mseg.h"
 #include "OscillatorIds.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
@@ -40,6 +43,89 @@ enum { Default = 0, Filter1, Filter2, Direct, Both, Count };
 inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2", "No filter", "Both" }; }
 } // namespace FilterRoute
 
+// How an operator's self-feedback (the matrix diagonal) is taken.
+namespace FmFeedback
+{
+enum { Plain = 0, Filtered, Cross, Count };
+
+inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross" }; }
+
+// Cross feedback runs between the two oscillators of a pair: 1-2, 3-4, 5-6.
+inline int partnerOf (int osc) { return osc ^ 1; }
+} // namespace FmFeedback
+
+// Operator tuning (M5).
+namespace OscTuning
+{
+enum { Semitones = 0, Ratio, Fixed, Count };
+
+inline juce::StringArray getModeNames() { return { "Semitones", "Ratio", "Fixed Hz" }; }
+inline juce::StringArray getSnapNames() { return { "Free", "Harmonic", "Inharmonic", "Bell" }; }
+
+// The ratio sets the SNAP knob picks from: whole-number harmonics, square
+// roots of non-square numbers (classic inharmonic FM ratios), and the
+// partials of a tuned church bell and a free bar.
+inline const std::vector<double>& snapSet (int set)
+{
+    static const std::vector<double> harmonic = []
+    {
+        std::vector<double> ratios { 0.25, 0.5 };
+        for (int n = 1; n <= 32; ++n)
+            ratios.push_back ((double) n);
+        return ratios;
+    }();
+    static const std::vector<double> inharmonic = []
+    {
+        std::vector<double> ratios { 0.5 * std::sqrt (2.0), 0.5 * std::sqrt (3.0) };
+        for (int n = 2; n <= 128; ++n)
+        {
+            const auto root = std::sqrt ((double) n);
+            if (std::abs (root - std::round (root)) > 1.0e-9)
+                ratios.push_back (root);
+        }
+        return ratios;
+    }();
+    // Bell: hum, prime, tierce, quint, nominal, deciem, undeciem, duodeciem,
+    // upper octave; bar: the free-bar modes 2.756, 5.404, 8.933, 13.34.
+    static const std::vector<double> bell { 0.5, 1.0, 1.2, 1.5, 2.0, 2.5, 2.667, 2.756, 3.0, 4.0,
+                                            5.0, 5.404, 6.0, 8.0, 8.933, 13.34 };
+    static const std::vector<double> none;
+
+    switch (set)
+    {
+        case 1:  return harmonic;
+        case 2:  return inharmonic;
+        case 3:  return bell;
+        default: return none;
+    }
+}
+
+// The nearest ratio of the set (in pitch), or the ratio itself when Free.
+inline double snapRatio (double ratio, int set)
+{
+    const auto& ratios = snapSet (set);
+
+    if (ratios.empty() || ratio <= 0.0)
+        return ratio;
+
+    auto best = ratios.front();
+    auto bestDistance = 1.0e9;
+
+    for (const auto candidate : ratios)
+    {
+        const auto distance = std::abs (std::log (candidate / ratio));
+
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = candidate;
+        }
+    }
+
+    return best;
+}
+} // namespace OscTuning
+
 struct VoiceParams
 {
     static constexpr int numOscillators = OscillatorIds::count;
@@ -65,7 +151,22 @@ struct VoiceParams
         int warpMode = 0;
         float warpAmount = 0.0f;
         int route = 0; // FilterRoute
-        int ampEnv = 0; // 0..15, ENV 1..16
+        int ampEnv = 0; // 0..15, ENV 1..16; 16 = the MSEG as a one-shot envelope
+
+        // M5 operator settings. Tuning: 0 = semitones (as before), 1 = a
+        // frequency ratio of the note (already snapped), 2 = a fixed pitch.
+        int tuneMode = 0;
+        double ratio = 1.0;
+        double fixedHz = 440.0;
+        float keyLevel = 0.0f;   // level key scaling: dB per octave from C3, x6
+        int feedbackType = 0;    // FmFeedback: plain, filtered, cross
+
+        // M6: the PD chain's second stage and the DCW-style warp envelope
+        // (0 = off, 1..16 = ENV 1..16, 17 = MSEG).
+        int warpMode2 = 0;
+        float warpAmount2 = 0.0f;
+        int pdEnv = 0;
+        float pdEnvAmount = 1.0f;
 
         bool stringMode = false;
         int stringExcite = 0;
@@ -139,6 +240,8 @@ struct VoiceParams
     float fmFeedback = 0.0f;
     float fmMatrix[numOscillators][numOscillators] {}; // [source][target]
     int fmMode = 0;               // 0 phase, 1 through-zero, 2 exponential
+    float fmNoise[numOscillators] {}; // M5: the noise operator into each oscillator
+    float fmNoiseColour = 1.0f;   // 0 dark (about 200 Hz) .. 1 white
     std::array<bool, numOscillators> oscOut { true, true, true };
     float ringMod = 0.0f;
     bool hardSync = false;
@@ -179,6 +282,21 @@ struct VoiceParams
     std::array<TensionAdsr::Parameters, 11> extraEnvs {};
     std::array<float, 11> extraEnvVelocity {};
     std::array<bool, 11> extraEnvNeeded {};
+    // M5: envelope times shrink up the keyboard (0 = off, 1 = halve per octave),
+    // ENV 1..16.
+    std::array<float, 16> envKeyRate {};
+
+    // The MSEG's shape, run per voice as a one-shot envelope when an
+    // oscillator picks it as its amp or warp envelope.
+    struct MsegShape
+    {
+        float levels[Mseg::numPoints] { 0.0f, 1.0f, 0.0f, -1.0f };
+        float times[Mseg::numPoints] { 0.25f, 0.25f, 0.25f, 0.25f };
+        double rateHz = 0.5;
+        bool loop = true;
+    };
+    MsegShape msegShape;
+    bool msegEnvNeeded = false;
     int quality = 1;
     float ampVelocity = 0.5f;
     float filterVelocity = 0.5f;
@@ -273,7 +391,8 @@ public:
 
 private:
     void syncSamplePlayers();
-    void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue);
+    void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues);
+    double oscFrequencyFactor (const VoiceParams::OscParams& settings) const;
     void updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue);
     void updateUnisonLayout();
     float sourceValue (Mod::Source source, int sampleIndex, float ampValue, float filterValue,
@@ -318,6 +437,18 @@ private:
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;
     std::array<TensionAdsr, 11> extraEnvs;
     std::array<float, 11> extraEnvValues {};
+    Mseg envMseg;
+    float msegEnvValue = 0.0f;
+
+    // M5 operator state: the noise operator (its own generator, so existing
+    // random sequences don't shift), filtered feedback history, and each
+    // oscillator's key-scaled level.
+    juce::Random fmNoiseRandom { 31337 };
+    float fmNoiseState = 0.0f;
+    float feedbackHistory[VoiceParams::numOscillators] {};
+    float feedbackFiltered[VoiceParams::numOscillators] {};
+    float feedbackCoeff[VoiceParams::numOscillators] {};
+    float keyLevelGain[VoiceParams::numOscillators] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     juce::Random random;
     juce::Random lfoPoolRandom { 27183 };
 

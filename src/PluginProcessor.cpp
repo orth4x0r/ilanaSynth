@@ -17,6 +17,7 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 #include "dsp/Modulation.h"
 #include "dsp/SampleFactory.h"
 #include "dsp/TableFactory.h"
+#include "dsp/FmAlgorithms.h"
 #include "dsp/Voice.h"
 
 #include <cmath>
@@ -26,6 +27,13 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 
 namespace
 {
+// Parameter prefixes of ENV 1..16: the five named envelopes keep their ids.
+juce::String envelopePrefix (int env)
+{
+    static const char* const named[] { "amp", "fe", "f2e", "me", "e4" };
+    return env < 5 ? juce::String (named[env]) : "env" + juce::String (env + 1);
+}
+
 class WavetableSound : public juce::SynthesiserSound
 {
 public:
@@ -274,6 +282,22 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             oscShapeIds[(size_t) osc] = { prefix + "_warp", prefix + "_warp_amt", prefix + "_uni_mode", prefix + "_uni_blend",
                                           prefix + "_route" };
+            operatorIds[(size_t) osc] = { prefix + "_tune", prefix + "_ratio", prefix + "_ratio_snap", prefix + "_fixed_hz",
+                                          prefix + "_key_level", prefix + "_fb_type", prefix + "_warp2", prefix + "_warp2_amt",
+                                          prefix + "_pd_env", prefix + "_pd_env_amt" };
+            fmNoiseIds[(size_t) osc] = "fm_noise" + juce::String (osc + 1);
+        }
+
+        for (int env = 0; env < 16; ++env)
+        {
+            const auto prefix = envelopePrefix (env);
+            envelopeExtraIds[(size_t) env] = { prefix + "_delay", prefix + "_hold", prefix + "_keyrate" };
+        }
+
+        for (int point = 0; point < Mseg::numPoints; ++point)
+        {
+            msegLevelIds[(size_t) point] = "mseg_level" + juce::String (point + 1);
+            msegTimeIds[(size_t) point] = "mseg_time" + juce::String (point + 1);
         }
     }
 
@@ -650,19 +674,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     }
 
     // Mod matrix
-    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+    const auto sourceNames = Mod::getSourceNames();
+    const auto destinationNames = Mod::getDestinationNames();
+    const auto addModSlotParameters = [&] (int slot)
     {
         const auto prefix = "mod" + juce::String (slot);
         const auto name = "Mod" + juce::String (slot);
 
-        addChoice (prefix + "_src", name + " Src", Mod::getSourceNames(), 0);
-        addChoice (prefix + "_dst", name + " Dst", Mod::getDestinationNames(), 0);
+        addChoice (prefix + "_src", name + " Src", sourceNames, 0);
+        addChoice (prefix + "_dst", name + " Dst", destinationNames, 0);
         addFloat (prefix + "_amt", name + " Amt", -1.0f, 1.0f, 0.0f);
         addFloat (prefix + "_curve", name + " Curve", -1.0f, 1.0f, 0.0f);
         addChoice (prefix + "_pol", name + " Polarity", { "Natural", "Unipolar", "Bipolar" }, 0);
-        addChoice (prefix + "_aux", name + " Via", Mod::getSourceNames(), 0);
+        addChoice (prefix + "_aux", name + " Via", sourceNames, 0);
         addBool (prefix + "_byp", name + " Bypass", false);
-    }
+    };
+    constexpr int legacyModSlots = 32;
+
+    for (int slot = 1; slot <= legacyModSlots; ++slot)
+        addModSlotParameters (slot);
 
     // Macros
     for (int macro = 1; macro <= 4; ++macro)
@@ -920,6 +950,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     for (int env = 1; env <= 16; ++env)
         ampEnvelopeChoices.add ("ENV " + juce::String (env)
                                 + (env == 1 ? " Amp" : env == 2 ? " Filt 1" : env == 3 ? " Filt 2" : env == 4 ? " Mod" : ""));
+    ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -957,6 +988,45 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("mech_key", "Key Noise", 0.0f, 1.0f, 0.0f);
     addFloat ("mech_damper", "Damper Noise", 0.0f, 1.0f, 0.0f);
     addFloat ("mech_pedal", "Pedal Noise", 0.0f, 1.0f, 0.0f);
+
+    // M5 deep FM and M6 phase distortion. All default to the old behaviour.
+    juce::StringArray warpEnvelopeChoices { "Off" };
+    for (int env = 1; env <= 16; ++env)
+        warpEnvelopeChoices.add ("ENV " + juce::String (env));
+    warpEnvelopeChoices.add ("MSEG");
+
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_tune", name + " Tuning", OscTuning::getModeNames(), OscTuning::Semitones);
+        addFloat (prefix + "_ratio", name + " Ratio", 0.0625f, 32.0f, 1.0f, 0.3f, 0.0001f);
+        addChoice (prefix + "_ratio_snap", name + " Ratio Snap", OscTuning::getSnapNames(), 1);
+        addFloat (prefix + "_fixed_hz", name + " Fixed Frequency", 1.0f, 20000.0f, 440.0f, 0.25f, 0.01f);
+        addFloat (prefix + "_key_level", name + " Key Level Scaling", -1.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_fb_type", name + " Feedback Type", FmFeedback::getNames(), FmFeedback::Plain);
+        addChoice (prefix + "_warp2", name + " Warp 2", Warp::getStageTwoNames(), 0);
+        addFloat (prefix + "_warp2_amt", name + " Warp 2 Amount", 0.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_pd_env", name + " Warp Envelope", warpEnvelopeChoices, 0);
+        addFloat (prefix + "_pd_env_amt", name + " Warp Envelope Amount", -1.0f, 1.0f, 1.0f);
+    }
+
+    for (int osc = 1; osc <= OscillatorIds::count; ++osc)
+        addFloat ("fm_noise" + juce::String (osc), "FM Noise > Osc" + juce::String (osc), 0.0f, 1.0f, 0.0f);
+    addFloat ("fm_noise_color", "FM Noise Colour", 0.0f, 1.0f, 1.0f);
+
+    for (int env = 0; env < 16; ++env)
+    {
+        const auto prefix = envelopePrefix (env);
+        const auto name = "ENV " + juce::String (env + 1);
+        addFloat (prefix + "_delay", name + " Delay", 0.0f, 5.0f, 0.0f, 0.35f);
+        addFloat (prefix + "_hold", name + " Hold", 0.0f, 5.0f, 0.0f, 0.35f);
+        addFloat (prefix + "_keyrate", name + " Key Rate Scaling", 0.0f, 1.0f, 0.0f);
+    }
+
+    // M6b: mod slots 33-64, appended so slots 1-32 keep their parameter IDs.
+    for (int slot = legacyModSlots + 1; slot <= Mod::maxSlots; ++slot)
+        addModSlotParameters (slot);
 
     return layout;
 }
@@ -1365,7 +1435,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto id = juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_amp_env";
-        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, 15, (int) getParam (id.toRawUTF8()));
+        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, 16, (int) getParam (id.toRawUTF8()));
     }
     p.quality = juce::jlimit (0, 2, (int) getParam ("quality"));
 
@@ -1559,6 +1629,61 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
         fillWarpAndUnison (osc, p.oscillators[(size_t) osc]);
+
+    // M5 operators and M6 phase distortion.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto& ids = operatorIds[(size_t) osc];
+        auto& settings = p.oscillators[(size_t) osc];
+        settings.tuneMode = juce::jlimit (0, OscTuning::Count - 1, (int) getParam (ids.tune.toRawUTF8()));
+        settings.ratio = OscTuning::snapRatio ((double) getParam (ids.ratio.toRawUTF8()), (int) getParam (ids.snap.toRawUTF8()));
+        settings.fixedHz = (double) getParam (ids.fixedHz.toRawUTF8());
+        settings.keyLevel = getParam (ids.keyLevel.toRawUTF8());
+        settings.feedbackType = juce::jlimit (0, FmFeedback::Count - 1, (int) getParam (ids.feedbackType.toRawUTF8()));
+        settings.warpMode2 = Warp::modeForStageTwoChoice ((int) getParam (ids.warp2.toRawUTF8()));
+        settings.warpAmount2 = getParam (ids.warp2Amount.toRawUTF8());
+        settings.pdEnv = juce::jlimit (0, 17, (int) getParam (ids.pdEnv.toRawUTF8()));
+        settings.pdEnvAmount = getParam (ids.pdEnvAmount.toRawUTF8());
+        p.fmNoise[osc] = getParam (fmNoiseIds[(size_t) osc].toRawUTF8());
+    }
+    p.fmNoiseColour = getParam ("fm_noise_color");
+
+    for (int env = 0; env < 16; ++env)
+    {
+        const auto& ids = envelopeExtraIds[(size_t) env];
+        const auto delay = getParam (ids.delay.toRawUTF8());
+        const auto hold = getParam (ids.hold.toRawUTF8());
+        auto& target = env == 0 ? p.ampEnv : env == 1 ? p.filterEnv : env == 2 ? p.filter2Env
+                     : env == 3 ? p.modEnv : env == 4 ? p.env4 : p.extraEnvs[(size_t) (env - 5)];
+        target.delay = delay;
+        target.hold = hold;
+        p.envKeyRate[(size_t) env] = getParam (ids.keyRate.toRawUTF8());
+    }
+
+    // Envelopes an oscillator uses for its warp (ENV 6-16 only run when
+    // needed), and the MSEG as a per-voice envelope.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        if (! p.oscillatorEnabled[(size_t) osc])
+            continue;
+
+        const auto& settings = p.oscillators[(size_t) osc];
+        if (settings.pdEnv >= 6 && settings.pdEnv <= 16)
+            p.extraEnvNeeded[(size_t) (settings.pdEnv - 6)] = true;
+        p.msegEnvNeeded = p.msegEnvNeeded || settings.pdEnv == 17 || settings.ampEnv == 16;
+    }
+
+    if (p.msegEnvNeeded)
+    {
+        for (int point = 0; point < Mseg::numPoints; ++point)
+        {
+            p.msegShape.levels[point] = getParam (msegLevelIds[(size_t) point].toRawUTF8());
+            p.msegShape.times[point] = getParam (msegTimeIds[(size_t) point].toRawUTF8());
+        }
+
+        p.msegShape.rateHz = (double) getParam ("mseg_rate");
+        p.msegShape.loop = getParam ("mseg_loop") > 0.5f;
+    }
 
     synth.setVoiceMode ((IlanaSynth::Mode) juce::jlimit (0, 2, (int) getParam ("voice_mode")),
                         (int) getParam ("poly_voices"), getParam ("glide_legato") > 0.5f);
@@ -4658,8 +4783,107 @@ void IlanaSynthAudioProcessor::migrateLegacyOsc3 (const std::function<float (con
     set ("sub_semi", (float) juce::jlimit (-24, 24, semi + (octave == 0 ? -12 : -24)));
 }
 
+juce::String IlanaSynthAudioProcessor::fmRouteId (int source, int target)
+{
+    static const char* ids[3][3] {
+        { "fm_feedback", "fm_1to2", "fm_1to3" },
+        { "fm_amount", "fm_fb2", "fm_2to3" },
+        { "fm_3to1", "fm_3to2", "fm_fb3" }
+    };
+
+    if (source < 3 && target < 3)
+        return ids[source][target];
+
+    return source == target ? "fm_fb" + juce::String (source + 1)
+                            : "fm_" + juce::String (source + 1) + "to" + juce::String (target + 1);
+}
+
+double IlanaSynthAudioProcessor::getSnappedRatio (int osc) const
+{
+    const auto& ids = operatorIds[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)];
+    const auto* ratio = apvts.getRawParameterValue (ids.ratio);
+    const auto* snap = apvts.getRawParameterValue (ids.snap);
+    return OscTuning::snapRatio (ratio != nullptr ? (double) ratio->load() : 1.0,
+                                 snap != nullptr ? (int) snap->load() : 0);
+}
+
+void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
+{
+    if (! juce::isPositiveAndBelow (index, FmAlgorithms::count()))
+        return;
+
+    const auto& algorithm = FmAlgorithms::all()[(size_t) index];
+
+    const auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* parameter = apvts.getParameter (id))
+        {
+            const auto normalised = parameter->convertTo0to1 (value);
+
+            if (std::abs (parameter->getValue() - normalised) > 1.0e-6f)
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (normalised);
+                parameter->endChangeGesture();
+            }
+        }
+    };
+
+    for (int op = 0; op < algorithm.numOperators; ++op)
+        if (! isOscillatorShown (op) || apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() < 0.5f)
+            addOscillator (op);
+
+    for (int source = 0; source < OscillatorIds::count; ++source)
+        for (int target = 0; target < OscillatorIds::count; ++target)
+        {
+            const auto id = fmRouteId (source, target);
+            const auto current = apvts.getRawParameterValue (id)->load();
+
+            if (! FmAlgorithms::hasRoute (algorithm, source, target))
+                set (id, 0.0f);
+            else if (current < 0.001f)
+                set (id, source == target ? FmAlgorithms::defaultFeedbackAmount : FmAlgorithms::defaultRouteAmount);
+        }
+
+    for (int op = 0; op < algorithm.numOperators; ++op)
+        set (oscCoreIds[(size_t) op].out, FmAlgorithms::isCarrier (algorithm, op) ? 1.0f : 0.0f);
+}
+
+int IlanaSynthAudioProcessor::findMatchingFmAlgorithm() const
+{
+    // A routing can satisfy a smaller algorithm too (Pair + Sine is a 2-Op
+    // Stack plus a carrier), so the match using the most operators wins.
+    auto best = -1;
+
+    for (int index = 0; index < FmAlgorithms::count(); ++index)
+    {
+        const auto& algorithm = FmAlgorithms::all()[(size_t) index];
+        auto matches = true;
+
+        for (int source = 0; source < OscillatorIds::count && matches; ++source)
+            for (int target = 0; target < OscillatorIds::count && matches; ++target)
+                matches = (apvts.getRawParameterValue (fmRouteId (source, target))->load() > 0.001f)
+                          == FmAlgorithms::hasRoute (algorithm, source, target);
+
+        for (int op = 0; op < OscillatorIds::count && matches; ++op)
+        {
+            const auto on = apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() > 0.5f;
+            const auto out = apvts.getRawParameterValue (oscCoreIds[(size_t) op].out)->load() > 0.5f;
+
+            if (op < algorithm.numOperators)
+                matches = on && out == FmAlgorithms::isCarrier (algorithm, op);
+        }
+
+        if (matches && (best < 0 || algorithm.numOperators > FmAlgorithms::all()[(size_t) best].numOperators))
+            best = index;
+    }
+
+    return best;
+}
+
 bool IlanaSynthAudioProcessor::isOscillatorShown (int index) const
 {
+
     if (isRevealed (Module::Oscillator, index))
         return true;
 

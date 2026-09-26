@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done. Next up: M7, starting with the Generative card (M7.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done. Next up: M7, starting with the follow-ups from the 1.2 polish pass (M7.0), then the Generative card (M7.1).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -113,7 +113,15 @@ This comes at the end of v1.2. It is cheap, and the 16 envelopes and 16 LFOs alr
 Regrouped on 2026-09-26 into four milestones. Each part notes its old number, so older notes stay traceable.
 
 ### M7: Instruments and input
-Generative tools, the BODY section, electric pianos, the wavetable editor and audio input. Each part is fitted, tested and listened to before the next starts; the M7 tag waits for all five.
+Generative tools, the BODY section, electric pianos, the wavetable editor and audio input. Each part is fitted, tested and listened to before the next starts; the M7 tag waits for all six.
+
+#### M7.0: Follow-ups from the 1.2 polish pass
+Left over from the bug and polish pass on 2026-09-26 (see the end of `docs/HANDOFF-HISTORY.md`).
+- **FM modulation for OSC 4–6**: the mod matrix can modulate only the nine original FM cells. Add destinations for the 27 cells to or from OSC 4–6, appended after the current list (never renumbered), and apply them per voice like the original nine. Old presets must fingerprint unchanged.
+- **Filter type buttons**: group the 12 types by family (for example classic, character, comb/formant/morph) instead of one flat grid, in both filter panels. Show the user the layout options first; it's their call.
+- **Empty MATRIX and FX pages**: use the space below the empty-state card (MATRIX) and the quick-add buttons (FX), for example a ghost grid of the 64 slots or more quick-add effects. Ask the user which layout they want.
+- **Envelope and LFO pool cards**: show what each envelope or LFO modulates, as a small subtitle, and dim the unassigned ones.
+- **Number keys 1–9**: they switch tabs while the editor has focus. Check in Ableton whether this gets in the way (Live's computer keyboard doesn't use the number row); if it does, move the shortcut to Ctrl+1–9.
 
 #### M7.1: Generative card (was M7)
 - **Euclidean rhythm**: steps, hits and rotation. It can trigger notes, the physical exciter or the trance gate.

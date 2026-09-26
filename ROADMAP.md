@@ -32,6 +32,12 @@ Any modelled sound (physical models, bodies, electric pianos, the west-coast voi
 
 The fitting tool should become general (`tools/fit_model.py`, with the piano as its first user) when M7.2 (bodies) starts.
 
+**Where references come from** (decided 2026-09-26: the user should not have to do anything):
+- **Internet first**, from sources that need no login. University of Iowa MIS has marimba, xylophone, vibraphone, crotales and bells (M7.2), as well as the piano already used.
+- **Installed plugins** only where their default (init) sound is the reference, rendered by a small headless JUCE host tool. This applies to Arturia Stage-73 V2 (Rhodes) and Wurli V2 (Wurlitzer) for M7.3. Picking specific presets needs the user, so it's avoided.
+- The per-milestone plan: M7.2 bodies from Iowa (search online for glass); M7.3 electric pianos from Stage-73 / Wurli defaults; M8.1 low-pass gate from online recordings (Buchla Easel V's default as a fallback); M8.3 feedback guitar from online recordings; M10 piano from the Iowa notes in `build/reference/`.
+- References rendered by a model (Stage-73, Wurli) are acceptable.
+
 ### Checks for every milestone
 - **Tuning**: the tuning test. Stretch tuning is accounted for.
 - **Stability**: extreme settings with maximum coupling and feedback must never produce NaN or runaway output.

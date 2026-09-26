@@ -180,3 +180,14 @@ Done in one pass at the user's request ("the three phases"), then a debug pass a
 - `ilanaSnapshot --uitest`: 0 failures (new: algorithm click, operator panel, PD chain row, envelope knobs, slot 60 row).
 - `ilanaTableTest`: every functional test passes (`build/m5-full2.txt`). The one failure is the load-dependent heavy-patch CPU check: 67 % inside the long run, 41–42 % in isolated runs (`ILANA_BENCH=1`). `ILANA_M5_TEST=1` passes.
 - CPU: alternating runs against a baseline build of `363862c` in `../ilana-baseline`: heavy 42.4 % against 41.6 %, extreme 85 % against 83 %.
+
+## UI and debug pass after M5–M6b (Claude, 2026-09-26)
+
+- **Matrix destination menu:** the M5/M6 parameter destinations were filed under "Physical & Keys". Warp 2, Warp Env and Key Level now sit in their oscillator's submenu, and FM noise and the OSC 4–6 FM cells in "FM".
+- **Undo:** an algorithm click and a diagram drag set parameters directly, so they merged into the previous undo step (one undo reverted both). They now start their own step; a UI test checks it.
+- **FM diagram:** the three-operator triangle was squashed by the shorter diagram area. It now scales x and y separately, and the algorithm strip is a little shorter.
+- **KEY LVL** was computed only at note-on; it is now per block, so turning or modulating it reaches held notes.
+- **Envelope cards:** an envelope used as an oscillator's warp (DCW) envelope now counts as in use, so its card shows.
+- **OSC card:** WARP 2 AMT and ENV AMT dim while their selector is Off.
+- The tutorial still described FM as "a 3-operator matrix"; it now says six operators with algorithms and a noise operator. The "New in 1.1" band is left as it was.
+- Verified: fingerprints 0 of 241 changed; `--uitest` (plus a destination-menu test) and `ILANA_M5_TEST` 0 failures. The full suite's only failures were the two CPU-budget checks while the machine was loaded: the unchanged baseline build read 52–80 % on the same heavy patch in alternating runs, and Eco measured slower than Normal.

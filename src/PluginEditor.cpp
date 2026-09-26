@@ -309,7 +309,7 @@ public:
         noiseLevel.setVisible (false);
 
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2" })
+            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
 
         for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
@@ -354,7 +354,7 @@ public:
     ~OscPage() override
     {
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2" })
+            for (const auto* suffix : { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
 
         for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on" })
@@ -1051,12 +1051,25 @@ private:
                                &osc.uniMode, &osc.uniBlend, &osc.ampEnv,
                                &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt }, enabled);
 
+            // An amount whose stage or envelope is Off does nothing: dim it.
+            if (enabled)
+            {
+                osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : 0.4f);
+                osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : 0.4f);
+            }
+
             const auto alpha = enabled ? 1.0f : 0.3f;
             waveDisplay (index).setAlpha (alpha);
             waveDisplay (index).setEnabled (enabled);
             loadButton (index).setEnabled (! chooserOpen && enabled);
             loadButton (index).setAlpha (alpha);
         }
+    }
+
+    int readChoice (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? juce::roundToInt (value->load()) : 0;
     }
 
     int readTableChoiceIndex (const juce::String& tableId) const
@@ -2161,7 +2174,7 @@ public:
         area.removeFromRight (10);
 
         // Left column: algorithms, the diagram, the selected operator.
-        algorithms.setBounds (area.removeFromTop (area.getWidth() >= 16 * 38 ? 50 : 92));
+        algorithms.setBounds (area.removeFromTop (area.getWidth() >= 16 * 38 ? 48 : 80));
         area.removeFromTop (6);
         operatorsTitle = area.removeFromTop (18).withX (14).withWidth (300);
         operatorCard = area.removeFromBottom (juce::jmin (176, area.getHeight() / 2));

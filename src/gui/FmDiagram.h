@@ -248,6 +248,9 @@ public:
 
         const auto target = oscAt (event.position);
 
+        if (target >= 0)
+            processorRef.getUndoManager().beginNewTransaction();
+
         if (target >= 0 && event.getDistanceFromDragStart() < 6)
         {
             // A click: toggle the operator's output.
@@ -298,15 +301,19 @@ private:
         if (count <= 3)
         {
             // An upside-down triangle: OSC 1 and 2 on top, OSC 3 below.
-            const auto centre = bounds.getCentre().translated (0.0f, -bounds.getHeight() * 0.04f);
-            const auto spread = juce::jmin (bounds.getWidth() * 0.5f, bounds.getHeight() * 0.62f);
+            // It spans 1.5 x its vertical spread top to bottom; in a wide,
+            // short area it widens (up to 2.2 x) rather than shrinking.
+            const auto spreadY = juce::jmin (bounds.getHeight() / 1.5f, bounds.getWidth() * 0.5f);
+            const auto spreadX = juce::jmin (bounds.getWidth() * 0.46f, spreadY * 2.2f);
+            const auto centre = juce::Point<float> (bounds.getCentreX(),
+                                                    bounds.getY() + 0.5f * spreadY + (bounds.getHeight() - 1.5f * spreadY) * 0.5f);
             const float angles[] { -150.0f, -30.0f, 90.0f };
 
             for (int i = 0; i < count; ++i)
             {
                 const auto radians = juce::degreesToRadians (count == 1 ? 90.0f : angles[i]);
-                centres[(size_t) shown[(size_t) i]] = count == 1 ? centre
-                    : centre + juce::Point<float> (std::cos (radians), std::sin (radians)) * spread;
+                centres[(size_t) shown[(size_t) i]] = count == 1 ? bounds.getCentre()
+                    : centre + juce::Point<float> (std::cos (radians) * spreadX, std::sin (radians) * spreadY);
             }
 
             return centres;

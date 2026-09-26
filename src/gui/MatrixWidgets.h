@@ -9,7 +9,7 @@
 namespace MatrixMenus
 {
 // Fills a combo box with every destination, grouped into sub-menus so the
-// list of ~180 targets stays navigable. Item IDs are index + 1, which is
+// list of ~400 targets stays navigable. Item IDs are index + 1, which is
 // what ComboBoxAttachment expects.
 inline void fillDestinations (juce::ComboBox& combo)
 {
@@ -23,36 +23,90 @@ inline void fillDestinations (juce::ComboBox& combo)
         menu.addItem (index + 1, names[index]);
     };
 
+    const auto fill = [&] (juce::PopupMenu& menu, std::initializer_list<D> list)
+    {
+        for (const auto destination : list)
+            item (menu, (int) destination);
+    };
+
     const auto group = [&] (const juce::String& title, std::initializer_list<D> list)
     {
         juce::PopupMenu menu;
-
-        for (const auto destination : list)
-            item (menu, (int) destination);
-
+        fill (menu, list);
         root->addSubMenu (title, menu);
     };
 
     item (*root, 0);
     root->addSeparator();
 
-    group ("Oscillator 1", { D::Osc1Pitch, D::Osc1Frame, D::Osc1Level, D::Osc1Pan, D::Osc1Detune, D::Osc1Spread,
-                             D::Osc1Blend, D::Osc1Warp, D::Osc1SampleStart, D::Osc1SampleEnd });
-    group ("Oscillator 2", { D::Osc2Pitch, D::Osc2Frame, D::Osc2Level, D::Osc2Pan, D::Osc2Detune, D::Osc2Spread,
-                             D::Osc2Blend, D::Osc2Warp, D::Osc2SampleStart, D::Osc2SampleEnd });
-    group ("Oscillator 3", { D::SubPitch, D::SubFrame, D::SubLevel, D::SubPan, D::SubDetune, D::SubSpread,
-                             D::SubBlend, D::SubWarp, D::SubSampleStart, D::SubSampleEnd, D::NoiseLevel });
-    group ("Oscillator 4", { D::Osc4Pitch, D::Osc4Frame, D::Osc4Level, D::Osc4Pan, D::Osc4Detune,
-                             D::Osc4Spread, D::Osc4Blend, D::Osc4Warp, D::Osc4SampleStart, D::Osc4SampleEnd });
-    group ("Oscillator 5", { D::Osc5Pitch, D::Osc5Frame, D::Osc5Level, D::Osc5Pan, D::Osc5Detune,
-                             D::Osc5Spread, D::Osc5Blend, D::Osc5Warp, D::Osc5SampleStart, D::Osc5SampleEnd });
-    group ("Oscillator 6", { D::Osc6Pitch, D::Osc6Frame, D::Osc6Level, D::Osc6Pan, D::Osc6Detune,
-                             D::Osc6Spread, D::Osc6Blend, D::Osc6Warp, D::Osc6SampleStart, D::Osc6SampleEnd });
+    // Oscillator and FM menus also collect the parameter destinations that
+    // belong to them (appended after M4), so they're filled before adding.
+    std::array<juce::PopupMenu, 6> oscillators;
+    juce::PopupMenu fm;
+    fill (oscillators[0], { D::Osc1Pitch, D::Osc1Frame, D::Osc1Level, D::Osc1Pan, D::Osc1Detune, D::Osc1Spread,
+                            D::Osc1Blend, D::Osc1Warp, D::Osc1SampleStart, D::Osc1SampleEnd });
+    fill (oscillators[1], { D::Osc2Pitch, D::Osc2Frame, D::Osc2Level, D::Osc2Pan, D::Osc2Detune, D::Osc2Spread,
+                            D::Osc2Blend, D::Osc2Warp, D::Osc2SampleStart, D::Osc2SampleEnd });
+    fill (oscillators[2], { D::SubPitch, D::SubFrame, D::SubLevel, D::SubPan, D::SubDetune, D::SubSpread,
+                            D::SubBlend, D::SubWarp, D::SubSampleStart, D::SubSampleEnd, D::NoiseLevel });
+    fill (oscillators[3], { D::Osc4Pitch, D::Osc4Frame, D::Osc4Level, D::Osc4Pan, D::Osc4Detune,
+                            D::Osc4Spread, D::Osc4Blend, D::Osc4Warp, D::Osc4SampleStart, D::Osc4SampleEnd });
+    fill (oscillators[4], { D::Osc5Pitch, D::Osc5Frame, D::Osc5Level, D::Osc5Pan, D::Osc5Detune,
+                            D::Osc5Spread, D::Osc5Blend, D::Osc5Warp, D::Osc5SampleStart, D::Osc5SampleEnd });
+    fill (oscillators[5], { D::Osc6Pitch, D::Osc6Frame, D::Osc6Level, D::Osc6Pan, D::Osc6Detune,
+                            D::Osc6Spread, D::Osc6Blend, D::Osc6Warp, D::Osc6SampleStart, D::Osc6SampleEnd });
+    fill (fm, { D::FmAmount, D::Fm1to2, D::Fm1to3, D::Fm2to3, D::Fm3to1, D::Fm3to2,
+                D::FmFeedback, D::Fm2Feedback, D::Fm3Feedback });
+
+    juce::PopupMenu effects, global, keys;
+
+    for (const auto destination : { D::FxDriveAmount, D::FxCrushMix, D::FxCombFreq, D::FxPhaserRate, D::FxChorusDepth,
+                                    D::FxDelayMix, D::FxDelayFeedback, D::FxSmearMix, D::FxFreezeMix, D::FxReverbMix,
+                                    D::FxReverbSize })
+        item (effects, (int) destination);
+
+    const auto& params = Mod::getParamDestinations();
+    const char* const prefixes[] { "osc1_", "osc2_", "sub_", "osc4_", "osc5_", "osc6_" };
+
+    for (int i = 0; i < (int) params.size(); ++i)
+    {
+        const juce::String id (params[(size_t) i].id);
+        const auto destination = Mod::paramDestinationFor (i);
+
+        if (i < Mod::numLegacyParamDestinations)
+        {
+            item (id.startsWith ("fx_") ? effects : global, destination);
+            continue;
+        }
+
+        if (id.startsWith ("fm_"))
+        {
+            item (fm, destination);
+            continue;
+        }
+
+        // Operator and PD settings sit with their oscillator; the M4
+        // physical and keys settings keep their own menu.
+        auto placed = false;
+        for (int osc = 0; osc < 6 && ! placed; ++osc)
+            if (id.startsWith (prefixes[osc])
+                && (id.endsWith ("_warp2_amt") || id.endsWith ("_pd_env_amt") || id.endsWith ("_key_level")))
+            {
+                item (oscillators[(size_t) osc], destination);
+                placed = true;
+            }
+
+        if (! placed)
+            item (keys, destination);
+    }
+
+    for (int osc = 0; osc < 6; ++osc)
+        root->addSubMenu ("Oscillator " + juce::String (osc + 1), oscillators[(size_t) osc]);
+
     group ("Filters", { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
                         D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
     group ("Voice", { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
-    group ("FM", { D::FmAmount, D::Fm1to2, D::Fm1to3, D::Fm2to3, D::Fm3to1, D::Fm3to2,
-                   D::FmFeedback, D::Fm2Feedback, D::Fm3Feedback });
+    root->addSubMenu ("FM", fm);
     group ("Envelopes", { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
                           D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
                           D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
@@ -61,23 +115,6 @@ inline void fillDestinations (juce::ComboBox& combo)
     group ("LFOs & MSEG", { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate, D::Lfo5Rate, D::Lfo6Rate,
                             D::Lfo7Rate, D::Lfo8Rate, D::Lfo9Rate, D::Lfo10Rate, D::Lfo11Rate, D::Lfo12Rate,
                             D::Lfo13Rate, D::Lfo14Rate, D::Lfo15Rate, D::Lfo16Rate, D::MsegRate });
-
-    juce::PopupMenu effects, global;
-
-    for (const auto destination : { D::FxDriveAmount, D::FxCrushMix, D::FxCombFreq, D::FxPhaserRate, D::FxChorusDepth,
-                                    D::FxDelayMix, D::FxDelayFeedback, D::FxSmearMix, D::FxFreezeMix, D::FxReverbMix,
-                                    D::FxReverbSize })
-        item (effects, (int) destination);
-
-    const auto& params = Mod::getParamDestinations();
-    juce::PopupMenu keys;
-
-    for (int i = 0; i < (int) params.size(); ++i)
-    {
-        const juce::String id (params[(size_t) i].id);
-        auto& menu = i >= Mod::numLegacyParamDestinations ? keys : (id.startsWith ("fx_") ? effects : global);
-        item (menu, Mod::paramDestinationFor (i));
-    }
 
     root->addSubMenu ("Effects", effects);
     root->addSubMenu ("Global", global);

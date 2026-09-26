@@ -248,8 +248,11 @@ private:
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
             return true;
 
+        // As an oscillator's amp envelope or its warp (DCW) envelope, whose
+        // choices start with Off.
         for (const auto* prefix : OscillatorIds::prefixes)
-            if ((int) readParam (juce::String (prefix) + "_amp_env") == env)
+            if ((int) readParam (juce::String (prefix) + "_amp_env") == env
+                || (int) readParam (juce::String (prefix) + "_pd_env") == env + 1)
                 return true;
 
         for (int slot = 0; slot < Mod::maxSlots; ++slot)

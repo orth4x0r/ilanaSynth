@@ -4814,6 +4814,9 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
 
     const auto& algorithm = FmAlgorithms::all()[(size_t) index];
 
+    // One undo step for the whole routing.
+    undoManager.beginNewTransaction ("FM algorithm: " + juce::String (algorithm.name));
+
     const auto set = [this] (const juce::String& id, float value)
     {
         if (auto* parameter = apvts.getParameter (id))

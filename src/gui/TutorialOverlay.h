@@ -163,7 +163,7 @@ public:
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
                 "235 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
-                "FM is a 3-operator matrix. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
+                "FM has six operators, 16 one-click algorithms and a noise operator. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);

@@ -514,6 +514,12 @@ int runUiTests()
 
         if (auto* strip = findChild<FmAlgorithmStrip> (*editor))
         {
+            // An earlier edit in its own undo step, so undoing the algorithm
+            // must leave it alone.
+            processor.getUndoManager().beginNewTransaction();
+            set ("osc2_level", 0.33f);
+            settle (200);
+
             auto source = juce::Desktop::getInstance().getMainMouseSource();
             const auto at = strip->getCellCentre (10).toFloat();
             const auto now = juce::Time::getCurrentTime();
@@ -526,6 +532,16 @@ int runUiTests()
                     "clicking algorithm 11 (DX 5 Keys) routes six operators");
             expect (visibleKnob ("fm_6to5") && visibleKnob ("fm_noise6"),
                     "the FM matrix grows to six operators, with the noise row");
+
+            processor.getUndoManager().undo();
+            settle (300);
+            const auto afterUndo = processor.findMatchingFmAlgorithm();
+            const auto level = processor.apvts.getRawParameterValue ("osc2_level")->load();
+            processor.getUndoManager().redo();
+            settle (300);
+            expect (afterUndo != 10 && std::abs (level - 0.33f) < 0.01f && processor.findMatchingFmAlgorithm() == 10,
+                    "undo reverts an algorithm as one step and keeps the edit before it (level "
+                        + juce::String (level, 2) + ")");
         }
         else
         {
@@ -564,6 +580,26 @@ int runUiTests()
         settle (300);
         expect (visibleKnob ("amp_delay") && visibleKnob ("amp_hold") && visibleKnob ("amp_keyrate"),
                 "the amp envelope shows DELAY, HOLD and KEY RATE");
+
+        // The destination menu files the M5/M6 targets with their oscillator
+        // and under FM, not under Physical & Keys.
+        {
+            juce::ComboBox combo;
+            MatrixMenus::fillDestinations (combo);
+            const auto submenuHolding = [&combo] (const juce::String& itemText)
+            {
+                for (juce::PopupMenu::MenuItemIterator top (*combo.getRootMenu()); top.next();)
+                    if (auto* sub = top.getItem().subMenu.get())
+                        for (juce::PopupMenu::MenuItemIterator inner (*sub); inner.next();)
+                            if (inner.getItem().text == itemText)
+                                return top.getItem().text;
+                return juce::String();
+            };
+            expect (submenuHolding ("Osc2 Warp 2") == "Oscillator 2" && submenuHolding ("FM Noise > Osc3") == "FM"
+                        && submenuHolding ("FM Osc4 > Osc1") == "FM" && submenuHolding ("Osc1 Hammer") == "Physical & Keys",
+                    "the destination menu files new targets by oscillator and FM ("
+                        + submenuHolding ("Osc2 Warp 2") + ", " + submenuHolding ("FM Noise > Osc3") + ")");
+        }
 
         // MATRIX: a routing in slot 60 shows up as a row.
         set ("mod60_src", (float) Mod::Source::Lfo3);

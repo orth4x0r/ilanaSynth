@@ -229,17 +229,6 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     pitchWheelMoved (currentPitchWheelPosition);
 
-    // Level key scaling: KEY LVL 1 is +6 dB per octave above C3 (and -6 dB
-    // per octave below); negative tilts the other way. Modulating operators
-    // use it to keep FM brightness even across the keyboard.
-    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
-    {
-        const auto keyLevel = params.oscillators[osc].keyLevel;
-        keyLevelGain[osc] = keyLevel != 0.0f
-                                ? juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (keyLevel * 6.0f * keyTrackOctaves, -120.0f))
-                                : 1.0f;
-    }
-
     // Legato: the note just changes pitch; envelopes, phases and filters
     // carry on from where they are.
     if (legato)
@@ -640,6 +629,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // octave above, 2 Hz an octave below.
         if (params.lfos[lfo].keyTrack)
             lfoIncrements[lfo] = juce::jmin (0.45, lfoIncrements[lfo] * currentFrequency / 4.0);
+    }
+
+    // Level key scaling: KEY LVL 1 is +6 dB per octave above C3 (and -6 dB
+    // per octave below); negative tilts the other way. Modulating operators
+    // use it to keep FM brightness even across the keyboard. Per block, so
+    // turning or modulating it reaches held notes.
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto keyLevel = params.oscillators[osc].keyLevel;
+        keyLevelGain[osc] = keyLevel != 0.0f
+                                ? juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (keyLevel * 6.0f * keyTrackOctaves, -120.0f))
+                                : 1.0f;
     }
 
     glideCoeff = params.glideTime > 0.001f

@@ -2427,12 +2427,13 @@ inline std::vector<FactoryPreset> build()
     // M4: acoustic keys
     // ======================================================================
 
+    // Fitted to real grand piano recordings (tools/fit_piano.py).
     add (B ("Grand Piano", "Keys")
-             .piano (1, 0.8f, 0.5f, 3, 1.5f, 0.6f, 0.6f, 0.8f, 0.9f, 0.25f, 0.45f)
+             .piano (1, 0.8f, 0.739f, 3, 0.9f, 0.378f, 0.6f, 0.766f, 0.984f, 0.286f, 0.45f)
              .set ("osc2_on", 0).set ("sub_on", 0)
-             .keysBody (0.8f, 0.45f, 0.6f, 0.6f, 0.5f, 0.25f)
+             .keysBody (0.8f, 0.786f, 0.0965f, 0.751f, 0.5f, 0.25f)
              .filter1 (LP, 18000.0f, 0.0f)
-             .amp (0.001f, 5.0f, 1.0f, 1.2f).velocity (0.35f)
+             .amp (0.001f, 5.0f, 1.0f, 1.2f).velocity (0.974f)
              .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
              .macro (2, "LID", { { param ("sb_tone"), 0.35f } })
              .macro (3, "PEDAL", { { param ("pedal_res"), 0.45f } })

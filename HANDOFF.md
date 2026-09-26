@@ -83,6 +83,14 @@ Now (ours vs real, mf):
 - C7: fundamental −19 dB/s (real −15..−19); 2nd partial −22..−34 dB (real −40).
 - E1: dense, flat partials 2–12 like the real note. The fundamental is −20 dB (real −43).
 
+**Fourth round: fitted to the recordings** (user: "match it as close as possible; the Grand Piano patch is the benchmark; apply it to the general piano engine").
+- `src/dsp/PianoTuning.h` holds the model's constants. `tools/fit_piano.py` renders Grand Piano (E1/C4/C7, mf/ff) with `ILANA_PIANO_TUNING` / `ILANA_PRESET_OVERRIDES` and searches 30 parameters in parallel (onset spectrum, per-partial decay, attack noise, mf→ff gain, register balance). Final values are baked into the PianoTuning defaults and the Grand Piano preset.
+- **New structure:**
+  - Two polarisations per hammered string: the existing loop is the vertical/prompt one (T60 × `promptRatio`); `processHorizontal` in the buffer's upper half is the aftersound (full DECAY T60, `aftersound` share of the strike).
+  - With the register map on, a hammered note uses 1 string below B1, 2 below B2, then 3 (bass unison beating removed).
+- **Error:** 632 (before fitting) → 90.7. Onset 150→27, decay 132→56, noise 107→14, mf→ff gain 142→1, register balance 34→1. The velocity response is now realistic (curve 4.57, amp velocity 0.97): ~14–20 dB from mf to ff, as in the recordings.
+- Other hammer presets inherit the engine defaults. Their levels were re-checked: fingerprints −12..−20 dB, demo peaks < 0.95.
+
 **Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
 
 ## Polish (Claude, 2026-09-25, committed as c24b26d)

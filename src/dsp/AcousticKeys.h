@@ -6,6 +6,8 @@
 #include <cmath>
 #include <vector>
 
+#include "PianoTuning.h"
+
 // M4 acoustic keys: the parts of a piano that are shared by every note and
 // so live after the voices, once for the whole synth. All storage is
 // allocated in prepare(); process calls never allocate.
@@ -209,11 +211,12 @@ private:
         radiationRate = sampleRate;
         for (auto& channel : radiation)
         {
-            channel[0].set (sampleRate, 70.0, 0.5412);
-            channel[1].set (sampleRate, 70.0, 1.3066);
+            channel[0].set (sampleRate, (double) PianoTuning::get().radiationCut, 0.5412);
+            channel[1].set (sampleRate, (double) PianoTuning::get().radiationCut, 1.3066);
         }
         for (auto& filter : boardBump)
-            filter.set (sampleRate, 260.0, 0.8, 5.0);
+            filter.set (sampleRate, (double) PianoTuning::get().bumpFrequency, (double) PianoTuning::get().bumpQ,
+                        (double) PianoTuning::get().bumpGain);
     }
     double sampleRate = 48000.0;
     float lastSize = -1.0f;

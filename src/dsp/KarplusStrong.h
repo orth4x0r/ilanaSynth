@@ -8,6 +8,8 @@
 #include <complex>
 #include <vector>
 
+#include "PianoTuning.h"
+
 #if defined (_MSC_VER)
  #define ILANA_NOINLINE __declspec (noinline)
 #else
@@ -57,6 +59,7 @@ public:
         std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
+        resetHorizontal();
         pushLow = outputDcIn = outputDcOut = 0.0f;
         thiranInput = thiranOutput = 0.0f;
         bridgeInput = 0.0f;
@@ -211,6 +214,8 @@ public:
         const auto size = (int) buffer.size();
         const auto period = sampleRate / frequency;
         const auto hammered = excite == Excite::Hammer;
+        // Piano strings run two loops (see processHorizontal), one per half.
+        const auto loopSize = hammered ? size / 2 : size;
         const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
         const auto stages = (double) dispersionStages();
         auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
@@ -248,8 +253,8 @@ public:
             const auto part = length - (double) whole; // 0.5 .. 1.5
             auto readIndex = writePosition - whole;
             while (readIndex < 0)
-                readIndex += size;
-            const auto input = buffer[(size_t) (readIndex % size)];
+                readIndex += loopSize;
+            const auto input = buffer[(size_t) (readIndex % loopSize)];
             const auto a = (float) ((1.0 - part) / (1.0 + part));
             rawDelayed = a * input + thiranInput - a * thiranOutput;
             thiranInput = input;
@@ -325,6 +330,7 @@ public:
                 break;
         }
 
+        const auto drive = excitation;
         excitation += bridgeInput;
         bridgeInput = 0.0f;
 
@@ -351,7 +357,10 @@ public:
         }
 
         buffer[(size_t) writePosition] = loopValue + excitation;
-        writePosition = (writePosition + 1) % size;
+        writePosition = (writePosition + 1) % loopSize;
+
+        if (hammered)
+            output += processHorizontal (drive, noteHeld, period);
 
         if (slapRemaining > 0)
         {
@@ -401,11 +410,12 @@ private:
         return -std::arg ((a + e) / (1.0 + a * e)) / w;
     }
 
-    double lowpassPhaseDelay (double w) const
+    static double lowpassPhaseDelay (double w, double a)
     {
-        const auto a = (double) lowpassCoefficient;
         return -std::arg (a / (1.0 - (1.0 - a) * std::polar (1.0, -w))) / w;
     }
+
+    double lowpassPhaseDelay (double w) const { return lowpassPhaseDelay (w, (double) lowpassCoefficient); }
 
     void updatePianoDispersion()
     {
@@ -423,8 +433,10 @@ private:
         const auto period = sampleRate / frequency;
         const auto w0 = juce::MathConstants<double>::twoPi / period;
         const auto dampingDelay = lowpassPhaseDelay (w0);
+        const auto horizontalDampingDelay = lowpassPhaseDelay (w0, (double) horizontalLowpass);
         pianoCoefficient = 0.0f;
         pianoLoopDelay = juce::jmin (dampingDelay, period - 1.25);
+        horizontalLoopDelay = juce::jmin (horizontalDampingDelay, period - 1.25);
 
         const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
         if (stiffness <= 0.0f || reference < 2 || period < 8.0)
@@ -454,6 +466,7 @@ private:
 
         pianoCoefficient = (float) a;
         pianoLoopDelay = stages * allpassPhaseDelay (a, w0) + dampingDelay;
+        horizontalLoopDelay = juce::jmin (period - 1.25, stages * allpassPhaseDelay (a, w0) + horizontalDampingDelay);
     }
 
     // Commuted piano synthesis (Smith and Van Duyne): rather than model the
@@ -465,7 +478,9 @@ private:
     // partials with a node there.
     void startHammer (float level)
     {
-        const auto hardness = juce::jlimit (0.0f, 1.0f, hammerHardness * 0.75f + level * 0.5f - 0.1f);
+        const auto& tuning = PianoTuning::get();
+        const auto hardness = juce::jlimit (0.0f, 1.0f, hammerHardness * tuning.hardnessKnob
+                                                         + level * tuning.hardnessVelocity - 0.1f);
         const auto period = sampleRate / frequency;
         // 0 in the treble .. 1 in the deep bass.
         const auto bassness = (float) juce::jlimit (0.0, 1.0, std::log2 (523.25 / frequency) / 4.0);
@@ -474,27 +489,27 @@ private:
         // treble hammers. Up high the felt stays on for most of a cycle,
         // which leaves an almost pure fundamental, as in a real C7 (its 2nd
         // partial is ~40 dB down).
-        const auto registerScale = juce::jlimit (0.2, 1.8, std::pow (220.0 / frequency, 0.35));
-        const auto contactMs = (0.4 + 2.0 * (1.0 - (double) hardness)) * registerScale;
+        const auto registerScale = juce::jlimit (0.2, 1.8, std::pow (220.0 / frequency, (double) tuning.contactRegister));
+        const auto contactMs = ((double) tuning.contactBase + (double) tuning.contactSlope * (1.0 - (double) hardness)) * registerScale;
         hammerLength = juce::jmax (4, (int) (sampleRate * contactMs * 0.001));
-        if (frequency > 800.0)
-            hammerLength = juce::jmax (hammerLength, (int) period);
+        if (frequency > (double) tuning.trebleFrequency)
+            hammerLength = juce::jmax (hammerLength, (int) (period * (double) tuning.trebleContact));
         // Felt stiffens as it compresses: a harder strike gives a sharper
         // force peak, so more upper partials; less so in the treble.
         const auto treble = (float) juce::jlimit (0.0, 1.0, (frequency - 500.0) / 1500.0);
         // In the treble the push becomes a raised cosine a cycle long: its
         // spectrum has a null at the 2nd partial and very low sidelobes.
-        hammerShape = (1.0f + 1.5f * hardness) * (1.0f - treble) + 2.0f * treble;
+        hammerShape = (1.0f + tuning.shapeHardness * hardness) * (1.0f - treble) + 2.0f * treble;
         // Same strike energy in every register: a short treble contact pushes harder.
-        hammerLevel = std::pow (level, 1.3f) * 8.0f * std::sqrt (20.0f / (float) (hammerLength + 20));
+        hammerLevel = std::pow (level, tuning.velocityCurve) * 8.0f * std::sqrt (20.0f / (float) (hammerLength + 20));
         // No hammer hits a note's strings exactly evenly; the difference is
         // what feeds the aftersound of coupled strings.
         hammerLevel *= 0.85f + 0.3f * random.nextFloat();
 
         // Strike point along the string; 1/8 by default like a grand.
-        const auto offset = period * (excitationPosition > 0.0f ? (double) excitationPosition : 0.125);
+        const auto offset = period * (excitationPosition > 0.0f ? (double) excitationPosition : (double) tuning.strikePosition);
         hammerOffset = juce::jlimit (1.0, (double) hammerHistorySize - 1.0, offset);
-        hammerReflection = 0.2f;
+        hammerReflection = tuning.strikeReflection;
 
         // The board's knock: filtered noise with a fast decay.
         const auto knockSeconds = 0.012 + 0.045 * (double) bassness;
@@ -505,7 +520,7 @@ private:
         // Filtering lowers the noise's level; put it back, then keep it a
         // quiet wooden tick under the note.
         const auto filteredLevel = std::sqrt (knockCoefficient / (2.0f - knockCoefficient)) * 0.8f;
-        knockLevel = hammerLevel * 0.015f / juce::jmax (0.05f, filteredLevel);
+        knockLevel = hammerLevel * tuning.knock / juce::jmax (0.05f, filteredLevel);
         knockEnvelope = 1.0f;
         knockLow1 = knockLow2 = 0.0f;
 
@@ -513,7 +528,7 @@ private:
         thumpLength = (int) (sampleRate * 0.03);
         thumpDecay = (float) std::exp (-1.0 / (sampleRate * 0.007));
         thumpCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * (160.0 + 240.0 * (double) hardness) / sampleRate));
-        thumpLevel = std::pow (level, 1.5f) * (0.25f + 0.6f * bassness);
+        thumpLevel = tuning.thump * std::pow (level, 1.5f) * (0.25f + 0.6f * bassness);
         thumpEnvelope = 1.0f;
         thumpLow1 = thumpLow2 = 0.0f;
 
@@ -529,6 +544,7 @@ private:
                       + (int) (5.0 / (juce::MathConstants<double>::twoPi * juce::jmin (20.0, frequency * 0.25)) * sampleRate);
         outputDcIn = outputDcOut = 0.0f;
         thiranInput = thiranOutput = 0.0f;
+        resetHorizontal();
     }
 
     float hammerExcitation()
@@ -580,8 +596,9 @@ private:
         if (excite != Excite::Hammer)
             return;
 
-        const auto t60Middle = 0.5 * std::pow (50.0, (double) decay);
-        const auto t60 = juce::jlimit (0.05, 40.0, t60Middle * std::pow (261.63 / frequency, 0.6));
+        const auto& tuning = PianoTuning::get();
+        const auto t60Middle = (double) tuning.t60Scale * std::pow ((double) tuning.t60Range, (double) decay);
+        const auto t60 = juce::jlimit (0.05, 40.0, t60Middle * std::pow (261.63 / frequency, (double) tuning.t60Register));
 
         // A real string's upper partials die in about 1-3 s whatever the
         // note, so the loss filter is designed in seconds too: the
@@ -593,12 +610,8 @@ private:
         // model). Anchored at 2 kHz, where a real grand's partials ring for
         // several seconds: 20 s with DAMP at 0, 7 s at 0.25, 0.3 s at 1.
         const auto upper = juce::jmin (sampleRate * 0.4, juce::jmax (2000.0, 2.0 * frequency));
-        const auto lossAt2k = 6.91 / (60.0 * std::pow (0.3 / 60.0, (double) damping));
-        const auto lossAtFundamental = 6.91 / t60;
-        const auto lossUpper = lossAtFundamental + lossAt2k * (upper * upper - frequency * frequency) / (2000.0 * 2000.0);
-        const auto upperT60 = juce::jmin (t60 * 0.95, 6.91 / lossUpper);
+        const auto lossAt2k = 6.91 / ((double) tuning.lossTop * std::pow ((double) tuning.lossBottom / (double) tuning.lossTop, (double) damping));
         const auto passGain = [this] (double seconds) { return std::pow (10.0, -3.0 / (seconds * frequency)); };
-        const auto wanted = passGain (upperT60) / passGain (t60);
         const auto w0 = juce::MathConstants<double>::twoPi * frequency / sampleRate;
         const auto w1 = juce::MathConstants<double>::twoPi * juce::jmin (upper, sampleRate * 0.45) / sampleRate;
         const auto magnitude = [] (double pole, double w)
@@ -606,17 +619,76 @@ private:
             return (1.0 - pole) / std::sqrt (1.0 - 2.0 * pole * std::cos (w) + pole * pole);
         };
 
-        // One-pole loss filter: find the pole giving the wanted ratio.
-        auto low = 0.0, high = 0.999;
-        for (int iteration = 0; iteration < 40; ++iteration)
+        // One-pole loss filter for a fundamental T60 (and the same extra
+        // loss towards 2 kHz): find the pole giving the wanted ratio.
+        const auto design = [&] (double fundamentalT60, float& coefficient, float& gain)
         {
+            const auto lossUpper = 6.91 / fundamentalT60 + lossAt2k * (upper * upper - frequency * frequency) / (2000.0 * 2000.0);
+            const auto upperT60 = juce::jmin (fundamentalT60 * 0.95, 6.91 / lossUpper);
+            const auto wanted = passGain (upperT60) / passGain (fundamentalT60);
+            auto low = 0.0, high = 0.999;
+            for (int iteration = 0; iteration < 40; ++iteration)
+            {
+                const auto pole = 0.5 * (low + high);
+                (magnitude (pole, w1) / magnitude (pole, w0) > wanted ? low : high) = pole;
+            }
             const auto pole = 0.5 * (low + high);
-            (magnitude (pole, w1) / magnitude (pole, w0) > wanted ? low : high) = pole;
-        }
+            coefficient = (float) (1.0 - pole);
+            gain = (float) juce::jmin (0.99995, passGain (fundamentalT60) / magnitude (pole, w0));
+        };
 
-        const auto pole = 0.5 * (low + high);
-        lowpassCoefficient = (float) (1.0 - pole);
-        feedback = (float) juce::jmin (0.99995, passGain (t60) / magnitude (pole, w0));
+        // Two polarisations: the vertical motion pushes the bridge hard, so
+        // it radiates the loud prompt sound and dies fast; the horizontal
+        // barely couples, and rings on as the quiet aftersound. DECAY sets
+        // the aftersound; the prompt sound lasts promptRatio of it.
+        design (juce::jmax (0.05, t60 * (double) tuning.promptRatio), lowpassCoefficient, feedback);
+        design (t60, horizontalLowpass, horizontalFeedback);
+    }
+
+    // The horizontal polarisation: the same string (same stiffness filter),
+    // in the upper half of the buffer, taking aftersound's share of the
+    // strike and losing energy far more slowly.
+    float processHorizontal (float drive, bool noteHeld, double period)
+    {
+        const auto half = (int) buffer.size() / 2;
+        const auto length = juce::jlimit (1.5, (double) half - 2.0, period - horizontalLoopDelay);
+        const auto whole = (int) std::floor (length - 0.5);
+        const auto part = length - (double) whole;
+        auto readIndex = horizontalWrite - whole;
+        while (readIndex < 0)
+            readIndex += half;
+        const auto input = buffer[(size_t) (half + readIndex % half)];
+        const auto a = (float) ((1.0 - part) / (1.0 + part));
+        auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
+        horizontalThiranIn = input;
+        horizontalThiranOut = delayed;
+
+        if (pianoCoefficient != 0.0f)
+            for (int stage = 0; stage < maxDispersionStages; ++stage)
+            {
+                const auto next = pianoCoefficient * delayed + horizontalDispersionIn[stage]
+                                  - pianoCoefficient * horizontalDispersionState[stage];
+                horizontalDispersionIn[stage] = delayed;
+                horizontalDispersionState[stage] = next;
+                delayed = next;
+            }
+
+        horizontalLowState += (delayed - horizontalLowState) * horizontalLowpass;
+        auto loopValue = horizontalLowState * horizontalFeedback;
+        if (damper > 0.0f && ! noteHeld)
+            loopValue *= 1.0f - damper * 0.16f;
+
+        buffer[(size_t) (half + horizontalWrite)] = loopValue + drive * PianoTuning::get().aftersound;
+        horizontalWrite = (horizontalWrite + 1) % half;
+        return delayed;
+    }
+
+    void resetHorizontal()
+    {
+        horizontalWrite = 0;
+        horizontalThiranIn = horizontalThiranOut = horizontalLowState = 0.0f;
+        std::fill (std::begin (horizontalDispersionIn), std::end (horizontalDispersionIn), 0.0f);
+        std::fill (std::begin (horizontalDispersionState), std::end (horizontalDispersionState), 0.0f);
     }
 
     // A bowed string as two waveguides either side of the bow (the STK
@@ -763,5 +835,10 @@ private:
     float thumpDecay = 0.0f, thumpCoefficient = 0.02f, thumpLevel = 0.0f, thumpEnvelope = 0.0f, thumpLow1 = 0.0f, thumpLow2 = 0.0f;
     float pushLow = 0.0f, pushCoefficient = 0.001f, outputDcIn = 0.0f, outputDcOut = 0.0f;
     float thiranInput = 0.0f, thiranOutput = 0.0f;
+    float horizontalLowpass = 0.5f, horizontalFeedback = 0.99f;
+    float horizontalThiranIn = 0.0f, horizontalThiranOut = 0.0f, horizontalLowState = 0.0f;
+    float horizontalDispersionIn[8] {}, horizontalDispersionState[8] {};
+    int horizontalWrite = 0;
+    double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;
 };

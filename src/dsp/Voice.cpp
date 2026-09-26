@@ -615,6 +615,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         numOscUnison[osc] = osc >= 3 && ! params.oscillatorEnabled[osc]
                                   && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f
                                 ? 0 : juce::jlimit (1, unisonLimit (settings), settings.unison);
+
+        // A grand's lowest notes have one string each, the low bass two,
+        // and three start around the tenor: with the register map on, a
+        // hammered note uses no more strings than that (detuned unison
+        // strings in the bass beat audibly, which a real one cannot).
+        if (settings.stringMode && settings.registerMap > 0.0f
+            && settings.stringExcite == (int) KarplusStrong::Excite::Hammer && numOscUnison[osc] > 1)
+        {
+            const auto note = getCurrentlyPlayingNote();
+            numOscUnison[osc] = juce::jmin (numOscUnison[osc], note < 35 ? 1 : (note < 47 ? 2 : 3));
+        }
     }
 
     updateUnisonLayout();
@@ -944,7 +955,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     const auto bridge = stringSum / (float) juce::jmax (1, count);
 
                     for (int u = 0; u < count; ++u)
-                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.015f * bridge);
+                        stringFor (osc, u).addBridgeInput (-settings.couple * PianoTuning::get().coupling * bridge);
                 }
             }
             else

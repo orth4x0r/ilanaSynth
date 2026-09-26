@@ -14,6 +14,7 @@
 #include "gui/LogoComponent.h"
 #include "gui/MacroStrip.h"
 #include "gui/ModSourceChip.h"
+#include "gui/OutputMeter.h"
 #include "gui/PresetPanel.h"
 #include "gui/TutorialOverlay.h"
 
@@ -77,6 +78,7 @@ private:
     static constexpr const char* appVersion = "1.2";
 
     IlanaSynthAudioProcessor& processorRef;
+    std::array<bool, (size_t) Mod::Source::Count> usedModSources {};
     IlanaLookAndFeel lookAndFeel;
     juce::TooltipWindow tooltipWindow { this, 900 };
     Content content;
@@ -108,6 +110,7 @@ private:
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
+    std::unique_ptr<OutputMeter> outputMeter;
     std::unique_ptr<ComboControl> voiceModeBox;
     std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = true;

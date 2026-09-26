@@ -9,14 +9,15 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 - **Release:** v1.2 is done (M1–M6b). The version is 1.2.0 (CMake, header, installer) and tagged `v1.2.0`. The installer has not been rebuilt.
 - **Next:** M7 (v1.3), starting with M7.1, the Generative card. The roadmap after v1.2 was regrouped on 2026-09-26: M7 = generative, bodies, electric pianos, wavetable editor, audio input (old M7, M8, M4b, M8b, M9); M8 = west coast, filters, feedback guitar/Evolve, polish (old M10–M12); M9 portability (old M12b); M10 presets (old M17); v1.4 is M11–M14 (old M13–M16).
 - **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26), with the UI/debug pass and the 1.2 release commit. Push only when the user asks.
-- **Plugin:** installed to `C:Program FilesCommon FilesVST3` (2026-09-26, with the signal-flow fix).
+- **Bug and polish pass after 1.2 (Claude, 2026-09-26):** committed and pushed. Arp stop fix, FM greying, a new preset browser, reverb/latency/block-size fixes and UI polish. Details are at the end of the history file.
+- **Plugin:** installed to `C:\Program Files\Common Files\VST3` (Ableton's folder; Live runs at 44.1 kHz) on 2026-09-26, after the polish pass.
 - **Folder cleanup (2026-09-26):** old snapshots, demos, fit runs, logs and the v1.1 portable binaries are deleted. `build/` keeps the CMake tree, `build/reference/` (the Iowa piano notes, for M17) and `build/fit-best-final.json`; `snapshots/v12` is the latest UI set. Demos come back with `ILANA_RENDER_DEMO=build/demo`.
 
 ## Demos
 `ILANA_RENDER_DEMO=build/demo` writes `build/demo/fm-pd/` (DX reference patches and the CZ waves) alongside the keys demos.
 
 ## Rules that still apply
-- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`: 0 of 241 changed. `build/fingerprints-v1.2.csv` is the v1.2 baseline.
+- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`: 0 of 241 changed. `build/fingerprints-polish.csv` is the current baseline (`build/fingerprints-v1.2.csv` is v1.2's). Against v1.2, 26 reverb presets differ at the tool's 48 kHz only, because the reverb now gets the real sample rate. At 44.1 kHz they are unchanged. Two more (Through-Zero Growl, Shift Bass) differ only because voice random state carries over between presets within the run.
 - **Parameter IDs and choice indices are never renumbered.** New choices, destinations and sources are appended.
   - Mod destinations: the 115 legacy parameter destinations are fixed at 96..210; OSC 4–6 start at 211; newer parameters are appended after `Destination::Count` (`paramDestinationFor`), in list order (M4's 89, then M5/M6's 52). `maxDestinations` is 512 (394 used).
   - LFO 5–16 and ENV 6–16 are appended sources. Mod slots 33–64 are appended parameters.
@@ -42,3 +43,4 @@ build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 - **Host automation** of a choice parameter whose list grew (warp, amp envelope, mod destination) maps to other entries, because hosts store it normalised. Saved sessions are fine (they store the index).
 - **Piano:** fitted to the Iowa grand (error 90.7) but not yet convincing. More work waits for M17, with a time limit.
 - The MAIN LFO card relayouts on a showing-timer only.
+- **From the polish review, not done yet:** group the 12 filter-type buttons by family; show what each envelope/LFO in the pool modulates; use the empty space on the MATRIX and FX pages when they are empty; the mod matrix can't modulate FM amounts to or from OSC 4–6 (only the nine original cells have destinations); number keys 1–9 switch tabs while the editor has focus.

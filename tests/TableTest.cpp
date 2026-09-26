@@ -3417,6 +3417,114 @@ void runCurveLfoTest()
     check (high > low * 2.0, "a Curve LFO modulates per voice (centroid " + juce::String (low, 0) + " -> "
                                  + juce::String (high, 0) + " Hz)");
 }
+// The arp must stop when a host drops its notes without note-offs: All
+// Notes Off / All Sound Off, or the transport stopping.
+void runArpHostStopTests()
+{
+    struct TestHead : juce::AudioPlayHead
+    {
+        bool playing = false;
+        double ppq = 0.0;
+
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (120.0);
+            info.setIsPlaying (playing);
+            info.setPpqPosition (ppq);
+            return info;
+        }
+    };
+
+    const auto run = [] (int stopKind)
+    {
+        IlanaSynthAudioProcessor processor;
+        TestHead head;
+        processor.setPlayHead (&head);
+        processor.prepareToPlay (48000.0, 256);
+
+        if (auto* parameter = processor.apvts.getParameter ("arp_on"))
+            parameter->setValueNotifyingHost (1.0f);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        head.playing = true;
+
+        for (int block = 0; block < 1400; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 5);
+
+            if (block == 100)
+            {
+                if (stopKind == 0)
+                    midi.addEvent (juce::MidiMessage::allNotesOff (1), 30);
+                else if (stopKind == 1)
+                    midi.addEvent (juce::MidiMessage::allSoundOff (1), 30);
+                else
+                    head.playing = false;
+            }
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+
+            if (head.playing)
+                head.ppq += 256.0 / 48000.0 * 2.0;
+        }
+
+        processor.setPlayHead (nullptr);
+        return processor.getActiveVoiceCount();
+    };
+
+    check (run (0) == 0, "the arp stops on All Notes Off");
+    check (run (1) == 0, "the arp stops on All Sound Off");
+    check (run (2) == 0, "the arp stops when the host transport stops");
+
+    // Chord mode honours the gate: at a short gate most of each step is silent.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set ("arp_on", 1.0f);
+        set ("arp_mode", 7.0f);
+        set ("arp_gate", 0.1f);
+        set ("arp_div", 2.0f);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto silentBlocks = 0, loudBlocks = 0;
+
+        for (int block = 0; block < 600; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+
+            if (block > 100)
+            {
+                if (processor.getActiveVoiceCount() == 0)
+                    ++silentBlocks;
+                else
+                    ++loudBlocks;
+            }
+        }
+
+        check (silentBlocks > 0, "the chord arp releases at its gate (" + juce::String (silentBlocks) + " of "
+                                    + juce::String (silentBlocks + loudBlocks) + " blocks without voices)");
+    }
+}
 // Releasing every key must silence the Scale Random arpeggiator, including
 // with note spray, chords, high notes and releases mid-step.
 void runScaleRandomReleaseTest()
@@ -6997,6 +7105,15 @@ int main()
         return 0;
     }
 
+    // ILANA_ARP_TEST=1 runs only the arpeggiator tests.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_ARP_TEST", "").isNotEmpty())
+    {
+        runScaleRandomReleaseTest();
+        runArpHostStopTests();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_DEBUG", ""); preset.isNotEmpty())
     {
         debugPresetNotes (preset);
@@ -7100,6 +7217,7 @@ int main()
     runPhysicalStringTest();
     runPhysicalPatchMigrationTest();
     runScaleRandomReleaseTest();
+    runArpHostStopTests();
     runM4Tests();
     runM5DeepFmTests();
     runM6PhaseDistortionTests();

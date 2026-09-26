@@ -508,11 +508,25 @@ public:
 
         const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
 
-        if (sliderPos > 0.001f)
+        // Bipolar parameters (pan, fine, bend...) fill from the centre.
+        auto originPos = 0.0f;
+
+        if (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0)
+            originPos = (float) slider.valueToProportionOfLength (0.0);
+
+        const auto originAngle = rotaryStartAngle + originPos * (rotaryEndAngle - rotaryStartAngle);
+
+        if (std::abs (sliderPos - originPos) > 0.001f)
         {
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                                    arcStart, angle, true);
+                                    juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
+
+            // A soft glow under the arc, then the arc and its bright core.
+            g.setColour (accent.withAlpha (0.10f + 0.08f * hover));
+            g.strokePath (valueArc, juce::PathStrokeType (lineWidth * 2.6f, juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded));
+
             g.setColour (accent.withAlpha (0.85f));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
                                                           juce::PathStrokeType::rounded));
@@ -520,14 +534,19 @@ public:
             g.setColour (accent.brighter (0.5f).withAlpha (0.9f));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth * 0.38f, juce::PathStrokeType::curved,
                                                           juce::PathStrokeType::rounded));
+        }
 
+        // The value's tip, drawn even at the origin so a knob at zero still
+        // reads as live rather than switched off.
+        {
+            const auto atOrigin = std::abs (sliderPos - originPos) <= 0.001f;
             const auto tipX = centre.x + std::cos (angle - juce::MathConstants<float>::halfPi) * arcRadius;
             const auto tipY = centre.y + std::sin (angle - juce::MathConstants<float>::halfPi) * arcRadius;
             const juce::Point<float> tip (tipX, tipY);
 
-            g.setColour (accent.withAlpha (0.25f));
+            g.setColour (accent.withAlpha (atOrigin ? 0.14f : 0.25f));
             g.fillEllipse (juce::Rectangle<float> (lineWidth * 4.0f, lineWidth * 4.0f).withCentre (tip));
-            g.setColour (accent.brighter (0.7f));
+            g.setColour (atOrigin ? accent.withAlpha (0.75f) : accent.brighter (0.7f));
             g.fillEllipse (juce::Rectangle<float> (lineWidth * 1.4f, lineWidth * 1.4f).withCentre (tip));
         }
 

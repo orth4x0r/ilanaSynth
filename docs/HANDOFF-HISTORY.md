@@ -191,3 +191,43 @@ Done in one pass at the user's request ("the three phases"), then a debug pass a
 - **OSC card:** WARP 2 AMT and ENV AMT dim while their selector is Off.
 - The tutorial still described FM as "a 3-operator matrix"; it now says six operators with algorithms and a noise operator. The "New in 1.1" band is left as it was.
 - Verified: fingerprints 0 of 241 changed; `--uitest` (plus a destination-menu test) and `ILANA_M5_TEST` 0 failures. The full suite's only failures were the two CPU-budget checks while the machine was loaded: the unchanged baseline build read 52–80 % on the same heavy patch in alternating runs, and Eco measured slower than Normal.
+
+## Bug and polish pass after 1.2 (Claude, 2026-09-26)
+
+Reported by the user: the arp not stopping in Ableton, FM into string oscillators, and the preset picker. Then a review by five Sonnet agents (presets, FM, DSP, visual design, editor usability), with the findings checked before fixing.
+
+- **Arpeggiator** (`processArpeggiator`, rewritten):
+  - Held keys were only dropped by single note-offs. All Notes Off / All Sound Off (which JUCE's VST3 wrapper passes on as CCs) and a host transport stop now clear them, so a clip or keyboard whose note-offs never arrive can't leave the pattern running. That was the likely cause in Ableton.
+  - Events act at their own sample. Before, the whole block's keys were read first, so a release waited for the next block.
+  - While the host plays, steps lock to its beat grid (from the ppq position). A key pressed just before a grid line keeps that line's step.
+  - Chord mode ignored the gate; it now releases at the gate like the other modes.
+  - Held-note arrays are preallocated. `prepareToPlay` drops held keys.
+  - Tests: `runArpHostStopTests` (All Notes Off, All Sound Off, transport stop, chord gate). `ILANA_ARP_TEST=1` runs only the arp tests.
+- **FM greying:** sample and granular oscillators never read FM, and a Physical string only with Excite = Osc In (then as excitation). Their matrix columns and noise cells are disabled and dimmed, with a tooltip saying why. The diagram gives them a dashed ring and a NO FM IN tag, draws routes into them faint, and won't add a new route by dragging (an existing one can still be removed). FM wasn't added to those modes, because presets with routes into them would change.
+- **Preset browser** (`PresetPanel.h`, rewritten):
+  - It was made visible when it was created, so the first click ran `close()` (the fade-out with nothing there). It now starts hidden.
+  - It opened at a fixed top-right position. It now drops down under the preset name.
+  - Chips covered 8 of the 11 categories used. Drums, Generative and Chords had none. A sidebar is now built from the categories in use, plus All, Favourites and User, each with a count.
+  - New behaviour: a click loads and keeps the browser open; Up/Down step and load; Enter or a double-click keeps the preset and closes; Esc or a click outside closes. There's a star to favourite a row, multi-word search, a "now loaded" marker, SURPRISE ME (random from the list), and delete moves the file to the recycle bin.
+  - A saved name that collides with a factory name gets a number, because favourites are keyed by name.
+  - A preset load starts its own undo step.
+- **Processor:**
+  - The reverb was never given the sample rate, so it was tuned for 44.1 kHz at every rate.
+  - The oversampling latency is now reported (`updateLatency`).
+  - A block longer than the one announced is split into announced-size chunks (`processChunk`), since the oversamplers are sized for it.
+  - Output peaks are kept for a meter.
+- **UI:**
+  - Knobs: bipolar parameters fill from the centre, a soft glow sits under the value arc, and a knob at zero keeps a visible tip instead of looking switched off.
+  - Mod source chips are pills with grip dots (so they read as draggable, not as tabs). They glow with the live source value while that source is routed; macros, the wheel and pressure always glow.
+  - A stereo output meter sits beside MASTER. It lights red after a clip; click it to reset.
+  - The amp-envelope choices read "Amp Env", "Filter Env", "F2 Env", "Mod Env" and "Env 5" to "Env 16" instead of "ENV 1 Amp" and so on.
+  - The duplicate WAVETABLE badge in the wave display is gone.
+  - Empty FX slots have a brighter "+ add effect", and no LED.
+  - Shift gives a fine drag on the matrix curve.
+  - Cards destroyed under the mouse no longer leave knobs lit for a hovered source.
+- **Verified:**
+  - All targets build.
+  - `ilanaTableTest`: 0 failures, including the CPU checks.
+  - `--uitest`: 0 failures.
+  - Fingerprints: the 28 changes against v1.2 are explained in HANDOFF, confirmed by building HEAD in a worktree and bisecting (with the old arp function, the two non-reverb presets match HEAD).
+  - New snapshots include `fm-no-input.png` and `preset-browser.png`.

@@ -218,6 +218,9 @@ public:
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
     void panic() { synth.allNotesOff (0, false); }
     float getCpuUsage() const { return cpuUsage.load(); }
+
+    // The loudest output sample per channel since the last call (for the meter).
+    float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
 
     // LFO phase of every sounding voice (for tests and diagnostics).
@@ -335,6 +338,9 @@ private:
     juce::ValueTree buildFullState();
     void applyFullState (const juce::ValueTree& state);
     void applyFxChain (const juce::String& state);
+    void processChunk (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages);
+    void updateLatency();
+    juce::MidiBuffer chunkMidi;
     void processArpeggiator (juce::MidiBuffer& midiMessages, int numSamples, juce::MidiBuffer& output);
     int selectArpNote (int mode, int octaves);
 
@@ -354,6 +360,7 @@ private:
     int arpGateRemaining = 0;
     int arpActiveNote = -1;
     bool arpWasEnabled = false;
+    bool arpHostWasPlaying = false;
 
     int crushCounter = 0;
     float crushHold[2] { 0.0f, 0.0f };
@@ -600,6 +607,7 @@ private:
     std::atomic<int> gateDisplayStep { -1 };
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
+    std::array<std::atomic<float>, 2> outputPeaks {};
 
 public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).

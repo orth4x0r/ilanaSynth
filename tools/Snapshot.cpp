@@ -938,6 +938,36 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("lfo-bounce.png"));
     }
 
+    // FM into oscillators that ignore it: OSC 2 as a sample, OSC 3 a string.
+    {
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        processor.loadFactoryPreset (0);
+        set ("osc2_mode", 2.0f);
+        set ("sub_mode", 1.0f);
+        set ("fm_1to2", 0.4f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-no-input.png"));
+        processor.loadFactoryPreset (0);
+        tabs->setCurrentTabIndex (0);
+        settle (300);
+    }
+
+    // The preset browser, opened from the preset name.
+    if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+    {
+        display->onClick();
+        settle (500);
+        save (*editor, outDir.getChildFile ("preset-browser.png"));
+        display->onClick();
+        settle (400);
+    }
+
     // The wavetable browser on its own.
     {
         TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());

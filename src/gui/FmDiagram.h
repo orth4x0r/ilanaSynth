@@ -19,9 +19,14 @@ class FmDiagram : public juce::Component,
 public:
     explicit FmDiagram (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
-        setTooltip ("Drag from one oscillator to another to add or remove an FM route; onto itself for feedback. "
-                    "Click an oscillator to mute its output (it still modulates).");
+        setTooltip (defaultTooltip());
         startTimerHz (30);
+    }
+
+    static juce::String defaultTooltip()
+    {
+        return "Drag from one oscillator to another to add or remove an FM route; onto itself for feedback. "
+               "Click an oscillator to mute its output (it still modulates).";
     }
 
     // [source][target] parameter ids.
@@ -37,6 +42,46 @@ public:
             return ids[source][target];
         return source == target ? "fm_fb" + juce::String (source + 1)
                                 : "fm_" + juce::String (source + 1) + "to" + juce::String (target + 1);
+    }
+
+    // Whether FM into an oscillator does anything: a wavetable always takes
+    // it; a string only when its exciter is "Osc In" (the incoming signal
+    // drives the string rather than bending its phase); sample and granular
+    // oscillators never read it. Every mode can still modulate others.
+    static bool receivesFm (const IlanaSynthAudioProcessor& p, int osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)]);
+        const auto choice = [&p] (const juce::String& id)
+        {
+            const auto* value = p.apvts.getRawParameterValue (id);
+            return value != nullptr ? juce::roundToInt (value->load()) : 0;
+        };
+
+        const auto mode = choice (prefix + "_mode");
+
+        if (mode == 2 || mode == 3)
+            return false;
+
+        return mode != 1 || choice (prefix + "_excite") == 6;
+    }
+
+    // Why an oscillator ignores FM, for tooltips and labels.
+    static juce::String fmInputNote (const IlanaSynthAudioProcessor& p, int osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)]);
+        const auto* value = p.apvts.getRawParameterValue (prefix + "_mode");
+        const auto mode = value != nullptr ? juce::roundToInt (value->load()) : 0;
+
+        if (mode == 1)
+            return "A string only takes FM when its Excite is set to Osc In (the incoming signal then drives the string).";
+
+        if (mode == 2)
+            return "Sample oscillators don't take FM. They can still modulate other oscillators.";
+
+        if (mode == 3)
+            return "Granular oscillators don't take FM. They can still modulate other oscillators.";
+
+        return {};
     }
 
     static juce::Colour oscColour (int osc)
@@ -63,7 +108,10 @@ public:
                 if (amount < 0.001f)
                     continue;
 
-                const auto colour = oscColour (source).withAlpha (0.35f + 0.6f * amount);
+                // A route into an oscillator that ignores FM stays in the
+                // patch but is drawn faint, without the flowing energy.
+                const auto live = receivesFm (processorRef, target);
+                const auto colour = oscColour (source).withAlpha ((0.35f + 0.6f * amount) * (live ? 1.0f : 0.3f));
                 const auto thickness = 1.5f + amount * 6.0f;
 
                 if (source == target)
@@ -95,6 +143,7 @@ public:
                 g.fillPath (arrow);
 
                 // Energy flowing along the route: faster and brighter while notes play.
+                if (live)
                 {
                     const auto playing = processorRef.getActiveVoiceCount() > 0;
                     const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -110,7 +159,7 @@ public:
                     }
                 }
 
-                g.setColour (juce::Colours::white.withAlpha (0.75f));
+                g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
                 g.setFont (IlanaTheme::font (10.0f, true));
                 g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%",
                             juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
@@ -176,7 +225,9 @@ public:
         // Drag in progress.
         if (dragSource >= 0)
         {
-            g.setColour (oscColour (dragSource).withAlpha (0.6f));
+            const auto blocked = hoverOsc >= 0 && ! receivesFm (processorRef, hoverOsc)
+                                 && read (routeId (dragSource, hoverOsc)) < 0.001f;
+            g.setColour (blocked ? juce::Colours::white.withAlpha (0.2f) : oscColour (dragSource).withAlpha (0.6f));
             g.drawLine ({ centres[(size_t) dragSource], dragPosition }, 2.0f);
         }
 
@@ -212,6 +263,24 @@ public:
             g.setColour (out ? colour : juce::Colours::white.withAlpha (0.35f));
             g.setFont (IlanaTheme::font (9.5f, true));
             g.drawText (out ? "OUT" : "MOD ONLY", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
+
+            // Oscillators that ignore FM: a dashed ring and a tag under them.
+            if (! receivesFm (processorRef, osc))
+            {
+                juce::Path ring;
+                ring.addEllipse (circle.expanded (5.0f));
+                juce::Path dashed;
+                const float dashes[] { 3.0f, 4.0f };
+                juce::PathStrokeType (1.2f).createDashedStroke (dashed, ring, dashes, 2);
+                g.setColour (juce::Colours::white.withAlpha (0.28f));
+                g.fillPath (dashed);
+
+                g.setColour (juce::Colours::white.withAlpha (0.45f));
+                g.setFont (IlanaTheme::font (9.0f, true));
+                g.drawText ("NO FM IN", juce::Rectangle<float> (radius * 3.0f, 12.0f)
+                                           .withCentre ({ centre.x, circle.getBottom() + 13.0f }),
+                            juce::Justification::centred);
+            }
         }
     }
 
@@ -222,6 +291,8 @@ public:
         if (osc != hoverOsc)
         {
             hoverOsc = osc;
+            const auto note = osc >= 0 ? fmInputNote (processorRef, osc) : juce::String();
+            setTooltip (note.isNotEmpty() && ! receivesFm (processorRef, osc) ? note : defaultTooltip());
             repaint();
         }
     }
@@ -235,6 +306,7 @@ public:
     void mouseDrag (const juce::MouseEvent& event) override
     {
         dragPosition = event.position;
+        hoverOsc = oscAt (event.position);
         repaint();
     }
 
@@ -259,7 +331,10 @@ public:
         else if (target >= 0)
         {
             // A drag: add the route, or remove it if it's already there.
-            if (auto* parameter = processorRef.apvts.getParameter (routeId (source, target)))
+            // A new route into an oscillator that ignores FM isn't added.
+            auto* parameter = processorRef.apvts.getParameter (routeId (source, target));
+
+            if (parameter != nullptr && (parameter->getValue() > 0.001f || receivesFm (processorRef, target)))
             {
                 parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost (parameter->getValue() > 0.001f ? 0.0f : 0.5f);

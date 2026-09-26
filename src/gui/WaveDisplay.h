@@ -95,7 +95,6 @@ public:
             g.setColour (borderColour);
             g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, borderThickness + loadFlash * 1.5f);
             drawSample (g);
-            drawModeTag (g);
             IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
             return;
         }
@@ -107,7 +106,6 @@ public:
 
         if (table == nullptr || table->getNumFrames() == 0)
         {
-            drawModeTag (g);
             IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
             return;
         }
@@ -149,23 +147,7 @@ public:
             drawPlayhead (g, table, frameIndex, plot, centreY, halfHeight);
         }
 
-        drawModeTag (g);
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
-    }
-
-    void drawModeTag (juce::Graphics& g) const
-    {
-        const char* const names[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
-        const auto index = juce::jlimit (0, 3, modeId.isNotEmpty() ? readChoice (modeId) : 0);
-        const juce::String tag (names[index]);
-        const auto tagBounds = juce::Rectangle<float> (8.0f, 6.0f, (float) tag.length() * 5.4f + 12.0f, 13.0f);
-
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillRoundedRectangle (tagBounds, 4.0f);
-
-        g.setColour (traceColour.withAlpha (0.9f));
-        g.setFont (IlanaTheme::font (10.0f, true));
-        g.drawText (tag, tagBounds.toNearestInt(), juce::Justification::centred);
     }
 
     void mouseDown (const juce::MouseEvent& event) override

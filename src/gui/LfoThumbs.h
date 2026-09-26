@@ -21,6 +21,14 @@ class LfoThumbBar : public juce::Component,
                     private juce::Timer
 {
 public:
+    // A card rebuilt under the mouse never gets its mouseExit; don't leave
+    // knobs lit for a source nobody is hovering.
+    ~LfoThumbBar() override
+    {
+        if (isMouseOver (true))
+            highlightedModSource() = 0;
+    }
+
     LfoThumbBar (IlanaSynthAudioProcessor& p, std::function<juce::Colour (int)> colourForIn)
         : processorRef (p), colourFor (std::move (colourForIn))
     {

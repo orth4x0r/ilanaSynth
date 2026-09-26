@@ -19,6 +19,14 @@ class EnvThumbBar : public juce::Component,
                     private juce::Timer
 {
 public:
+    // A card rebuilt under the mouse never gets its mouseExit; don't leave
+    // knobs lit for a source nobody is hovering.
+    ~EnvThumbBar() override
+    {
+        if (isMouseOver (true))
+            highlightedModSource() = 0;
+    }
+
     struct Env
     {
         juce::String title;

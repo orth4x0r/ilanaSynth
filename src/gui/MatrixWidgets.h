@@ -180,7 +180,8 @@ public:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        const auto value = juce::jlimit (-1.0f, 1.0f, dragStart - (float) event.getDistanceFromDragStartY() * 0.01f);
+        const auto perPixel = event.mods.isShiftDown() ? 0.002f : 0.01f;   // shift = fine
+        const auto value = juce::jlimit (-1.0f, 1.0f, dragStart - (float) event.getDistanceFromDragStartY() * perPixel);
         attachment.setValueAsPartOfGesture (value);
     }
 

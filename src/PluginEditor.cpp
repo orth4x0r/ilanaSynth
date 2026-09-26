@@ -2022,6 +2022,7 @@ public:
             tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + "_tune"));
 
         refreshShown();
+        refreshFmInputs (true);
         selectOperator (0);
         startTimerHz (12);
     }
@@ -2087,6 +2088,17 @@ public:
             {
                 const auto cell = cells[(size_t) source][(size_t) target].toFloat();
                 const auto colour = FmDiagram::oscColour (source);
+
+                if (! fmIn[(size_t) target])
+                {
+                    // This oscillator ignores FM: a flat, empty cell.
+                    g.setColour (juce::Colours::black.withAlpha (0.3f));
+                    g.fillRoundedRectangle (cell, 6.0f);
+                    g.setColour (juce::Colours::white.withAlpha (0.05f));
+                    g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
+                    continue;
+                }
+
                 paintCell (cell, read (FmDiagram::routeId (source, target)), colour);
 
                 if (source == target)
@@ -2099,7 +2111,8 @@ public:
                 }
             }
 
-            paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
+            if (fmIn[(size_t) source])
+                paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
         }
 
         // Column and row headings.
@@ -2107,8 +2120,10 @@ public:
 
         for (const auto i : shown)
         {
+            g.setColour (FmDiagram::oscColour (i).withAlpha (fmIn[(size_t) i] ? 1.0f : 0.4f));
+            g.drawText (fmIn[(size_t) i] ? "TO OSC " + juce::String (i + 1) : "OSC " + juce::String (i + 1) + ": NO FM IN",
+                        columnHeads[(size_t) i], juce::Justification::centred);
             g.setColour (FmDiagram::oscColour (i));
-            g.drawText ("TO OSC " + juce::String (i + 1), columnHeads[(size_t) i], juce::Justification::centred);
             g.drawText ("OSC " + juce::String (i + 1), rowHeads[(size_t) i].withHeight (18), juce::Justification::centredLeft);
         }
 
@@ -2140,6 +2155,9 @@ public:
         if (isShowing())
             algorithms.refreshMatch();
 
+        if (refreshFmInputs (false))
+            repaint (matrixCard);
+
         if (refreshShown() || tuneChanged)
         {
             updateOperatorVisibility();
@@ -2151,6 +2169,48 @@ public:
             repaint (matrixCard);
             repaint (operatorCard.withHeight (26));
         }
+    }
+
+    // Columns of oscillators that ignore FM (sample, granular, a string
+    // not set to Osc In) are greyed out and can't be edited; routes already
+    // there stay in the patch but do nothing.
+    bool refreshFmInputs (bool force)
+    {
+        std::array<bool, OscillatorIds::count> now {};
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            now[(size_t) osc] = FmDiagram::receivesFm (processorRef, osc);
+
+        if (now == fmIn && ! force)
+            return false;
+
+        fmIn = now;
+
+        for (int target = 0; target < OscillatorIds::count; ++target)
+        {
+            const auto on = fmIn[(size_t) target];
+            const auto note = FmDiagram::fmInputNote (processorRef, target);
+
+            std::vector<juce::Component*> column { noiseKnobs[(size_t) target].get() };
+            for (int source = 0; source < OscillatorIds::count; ++source)
+                column.push_back (knobs[(size_t) source][(size_t) target].get());
+
+            for (auto* control : column)
+            {
+                control->setEnabled (on);
+                control->setAlpha (on ? 1.0f : 0.22f);
+
+                if (auto* tooltipClient = dynamic_cast<juce::SettableTooltipClient*> (control))
+                {
+                    if (! on)
+                        tooltipClient->setTooltip (note);
+                    else if (auto* knob = dynamic_cast<KnobControl*> (control))
+                        tooltipClient->setTooltip (knob->getSlider().getTooltip());
+                }
+            }
+        }
+
+        return true;
     }
 
     bool refreshShown()
@@ -2347,6 +2407,7 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    std::array<bool, OscillatorIds::count> fmIn {};
     FmDiagram diagram;
     FmAlgorithmStrip algorithms;
     ComboControl mode;
@@ -4159,13 +4220,16 @@ public:
                 g.setColour (typeColour);
                 g.fillEllipse (led);
             }
-            else
+            else if (slotType != 0)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.25f));
                 g.drawEllipse (led, 1.0f);
             }
 
-            g.setColour (juce::Colours::white.withAlpha ((slotType != 0 ? 0.92f : 0.22f) * dim));
+            g.setColour ((slotType != 0 ? juce::Colours::white.withAlpha (0.92f)
+                                        : IlanaTheme::accent().interpolatedWith (juce::Colours::white, 0.55f)
+                                              .withAlpha (0.42f + 0.45f * rowHover[(size_t) slot]))
+                             .withMultipliedAlpha (dim));
             g.setFont (IlanaTheme::font (13.0f, slotType != 0));
             g.drawFittedText (slotType != 0 ? getSlotName (slotType) : juce::String ("+  add effect"),
                               row.reduced (30, 6).withTrimmedRight (18), 1, juce::Justification::centredLeft);
@@ -5125,6 +5189,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
     voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices");
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, juce::Colour (0xffffd447), false);
+    outputMeter = std::make_unique<OutputMeter> (p);
+    content.addAndMakeVisible (*outputMeter);
     voiceModeBox = std::make_unique<ComboControl> (p.apvts, "voice_mode", "VOICE MODE");
 
     for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (bendKnob.get()),
@@ -5189,6 +5255,23 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     for (const auto& spec : chipSpecs)
     {
         auto chip = std::make_unique<ModSourceChip> (spec.name, (int) spec.source);
+        // The chip glows with its source while that source modulates
+        // something (macros, the wheel and pressure always).
+        chip->valueProvider = [this, source = spec.source]
+        {
+            using S = Mod::Source;
+            const auto played = source == S::Macro1 || source == S::Macro2 || source == S::Macro3
+                                || source == S::Macro4 || source == S::ModWheel || source == S::Aftertouch;
+
+            if (! played && ! usedModSources[(size_t) juce::jlimit (0, (int) S::Count - 1, (int) source)])
+                return 0.0f;
+
+            if ((source == S::Velocity || source == S::KeyTrack || source == S::Random)
+                && processorRef.getActiveVoiceCount() == 0)
+                return 0.0f;
+
+            return processorRef.getSourceDisplayValue ((int) source);
+        };
         content.addAndMakeVisible (*chip);
         chips.push_back (std::move (chip));
     }
@@ -5390,6 +5473,22 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
                                  parameterFingerprint() != loadedFingerprint);
 
+    // Which sources the matrix uses, for the source chips' glow.
+    {
+        usedModSources.fill (false);
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = processorRef.readModSlot (slot);
+
+            if (routing.isActive())
+            {
+                usedModSources[(size_t) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) routing.source)] = true;
+                usedModSources[(size_t) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) routing.aux)] = true;
+            }
+        }
+    }
+
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
@@ -5555,15 +5654,17 @@ void IlanaSynthAudioProcessorEditor::resized()
     tutorial.setBounds (content.getLocalBounds());
 
     auto strip = area.removeFromBottom (54).reduced (14, 2);
-    masterKnob->setBounds (strip.removeFromRight (112));
-    strip.removeFromRight (6);
-    voicesKnob->setBounds (strip.removeFromRight (90));
+    outputMeter->setBounds (strip.removeFromRight (12).withSizeKeepingCentre (12, 40));
+    strip.removeFromRight (4);
+    masterKnob->setBounds (strip.removeFromRight (108));
+    strip.removeFromRight (4);
+    voicesKnob->setBounds (strip.removeFromRight (88));
     voiceModeBox->setBounds (strip.removeFromRight (96).withSizeKeepingCentre (92, 40));
-    strip.removeFromRight (8);
-    bendKnob->setBounds (strip.removeFromRight (88));
+    strip.removeFromRight (6);
+    bendKnob->setBounds (strip.removeFromRight (86));
     legatoToggle->setBounds (strip.removeFromRight (80).withSizeKeepingCentre (76, 44));
-    glideKnob->setBounds (strip.removeFromRight (96));
-    strip.removeFromRight (10);
+    glideKnob->setBounds (strip.removeFromRight (92));
+    strip.removeFromRight (6);
 
     const auto macroWidth = strip.getWidth() / juce::jmax (1, (int) macroKnobs.size());
 
@@ -5679,6 +5780,9 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
 
 void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
 {
+    // One undo step for the whole preset, apart from the last edit.
+    const auto names = processorRef.getAllPresetNames();
+    processorRef.getUndoManager().beginNewTransaction ("Load " + names[index]);
     processorRef.loadPresetByIndex (index);
     presetLoadFlash = 1.0f;
 
@@ -5968,17 +6072,25 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
     if (presetPanel == nullptr)
     {
         presetPanel = std::make_unique<PresetPanel> (processorRef, settings.get());
-        presetPanel->onLoad = [this] (int index)
+        presetPanel->onLoad = [this] (int index, bool closeAfter)
         {
             loadPresetIndex (index);
 
-            if (presetPanel != nullptr)
+            if (closeAfter && presetPanel != nullptr)
                 presetPanel->close();
         };
         presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
+        presetPanel->setAnchor (&presetDisplay);
 
-        content.addAndMakeVisible (*presetPanel);
-        presetPanel->setBounds (designWidth - 14 - 300, 62, 300, 380);
+        // Hidden until open() fades it in.
+        content.addChildComponent (*presetPanel);
+    }
+
+    // Drop down under the preset name, kept inside the window.
+    {
+        const auto width = 640;
+        const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
+        presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 500);
     }
 
     if (presetPanel->isOpen())

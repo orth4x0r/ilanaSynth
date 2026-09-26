@@ -13,6 +13,14 @@ class StripKnob : public juce::Component,
                   private juce::Timer
 {
 public:
+    // A card rebuilt under the mouse never gets its mouseExit; don't leave
+    // knobs lit for a source nobody is hovering.
+    ~StripKnob() override
+    {
+        if (isMouseOver (true))
+            highlightedModSource() = 0;
+    }
+
     StripKnob (IlanaSynthAudioProcessor& p, const juce::String& parameterID, const juce::String& title,
                int macroIndexIn = -1, juce::Colour accent = IlanaTheme::accent(), bool followsTheme = true)
         : processorRef (p),

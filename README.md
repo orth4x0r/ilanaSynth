@@ -126,6 +126,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 
 ### FM
 - A 6×6 matrix: rows modulate columns, and the diagonal is feedback.
+- Only wavetable oscillators take FM as carriers. A Physical string takes it only with its Excite set to **Osc In**, where the incoming signal drives the string. Sample and Granular oscillators ignore it. Columns for oscillators that ignore FM are greyed out, and the diagram marks them **NO FM IN**. Every mode can still modulate the others.
 - Styles: Phase, Through-Zero or Exponential.
 - Each oscillator has an OUT switch; turn it off to make that oscillator a pure modulator.
 - The operator diagram:
@@ -175,6 +176,8 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 ### ARP/SEQ
 - **Step sequencers and MSEG**: two 16-step LFO editors, and a 4-stage looping MSEG with a clocked sample & hold.
 - **Arpeggiator**: 9 modes (Up, Down, UpDown, Random, DownUp, Converge, Walk, Chord, Scale Random), 1–4 octaves, host-synced rate, gate and step chance, with a live pattern display.
+  - While the host plays, steps lock to its beat grid. Notes start and stop on the exact sample they arrive.
+  - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
 - **Generate**:
   - Scale and root, with optional snapping of played notes.
   - **Note spray** adds random notes from the scale around each note you play:
@@ -238,7 +241,8 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - A/B compare
   - DICE: randomise or mutate the patch, or one section of it
   - settings
-- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices and master. The on-screen keyboard can be hidden.
+- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard can be hidden.
+  - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
 - **Presets**: 241 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
 
@@ -299,7 +303,11 @@ The standalone app is in `build/ilanaSynth_artefacts/Release/Standalone/`. If ma
 - **SAVE** asks for a name, category and tags, and stores the preset in `Documents/ilanaSynth Presets`.
   - The FOLDER button in the preset browser opens that directory.
   - Use the `…` menu to export a preset file anywhere.
-- **The preset browser** (click the preset name) has category chips, search and favourites. Left-click a row to load it; right-click for more.
+- **The preset browser** (click the preset name) drops down under the name, with every category (and Favourites and User) on the left, and search.
+  - Click a preset to hear it. The browser stays open, so you can audition a few.
+  - Up/Down step through the list, loading as you go. Enter or a double-click keeps the preset and closes the browser. Esc or a click outside also closes it.
+  - Click the star on a row to make it a favourite. Right-click a row for more options.
+  - **SURPRISE ME** loads a random preset from the list shown.
 
 ### Good to know
 - The FX rack is empty on INIT: use the quick-add buttons, or click any of the 10 rows.

@@ -164,6 +164,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 {
 #if ILANA_FINGERPRINT_BUILD
     arpRandom.setSeed (31415);
+    arpHeldNotes.ensureStorageAllocated (128);
+    arpChordActive.ensureStorageAllocated (128);
+    arpChordNotes.ensureStorageAllocated (128);
     lfoRandom.setSeed (27182);
 #endif
     spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
@@ -948,8 +951,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     juce::StringArray ampEnvelopeChoices;
     // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add ("ENV " + juce::String (env)
-                                + (env == 1 ? " Amp" : env == 2 ? " Filt 1" : env == 3 ? " Filt 2" : env == 4 ? " Mod" : ""));
+        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "F2 Env"
+                                : env == 4 ? "Mod Env" : "Env " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
@@ -1065,6 +1068,7 @@ float IlanaSynthAudioProcessor::getParam (const char* id) const
 void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     noteSpray.reset();
+    arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (4096);
 
     currentSampleRate = sampleRate;
@@ -1208,7 +1212,17 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     combLine.prepare (spec);
     combLine.reset();
 
+    reverb.setSampleRate (sampleRate);
     reverb.reset();
+    chunkMidi.ensureSize (4096);
+    updateLatency();
+}
+
+// The oversamplers' filters delay the output a little; the host compensates.
+void IlanaSynthAudioProcessor::updateLatency()
+{
+    const auto factor = oversamplingFactor.load();
+    setLatencySamples (factor > 1 ? juce::roundToInt (activeOversampler().getLatencyInSamples()) : 0);
 }
 
 int IlanaSynthAudioProcessor::wantedOversamplingFactor() const
@@ -1243,6 +1257,7 @@ void IlanaSynthAudioProcessor::setOversampling (int factor)
     mseg.reset();
     lfoBuffers.setSize (numLfoChannels, expectedBlockSize * factor, false, false, true);
     scaledMidiBuffer.ensureSize (1024);
+    updateLatency();
 
     suspendProcessing (false);
 }
@@ -1261,6 +1276,28 @@ bool IlanaSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 }
 
 void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    const auto total = buffer.getNumSamples();
+
+    if (total <= expectedBlockSize)
+    {
+        processChunk (buffer, midiMessages);
+        return;
+    }
+
+    // A host may hand over a longer block than it announced (some offline
+    // renders do); the oversamplers are sized for the announced one.
+    for (int start = 0; start < total; start += expectedBlockSize)
+    {
+        const auto length = juce::jmin (expectedBlockSize, total - start);
+        juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
+        chunkMidi.clear();
+        chunkMidi.addEvents (midiMessages, start, length, -start);
+        processChunk (chunk, chunkMidi);
+    }
+}
+
+void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     const auto startTicks = juce::Time::getHighResolutionTicks();
 
@@ -1862,6 +1899,16 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         }
 
         scopeWritePos.store (writePosition);
+    }
+
+    // Output peaks for the meter; the editor takes them when it reads.
+    for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+    {
+        const auto peak = buffer.getMagnitude (channel, 0, buffer.getNumSamples());
+        auto& held = outputPeaks[(size_t) channel];
+
+        if (peak > held.load())
+            held.store (peak);
     }
 
     const auto elapsedSeconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startTicks);
@@ -3901,10 +3948,31 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
 {
     output.clear();
 
-    for (const auto metadata : midiMessages)
-    {
-        const auto message = metadata.getMessage();
+    const auto lastSample = juce::jmax (0, numSamples - 1);
+    const auto arpEnabled = getParam ("arp_on") > 0.5f;
+    const auto playing = hostPlaying.load();
+    const auto transportStopped = arpHostWasPlaying && ! playing;
+    arpHostWasPlaying = playing;
 
+    const auto releaseSounding = [this, &output] (int position)
+    {
+        if (arpActiveNote >= 0)
+            output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), position);
+
+        for (auto chordNote : arpChordActive)
+            output.addEvent (juce::MidiMessage::noteOff (1, chordNote), position);
+
+        arpChordActive.clearQuick();
+        arpActiveNote = -1;
+        arpGateRemaining = 0;
+    };
+
+    // Held keys are tracked even while the arp is off, so switching it on
+    // over a held chord starts at once. All Notes Off / All Sound Off and a
+    // host transport stop drop every held key: a clip or keyboard whose
+    // note-offs never arrive must not leave the pattern running.
+    const auto trackKeys = [this] (const juce::MidiMessage& message)
+    {
         if (message.isNoteOn())
         {
             if (! arpHeldNotes.contains (message.getNoteNumber()))
@@ -3917,26 +3985,26 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         {
             arpHeldNotes.removeAllInstancesOf (message.getNoteNumber());
         }
-    }
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+        {
+            arpHeldNotes.clearQuick();
+        }
+    };
 
-    const auto arpEnabled = getParam ("arp_on") > 0.5f;
+    if (transportStopped)
+        arpHeldNotes.clearQuick();
 
     if (! arpEnabled)
     {
         if (arpWasEnabled)
         {
-            if (arpActiveNote >= 0)
-                output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), 0);
-
-            for (auto chordNote : arpChordActive)
-                output.addEvent (juce::MidiMessage::noteOff (1, chordNote), 0);
-
-            arpChordActive.clear();
-            arpActiveNote = -1;
+            releaseSounding (0);
             arpCounter = 0;
-            arpGateRemaining = 0;
             arpWasEnabled = false;
         }
+
+        for (const auto metadata : midiMessages)
+            trackKeys (metadata.getMessage());
 
         output.addEvents (midiMessages, 0, numSamples, 0);
         return;
@@ -3944,75 +4012,55 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
 
     arpWasEnabled = true;
 
-    for (const auto metadata : midiMessages)
-    {
-        const auto message = metadata.getMessage();
-
-        if (! message.isNoteOnOrOff())
-            output.addEvent (message, metadata.samplePosition);
-    }
-
-    if (arpHeldNotes.isEmpty())
-    {
-        if (arpActiveNote >= 0)
-        {
-            output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), 0);
-            arpActiveNote = -1;
-        }
-
-        for (auto chordNote : arpChordActive)
-            output.addEvent (juce::MidiMessage::noteOff (1, chordNote), 0);
-
-        arpChordActive.clear();
-        arpCounter = 0;
-        return;
-    }
-
     const auto bpm = juce::jmax (20.0, currentBpm.load());
     auto beats = getSyncDivisionBeats ((int) getParam ("arp_div"));
 
     if (beats <= 0.0)
         beats = 0.5;
 
-    const auto samplesPerStep = juce::jmax (16, (int) ((60.0 / bpm) * beats * currentSampleRate));
+    const auto exactStep = (60.0 / bpm) * beats * currentSampleRate;
+    const auto samplesPerStep = juce::jmax (16, (int) exactStep);
     const auto gate = juce::jlimit (0.05f, 1.0f, getParam ("arp_gate"));
     const auto gateSamples = juce::jmax (8, (int) ((float) samplesPerStep * gate));
     const auto octaves = juce::jlimit (1, 4, (int) getParam ("arp_octaves"));
     const auto mode = juce::jlimit (0, 8, (int) getParam ("arp_mode"));
     const auto chance = juce::jlimit (0.0f, 1.0f, getParam ("arp_chance"));
+    const auto ppqAtBlockStart = hostPpq.load();
 
-    int position = 0;
-
-    while (position < numSamples)
+    // While the host plays, steps land on its beat grid. A step played
+    // just before a grid line (a key pressed a little early) keeps that
+    // line's slot instead of firing again straight after.
+    const auto samplesToNextStep = [&] (int position)
     {
-        if (arpGateRemaining <= 0)
+        if (! playing || exactStep < 1.0)
+            return samplesPerStep;
+
+        const auto ppq = ppqAtBlockStart + (double) position / currentSampleRate * (bpm / 60.0);
+        const auto stepPosition = ppq / beats;
+        auto toNext = (1.0 - (stepPosition - std::floor (stepPosition))) * exactStep;
+
+        if (toNext < exactStep * 0.25)
+            toNext += exactStep;
+
+        return juce::jmax (16, juce::roundToInt (toNext));
+    };
+
+    if (transportStopped)
+    {
+        releaseSounding (0);
+        arpCounter = 0;
+    }
+
+    const auto triggerStep = [&] (int position)
+    {
+        releaseSounding (position);
+
+        const auto note = selectArpNote (mode, octaves);
+        const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
+
+        if (! rest)
         {
-            if (arpActiveNote >= 0)
-            {
-                output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), position);
-                arpActiveNote = -1;
-            }
-
-            for (auto chordNote : arpChordActive)
-                output.addEvent (juce::MidiMessage::noteOff (1, chordNote), position);
-
-            arpChordActive.clear();
-        }
-
-        if (arpCounter <= 0)
-        {
-            if (arpActiveNote >= 0)
-                output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), position);
-
-            const auto note = selectArpNote (mode, octaves);
-            const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
-
-            if (rest)
-            {
-                // A rest step: nothing sounds until the next one.
-                arpActiveNote = -1;
-            }
-            else if (mode == 7)
+            if (mode == 7)
             {
                 for (auto chordNote : arpChordNotes)
                 {
@@ -4025,24 +4073,71 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
                 output.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), position);
                 arpActiveNote = note;
             }
-
-            arpGateRemaining = gateSamples;
-            arpCounter = samplesPerStep;
         }
 
-        auto advance = numSamples - position;
-        advance = juce::jmin (advance, arpCounter);
+        arpGateRemaining = gateSamples;
+        arpCounter = samplesToNextStep (position);
+    };
 
-        if (arpActiveNote >= 0 && arpGateRemaining > 0)
-            advance = juce::jmin (advance, arpGateRemaining);
+    // Runs the step clock over [from, to).
+    const auto runSteps = [&] (int from, int to)
+    {
+        auto position = from;
 
-        if (advance <= 0)
-            advance = 1;
+        while (position < to)
+        {
+            const auto sounding = arpActiveNote >= 0 || ! arpChordActive.isEmpty();
 
-        arpCounter -= advance;
-        arpGateRemaining -= advance;
-        position += advance;
+            if (sounding && (arpGateRemaining <= 0 || arpHeldNotes.isEmpty()))
+                releaseSounding (position);
+
+            if (arpHeldNotes.isEmpty())
+                return;
+
+            if (arpCounter <= 0)
+                triggerStep (position);
+
+            auto advance = juce::jmin (to - position, arpCounter);
+
+            if ((arpActiveNote >= 0 || ! arpChordActive.isEmpty()) && arpGateRemaining > 0)
+                advance = juce::jmin (advance, arpGateRemaining);
+
+            advance = juce::jmax (1, advance);
+            arpCounter -= advance;
+            arpGateRemaining -= advance;
+            position += advance;
+        }
+    };
+
+    // Walk the block event by event so releases and new keys act at the
+    // sample they arrive on, not at the next block.
+    auto position = 0;
+
+    for (const auto metadata : midiMessages)
+    {
+        const auto eventPosition = juce::jlimit (0, lastSample, metadata.samplePosition);
+        runSteps (position, eventPosition);
+        position = juce::jmax (position, eventPosition);
+
+        const auto message = metadata.getMessage();
+        const auto wasEmpty = arpHeldNotes.isEmpty();
+        trackKeys (message);
+
+        if (! message.isNoteOnOrOff())
+            output.addEvent (message, position);
+
+        if (arpHeldNotes.isEmpty() && ! wasEmpty)
+        {
+            releaseSounding (position);
+            arpCounter = 0;
+        }
+        else if (wasEmpty && ! arpHeldNotes.isEmpty())
+        {
+            arpCounter = 0;
+        }
     }
+
+    runSteps (position, numSamples);
 }
 
 const Wavetable* IlanaSynthAudioProcessor::getTableForChoice (int choiceIndex) const

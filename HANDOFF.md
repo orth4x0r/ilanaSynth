@@ -8,9 +8,9 @@ M1–M3 were implemented before this task and pushed to `origin/main`. M3b phase
 
 M3b phase B expands the engine to six full oscillators. OSC 4–6 have Wavetable, Physical, Sample and Granular modes, unison, chord, spectral and time warps, and filter routes; they default off. The existing `osc1_*`, `osc2_*`, and `sub_*` IDs and choice indices are retained. The separate sub oscillator and noise remain separate. The FM matrix is 6×6 with the nine original cells mapped to their existing IDs. Route **Both** is appended after Direct and feeds each filter in parallel.
 
-The envelope pool has 16 TensionAdsr envelopes. The first five keep their IDs (`amp_*`, `fe_*`, `f2e_*`, `me_*`, `e4_*`). ENV 6–16 have attack, decay, sustain, release, curve and velocity parameters and are appended mod sources. Each oscillator can select ENV 1–16 as its amp envelope; default ENV 1 retains the legacy render path. Voice lifetime follows all active oscillator amp envelopes. The ENV page has a patch-saved reveal count and always shows assigned envelopes.
+The envelope pool has 16 TensionAdsr envelopes. The first five keep their IDs (`amp_*`, `fe_*`, `f2e_*`, `me_*`, `e4_*`). ENV 6–16 have attack, decay, sustain, release, curve and velocity parameters and are appended mod sources. Each oscillator can select ENV 1–16 as its amp envelope; default ENV 1 retains the legacy render path. Voice lifetime follows all active oscillator amp envelopes. Which oscillators, envelopes and LFOs are shown is patch-saved (see Polish below).
 
-The OSC page has six compact rows and one expanded card; MAIN has six oscillator rows; FM shows six operators and the full matrix. New OSC 4–6 modulation destinations are appended after the existing indices. The global QUALITY control is beside oversampling.
+The OSC page, MAIN and FM show only the added oscillators (see Polish below). New OSC 4–6 modulation destinations are appended after the existing indices. The global QUALITY control is beside oversampling.
 
 ## Verification
 
@@ -27,8 +27,21 @@ The OSC page has six compact rows and one expanded card; MAIN has six oscillator
 - Eco caps each oscillator at four unison voices; Normal uses the original limits and rendering; High averages two half-step wavetable reads for smoother high-note output. Physical, Sample and Granular processing are unchanged in High.
 - When all active oscillators select ENV 1, the old post-filter AMP multiplication is preserved exactly. Selecting another amp envelope applies each oscillator envelope before the filter buses; this lets different oscillators have independent level shapes, while the dedicated sub/noise continue using AMP.
 - New physical string banks have explicit seed values so their construction cannot advance the default seed sequence used by the first three oscillators. This is required for identical old preset fingerprints.
-- ENV 1–5 start revealed for familiarity; subsequent cards are revealed with `+`. The count lives in the patch state property `envRevealCount` and defaults to five when absent.
+- Shown modules are bitmasks in the patch state: `oscRevealMask`, `envRevealMask`, `lfoRevealMask`. Each defaults to `0b111` when absent. A legacy `envRevealCount` from the first M3b build loads as the first N envelopes. An oscillator that is on, an envelope in use, or a routed LFO always shows, whatever the mask says.
 - Existing modulation destination indices stay fixed. The 30 new OSC 4–6 targets occupy appended explicit destination indices after the pre-existing parameter destination segment; the total stays under 256.
+
+## Polish (Claude, 2026-09-25, uncommitted)
+
+The user rejected the compact/expanded OSC list: "make them as big as they used to be, 3 by default, each time you add one you just gotta scroll... think Phase Plant."
+
+- **Oscillators**: full pre-M3b card size on OSC and MAIN (MAIN strips restored to mode/table/warp plus six knobs). OSC 1–3 are shown by default; **+ ADD OSCILLATOR** reveals the next one and switches it on (`addOscillator`). **×** switches an oscillator off and hides it (`removeOscillator`). Cards are sized as if three fill the view; more scroll (OSC page viewport; MAIN oscillator column in its own viewport).
+- **FM**: the diagram and matrix are N×N over the shown oscillators. With three or fewer, the diagram uses the original triangle; with more, a ring.
+- **Envelopes**: three shown by default (AMP, FILTER 1, FILTER 2). Cards keep the original fifth-of-the-row width, and the row scrolls horizontally and follows the selection. **+** adds; right-click removes one that is not in use.
+- **LFOs**: the same model for the four LFOs (three shown, **+**, right-click remove).
+- `revealVersion` bumps on any mask change or patch load; editors poll it.
+- Naming: the old "Env 4" source/chip/tab now reads **ENV 5** to match the pool numbering. Amp envelope choices read "ENV 1 Amp", "ENV 2 Filt 1", "ENV 3 Filt 2", "ENV 4 Mod". These are label-only changes.
+- Engine fixes: `lastSamplePosition` initialises all six oscillators to −1; a hard-stopped voice clears its ENV 6–16 monitor values.
+- Verified: all targets build; `ilanaTableTest` 0 failures, including new reveal-mask tests and the destination-layout check. `ilanaSnapshot --uitest` 0 failures; the MAIN test was rewritten for full cards and add/remove. Fingerprints: **0 of 235 changed** (`build/polish-fp.csv`). The snapshot tool now also writes `added-osc-{MAIN,OSC,FM}[-scrolled].png`.
 
 ## Known gaps
 

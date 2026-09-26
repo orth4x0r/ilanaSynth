@@ -912,8 +912,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         }
 
     juce::StringArray ampEnvelopeChoices;
+    // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add ("ENV " + juce::String (env));
+        ampEnvelopeChoices.add ("ENV " + juce::String (env)
+                                + (env == 1 ? " Amp" : env == 2 ? " Filt 1" : env == 3 ? " Filt 2" : env == 4 ? " Mod" : ""));
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -4420,7 +4422,9 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
     for (int macro = 0; macro < 4; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
-    state.setProperty ("envRevealCount", revealedEnvelopeCount.load(), nullptr);
+    state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
+    state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
+    state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
 
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
@@ -4509,10 +4513,44 @@ void IlanaSynthAudioProcessor::migrateLegacyOsc3 (const std::function<float (con
     set ("sub_semi", (float) juce::jlimit (-24, 24, semi + (octave == 0 ? -12 : -24)));
 }
 
+bool IlanaSynthAudioProcessor::isOscillatorShown (int index) const
+{
+    if (isRevealed (Module::Oscillator, index))
+        return true;
+
+    const auto* on = apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_on");
+    return on != nullptr && on->load() > 0.5f;
+}
+
+void IlanaSynthAudioProcessor::addOscillator (int index)
+{
+    setRevealed (Module::Oscillator, index, true);
+
+    if (auto* on = apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_on"))
+        on->setValueNotifyingHost (1.0f);
+}
+
+void IlanaSynthAudioProcessor::removeOscillator (int index)
+{
+    if (auto* on = apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_on"))
+        on->setValueNotifyingHost (0.0f);
+
+    setRevealed (Module::Oscillator, index, false);
+}
+
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     auto state = stateIn.createCopy();
-    revealedEnvelopeCount.store (juce::jlimit (5, 16, (int) state.getProperty ("envRevealCount", 5)));
+    {
+        // Pre-mask M3b states saved a count of revealed envelopes.
+        auto envMask = (int) state.getProperty ("envRevealMask", defaultRevealMask);
+        if (! state.hasProperty ("envRevealMask") && state.hasProperty ("envRevealCount"))
+            envMask = (1 << juce::jlimit (3, 16, (int) state.getProperty ("envRevealCount"))) - 1;
+        revealMasks[(size_t) Module::Oscillator].store ((int) state.getProperty ("oscRevealMask", defaultRevealMask));
+        revealMasks[(size_t) Module::Envelope].store (envMask);
+        revealMasks[(size_t) Module::Lfo].store ((int) state.getProperty ("lfoRevealMask", defaultRevealMask));
+        ++revealVersion;
+    }
 
     if ((int) state.getProperty ("osc3Schema", 1) < 2)
     {

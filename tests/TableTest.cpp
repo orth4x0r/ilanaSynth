@@ -3014,6 +3014,9 @@ void runMatrixTests()
     check (Mod::shape (slot, 0.5f) < 0.1f, "positive curve bends the response (0.5 -> "
                                               + juce::String (Mod::shape (slot, 0.5f), 3) + ")");
 
+    check (Mod::numExplicitDestinations + (int) Mod::getParamDestinations().size() == Mod::firstNewExplicitDestination
+               && Mod::getDestinationNames().size() == Mod::getNumDestinations(),
+           "parameter destinations end exactly where the OSC 4-6 destinations begin");
     check (Mod::getExplicitDestinationNames().size() == Mod::numExplicitDestinations,
            "destination names match the destination list ("
                + juce::String (Mod::getExplicitDestinationNames().size()) + " / " + juce::String (Mod::numExplicitDestinations) + ")");
@@ -5105,7 +5108,8 @@ void runM3bEngineTests()
                 xml->removeChildElement (child, true);
             child = next;
         }
-        xml->removeAttribute ("envRevealCount");
+        for (const auto* attribute : { "envRevealCount", "envRevealMask", "oscRevealMask", "lfoRevealMask" })
+            xml->removeAttribute (attribute);
         juce::MemoryBlock legacy;
         juce::AudioProcessor::copyXmlToBinary (*xml, legacy);
         setParam (processor, "osc4_on", 1.0f);
@@ -5121,13 +5125,44 @@ void runM3bEngineTests()
                "pre-M3b state resets new parameters to neutral defaults (osc4 " + juce::String (get ("osc4_on"))
                    + ", amp env " + juce::String (get ("osc4_amp_env")) + ", release "
                    + juce::String (get ("env6_release"), 4) + ", quality " + juce::String (get ("quality")) + ")");
-        check (processor.getRevealedEnvelopeCount() == 5, "pre-M3b state defaults to five revealed envelopes");
-        processor.revealNextEnvelope();
+        using Module = IlanaSynthAudioProcessor::Module;
+        const auto revealedCount = [] (const IlanaSynthAudioProcessor& p, Module kind, int count)
+        {
+            auto shown = 0;
+            for (int i = 0; i < count; ++i)
+                shown += p.isRevealed (kind, i) ? 1 : 0;
+            return shown;
+        };
+        check (revealedCount (processor, Module::Envelope, 16) == 3 && revealedCount (processor, Module::Oscillator, 6) == 3
+                   && revealedCount (processor, Module::Lfo, 4) == 3,
+               "pre-M3b state shows three oscillators, envelopes and LFOs");
+        check (processor.isOscillatorShown (2) && ! processor.isOscillatorShown (3),
+               "OSC 3 is shown and OSC 4 is hidden by default");
+        processor.setRevealed (Module::Envelope, 5, true);
+        processor.addOscillator (3);
+        check (processor.apvts.getRawParameterValue ("osc4_on")->load() > 0.5f, "adding an oscillator switches it on");
         juce::MemoryBlock revealedState;
         processor.getStateInformation (revealedState);
         IlanaSynthAudioProcessor restored;
         restored.setStateInformation (revealedState.getData(), (int) revealedState.getSize());
-        check (restored.getRevealedEnvelopeCount() == 6, "envelope reveal count survives a patch state round trip");
+        check (restored.isRevealed (Module::Envelope, 5) && ! restored.isRevealed (Module::Envelope, 4)
+                   && restored.isOscillatorShown (3),
+               "revealed envelopes and oscillators survive a patch state round trip");
+        restored.removeOscillator (3);
+        check (! restored.isOscillatorShown (3) && restored.apvts.getRawParameterValue ("osc4_on")->load() < 0.5f,
+               "removing an oscillator hides it and switches it off");
+
+        // The first M3b build saved a count of revealed envelopes.
+        if (auto countXml = juce::AudioProcessor::getXmlFromBinary (revealedState.getData(), (int) revealedState.getSize()))
+        {
+            countXml->removeAttribute ("envRevealMask");
+            countXml->setAttribute ("envRevealCount", 7);
+            juce::MemoryBlock countState;
+            juce::AudioProcessor::copyXmlToBinary (*countXml, countState);
+            IlanaSynthAudioProcessor fromCount;
+            fromCount.setStateInformation (countState.getData(), (int) countState.getSize());
+            check (revealedCount (fromCount, Module::Envelope, 16) == 7, "an envelope reveal count loads as the first N envelopes");
+        }
     }
 
     const auto sixOscCpu = [] (int quality)

@@ -406,9 +406,27 @@ int runUiTests()
         }
     }
 
-    // MAIN keeps all six compact oscillator rows visible in every mode.
+    // MAIN shows OSC 1-3 by default, and only those; added ones get the same
+    // full card, with the mode's own knobs.
     {
         tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+        settle (300);
+
+        const auto shownOnMain = [&] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == id)
+                    return true;
+            return false;
+        };
+
+        expect (shownOnMain ("sub_level") && ! shownOnMain ("osc4_level"),
+                "MAIN shows OSC 3 and hides OSC 4 by default");
+
+        for (int osc = 3; osc < OscillatorIds::count; ++osc)
+            processor.addOscillator (osc);
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
@@ -430,13 +448,19 @@ int runUiTests()
                 grainSize = grainSize || knob->getParameterId() == prefix + "_grain_size";
             }
 
-            expect (level && ! grainSize,
+            expect (level && grainSize,
                     "MAIN's OSC " + juce::String (osc + 1)
-                        + " compact row shows level in granular mode");
+                        + " card shows level and grain size in granular mode");
 
             if (auto* mode = processor.apvts.getParameter (prefix + "_mode"))
                 mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
         }
+
+        for (int osc = 3; osc < OscillatorIds::count; ++osc)
+            processor.removeOscillator (osc);
+
+        settle (300);
+        expect (! shownOnMain ("osc4_level"), "removing OSC 4 takes its card off MAIN");
     }
 
     // An empty FX rack offers one-click effects.
@@ -605,12 +629,12 @@ int main (int argc, char** argv)
                     save (*editor, outDir.getChildFile (stem + "-env" + juce::String (env + 1) + ".png"));
                 }
 
-                processor.revealNextEnvelope();
+                processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, 5, true);
                 envCards->onSelect (5);
                 settle (300);
                 save (*editor, outDir.getChildFile ("env-pool-revealed.png"));
-                while (processor.getRevealedEnvelopeCount() < 16)
-                    processor.revealNextEnvelope();
+                for (int env = 0; env < 16; ++env)
+                    processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
                 envCards->onSelect (15);
                 settle (300);
                 save (*editor, outDir.getChildFile ("env-pool-full.png"));
@@ -659,6 +683,37 @@ int main (int argc, char** argv)
 
         settle (500);
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
+    }
+
+    // Added oscillators: MAIN and OSC scroll, FM grows its matrix.
+    {
+        processor.addOscillator (3);
+        processor.addOscillator (4);
+        for (const auto* page : { "MAIN", "OSC", "FM" })
+        {
+            tabs->setCurrentTabIndex (tabs->getTabNames().indexOf (page));
+            settle (400);
+            save (*editor, outDir.getChildFile ("added-osc-" + juce::String (page) + ".png"));
+
+            if (auto* content = tabs->getCurrentContentComponent())
+            {
+                std::vector<juce::Viewport*> views;
+                if (auto* own = dynamic_cast<juce::Viewport*> (content))
+                    views.push_back (own);
+                findAll<juce::Viewport> (*content, views);
+                for (auto* view : views)
+                    view->setViewPosition (0, 10000);
+                if (! views.empty())
+                {
+                    settle (150);
+                    save (*editor, outDir.getChildFile ("added-osc-" + juce::String (page) + "-scrolled.png"));
+                    for (auto* view : views)
+                        view->setViewPosition (0, 0);
+                }
+            }
+        }
+        processor.removeOscillator (4);
+        processor.removeOscillator (3);
     }
 
     // The wavetable browser on its own.

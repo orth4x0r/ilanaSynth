@@ -10,9 +10,11 @@
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
 
-// Revealed and assigned envelopes at a glance: each card draws its
-// ADSR shape and marks whether the envelope is doing anything in the patch.
-// Click to edit; drag a card onto a knob to route it there.
+// The patch's envelopes at a glance, Phase Plant style: the added and the
+// assigned ones, then a "+" card for the next. Cards keep one size (five fit
+// the view) and the bar scrolls sideways when there are more. Each card draws
+// its ADSR shape and marks whether the envelope is doing anything in the patch.
+// Click to edit; drag a card onto a knob to route it there; right-click to remove.
 class EnvThumbBar : public juce::Component,
                     private juce::Timer
 {
@@ -33,10 +35,24 @@ public:
 
     std::function<void (int)> onSelect;
     std::function<void()> onLayoutChanged;
-    int getPreferredHeight() const
+
+    // Where an envelope's card sits, for scrolling it into view.
+    juce::Rectangle<int> boundsOfCard (int env) const
     {
-        const auto visible = visibleEnvelopes().size();
-        return visible + (visible < envs.size() ? 1 : 0) > 8 ? 96 : 48;
+        const auto visible = visibleEnvelopes();
+        const auto position = std::find (visible.begin(), visible.end(), env);
+        if (position == visible.end())
+            return {};
+        return cardBounds ((int) (position - visible.begin())).toNearestInt();
+    }
+
+    // The width the bar is seen through: five cards fill it.
+    void setViewWidth (int width) { viewWidth = width; }
+
+    int getPreferredWidth() const
+    {
+        const auto count = numCards();
+        return juce::jmax (viewWidth, (int) std::ceil ((float) count * (cardWidth() + gap) - gap));
     }
 
     void setSelected (int index)
@@ -48,12 +64,12 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto visible = visibleEnvelopes();
-        const auto count = (int) visible.size() + (visible.size() < envs.size() ? 1 : 0);
+        const auto count = numCards();
         for (int position = 0; position < (int) visible.size(); ++position)
-            paintCard (g, visible[(size_t) position], cardBounds (position, count));
+            paintCard (g, visible[(size_t) position], cardBounds (position));
         if (count > (int) visible.size())
         {
-            const auto card = cardBounds (count - 1, count);
+            const auto card = cardBounds (count - 1);
             IlanaTheme::paintWell (g, card, 6.0f);
             g.setColour (juce::Colours::white.withAlpha (0.7f));
             g.setFont (IlanaTheme::font (21.0f, true));
@@ -70,16 +86,26 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
+        if (index >= 0 && event.mods.isPopupMenu())
+        {
+            showCardMenu (index);
+            return;
+        }
+
         if (index == -2)
         {
-            const auto previous = visibleEnvelopes().size();
-            do
-            {
-                processorRef.revealNextEnvelope();
-            } while (visibleEnvelopes().size() == previous && processorRef.getRevealedEnvelopeCount() < 16);
-            if (onLayoutChanged != nullptr)
-                onLayoutChanged();
-            repaint();
+            const auto visible = visibleEnvelopes();
+            for (int env = 0; env < (int) envs.size(); ++env)
+                if (std::find (visible.begin(), visible.end(), env) == visible.end())
+                {
+                    processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
+                    selected = env;
+                    if (onSelect != nullptr)
+                        onSelect (env);
+                    break;
+                }
+
+            layoutChanged();
         }
         else if (index >= 0 && onSelect != nullptr)
         {
@@ -102,7 +128,7 @@ public:
             {
                 const auto visible = visibleEnvelopes();
                 const auto position = (int) (std::find (visible.begin(), visible.end(), index) - visible.begin());
-                auto image = createComponentSnapshot (cardBounds (position, (int) visible.size() + (visible.size() < envs.size() ? 1 : 0)).toNearestInt(), true, 1.0f);
+                auto image = createComponentSnapshot (cardBounds (position).toNearestInt(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
                 container->startDragging ("modsource:" + juce::String ((int) envs[(size_t) index].source), this,
                                           juce::ScaledImage (image), true);
@@ -130,35 +156,73 @@ public:
     }
 
 private:
+    static constexpr float gap = 8.0f;
+
     std::vector<int> visibleEnvelopes() const
     {
         std::vector<int> visible;
         for (int env = 0; env < (int) envs.size(); ++env)
-            if (env < processorRef.getRevealedEnvelopeCount() || isInUse (env))
+            if (processorRef.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env) || isInUse (env))
                 visible.push_back (env);
         return visible;
     }
 
-    juce::Rectangle<float> cardBounds (int position, int count) const
+    int numCards() const
     {
-        const auto columns = count > 8 ? 8 : juce::jmax (1, count);
-        const auto gap = 6.0f;
-        const auto width = ((float) getWidth() - gap * (float) (columns - 1)) / (float) columns;
-        const auto rows = count > 8 ? 2 : 1;
-        const auto height = ((float) getHeight() - gap * (float) (rows - 1)) / (float) rows;
-        return { (float) (position % columns) * (width + gap),
-                 (float) (position / columns) * (height + gap), width, height };
+        const auto visible = visibleEnvelopes().size();
+        return (int) visible + (visible < envs.size() ? 1 : 0);
+    }
+
+    float cardWidth() const
+    {
+        const auto width = viewWidth > 0 ? viewWidth : getWidth();
+        return ((float) width - gap * 4.0f) / 5.0f;
+    }
+
+    juce::Rectangle<float> cardBounds (int position) const
+    {
+        return { (float) position * (cardWidth() + gap), 0.0f, cardWidth(), (float) getHeight() };
     }
 
     int indexAt (juce::Point<int> position) const
     {
         const auto visible = visibleEnvelopes();
-        const auto count = (int) visible.size() + (visible.size() < envs.size() ? 1 : 0);
+        const auto count = numCards();
         for (int i = 0; i < count; ++i)
-            if (cardBounds (i, count).contains (position.toFloat()))
+            if (cardBounds (i).contains (position.toFloat()))
                 return i < (int) visible.size() ? visible[(size_t) i] : -2;
 
         return -1;
+    }
+
+    void layoutChanged()
+    {
+        lastCardCount = numCards();
+        if (onLayoutChanged != nullptr)
+            onLayoutChanged();
+        repaint();
+    }
+
+    void showCardMenu (int env)
+    {
+        juce::PopupMenu menu;
+        const auto inUse = isInUse (env);
+        menu.addItem (1, inUse ? "Remove (unassign it first)" : "Remove " + envs[(size_t) env].title, ! inUse);
+
+        juce::Component::SafePointer<EnvThumbBar> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis, env] (int result)
+        {
+            if (safeThis == nullptr || result != 1)
+                return;
+
+            safeThis->processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
+            if (safeThis->selected == env && safeThis->onSelect != nullptr)
+            {
+                safeThis->selected = 0;
+                safeThis->onSelect (0);
+            }
+            safeThis->layoutChanged();
+        });
     }
 
     float readParam (const juce::String& id) const
@@ -271,10 +335,9 @@ private:
     {
         if (isShowing())
         {
-            const auto preferred = getPreferredHeight();
-            if (preferred != lastPreferredHeight && onLayoutChanged != nullptr)
-                onLayoutChanged();
-            lastPreferredHeight = preferred;
+            // Assigning an envelope elsewhere, or loading a patch, can add a card.
+            if (numCards() != lastCardCount)
+                layoutChanged();
             repaint();
         }
     }
@@ -283,5 +346,6 @@ private:
     std::vector<Env> envs;
     int selected = 0;
     int hoverIndex = -1;
-    int lastPreferredHeight = 48;
+    int viewWidth = 0;
+    int lastCardCount = -1;
 };

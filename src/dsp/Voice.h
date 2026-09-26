@@ -351,7 +351,7 @@ private:
 
     float lastAmpValue = 0.0f;
     float lastLifetimeValue = 0.0f;
-    float lastSamplePosition[VoiceParams::numOscillators] { -1.0f, -1.0f, -1.0f };
+    float lastSamplePosition[VoiceParams::numOscillators] { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
     float lastFilterValue = 0.0f;
     float lastFilter2Value = 0.0f;
     float lastModValue = 0.0f;

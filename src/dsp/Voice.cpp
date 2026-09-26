@@ -369,6 +369,7 @@ void Voice::stopNote (float, bool allowTailOff)
         env4.reset();
         for (auto& env : extraEnvs)
             env.reset();
+        extraEnvValues.fill (0.0f); // the ENV page monitors these
         lastAmpValue = 0.0f;
         lastLifetimeValue = 0.0f;
         lastFilterValue = 0.0f;

@@ -367,7 +367,7 @@ inline juce::StringArray getSourceNames()
     juce::StringArray names { "None", "LFO 1", "LFO 2", "Mod Env", "Filter Env", "Amp Env", "Velocity",
              "Key Track", "Random", "Mod Wheel", "Aftertouch", "Expression",
              "Macro 1", "Macro 2", "Macro 3", "Macro 4", "Clocked S&H", "MSEG",
-             "Env 4", "Filter 2 Env", "LFO 3", "LFO 4" };
+             "Env 5", "Filter 2 Env", "LFO 3", "LFO 4" };
     for (int env = 6; env <= 16; ++env)
         names.add ("Env " + juce::String (env));
     return names;

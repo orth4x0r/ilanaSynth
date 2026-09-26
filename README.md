@@ -74,7 +74,7 @@ It all sits in a hardware-inspired interface with 235 factory presets.
 
 ### Oscillators (6)
 
-The OSC page shows six compact rows. Click a row to expand its controls. Each row has its own ON switch, mode, level and waveform. OSC 4–6 are off in old patches and new Init patches.
+Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at full size. **+ ADD OSCILLATOR** (OSC and MAIN pages) adds the next one, switched on, and **×** removes one (switches it off and hides it). More than three cards scroll. OSC 4–6 are off and hidden in old patches and new Init patches; an oscillator that is on is always shown. The FM page's diagram and matrix show only the added oscillators.
 - Four modes per oscillator:
   - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 4 user slots.
     - Click the TABLE box for the visual browser.
@@ -123,7 +123,7 @@ The OSC page shows six compact rows. Click a row to expand its controls. Each ro
 ### Envelopes & LFOs
 - **16 tension envelopes**: AMP, FILTER 1, FILTER 2, MOD, ENV 5 and ENV 6–16. The five original parameter sets keep their saved IDs.
   - They're shown as cards that mark the ones in use. Drag a card onto a knob to modulate it.
-  - The ENV page starts with the five familiar cards. Click **+** to reveal another; revealed cards are saved in the patch, and assigned envelopes show automatically.
+  - The ENV page starts with AMP, FILTER 1 and FILTER 2. Click **+** to add another; the cards keep their size and the row scrolls sideways past five. Right-click a card to remove it. Envelopes in use (assigned in the matrix, as an amp envelope or by a filter's env amount) always show. LFOs work the same way: three cards and a **+**. What is shown is saved in the patch.
   - Drag the graph's handles for A / D / S / R, and drag a curve to bend its tension. Double-click a handle to reset it.
 - **4 LFOs**:
   - Shapes: Sine, Triangle, Saw up, Saw down, Square, S&H, Draw, Steps, Curve, Smooth Random, Drunk and Chaos.

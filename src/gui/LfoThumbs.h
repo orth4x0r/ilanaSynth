@@ -2,16 +2,20 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <array>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
 
-// All four LFOs at a glance: each card shows its waveform, a live phase dot,
-// its rate and whether it is routed anywhere. Clicking a card selects that
-// LFO for editing; dragging a card onto a knob routes it there.
+// The patch's LFOs at a glance, Phase Plant style: the added and the routed
+// ones, then a "+" card for the next. Each card shows its waveform, a live
+// phase dot, its rate and whether it is routed anywhere. Clicking a card
+// selects that LFO for editing; dragging a card onto a knob routes it there;
+// right-click removes it.
 class LfoThumbBar : public juce::Component,
                     private juce::Timer
 {
@@ -37,8 +41,19 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            paintCard (g, lfo, cardBounds (lfo));
+        const auto visible = visibleLfos();
+
+        for (int position = 0; position < (int) visible.size(); ++position)
+            paintCard (g, visible[(size_t) position], cardBounds (position));
+
+        if ((int) visible.size() < IlanaSynthAudioProcessor::numLfos)
+        {
+            const auto card = cardBounds ((int) visible.size());
+            IlanaTheme::paintWell (g, card, 6.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.setFont (IlanaTheme::font (21.0f, true));
+            g.drawText ("+", card, juce::Justification::centred);
+        }
     }
 
     // Select on release, and only for a click: a drag assigns the source to
@@ -50,7 +65,28 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
-        if (index >= 0 && onSelect != nullptr)
+        if (index >= 0 && event.mods.isPopupMenu())
+        {
+            showCardMenu (index);
+            return;
+        }
+
+        if (index == -2)
+        {
+            const auto visible = visibleLfos();
+            for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                if (std::find (visible.begin(), visible.end(), lfo) == visible.end())
+                {
+                    processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
+                    selected = lfo;
+                    if (onSelect != nullptr)
+                        onSelect (lfo);
+                    break;
+                }
+
+            repaint();
+        }
+        else if (index >= 0 && onSelect != nullptr)
         {
             selected = index;
             onSelect (index);
@@ -69,7 +105,9 @@ public:
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (cardBounds (index).toNearestInt(), true, 1.0f);
+                const auto visible = visibleLfos();
+                const auto position = (int) (std::find (visible.begin(), visible.end(), index) - visible.begin());
+                auto image = createComponentSnapshot (cardBounds (position).toNearestInt(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
                 const Mod::Source sources[] { Mod::Source::Lfo1, Mod::Source::Lfo2, Mod::Source::Lfo3, Mod::Source::Lfo4 };
                 container->startDragging ("modsource:" + juce::String ((int) sources[index]), this,
@@ -99,20 +137,55 @@ public:
     }
 
 private:
-    juce::Rectangle<float> cardBounds (int index) const
+    std::vector<int> visibleLfos() const
+    {
+        std::vector<int> visible;
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (processorRef.isRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo) || isRouted (lfo))
+                visible.push_back (lfo);
+        return visible;
+    }
+
+    juce::Rectangle<float> cardBounds (int position) const
     {
         const auto gap = 8.0f;
         const auto width = ((float) getWidth() - gap * 3.0f) / 4.0f;
-        return { (float) index * (width + gap), 0.0f, width, (float) getHeight() };
+        return { (float) position * (width + gap), 0.0f, width, (float) getHeight() };
     }
 
+    // An LFO index, -2 for the "+" card, or -1.
     int indexAt (juce::Point<int> position) const
     {
+        const auto visible = visibleLfos();
+
         for (int i = 0; i < IlanaSynthAudioProcessor::numLfos; ++i)
             if (cardBounds (i).contains (position.toFloat()))
-                return i;
+                return i < (int) visible.size() ? visible[(size_t) i] : (i == (int) visible.size() ? -2 : -1);
 
         return -1;
+    }
+
+    void showCardMenu (int lfo)
+    {
+        juce::PopupMenu menu;
+        const auto routed = isRouted (lfo);
+        menu.addItem (1, routed ? "Remove (unroute it first)" : "Remove LFO " + juce::String (lfo + 1), ! routed);
+
+        juce::Component::SafePointer<LfoThumbBar> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis, lfo] (int result)
+        {
+            if (safeThis == nullptr || result != 1)
+                return;
+
+            safeThis->processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
+            if (safeThis->selected == lfo && safeThis->onSelect != nullptr)
+            {
+                const auto remaining = safeThis->visibleLfos();
+                safeThis->selected = remaining.empty() ? 0 : remaining.front();
+                safeThis->onSelect (safeThis->selected);
+            }
+            safeThis->repaint();
+        });
     }
 
     float readParam (int lfo, const juce::String& suffix) const
@@ -131,7 +204,7 @@ private:
         {
             const auto routing = processorRef.readModSlot (slot);
 
-            if (routing.isActive() && routing.source == sources[lfo])
+            if (routing.destination != 0 && (routing.source == sources[lfo] || routing.aux == sources[lfo]))
                 return true;
         }
 

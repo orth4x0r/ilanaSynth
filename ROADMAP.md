@@ -46,7 +46,7 @@ This comes before M4 and M5, which both build on it.
 - **Per-oscillator amp envelope**: each oscillator picks the envelope that shapes its level. The default is envelope 1, the main AMP, which is how it works today. The two filters keep their own envelope slots, and every envelope is also a mod matrix source.
 - **Voice lifetime**: a voice ends only when every envelope controlling an oscillator's level has finished, so a long per-oscillator tail is never cut off.
 - **QUALITY setting** (Eco / Normal / High): 6 oscillators with unison and physical models can outrun any CPU, so this lands here rather than later.
-- **UI**: the OSC page shows six oscillators as a compact list with one expanded card, and the MAIN page's oscillator strip adapts. The mod matrix gets destinations for each oscillator.
+- **UI**: Phase Plant-style modules. Three full-size oscillators (and three envelopes and LFOs) by default, a "+" to add more, and the pages scroll. The FM page shows only the added oscillators. The mod matrix gets destinations for each oscillator.
 
 ### M4: Acoustic keys
 - **Hammer exciter**: hardness depends on velocity, and the hammer stays in contact with the string briefly.

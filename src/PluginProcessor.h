@@ -238,11 +238,30 @@ public:
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
-    int getRevealedEnvelopeCount() const { return revealedEnvelopeCount.load(); }
-    void revealNextEnvelope()
+
+    // Which optional modules the patch shows, Phase Plant style: a few by
+    // default and a "+" to add more. Saved with the patch; the UI also always
+    // shows a module that is in use.
+    enum class Module { Oscillator = 0, Envelope, Lfo };
+    static constexpr int defaultRevealMask = 0b111;
+    bool isRevealed (Module kind, int index) const
     {
-        revealedEnvelopeCount.store (juce::jmin (16, revealedEnvelopeCount.load() + 1));
+        return ((revealMasks[(size_t) kind].load() >> index) & 1) != 0;
     }
+    void setRevealed (Module kind, int index, bool shouldShow)
+    {
+        auto& mask = revealMasks[(size_t) kind];
+        const auto bit = 1 << index;
+        mask.store (shouldShow ? (mask.load() | bit) : (mask.load() & ~bit));
+        ++revealVersion;
+    }
+    // Bumped whenever a mask changes (including on patch load) so editors can
+    // relayout without listening to every parameter.
+    int getRevealVersion() const { return revealVersion.load(); }
+    // Shows an oscillator and switches it on, as adding one should sound.
+    void addOscillator (int index);
+    void removeOscillator (int index);
+    bool isOscillatorShown (int index) const;
 
     bool loadUserWavetable (int slot, const juce::File& file,
                             Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
@@ -475,7 +494,8 @@ private:
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
-    std::atomic<int> revealedEnvelopeCount { 5 };
+    std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
+    std::atomic<int> revealVersion { 0 };
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;

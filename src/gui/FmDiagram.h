@@ -7,7 +7,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 
-// The FM matrix as operators: six oscillators, with an arrow for every
+// The FM matrix as operators: the patch's oscillators, with an arrow for every
 // route (thicker = deeper) and a loop for feedback. Drag from one oscillator
 // to another to add that route (or remove it if it's already there); drag
 // onto the same oscillator for feedback. Click an oscillator to switch its
@@ -51,11 +51,12 @@ public:
         IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 8.0f);
         const auto centres = operatorCentres();
         const auto radius = operatorRadius();
+        const auto shown = shownOscillators();
 
         // Routes between different oscillators.
-        for (int source = 0; source < OscillatorIds::count; ++source)
+        for (const auto source : shown)
         {
-            for (int target = 0; target < OscillatorIds::count; ++target)
+            for (const auto target : shown)
             {
                 const auto amount = read (routeId (source, target));
 
@@ -67,11 +68,13 @@ public:
 
                 if (source == target)
                 {
-                    // Feedback: a loop above (or below) the operator.
+                    // Feedback: a loop on the outside of the operator.
                     const auto centre = centres[(size_t) source];
-                    const auto up = source >= 3 ? 1.0f : -1.0f;
+                    auto outward = centre - getLocalBounds().toFloat().getCentre();
+                    const auto length = outward.getDistanceFromOrigin();
+                    outward = length > 1.0f ? outward / length : juce::Point<float> (0.0f, -1.0f);
                     const auto loop = juce::Rectangle<float> (radius * 1.1f, radius * 1.1f)
-                                          .withCentre ({ centre.x, centre.y + up * radius * 1.25f });
+                                          .withCentre (centre + outward * radius * 1.25f);
                     g.setColour (colour);
                     g.drawEllipse (loop, thickness);
                     continue;
@@ -117,8 +120,8 @@ public:
 
         auto anyRoute = false;
 
-        for (int source = 0; source < OscillatorIds::count; ++source)
-            for (int target = 0; target < OscillatorIds::count; ++target)
+        for (const auto source : shown)
+            for (const auto target : shown)
                 anyRoute = anyRoute || read (routeId (source, target)) > 0.001f;
 
         if (! anyRoute)
@@ -137,7 +140,7 @@ public:
         }
 
         // Operators.
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        for (const auto osc : shown)
         {
             const auto centre = centres[(size_t) osc];
             const auto colour = oscColour (osc);
@@ -224,21 +227,57 @@ public:
     }
 
 private:
-    float operatorRadius() const { return juce::jlimit (18.0f, 31.0f, (float) juce::jmin (getWidth(), getHeight()) * 0.065f); }
+    // Only the oscillators the patch has added take part.
+    std::vector<int> shownOscillators() const
+    {
+        std::vector<int> shown;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc))
+                shown.push_back (osc);
+        return shown;
+    }
+
+    float operatorRadius() const
+    {
+        const auto size = (float) juce::jmin (getWidth(), getHeight());
+        return shownOscillators().size() <= 3 ? juce::jlimit (26.0f, 44.0f, size * 0.11f)
+                                              : juce::jlimit (20.0f, 36.0f, size * 0.085f);
+    }
 
     std::array<juce::Point<float>, OscillatorIds::count> operatorCentres() const
     {
-        // Six operators around a circle leave room for bidirectional arrows.
+        const auto shown = shownOscillators();
+        const auto count = (int) shown.size();
         const auto bounds = getLocalBounds().toFloat().reduced (operatorRadius() * 1.6f);
-        std::array<juce::Point<float>, OscillatorIds::count> centres;
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        std::array<juce::Point<float>, OscillatorIds::count> centres {};
+
+        if (count <= 3)
         {
-            const auto angle = juce::MathConstants<float>::twoPi * (float) osc / (float) OscillatorIds::count
-                               - juce::MathConstants<float>::halfPi;
-            centres[(size_t) osc] = bounds.getCentre()
-                                    + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.37f,
-                                                          std::sin (angle) * bounds.getHeight() * 0.36f);
+            // An upside-down triangle: OSC 1 and 2 on top, OSC 3 below.
+            const auto centre = bounds.getCentre().translated (0.0f, -bounds.getHeight() * 0.04f);
+            const auto spread = juce::jmin (bounds.getWidth() * 0.5f, bounds.getHeight() * 0.62f);
+            const float angles[] { -150.0f, -30.0f, 90.0f };
+
+            for (int i = 0; i < count; ++i)
+            {
+                const auto radians = juce::degreesToRadians (count == 1 ? 90.0f : angles[i]);
+                centres[(size_t) shown[(size_t) i]] = count == 1 ? centre
+                    : centre + juce::Point<float> (std::cos (radians), std::sin (radians)) * spread;
+            }
+
+            return centres;
         }
+
+        // More operators sit around a ring, which leaves room for arrows both ways.
+        for (int i = 0; i < count; ++i)
+        {
+            const auto angle = juce::MathConstants<float>::twoPi * (float) i / (float) count
+                               - juce::MathConstants<float>::halfPi;
+            centres[(size_t) shown[(size_t) i]] = bounds.getCentre()
+                                                  + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.4f,
+                                                                        std::sin (angle) * bounds.getHeight() * 0.4f);
+        }
+
         return centres;
     }
 
@@ -246,7 +285,7 @@ private:
     {
         const auto centres = operatorCentres();
 
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        for (const auto osc : shownOscillators())
             if (centres[(size_t) osc].getDistanceFrom (position) <= operatorRadius() + 4.0f)
                 return osc;
 

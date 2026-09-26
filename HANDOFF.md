@@ -5,13 +5,13 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 **Keep this file short** (under about 60 lines): current state, next step, open issues and the rules below. When a milestone is done, move its detailed notes to the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
 
 ## State
-- **Done:** M1–M4 and M6b (see [ROADMAP.md](ROADMAP.md)). **M5** (deep FM) and **M6** (phase distortion) are built, tested and fitted, but wait for their listening round. All three were done in one pass; notes are at the end of the history file.
-- **Next:** the listening round for M5/M6 (below), then M7, the Generative card.
-- **Git:** M5–M6b are committed locally and tagged `m6b-done`; tag `m5-done` and `m6-done` once the listening round passes. Not pushed. Push only when the user asks.
+- **Done:** M1–M6b (see [ROADMAP.md](ROADMAP.md)). M5 (deep FM), M6 (phase distortion) and M6b (64 mod slots) were done in one pass; their listening round passed. Notes are at the end of the history file.
+- **Next:** M7, the Generative card.
+- **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26). Push only when the user asks.
 - **Plugin:** built locally, not installed.
 
-## Listening round (M5/M6, still to do)
-`ILANA_RENDER_DEMO=build/demo` writes `build/demo/fm-pd/`: the three DX reference patches (ours and the ideal renderer, `*-reference.wav`) and the six CZ waves with a DCW sweep. The numeric fits pass (below); the milestones' sound-fitting rule still asks for a listen.
+## Demos
+`ILANA_RENDER_DEMO=build/demo` writes `build/demo/fm-pd/` (DX reference patches and the CZ waves) alongside the keys demos.
 
 ## Rules that still apply
 - **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`: 0 of 241 changed.

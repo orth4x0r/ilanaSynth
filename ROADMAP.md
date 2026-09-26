@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **M1–M4 and M6b are done. M5 and M6 are built and fitted, and wait for their listening round. Next up: M7 (Generative card).**
+This is the plan for what comes after v1.1. **M1–M6b are done. Next up: M7 (Generative card).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -76,8 +76,8 @@ New LFO shapes, reusing the per-voice chaos-LFO system:
 - **Hammer exciter**, 1–3 coupled strings per note, soundboard, sustain pedal resonance, stretch tuning, register map and mechanical noises.
 - **Fitted** to the Iowa MIS grand recordings (E1, C4, C7 at mf and ff). The fit error went from 632 to 90.7. It is still not a convincing piano, so the presets are named as hammered-string instruments rather than pianos.
 
-### M5: Deep FM — built, listening round to do
-Fitted to an ideal phase-modulation renderer (EP, bell and bass patches: mean partial error 0.006–0.017 dB) and to Bessel sideband levels (0.02 dB).
+### M5: Deep FM — done
+Fitted to an ideal phase-modulation renderer (EP, bell and bass patches: mean partial error 0.006–0.017 dB) and to Bessel sideband levels (0.02 dB). Listening round passed (2026-09-26).
 - **Operators are the M3b oscillators**: the 6×6 FM matrix from M3b, plus a noise operator. Old patches map onto operators 1–3.
 - **Tuning**: each operator has a frequency ratio that snaps to harmonic, inharmonic or bell sets, or a fixed frequency in Hz.
 - **Per-operator envelopes** from the M3b envelope pool (DAHDSR, or an MSEG), plus key-scaling of level and rate.
@@ -86,8 +86,8 @@ Fitted to an ideal phase-modulation renderer (EP, bell and bass patches: mean pa
 - **Feedback types**: plain, filtered, and cross-feedback between two operators.
 - **Reference**: classic DX-style patches (electric piano, bell, bass), matched by ear and spectrum as a check that the operators and envelopes behave as expected.
 
-### M6: Phase distortion (CZ-style) — built, listening round to do
-The waves match the CZ formulas to within float precision. The resonant waves use a zero-DC windowed sine (the CZ's spectrum shape, without its DC offset).
+### M6: Phase distortion (CZ-style) — done
+The waves match the CZ formulas to within float precision. The resonant waves use a zero-DC windowed sine (the CZ's spectrum shape, without its DC offset). Listening round passed (2026-09-26).
 - **New warp modes**: PD Saw, PD Square, PD Pulse, and PD Resonance I, II and III.
 - **PD envelope**: an optional per-oscillator envelope on warp depth, like the CZ's DCW.
 - **PD chain**: two phase-distortion stages in series.

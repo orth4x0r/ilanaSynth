@@ -67,8 +67,11 @@ public:
 
         for (auto& state : toneState)
             state[0] = state[1] = 0.0f;
-        for (auto& state : bassState)
-            state[0] = state[1] = 0.0f;
+        for (auto& channel : radiation)
+            for (auto& filter : channel)
+                filter.reset();
+        for (auto& filter : boardBump)
+            filter.reset();
     }
 
     void process (float* left, float* right, int numSamples, float mix, float tone, float size)
@@ -83,7 +86,7 @@ public:
         const auto brightness = 0.05f + 1.35f * tone; // how much of the unfiltered top end passes
         // A soundboard barely radiates the lowest fundamentals: the deep bass
         // is heard mostly through its overtones.
-        const auto bassCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 90.0 / sampleRate));
+        updateRadiation();
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -97,11 +100,15 @@ public:
                 for (int m = 0; m < numModes; ++m)
                     body += modes[(size_t) channel][(size_t) m].process (mono) * modeGains[(size_t) channel][(size_t) m];
 
-                auto& bass = bassState[channel];
-                bass[0] += (input[channel] - bass[0]) * bassCoefficient;
-                bass[1] += (bass[0] - bass[1]) * bassCoefficient;
-                const auto direct = input[channel] - bass[1] * 0.8f * mix;
-                auto out = direct * (1.0f - 0.4f * mix) + body * mix * 2.2f;
+                // A soundboard barely radiates the lowest fundamentals (a real
+                // grand's E1 fundamental is ~40 dB under its 2nd partial): a
+                // steep 70 Hz low cut, so the deep bass is heard through its
+                // overtones.
+                auto out = input[channel] * (1.0f - 0.4f * mix) + body * mix * 2.2f;
+                out = radiation[(size_t) channel][1].process (radiation[(size_t) channel][0].process (out));
+                // The board radiates the lower middle best (a broad bump
+                // around the tenor's fundamentals).
+                out = boardBump[(size_t) channel].process (out);
                 // Two one-poles: -12 dB/octave above the lid corner.
                 auto& state = toneState[channel];
                 state[0] += (out - state[0]) * toneCoefficient;
@@ -150,7 +157,64 @@ private:
     std::array<std::array<AcousticKeysDetail::Mode, numModes>, 2> modes;
     std::array<std::array<float, numModes>, 2> modeGains {};
     float toneState[2][2] {};
-    float bassState[2][2] {};
+
+    // 4th-order Butterworth-ish high-pass (two RBJ sections).
+    struct HighPass
+    {
+        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+        void set (double rate, double frequency, double q)
+        {
+            const auto w = juce::MathConstants<double>::twoPi * frequency / rate;
+            const auto alpha = std::sin (w) / (2.0 * q), c = std::cos (w), a0 = 1.0 + alpha;
+            b0 = (1.0 + c) / 2.0 / a0; b1 = -(1.0 + c) / a0; b2 = b0; a1 = -2.0 * c / a0; a2 = (1.0 - alpha) / a0;
+        }
+        void reset() { z1 = z2 = 0.0; }
+        float process (float x)
+        {
+            const auto y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return (float) y;
+        }
+    };
+    std::array<std::array<HighPass, 2>, 2> radiation;
+
+    // Peaking EQ (RBJ) for the radiation bump.
+    struct Peak
+    {
+        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+        void set (double rate, double frequency, double q, double gainDb)
+        {
+            const auto a = std::pow (10.0, gainDb / 40.0);
+            const auto w = juce::MathConstants<double>::twoPi * frequency / rate;
+            const auto alpha = std::sin (w) / (2.0 * q), c = std::cos (w), a0 = 1.0 + alpha / a;
+            b0 = (1.0 + alpha * a) / a0; b1 = -2.0 * c / a0; b2 = (1.0 - alpha * a) / a0;
+            a1 = -2.0 * c / a0; a2 = (1.0 - alpha / a) / a0;
+        }
+        void reset() { z1 = z2 = 0.0; }
+        float process (float x)
+        {
+            const auto y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return (float) y;
+        }
+    };
+    std::array<Peak, 2> boardBump;
+    double radiationRate = 0.0;
+    void updateRadiation()
+    {
+        if (radiationRate == sampleRate)
+            return;
+        radiationRate = sampleRate;
+        for (auto& channel : radiation)
+        {
+            channel[0].set (sampleRate, 70.0, 0.5412);
+            channel[1].set (sampleRate, 70.0, 1.3066);
+        }
+        for (auto& filter : boardBump)
+            filter.set (sampleRate, 260.0, 0.8, 5.0);
+    }
     double sampleRate = 48000.0;
     float lastSize = -1.0f;
 };

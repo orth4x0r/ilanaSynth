@@ -824,7 +824,6 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         float busL[FilterRoute::Count] {};
         float busR[FilterRoute::Count] {};
         float oscMono[VoiceParams::numOscillators] {};
-        float stringOut[VoiceParams::maxBufferedUnison] {};
 
         const auto fmAmount = params.fmAmount + mods[(int) D::FmAmount];
         const auto fmFeedback = params.fmFeedback + mods[(int) D::FmFeedback];
@@ -885,6 +884,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                       ? 1.0f + (warpSource - 1.0f) * warpAmount : 1.0f;
                 const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
 
+                auto stringSum = 0.0f;
+
                 for (int u = 0; u < numOscUnison[osc]; ++u)
                 {
                     float raw = 0.0f;
@@ -904,7 +905,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     else if (settings.stringMode)
                     {
                         raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
-                        stringOut[u] = raw;
+                        stringSum += raw;
                     }
                     else
                     {
@@ -940,13 +941,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 if (settings.stringMode && ! settings.sampleMode && settings.couple > 0.0f)
                 {
                     const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
-                    auto bridge = 0.0f;
-                    for (int u = 0; u < count; ++u)
-                        bridge += stringOut[u];
-                    bridge /= (float) juce::jmax (1, count);
+                    const auto bridge = stringSum / (float) juce::jmax (1, count);
 
                     for (int u = 0; u < count; ++u)
-                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.03f * bridge);
+                        stringFor (osc, u).addBridgeInput (-settings.couple * 0.015f * bridge);
                 }
             }
             else

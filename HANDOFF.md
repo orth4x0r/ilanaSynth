@@ -63,6 +63,26 @@ The OSC page, MAIN and FM show only the added oscillators (see Polish below). Ne
 - **Tuning test:** it now skips Prepared Piano and granular patches with grain pitch spray (Grain Choir's long-standing flake: time-seeded grain pitch randomness).
 - **`ILANA_NOTE_DEBUG=<preset>`** prints bare-string levels by register and per-note levels every 100 ms.
 
+**Third round: matched against real piano recordings** (user: "too buzzy, sounds like a digitally plucked string").
+- Reference notes: University of Iowa MIS grand, `Piano.{mf,ff}.{E1,C4,C7}.aiff`, downloaded with the user's OK to `build/reference/` (not committed).
+- `python tools/analyse_note.py <midi> file...` prints per-partial levels over time, decay dB/s, inharmonicity and between-partial noise. It reads wav/aiff.
+- `ILANA_NOTE_DEBUG="Grand Piano"` writes `build/note-debug/ours.{mf,ff}.{E1,C4,C7}.wav` (dry, 6 s), plus bare-string and soundboard probes.
+
+Findings and fixes:
+1. **The loss filter is designed in seconds** (Bank model: loss ∝ f²). DECAY is the fundamental's T60: 0.5·50^decay at C4, ×(261.6/f)^0.6. DAMP sets the T60 at 2 kHz: 60·(0.3/60)^damp s. The old per-pass low-pass left bass partials above 3 kHz ringing for seconds, which was the digital-pluck buzz.
+2. **Linear interpolation cost ~170 dB/s at C7.** Hammer strings now use a first-order Thiran allpass fractional delay: lossless, and the real cause of "C7 inaudible".
+3. **An in-loop DC bleed created a ~1 Hz, −16 dB sub-audio oscillation.** It is removed. The hammer push is now high-passed (zero net area), with a 10 Hz DC blocker on the string output (outside the loop).
+4. **The knock noise went into the loop, which is the digital-pluck mechanism.** It is now output-only and quieter.
+5. **Coupling loss is 0.015·COUPLING per pass**, scaled by min(1, 130.81/f).
+6. **Hammer pulse:** t·e^(1−t/τ) (no spectral nulls) below the treble. Above ~1.3 kHz it is a full-cycle raised cosine: 2nd-partial null, as a real C7's 2nd partial is ~40 dB down. Contact is (0.4+2(1−h))·(220/f)^0.35 ms, and the strike reflection is 0.2.
+7. **Soundboard:** a 70 Hz 4th-order radiation high-pass (real E1 fundamental ~−43 dB) and a +5 dB bump at 260 Hz.
+8. **CPU:** a per-sample `stringOut[8]` array in the voice loop cost ~14% on wavetable patches (register spills). It is now a running sum. Heavy patch 43% (limit 50%), extreme 85%. `KarplusStrong::process` is `ILANA_NOINLINE`.
+
+Now (ours vs real, mf):
+- C4 partials 2–5: −6/−13/−17/−24 dB (real −11/−16/−21/−28). Partials 6–7 are still ~12 dB under the real plateau.
+- C7: fundamental −19 dB/s (real −15..−19); 2nd partial −22..−34 dB (real −40).
+- E1: dense, flat partials 2–12 like the real note. The fundamental is −20 dB (real −43).
+
 **Not done / ideas:** no sound-quality listening pass was possible here. The user should audition the piano presets (hammer brightness, coupling amount, soundboard level). The MAIN LFO card relayouts on a showing-timer only. Prepared Piano is ~−25 dB RMS (percussive; peaks limited).
 
 ## Polish (Claude, 2026-09-25, committed as c24b26d)

@@ -5712,54 +5712,156 @@ void runM4Tests()
     }
 }
 
-// ILANA_NOTE_DEBUG=<preset>: one note at a time, level every 100 ms.
+// ILANA_NOTE_DEBUG=<preset>: E1, C4 and C7 held for 6 s at mf and ff,
+// dry (no effects), written to build/note-debug/ for tools/analyse_note.py
+// (compare with real piano notes in build/reference/).
 void debugPresetNotes (const juce::String& presetName)
 {
-    for (const auto stiffness : { 0.0f, 0.5f })
-        for (const auto frequency : { 41.2, 261.6, 1046.5, 2093.0 })
+    // The soundboard alone on a steady sine.
+    for (const auto hz : { 100.0, 523.0, 2093.0, 4186.0 })
+    {
+        Soundboard board;
+        board.prepare (48000.0);
+        std::vector<float> left (480), right (480);
+        double phase = 0.0;
+        std::cout << "board " << hz << " Hz:";
+        for (int block = 0; block < 40; ++block)
         {
-            KarplusStrong string (3);
-            string.prepare (48000.0);
-            string.setFrequency (frequency);
-            string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.1f, 0.9f);
-            string.setPhysicalParams (stiffness, 0.0f, 0.0f, 1.0f, 0.0f, false);
-            string.setKeysParams (0.5f, 0.0f);
-            string.trigger (0.8f);
-            std::cout << "string " << frequency << " Hz stiff " << stiffness << ":";
-            for (int block = 0; block < 10; ++block)
+            for (int i = 0; i < 480; ++i)
             {
-                auto total = 0.0;
-                for (int i = 0; i < 4800; ++i)
-                {
-                    const auto value = string.process();
-                    total += value * value;
-                }
-                std::cout << " " << juce::roundToInt (10.0 * std::log10 (total / 4800.0 + 1.0e-12));
+                left[(size_t) i] = right[(size_t) i] = (float) std::sin (phase) * 0.5f;
+                phase += juce::MathConstants<double>::twoPi * hz / 48000.0;
             }
-            std::cout << std::endl;
+            board.process (left.data(), right.data(), 480, 0.45f, 0.6f, 0.6f);
+            auto sum = 0.0;
+            for (auto v : left) sum += v * v;
+            if (block % 5 == 4)
+                std::cout << " " << juce::roundToInt (10.0 * std::log10 (sum / 480.0 + 1e-20) - 10.0 * std::log10 (0.125));
         }
+        std::cout << std::endl;
+    }
 
-    for (const auto note : { 28, 40, 60, 84, 96 })
+    // Bare hammer strings: tone level (DC removed) every 100 ms.
+    for (const auto [hz, stiff] : { std::pair<double, float> { 2093.0, 0.0f }, { 2093.0, 0.45f }, { 1046.5, 0.45f },
+                                    { 523.3, 0.45f }, { 261.6, 0.45f }, { 41.2, 0.45f } })
+    {
+        KarplusStrong string (3);
+        string.prepare (48000.0);
+        string.setFrequency (hz);
+        string.setParams (KarplusStrong::Excite::Hammer, 0.0f, 0.25f, 0.9f);
+        string.setPhysicalParams (stiff, 0.0f, 0.0f, 1.0f, 0.0f, false);
+        string.setKeysParams (0.5f, 0.0f);
+        string.trigger (0.7f);
+        std::cout << "string " << hz << " stiff " << stiff << ":";
+        double mean = 0.0;
+        for (int block = 0; block < 10; ++block)
+        {
+            std::vector<double> values (4800);
+            for (auto& v : values) v = string.process();
+            mean = 0.0; for (auto v : values) mean += v; mean /= 4800.0;
+            auto sum = 0.0; for (auto v : values) sum += (v - mean) * (v - mean);
+            std::cout << " " << juce::roundToInt (10.0 * std::log10 (sum / 4800.0 + 1e-20)) << "(dc " << juce::String (mean, 3) << ")";
+        }
+        std::cout << std::endl;
+    }
+
+    // The dry C7 through a standalone soundboard.
     {
         IlanaSynthAudioProcessor processor;
-        const auto index = processor.getFactoryPresetNames().indexOf (presetName);
-        if (index < 0) { std::cout << "no preset " << presetName << std::endl; return; }
-        processor.loadFactoryPreset (index);
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+        setParam (processor, "sb_on", 0.0f);
         processor.prepareToPlay (48000.0, 480);
+        Soundboard board;
+        board.prepare (48000.0);
         juce::AudioBuffer<float> buffer (2, 480);
-        std::cout << "note " << note << ":";
-        for (int block = 0; block < 150; ++block)
+        std::cout << "dry | boarded:";
+        for (int block = 0; block < 60; ++block)
         {
             buffer.clear();
             juce::MidiBuffer midi;
-            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
-            if (block == 100) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 96, (juce::uint8) 80), 0);
             processor.processBlock (buffer, midi);
-            if (block % 10 == 9)
-                std::cout << " " << juce::roundToInt (juce::Decibels::gainToDecibels (buffer.getRMSLevel (0, 0, 480), -120.0f));
+            const auto dry = buffer.getRMSLevel (0, 0, 480);
+            board.process (buffer.getWritePointer (0), buffer.getWritePointer (1), 480, 0.45f, 0.6f, 0.6f);
+            if (block % 5 == 4)
+                std::cout << " " << juce::roundToInt (juce::Decibels::gainToDecibels (dry, -150.0f)) << "|"
+                          << juce::roundToInt (juce::Decibels::gainToDecibels (buffer.getRMSLevel (0, 0, 480), -150.0f));
         }
-        std::cout << "  voices " << processor.getActiveVoiceCount() << std::endl;
+        std::cout << std::endl;
     }
+
+    // Which part kills the treble? C7 level every 50 ms with one thing off.
+    for (const auto* variant : { "sb_on", "osc1_route", "osc1_string_stiffness", "osc1_spread", "osc1_detune",
+                                 "osc1_level", "osc1_string_decay", "osc1_string_damp" })
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+        setParam (processor, "sb_on", 0.0f);
+        const juce::String name (variant);
+        if (name == "osc1_route") setParam (processor, variant, 3.0f);
+        else if (name == "osc1_level") setParam (processor, variant, 0.3f);
+        else if (name == "osc1_string_decay") setParam (processor, variant, 0.99f);
+        else if (name != "sb_on") setParam (processor, variant, 0.0f);
+        processor.prepareToPlay (48000.0, 480);
+        juce::AudioBuffer<float> buffer (2, 480);
+        std::cout << variant << ":";
+        for (int block = 0; block < 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 96, (juce::uint8) 80), 0);
+            processor.processBlock (buffer, midi);
+            if (block % 5 == 4)
+            {
+                auto mean = 0.0, sum = 0.0;
+                for (int i = 0; i < 480; ++i) mean += buffer.getSample (0, i);
+                mean /= 480.0;
+                for (int i = 0; i < 480; ++i) sum += std::pow (buffer.getSample (0, i) - mean, 2.0);
+                std::cout << " " << juce::roundToInt (10.0 * std::log10 (sum / 480.0 + 1e-20)) << "(" << juce::String (mean, 2) << ")";
+            }
+        }
+        std::cout << std::endl;
+    }
+
+    const auto folder = juce::File::getCurrentWorkingDirectory().getChildFile ("build/note-debug");
+    folder.createDirectory();
+
+    for (const auto& [dynamic, velocity] : { std::pair<const char*, int> { "mf", 80 }, { "ff", 120 } })
+        for (const auto& [noteName, note] : { std::pair<const char*, int> { "E1", 28 }, { "C4", 60 }, { "C7", 96 } })
+        {
+            IlanaSynthAudioProcessor processor;
+            const auto index = processor.getFactoryPresetNames().indexOf (presetName);
+            if (index < 0) { std::cout << "no preset " << presetName << std::endl; return; }
+            processor.loadFactoryPreset (index);
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                processor.assignFxSlot (slot, 0);
+            processor.prepareToPlay (48000.0, 480);
+            juce::AudioBuffer<float> buffer (2, 480);
+            juce::AudioBuffer<float> output (1, 480 * 600);
+            for (int block = 0; block < 600; ++block)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
+                processor.processBlock (buffer, midi);
+                output.copyFrom (0, block * 480, buffer, 0, 0, 480);
+                output.addFrom (0, block * 480, buffer, 1, 0, 480);
+            }
+            output.applyGain (0.5f);
+            const auto file = folder.getChildFile (juce::String ("ours.") + dynamic + "." + noteName + ".wav");
+            file.deleteFile();
+            juce::WavAudioFormat format;
+            if (auto stream = file.createOutputStream())
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (format.createWriterFor (stream.get(), 48000.0, 1, 24, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (output, 0, output.getNumSamples());
+                }
+        }
 }
 
 // ILANA_RENDER_DEMO=<folder>: renders the M4 Keys presets to .wav files for

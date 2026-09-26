@@ -7,7 +7,7 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 ## State
 - **Done:** M1–M4 (see [ROADMAP.md](ROADMAP.md)). The last sound work was the sympathetic strings pass and the piano fit (`e480c44`).
 - **Next:** M5, Deep FM.
-- **Git:** everything is committed. `main` is 11+ commits ahead of `origin/main` and has not been pushed; push only when the user asks.
+- **Git:** everything is committed and pushed to `origin/main` (2026-09-26). Push only when the user asks.
 - **Plugin:** built locally, not installed.
 
 ## Rules that still apply

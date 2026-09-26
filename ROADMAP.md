@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **M1–M6b are done. Next up: M7 (Generative card).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done. Next up: M7, starting with the Generative card (M7.1).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -8,13 +8,13 @@ The core of the plan is **one physical modelling engine used in two places**:
 
 **Priorities:** weird hybrids and plucked or bowed strings come first, then keys. Deep FM and the generative and physics-modulation work run alongside.
 
-**Platform:** ilanaSynth is built for Windows first. macOS, Linux and CI come at the end of v1.3 (M12b).
+**Platform:** ilanaSynth is built for Windows first. macOS, Linux and CI come at the end of v1.3 (M9).
 
 **CPU budget:** balanced, meaning a rich physical patch should cost about what a heavy unison patch costs today. A QUALITY setting (Eco / Normal / High), added in M3b, trades detail for CPU.
 
 **Engine:** from M3b on, the synth has up to **6 full oscillators** that are also the FM operators, and a **pool of 16 envelopes** and **16 LFOs**. The later milestones build on that engine.
 
-**Milestone numbers are fixed.** Milestones have moved between releases, but they keep their numbers so HANDOFF and commit messages stay readable.
+**Milestone numbers:** finished milestones keep their numbers. The plan after v1.2 was regrouped on 2026-09-26 into M7–M10 (v1.3) and M11–M14 (v1.4); each part notes its old number.
 
 ---
 
@@ -30,7 +30,7 @@ Any modelled sound (physical models, bodies, electric pianos, the west-coast voi
 4. **Listen halfway, not only at the end.** Render demos (`ILANA_RENDER_DEMO`) for a listening round in the middle of the milestone.
 5. **Done means** the fitted error is under the target and the listening round has passed. If the error can't reach the target, write down the remaining gap rather than calling it done.
 
-The fitting tool should become general (`tools/fit_model.py`, with the piano as its first user) when M4b or M8 starts.
+The fitting tool should become general (`tools/fit_model.py`, with the piano as its first user) when M7.2 (bodies) starts.
 
 ### Checks for every milestone
 - **Tuning**: the tuning test. Stretch tuning is accounted for.
@@ -104,25 +104,30 @@ This comes at the end of v1.2. It is cheap, and the 16 envelopes and 16 LFOs alr
 
 ## v1.3: Bodies, wavetable editor, west coast, generative tools
 
-### M7: Generative card
+Regrouped on 2026-09-26 into four milestones. Each part notes its old number, so older notes stay traceable.
+
+### M7: Instruments and input
+Generative tools, the BODY section, electric pianos, the wavetable editor and audio input. Each part is fitted, tested and listened to before the next starts; the M7 tag waits for all five.
+
+#### M7.1: Generative card (was M7)
 - **Euclidean rhythm**: steps, hits and rotation. It can trigger notes, the physical exciter or the trance gate.
 - **Probability sequencer**: each of 16 steps has a chance, a pitch range and a ratchet, all snapped to the scale.
 - **Strum mode** for note spray: up or down, with timing.
 
-### M8: BODY section
+#### M7.2: BODY section (was M8)
 - **Material bodies**: bar, plate, bell and shell. One MATERIAL knob morphs wood → metal → glass, with SIZE and DECAY.
 - **Coupling**: a string drives a body, a body rings a string, or two strings ring each other.
 - **The oscillator mix is the exciter.**
 - **Old patches**: the current resonator becomes the "Classic" body, so old patches sound the same.
 - **Reference**: struck recordings of a wooden bar (marimba), a metal plate, a bell and a glass. Fitted on partial ratios and decay per partial.
 
-### M4b: Electric pianos
-Moved from v1.2 so it comes after M8: a tine and its tone bar are a struck bar, which M8 builds. It keeps its number.
+#### M7.3: Electric pianos (was M4b)
+It comes after the bodies: a tine and its tone bar are a struck bar, which M7.2 builds.
 - **Tine** (Rhodes-style): a struck tine and tone bar. Pickup position and distance set how hard it barks.
 - **Reed** (Wurlitzer-style): a struck reed with a pickup, whose growl feeds into the drives and amps.
 - **Reference**: Rhodes and Wurlitzer recordings, soft and hard, low, middle and high. Fitted like the piano, with the bark and growl measured as the change in upper partials from soft to hard.
 
-### M8b: Wavetable editor
+#### M7.4: Wavetable editor (was M8b)
 The biggest gap against Vital and Serum 2, which both let you build tables in the plugin.
 - **Frame editor** on the OSC page: a frame list, with add, duplicate, delete and reorder.
 - **Draw mode**: draw a single-cycle wave with the mouse, with smoothing and snap options.
@@ -132,7 +137,7 @@ The biggest gap against Vital and Serum 2, which both let you build tables in th
 - **Export** as `.wav` that Vital and Serum can read (2048-sample frames with a `clm` chunk). Loading tables made in Vital or Serum works the same way.
 - **Old patches**: unchanged, since factory tables stay read-only.
 
-#### How edited wavetables are stored
+##### How edited wavetables are stored
 Today a patch stores only each user slot's file path and load mode, so a patch loses its table if the `.wav` moves or the patch goes to another computer. The new format keeps every table with the patch, and allows three ways to describe it. A table can have any of them; the loader uses the best one it finds.
 
 - **Recipe**: the editor's steps (drawn points, harmonic bars, formula, morphs, resynthesis settings). It is small and rebuilds the table exactly, and it is what makes the table editable again after reloading.
@@ -145,46 +150,49 @@ Other rules:
 - **Each table is a versioned `<Wavetable>` child** of the patch state, with a format version, so later fields can be added without breaking older ones.
 - **Frames**: 1–256 frames. Frames of any length are resampled to 2048 samples on load.
 - **Size**: a table of 256 frames is about 1 MB at 16 bits before compression. The editor warns above that. Tables are shared between the oscillators that use them, so each is stored once.
-- **Slots**: the wavetable choice list is fixed for hosts, so M8b reserves **16 patch-table choices** once (replacing today's 4 user slots). Old patches' slots 1–4 map onto the first four.
+- **Slots**: the wavetable choice list is fixed for hosts, so M7.4 reserves **16 patch-table choices** once (replacing today's 4 user slots). Old patches' slots 1–4 map onto the first four.
 - **Old patches**: path-only slots load as today, and are embedded the next time the patch is saved.
 - **User library**: tables saved on their own go to `Documents/ilanaSynth Wavetables` as `.wav` plus a small `.ilwt` sidecar holding the recipe.
-- **Later**: M16 (resample to oscillator) will write into the same format.
+- **Later**: M14 (resample to oscillator) will write into the same format.
 
-### M9: Audio input (two plugins)
+#### M7.5: Audio input, two plugins (was M9)
 This ships as two separate plugins, which is simpler technically:
 - **ilanaSynth**: the instrument, unchanged.
 - **ilanaSynth FX**: an effect plugin that takes audio input. The input can:
-  - excite the BODY section (M8)
+  - excite the BODY section (M7.2)
   - feed the strings and the feedback guitar
   - be the granular source, for live granulation
   - act as a "live oscillator" going into the filters, FM and effects
 
 The FX plugin adds input gain, a gate/trigger, and an envelope follower as a new modulation source. Both plugins share the engine and the preset format.
 
-### M10: West-coast voice
+### M8: West coast, filters, feedback and polish
+The west-coast voice and new filter models, the feedback guitar and Evolve, then the v1.3 polish.
+
+#### M8.1: West-coast voice (was M10)
 - **Wavefolder**: fold amount, symmetry, and 1–4 stages.
 - **Low-pass gate**: a filter and amplifier in one, modelled on a vactrol, with its natural "bongo" decay.
 - **How to play it**: strike it with the M2 Bounce LFO or any envelope.
 - **Where it lives**: a WEST card on the FILTER page, used in place of Filter 2 or alongside it.
 - **Reference**: recordings of a Buchla-style low-pass gate being struck, fitted on decay time and how brightness falls with level.
 
-### M10b: Filter models
-Grouped with M10 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
+#### M8.2: Filter models (was M10b)
+Grouped with M8.1 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
 - **About 12–16 new models**, in the same FilterUnit structure: more ladder and diode variants, a state-variable multimode, an OTA/Sallen-Key style, an analogue-style notch/phaser filter, comb and formant variants, and a vowel/talking filter.
 - **Existing models keep their indices**, so old patches sound the same; new models are appended.
 - **UI**: the type grid gets categories or a scrolling list so it stays readable.
 - **Checks**: every new model gets the stability test (self-oscillation, extreme drive) and a fingerprint entry. Analogue-style models are checked against measured responses of the circuit they copy.
 
-### M11: Feedback guitar and Evolve
+#### M8.3: Feedback guitar and Evolve (was M11)
 - **Feedback guitar**: a new exciter type that puts an amp and speaker inside the string's feedback loop, with FEEDBACK and GAIN controls.
   - **Reference**: recordings of guitar feedback (a sustained note blooming into its harmonic), fitted on how fast it blooms and which harmonic it settles on.
 - **Evolve**: each macro can drift slowly within a range and at a rate you set. A **freeze** button captures the current state.
 
-### M12: Polish
+#### M8.4: Polish (was M12)
 - A PHYSICAL page with an animated string, body and hammer view.
 - Tour and README updates.
 
-### M12b: Portability and release quality
+### M9: Portability and release quality (was M12b)
 Left until the end on purpose: ilanaSynth is built for Windows first. Today it is a Windows VST3 plus standalone, with macOS as build-it-yourself.
 - **macOS**: a signed and notarised pre-built VST3 and standalone.
 - **AU** (macOS) and **CLAP** on the same JUCE build.
@@ -192,26 +200,26 @@ Left until the end on purpose: ilanaSynth is built for Windows first. Today it i
 - **CI**: builds and the regression suite (`ilanaTableTest`, the UI test, fingerprints) on Windows, macOS and Linux for every change.
 - **Bug-fix pass**: run the stability, CPU and old-patch tests across hosts before each release.
 
-### M17: Preset pack
+### M10: Preset pack (was M17)
 Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets wait until here, so they can use every new feature. Planned (about 100, with a stretch goal of 300+ in the library to close the gap with Vital and Serum 2):
 
-- **Wavetable library**: grow from 40 to about 120 factory tables, made with the M8b editor.
+- **Wavetable library**: grow from 40 to about 120 factory tables, made with the M7.4 editor.
 - **Piano quality**: one more fitting and listening pass on the acoustic keys (M4), with a fixed time limit. It stops there even if it still isn't a convincing piano.
 - **Physical instruments**
   - Strings (M1/M3): 10
   - Oscillator engine layers (M3b): 8
   - Physics LFOs (M2): 6
   - Acoustic keys (M4): 8
-  - Electric pianos (M4b): 6
+  - Electric pianos (M7.3): 6
 - **Synthesis**
   - Deep FM (M5): 12
   - Phase distortion (M6): 8
 - **Generative and bodies**
-  - Generative (M7): 8
-  - Bodies and hybrids (M8): 12
-  - West coast and new filters (M10/M10b): 10
-  - Feedback guitar and Evolve (M11): 8
-- **FX plugin (M9)**: 10 presets
+  - Generative (M7.1): 8
+  - Bodies and hybrids (M7.2): 12
+  - West coast and new filters (M8.1/M8.2): 10
+  - Feedback guitar and Evolve (M8.3): 8
+- **FX plugin (M7.5)**: 10 presets
 
 ---
 
@@ -219,21 +227,21 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
 
 These are ideas to come back to after v1.3 ships. None of them block anything above. Each still follows the sound-fitting rule, and each gets its own presets when it lands.
 
-### M13: Pulsar synthesis
+### M11: Pulsar synthesis (was M13)
 - **New oscillator mode**: trains of short "pulsaret" wave packets, whose rate sweeps from rhythm up to pitch.
 - **Controls**: the pulsaret shape comes from any wavetable, with a duty-cycle control.
-- **Masking**: individual pulses can be dropped, driven by the M7 sequencers.
+- **Masking**: individual pulses can be dropped, driven by the M7.1 sequencers.
 
-### M14: Vector synthesis
+### M12: Vector synthesis (was M14)
 - **XY pad**: morphs between four sources (any four of the M3b oscillators, or four snapshots).
 - **Movement**: the pad follows a drawable path, the Evolve drift, or joystick and MPE control.
 
-### M15: FOF formant synthesis
+### M13: FOF formant synthesis (was M15)
 - **New oscillator mode**: real vowel synthesis with 5 formants.
 - **Controls**: vowel morph (A-E-I-O-U), consonant-style attacks, gender/size, and a choir spread.
 
-### M16: Resample to oscillator
-- Bounce a note or the whole patch into a sample or wavetable slot, using the M8b storage format.
+### M14: Resample to oscillator (was M16)
+- Bounce a note or the whole patch into a sample or wavetable slot, using the M7.4 storage format.
 - Then granulate it, warp it, or use it as a pulsar source or exciter.
 - The result is saved with the patch.
 
@@ -244,18 +252,18 @@ These are ideas to come back to after v1.3 ships. None of them block anything ab
 | Question | Decision |
 |---|---|
 | How the physical engine fits in | Both: an oscillator mode **and** the BODY section |
-| Electric pianos | Their own milestone, M4b, in v1.3 after the M8 bodies |
+| Electric pianos | Part of M7 (M7.3), after the bodies (M7.2) |
 | Audio input | Two plugins (instrument and FX) |
 | Evolve | Per macro |
 | Feedback guitar | An exciter type |
 | Sympathetic strings | Follow the GENERATE scale, with a manual override |
-| Presets | Deferred to M17, at the end of v1.3 |
+| Presets | Deferred to M10, at the end of v1.3 |
 | Oscillator count | 6 full oscillators (M3b), which are also the FM operators |
 | Envelopes | A pool of 16 automatable envelopes, shown as they are used; a fixed count because hosts need a fixed parameter list |
 | Per-oscillator amp | An envelope picker per oscillator, defaulting to the main AMP |
 | Order | M3b before M4 and M5 |
 | When a sound is done | When it is fitted to a reference and has passed a listening round, not when it sounds plausible |
-| Platforms | Windows first. macOS, Linux and CI wait for M12b |
+| Platforms | Windows first. macOS, Linux and CI wait for M9 |
 | v1.4 | Pushed back and unscheduled. v1.3 is the next full release |
 | Edited wavetables | Stored in the patch as recipe, embedded data and file reference, in a versioned format; 16 patch-table slots |
-| Milestone numbers | Fixed, even when a milestone moves to another release |
+| Milestone numbers | Finished ones are fixed; the post-v1.2 plan was regrouped into M7–M14 (2026-09-26), with old numbers noted |

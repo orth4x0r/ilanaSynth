@@ -104,6 +104,46 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
     return { Mod::destinationForParamId (id), 1.0f };
 }
 
+// What a mod source drives, for the envelope and LFO pool cards: "fixed"
+// (built-in uses such as "Amp") first, then the matrix destinations, as
+// "first target +N". Empty when it drives nothing.
+inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processor, Mod::Source source,
+                                        juce::StringArray targets = {})
+{
+    static const auto names = Mod::getDestinationNames();
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = processor.readModSlot (slot);
+
+        if (routing.isActive() && (routing.source == source || routing.aux == source)
+            && juce::isPositiveAndBelow (routing.destination, names.size()))
+            targets.addIfNotAlreadyThere (names[routing.destination]);
+    }
+
+    if (targets.isEmpty())
+        return {};
+
+    return targets[0] + (targets.size() > 1 ? "  +" + juce::String (targets.size() - 1) : juce::String());
+}
+
+// A small tag in a card's lower-left corner naming what it drives.
+inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text, juce::Colour colour)
+{
+    if (text.isEmpty())
+        return;
+
+    const auto font = juce::Font (IlanaTheme::font (9.5f, true));
+    const auto width = juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidth (font, text) + 12.0f);
+    const auto tag = juce::Rectangle<float> (area.getX(), area.getBottom() - 13.0f, width, 13.0f);
+
+    g.setColour (juce::Colour (0xff111115).withAlpha (0.85f));
+    g.fillRoundedRectangle (tag, 6.5f);
+    g.setColour (colour.withAlpha (0.9f));
+    g.setFont (font);
+    g.drawFittedText (text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
+}
+
 // The source currently hovered (chip, macro or LFO card), so knobs it
 // modulates can light up. Message thread only.
 inline int& highlightedModSource()

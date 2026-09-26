@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -431,6 +432,37 @@ inline int destinationForParamId (const juce::String& id)
             return paramDestinationFor (i);
 
     return 0;
+}
+
+// The 27 FM cells added with OSC 4-6 are parameter destinations, but each
+// voice evaluates them itself (per note, per sample) like the nine original
+// cells, so envelopes and velocity work per note. Returns the cell as
+// source * 6 + target (0-based), or -1 for any other destination.
+inline int extendedFmCellFor (int destination)
+{
+    struct Layout
+    {
+        int first = 0;
+        std::array<int, 27> cells {};
+    };
+
+    static const auto layout = []
+    {
+        Layout result;
+        result.first = destinationForParamId ("fm_1to4");
+        auto count = 0;
+
+        // The order they are appended in getParamDestinations().
+        for (int source = 0; source < 6; ++source)
+            for (int target = 0; target < 6; ++target)
+                if (source >= 3 || target >= 3)
+                    result.cells[(size_t) count++] = source * 6 + target;
+
+        return result;
+    }();
+
+    const auto index = destination - layout.first;
+    return layout.first > 0 && juce::isPositiveAndBelow (index, 27) ? layout.cells[(size_t) index] : -1;
 }
 
 enum class Polarity

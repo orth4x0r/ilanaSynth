@@ -1603,6 +1603,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     p.numModSlots = numActiveSlots;
     p.numActiveDestinations = 0;
+    p.anyExtendedFmMods = false;
 
     for (int i = 0; i < numActiveSlots; ++i)
     {
@@ -1610,7 +1611,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         const auto destination = activeSlots[i].destination;
 
         if (! Mod::isExplicitDestination (destination))
+        {
+            p.anyExtendedFmMods = p.anyExtendedFmMods || Mod::extendedFmCellFor (destination) >= 0;
             continue;
+        }
 
         auto seen = false;
 
@@ -2472,6 +2476,10 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
 
     for (int i = 0; i < (int) paramDestinations.size(); ++i)
     {
+        // The OSC 4-6 FM cells are modulated per voice instead.
+        if (Mod::extendedFmCellFor (Mod::paramDestinationFor (i)) >= 0)
+            continue;
+
         const auto offset = totals[Mod::paramDestinationFor (i)];
 
         if (offset != 0.0f && paramDestinations[(size_t) i].parameter != nullptr)

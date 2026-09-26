@@ -1190,7 +1190,7 @@ public:
         auto header = area.removeFromTop (28);
         slope.setBounds (header.removeFromRight (96).reduced (0, 5));
 
-        grid.setBounds (area.removeFromTop (juce::jlimit (52, 64, getHeight() / 4)));
+        grid.setBounds (area.removeFromTop (juce::jlimit (52, 64, getHeight() / 4) + FilterTypeGrid::labelHeight));
         area.removeFromTop (4);
         area.removeFromBottom (6);
 
@@ -3294,6 +3294,19 @@ public:
         addButton.onClick = [this] { addRouting(); };
         list.addAndMakeVisible (addButton);
 
+        // One-click starting points for an empty matrix.
+        for (size_t i = 0; i < starterRoutings().size(); ++i)
+        {
+            const auto& starter = starterRoutings()[i];
+            auto button = std::make_unique<juce::TextButton> (starter.label);
+            button->setColour (juce::TextButton::buttonColourId, modSourceColour ((int) starter.source).withAlpha (0.18f));
+            button->setColour (juce::TextButton::textColourOffId, modSourceColour ((int) starter.source).brighter (0.4f));
+            button->setTooltip (juce::String (starter.tip) + "\nAdds the routing; change it in its row afterwards.");
+            button->onClick = [this, i] { addStarter (starterRoutings()[i]); };
+            addChildComponent (*button);
+            starterButtons.push_back (std::move (button));
+        }
+
         viewport.setViewedComponent (&list, false);
         viewport.setScrollBarsShown (true, false);
         viewport.setScrollBarThickness (8);
@@ -3396,6 +3409,10 @@ public:
         for (int i = 0; i < 3; ++i)
             g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
 
+        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("OR START FROM ONE OF THESE", starterArea().withHeight (16).translated (0, -22), juce::Justification::centred);
+
         // A chevron bobbing towards the source chips.
         const auto bob = 4.0f * std::sin (now * 3.0f);
         const auto tip = juce::Point<float> (area.toFloat().getCentreX(), (float) getHeight() - 22.0f + bob);
@@ -3414,6 +3431,7 @@ public:
         headerArea = area.removeFromTop (18);
         viewport.setBounds (area);
         layoutList();
+        layoutStarters();
     }
 
     // Switching to the tab shows the current routings straight away.
@@ -3425,6 +3443,76 @@ public:
 
 private:
     static constexpr int rowHeight = 38;
+
+    struct Starter
+    {
+        const char* label;
+        const char* tip;
+        Mod::Source source, aux;
+        std::vector<Mod::Destination> destinations;
+        float depth;
+    };
+
+    static const std::vector<Starter>& starterRoutings()
+    {
+        using S = Mod::Source;
+        using D = Mod::Destination;
+        static const std::vector<Starter> starters {
+            { "LFO 1  >  CUTOFF", "LFO 1 sweeps filter 1's cutoff.", S::Lfo1, S::None, { D::Filter1Cutoff }, 0.3f },
+            { "MOD ENV  >  FRAME", "The mod envelope moves OSC 1's wavetable position on every note.", S::ModEnv, S::None, { D::Osc1Frame }, 0.5f },
+            { "WHEEL  >  VIBRATO", "LFO 2 wobbles the pitch of OSC 1-3, as far as the mod wheel lets it.", S::Lfo2, S::ModWheel,
+              { D::Osc1Pitch, D::Osc2Pitch, D::SubPitch }, 0.006f },
+            { "VELOCITY  >  CUTOFF", "Harder notes open filter 1.", S::Velocity, S::None, { D::Filter1Cutoff }, 0.35f },
+            { "LFO 2  >  PAN", "LFO 2 moves OSC 1 across the stereo field.", S::Lfo2, S::None, { D::Osc1Pan }, 0.5f },
+            { "MACRO 1  >  DRIVE", "Macro 1 drives filter 1.", S::Macro1, S::None, { D::Filter1Drive }, 0.5f }
+        };
+        return starters;
+    }
+
+    juce::Rectangle<int> starterArea() const
+    {
+        const auto area = viewport.getBounds().withTrimmedTop (56);
+        return juce::Rectangle<int> (600, 74).withCentre (area.getCentre()).withY (area.getY() + 20 + 250 + 36);
+    }
+
+    void layoutStarters()
+    {
+        const auto area = starterArea();
+        const auto width = area.getWidth() / 3;
+
+        for (size_t i = 0; i < starterButtons.size(); ++i)
+            starterButtons[i]->setBounds (juce::Rectangle<int> (area.getX() + (int) (i % 3) * width, area.getY() + (int) (i / 3) * 37,
+                                                                width, 37).reduced (4, 3));
+    }
+
+    void addStarter (const Starter& starter)
+    {
+        processorRef.getUndoManager().beginNewTransaction ("Add " + juce::String (starter.label));
+        auto next = 0;
+
+        for (const auto destination : starter.destinations)
+        {
+            for (; next < Mod::maxSlots; ++next)
+            {
+                const auto slot = processorRef.readModSlot (next);
+
+                if (slot.source == Mod::Source::None && slot.destination == 0)
+                    break;
+            }
+
+            if (next >= Mod::maxSlots)
+                break;
+
+            processorRef.clearModSlot (next);
+            processorRef.setModSlotValue (next, "src", (float) starter.source);
+            processorRef.setModSlotValue (next, "dst", (float) destination);
+            processorRef.setModSlotValue (next, "aux", (float) starter.aux);
+            processorRef.setModSlotValue (next, "amt", starter.depth);
+            ++next;
+        }
+
+        updateRows();
+    }
 
     void addRouting()
     {
@@ -3459,6 +3547,9 @@ private:
             if (slot.source != Mod::Source::None || slot.destination != 0)
                 used.push_back (i);
         }
+
+        for (auto& button : starterButtons)
+            button->setVisible (used.empty());
 
         if (used != visibleRows)
         {
@@ -3526,6 +3617,7 @@ private:
     std::vector<std::unique_ptr<MatrixRow>> rows;
     std::vector<int> visibleRows;
     juce::TextButton addButton;
+    std::vector<std::unique_ptr<juce::TextButton>> starterButtons;
     juce::Rectangle<int> headerArea;
 };
 
@@ -4108,11 +4200,21 @@ public:
         stackView.setScrollBarThickness (8);
         addAndMakeVisible (stackView);
 
-        // Quick picks for an empty rack: one click adds the effect.
-        for (const auto& pick : { std::pair<int, const char*> { 13, "REVERB" }, { 9, "DELAY" }, { 7, "CHORUS" },
-                                  { 2, "DRIVE" }, { 20, "OTT" }, { 16, "TRANCE GATE" }, { 6, "PHASER" }, { 29, "EQ" } })
+        // Quick picks for an empty rack, every effect grouped by what it
+        // does: one click adds it to the first empty slot.
+        for (const auto& group : quickAddGroups())
         {
-            auto button = std::make_unique<juce::TextButton> (juce::String ("+  ") + pick.second);
+            auto label = std::make_unique<juce::Label> ("", group.title);
+            label->setFont (juce::Font (IlanaTheme::font (10.5f, true)));
+            label->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.5f));
+            label->setJustificationType (juce::Justification::centredRight);
+            addChildComponent (*label);
+            quickAddLabels.push_back (std::move (label));
+        }
+
+        for (const auto& pick : quickAddPicks())
+        {
+            auto button = std::make_unique<juce::TextButton> (pick.second);
             const auto type = pick.first;
             button->setColour (juce::TextButton::buttonColourId, fxColour (type).withAlpha (0.18f));
             button->setColour (juce::TextButton::textColourOffId, fxColour (type).brighter (0.3f));
@@ -4742,6 +4844,7 @@ private:
     // One panel per loaded slot, in chain order. A module type loaded twice
     // shares its settings, so later copies get a short note instead.
     std::vector<std::unique_ptr<juce::TextButton>> quickAddButtons;
+    std::vector<std::unique_ptr<juce::Label>> quickAddLabels;
 
     void layoutStack()
     {
@@ -4815,21 +4918,56 @@ private:
         stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
         stackContent.repaint();
 
-        // Quick picks sit in the empty rack, four to a row.
+        // Quick picks sit in the empty rack: one row per group, its name on
+        // the left.
         const auto empty = stackPanels.empty();
-        auto grid = stackView.getBounds().withTrimmedTop (104).withSizeKeepingCentre (juce::jmin (620, stackView.getWidth() - 20), 84);
+        auto grid = stackView.getBounds().withTrimmedTop (104).reduced (10, 0);
         grid.setY (stackView.getY() + 104);
-        const auto columns = 4;
-        const auto cellWidth = grid.getWidth() / columns;
+        constexpr int labelWidth = 92, rowHeight = 40, columns = 8;
+        const auto cellWidth = (grid.getWidth() - labelWidth - 8) / columns;
+        size_t pick = 0;
 
-        for (size_t i = 0; i < quickAddButtons.size(); ++i)
+        for (size_t group = 0; group < quickAddGroups().size(); ++group)
         {
-            auto& button = *quickAddButtons[i];
-            button.setVisible (empty);
-            button.setBounds (grid.getX() + (int) (i % columns) * cellWidth, grid.getY() + (int) (i / columns) * 42,
-                              cellWidth, 42);
-            button.setBounds (button.getBounds().reduced (5, 4));
+            auto row = grid.removeFromTop (rowHeight);
+            quickAddLabels[group]->setVisible (empty);
+            quickAddLabels[group]->setBounds (row.removeFromLeft (labelWidth));
+            row.removeFromLeft (8);
+
+            for (int i = 0; i < quickAddGroups()[group].count; ++i, ++pick)
+            {
+                auto& button = *quickAddButtons[pick];
+                button.setVisible (empty);
+                button.setBounds (row.removeFromLeft (cellWidth).reduced (3, 4));
+            }
         }
+    }
+
+    struct QuickAddGroup
+    {
+        const char* title;
+        int count;
+    };
+
+    // Groups, in order, and how many of quickAddPicks() each takes.
+    static const std::vector<QuickAddGroup>& quickAddGroups()
+    {
+        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 5 }, { "MOTION", 8 },
+                                                         { "RHYTHM", 3 }, { "TONE & LEVEL", 6 } };
+        return groups;
+    }
+
+    static const std::vector<std::pair<int, const char*>>& quickAddPicks()
+    {
+        static const std::vector<std::pair<int, const char*>> picks {
+            { 13, "REVERB" }, { 9, "DELAY" }, { 15, "DIMENSION" }, { 11, "SMEAR" }, { 12, "FREEZE" }, { 8, "HAAS" }, { 22, "WIDENER" },
+            { 2, "DRIVE" }, { 1, "AMP" }, { 3, "CRUSH" }, { 26, "OCTAVER" }, { 28, "FEEDBACK" },
+            { 7, "CHORUS" }, { 6, "PHASER" }, { 14, "FLANGER" }, { 23, "TREMOLO" }, { 24, "FREQ SHIFT" }, { 25, "RING MOD" },
+            { 27, "VOWEL" }, { 5, "COMB" },
+            { 16, "TRANCE GATE" }, { 10, "STUTTER" }, { 17, "TAPE STOP" },
+            { 29, "EQ" }, { 18, "TILT" }, { 4, "COMP" }, { 20, "OTT" }, { 21, "LIMITER" }, { 19, "UTILITY" }
+        };
+        return picks;
     }
 
     void paintStack (juce::Graphics& g)
@@ -4842,7 +4980,7 @@ private:
                         juce::Justification::centred);
             g.setColour (juce::Colours::white.withAlpha (0.45f));
             g.setFont (IlanaTheme::font (12.5f));
-            g.drawText ("Start with one of these, or click any slot on the left for all 29 effects.",
+            g.drawText ("Click an effect to add it, or click any slot on the left.",
                         stackContent.getLocalBounds().withTrimmedTop (68).withHeight (20), juce::Justification::centred);
             return;
         }

@@ -239,6 +239,24 @@ private:
         return 0.0f;
     }
 
+    // The cards repaint often; what they drive is re-read four times a second.
+    juce::String cachedTargets (int lfo)
+    {
+        const auto now = juce::Time::getMillisecondCounter();
+
+        if (now - targetsStamp > 250 || targetsStamp == 0)
+        {
+            targetsStamp = now;
+            for (int i = 0; i < (int) targetsCache.size(); ++i)
+                targetsCache[(size_t) i] = describeModTargets (processorRef, Mod::lfoSourceFor (i));
+        }
+
+        return targetsCache[(size_t) juce::jlimit (0, (int) targetsCache.size() - 1, lfo)];
+    }
+
+    std::array<juce::String, (size_t) IlanaSynthAudioProcessor::numLfos> targetsCache;
+    juce::uint32 targetsStamp = 0;
+
     bool isRouted (int lfo) const
     {
         const auto source = Mod::lfoSourceFor (lfo);
@@ -334,8 +352,11 @@ private:
                 path.lineTo (x, y);
         }
 
-        g.setColour (colour.withAlpha (active ? 0.95f : 0.6f));
+        // Unassigned LFOs are drawn faint.
+        const auto targets = cachedTargets (lfo);
+        g.setColour (colour.withAlpha (active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f)));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        paintTargetTag (g, inner, targets, colour);
 
         const auto phase = (double) processorRef.getLfoPhase (lfo);
         const auto dotValue = shapeValue (lfo, shape, phase);

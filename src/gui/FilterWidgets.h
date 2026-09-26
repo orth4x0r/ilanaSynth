@@ -55,6 +55,24 @@ public:
     {
         const auto names = shortNames();
 
+        // Family labels over each block of four, with thin dividers between.
+        for (int group = 0; group < numGroups; ++group)
+        {
+            const auto block = groupBounds (group);
+            const auto holdsCurrent = current / 4 == group;
+            g.setColour (holdsCurrent ? colour.withAlpha (0.9f) : juce::Colours::white.withAlpha (0.4f));
+            g.setFont (IlanaTheme::font (9.5f, true));
+            g.drawText (groupNames()[group], block.withHeight (labelHeight).reduced (3.0f, 0.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+
+            if (group > 0)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.fillRect (juce::Rectangle<float> (block.getX() - groupGap * 0.5f - 0.5f, block.getY() + 2.0f,
+                                                    1.0f, block.getHeight() - 4.0f));
+            }
+        }
+
         for (int type = 0; type < FilterType::Count; ++type)
         {
             const auto cell = cellBounds (type).reduced (2.0f);
@@ -85,15 +103,31 @@ public:
                 setValue (type);
     }
 
+    // Label strip above the cells (the page adds it to the grid's height).
+    static constexpr int labelHeight = 13;
+
 private:
-    static constexpr int columns = 6;
+    // Three families of four, each a 2 x 2 block: CLASSIC (LP, BP, HP,
+    // NOTCH), CHARACTER (LADDER, LAD HP, DIODE, MS-20) and SPECIAL (COMB +,
+    // COMB -, FORMANT, MORPH). The type indices are unchanged.
+    static constexpr int numGroups = 3;
+    static constexpr float groupGap = 10.0f;
+
+    static juce::StringArray groupNames() { return { "CLASSIC", "CHARACTER", "SPECIAL" }; }
+
+    juce::Rectangle<float> groupBounds (int group) const
+    {
+        const auto width = ((float) getWidth() - groupGap * (float) (numGroups - 1)) / (float) numGroups;
+        return { (float) group * (width + groupGap), 0.0f, width, (float) getHeight() };
+    }
 
     juce::Rectangle<float> cellBounds (int type) const
     {
-        const auto rows = (FilterType::Count + columns - 1) / columns;
-        const auto width = (float) getWidth() / (float) columns;
-        const auto height = (float) getHeight() / (float) rows;
-        return { (float) (type % columns) * width, (float) (type / columns) * height, width, height };
+        const auto block = groupBounds (type / 4).withTrimmedTop ((float) labelHeight);
+        const auto index = type % 4;
+        const auto width = block.getWidth() * 0.5f;
+        const auto height = block.getHeight() * 0.5f;
+        return { block.getX() + (float) (index % 2) * width, block.getY() + (float) (index / 2) * height, width, height };
     }
 
     void paintCurve (juce::Graphics& g, int type, juce::Rectangle<float> area, bool active) const

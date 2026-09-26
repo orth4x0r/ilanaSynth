@@ -319,6 +319,7 @@ struct VoiceParams
     int numModSlots = 0;
     int activeDestinations[Mod::maxSlots] {};
     int numActiveDestinations = 0;
+    bool anyExtendedFmMods = false;   // a slot targets an FM cell to or from OSC 4-6
 
     // Appends a routing (for code that drives a voice directly, e.g. tests).
     void addModSlot (Mod::Source source, Mod::Destination destination, float depth)
@@ -466,6 +467,7 @@ private:
     // Modulation evaluated at the start of each block, for everything that
     // doesn't need to move within a block (envelope times, pans, detune...).
     std::array<float, (size_t) Mod::Destination::Count> blockMods {};
+    mutable std::array<float, 36> fmCellMods {};   // per-voice mods of the OSC 4-6 FM cells
     std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};

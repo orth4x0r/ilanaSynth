@@ -647,6 +647,55 @@ int runUiTests()
                 "Init resets drawn LFO shapes and macro CCs");
     }
 
+    // M7.0: on Init, a matrix starter adds its routing and an FX quick-add
+    // fills the first slot.
+    {
+        processor.loadFactoryPreset (0);
+        tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+        settle (100);
+        tabs->setCurrentTabIndex (tabIndex ("MATRIX"));
+        settle (300);
+
+        const auto findButton = [&editor] (const juce::String& text) -> juce::TextButton*
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == text && button->isVisible())
+                    return button;
+            return nullptr;
+        };
+
+        auto* starter = findButton ("WHEEL  >  VIBRATO");
+        expect (starter != nullptr, "an empty matrix shows the starter routings");
+
+        if (starter != nullptr)
+        {
+            starter->triggerClick();
+            settle (300);
+            const auto slot = processor.readModSlot (0);
+            expect (slot.source == Mod::Source::Lfo2 && slot.aux == Mod::Source::ModWheel
+                        && slot.destination == (int) Mod::Destination::Osc1Pitch
+                        && processor.readModSlot (2).destination == (int) Mod::Destination::SubPitch,
+                    "WHEEL > VIBRATO routes LFO 2 via the wheel to OSC 1-3 pitch");
+            expect (findButton ("WHEEL  >  VIBRATO") == nullptr, "the starters hide once something is routed");
+        }
+
+        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        settle (300);
+        auto* tapeStop = findButton ("TAPE STOP");
+        expect (tapeStop != nullptr, "the empty rack offers every effect, grouped");
+
+        if (tapeStop != nullptr)
+        {
+            tapeStop->triggerClick();
+            settle (300);
+            expect ((int) processor.apvts.getRawParameterValue ("fx_slot1")->load() == 17, "a quick-add button fills slot 1");
+        }
+
+        processor.loadFactoryPreset (0);
+        settle (200);
+    }
 
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;

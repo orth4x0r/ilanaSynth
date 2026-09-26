@@ -143,7 +143,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - Every route is a modulation destination.
 
 ### Filters (2)
-- 12 models:
+- 12 models, in three groups on the FILTER page (CLASSIC, CHARACTER, SPECIAL):
   - Low pass, Band pass, High pass and Notch (12 or 24 dB)
   - Ladder LP and Ladder HP
   - Diode LP and MS-20 LP
@@ -159,7 +159,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 
 ### Envelopes & LFOs
 - **16 tension envelopes**: AMP, FILTER 1, FILTER 2, MOD, ENV 5 and ENV 6–16. The five original parameter sets keep their saved IDs.
-  - They're shown as cards that mark the ones in use. Drag a card onto a knob to modulate it.
+  - They're shown as cards that mark the ones in use and name what each drives (for example "Filter 1" or "Filter1 Cutoff +2"). Drag a card onto a knob to modulate it. LFO cards do the same, and an LFO that drives nothing is drawn faint.
   - The ENV page starts with AMP, FILTER 1 and FILTER 2. Click **+** to add another; the cards keep their size and the row scrolls sideways past five. Right-click a card to remove it. Envelopes in use (assigned in the matrix, as an amp envelope or by a filter's env amount) always show. LFOs work the same way: three cards and a **+**. What is shown is saved in the patch.
   - Drag the graph's handles for A / D / S / R, and drag a curve to bend its tension. Double-click a handle to reset it.
   - Each is a DAHDSR: **DELAY** and **HOLD** knobs, plus **KEY RATE**, which shortens every stage up the keyboard.
@@ -189,6 +189,8 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 ### Modulation
 - **Matrix**: 64 slots with ENV 6–16 as additional sources and OSC 4–6 as additional destinations.
   - Each slot has depth, a response curve, polarity (Natural, Unipolar, Bipolar), a **Via** source that scales the routing, and bypass.
+  - An empty matrix offers six one-click starters: LFO 1 > Cutoff, Mod Env > Frame, Wheel > Vibrato, Velocity > Cutoff, LFO 2 > Pan and Macro 1 > Drive.
+  - Every FM cell, including those to and from OSC 4–6, is modulated per note, so envelopes and velocity shape each note's FM on their own.
 - **Sources**:
   - LFO 1–16 and the MSEG
   - the MOD / FILTER 1 / FILTER 2 / AMP / ENV 5 envelopes, plus ENV 6–16
@@ -310,7 +312,7 @@ The standalone app is in `build/ilanaSynth_artefacts/Release/Standalone/`. If ma
   - **SURPRISE ME** loads a random preset from the list shown.
 
 ### Good to know
-- The FX rack is empty on INIT: use the quick-add buttons, or click any of the 10 rows.
+- The FX rack is empty on INIT: click any effect in the grouped list (Space, Drive, Motion, Rhythm, Tone & Level), or click any of the 10 rows.
 - Spectral warps work on the factory wavetables.
   - Changing a warp's amount rebuilds the table in the background, so it isn't a modulation target.
   - To move the tone over time, modulate FRAME instead.

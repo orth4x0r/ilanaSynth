@@ -7094,6 +7094,80 @@ void renderFmPdDemos (const juce::File& folder)
 
 } // namespace
 
+// M7.0: FM cells to or from OSC 4-6 are modulated per voice, like the nine
+// original cells (an envelope or velocity acts on each note separately).
+void runM70ExtendedFmModTests()
+{
+    std::cout << "M7.0 per-voice FM for OSC 4-6" << std::endl;
+
+    // The cell lookup matches every appended FM parameter.
+    auto mapped = true;
+    for (int source = 0; source < 6; ++source)
+        for (int target = 0; target < 6; ++target)
+        {
+            if (source < 3 && target < 3)
+                continue;
+
+            const auto id = source == target ? "fm_fb" + juce::String (source + 1)
+                                             : "fm_" + juce::String (source + 1) + "to" + juce::String (target + 1);
+            mapped = mapped && Mod::extendedFmCellFor (Mod::destinationForParamId (id)) == source * 6 + target;
+        }
+    check (mapped, "all 27 OSC 4-6 FM cells map to their destination");
+    check (Mod::extendedFmCellFor (Mod::destinationForParamId ("master")) < 0
+               && Mod::extendedFmCellFor ((int) Mod::Destination::Fm1to2) < 0,
+           "other destinations are not FM cells");
+
+    // Velocity > FM 4>1 with a loud low note and a quiet high note at once:
+    // only the loud one should grow sidebands.
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    for (const auto& [id, value] : std::vector<std::pair<const char*, float>> {
+             { "master_clip", 0.0f }, { "master", 0.0f }, { "amp_velocity", 0.0f }, { "drift", 0.0f },
+             { "osc1_table", 8.0f }, { "osc1_frame", 0.0f }, { "osc1_route", 3.0f }, { "osc1_level", 1.0f },
+             { "osc2_on", 0.0f }, { "sub_on", 0.0f }, { "osc1_unison", 1.0f },
+             { "amp_attack", 0.001f }, { "amp_decay", 1.0f }, { "amp_sustain", 1.0f }, { "amp_release", 0.05f } })
+        setParam (processor, id, value);
+
+    processor.addOscillator (3);
+    setParam (processor, "osc4_table", 8.0f);
+    setParam (processor, "osc4_frame", 0.0f);
+    setParam (processor, "osc4_out", 0.0f);
+    setParam (processor, "osc4_level", 1.0f);
+    setParam (processor, "mod1_src", (float) Mod::Source::Velocity);
+    setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("fm_4to1"));
+    setParam (processor, "mod1_amt", 1.0f);
+
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 512);
+
+    for (int block = 0; block < 60; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+        {
+            midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 127), 0);
+            midi.addEvent (juce::MidiMessage::noteOn (1, 73, (juce::uint8) 4), 0);
+        }
+
+        processor.processBlock (buffer, midi);
+
+        for (int i = 0; i < 512; ++i)
+            out.push_back (buffer.getSample (0, i));
+    }
+
+    const auto quiet = juce::MidiMessage::getMidiNoteInHertz (73);
+    const auto loud = juce::MidiMessage::getMidiNoteInHertz (48);
+    const auto quietSideband = partialAmplitude (out, 12000, 16384, quiet * 2.0) / juce::jmax (1.0e-9, partialAmplitude (out, 12000, 16384, quiet));
+    const auto loudSideband = partialAmplitude (out, 12000, 16384, loud * 2.0) / juce::jmax (1.0e-9, partialAmplitude (out, 12000, 16384, loud));
+
+    check (loudSideband > 0.2 && quietSideband < loudSideband * 0.5,
+           "velocity drives FM 4>1 per note (quiet note sideband " + juce::String (quietSideband, 3)
+               + ", loud note " + juce::String (loudSideband, 3) + ")");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -7103,6 +7177,13 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M70_TEST", "").isNotEmpty())
+    {
+        runM70ExtendedFmModTests();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     // ILANA_ARP_TEST=1 runs only the arpeggiator tests.
@@ -7222,6 +7303,7 @@ int main()
     runM5DeepFmTests();
     runM6PhaseDistortionTests();
     runM6bMatrixTests();
+    runM70ExtendedFmModTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

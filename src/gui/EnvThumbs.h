@@ -344,6 +344,53 @@ private:
 
         g.setColour (colour.withAlpha (active ? 0.95f : (inUse ? 0.6f : 0.35f)));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        paintTargetTag (g, inner, cachedTargets (env), colour);
+    }
+
+    // The cards repaint often; what they drive is re-read four times a second.
+    juce::String cachedTargets (int env)
+    {
+        const auto now = juce::Time::getMillisecondCounter();
+
+        if (now - targetsStamp > 250 || targetsStamp == 0)
+        {
+            targetsStamp = now;
+            targetsCache.clear();
+            for (int i = 0; i < (int) envs.size(); ++i)
+                targetsCache.add (targetsText (i));
+        }
+
+        return targetsCache[env];
+    }
+
+    juce::StringArray targetsCache;
+    juce::uint32 targetsStamp = 0;
+
+    // What this envelope drives: its built-in jobs, then the matrix.
+    juce::String targetsText (int env) const
+    {
+        const auto& info = envs[(size_t) env];
+        juce::StringArray fixed;
+
+        if (info.source == Mod::Source::AmpEnv)
+            fixed.add ("Amp");
+        if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
+            fixed.add ("Filter 1");
+        if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
+            fixed.add ("Filter 2");
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+
+            if (env > 0 && processorRef.isOscillatorShown (osc) && (int) readParam (prefix + "_amp_env") == env)
+                fixed.add ("Osc" + juce::String (osc + 1) + " Amp");
+            if ((int) readParam (prefix + "_pd_env") == env + 1)
+                fixed.add ("Osc" + juce::String (osc + 1) + " Warp");
+        }
+
+        return describeModTargets (processorRef, info.source, fixed);
     }
 
     void timerCallback() override

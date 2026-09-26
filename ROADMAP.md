@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done. Next up: M7, starting with the follow-ups from the 1.2 polish pass (M7.0), then the Generative card (M7.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7.0 (follow-ups from the 1.2 polish pass). Next up: the Generative card (M7.1).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -115,7 +115,7 @@ Regrouped on 2026-09-26 into four milestones. Each part notes its old number, so
 ### M7: Instruments and input
 Generative tools, the BODY section, electric pianos, the wavetable editor and audio input. Each part is fitted, tested and listened to before the next starts; the M7 tag waits for all six.
 
-#### M7.0: Follow-ups from the 1.2 polish pass
+#### M7.0: Follow-ups from the 1.2 polish pass — done
 Left over from the bug and polish pass on 2026-09-26 (see the end of `docs/HANDOFF-HISTORY.md`).
 - **FM modulation for OSC 4–6**: the mod matrix can modulate only the nine original FM cells. Add destinations for the 27 cells to or from OSC 4–6, appended after the current list (never renumbered), and apply them per voice like the original nine. Old presets must fingerprint unchanged.
 - **Filter type buttons**: group the 12 types by family (for example classic, character, comb/formant/morph) instead of one flat grid, in both filter panels. Show the user the layout options first; it's their call.

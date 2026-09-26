@@ -231,3 +231,14 @@ Reported by the user: the arp not stopping in Ableton, FM into string oscillator
   - `--uitest`: 0 failures.
   - Fingerprints: the 28 changes against v1.2 are explained in HANDOFF, confirmed by building HEAD in a worktree and bisecting (with the old arp function, the two non-reverb presets match HEAD).
   - New snapshots include `fm-no-input.png` and `preset-browser.png`.
+
+## M7.0: follow-ups from the polish pass (Claude, 2026-09-26)
+
+- **FM for OSC 4–6 per note.** The 27 FM cells to or from OSC 4–6 were already destinations (block-rate, added in M5). Like every parameter destination, though, their per-voice sources followed the loudest voice, so an envelope or velocity drove all notes the same. Voices now evaluate those cells themselves, per sample (`Mod::extendedFmCellFor`, `Voice::fmCellMods`, flag `anyExtendedFmMods`), and the synth-wide offsets skip them. When no slot targets them, the path is unchanged. Test: velocity > FM 4>1 with a loud and a quiet note at once gives the loud note 3.6x the sideband (`ILANA_M70_TEST=1`).
+- **Filter types** are laid out in three labelled families of four (CLASSIC, CHARACTER, SPECIAL) with dividers; the type indices are unchanged. The user picked this layout.
+- **Empty MATRIX:** six one-click starters under the empty-state card, each a single undo step. WHEEL > VIBRATO routes LFO 2, via the mod wheel, to OSC 1–3 pitch.
+- **Empty FX rack:** all 29 effects as quick-add buttons, in rows by group (Space, Drive, Motion, Rhythm, Tone & Level). The user picked both of these layouts.
+- **Pool cards:** envelope and LFO cards carry a tag naming what they drive (built-in jobs such as Amp, Filter 1 or Osc2 Warp first, then matrix targets, as "first +N"). Unrouted LFOs are drawn faint. Refreshed four times a second.
+- **Number keys:** kept. They act only without modifiers, and Live's computer MIDI keyboard uses letter keys, never the number row.
+- **Verified:** all targets build. `--uitest` has 0 failures, with new tests for the starters and quick-add. Fingerprints: 0 of 241 changed against `build/fingerprints-polish.csv`. `ilanaTableTest`: one failure, the heavy-patch CPU check at 54.6 % in a run where unrelated timings were also about 1.3x slower (machine load). Isolated reruns read 41.5 % and 41.1 %, as before.
+

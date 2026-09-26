@@ -472,11 +472,19 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
     for (int d = 0; d < params.numActiveDestinations; ++d)
         mods[params.activeDestinations[d]] = 0.0f;
 
+    if (params.anyExtendedFmMods)
+        fmCellMods.fill (0.0f);
+
     for (int s = 0; s < params.numModSlots; ++s)
     {
         const auto& slot = params.modSlots[s];
+        auto* target = Mod::isExplicitDestination (slot.destination) ? &mods[slot.destination] : nullptr;
 
-        if (! Mod::isExplicitDestination (slot.destination))
+        if (target == nullptr && params.anyExtendedFmMods)
+            if (const auto cell = Mod::extendedFmCellFor (slot.destination); cell >= 0)
+                target = &fmCellMods[(size_t) cell];
+
+        if (target == nullptr)
             continue;
 
         auto value = Mod::shape (slot, sourceValue (slot.source, sampleIndex, ampValue, filterValue,
@@ -486,7 +494,7 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
             value *= Mod::auxScale (slot.aux, sourceValue (slot.aux, sampleIndex, ampValue, filterValue,
                                                             filter2Value, modValue, env4Value));
 
-        mods[slot.destination] += slot.depth * value;
+        *target += slot.depth * value;
     }
 }
 
@@ -871,7 +879,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto amount = params.fmMatrix[source][target];
 
         if (source >= 3 || target >= 3)
-            return amount;
+            return params.anyExtendedFmMods ? juce::jlimit (0.0f, 1.0f, amount + fmCellMods[(size_t) (source * 6 + target)])
+                                            : amount;
 
         static constexpr D legacy[3][3] { { D::FmFeedback, D::Fm1to2, D::Fm1to3 },
                                           { D::FmAmount, D::Fm2Feedback, D::Fm2to3 },
@@ -926,7 +935,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         for (int target = 0; target < VoiceParams::numOscillators; ++target)
             for (int source = target < 3 ? 3 : 0; source < VoiceParams::numOscillators; ++source)
-                fmInput[target] += (double) params.fmMatrix[source][target] * (double) previousOsc[source];
+                fmInput[target] += (double) fmAmountAt (mods, source, target) * (double) previousOsc[source];
 
         // Filtered and cross feedback replace an operator's plain self term.
         if (anyAltFeedback)

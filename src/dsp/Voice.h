@@ -300,6 +300,8 @@ struct VoiceParams
     int quality = 1;
     float ampVelocity = 0.5f;
     float filterVelocity = 0.5f;
+    // ENV 3-5's own velocity (0 = off), like ENV 6-16's.
+    float filter2EnvVelocity = 0.0f, modEnvVelocity = 0.0f, env4Velocity = 0.0f;
 
     float glideTime = 0.0f;
     float pitchBendRange = 2.0f;
@@ -395,6 +397,8 @@ private:
     double oscFrequencyFactor (const VoiceParams::OscParams& settings) const;
     void updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue);
     void updateUnisonLayout();
+    // 1 at amount 0 exactly, so an envelope without velocity is untouched.
+    float velocityScaleFor (float amount) const { return 1.0f - amount + amount * velocityLevel; }
     float sourceValue (Mod::Source source, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,

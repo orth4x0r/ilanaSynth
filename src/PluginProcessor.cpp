@@ -1028,6 +1028,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     for (int slot = legacyModSlots + 1; slot <= Mod::maxSlots; ++slot)
         addModSlotParameters (slot);
 
+    // Velocity for ENV 3-5, so every envelope has one. 0 keeps old patches.
+    for (const auto* prefix : { "f2e", "me", "e4" })
+        addFloat (juce::String (prefix) + "_velocity", "ENV " + juce::String (prefix[0] == 'f' ? 3 : prefix[0] == 'm' ? 4 : 5)
+                                                           + " Velocity", 0.0f, 1.0f, 0.0f);
+
     return layout;
 }
 
@@ -1441,6 +1446,9 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     p.ampVelocity = getParam ("amp_velocity");
     p.filterVelocity = getParam ("filter_velocity");
+    p.filter2EnvVelocity = getParam ("f2e_velocity");
+    p.modEnvVelocity = getParam ("me_velocity");
+    p.env4Velocity = getParam ("e4_velocity");
     p.glideTime = getParam ("glide");
     p.pitchBendRange = getParam ("bend_range");
 
@@ -4524,6 +4532,48 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         const auto& curves = presets[(size_t) index].lfoCurves;
         const auto* text = lfo < (int) curves.size() ? curves[(size_t) lfo] : nullptr;
         setLfoCurve (lfo, text != nullptr ? LfoCurve::fromString (text) : LfoCurve::preset (0));
+    }
+
+    // Back to three of each module; anything the preset turns on or routes
+    // still shows because it is in use.
+    for (auto& mask : revealMasks)
+        mask.store (defaultRevealMask);
+    ++revealVersion;
+
+    // The rest of the per-patch state a factory preset doesn't carry goes
+    // back to its default too, as applyFullState does for a state without it:
+    // macro CCs, drawn LFO shapes, loaded samples and user tables.
+    for (int macro = 0; macro < 4; ++macro)
+        macroCc[macro].store (20 + macro);
+
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        for (int i = 0; i < lfoDrawSteps; ++i)
+            setLfoCustomPoint (lfo, i, (float) std::sin (juce::MathConstants<double>::twoPi * (double) i / (double) lfoDrawSteps));
+
+    {
+        auto asyncNeeded = false;
+        {
+            const juce::SpinLock::ScopedLockType lock (stateLock);
+
+            for (int i = 0; i < numSampleOscs; ++i)
+                if (samplePaths[(size_t) i].isNotEmpty())
+                {
+                    pendingSamplePaths[(size_t) i].clear();
+                    pendingSampleClear[(size_t) i] = true;
+                    asyncNeeded = true;
+                }
+
+            for (int i = 0; i < numUserSlots; ++i)
+                if (userTablePaths[(size_t) i].isNotEmpty())
+                {
+                    pendingUserTablePaths[(size_t) i].clear();
+                    pendingUserTableClear[(size_t) i] = true;
+                    asyncNeeded = true;
+                }
+        }
+
+        if (asyncNeeded)
+            triggerAsyncUpdate();
     }
 
     for (auto* parameter : getParameters())

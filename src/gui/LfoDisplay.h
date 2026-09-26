@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
@@ -160,6 +161,23 @@ public:
                     path.lineTo (px, y);
             }
         }
+        else if (LfoShapes::isPhysics (shape))
+        {
+            // The real motion for the current PHYSICS A / B, several cycles long
+            // since it doesn't repeat each cycle.
+            const auto& trace = physicsTrace (shape, (int) plot.getWidth());
+
+            for (int x = 0; x < (int) trace.size(); ++x)
+            {
+                const auto y = centreY - trace[(size_t) x] * halfHeight;
+                const auto px = plot.getX() + (float) x;
+
+                if (x == 0)
+                    path.startNewSubPath (px, y);
+                else
+                    path.lineTo (px, y);
+            }
+        }
         else
         {
             for (int x = 0; x <= (int) plot.getWidth(); ++x)
@@ -179,8 +197,13 @@ public:
         g.setColour (traceColour);
         g.strokePath (path, juce::PathStrokeType (1.6f));
 
-        const auto phase = (double) processorRef.getLfoPhase (index);
+        auto phase = (double) processorRef.getLfoPhase (index);
         auto value = 0.0f;
+
+        // Count whole cycles so the physics dot can walk the longer trace.
+        if (phase < lastPhase)
+            cycleCount = (cycleCount + 1) % physicsCycles;
+        lastPhase = phase;
 
         if (isSampleHold)
         {
@@ -200,9 +223,21 @@ public:
         {
             value = curve.valueAt (phase);
         }
+        else if (LfoShapes::isPhysics (shape))
+        {
+            // The dot rides the trace; the shape doesn't follow the phase, so
+            // the live value would wander off it.
+            const auto& trace = physicsTrace (shape, (int) plot.getWidth());
+            const auto position = ((double) cycleCount + phase) / (double) physicsCycles;
+            const auto x = juce::jlimit (0, (int) trace.size() - 1, (int) (position * (double) (trace.size() - 1)));
+            value = trace[(size_t) x];
+            phase = position;
+        }
         else if (LfoShapes::isStateful (shape))
         {
-            value = processorRef.getLfoLiveValue (index);
+            // Random and chaos shapes show a representative picture; the dot
+            // follows it (an unrouted LFO 5-16 has no live value to show).
+            value = lfoShapeValue (shape, phase);
         }
         else
         {
@@ -497,6 +532,40 @@ private:
                     getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
     }
 
+    // Simulated physics output across physicsCycles cycles, one value per
+    // pixel, for the current shape and PHYSICS A / B. Rebuilt on change.
+    const std::vector<float>& physicsTrace (int shape, int width)
+    {
+        const auto a = readParam ("_phys_a");
+        const auto b = readParam ("_phys_b");
+        width = juce::jmax (2, width);
+
+        if (shape != traceShape || a != traceA || b != traceB || width != (int) physicsValues.size())
+        {
+            traceShape = shape;
+            traceA = a;
+            traceB = b;
+            physicsValues.assign ((size_t) width, 0.0f);
+
+            // The physics run in cycles, so any rate gives the same picture.
+            constexpr int stepsPerCycle = 2048;
+            const auto totalSteps = stepsPerCycle * physicsCycles;
+            LfoChaos state;
+            state.resetPhysics (shape, a);
+            state.physicsOut = juce::jlimit (-1.0f, 1.0f, state.physicsOut);
+
+            for (int step = 0, x = 0; step <= totalSteps && x < width; ++step)
+            {
+                if (step * (width - 1) >= x * totalSteps)
+                    physicsValues[(size_t) x++] = state.physicsOut;
+
+                state.advancePhysics (shape, 1.0 / stepsPerCycle, a, b);
+            }
+        }
+
+        return physicsValues;
+    }
+
     static float interpolateCustom (const std::array<float, IlanaSynthAudioProcessor::lfoDrawSteps>& table, double phase)
     {
         const auto position = phase * (double) IlanaSynthAudioProcessor::lfoDrawSteps;
@@ -593,4 +662,10 @@ private:
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
     std::array<float, 16> sampleHoldPreview {};
+    static constexpr int physicsCycles = 3;
+    std::vector<float> physicsValues;
+    int traceShape = -1;
+    float traceA = -1.0f, traceB = -1.0f;
+    double lastPhase = 0.0;
+    int cycleCount = 0;
 };

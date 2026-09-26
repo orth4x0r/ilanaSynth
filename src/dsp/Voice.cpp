@@ -1445,7 +1445,8 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     const auto keyOctaves2 = (double) params.filter2.keyTrack * (double) keyTrackOctaves;
     const auto envOctaves2 = (double) (params.filter2.envAmount + mods[(int) D::Filter2Env] * envAmountRange)
-                             * (double) filter2EnvValue * (double) velocityEnvScale;
+                             * (double) filter2EnvValue * (double) velocityEnvScale
+                             * (double) velocityScaleFor (params.filter2EnvVelocity);
     const auto cutoff2 = juce::jlimit (20.0, sampleRate * 0.45,
                                        (double) params.filter2.cutoffHz
                                            * std::exp2 (keyOctaves2 + envOctaves2 + fmOctaves2
@@ -1486,7 +1487,7 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
 
     switch (source)
     {
-        case Mod::Source::ModEnv:     return modValue;
+        case Mod::Source::ModEnv:     return modValue * velocityScaleFor (params.modEnvVelocity);
         case Mod::Source::FilterEnv:  return filterValue;
         case Mod::Source::AmpEnv:     return ampValue;
         case Mod::Source::Velocity:   return velocityLevel;
@@ -1501,8 +1502,8 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::Macro4:     return params.macros[3];
         case Mod::Source::ClockSh:    return params.clockSh != nullptr ? params.clockSh[sampleIndex] : 0.0f;
         case Mod::Source::Mseg:       return params.mseg != nullptr ? params.mseg[sampleIndex] : 0.0f;
-        case Mod::Source::Env4:       return env4Value;
-        case Mod::Source::FilterEnv2: return filter2Value;
+        case Mod::Source::Env4:       return env4Value * velocityScaleFor (params.env4Velocity);
+        case Mod::Source::FilterEnv2: return filter2Value * velocityScaleFor (params.filter2EnvVelocity);
         case Mod::Source::None:
         case Mod::Source::Count:
         default:                      return 0.0f;

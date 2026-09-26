@@ -158,11 +158,17 @@ public:
         }
     }
 
-    // The page calls this when it is shown.
+    // The page calls this when it is shown and on its timer, so a preset
+    // load or undo updates the highlight.
     void refreshMatch()
     {
-        matching = processorRef.findMatchingFmAlgorithm();
-        repaint();
+        const auto now = processorRef.findMatchingFmAlgorithm();
+
+        if (now != matching)
+        {
+            matching = now;
+            repaint();
+        }
     }
 
     int getMatching() const { return matching; }

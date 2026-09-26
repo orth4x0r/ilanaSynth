@@ -630,6 +630,24 @@ int runUiTests()
         }
     }
 
+    // Init puts the modules back to three each and forgets the old patch's
+    // macro CCs and drawn LFO shapes.
+    {
+        using M = IlanaSynthAudioProcessor::Module;
+        processor.addOscillator (4);
+        processor.setRevealed (M::Lfo, 8, true);
+        processor.setRevealed (M::Envelope, 9, true);
+        processor.setLfoCustomPoint (0, 3, 0.9f);
+        processor.loadFactoryPreset (0);
+        settle (100);
+        expect (! processor.isOscillatorShown (4) && ! processor.isLfoShown (8)
+                    && ! processor.isRevealed (M::Envelope, 9) && processor.isOscillatorShown (2),
+                "Init shows three oscillators, LFOs and envelopes again");
+        expect (std::abs (processor.getLfoCustomPoint (0, 3) - 0.9f) > 0.1f && processor.getMacroCc (0) == 20,
+                "Init resets drawn LFO shapes and macro CCs");
+    }
+
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -913,6 +931,11 @@ int main (int argc, char** argv)
         tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
         settle (400);
         save (*editor, outDir.getChildFile ("env-dahdsr.png"));
+
+        set ("lfo1_shape", 12.0f);   // Bounce
+        set ("lfo1_phys_b", 0.7f);
+        settle (400);
+        save (*editor, outDir.getChildFile ("lfo-bounce.png"));
     }
 
     // The wavetable browser on its own.

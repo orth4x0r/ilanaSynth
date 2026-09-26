@@ -1415,12 +1415,15 @@ public:
           feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", "TENSION", juce::Colour (0xffff4fd8), false),
           f2A (p.apvts, "f2e_attack", "ATTACK"), f2D (p.apvts, "f2e_decay", "DECAY"),
           f2S (p.apvts, "f2e_sustain", "SUSTAIN"), f2R (p.apvts, "f2e_release", "RELEASE"),
+          f2Vel (p.apvts, "f2e_velocity", "VEL", juce::Colour (0xffb28aff), false),
           f2Curve (p.apvts, "f2e_curve", "TENSION", juce::Colour (0xffb28aff), false),
           meA (p.apvts, "me_attack", "ATTACK"), meD (p.apvts, "me_decay", "DECAY"),
           meS (p.apvts, "me_sustain", "SUSTAIN"), meR (p.apvts, "me_release", "RELEASE"),
+          meVel (p.apvts, "me_velocity", "VEL", juce::Colour (0xff8fff3b), false),
           meCurve (p.apvts, "me_curve", "TENSION", juce::Colour (0xff8fff3b), false),
           e4A (p.apvts, "e4_attack", "ATTACK"), e4D (p.apvts, "e4_decay", "DECAY"),
           e4S (p.apvts, "e4_sustain", "SUSTAIN"), e4R (p.apvts, "e4_release", "RELEASE"),
+          e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xffffd447), false),
           e4Curve (p.apvts, "e4_curve", "TENSION", juce::Colour (0xffffd447), false)
     {
         // The cards keep one size and scroll sideways once there are more than five.
@@ -1432,15 +1435,15 @@ public:
         addAll (*this, ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display,
                 ampA, ampD, ampS, ampR, ampVel, ampCurve,
                 feA, feD, feS, feR, feVel, feCurve,
-                f2A, f2D, f2S, f2R, f2Curve,
-                meA, meD, meS, meR, meCurve,
-                e4A, e4D, e4S, e4R, e4Curve);
+                f2A, f2D, f2S, f2R, f2Vel, f2Curve,
+                meA, meD, meS, meR, meVel, meCurve,
+                e4A, e4D, e4S, e4R, e4Vel, e4Curve);
 
         units.push_back ({ &ampDisplay, { &ampA, &ampD, &ampS, &ampR, &ampVel, &ampCurve } });
         units.push_back ({ &feDisplay, { &feA, &feD, &feS, &feR, &feVel, &feCurve } });
-        units.push_back ({ &f2eDisplay, { &f2A, &f2D, &f2S, &f2R, nullptr, &f2Curve } });
-        units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, nullptr, &meCurve } });
-        units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, nullptr, &e4Curve } });
+        units.push_back ({ &f2eDisplay, { &f2A, &f2D, &f2S, &f2R, &f2Vel, &f2Curve } });
+        units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, &meVel, &meCurve } });
+        units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, &e4Vel, &e4Curve } });
 
         // M5 DAHDSR and rate key scaling: a second row on every envelope.
         {
@@ -1625,9 +1628,9 @@ private:
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
     KnobControl feA, feD, feS, feR, feVel, feCurve;
-    KnobControl f2A, f2D, f2S, f2R, f2Curve;
-    KnobControl meA, meD, meS, meR, meCurve;
-    KnobControl e4A, e4D, e4S, e4R, e4Curve;
+    KnobControl f2A, f2D, f2S, f2R, f2Vel, f2Curve;
+    KnobControl meA, meD, meS, meR, meVel, meCurve;
+    KnobControl e4A, e4D, e4S, e4R, e4Vel, e4Curve;
     std::vector<Unit> units;
     std::vector<ExtraUnit> extraUnits;
     int selected = 0;
@@ -2133,6 +2136,9 @@ public:
             }
             return changed;
         }();
+
+        if (isShowing())
+            algorithms.refreshMatch();
 
         if (refreshShown() || tuneChanged)
         {

@@ -119,10 +119,10 @@ public:
             {
                 g.setColour (IlanaTheme::accent());
                 g.setFont (IlanaTheme::font (13.5f, true));
-                g.drawText ("NEW IN 1.1", newBand.removeFromTop (22), juce::Justification::centredLeft);
+                g.drawText ("NEW IN 1.2", newBand.removeFromTop (22), juce::Justification::centredLeft);
 
-                const juce::StringArray features { "3-OP FM MATRIX", "SPECTRAL WARPS", "GRANULAR OSC", "CHAOS LFOs",
-                                                   "TRANCE GATE", "NOTE SPRAY", "SCALE ARP", "40 WAVETABLES" };
+                const juce::StringArray features { "6 OSCILLATORS", "PHYSICAL STRINGS", "ACOUSTIC KEYS", "DEEP FM",
+                                                   "PHASE DISTORTION", "PHYSICS LFOs", "16 ENVS + 16 LFOs", "64-SLOT MATRIX" };
                 const auto font = IlanaTheme::font (11.5f, true);
                 auto x = (float) newBand.getX();
 
@@ -151,7 +151,7 @@ public:
             auto right = area.removeFromRight (area.getWidth() - 12);
 
             const juce::StringArray playTips {
-                "Each oscillator is Wavetable, String, Sample or Granular. Click TABLE for the visual browser; drop a wav on the display to sample it.",
+                "Each oscillator is Wavetable, Physical, Sample or Granular. Click TABLE for the visual browser; drop a wav on the display to sample it.",
                 "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
                 "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
                 "Try SPECTRAL on an oscillator, the Chaos and Drunk LFO shapes, or KEY on an LFO for audio-rate growl.",
@@ -162,7 +162,7 @@ public:
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "A/B keeps two FX chains; COPY A/B clones the current bank onto the other.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
-                "235 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
+                "241 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
                 "FM has six operators, 16 one-click algorithms and a noise operator. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
             };
 

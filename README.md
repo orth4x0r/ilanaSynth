@@ -1,4 +1,4 @@
-# IlanaSynth — v1.1
+# IlanaSynth — v1.2
 
 **IlanaSynth, para un sonido más buto.** (for a more brutal sound)
 
@@ -13,14 +13,36 @@ IlanaSynth is a complete sound design machine:
 - **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
 - **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics and Casio CZ-style phase distortion.
 - **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
-- **Modulation:** four LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
+- **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
 - **Effects:** a 10-slot rack with 29 modules, including a trance gate.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **Resonator:** a tuned resonator after the filters.
 
-It all sits in a hardware-inspired interface with 235 factory presets.
+It all sits in a hardware-inspired interface with 241 factory presets.
 
 ---
+
+## What's new in 1.2
+
+- **Six full oscillators**: OSC 4–6 join the first three, each with every mode. They're added with **+ ADD OSCILLATOR** and cost nothing while off. Each picks its filter route and its own amp envelope.
+- **PHYSICAL mode** replaces String mode (old patches convert and sound the same):
+  - a stiff string with damping, pickup and excitation positions
+  - pluck, **bow** (a stick-slip friction model; MPE pressure and aftertouch press harder) and **hammer** exciters, or any oscillator driving the string
+  - sitar **bridge buzz** and velocity-driven **fret rattle**
+  - **sympathetic strings**: up to six shared drone strings that follow the scale
+- **Acoustic keys**: 1–3 coupled strings per note, a soundboard, stretch tuning, sustain-pedal resonance, a register map and mechanical noises. The engine is fitted towards a real grand.
+- **Deep FM**:
+  - **16 algorithms** in one click, from a 2-operator stack to DX7 layouts
+  - operators tuned by ratio (snapping to harmonic, inharmonic or bell ratios) or at a fixed frequency
+  - level and rate key scaling
+  - Plain, Filtered (DX7-style) or Cross feedback
+  - a **noise operator**
+- **Phase distortion**: the Casio CZ's Saw, Square, Pulse and Resonance I–III waves as warp modes, a second warp stage (the PD chain), and a warp envelope like the CZ's DCW. The wave display draws the warped cycle.
+- **16 envelopes**, now DAHDSR (delay and hold), with key-rate scaling. Any oscillator can also use the MSEG as its envelope.
+- **16 LFOs**, including the physics shapes **Bounce, Pendulum, Spring and Friction**. Their two controls adapt to the shape, Pendulum has a note kick, and RETRIG restarts the motion on each note.
+- **64-slot modulation matrix** (was 32).
+- **QUALITY**: Eco, Normal or High, to trade detail for CPU.
+- Old patches and sessions load and sound as before.
 
 ## What's new in 1.1
 
@@ -48,7 +70,6 @@ It all sits in a hardware-inspired interface with 235 factory presets.
   - Built in the background, and exact in offline bounces.
 - **Granular oscillator mode**: a cloud of grains read from any sample, with position, size, density, spray, pitch spray and stereo spread. The display animates the grains; drag it to move the position.
 - **Chaos LFOs**:
-  - **Physics LFOs** add Bounce, Pendulum, Spring and Friction. Their two controls adapt to the selected shape; Pendulum also has a note kick. RETRIG restarts the motion on each note.
   - Smooth Random, Drunk (random walk) and Chaos (Lorenz attractor) shapes.
   - A **KEY** switch runs an LFO per voice at the note's own pitch, for audio-rate modulation.
 - **Trance gate** with up to 16 editable steps (level per step), swing, smoothing and host sync.
@@ -166,7 +187,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Matrix**: 64 slots with ENV 6–16 as additional sources and OSC 4–6 as additional destinations.
   - Each slot has depth, a response curve, polarity (Natural, Unipolar, Bipolar), a **Via** source that scales the routing, and bypass.
 - **Sources**:
-  - LFO 1–4 and the MSEG
+  - LFO 1–16 and the MSEG
   - the MOD / FILTER 1 / FILTER 2 / AMP / ENV 5 envelopes, plus ENV 6–16
   - velocity, key track and random
   - mod wheel, aftertouch and expression
@@ -219,7 +240,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - settings
 - **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices and master. The on-screen keyboard can be hidden.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
-- **Presets**: 235 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
+- **Presets**: 241 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
 
 ---
 
@@ -248,7 +269,7 @@ git pull origin main
 ```
 
 ### Windows: installer
-1. Run `ilanaSynth-1.1-Windows-Setup.exe`, which installs the VST3 and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
+1. Run `ilanaSynth-1.2-Windows-Setup.exe`, which installs the VST3 and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
 2. Rescan your plugin folder in your DAW.
 3. The standalone `ilanaSynth.exe` needs no DAW at all.
 
@@ -322,4 +343,4 @@ cmake --build build --config Release
 
 ---
 
-*IlanaSynth v1.1 — Ilana Audio.*
+*IlanaSynth v1.2 — Ilana Audio.*

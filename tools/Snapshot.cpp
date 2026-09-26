@@ -667,8 +667,12 @@ int main (int argc, char** argv)
     editor->setSize (1060, 720);
     settle (400);
 
-    if (auto* tutorial = findChild<TutorialOverlay> (*editor); tutorial != nullptr && tutorial->isVisible())
+    // The intro only shows until it has been seen once; capture it anyway.
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
     {
+        tutorial->setVisible (true);
+        tutorial->toFront (false);
+        settle (200);
         save (*editor, outDir.getChildFile ("00-tutorial.png"));
         tutorial->setVisible (false);
     }

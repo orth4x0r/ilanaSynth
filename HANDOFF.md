@@ -6,8 +6,9 @@ Updated 2026-09-26. The source tree is the source of truth. Work on `main`; Clau
 
 ## State
 - **Done:** M1–M6b (see [ROADMAP.md](ROADMAP.md)). M5 (deep FM), M6 (phase distortion) and M6b (64 mod slots) were done in one pass; their listening round passed. Notes are at the end of the history file.
-- **Next:** M7, the Generative card.
-- **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26). Push only when the user asks.
+- **Release:** v1.2 is done (M1–M6b). The version is 1.2.0 (CMake, header, installer) and tagged `v1.2.0`. The installer has not been rebuilt.
+- **Next:** M7, the Generative card (v1.3).
+- **Git:** M5–M6b are committed, tagged `m5-done`, `m6-done`, `m6b-done`, and pushed to `origin/main` (2026-09-26), with the UI/debug pass and the 1.2 release commit. Push only when the user asks.
 - **Plugin:** built locally, not installed.
 
 ## Demos

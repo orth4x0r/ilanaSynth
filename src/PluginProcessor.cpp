@@ -159,7 +159,12 @@ juce::StringArray getOscTableChoices()
 } // namespace
 
 IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
+#if ILANA_FX
+    : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+#else
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+#endif
       apvts (*this, &undoManager, "PARAMS", createParameterLayout())
 {
 #if ILANA_FINGERPRINT_BUILD
@@ -228,6 +233,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                         prefix + "_bridge_buzz", prefix + "_fret_rattle" };
             keysParamIds[(size_t) i] = { prefix + "_hammer_hard", prefix + "_couple",
                                           prefix + "_damper", prefix + "_register" };
+            electricParamIds[(size_t) i] = { prefix + "_ep_distance", prefix + "_ep_position" };
+            grainLiveIds[(size_t) i] = prefix + "_grain_live";
             sampleParamIds[(size_t) i] = { prefix + "_sample_tuned", prefix + "_sample_loop",
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
@@ -339,12 +346,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     }
 
     for (int i = 0; i < numUserSlots; ++i)
-    {
-        auto table = std::make_shared<Wavetable>();
-        table->setName ("User " + juce::String (i + 1));
-        table->buildFromFrames (TableFactory::generate (i % TableFactory::getNumFactoryTables()));
-        userTables[(size_t) i] = std::move (table);
-    }
+        resetUserTableToDefault (i);
 
     synth.addSound (new WavetableSound());
 
@@ -360,6 +362,12 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
         lfoChaos[(size_t) lfo].reset (randomForLfo (lfo));
+
+    // M7.5: ilanaSynth FX opens on a patch that plays its input.
+    if (isEffectBuild)
+        if (const auto index = getFactoryPresetNames().indexOf ("Live Body"); index >= 0)
+            loadFactoryPreset (index);
+
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::createParameterLayout()
@@ -458,7 +466,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -480,7 +488,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -618,8 +626,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -919,7 +927,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc);
         const auto id = [&prefix] (const char* suffix) { return prefix + "_" + suffix; };
         addBool (id ("on"), name + " On", false);
-        addChoice (id ("mode"), name + " Mode", { "Wavetable", "Physical", "Sample", "Granular" }, 0);
+        addChoice (id ("mode"), name + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
         addChoice (id ("table"), name + " Table", getOscTableChoices(), 0);
         addFloat (id ("frame"), name + " Frame", 0.0f, 1.0f, 0.0f);
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, 0.6f);
@@ -937,7 +945,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -1094,6 +1102,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     addChoice ("spray_strum", "Strum", { "Off", "Up", "Down" }, 0);
     addFloat ("spray_strum_time", "Strum Time", 2.0f, 250.0f, 30.0f, 0.5f);
+
+    // M7.5 audio input (ilanaSynth FX). Everything defaults to off, and the
+    // instrument has no input, so it sounds as before.
+    addFloat ("in_gain", "Input Gain", -24.0f, 24.0f, 0.0f, 1.0f, 0.1f);
+    addFloat ("in_dry", "Input Dry", 0.0f, 1.0f, 0.0f);
+    addFloat ("in_body", "Input to Body", 0.0f, 1.0f, 0.0f);
+    addFloat ("in_strings", "Input to Strings", 0.0f, 1.0f, 0.0f);
+    addChoice ("in_trigger", "Input Trigger", { "Off", "Gate", "Drone" }, 0);
+    addFloat ("in_threshold", "Input Threshold", -60.0f, 0.0f, -30.0f, 1.0f, 0.1f);
+    addInt ("in_note", "Input Note", 24, 96, 48);
+    addFloat ("in_attack", "Input Env Attack", 0.1f, 200.0f, 5.0f, 0.4f);
+    addFloat ("in_release", "Input Env Release", 5.0f, 2000.0f, 150.0f, 0.4f);
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        addBool (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_grain_live",
+                 "Osc" + juce::String (osc + 1) + " Live Grains", false);
+
+    // M7.3 electric pianos: the pickup of the Tine and Reed excites.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_ep_distance", name + " Pickup Distance", 0.0f, 1.0f, 0.5f);
+        addFloat (prefix + "_ep_position", name + " Pickup Offset", 0.0f, 1.0f, 0.5f);
+    }
 
     return layout;
 }
@@ -1260,6 +1292,22 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     scaledMidiBuffer.ensureSize (1024);
 
     lfoBuffers.setSize (numLfoChannels, expectedBlockSize * oversamplingFactor.load(), false, false, true);
+
+    // M7.5: room for the input at up to 4x oversampling, and 3 s of history.
+    liveDry.setSize (2, expectedBlockSize, false, true, false);
+    liveVoice.assign ((size_t) expectedBlockSize * 4, 0.0f);
+    liveEnvVoice.assign ((size_t) expectedBlockSize * 4, 0.0f);
+    if (isEffectBuild)
+    {
+        liveHistory.buffer.setSize (2, (int) (sampleRate * 3.0), false, true, false);
+        liveHistory.sampleRate = sampleRate;
+        liveHistory.name = "Live input";
+    }
+    liveHistoryWrite = 0;
+    liveLast = liveEnvState = 0.0f;
+    liveGateOpen = false;
+    liveGateNote = -1;
+    liveInputSamples = 0;
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -1431,8 +1479,15 @@ void IlanaSynthAudioProcessor::releaseResources()
 
 bool IlanaSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::disabled())
+    const auto input = layouts.getMainInputChannelSet();
+   #if ILANA_FX
+    if (input != juce::AudioChannelSet::disabled() && input != juce::AudioChannelSet::mono()
+        && input != juce::AudioChannelSet::stereo())
         return false;
+   #else
+    if (input != juce::AudioChannelSet::disabled())
+        return false;
+   #endif
 
     const auto output = layouts.getMainOutputChannelSet();
     return output == juce::AudioChannelSet::stereo() || output == juce::AudioChannelSet::mono();
@@ -1460,6 +1515,114 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     }
 }
 
+void IlanaSynthAudioProcessor::captureLiveInput (juce::AudioBuffer<float>& buffer)
+{
+    const auto numSamples = juce::jmin (buffer.getNumSamples(), liveDry.getNumSamples());
+    const auto inputs = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
+    for (int channel = 0; channel < 2; ++channel)
+        liveDry.copyFrom (channel, 0, buffer, juce::jmin (channel, inputs - 1), 0, numSamples);
+    liveInputSamples = numSamples;
+    buffer.clear();
+}
+
+// Once per block: INPUT GAIN, the envelope follower, the history for live
+// grains, the input at the voice rate, and GATE / DRONE notes.
+void IlanaSynthAudioProcessor::prepareLiveInput (int numSamples, int factor, juce::MidiBuffer& midi)
+{
+    factor = juce::jlimit (1, 4, factor);
+    const auto valid = juce::jmin (numSamples, liveInputSamples);
+    const auto gain = juce::Decibels::decibelsToGain (getParam (inGainRef));
+    const auto rate = (float) juce::jmax (1.0, baseSampleRate);
+    const auto attack = std::exp (-1.0f / (getParam (inAttackRef) * 0.001f * rate));
+    const auto release = std::exp (-1.0f / (getParam (inReleaseRef) * 0.001f * rate));
+    const auto trigger = (int) getParam (inTriggerRef);
+    const auto threshold = juce::Decibels::decibelsToGain (getParam (inThresholdRef));
+    const auto note = juce::jlimit (0, 127, (int) getParam (inNoteRef));
+    const auto* left = liveDry.getReadPointer (0);
+    const auto* right = liveDry.getReadPointer (1);
+    const auto historyLength = liveHistory.buffer.getNumSamples();
+    auto* historyL = historyLength > 0 ? liveHistory.buffer.getWritePointer (0) : nullptr;
+    auto* historyR = historyLength > 0 ? liveHistory.buffer.getWritePointer (1) : nullptr;
+    auto peak = 0.0f;
+    auto crossing = -1, falling = -1;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto l = i < valid ? left[i] * gain : 0.0f;
+        const auto r = i < valid ? right[i] * gain : 0.0f;
+        const auto x = 0.5f * (l + r);
+        const auto magnitude = std::abs (x);
+        liveEnvState = magnitude > liveEnvState ? attack * liveEnvState + (1.0f - attack) * magnitude
+                                                : release * liveEnvState + (1.0f - release) * magnitude;
+        // A full-scale sine reads about 0.64 before the scaling.
+        const auto envelope = juce::jmin (1.0f, liveEnvState * 1.5f);
+        peak = juce::jmax (peak, magnitude);
+
+        if (trigger == 1)
+        {
+            if (! liveGateOpen && crossing < 0 && envelope > threshold)
+                crossing = i;
+            else if (liveGateOpen && falling < 0 && envelope < threshold * 0.5f)
+                falling = i;
+        }
+
+        for (int step = 0; step < factor; ++step)
+        {
+            const auto t = (float) (step + 1) / (float) factor;
+            liveVoice[(size_t) (i * factor + step)] = liveLast + (x - liveLast) * t;
+            liveEnvVoice[(size_t) (i * factor + step)] = envelope;
+        }
+        liveLast = x;
+
+        if (historyL != nullptr)
+        {
+            historyL[liveHistoryWrite] = l;
+            historyR[liveHistoryWrite] = r;
+            liveHistoryWrite = (liveHistoryWrite + 1) % historyLength;
+        }
+    }
+
+    inputLevelDisplay.store (juce::jmax (peak, inputLevelDisplay.load() * 0.9f));
+    inputEnvDisplay.store (juce::jmin (1.0f, liveEnvState * 1.5f));
+
+    // GATE plays IN NOTE while the input is over the threshold (it lets go
+    // 6 dB under it); DRONE holds it down; either way it lets go when turned off.
+    const auto noteOff = [this, &midi] (int position)
+    {
+        if (liveGateOpen && liveGateNote >= 0)
+            midi.addEvent (juce::MidiMessage::noteOff (1, liveGateNote), position);
+        liveGateOpen = false;
+    };
+    if (trigger == 1)
+    {
+        if (liveGateOpen && (falling >= 0 || note != liveGateNote))
+            noteOff (juce::jmax (0, falling));
+        if (! liveGateOpen && crossing >= 0)
+        {
+            const auto velocity = (juce::uint8) juce::jlimit (30, 127, 30 + (int) (97.0f * juce::jmin (1.0f, peak * 1.5f)));
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, velocity), crossing);
+            liveGateOpen = true;
+            liveGateNote = note;
+        }
+    }
+    else if (trigger == 2)
+    {
+        // A new patch starts the drone again (loading one stops the voices).
+        if (liveGateOpen && (note != liveGateNote || liveRetrigger.exchange (false)))
+            noteOff (0);
+        if (! liveGateOpen)
+        {
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            liveGateOpen = true;
+            liveGateNote = note;
+        }
+    }
+    else if (liveGateOpen)
+    {
+        noteOff (0);
+    }
+}
+
 void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     const auto startTicks = juce::Time::getHighResolutionTicks();
@@ -1472,6 +1635,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     for (auto channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel)
         buffer.clear (channel, 0, buffer.getNumSamples());
+
+    // M7.5: the input goes aside (the engine plays it, DRY adds it back at
+    // the end) and the buffer starts silent, as it does for the instrument.
+    liveInputSamples = 0;
+    if (totalNumInputChannels > 0)
+        captureLiveInput (buffer);
 
     {
         const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
@@ -1501,6 +1670,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         if (wantedOversamplingFactor() != oversamplingFactor.load())
             triggerAsyncUpdate();
     }
+
+    if (isEffectBuild)
+        prepareLiveInput (buffer.getNumSamples(), oversamplingFactor.load(), midiMessages);
 
     // Read every mod slot once; switched-on slots are packed for the voices
     // and evaluated synth-wide for the effects and the knob rings.
@@ -1681,6 +1853,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         const auto& ids = stringParamIds[(size_t) oscIndex];
         const auto mode = (int) getParam (ids[0]);
         osc.stringMode = mode == 1;
+        osc.liveMode = mode == 4;
         osc.sampleMode = mode == 2 || mode == 3; // granular reads the sample too
         osc.granularMode = mode == 3;
         osc.stringExcite = (int) getParam (ids[1]);
@@ -1703,6 +1876,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.couple = getParam (keys[1]);
         osc.damper = getParam (keys[2]);
         osc.registerMap = getParam (keys[3]);
+        const auto& electric = electricParamIds[(size_t) oscIndex];
+        osc.epDistance = getParam (electric[0]);
+        osc.epPosition = getParam (electric[1]);
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
@@ -1919,6 +2095,26 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processArpeggiator (generatedMidi, buffer.getNumSamples(), midiForSynth);
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
 
+    // M7.5: the live input and its envelope for the voices; live grains
+    // read the input's history instead of the sample.
+    if (isEffectBuild)
+    {
+        p.liveInput = liveVoice.data();
+        p.inputEnv = liveEnvVoice.data();
+        p.inputToBody = getParam (inBodyRef);
+        p.inputToStrings = getParam (inStringsRef);
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            auto& settings = p.oscillators[(size_t) osc];
+            if (settings.granularMode && getParam (grainLiveIds[(size_t) osc]) > 0.5f)
+            {
+                settings.grainLive = true;
+                settings.sample = &liveHistory;
+                settings.liveWrite = liveHistoryWrite;
+            }
+        }
+    }
+
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             voice->setParams (p);
@@ -2051,6 +2247,14 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                 data[i] = std::tanh (data[i] * clipGain);
         }
     }
+
+    // M7.5 DRY: the untouched input back in (without the oversamplers'
+    // latency, so keep it low when oversampling).
+    if (liveInputSamples > 0)
+        if (const auto dry = getParam (inDryRef); dry > 0.0f)
+            for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+                buffer.addFrom (channel, 0, liveDry, juce::jmin (channel, liveDry.getNumChannels() - 1), 0,
+                                juce::jmin (liveInputSamples, buffer.getNumSamples()), dry);
 
     {
         const juce::SpinLock::ScopedLockType lock (scopeLock);
@@ -2717,6 +2921,7 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         case Mod::Source::KeyTrack:   return monitorKeyTrack.load();
         case Mod::Source::Random:     return monitorRandom.load();
         case Mod::Source::Mseg:       return msegDisplay.load();
+        case Mod::Source::InputEnv:   return inputEnvDisplay.load();
         default:                      return 0.0f;
     }
 }
@@ -4565,49 +4770,108 @@ bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& fi
     if (slot < 0 || slot >= numUserSlots)
         return false;
 
-    auto table = std::make_shared<Wavetable>();
-
-    if (! table->loadFromFile (file, mode))
+    WavetableDoc doc;
+    if (! WavetableDoc::loadFromFile (file, doc, mode))
         return false;
 
-    table->setName (file.getFileNameWithoutExtension());
+    return setUserTable (slot, doc);
+}
 
-    {
-        const juce::SpinLock::ScopedLockType lock (tableLock);
-        auto& index = retiredTableIndex[(size_t) slot];
-        retiredTables[(size_t) (slot * 3 + index)] = std::move (userTables[(size_t) slot]);
-        index = (index + 1) % 3;
-        userTables[(size_t) slot] = std::move (table);
-    }
+void IlanaSynthAudioProcessor::swapUserTable (int slot, std::shared_ptr<Wavetable> table)
+{
+    const juce::SpinLock::ScopedLockType lock (tableLock);
+    auto& index = retiredTableIndex[(size_t) slot];
+    retiredTables[(size_t) (slot * 3 + index)] = std::move (userTables[(size_t) slot]);
+    index = (index + 1) % 3;
+    userTables[(size_t) slot] = std::move (table);
+}
 
-    {
-        const juce::SpinLock::ScopedLockType lock (stateLock);
-        userTablePaths[(size_t) slot] = file.getFullPathName();
-        userTableModes[(size_t) slot] = (int) mode;
-    }
+bool IlanaSynthAudioProcessor::setUserTable (int slot, const WavetableDoc& doc)
+{
+    if (slot < 0 || slot >= numUserSlots || doc.frames.empty())
+        return false;
 
+    auto table = std::make_shared<Wavetable>();
+    table->buildFromFrames (doc.frames);
+    table->setName (doc.name);
+    swapUserTable (slot, std::move (table));
+
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    userTableDocs[(size_t) slot] = std::make_shared<const WavetableDoc> (doc);
+    userTablePaths[(size_t) slot] = doc.sourcePath;
+    userTableModes[(size_t) slot] = doc.sourceMode;
     return true;
 }
 
+// A slot's default is a factory table. It shares the factory copy (the
+// factory tables live for the whole program), so 16 slots cost nothing.
 void IlanaSynthAudioProcessor::resetUserTableToDefault (int slot)
 {
     if (slot < 0 || slot >= numUserSlots)
         return;
 
-    auto table = std::make_shared<Wavetable>();
-    table->setName ("User " + juce::String (slot + 1));
-    table->buildFromFrames (TableFactory::generate (slot % TableFactory::getNumFactoryTables()));
-
-    {
-        const juce::SpinLock::ScopedLockType lock (tableLock);
-        auto& index = retiredTableIndex[(size_t) slot];
-        retiredTables[(size_t) (slot * 3 + index)] = std::move (userTables[(size_t) slot]);
-        index = (index + 1) % 3;
-        userTables[(size_t) slot] = std::move (table);
-    }
+    const auto& factory = FactoryTables::get().tables;
+    swapUserTable (slot, std::shared_ptr<Wavetable> (std::shared_ptr<Wavetable>(),
+                                                     factory[(size_t) (slot % (int) factory.size())].get()));
 
     const juce::SpinLock::ScopedLockType lock (stateLock);
     userTablePaths[(size_t) slot].clear();
+    userTableDocs[(size_t) slot].reset();
+}
+
+WavetableDoc IlanaSynthAudioProcessor::getUserTableDoc (int slot) const
+{
+    slot = juce::jlimit (0, numUserSlots - 1, slot);
+    std::shared_ptr<const WavetableDoc> doc;
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        doc = userTableDocs[(size_t) slot];
+    }
+    if (doc != nullptr)
+        return *doc;
+    auto fallback = WavetableDoc::fromFactory (slot % TableFactory::getNumFactoryTables());
+    fallback.name = "User " + juce::String (slot + 1);
+    return fallback;
+}
+
+bool IlanaSynthAudioProcessor::isUserSlotEdited (int slot) const
+{
+    if (slot < 0 || slot >= numUserSlots)
+        return false;
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    return userTableDocs[(size_t) slot] != nullptr;
+}
+
+int IlanaSynthAudioProcessor::findFreeUserSlot() const
+{
+    const auto factoryCount = TableFactory::getNumFactoryTables();
+    std::array<bool, (size_t) numUserSlots> used {};
+    for (const auto* prefix : OscillatorIds::prefixes)
+        if (const auto* value = apvts.getRawParameterValue (juce::String (prefix) + "_table"))
+        {
+            const auto slot = juce::roundToInt (value->load()) - factoryCount;
+            if (slot >= 0 && slot < numUserSlots)
+                used[(size_t) slot] = true;
+        }
+    for (int slot = 0; slot < numUserSlots; ++slot)
+        if (! used[(size_t) slot] && ! isUserSlotEdited (slot))
+            return slot;
+    return -1;
+}
+
+juce::String IlanaSynthAudioProcessor::getTableNotice() const
+{
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    return tableNotice;
+}
+
+void IlanaSynthAudioProcessor::clearTableNotice()
+{
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        tableNotice.clear();
+    }
+    ++tableNoticeVersion;
 }
 
 juce::StringArray IlanaSynthAudioProcessor::getFactoryPresetNames() const
@@ -4931,6 +5195,7 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
 
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
+    liveRetrigger = true;
     const auto& presets = Presets::getFactoryPresets();
 
     if (index < 0 || index >= (int) presets.size())
@@ -4992,6 +5257,11 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
         if (asyncNeeded)
             triggerAsyncUpdate();
+
+        // Edited patch tables go back to their defaults too.
+        for (int i = 0; i < numUserSlots; ++i)
+            if (isUserSlotEdited (i))
+                resetUserTableToDefault (i);
     }
 
     for (auto* parameter : getParameters())
@@ -5178,6 +5448,27 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
                 state.setProperty ("userTableMode" + juce::String (i + 1), userTableModes[(size_t) i], nullptr);
             }
     }
+
+    // M7.4: every edited or loaded patch table travels with the patch (see
+    // WavetableDoc), stored once per slot however many oscillators play it.
+    state.removeChild (state.getChildWithName ("Wavetables"), nullptr);
+    juce::ValueTree tables ("Wavetables");
+    for (int i = 0; i < numUserSlots; ++i)
+    {
+        std::shared_ptr<const WavetableDoc> doc;
+        {
+            const juce::SpinLock::ScopedLockType lock (stateLock);
+            doc = userTableDocs[(size_t) i];
+        }
+        if (doc != nullptr)
+        {
+            auto table = doc->toValueTree();
+            table.setProperty ("slot", i, nullptr);
+            tables.appendChild (table, nullptr);
+        }
+    }
+    if (tables.getNumChildren() > 0)
+        state.appendChild (tables, nullptr);
 
     return state;
 }
@@ -5410,6 +5701,7 @@ void IlanaSynthAudioProcessor::removeOscillator (int index)
 
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
+    liveRetrigger = true;
     auto state = stateIn.createCopy();
     {
         // Pre-mask M3b states saved a count of revealed envelopes.
@@ -5531,6 +5823,46 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
     auto asyncNeeded = false;
 
+    // M7.4 patch tables: recipe, then embedded frames, then the file (see
+    // WavetableDoc). A slot the state does not mention goes back to its
+    // default, unless an old-style path below reloads it.
+    std::array<bool, (size_t) numUserSlots> restoredTables {};
+    {
+        const auto tables = state.getChildWithName ("Wavetables");
+        juce::StringArray notices;
+        for (int child = 0; child < tables.getNumChildren(); ++child)
+        {
+            const auto tree = tables.getChild (child);
+            const auto slot = (int) tree.getProperty ("slot", -1);
+            if (slot < 0 || slot >= numUserSlots || restoredTables[(size_t) slot])
+                continue;
+            WavetableDoc doc;
+            juce::String notice;
+            if (WavetableDoc::fromValueTree (tree, doc, notice))
+                setUserTable (slot, doc);
+            else
+                resetUserTableToDefault (slot);
+            if (notice.isNotEmpty())
+                notices.add (notice);
+            restoredTables[(size_t) slot] = true;
+        }
+        state.removeChild (tables, nullptr);
+
+        for (int i = 0; i < numUserSlots; ++i)
+            if (! restoredTables[(size_t) i] && isUserSlotEdited (i)
+                && state.getProperty ("userTablePath" + juce::String (i + 1)).toString().isEmpty())
+                resetUserTableToDefault (i);
+
+        if (! notices.isEmpty())
+        {
+            {
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                tableNotice = notices.joinIntoString ("\n");
+            }
+            ++tableNoticeVersion;
+        }
+    }
+
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
 
@@ -5555,6 +5887,12 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
         for (int i = 0; i < numUserSlots; ++i)
         {
+            if (restoredTables[(size_t) i])
+            {
+                pendingUserTablePaths[(size_t) i].clear();
+                continue;
+            }
+
             const auto path = state.getProperty ("userTablePath" + juce::String (i + 1)).toString();
             const auto mode = (int) state.getProperty ("userTableMode" + juce::String (i + 1), 0);
 

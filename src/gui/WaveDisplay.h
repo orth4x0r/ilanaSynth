@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "../dsp/EpTuning.h"
+
 #include <cmath>
 #include <vector>
 
@@ -79,6 +81,31 @@ public:
         const auto borderColour = sampleDragHover ? traceColour : juce::Colour (0xff2a2a31);
         const auto borderThickness = sampleDragHover ? 2.0f : 1.0f;
 
+        if (isLiveInput())
+        {
+            g.setColour (borderColour);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, borderThickness);
+            const auto level = processorRef.getInputLevel();
+            auto plot = bounds.reduced (14.0f, 12.0f);
+            g.setColour (traceColour);
+            g.setFont (IlanaTheme::font (15.0f, true));
+            g.drawText (readChoice (modeId) == 4 ? "LIVE INPUT" : "LIVE GRAINS", plot.removeFromTop (22.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.45f));
+            g.setFont (IlanaTheme::font (11.5f));
+            g.drawText (IlanaSynthAudioProcessor::isEffectBuild ? "the audio coming into ilanaSynth FX"
+                                                                : "needs ilanaSynth FX (the effect plugin)",
+                        plot.removeFromTop (18.0f).toNearestInt(), juce::Justification::centredLeft);
+            auto meter = plot.removeFromBottom (10.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRoundedRectangle (meter, 3.0f);
+            const auto db = level > 1.0e-5f ? juce::jlimit (0.0f, 1.0f, 1.0f + juce::Decibels::gainToDecibels (level) / 60.0f) : 0.0f;
+            g.setColour (traceColour.withAlpha (0.85f));
+            g.fillRoundedRectangle (meter.withWidth (meter.getWidth() * db), 3.0f);
+            IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
+            return;
+        }
+
         if (! isSampleMode())
         {
             g.setColour (borderColour);
@@ -95,6 +122,15 @@ public:
             g.setColour (borderColour);
             g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, borderThickness + loadFlash * 1.5f);
             drawSample (g);
+            IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
+            return;
+        }
+
+        if (isElectricPiano())
+        {
+            g.setColour (borderColour);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, borderThickness);
+            drawPickup (g, bounds.reduced (12.0f));
             IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
             return;
         }
@@ -245,7 +281,98 @@ public:
 private:
     bool isSampleMode() const
     {
-        return modeId.isNotEmpty() && readChoice (modeId) >= 2;
+        const auto mode = modeId.isNotEmpty() ? readChoice (modeId) : 0;
+        return mode == 2 || mode == 3;
+    }
+
+    // M7.5: the Live mode, or live grains, play the audio input.
+    bool isLiveInput() const
+    {
+        if (modeId.isEmpty())
+            return false;
+        const auto mode = readChoice (modeId);
+        return mode == 4 || (mode == 3 && readChoice (modeId.upToLastOccurrenceOf ("_mode", false, false) + "_grain_live") > 0);
+    }
+
+    // M7.3: a Physical oscillator on the Tine or Reed excite shows its pickup.
+    bool isElectricPiano() const
+    {
+        if (modeId.isEmpty() || readChoice (modeId) != 1)
+            return false;
+        return readChoice (modeId.upToLastOccurrenceOf ("_mode", false, false) + "_excite") >= 7;
+    }
+
+    // The pickup's response across the tine's (or reed's) swing, as the
+    // model computes it (ElectricPiano), with the swing of a medium and a
+    // hard note marked: the further the swing reaches over the curve's
+    // bends, the more it barks or growls.
+    void drawPickup (juce::Graphics& g, juce::Rectangle<float> area) const
+    {
+        const auto prefix = modeId.upToLastOccurrenceOf ("_mode", false, false);
+        const auto tine = readChoice (prefix + "_excite") == 7;
+        const auto& t = tine ? EpTuning::get().tine : EpTuning::get().reed;
+        const auto distance = t.distance * std::pow (2.0f, (readPlain (prefix + "_ep_distance") - 0.5f) * 4.0f);
+        const auto offset = (t.offset + t.offsetRange * (readPlain (prefix + "_ep_position") - 0.5f)) * distance;
+        const auto pickup = [tine, distance, offset] (float x)
+        {
+            if (tine)
+            {
+                const auto u = (x - offset) / distance;
+                return 1.0f / (1.0f + u * u);
+            }
+            auto z = (x + offset) / distance;
+            if (z > 0.8f)
+                z = 0.8f + 0.17f * std::tanh ((z - 0.8f) / 0.17f);
+            return 1.0f / (1.0f - z);
+        };
+        const auto swing = 0.5f * (t.ampLow + t.ampHigh);
+        const auto range = swing * 1.6f;
+
+        g.setColour (traceColour);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        auto header = area.removeFromTop (18.0f);
+        g.drawText (tine ? "TINE PICKUP" : "REED PICKUP", header.toNearestInt(), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (10.5f));
+        g.drawText (tine ? "flux vs tine position" : "charge vs reed position", header.toNearestInt(),
+                    juce::Justification::centredRight);
+        area.removeFromTop (4.0f);
+
+        auto low = 1.0e9f, high = -1.0e9f;
+        constexpr int points = 160;
+        std::array<float, points + 1> values {};
+        for (int i = 0; i <= points; ++i)
+        {
+            values[(size_t) i] = pickup (-range + 2.0f * range * (float) i / (float) points);
+            low = juce::jmin (low, values[(size_t) i]);
+            high = juce::jmax (high, values[(size_t) i]);
+        }
+        const auto toX = [area, range] (float x) { return area.getX() + (x + range) / (2.0f * range) * area.getWidth(); };
+
+        // The swing of a medium and of a hard note, centred on rest.
+        for (const auto& [reach, alpha] : { std::pair<float, float> { swing * 0.35f, 0.16f }, { swing, 0.08f } })
+        {
+            g.setColour (traceColour.withAlpha (alpha));
+            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (toX (-reach), area.getY(), toX (reach), area.getBottom()));
+        }
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.drawVerticalLine ((int) toX (0.0f), area.getY(), area.getBottom());
+
+        juce::Path path;
+        for (int i = 0; i <= points; ++i)
+        {
+            const auto x = area.getX() + area.getWidth() * (float) i / (float) points;
+            const auto y = area.getBottom() - (values[(size_t) i] - low) / juce::jmax (1.0e-6f, high - low) * area.getHeight() * 0.9f;
+            if (i == 0)
+                path.startNewSubPath (x, y);
+            else
+                path.lineTo (x, y);
+        }
+        g.setColour (traceColour);
+        g.strokePath (path, juce::PathStrokeType (1.8f));
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.drawText ("rest", juce::Rectangle<float> (toX (0.0f) + 4.0f, area.getBottom() - 14.0f, 40.0f, 14.0f).toNearestInt(),
+                    juce::Justification::centredLeft);
     }
 
     bool isGranularMode() const
@@ -536,8 +663,12 @@ private:
 
     void timerCallback() override
     {
-        modeButton.setVisible (! isSampleMode());
-        setTooltip (isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
+        // The 3D waterfall only applies to tables.
+        modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput());
+        setTooltip (isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+                                        "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
+                    : isLiveInput() ? "The audio coming into ilanaSynth FX."
+                    : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
                     : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
                                    : "Drag to scrub the frame, click 3D to toggle the waterfall view. Drop a wav to switch this oscillator to Sample.");
 

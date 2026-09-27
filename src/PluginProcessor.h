@@ -26,12 +26,14 @@
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
+#include "dsp/WavetableDoc.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
 {
 public:
-    static constexpr int numUserSlots = 4;
+    // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
+    static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
     static constexpr int numFxTypes = 29;
 
@@ -289,6 +291,28 @@ public:
 
     bool loadUserWavetable (int slot, const juce::File& file,
                             Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
+
+#if ILANA_FX
+    static constexpr bool isEffectBuild = true;
+#else
+    static constexpr bool isEffectBuild = false;
+#endif
+    // M7.5: the input's level and envelope for the INPUT page (0..1).
+    float getInputLevel() const { return inputLevelDisplay.load(); }
+    float getInputEnvelope() const { return inputEnvDisplay.load(); }
+
+    // M7.4 patch tables (message thread). setUserTable builds the table from
+    // the doc and swaps it in; the doc is saved with the patch.
+    bool setUserTable (int slot, const WavetableDoc& doc);
+    // The slot's doc; a slot never edited gives its default (factory) table.
+    WavetableDoc getUserTableDoc (int slot) const;
+    bool isUserSlotEdited (int slot) const;
+    // An unedited slot that no oscillator plays, or -1.
+    int findFreeUserSlot() const;
+    // Set when a saved table could not be restored (see WavetableDoc).
+    juce::String getTableNotice() const;
+    int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
+    void clearTableNotice();
     bool loadUserSample (int oscIndex, const juce::File& file);
     const SampleData* getSampleForOsc (int oscIndex) const;
     void flushAsyncUpdates();
@@ -425,11 +449,35 @@ private:
     std::array<std::shared_ptr<Wavetable>, (size_t) (numUserSlots * 3)> retiredTables;
     std::array<int, (size_t) numUserSlots> retiredTableIndex {};
     void resetUserTableToDefault (int slot);
+    void swapUserTable (int slot, std::shared_ptr<Wavetable> table);
+    std::array<std::shared_ptr<const WavetableDoc>, (size_t) numUserSlots> userTableDocs; // null: default
+    juce::String tableNotice;
+    std::atomic<int> tableNoticeVersion { 0 };
     mutable juce::SpinLock tableLock;
 
     std::array<std::array<ParamRef, 11>, OscillatorIds::count> stringParamIds;
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> bowBuzzIds;
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> keysParamIds;
+    std::array<std::array<ParamRef, 2>, OscillatorIds::count> electricParamIds;
+
+    // M7.5 audio input (ilanaSynth FX). The instrument has no input, so all
+    // of this stays silent there.
+    void captureLiveInput (juce::AudioBuffer<float>& buffer);
+    void prepareLiveInput (int numSamples, int factor, juce::MidiBuffer& midi);
+    std::array<ParamRef, OscillatorIds::count> grainLiveIds;
+    ParamRef inGainRef { "in_gain" }, inDryRef { "in_dry" }, inBodyRef { "in_body" }, inStringsRef { "in_strings" },
+        inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
+        inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
+    juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
+    std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
+    SampleData liveHistory;                 // the last few seconds, for live grains
+    int liveHistoryWrite = 0;
+    float liveLast = 0.0f, liveEnvState = 0.0f;
+    bool liveGateOpen = false;
+    int liveGateNote = -1;
+    int liveInputSamples = 0;               // valid samples in liveDry this block
+    std::atomic<bool> liveRetrigger { false }; // a patch loaded: restart the drone
+    std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
     struct OscCoreIds
     {
         ParamRef on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;

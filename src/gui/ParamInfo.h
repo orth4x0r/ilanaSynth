@@ -63,7 +63,14 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::String (juce::roundToInt (value)) + " strings";
     if (id == "sym_decay")
         return asPercent();
-    if (id.startsWith ("sym_note"))
+    // M7.5 audio input.
+    if (id == "in_attack" || id == "in_release")
+        return value < 10.0f ? juce::String (value, 1) + " ms" : juce::String (juce::roundToInt (value)) + " ms";
+    if (id == "in_gain" || id == "in_threshold")
+        return juce::String (value, 1) + " dB";
+    if (id == "in_dry" || id == "in_body" || id == "in_strings")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id.startsWith ("sym_note") || id == "in_note")
     {
         // Note name with C3 = MIDI 60, as on the keyboard strip.
         static const char* const names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -160,6 +167,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_bow_pressure") || id.endsWith ("_bow_speed")
         || id.endsWith ("_bridge_buzz") || id.endsWith ("_fret_rattle")
         || id.endsWith ("_hammer_hard") || id.endsWith ("_couple") || id.endsWith ("_damper") || id.endsWith ("_register")
+        || id.endsWith ("_ep_distance") || id.endsWith ("_ep_position")
         || id == "stretch" || id.startsWith ("sb_") || id == "pedal_res" || id.startsWith ("mech_")
         || id == "sym_amount" || id == "sym_decay"
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
@@ -266,6 +274,21 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
     if (isOscParameter (id, "_hammer_hard"))
         return "Hammer felt hardness (Hammer exciter). Harder felt and faster keys give a shorter contact and a brighter tone.";
+    if (id == "in_gain") return "ilanaSynth FX: the input's level into the engine (DRY is not affected).";
+    if (id == "in_dry") return "ilanaSynth FX: the untouched input, added back at the end.";
+    if (id == "in_body") return "ilanaSynth FX: how hard the input rings the BODY section (switch BODY on, any type but Classic).";
+    if (id == "in_strings") return "ilanaSynth FX: how hard the input drives Physical strings, tines and reeds while a note plays.";
+    if (id == "in_trigger") return "ilanaSynth FX: Off plays on MIDI notes only; Gate plays NOTE while the input is over THRESHOLD; Drone holds NOTE down.";
+    if (id == "in_threshold") return "ilanaSynth FX: the level that opens the gate (it closes 6 dB below).";
+    if (id == "in_note") return "ilanaSynth FX: the note the gate or drone plays. Strings, bodies and oscillators tune to it.";
+    if (id == "in_attack") return "ilanaSynth FX: how fast the input envelope (Input Env) rises.";
+    if (id == "in_release") return "ilanaSynth FX: how fast the input envelope falls (a time constant).";
+    if (isOscParameter (id, "_grain_live"))
+        return "ilanaSynth FX: grains read the last three seconds of the input instead of the sample; POSITION is how far back.";
+    if (isOscParameter (id, "_ep_distance"))
+        return "Tine / Reed: how close the pickup sits. Closer makes hard notes bark (tine) or growl (reed).";
+    if (isOscParameter (id, "_ep_position"))
+        return "Tine / Reed: the pickup's offset from the tine or reed. It changes the balance of even and odd harmonics.";
     if (isOscParameter (id, "_couple"))
         return "The note's strings share the bridge: set UNISON to 2-3 and a small DETUNE for a fast first decay "
                "and a long, beating aftersound, as in a piano.";
@@ -311,14 +334,16 @@ inline juce::String describeParameter (const juce::String& id)
         return "Stereo spread of the unison stack.";
 
     if (isOscParameter (id, "_mode", false))
-        return "Wavetable, Physical string, a sample you drag onto the card, or Granular: a cloud of tiny "
-               "grains read from that sample (a vocal until you load your own).";
+        return "Wavetable, Physical (a string, or the Tine and Reed electric pianos), a sample you drag onto the card, "
+               "Granular: a cloud of tiny grains read from that sample (a vocal until you load your own), "
+               "or Live: the audio coming into ilanaSynth FX.";
 
     if (isOscParameter (id, "_on"))
         return "Turns this oscillator on and off. Switching fades in/out so it stays click-free.";
 
     if (isOscParameter (id, "_excite", false))
-        return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string.";
+        return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string. "
+               "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed.";
 
     if (isOscParameter (id, "_string_decay", false))
         return "How long the string rings.";

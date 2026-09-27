@@ -23,6 +23,10 @@ public:
         float pitchSpray = 0.0f; // 0..1: up to +-12 semitones of random detune per grain
         float spread = 0.5f;    // 0..1: stereo scatter
         bool reverse = false;   // grains play backwards
+        // M7.5 live grains: the sample is the input's history, a ring
+        // written up to liveWrite; position is how far back to read.
+        bool live = false;
+        int liveWrite = 0;
     };
 
     void prepare (double newSampleRate)
@@ -142,6 +146,14 @@ private:
         free->increment = ratio * (sample.sampleRate / sampleRate) * std::exp2 ((double) detune / 12.0)
                           * (params.reverse ? -1.0 : 1.0);
         free->position = centre * (numSamples - 1.0);
+        if (params.live)
+        {
+            // Start far enough behind the write head that the grain never
+            // catches it up (a block of audio lands per render).
+            const auto travel = grainLength * juce::jmax (0.0, free->increment) + 4096.0;
+            const auto reach = juce::jmax (0.0, numSamples - travel - grainLength * 2.0);
+            free->position = (double) params.liveWrite - travel - centre * reach;
+        }
         free->gainL = std::cos (angle) * juce::MathConstants<float>::sqrt2;
         free->gainR = std::sin (angle) * juce::MathConstants<float>::sqrt2;
     }

@@ -13,6 +13,7 @@
 #include "dsp/GranularPitchShift.h"
 #include "dsp/FilterUnit.h"
 #include "dsp/FmAlgorithms.h"
+#include "dsp/Formula.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
@@ -1642,6 +1643,11 @@ void runPresetTuningTest()
         // pitch spray (each grain is randomly transposed, from a time-seeded
         // generator, so the estimate varied from run to run).
         auto pitchByDesign = names[presetIndex] == "Bolted Strings";
+        // ilanaSynth FX patches play the audio input, which the instrument
+        // doesn't have (tests/FxTest.cpp covers them).
+        if (const auto* category = Presets::getFactoryPresets()[(size_t) presetIndex].category;
+            category != nullptr && juce::String (category) == "FX Input")
+            continue;
         for (const auto* prefix : OscillatorIds::prefixes)
         {
             const juce::String p (prefix);
@@ -3784,6 +3790,13 @@ void runFactoryLibraryTest()
         double rms = 0.0;
         const auto peak = render (90, true, rms);
 
+        // ilanaSynth FX patches are silent without the audio input.
+        if (categories[index] == "FX Input")
+        {
+            setMacros (0.0f);
+            continue;
+        }
+
         if (peak < 0.001f)
             silent.add (names[index]);
 
@@ -5364,7 +5377,7 @@ void runM4Tests()
         for (const auto* id : { "osc1_excite", "osc2_excite", "sub_excite", "osc4_excite" })
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
-            check (choice != nullptr && choice->getAllValueStrings().size() == 7
+            check (choice != nullptr && choice->getAllValueStrings().size() >= 7
                        && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer"
                        && choice->getAllValueStrings()[6] == "Osc In",
                    juce::String (id) + " appends Hammer and Osc In after Bow");
@@ -5840,9 +5853,33 @@ void debugPresetNotes (const juce::String& presetName)
         "ILANA_NOTE_FOLDER", juce::File::getCurrentWorkingDirectory().getChildFile ("build/note-debug").getFullPathName()));
     folder.createDirectory();
 
-    for (const auto& [dynamic, velocity] : { std::pair<const char*, int> { "mf", 80 }, { "ff", 120 } })
-        for (const auto& [noteName, note] : { std::pair<const char*, int> { "E1", 28 }, { "C4", 60 }, { "C7", 96 } })
+    // ILANA_NOTE_SET=ep: the electric piano set instead (MIDI 40, 60 and 84 at
+    // velocity 40 and 120, released after 4 s), named like the ilanaRefHost
+    // references (ours.v40.n60.wav).
+    const auto electric = juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_SET", "") == "ep";
+    if (! EpTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_EP_TUNING", "")))
+        std::cout << "unknown EP tuning name" << std::endl;
+    struct NoteRender { juce::String file; int note, velocity; };
+    std::vector<NoteRender> renders;
+    if (electric)
+    {
+        for (int velocity : { 40, 120 })
+            for (int note : { 40, 60, 84 })
+                renders.push_back ({ "ours.v" + juce::String (velocity) + ".n" + juce::String (note) + ".wav", note, velocity });
+    }
+    else
+    {
+        for (const auto& [dynamic, velocity] : { std::pair<const char*, int> { "mf", 80 }, { "ff", 120 } })
+            for (const auto& [noteName, note] : { std::pair<const char*, int> { "E1", 28 }, { "C4", 60 }, { "C7", 96 } })
+                renders.push_back ({ juce::String ("ours.") + dynamic + "." + noteName + ".wav", note, velocity });
+    }
+    const auto totalBlocks = electric ? 500 : 600;
+    const auto releaseBlock = electric ? 400 : -1;
+
+    for (const auto& render : renders)
         {
+            const auto note = render.note;
+            const auto velocity = render.velocity;
             IlanaSynthAudioProcessor processor;
             const auto index = processor.getFactoryPresetNames().indexOf (presetName);
             if (index < 0) { std::cout << "no preset " << presetName << std::endl; return; }
@@ -5855,18 +5892,19 @@ void debugPresetNotes (const juce::String& presetName)
                               item.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
             processor.prepareToPlay (48000.0, 480);
             juce::AudioBuffer<float> buffer (2, 480);
-            juce::AudioBuffer<float> output (1, 480 * 600);
-            for (int block = 0; block < 600; ++block)
+            juce::AudioBuffer<float> output (1, 480 * totalBlocks);
+            for (int block = 0; block < totalBlocks; ++block)
             {
                 buffer.clear();
                 juce::MidiBuffer midi;
                 if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
+                if (block == releaseBlock) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
                 processor.processBlock (buffer, midi);
                 output.copyFrom (0, block * 480, buffer, 0, 0, 480);
                 output.addFrom (0, block * 480, buffer, 1, 0, 480);
             }
             output.applyGain (0.5f);
-            const auto file = folder.getChildFile (juce::String ("ours.") + dynamic + "." + noteName + ".wav");
+            const auto file = folder.getChildFile (render.file);
             file.deleteFile();
             juce::WavAudioFormat format;
             if (auto stream = file.createOutputStream())
@@ -5891,7 +5929,7 @@ void renderKeysDemos (const juce::File& folder)
     struct Demo { juce::String file, preset; std::vector<std::pair<const char*, float>> settings; };
     std::vector<Demo> demos;
     for (const auto* name : { "Hammered Strings", "Pedal Bloom", "Honky Hammers", "Bolted Strings",
-                              "Bowed Board", "Osc-Struck Strings" })
+                              "Bowed Board", "Osc-Struck Strings", "Tine Keys", "Reed Keys" })
         demos.push_back ({ name, name, {} });
     demos.push_back ({ "AB Sym off - Pizzicato", "Pizzicato", {} });
     demos.push_back ({ "AB Sym on - Pizzicato", "Pizzicato",
@@ -7225,6 +7263,454 @@ NoteLog runGenerative (const std::function<void (IlanaSynthAudioProcessor&)>& co
 
     return log;
 }
+
+// Debug pass after M7.5: a MIDI event in the middle of a block splits the
+// voices' render, and the second part must keep reading the shared LFO,
+// S&H and MSEG buffers where it is in the block (it used to start again at
+// the block's first sample, so modulation jumped at every note or CC).
+void runSplitRenderTest()
+{
+    std::cout << "split renders" << std::endl;
+    const auto render = [] (bool withCc)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        for (const auto& [id, value] : std::vector<std::pair<const char*, float>> {
+                 { "master_clip", 0.0f }, { "osc2_on", 0.0f }, { "sub_on", 0.0f }, { "osc1_table", 0.0f },
+                 { "amp_attack", 0.001f }, { "amp_sustain", 1.0f }, { "lfo1_rate", 7.0f },
+                 { "mod1_src", (float) Mod::Source::Lfo1 }, { "mod1_dst", (float) Mod::Destination::AmpLevel },
+                 { "mod1_amt", 0.8f } })
+            setParam (processor, id, value);
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::vector<float> out;
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            if (withCc)
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 20, block % 128), 256);
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 512; ++i)
+                out.push_back (buffer.getSample (0, i));
+        }
+        return out;
+    };
+    const auto plain = render (false);
+    const auto split = render (true);
+    auto worst = 0.0f, peak = 0.0f;
+    for (size_t i = 0; i < plain.size(); ++i)
+    {
+        worst = juce::jmax (worst, std::abs (plain[i] - split[i]));
+        peak = juce::jmax (peak, std::abs (plain[i]));
+    }
+    check (peak > 0.05f && worst < peak * 1.0e-4f,
+           "an unused CC mid-block leaves an LFO-modulated note unchanged (worst " + juce::String (worst, 6) + ")");
+}
+
+void runM73ElectricPianoTests()
+{
+    std::cout << "M7.3 electric pianos" << std::endl;
+
+    {
+        IlanaSynthAudioProcessor processor;
+        for (const auto* id : { "osc1_excite", "sub_excite", "osc4_excite" })
+        {
+            auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
+            check (choice != nullptr && choice->choices.size() == 9 && choice->choices[6] == "Osc In"
+                       && choice->choices[7] == "Tine" && choice->choices[8] == "Reed",
+                   juce::String (id) + ": Tine and Reed are appended after Osc In (indices 7 and 8)");
+        }
+        check (processor.apvts.getParameter ("osc6_ep_distance") != nullptr
+                   && processor.apvts.getParameter ("osc1_ep_position") != nullptr,
+               "every oscillator has the pickup DISTANCE and OFFSET");
+    }
+
+    const auto render = [] (ElectricPiano::Model model, double hz, float velocity, float distance = 0.5f,
+                            float position = 0.5f, float damper = 0.0f, int releaseAt = -1, int length = 48000)
+    {
+        ElectricPiano piano;
+        piano.prepare (48000.0);
+        piano.setModel (model);
+        piano.setParams (0.75f, 0.35f, distance, position, 0.5f, damper);
+        piano.setFrequency (hz);
+        piano.trigger (velocity);
+        std::vector<float> out ((size_t) length);
+        for (int i = 0; i < length; ++i)
+            out[(size_t) i] = piano.process (releaseAt < 0 || i < releaseAt);
+        return out;
+    };
+    // Level of partials 2-6 against the fundamental, in dB, just after the attack.
+    const auto upper = [] (const std::vector<float>& x, double hz)
+    {
+        const auto fundamental = partialAmplitude (x, 2400, 8192, hz);
+        auto sum = 0.0;
+        for (int k = 2; k <= 6; ++k)
+            sum += std::pow (partialAmplitude (x, 2400, 8192, hz * k), 2.0);
+        return 10.0 * std::log10 (sum / juce::jmax (1.0e-20, fundamental * fundamental));
+    };
+    const auto rms = [] (const std::vector<float>& x, int from, int to)
+    {
+        auto sum = 0.0;
+        for (int i = from; i < to; ++i)
+            sum += (double) x[(size_t) i] * x[(size_t) i];
+        return std::sqrt (sum / juce::jmax (1, to - from));
+    };
+
+    for (const auto model : { ElectricPiano::Model::Tine, ElectricPiano::Model::Reed })
+    {
+        const juce::String name (model == ElectricPiano::Model::Tine ? "Tine" : "Reed");
+        const auto soft = render (model, 261.63, 0.3f);
+        const auto hard = render (model, 261.63, 1.0f);
+        const auto valid = [] (const std::vector<float>& x)
+        {
+            return std::all_of (x.begin(), x.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 8.0f; });
+        };
+        check (valid (soft) && valid (hard) && rms (hard, 0, 24000) > 1.0e-4, name + " rings and stays bounded");
+        check (rms (hard, 0, 24000) > rms (soft, 0, 24000) * 1.5, name + ": a hard hit is louder than a soft one");
+        const auto softUpper = upper (soft, 261.63);
+        const auto hardUpper = upper (hard, 261.63);
+        check (hardUpper > softUpper + 3.0, name + (model == ElectricPiano::Model::Tine ? " barks" : " growls")
+                                               + ": the upper partials rise from soft to hard ("
+                                               + juce::String (softUpper, 1) + " -> " + juce::String (hardUpper, 1) + " dB)");
+        const auto near = upper (render (model, 261.63, 0.6f, 0.1f), 261.63);
+        const auto far = upper (render (model, 261.63, 0.6f, 0.9f), 261.63);
+        check (near > far + 3.0, name + ": a closer pickup (DISTANCE) gives more upper partials ("
+                                     + juce::String (far, 1) + " -> " + juce::String (near, 1) + " dB)");
+
+        for (const auto note : { 36, 60, 84 })
+        {
+            const auto hz = 440.0 * std::pow (2.0, (note - 69) / 12.0);
+            // The strongest frequency within 50 cents of the note, in half-cent
+            // steps (a bark can fool an autocorrelation pitch estimate low down).
+            const auto tone = render (model, hz, 0.3f, 0.9f, 0.5f, 0.0f, -1, 48000);
+            auto cents = 0.0, best = 0.0;
+            for (auto trial = -50.0; trial <= 50.0; trial += 0.5)
+                if (const auto level = partialAmplitude (tone, 4800, 38400, hz * std::exp2 (trial / 1200.0)); level > best)
+                {
+                    best = level;
+                    cents = trial;
+                }
+            check (std::abs (cents) < 5.0, name + " at MIDI " + juce::String (note) + " is in tune ("
+                                               + juce::String (cents, 2) + " cents)");
+        }
+
+        const auto ringing = render (model, 261.63, 0.8f, 0.5f, 0.5f, 0.0f, 12000);
+        const auto damped = render (model, 261.63, 0.8f, 0.5f, 0.5f, 1.0f, 12000);
+        check (rms (damped, 24000, 36000) < rms (ringing, 24000, 36000) * 0.05,
+               name + ": DAMPER stops the note after the key is up");
+
+        auto stable = true;
+        for (const auto note : { 21, 60, 108, 120 })
+            for (const auto distance : { 0.0f, 1.0f })
+                for (const auto position : { 0.0f, 1.0f })
+                    stable = stable && valid (render (model, 440.0 * std::pow (2.0, (note - 69) / 12.0), 1.0f,
+                                                      distance, position, 0.0f, -1, 12000));
+        check (stable, name + " stays finite and bounded at extreme settings");
+    }
+
+    // The presets play through the whole engine.
+    for (const auto* presetName : { "Tine Keys", "Reed Keys" })
+    {
+        IlanaSynthAudioProcessor processor;
+        const auto index = processor.getFactoryPresetNames().indexOf (presetName);
+        check (index >= 0, juce::String (presetName) + " is a factory preset");
+        if (index < 0)
+            continue;
+        processor.loadFactoryPreset (index);
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto peak = 0.0f;
+        auto finite = true;
+        for (int block = 0; block < 90; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 512; ++i)
+            {
+                finite = finite && std::isfinite (buffer.getSample (0, i));
+                peak = juce::jmax (peak, std::abs (buffer.getSample (0, i)));
+            }
+        }
+        check (finite && peak > 0.01f && peak < 1.5f, juce::String (presetName) + " plays (peak " + juce::String (peak, 3) + ")");
+    }
+}
+
+void runM74WavetableEditorTests()
+{
+    std::cout << "M7.4 wavetable editor" << std::endl;
+    const auto factoryCount = TableFactory::getNumFactoryTables();
+    const auto temp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-m74-test");
+    temp.deleteRecursively();
+    temp.createDirectory();
+
+    {
+        IlanaSynthAudioProcessor processor;
+        auto* table = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"));
+        check (table != nullptr && table->choices.size() == factoryCount + 16
+                   && table->choices[factoryCount] == "User 1" && table->choices[factoryCount + 3] == "User 4"
+                   && table->choices[factoryCount + 15] == "User 16",
+               "16 patch tables: User 5-16 are appended after User 1-4");
+    }
+
+    // Formulas.
+    {
+        Formula formula;
+        check (formula.parse ("sin(2*pi*x) + 0.5*saw(x*2) - clamp(f, 0, 1)^2").isEmpty(), "a formula parses");
+        check (formula.parse ("sin(2*pi*x").isNotEmpty() && formula.parse ("foo(x)").isNotEmpty()
+                   && formula.parse ("1 +").isNotEmpty(),
+               "a broken formula reports an error");
+        const auto sine = WavetableDoc::renderFormula ("sin(2*pi*x)", 0.0, 0);
+        std::vector<float> magnitudes, phases;
+        WavetableDoc::analyse (sine, magnitudes, phases, 16);
+        check (std::abs (magnitudes[0] - 1.0f) < 1.0e-3f && magnitudes.size() < 3,
+               "sin(2*pi*x) is one harmonic at full level");
+        const auto square = WavetableDoc::renderFormula ("square(x)", 0.0, 0);
+        WavetableDoc::analyse (square, magnitudes, phases, 16);
+        check (magnitudes.size() >= 5 && magnitudes[1] < 0.01f && std::abs (magnitudes[2] / magnitudes[0] - 1.0f / 3.0f) < 0.02f,
+               "square(x) has the odd harmonics at 1/n");
+        const auto morphing = WavetableDoc::renderFormula ("f", 0.75, 3);
+        check (std::abs (morphing[100] - 0.75f) < 1.0e-6f, "f is the frame's position through the table");
+    }
+
+    // Harmonics round trip and the draw recipe.
+    {
+        const std::vector<float> magnitudes { 1.0f, 0.5f, 0.25f }, phases { 0.0f, 1.0f, 2.0f };
+        const auto frame = WavetableDoc::renderHarmonics (magnitudes, phases);
+        std::vector<float> readMagnitudes, readPhases;
+        WavetableDoc::analyse (frame, readMagnitudes, readPhases, 8);
+        auto error = 0.0f;
+        for (size_t k = 0; k < 3; ++k)
+            error = juce::jmax (error, std::abs (readMagnitudes[k] - magnitudes[k]),
+                                std::abs (std::remainder (readPhases[k] - phases[k], juce::MathConstants<float>::twoPi)));
+        check (error < 1.0e-3f, "harmonic levels and phases survive a render and analysis");
+
+        const std::vector<float> points { 0.0f, 1.0f, 0.5f, 1.0f, 0.5001f, -1.0f, 0.9999f, -1.0f };
+        const auto hardEdges = WavetableDoc::renderDraw (points, 0.0f);
+        const auto smoothed = WavetableDoc::renderDraw (points, 1.0f);
+        std::vector<float> hardMagnitudes, smoothMagnitudes, unused;
+        WavetableDoc::analyse (hardEdges, hardMagnitudes, unused, 64);
+        WavetableDoc::analyse (smoothed, smoothMagnitudes, unused, 64);
+        check (hardMagnitudes.size() > 20 && smoothMagnitudes[20] < hardMagnitudes[20] * 0.5f,
+               "a drawn square has high harmonics, and SMOOTH takes them off");
+    }
+
+    // A doc of recipes rebuilds exactly and stores no frames; raw frames are
+    // embedded at 16 bits.
+    WavetableDoc recipeDoc;
+    {
+        recipeDoc.name = "Recipes";
+        FrameRecipe drawn;
+        drawn.kind = FrameRecipe::Kind::Draw;
+        drawn.points = { 0.0f, 0.0f, 0.25f, 1.0f, 0.75f, -1.0f };
+        drawn.smoothing = 0.3f;
+        FrameRecipe harmonics;
+        harmonics.kind = FrameRecipe::Kind::Harmonics;
+        harmonics.magnitudes = { 1.0f, 0.0f, 0.3f };
+        harmonics.phases = { 0.0f, 0.0f, 1.5f };
+        FrameRecipe formula;
+        formula.kind = FrameRecipe::Kind::Formula;
+        formula.formula = "tanh(4*sin(2*pi*x)) * (1 - f)";
+        for (const auto& recipe : { drawn, harmonics, formula })
+            recipeDoc.insertFrame (recipeDoc.getNumFrames(), {}, recipe);
+        recipeDoc.renderAll();
+
+        const auto tree = recipeDoc.toValueTree();
+        WavetableDoc restored;
+        juce::String notice;
+        check (WavetableDoc::fromValueTree (tree, restored, notice) && notice.isEmpty()
+                   && ! tree.hasProperty ("data") && restored.frames == recipeDoc.frames
+                   && restored.recipes == recipeDoc.recipes && restored.name == "Recipes",
+               "a table of drawn, harmonic and formula frames is stored as its recipe and rebuilds exactly");
+
+        auto raw = WavetableDoc::fromFactory (3);
+        raw.factoryIndex = -1;
+        raw.name = "Raw";
+        const auto rawTree = raw.toValueTree();
+        WavetableDoc rawRestored;
+        auto worst = 0.0f, peak = 0.0f;
+        const auto ok = WavetableDoc::fromValueTree (rawTree, rawRestored, notice) && rawRestored.frames.size() == raw.frames.size();
+        for (size_t f = 0; ok && f < raw.frames.size(); ++f)
+            for (size_t i = 0; i < raw.frames[f].size(); ++i)
+            {
+                worst = juce::jmax (worst, std::abs (raw.frames[f][i] - rawRestored.frames[f][i]));
+                peak = juce::jmax (peak, std::abs (raw.frames[f][i]));
+            }
+        check (ok && rawTree.hasProperty ("data") && worst <= peak / 32767.0f * 1.01f,
+               "raw frames are embedded at 16 bits (worst error " + juce::String (worst / juce::jmax (1.0e-9f, peak), 7) + " of peak)");
+
+        const auto factoryTree = WavetableDoc::fromFactory (5).toValueTree();
+        WavetableDoc factoryRestored;
+        check (! factoryTree.hasProperty ("data") && WavetableDoc::fromValueTree (factoryTree, factoryRestored, notice)
+                   && factoryRestored.frames == WavetableDoc::fromFactory (5).frames,
+               "an unedited factory copy is stored as its index");
+
+        std::vector<std::vector<float>> big (256, std::vector<float> (2048));
+        juce::Random random (7);
+        for (auto& frame : big)
+            for (auto& value : frame)
+                value = random.nextFloat() * 2.0f - 1.0f;
+        const auto encoded = WavetableDoc::encodeFrames (big);
+        check (encoded.length() < 1500000, "256 frames of noise embed in "
+                                               + juce::String (encoded.length() / 1024) + " KB (16-bit, compressed, base64)");
+
+        juce::ValueTree lost ("Wavetable");
+        lost.setProperty ("name", "Lost", nullptr);
+        lost.setProperty ("path", temp.getChildFile ("missing.wav").getFullPathName(), nullptr);
+        WavetableDoc lostDoc;
+        check (! WavetableDoc::fromValueTree (lost, lostDoc, notice) && notice.contains ("Lost"),
+               "a table with no recipe, data or file fails with a notice");
+    }
+
+    // Frame editing and morphs.
+    {
+        auto doc = WavetableDoc::sine();
+        FrameRecipe saw;
+        saw.kind = FrameRecipe::Kind::Formula;
+        saw.formula = "saw(x)";
+        for (int i = 0; i < 6; ++i)
+            doc.insertFrame (1, WavetableDoc::sine().frames[0], WavetableDoc::sine().recipes[0]);
+        doc.insertFrame (doc.getNumFrames(), {}, saw);
+        doc.renderFrame (doc.getNumFrames() - 1);
+        doc.morph (0, doc.getNumFrames() - 1, true);
+        std::vector<float> middle, unused;
+        WavetableDoc::analyse (doc.frames[4], middle, unused, 8);
+        check (doc.getNumFrames() == 8 && doc.recipes[4].kind == FrameRecipe::Kind::Harmonics
+                   && middle[1] > 0.05f && middle[1] < 0.45f,
+               "a spectral morph from a sine to a saw fills the frames between with harmonics");
+        doc.moveFrame (7, 0);
+        doc.removeFrame (1);
+        check (doc.getNumFrames() == 7 && doc.recipes[0].kind == FrameRecipe::Kind::Formula, "frames move and delete");
+        for (int i = 0; i < 400; ++i)
+            doc.insertFrame (0, {}, {});
+        check (doc.getNumFrames() == WavetableDoc::maxFrames, "a table stops at 256 frames");
+    }
+
+    // Export for Serum and Vital, and import.
+    {
+        const auto file = temp.getChildFile ("export.wav");
+        check (recipeDoc.exportWav (file) && Wavetable::readWavFrameSize (file) == 2048,
+               "an exported table carries a clm chunk with its 2048-sample frames");
+        WavetableDoc imported;
+        const auto loaded = WavetableDoc::loadFromFile (file, imported);
+        // The export scales a table that peaks over 1 down to 1.
+        auto peak = 1.0f;
+        for (const auto& frame : recipeDoc.frames)
+            for (auto value : frame)
+                peak = juce::jmax (peak, std::abs (value));
+        auto worst = 0.0f;
+        for (size_t f = 0; loaded && f < recipeDoc.frames.size() && f < imported.frames.size(); ++f)
+            for (size_t i = 0; i < 2048; ++i)
+                worst = juce::jmax (worst, std::abs (recipeDoc.frames[f][i] / peak - imported.frames[f][i]));
+        check (loaded && imported.getNumFrames() == recipeDoc.getNumFrames() && worst < 1.0e-5f,
+               "the exported .wav loads back frame for frame");
+
+        // A sidecar makes a library table editable again.
+        auto recipe = recipeDoc.recipeTree();
+        if (auto xml = recipe.createXml())
+            xml->writeTo (file.withFileExtension ("ilwt"));
+        WavetableDoc editable;
+        check (WavetableDoc::loadFromFile (file, editable) && editable.recipes == recipeDoc.recipes,
+               "a library .wav with its .ilwt sidecar opens with its recipe");
+
+        // Another tool's table with 1024-sample frames.
+        const auto small = temp.getChildFile ("small.wav");
+        {
+            juce::MemoryOutputStream data;
+            for (int frame = 0; frame < 4; ++frame)
+                for (int i = 0; i < 1024; ++i)
+                    data.writeFloat ((float) std::sin (juce::MathConstants<double>::twoPi * (frame + 1) * i / 1024.0));
+            juce::MemoryOutputStream format;
+            format.writeShort (3); format.writeShort (1); format.writeInt (44100); format.writeInt (44100 * 4);
+            format.writeShort (4); format.writeShort (32);
+            const juce::String clm ("<!>1024 00000000 test");
+            juce::MemoryOutputStream body;
+            body.write ("WAVE", 4);
+            body.write ("fmt ", 4); body.writeInt ((int) format.getDataSize()); body.write (format.getData(), format.getDataSize());
+            body.write ("clm ", 4); body.writeInt (clm.length()); body.write (clm.toRawUTF8(), (size_t) clm.length());
+            if (clm.length() & 1) body.writeByte (0);
+            body.write ("data", 4); body.writeInt ((int) data.getDataSize()); body.write (data.getData(), data.getDataSize());
+            juce::FileOutputStream out (small);
+            out.write ("RIFF", 4);
+            out.writeInt ((int) body.getDataSize());
+            out.write (body.getData(), body.getDataSize());
+        }
+        std::vector<std::vector<float>> frames;
+        std::vector<float> magnitudes, unused;
+        const auto read = Wavetable::readFrames (small, Wavetable::LoadMode::Automatic, frames);
+        if (read && frames.size() == 4)
+            WavetableDoc::analyse (frames[2], magnitudes, unused, 8);
+        check (read && frames.size() == 4 && magnitudes.size() >= 3 && magnitudes[2] > 0.9f,
+               "a table whose clm chunk says 1024-sample frames reads as 4 frames");
+    }
+
+    // Patch tables travel with the patch.
+    {
+        IlanaSynthAudioProcessor original;
+        auto doc = recipeDoc;
+        doc.name = "Travelling";
+        check (original.setUserTable (5, doc), "a doc goes into patch table 6");
+        setParam (original, "osc1_table", (float) (factoryCount + 5));
+        juce::MemoryBlock state;
+        original.getStateInformation (state);
+
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (restored.isUserSlotEdited (5) && restored.getUserTableDoc (5).frames == doc.frames
+                   && restored.getUserTableDoc (5).name == "Travelling" && ! restored.isUserSlotEdited (4),
+               "an edited table is saved in the patch and restored exactly");
+
+        const auto* table = restored.getWavetable (factoryCount + 5);
+        check (table != nullptr && table->getNumFrames() == 3, "the restored table is the one the oscillator plays");
+
+        // A later state without it puts the slot back to its default.
+        IlanaSynthAudioProcessor plain;
+        juce::MemoryBlock plainState;
+        plain.getStateInformation (plainState);
+        restored.setStateInformation (plainState.getData(), (int) plainState.getSize());
+        check (! restored.isUserSlotEdited (5), "loading a patch without the table resets the slot");
+
+        // Loading a factory preset does too.
+        original.loadFactoryPreset (1);
+        check (! original.isUserSlotEdited (5), "loading a factory preset resets edited tables");
+
+        // An old patch: only a path. It loads as before, and the next save
+        // embeds the table.
+        const auto file = temp.getChildFile ("old.wav");
+        recipeDoc.exportWav (file);
+        auto tree = plain.apvts.copyState();
+        tree.setProperty ("userTablePath2", file.getFullPathName(), nullptr);
+        tree.setProperty ("userTableMode2", 0, nullptr);
+        IlanaSynthAudioProcessor old;
+        if (auto xml = tree.createXml())
+        {
+            juce::MemoryBlock block;
+            juce::AudioProcessor::copyXmlToBinary (*xml, block);
+            old.setStateInformation (block.getData(), (int) block.getSize());
+        }
+        old.flushAsyncUpdates();
+        juce::MemoryBlock saved;
+        old.getStateInformation (saved);
+        const auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        const auto savedTree = xml != nullptr ? juce::ValueTree::fromXml (*xml) : juce::ValueTree();
+        const auto tables = savedTree.getChildWithName ("Wavetables");
+        check (old.isUserSlotEdited (1) && old.getUserTableDoc (1).getNumFrames() == 3
+                   && tables.getNumChildren() == 1 && tables.getChild (0).hasProperty ("data"),
+               "an old path-only table loads, and the next save embeds it");
+
+        // The free slot finder skips slots in use.
+        IlanaSynthAudioProcessor fresh;
+        setParam (fresh, "osc1_table", (float) factoryCount);
+        check (fresh.findFreeUserSlot() == 1, "EDIT on a factory table takes the first free patch table");
+    }
+
+    temp.deleteRecursively();
+}
+
 } // namespace
 
 void runM71GenerativeTests()
@@ -7863,6 +8349,15 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M73_TEST", "").isNotEmpty())
+    {
+        runM73ElectricPianoTests();
+        runM74WavetableEditorTests();
+        runSplitRenderTest();
+        std::cout << (failures == 0 ? "M7.3/M7.4 TESTS PASSED" : "M7.3/M7.4 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M72_TEST", "").isNotEmpty())
     {
         runM72BodyTests();
@@ -8004,6 +8499,9 @@ int main()
     runM70ExtendedFmModTests();
     runM71GenerativeTests();
     runM72BodyTests();
+    runM73ElectricPianoTests();
+    runM74WavetableEditorTests();
+    runSplitRenderTest();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

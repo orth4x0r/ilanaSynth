@@ -14,6 +14,8 @@
 #include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
+#include "gui/WavetableEditor.h"
+#include "PluginEditor.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/FmWidgets.h"
 #include "gui/LfoThumbs.h"
@@ -584,6 +586,76 @@ int runUiTests()
         expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
                 "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
 
+        // M7.3: Tine and Reed swap the string controls for the pickup.
+        set ("osc1_mode", 1.0f);
+        set ("osc1_excite", 7.0f);
+        settle (300);
+        expect (visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_ep_position") && visibleKnob ("osc1_hammer_hard")
+                    && ! visibleKnob ("osc1_string_stiffness") && ! visibleKnob ("osc1_string_sustain"),
+                "Tine shows DISTANCE, OFFSET and HAMMER instead of the string controls");
+        set ("osc1_excite", 0.0f);
+        settle (300);
+        expect (! visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_string_stiffness"),
+                "a plucked string hides the pickup controls again");
+        set ("osc1_mode", 0.0f);
+        settle (300);
+
+        // M7.4: EDIT copies a factory table into a free patch table and
+        // opens the editor on it; edits reach the table the oscillator plays.
+        {
+            const auto factoryCount = TableFactory::getNumFactoryTables();
+            set ("osc1_table", 3.0f);
+            settle (200);
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            juce::TextButton* editButton = nullptr;
+            for (auto* button : buttons)
+                if (button->getButtonText() == "EDIT" && visibleInTree (button) && editButton == nullptr)
+                    editButton = button;
+            expect (editButton != nullptr, "the OSC page has an EDIT button for the wavetable");
+            if (editButton != nullptr)
+            {
+                editButton->triggerClick();
+                settle (300);
+                auto* host = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+                auto* tableEditor = host != nullptr ? host->getWavetableEditor() : nullptr;
+                const auto choice = juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load());
+                expect (tableEditor != nullptr && tableEditor->isVisible() && choice >= factoryCount
+                            && processor.isUserSlotEdited (choice - factoryCount),
+                        "EDIT on a factory table opens the editor on a patch table the oscillator now plays");
+                if (tableEditor != nullptr)
+                {
+                    const auto slot = tableEditor->getSlot();
+                    const auto before = processor.getUserTableDoc (slot).frames[0];
+                    tableEditor->selectFrame (0);
+                    tableEditor->drawLine (0.0f, 1.0f, 0.5f, -1.0f);
+                    auto doc = processor.getUserTableDoc (slot);
+                    expect (doc.recipes[0].kind == FrameRecipe::Kind::Draw && doc.frames[0] != before,
+                            "drawing in the editor changes the table's first frame");
+                    tableEditor->setHarmonic (3, 0.8f);
+                    doc = processor.getUserTableDoc (slot);
+                    expect (doc.recipes[0].kind == FrameRecipe::Kind::Harmonics && doc.recipes[0].magnitudes.size() >= 3
+                                && std::abs (doc.recipes[0].magnitudes[2] - 0.8f) < 1.0e-6f,
+                            "a SPECTRUM bar sets that harmonic");
+                    expect (tableEditor->applyFormulaText ("sin(2*pi*x) * (1 - f)", true)
+                                && processor.getUserTableDoc (slot).recipes.back().kind == FrameRecipe::Kind::Formula,
+                            "a formula applies to every frame");
+                    expect (! tableEditor->applyFormulaText ("sin(", false), "a broken formula is refused");
+                    tableEditor->morphTable (16, true);
+                    expect (processor.getUserTableDoc (slot).getNumFrames() == 16
+                                && processor.getWavetable (factoryCount + slot)->getNumFrames() == 16,
+                            "MORPH rebuilds the table at 16 frames and the oscillator plays it");
+                    tableEditor->applyShape (1);
+                    save (*tableEditor, juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-wt-editor.png"));
+                    host->closeWavetableEditor();
+                    settle (100);
+                    expect (host->getWavetableEditor() == nullptr, "CLOSE takes the editor away");
+                }
+            }
+            set ("osc1_table", 7.0f);
+            settle (200);
+        }
+
         // ENV: DAHDSR and key-rate knobs.
         tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
         settle (300);
@@ -771,8 +843,13 @@ int main (int argc, char** argv)
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
 
+    // A factory preset by index or by name.
     if (argc > 2)
-        processor.loadFactoryPreset (juce::String (argv[2]).getIntValue());
+    {
+        const juce::String preset (argv[2]);
+        const auto byName = processor.getFactoryPresetNames().indexOf (preset);
+        processor.loadFactoryPreset (byName >= 0 ? byName : preset.getIntValue());
+    }
 
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))

@@ -8,6 +8,7 @@
 #include <complex>
 #include <vector>
 
+#include "ElectricPiano.h"
 #include "PianoTuning.h"
 
 #if defined (_MSC_VER)
@@ -27,8 +28,13 @@ public:
         Pulse,
         Bow,
         Hammer,  // M4: a felt hammer strikes, harder with velocity
-        External // M4: driven by the other oscillators (the FM matrix inputs)
+        External, // M4: driven by the other oscillators (the FM matrix inputs)
+        Tine,     // M7.3: a Rhodes-style tine and tone bar (ElectricPiano)
+        Reed      // M7.3: a Wurlitzer-style reed
     };
+
+    static constexpr int numExcites = 9;
+    bool isElectric() const { return excite == Excite::Tine || excite == Excite::Reed; }
 
     KarplusStrong()
         : random (nextSeed())
@@ -46,6 +52,7 @@ public:
 
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
+        electric.prepare (sampleRate);
         reset();
     }
 
@@ -63,10 +70,12 @@ public:
         pushLow = outputDcIn = outputDcOut = 0.0f;
         thiranInput = thiranOutput = 0.0f;
         bridgeInput = 0.0f;
+        electric.reset();
     }
 
     void setFrequency (double hz)
     {
+        electric.setFrequency (hz);
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
         updateHammerFeedback();
         updatePianoDispersion();
@@ -75,6 +84,8 @@ public:
     void setParams (Excite newExcite, float newSustainLevel, float newDamping, float newDecay)
     {
         excite = newExcite;
+        if (isElectric())
+            electric.setModel (excite == Excite::Tine ? ElectricPiano::Model::Tine : ElectricPiano::Model::Reed);
         updateDispersionDelay();
         sustainLevel = juce::jlimit (0.0f, 1.0f, newSustainLevel);
         damping = juce::jlimit (0.0f, 1.0f, newDamping);
@@ -116,6 +127,25 @@ public:
         damper = juce::jlimit (0.0f, 1.0f, newDamper);
     }
 
+    // M7.3: the tine or reed's knobs (DECAY, DAMP, pickup distance and
+    // position, hammer hardness, damper).
+    void setElectricParams (float distance, float position)
+    {
+        electric.setParams (decay, damping, distance, position, hammerHardness, damper);
+    }
+
+    // M7.5: live audio driving the string (or tine / reed) on the next
+    // sample, whatever the exciter.
+    void addLiveInput (float value)
+    {
+        // Scaled so a string driven at its pitch comes out near the input's
+        // level (the loop resonates, so a little goes a long way).
+        if (isElectric())
+            electric.addForce (value * 0.02f);
+        else
+            bridgeInput += value * 0.1f;
+    }
+
     // Force arriving from the bridge (the other strings of the same note);
     // it is added on the next sample. It acts once per trip round the loop,
     // so scale it by pitch: the same loss per second in every register
@@ -129,6 +159,13 @@ public:
             return;
 
         const auto level = juce::jlimit (0.0f, 1.0f, velocity);
+
+        if (isElectric())
+        {
+            strikeVelocity = level;
+            electric.trigger (level);
+            return;
+        }
 
         // A bowed string starts still; the bow sets it moving (processBowed).
         if (excite == Excite::Bow)
@@ -207,6 +244,9 @@ public:
     {
         if (buffer.empty())
             return 0.0f;
+
+        if (isElectric())
+            return electric.process (noteHeld);
 
         if (excite == Excite::Bow)
             return processBowed (expression, noteHeld);
@@ -841,4 +881,5 @@ private:
     int horizontalWrite = 0;
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;
+    ElectricPiano electric;
 };

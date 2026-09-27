@@ -285,3 +285,48 @@ The roadmap gave three lines. These details were settled while building it.
   - **CPU:** alternating `ILANA_BENCH` runs against an M7.1 build (worktree) give heavy 45.0 % against 44.4 %. That is no regression; the 72 % and 49 % readings in the full runs were machine load.
   - **Test fix (M7.1):** the trance-gate test rendered 2.2 s (105,472 samples) but measured the second hit up to sample 116,000, reading past the buffer. It failed now and then in full runs only. It renders 2.5 s now.
   - **Verified:** all targets build. `--uitest`: 0 failures. `ILANA_M72_TEST=1`: 0 failures. Fingerprints: 0 of the old 245 changed. `ilanaTableTest` full suite: only the CPU checks fail, under machine load (six-oscillator Normal read 284–434 ms/s and the heavy patch up to 62 % across identical runs, with Ableton Live open); the A/B above shows no regression.
+
+## CPU pass (Claude, 2026-09-27)
+
+- 8 notes x 3 osc x 16 unison went from 37.7% to about 10% of a core; idle from 2.1% to 0.2% (512 blocks) and 7.9% to 0.5% (128 blocks).
+- `src/dsp/UnisonBank.h` renders each oscillator's wavetable unison with SSE (4 voices a step, 32-bit fixed-point phase) instead of 16 `WavetableOscillator`s. `getParam` uses a prebuilt hash and `ParamRef` IDs (resolved once) instead of the value tree's string map. Zero FM cells, unused LFO/envelope slots and unrouted LFO 1-4 waves are skipped. AVX2 was tried and measured no faster (the table reads dominate), so it was removed.
+- Tools: `ILANA_UNISON_BENCH=1` (bench plus the bank-vs-oscillator equivalence test), `ILANA_PROFILE=<unison>` (sampling profiler with call stacks; `ILANA_PROFILE_NOTES`, `_BLOCK`, `_SECONDS`).
+- Folder cleanup (2026-09-26): old snapshots, demos, fit runs, logs and the v1.1 portable binaries were deleted. `build/` keeps the CMake tree, `build/reference/` and `build/fit-best-final.json`; `snapshots/v12` is the latest UI set.
+
+## M7.3: Electric pianos (Claude, 2026-09-27)
+
+- **Engine:** `src/dsp/ElectricPiano.h`, used by `KarplusStrong` when EXCITE is **Tine** (7) or **Reed** (8), both appended to the excite lists. It is five decaying modes (complex rotators): the fundamental, the tone bar (a slightly detuned, slower mode), 2x (the tip's arc), and the clamped-free beam modes at 6.267x and 17.55x. A half-sine hammer force drives every mode for its contact time, which shortens with velocity, HAMMER and register. The output is the derivative of the pickup function of the displacement:
+  - Tine: a magnetic bump, 1 / (1 + ((x - offset) / d)^2), normalised by its steepest slope.
+  - Reed: the capacitive 1 / (1 - x / d), softly limited near the plate, then the preamp's high-pass and an asymmetric tanh.
+- **Knobs:** DECAY and DAMP (tone) reuse the string's; new per-oscillator `_ep_distance` and `_ep_position` (DISTANCE, OFFSET; appended parameters and mod destinations); HAMMER and DAMPER reuse the M4 keys parameters. The Physical card shows only these for Tine and Reed, and the wave display draws the pickup curve with the swing of a medium and a hard note.
+- **References:** `tools/RefHost.cpp` (`ilanaRefHost`) is a headless VST3 host that renders an installed instrument's default sound. It rendered Arturia Stage-73 V2 and Wurli V2 at MIDI 40, 60, 84 and velocity 40, 120 (4 s held, 1 s release) into `build/reference/ep/` (not committed).
+- **Fit:** `tools/fit_ep.py tine|reed` (coordinate search like `fit_piano.py`) over `EpTuning.h`, via `ILANA_NOTE_DEBUG=<preset>` with `ILANA_NOTE_SET=ep` and `ILANA_EP_TUNING`. The error sums onset spectrum, per-partial decay, between-partial noise, **bark** (the rise of partials 2+ from soft to hard), soft-to-hard gain and register balance. Tine: 2499 to 124; reed: 1677 to 135. The tine's 6.27x partial is capped at 0.6 s T60 (unconstrained, the fitter let it ring 2 s, which is unphysical; the capped fit costs 8 points). The remaining error is mostly the onset spectrum (about 7.5 dB RMS per partial) and between-partial noise.
+- **Presets:** Tine Keys and Reed Keys (Keys), level-matched.
+- **Not done:** the listening round. It is the user's: `ILANA_RENDER_DEMO=build/demo` renders both presets with the keys demos, and `build/fit-ep/<model>/base/` holds the fitted notes beside the references.
+
+## M7.4: Wavetable editor (Claude, 2026-09-27)
+
+- **Data:** `src/dsp/WavetableDoc.{h,cpp}`: frames (2048 samples, 1-256) plus a per-frame recipe (Raw, Draw points and smoothing, Harmonics magnitudes and phases, Formula). `src/dsp/Formula.h` is a small recursive-descent evaluator (x, f, n; the usual maths functions plus saw, square, tri, pulse).
+- **Storage:** each edited or loaded table is a versioned `<Wavetable slot=... version=1>` child of a `<Wavetables>` node in the patch state, with the recipe (an unedited factory copy stores just its index), 16-bit gzip base64 frames whenever the recipe can't rebuild it exactly, and the source path as a hint. The loader tries recipe, then data, then the file; failing all three, the slot resets and `getTableNotice()` explains why. The old `userTablePathN` properties are still written and read, so old patches load as before and embed their table on the next save.
+- **Slots:** `numUserSlots` 4 to 16; the choices are appended after User 4, so no index moves. A slot never edited shares its factory table (no rebuild), so the extra slots cost nothing at startup.
+- **Editor UI:** `src/gui/WavetableEditor.h`, an overlay over the whole window, opened by **EDIT** beside LOAD .WAV (a factory table is first copied into a free patch table). Frame list; DRAW (snap 8-64 steps, SMOOTH), SPECTRUM (harmonics 1-64, level in dB and phase), FORMULA (this frame or all frames); SHAPES; MORPH (crossfade or spectral, between frames or across the whole table at 8-256 frames); UNDO (30 steps); IMPORT (file or resynthesis); EXPORT; LIBRARY (`Documents/ilanaSynth Wavetables`, `.wav` plus an `.ilwt` recipe sidecar). Edits reach the sound after 120 ms (debounced), since rebuilding a big table takes tens of ms.
+- **Files:** export writes 32-bit float with a `clm ` chunk (`<!>2048 00000000 wavetable (ilanaSynth)`); import reads the frame size from `clm ` or `uhWT` (`Wavetable::readWavFrameSize`) and resamples to 2048.
+- **Tests:** `ILANA_M73_TEST=1` (M7.3 and M7.4) and the UI test's EDIT, DRAW, SPECTRUM, FORMULA, MORPH and CLOSE steps.
+
+## M7.5: ilanaSynth FX (Claude, 2026-09-27)
+
+- **Build:** a second plugin target `ilanaSynthFX` (VST3 and standalone, `ILANA_FX=1`, code `Ilnf`, category Fx, stereo or mono in, MIDI in) on the same sources, so presets and parameters are shared. `IlanaSynthAudioProcessor::isEffectBuild` switches the FX-only parts; the instrument never runs them.
+- **Input path:** `captureLiveInput` copies the input aside and clears the buffer; `prepareLiveInput` applies INPUT GAIN, runs the envelope follower, writes 3 s of history for live grains, upsamples the input to the voice rate (linear, for 2x/4x), and sends GATE or DRONE notes (IN NOTE) into the MIDI before the generative stage. DRY adds the untouched input at the end (without the oversamplers' latency).
+- **Where the input goes:** oscillator mode **Live** (4, appended); **LIVE** grains (`_grain_live`, granular mode reads the history ring, POSITION is how far back); `in_body` into the BODY exciter (material bodies); `in_strings` into Physical strings (`KarplusStrong::addLiveInput`, bridge input at 0.1, or a force on a tine or reed); **Input Env**, a new global mod source (appended; an INPUT chip in the FX build).
+- **Presets** (category FX Input, silent in the instrument): Live Body (the effect opens on it), Live Wah, Live Grains, Live Strings.
+- **UI:** an INPUT tab (last, FX build only) with level and envelope meters, the controls, help and quick starts. Live mode shows LIVE INPUT with a level bar.
+- **Tests:** `ilanaFxTest` (built as the effect): layouts, no leak without routing, DRY, Live oscillator and gain, body, strings, gate, envelope follower, Live Wah, live grains, every FX preset, and the editor's INPUT page. `ILANA_RENDER_DEMO=build/demo/fx ilanaFxTest` renders every FX preset over drums, plucks and a voice.
+
+## Debug and polish after M7.5 (Claude, 2026-09-27)
+
+- **Split renders:** a MIDI event mid-block splits the voices' render, and the second part read the shared LFO, clocked S&H and MSEG buffers from the block's first sample, so modulation jumped at every note, arp step or CC. Voices now index them from where the render starts (`Voice::renderStart`). New test: an unused CC mid-block leaves an LFO-modulated note sample-identical. Fingerprints: unchanged (their renders don't split).
+- Live Strings was 20 dB over its input (the loop resonates); the string drive is scaled down by 10x. The FX test's string check uses the Osc In exciter so it measures the input alone.
+- Presets appended after Supersaw Bell Body (they had been inserted before it, moving its index).
+- The factory-preset tuning, level and silence checks skip the FX Input category; the excite-list check allows appended choices.
+- Knob text for the input's ms and dB values; a wave display tooltip for Tine/Reed and Live; the 3D button hides where it doesn't apply; a SMOOTH label in the editor; OSC card titles read LIVE.
+- `build-and-install.cmd` builds and installs ilanaSynth FX as well.

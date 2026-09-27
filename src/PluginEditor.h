@@ -18,6 +18,8 @@
 #include "gui/PresetPanel.h"
 #include "gui/TutorialOverlay.h"
 
+class WavetableEditor;
+
 class IlanaSynthAudioProcessorEditor : public juce::AudioProcessorEditor,
                                        public juce::DragAndDropContainer,
                                        private juce::ChangeListener,
@@ -30,6 +32,12 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
+
+    // M7.4: opens the wavetable editor on patch table slot (0-15) over the
+    // whole window.
+    void openWavetableEditor (int slot, juce::Colour colour);
+    void closeWavetableEditor();
+    WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
 private:
     struct Content : public juce::Component
@@ -103,6 +111,7 @@ private:
     juce::TextButton keysButton { "KEYS" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+    std::unique_ptr<WavetableEditor> wavetableEditor;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<PresetPanel> presetPanel;
 

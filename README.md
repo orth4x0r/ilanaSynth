@@ -9,16 +9,36 @@ An aggressive wavetable synthesizer for VST3, built with JUCE.
 ## What it is
 
 IlanaSynth is a complete sound design machine:
-- **Oscillators:** six full oscillators, each with wavetable, physical-modelling string, sample and granular modes, plus a dedicated sub. OSC 4–6 start off.
+- **Oscillators:** six full oscillators, each with wavetable, physical modelling (strings, and Rhodes- and Wurlitzer-style electric pianos), sample, granular and live-input modes, plus a dedicated sub. OSC 4–6 start off.
 - **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
-- **Wavetables:** 40 wavetables, with spectral warps that reshape their harmonics and Casio CZ-style phase distortion.
+- **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
 - **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
 - **Effects:** a 10-slot rack with 29 modules, including a trance gate.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
-- **Resonator:** a tuned resonator after the filters.
+- **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
+- **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
 
-It all sits in a hardware-inspired interface with 245 factory presets.
+It all sits in a hardware-inspired interface with 256 factory presets.
+
+---
+
+## What's new since 1.2 (v1.3, in progress)
+
+- **Generative card**: Euclidean rhythms, a probability sequencer and strum (M7.1).
+- **BODY section**: bar, plate, bell and shell bodies with a MATERIAL knob, and string/body coupling (M7.2).
+- **Electric pianos**: two new Physical exciters, **Tine** (Rhodes-style: a struck tine and tone bar read by a magnetic pickup) and **Reed** (Wurlitzer-style: a struck reed read by an electrostatic pickup, through its preamp). Pickup **DISTANCE** and **OFFSET** set how hard hard notes bark or growl; the display draws the pickup curve and the swing. The models are fitted to the default sounds of Arturia's Stage-73 V2 and Wurli V2. Presets: Tine Keys and Reed Keys.
+- **Wavetable editor**: **EDIT** on any wavetable oscillator opens it. A frame list (add, duplicate, delete, reorder, up to 256 frames), **DRAW** with snap and smoothing, **SPECTRUM** bars for each harmonic's level and phase, **FORMULA** (for example `sin(2*pi*x) * (1 - f)`), basic **SHAPES**, **MORPH** between frames (crossfade or spectral), **IMPORT** (Serum, Vital and other tables, or any recording by resynthesis), **EXPORT** as a `.wav` Serum and Vital read, and a **LIBRARY** in `Documents/ilanaSynth Wavetables`.
+  - Patches now keep **16 patch tables** (was 4 user slots), and store every edited or loaded table inside the patch, so a patch keeps its tables when the `.wav` moves or on another computer. Old patches load as before and embed their tables the next time they are saved.
+- **ilanaSynth FX**, a second plugin (VST3 effect) with the same engine and presets, and an **INPUT** page:
+  - an oscillator in **Live** mode plays the input through the filters, FM and effects
+  - **LIVE** grains granulate the last three seconds of the input
+  - **TO BODY** rings the BODY section; **TO STRINGS** drives Physical strings, tines and reeds
+  - **TRIGGER**: Gate plays a note while the input is loud, Drone holds one down (no MIDI needed); MIDI notes work too
+  - **Input Env**, the input's envelope, is a new modulation source (the INPUT chip)
+  - input **GAIN** and **DRY**
+  - quick starts: Live Body, Live Wah, Live Grains and Live Strings. The effect opens on Live Body.
+- Old patches and sessions load and sound as before.
 
 ---
 
@@ -97,9 +117,10 @@ It all sits in a hardware-inspired interface with 245 factory presets.
 
 Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at full size. **+ ADD OSCILLATOR** (OSC and MAIN pages) adds the next one, switched on, and **×** removes one (switches it off and hides it). More than three cards scroll. OSC 4–6 are off and hidden in old patches and new Init patches; an oscillator that is on is always shown. The FM page's diagram and matrix show only the added oscillators.
 - Four modes per oscillator:
-  - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 4 user slots.
+  - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 16 patch tables (User 1–16) saved inside the patch.
     - Click the TABLE box for the visual browser.
-    - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display.
+    - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display. Tables from Serum, Vital and other tools load with their frame size.
+    - **EDIT** opens the wavetable editor (see *What's new since 1.2*). Editing a factory table copies it into a free patch table first; factory tables never change.
   - **Physical**: plucked, bowed, hammered or oscillator-driven string with adjustable stiffness (sharp upper partials), damping, pickup and excitation positions, pick hardness and position, and a slap attack.
     - **Bow**: a stick-slip friction bow (two waveguides either side of the bow) with pressure and speed; MPE pressure and channel aftertouch increase bow pressure.
     - **Hammer**: a felt hammer whose contact gets shorter (brighter) with velocity and HAMMER hardness. EXCITE POS is the strike point (1/8 by default).
@@ -107,11 +128,14 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
     - **COUPLING**: with UNISON 2–3 and a small DETUNE, a note's strings share the bridge, giving a piano's fast first decay and long beating aftersound.
     - **DAMPER** stops the string once the key (and sustain pedal) is up; **REGISTER** makes treble strings stiffer and brighter and bass strings longer.
     - Bridge buzz and velocity-sensitive fret rattle are optional.
+    - **Tine** and **Reed**: electric pianos in place of the string, with DECAY, DAMP (tone), pickup DISTANCE and OFFSET, HAMMER and DAMPER.
   - **Sample**: any `.wav` up to 120 s.
     - Tuned or untuned playback, loop / one-shot, reverse, start and end points, and fades.
     - Five factory samples are built in: Metal Hit, Vocal Ah, Sub Tone, Vinyl Loop and Noise Rise. Right-click the display to pick one.
   - **Granular**: grains from the oscillator's sample (a vocal until you load your own).
     - Controls: POSITION, SIZE (10–500 ms), DENSITY, SPRAY, PITCH RND and STEREO.
+    - In ilanaSynth FX, **LIVE** reads the grains from the incoming audio instead.
+  - **Live** (ilanaSynth FX): the incoming audio, with LEVEL and PAN, into the filters, FM and effects.
 - **Spectral warp** (wavetable mode): Stretch, Shift, Odd/Even, Formant, Smear or Harmonic Cut, with an amount. The display shows the warped wave.
 - **Warp modes**: Sync, Bend +, Bend −, PWM, Mirror, Asym, Quantize, FM and Ring, and the Casio CZ's phase distortion: PD Saw, PD Square, PD Pulse and the resonant PD Res I–III (try them on the Sine table).
   - Picking a warp opens a **WARP CHAIN** row: a second warp stage after the first, and a **WARP ENV** (any envelope or the MSEG) that opens both, like the CZ's DCW.
@@ -282,6 +306,8 @@ git checkout main
 git pull origin main
 .\build-and-install.cmd
 ```
+
+The script also installs **ilanaSynth FX** (`C:\Program Files\Common Files\VST3\ilanaSynth FX.vst3`). In Ableton Live it appears under Audio Effects: put it on an audio track (or after an instrument) and play into it. It needs no MIDI (use TRIGGER on the INPUT page); to play it from a MIDI track, set that track's MIDI To the FX track.
 
 ### Windows: installer
 1. Run `ilanaSynth-1.2-Windows-Setup.exe`, which installs the VST3 and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.

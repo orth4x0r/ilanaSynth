@@ -23,6 +23,12 @@ public:
 
     bool loadFromFile (const juce::File& file, LoadMode mode = LoadMode::Automatic);
 
+    // The frames a file holds (2048 samples each), without building a table.
+    static bool readFrames (const juce::File& file, LoadMode mode, std::vector<std::vector<float>>& frames);
+
+    // A wavetable .wav's frame size from its "clm " / "uhWT" chunk, or 0.
+    static int readWavFrameSize (const juce::File& file);
+
     // Builds frames from arbitrary audio by pitch-detecting it and taking up
     // to maxFrames single cycles spread across it. Returns false if no pitch
     // was found (in which case fixed windows are used).

@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so are M7.0 (follow-ups from the 1.2 polish pass), M7.1 (the Generative card) and M7.2 (the BODY section). Next up: electric pianos (M7.3).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX). Next up: the west-coast voice (M8.1).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -135,13 +135,14 @@ Left over from the bug and polish pass on 2026-09-26 (see the end of `docs/HANDO
 - **Old patches**: the current resonator becomes the "Classic" body, so old patches sound the same.
 - **Reference**: struck recordings of a wooden bar (marimba), a metal plate, a bell and a glass. Fitted on partial ratios and decay per partial.
 
-#### M7.3: Electric pianos (was M4b)
+#### M7.3: Electric pianos (was M4b) — done
 It comes after the bodies: a tine and its tone bar are a struck bar, which M7.2 builds.
 - **Tine** (Rhodes-style): a struck tine and tone bar. Pickup position and distance set how hard it barks.
 - **Reed** (Wurlitzer-style): a struck reed with a pickup, whose growl feeds into the drives and amps.
 - **Reference**: Rhodes and Wurlitzer recordings, soft and hard, low, middle and high. Fitted like the piano, with the bark and growl measured as the change in upper partials from soft to hard.
+- **Result:** fitted to Stage-73 V2 and Wurli V2 defaults (tine error 2499 → 124, reed 1677 → 135; `tools/fit_ep.py`). The listening round is still to do.
 
-#### M7.4: Wavetable editor (was M8b)
+#### M7.4: Wavetable editor (was M8b) — done
 The biggest gap against Vital and Serum 2, which both let you build tables in the plugin.
 - **Frame editor** on the OSC page: a frame list, with add, duplicate, delete and reorder.
 - **Draw mode**: draw a single-cycle wave with the mouse, with smoothing and snap options.
@@ -169,7 +170,7 @@ Other rules:
 - **User library**: tables saved on their own go to `Documents/ilanaSynth Wavetables` as `.wav` plus a small `.ilwt` sidecar holding the recipe.
 - **Later**: M14 (resample to oscillator) will write into the same format.
 
-#### M7.5: Audio input, two plugins (was M9)
+#### M7.5: Audio input, two plugins (was M9) — done
 This ships as two separate plugins, which is simpler technically:
 - **ilanaSynth**: the instrument, unchanged.
 - **ilanaSynth FX**: an effect plugin that takes audio input. The input can:

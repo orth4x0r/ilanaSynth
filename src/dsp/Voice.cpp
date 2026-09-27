@@ -175,6 +175,8 @@ void Voice::syncSamplePlayers()
             grainParams.pitchSpray = osc.grainPitch;
             grainParams.spread = osc.grainSpread;
             grainParams.reverse = osc.sampleReverse;
+            grainParams.live = osc.grainLive;
+            grainParams.liveWrite = osc.liveWrite;
 
             for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
                 clouds[u].setParams (grainParams);
@@ -577,6 +579,7 @@ void Voice::updateUnisonLayout()
 
 void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples)
 {
+    renderStart = startSample;
     if (! hasActiveAmpEnvelope())
     {
         lastAmpValue = 0.0f;
@@ -941,6 +944,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int i = 0; i < numSamples; ++i)
     {
+        const auto liveSample = params.liveInput != nullptr ? params.liveInput[startSample + i] : 0.0f;
         const auto ampValue = ampEnv.getNextSample();
         const auto filterValue = filterEnv.getNextSample();
         const auto filter2Value = filter2Env.getNextSample();
@@ -1087,7 +1091,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 auto stringSum = 0.0f;
                 const auto selectedEnv = envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
                 const auto oscGain = renderLevel * enable * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
-                const auto wavetable = ! settings.granularMode && ! settings.sampleMode && ! settings.stringMode;
+                const auto wavetable = ! settings.granularMode && ! settings.sampleMode && ! settings.stringMode
+                                       && ! settings.liveMode;
 
                 if (wavetable)
                 {
@@ -1108,7 +1113,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     float sampleL = 0.0f;
                     float sampleR = 0.0f;
 
-                    if (settings.granularMode)
+                    if (settings.liveMode)
+                    {
+                        raw = liveSample;
+                    }
+                    else if (settings.granularMode)
                     {
                         grains[osc][u].process (sampleL, sampleR);
                         raw = 0.5f * (sampleL + sampleR);
@@ -1120,6 +1129,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                     else
                     {
+                        if (params.inputToStrings > 0.0f)
+                            stringFor (osc, u).addLiveInput (liveSample * params.inputToStrings);
                         raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
                         stringSum += raw;
                     }
@@ -1239,6 +1250,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 bodyExciteL += busL[bus];
                 bodyExciteR += busR[bus];
             }
+            // M7.5: the live input rings the body too.
+            bodyExciteL += liveSample * params.inputToBody;
+            bodyExciteR += liveSample * params.inputToBody;
             if (params.bodyCouplingMode == 1)
             {
                 bodyExciteL *= 0.2f;
@@ -1421,13 +1435,15 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
         decay = juce::jlimit (0.0f, 1.0f, decay - amount * 0.05f * t);
     }
 
-    string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, 6, settings.stringExcite)),
+    string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, KarplusStrong::numExcites - 1, settings.stringExcite)),
                       settings.stringSustain, damping, decay);
     string.setPhysicalParams (stiffness, settings.stringPickup,
                               settings.stringExcitationPosition, settings.stringPickHardness,
                               settings.stringPickPosition, settings.stringSlap);
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setKeysParams (settings.hammerHardness, settings.damper);
+    if (string.isElectric())
+        string.setElectricParams (settings.epDistance, settings.epPosition);
 }
 
 bool Voice::hasActiveAmpEnvelope() const
@@ -1644,12 +1660,14 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
                                    + params.extraEnvVelocity[index] * velocityLevel;
         return extraEnvValues[index] * velocityScale;
     }
+    // The shared buffers cover the whole block; a render split by a MIDI
+    // event starts part-way in (renderStart).
     const auto lfoSource = [this, sampleIndex] (int lfo, const float* shared)
     {
         if (params.lfos[lfo].perVoice)
             return lfoValues[lfo];
 
-        return shared != nullptr ? shared[sampleIndex] : 0.0f;
+        return shared != nullptr ? shared[renderStart + sampleIndex] : 0.0f;
     };
 
     if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
@@ -1670,10 +1688,11 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::Macro2:     return params.macros[1];
         case Mod::Source::Macro3:     return params.macros[2];
         case Mod::Source::Macro4:     return params.macros[3];
-        case Mod::Source::ClockSh:    return params.clockSh != nullptr ? params.clockSh[sampleIndex] : 0.0f;
-        case Mod::Source::Mseg:       return params.mseg != nullptr ? params.mseg[sampleIndex] : 0.0f;
+        case Mod::Source::ClockSh:    return params.clockSh != nullptr ? params.clockSh[renderStart + sampleIndex] : 0.0f;
+        case Mod::Source::Mseg:       return params.mseg != nullptr ? params.mseg[renderStart + sampleIndex] : 0.0f;
         case Mod::Source::Env4:       return env4Value * velocityScaleFor (params.env4Velocity);
         case Mod::Source::FilterEnv2: return filter2Value * velocityScaleFor (params.filter2EnvVelocity);
+        case Mod::Source::InputEnv:   return params.inputEnv != nullptr ? params.inputEnv[renderStart + sampleIndex] : 0.0f;
         case Mod::Source::None:
         case Mod::Source::Count:
         default:                      return 0.0f;

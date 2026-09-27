@@ -186,6 +186,7 @@ struct VoiceParams
         // M4 keys: felt hardness, strings sharing the bridge, dampers on
         // release, and how much the string changes from bass to treble.
         float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;
+        float epDistance = 0.5f, epPosition = 0.5f; // M7.3 tine/reed pickup
         int chord = 0;
 
         bool sampleMode = false;
@@ -199,6 +200,9 @@ struct VoiceParams
         float sampleFadeOut = 0.0f;
 
         bool granularMode = false; // also sets sampleMode: grains read the sample
+        bool grainLive = false;    // M7.5: grains read the live input's history
+        int liveWrite = 0;
+        bool liveMode = false;     // M7.5: the Live mode plays the audio input
         float grainSizeMs = 80.0f;
         float grainDensity = 0.5f;
         float grainSpray = 0.15f;
@@ -317,6 +321,11 @@ struct VoiceParams
     const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice
     const float* clockSh = nullptr;
     const float* mseg = nullptr;
+    // M7.5 live input (ilanaSynth FX), at the voice rate for this block, and
+    // its envelope follower; null when there is no input.
+    const float* liveInput = nullptr;
+    const float* inputEnv = nullptr;
+    float inputToBody = 0.0f, inputToStrings = 0.0f;
     LfoParams lfos[numLfos];
 
     // Only the slots that are switched on, packed at the front, plus the
@@ -435,6 +444,7 @@ private:
     // Keep the first three banks' default-construction seed sequence exactly
     // as before M3b. Extra banks use explicit seeds and do not advance the
     // shared KarplusStrong counter used by existing presets.
+    int renderStart = 0; // where this render call starts in the block (M7.5)
     KarplusStrong stringUnison[3][VoiceParams::maxBufferedUnison];
     struct ExtraStringBank
     {

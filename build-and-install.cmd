@@ -3,8 +3,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 title ilanaSynth - build and install
 
 rem ==========================================================================
-rem  Builds the ilanaSynth VST3 + standalone (Release) and installs them:
+rem  Builds the ilanaSynth VST3 + standalone (Release) and ilanaSynth FX (the
+rem  effect that plays audio input) and installs them:
 rem    VST3       -> C:\Program Files\Common Files\VST3\ilanaSynth.vst3
+rem    VST3 (FX)  -> C:\Program Files\Common Files\VST3\ilanaSynth FX.vst3
 rem    Standalone -> C:\Program Files\ilanaSynth\ilanaSynth.exe
 rem
 rem  Needs: Visual Studio 2022 (or Build Tools) with "Desktop development
@@ -72,12 +74,13 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Building the VST3 and standalone (Release) ===
-"%CMAKE%" --build build --config Release --target ilanaSynth_VST3 ilanaSynth_Standalone --parallel
+echo === Building the VST3s and standalone (Release) ===
+"%CMAKE%" --build build --config Release --target ilanaSynth_VST3 ilanaSynth_Standalone ilanaSynthFX_VST3 --parallel
 if errorlevel 1 goto :fail
 
 set "VST3_SRC=%~dp0build\ilanaSynth_artefacts\Release\VST3\ilanaSynth.vst3"
 set "APP_SRC=%~dp0build\ilanaSynth_artefacts\Release\Standalone\ilanaSynth.exe"
+set "FX_SRC=%~dp0build\ilanaSynthFX_artefacts\Release\VST3\ilanaSynth FX.vst3"
 if not exist "%VST3_SRC%" (
     echo ERROR: build finished but "%VST3_SRC%" is missing.
     goto :fail
@@ -89,6 +92,7 @@ if not defined COMMON set "COMMON=%CommonProgramFiles%"
 set "PROGRAMS=%ProgramW6432%"
 if not defined PROGRAMS set "PROGRAMS=%ProgramFiles%"
 set "VST3_DST=%COMMON%\VST3\ilanaSynth.vst3"
+set "FX_DST=%COMMON%\VST3\ilanaSynth FX.vst3"
 set "APP_DST=%PROGRAMS%\ilanaSynth"
 
 echo.
@@ -98,6 +102,15 @@ if errorlevel 8 (
     echo ERROR: could not copy the VST3. Close your DAW (it may be holding the
     echo plugin open^) and run this script again.
     goto :fail
+)
+
+if exist "%FX_SRC%" (
+    echo === Installing ilanaSynth FX to "%FX_DST%" ===
+    robocopy "%FX_SRC%" "%FX_DST%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+    if errorlevel 8 (
+        echo ERROR: could not copy ilanaSynth FX. Close your DAW and run this again.
+        goto :fail
+    )
 )
 
 if exist "%APP_SRC%" (
@@ -115,6 +128,7 @@ echo.
 echo ==========================================================================
 echo  Done. ilanaSynth is installed.
 echo    VST3:       %VST3_DST%
+echo    VST3 (FX):  %FX_DST%
 echo    Standalone: %APP_DST%\ilanaSynth.exe  (shortcut on the desktop)
 echo  Rescan plugins in your DAW to pick it up.
 echo ==========================================================================

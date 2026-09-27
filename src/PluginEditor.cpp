@@ -26,6 +26,7 @@
 #include "gui/FmWidgets.h"
 #include "gui/GenerativeWidgets.h"
 #include "gui/TableBrowser.h"
+#include "gui/WavetableEditor.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -146,11 +147,14 @@ class OscPage : public juce::Component,
               hammer (state, prefix + "_hammer_hard", "HAMMER"),
               couple (state, prefix + "_couple", "COUPLING"),
               damper (state, prefix + "_damper", "DAMPER"),
-              registerMap (state, prefix + "_register", "REGISTER") {}
+              registerMap (state, prefix + "_register", "REGISTER"),
+              epDistance (state, prefix + "_ep_distance", "DISTANCE"),
+              epPosition (state, prefix + "_ep_position", "OFFSET") {}
 
         KnobControl stiffness, pickup, excitePos, hardness, pickPos;
         KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
         KnobControl hammer, couple, damper, registerMap;
+        KnobControl epDistance, epPosition; // M7.3 Tine / Reed pickup
         ToggleControl slap;
     };
 
@@ -193,6 +197,7 @@ class OscPage : public juce::Component,
               grainSpray (state, prefix + "_grain_spray", "SPRAY"),
               grainPitch (state, prefix + "_grain_pitch", "PITCH RND"),
               grainSpread (state, prefix + "_grain_spread", "STEREO"),
+              grainLive (state, prefix + "_grain_live", "LIVE"),
               warp2 (state, prefix + "_warp2", "WARP 2"),
               pdEnv (state, prefix + "_pd_env", "WARP ENV"),
               warp2Amt (state, prefix + "_warp2_amt", "WARP 2 AMT"),
@@ -208,6 +213,7 @@ class OscPage : public juce::Component,
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut;
         KnobControl warpAmt, uniBlend, spectralAmt;
         KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
+        ToggleControl grainLive; // M7.5: grains from the live input (ilanaSynth FX)
     };
 
 public:
@@ -235,6 +241,7 @@ public:
                 prefix + "_spread", prefix + "_detune", false, juce::String {},
                 prefix + "_mode", i, oscColour (i), i == 0);
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD .WAV");
+            editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
         }
 
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -247,7 +254,8 @@ public:
                     physicalControls.bowPressure, physicalControls.bowSpeed,
                     physicalControls.bridgeBuzz, physicalControls.fretRattle,
                     physicalControls.hammer, physicalControls.couple,
-                    physicalControls.damper, physicalControls.registerMap);
+                    physicalControls.damper, physicalControls.registerMap,
+                    physicalControls.epDistance, physicalControls.epPosition);
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
@@ -263,7 +271,7 @@ public:
         {
             auto& osc = *item;
             addAll (*this, osc.grainPosition, osc.grainSize, osc.grainDensity,
-                    osc.grainSpray, osc.grainPitch, osc.grainSpread,
+                    osc.grainSpray, osc.grainPitch, osc.grainSpread, osc.grainLive,
                     osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode,
                     osc.warpAmt, osc.uniBlend, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
 
@@ -282,6 +290,11 @@ public:
             setupLoadButton (loadButton (i),
                              juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table", 0);
             addAndMakeVisible (loadButton (i));
+            auto& edit = *editButtons[(size_t) i];
+            edit.setTooltip ("Edit this wavetable: draw frames, set harmonics, formulas and morphs.\n"
+                             "A factory table is copied into one of the patch's 16 tables first.");
+            edit.onClick = [this, i] { openTableEditor (i); };
+            addAndMakeVisible (edit);
         }
 
         addAll (*this, subShape, subOctave, noiseLevel);
@@ -414,8 +427,8 @@ public:
             g.setColour (tint.withAlpha (0.85f));
             g.fillRoundedRectangle (strip, 1.5f);
 
-            const std::array<const char*, 4> modeNames { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
-            const auto mode = juce::jlimit (0, 3, getMode (band));
+            const std::array<const char*, 5> modeNames { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
+            const auto mode = juce::jlimit (0, 4, getMode (band));
 
             g.setColour (tint);
             g.setFont (IlanaTheme::font (13.0f, true));
@@ -726,6 +739,8 @@ private:
         removeButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (22).withSizeKeepingCentre (20, 15));
         titleStrip.removeFromRight (6);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
+        titleStrip.removeFromRight (4);
+        editButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (44).withSizeKeepingCentre (44, 15));
 
         auto content = band.reduced (8);
         content.removeFromTop (20);
@@ -765,12 +780,40 @@ private:
         if (isGranular)
         {
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.sampleTuned, &osc.sampleReverse,
-                                   &osc.uniMode, &osc.chord, &osc.ampEnv });
+            if (IlanaSynthAudioProcessor::isEffectBuild)
+                layoutSlots (topRow, { &osc.on, &osc.mode, &osc.grainLive, &osc.sampleTuned, &osc.sampleReverse,
+                                       &osc.uniMode, &osc.chord, &osc.ampEnv });
+            else
+                layoutSlots (topRow, { &osc.on, &osc.mode, &osc.sampleTuned, &osc.sampleReverse,
+                                       &osc.uniMode, &osc.chord, &osc.ampEnv });
             layoutSlots (bottomRow, { &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                       &osc.grainSpray, &osc.grainPitch, &osc.grainSpread,
                                       &osc.level, &osc.pan, &osc.semi, &osc.fine,
                                       &osc.unison, &osc.detune });
+            return;
+        }
+
+        if (mode == 4)
+        {
+            // M7.5 Live: the input itself, so no pitch or shape controls.
+            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
+            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.ampEnv });
+            layoutSlots (bottomRow, { &osc.level, &osc.pan, nullptr, nullptr, nullptr, nullptr });
+            return;
+        }
+
+        if (isString && isElectric (index))
+        {
+            // M7.3 Tine / Reed: the pickup and the hammer; the string's own
+            // controls don't apply.
+            auto& physicalControls = *physical[(size_t) index];
+            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
+            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
+            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.excite, &osc.uniMode, &osc.chord, &osc.ampEnv });
+            layoutSlots (middleRow, { &osc.stringDecay, &osc.stringDamp, &physicalControls.epDistance,
+                                      &physicalControls.epPosition, &physicalControls.hammer, &physicalControls.damper });
+            layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
+                                      &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
             return;
         }
 
@@ -912,9 +955,11 @@ private:
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
-                 &osc.grainSpread, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
+                 &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
-                 &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap, &waveDisplay (i), &loadButton (i), removeButtons[(size_t) i].get() };
+                 &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
+                 &phys.epDistance, &phys.epPosition, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
+                 removeButtons[(size_t) i].get() };
     }
 
     void updateModeVisibility()
@@ -955,16 +1000,32 @@ private:
                              && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
             physicalControls.bowPressure.setVisible (bow);
             physicalControls.bowSpeed.setVisible (bow);
-            physicalControls.hammer.setVisible (stringVisible
-                                                && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 5.0f);
+            const auto electric = stringVisible && isElectric (i);
+            physicalControls.hammer.setVisible (electric || (stringVisible
+                                                && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 5.0f));
+            physicalControls.epDistance.setVisible (electric);
+            physicalControls.epPosition.setVisible (electric);
+            if (electric)
+                for (juce::Component* control : { (juce::Component*) &physicalControls.stiffness,
+                                                  (juce::Component*) &physicalControls.pickup,
+                                                  (juce::Component*) &physicalControls.excitePos,
+                                                  (juce::Component*) &physicalControls.hardness,
+                                                  (juce::Component*) &physicalControls.pickPos,
+                                                  (juce::Component*) &physicalControls.slap,
+                                                  (juce::Component*) &physicalControls.bridgeBuzz,
+                                                  (juce::Component*) &physicalControls.fretRattle,
+                                                  (juce::Component*) &physicalControls.couple,
+                                                  (juce::Component*) &physicalControls.registerMap })
+                    control->setVisible (false);
 
             auto& osc = *controls[(size_t) i];
+            editButtons[(size_t) i]->setVisible (mode == 0);
             osc.table.setVisible (mode == 0);
             osc.frame.setVisible (mode == 0);
             osc.excite.setVisible (mode == 1);
             osc.stringDecay.setVisible (mode == 1);
             osc.stringDamp.setVisible (mode == 1);
-            osc.stringSustain.setVisible (mode == 1);
+            osc.stringSustain.setVisible (mode == 1 && ! isElectric (i));
             osc.sampleTuned.setVisible (mode >= 2);
             osc.sampleLoop.setVisible (mode == 2);
             osc.sampleReverse.setVisible (mode >= 2);
@@ -987,8 +1048,15 @@ private:
             osc.grainSpray.setVisible (mode == 3);
             osc.grainPitch.setVisible (mode == 3);
             osc.grainSpread.setVisible (mode == 3);
+            osc.grainLive.setVisible (mode == 3 && IlanaSynthAudioProcessor::isEffectBuild);
             osc.uniBlend.setVisible (mode != 3);
             osc.spread.setVisible (mode != 3);
+            // M7.5 Live: the input has no pitch, unison or table to show.
+            if (mode == 4)
+                for (auto* control : std::initializer_list<juce::Component*> { &osc.semi, &osc.fine, &osc.unison, &osc.detune,
+                                                                               &osc.uniBlend, &osc.spread, &osc.uniMode, &osc.chord,
+                                                                               &loadButton (i) })
+                    control->setVisible (false);
         }
 
         const auto symOnNow = readBool ("sym_on");
@@ -1005,6 +1073,13 @@ private:
         repaint();
         if (onModeChanged != nullptr)
             onModeChanged();
+    }
+
+    // M7.3: the Tine and Reed excites (7, 8) have their own controls.
+    bool isElectric (int index) const
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+        return processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() >= 7.0f;
     }
 
     static void setGroupEnabled (std::initializer_list<juce::Component*> controls, bool enabled)
@@ -1038,7 +1113,8 @@ private:
                                &physicalControls.bowPressure, &physicalControls.bowSpeed,
                                &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
                                &physicalControls.hammer, &physicalControls.couple,
-                               &physicalControls.damper, &physicalControls.registerMap }, enabled);
+                               &physicalControls.damper, &physicalControls.registerMap,
+                               &physicalControls.epDistance, &physicalControls.epPosition }, enabled);
 
             auto& osc = *controls[(size_t) index];
             setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
@@ -1064,6 +1140,8 @@ private:
             waveDisplay (index).setEnabled (enabled);
             loadButton (index).setEnabled (! chooserOpen && enabled);
             loadButton (index).setAlpha (alpha);
+            editButtons[(size_t) index]->setEnabled (enabled);
+            editButtons[(size_t) index]->setAlpha (alpha);
         }
     }
 
@@ -1073,6 +1151,41 @@ private:
         return value != nullptr ? juce::roundToInt (value->load()) : 0;
     }
 
+public:
+    // M7.4: EDIT. A user table is edited in place; a factory table is first
+    // copied into a free patch table, which the oscillator then plays.
+    void openTableEditor (int index)
+    {
+        const auto id = juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table";
+        const auto factoryCount = TableFactory::getNumFactoryTables();
+        const auto choice = readTableChoiceIndex (id);
+        auto slot = choice - factoryCount;
+
+        if (slot < 0)
+        {
+            slot = processorRef.findFreeUserSlot();
+            if (slot < 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable editor",
+                                                        "All 16 patch tables are in use. Pick a User table to edit it.");
+                return;
+            }
+            auto doc = WavetableDoc::fromFactory (choice);
+            doc.name << " edit";
+            processorRef.setUserTable (slot, doc);
+            if (auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (factoryCount + slot)));
+                parameter->endChangeGesture();
+            }
+        }
+
+        if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+            editor->openWavetableEditor (slot, oscColour (index));
+    }
+
+private:
     int readTableChoiceIndex (const juce::String& tableId) const
     {
         if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (tableId)))
@@ -1086,7 +1199,7 @@ private:
     std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
     std::array<juce::Rectangle<int>, OscillatorIds::count> chainLabel {}, chainBay {};
 
-    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons;
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons;
     juce::TextButton addButton;
     std::unique_ptr<juce::FileChooser> tableChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
@@ -2453,6 +2566,171 @@ private:
     std::array<int, OscillatorIds::count> lastTune {};
     std::vector<int> shown;
     int selectedOperator = 0;
+};
+
+// M7.5: ilanaSynth FX's INPUT page: the input's level and envelope, its
+// gain and trigger, where it goes, and quick starts.
+class InputPage : public juce::Component,
+                  private juce::Timer
+{
+public:
+    explicit InputPage (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          gain (p.apvts, "in_gain", "GAIN", inputColour(), false),
+          dry (p.apvts, "in_dry", "DRY", inputColour(), false),
+          trigger (p.apvts, "in_trigger", "TRIGGER"),
+          threshold (p.apvts, "in_threshold", "THRESHOLD", inputColour(), false),
+          note (p.apvts, "in_note", "NOTE", inputColour(), false),
+          attack (p.apvts, "in_attack", "ATTACK", inputColour(), false),
+          release (p.apvts, "in_release", "RELEASE", inputColour(), false),
+          toBody (p.apvts, "in_body", "TO BODY", routeColour(), false),
+          toStrings (p.apvts, "in_strings", "TO STRINGS", routeColour(), false)
+    {
+        addAll (*this, gain, dry, trigger, threshold, note, attack, release, toBody, toStrings);
+        const char* names[] { "Live Body", "Live Wah", "Live Grains", "Live Strings" };
+        const char* tips[] { "The input rings a metal body (BODY section)",
+                             "A Live oscillator through a filter the input's envelope opens",
+                             "A granular oscillator reading the last seconds of the input",
+                             "The input keeps two strings ringing, E and B" };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& button = quickStarts[(size_t) i];
+            button.setButtonText (juce::String (names[i]).toUpperCase());
+            button.setTooltip (tips[i]);
+            button.onClick = [this, name = juce::String (names[i])]
+            {
+                const auto index = processorRef.getFactoryPresetNames().indexOf (name);
+                if (index >= 0)
+                    processorRef.loadFactoryPreset (index);
+            };
+            addAndMakeVisible (button);
+        }
+        startTimerHz (30);
+    }
+
+    static juce::Colour inputColour() { return juce::Colour (0xff5fd3ff); }
+    static juce::Colour routeColour() { return juce::Colour (0xffffb454); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintPageBackground (g, getLocalBounds());
+        const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
+        {
+            g.setColour (colour);
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.fillEllipse ((float) area.getX(), (float) area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            g.drawText (text, area.withTrimmedLeft (14), juce::Justification::centredLeft);
+        };
+        IlanaTheme::paintCard (g, inputCard.toFloat(), 7.0f, inputColour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, routeCard.toFloat(), 7.0f, routeColour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, startCard.toFloat(), 7.0f, IlanaTheme::accent().withAlpha (0.35f));
+        title (inputCard.reduced (12, 0).removeFromTop (26), "INPUT", inputColour());
+        title (routeCard.reduced (12, 0).removeFromTop (26), "ROUTING", routeColour());
+        title (startCard.reduced (12, 0).removeFromTop (26), "QUICK START", IlanaTheme::accent());
+
+        // Level (peak) and envelope, with the gate threshold marked.
+        IlanaTheme::paintWell (g, meter.toFloat(), 5.0f);
+        const auto bar = [this, &g] (juce::Rectangle<float> area, float value, juce::Colour colour, const juce::String& label)
+        {
+            const auto db = value > 1.0e-5f ? juce::jlimit (0.0f, 1.0f, 1.0f + juce::Decibels::gainToDecibels (value) / 60.0f) : 0.0f;
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.fillRoundedRectangle (area, 3.0f);
+            g.setColour (colour);
+            g.fillRoundedRectangle (area.withWidth (area.getWidth() * db), 3.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.6f));
+            g.setFont (IlanaTheme::font (11.0f));
+            g.drawText (label, area.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
+            juce::ignoreUnused (this);
+        };
+        auto area = meter.toFloat().reduced (10.0f, 8.0f);
+        const auto rowHeight = (area.getHeight() - 6.0f) / 2.0f;
+        const auto levelRow = area.removeFromTop (rowHeight);
+        area.removeFromTop (6.0f);
+        bar (levelRow, shownLevel, inputColour().withAlpha (0.8f), "LEVEL");
+        bar (area, shownEnvelope, routeColour().withAlpha (0.8f), "ENVELOPE (Input Env in the matrix)");
+        if (readChoice ("in_trigger") == 1)
+        {
+            const auto thresholdDb = processorRef.apvts.getRawParameterValue ("in_threshold")->load();
+            const auto x = area.getX() + area.getWidth() * juce::jlimit (0.0f, 1.0f, 1.0f + thresholdDb / 60.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.fillRect (x - 1.0f, levelRow.getY(), 2.0f, area.getBottom() - levelRow.getY());
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.setFont (IlanaTheme::font (12.0f));
+        const juce::String help[] {
+            "TRIGGER: Off plays only on MIDI notes; Gate plays NOTE while the input is over THRESHOLD; Drone holds NOTE down.",
+            "OSC: set an oscillator's MODE to Live to play the input through the filters, FM and effects,",
+            "or turn on LIVE in Granular mode to granulate its last three seconds (POSITION is how far back).",
+            "BODY: TO BODY rings the BODY section (switch it on in FILTER). TO STRINGS drives Physical strings, tines and reeds.",
+            "DRY adds the untouched input back at the end. Input Env modulates anything from the MATRIX."
+        };
+        auto text = helpArea;
+        for (const auto& line : help)
+            g.drawText (line, text.removeFromTop (20), juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (12);
+        auto top = area.removeFromTop (juce::jmin (230, area.getHeight() / 2));
+        inputCard = top.removeFromLeft (top.getWidth() * 3 / 5).reduced (0, 0);
+        top.removeFromLeft (10);
+        routeCard = top;
+        area.removeFromTop (10);
+        startCard = area;
+
+        auto inside = inputCard.reduced (12, 0);
+        inside.removeFromTop (28);
+        meter = inside.removeFromTop (58);
+        inside.removeFromTop (8);
+        auto knobs = inside.removeFromTop (juce::jmin (100, inside.getHeight() - 6));
+        const auto width = knobs.getWidth() / 7;
+        for (auto* control : std::initializer_list<juce::Component*> { &gain, &trigger, &threshold, &note, &attack, &release, &dry })
+            control->setBounds (knobs.removeFromLeft (width).reduced (3, 0));
+
+        auto routes = routeCard.reduced (12, 0);
+        routes.removeFromTop (34);
+        routes = routes.removeFromTop (juce::jmin (110, routes.getHeight()));
+        toBody.setBounds (routes.removeFromLeft (routes.getWidth() / 2).reduced (6, 0));
+        toStrings.setBounds (routes.reduced (6, 0));
+
+        auto start = startCard.reduced (14, 0);
+        start.removeFromTop (34);
+        auto buttons = start.removeFromTop (34);
+        const auto buttonWidth = buttons.getWidth() / 4;
+        for (auto& button : quickStarts)
+            button.setBounds (buttons.removeFromLeft (buttonWidth).reduced (4, 2));
+        start.removeFromTop (14);
+        helpArea = start;
+    }
+
+private:
+    void timerCallback() override
+    {
+        const auto level = processorRef.getInputLevel();
+        const auto envelope = processorRef.getInputEnvelope();
+        if (std::abs (level - shownLevel) > 1.0e-4f || std::abs (envelope - shownEnvelope) > 1.0e-4f)
+        {
+            shownLevel = level;
+            shownEnvelope = envelope;
+            repaint (meter);
+        }
+    }
+
+    int readChoice (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? juce::roundToInt (value->load()) : 0;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    KnobControl gain, dry;
+    ComboControl trigger;
+    KnobControl threshold, note, attack, release, toBody, toStrings;
+    std::array<juce::TextButton, 4> quickStarts;
+    juce::Rectangle<int> inputCard, routeCard, startCard, meter, helpArea;
+    float shownLevel = 0.0f, shownEnvelope = 0.0f;
 };
 
 class SeqPage : public juce::Component,
@@ -5447,6 +5725,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
     tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
     tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
+    // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
+    if (IlanaSynthAudioProcessor::isEffectBuild)
+        tabs.addTab ("INPUT", juce::Colour (0xff18181c), new InputPage (p), true);
 
     content.addAndMakeVisible (tabs);
 
@@ -5527,11 +5808,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         { "LFO 4", Mod::Source::Lfo4 }, { "MOD ENV", Mod::Source::ModEnv }, { "FILT ENV", Mod::Source::FilterEnv },
         { "F2 ENV", Mod::Source::FilterEnv2 }, { "ENV 5", Mod::Source::Env4 }, { "MSEG", Mod::Source::Mseg },
         { "VELOCITY", Mod::Source::Velocity }, { "KEY", Mod::Source::KeyTrack }, { "RANDOM", Mod::Source::Random },
-        { "WHEEL", Mod::Source::ModWheel }, { "PRESSURE", Mod::Source::Aftertouch }
+        { "WHEEL", Mod::Source::ModWheel }, { "PRESSURE", Mod::Source::Aftertouch },
+        { "INPUT", Mod::Source::InputEnv }
     };
 
     for (const auto& spec : chipSpecs)
     {
+        // The input's envelope only exists in ilanaSynth FX.
+        if (spec.source == Mod::Source::InputEnv && ! IlanaSynthAudioProcessor::isEffectBuild)
+            continue;
+
         auto chip = std::make_unique<ModSourceChip> (spec.name, (int) spec.source);
         // The chip glows with its source while that source modulates
         // something (macros, the wheel and pressure always).
@@ -5539,7 +5825,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         {
             using S = Mod::Source;
             const auto played = source == S::Macro1 || source == S::Macro2 || source == S::Macro3
-                                || source == S::Macro4 || source == S::ModWheel || source == S::Aftertouch;
+                                || source == S::Macro4 || source == S::ModWheel || source == S::Aftertouch
+                                || source == S::InputEnv;
 
             if (! played && ! usedModSources[(size_t) juce::jlimit (0, (int) S::Count - 1, (int) source)])
                 return 0.0f;
@@ -5582,8 +5869,32 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tabs.getTabbedButtonBar().addChangeListener (this);
 }
 
+void IlanaSynthAudioProcessorEditor::openWavetableEditor (int slot, juce::Colour colour)
+{
+    closeWavetableEditor();
+    wavetableEditor = std::make_unique<WavetableEditor> (processorRef, slot, colour);
+    wavetableEditor->onClose = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
+    {
+        if (safe != nullptr)
+            safe->closeWavetableEditor();
+    };
+    content.addAndMakeVisible (*wavetableEditor);
+    wavetableEditor->setBounds (content.getLocalBounds().reduced (24, 62));
+    wavetableEditor->grabKeyboardFocus();
+}
+
+void IlanaSynthAudioProcessorEditor::closeWavetableEditor()
+{
+    if (wavetableEditor != nullptr)
+    {
+        content.removeChildComponent (wavetableEditor.get());
+        wavetableEditor.reset();
+    }
+}
+
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+    closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);
 }

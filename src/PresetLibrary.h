@@ -2600,6 +2600,81 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "MATERIAL", { { param ("body_material"), 0.4f } })
              .macro (4, "DECAY", { { D::ResDecay, 0.3f } }));
 
+
+    // ======================================================================
+    // M7.3: electric pianos, fitted to Stage-73 V2 and Wurli V2 (tools/fit_ep.py)
+    // ======================================================================
+    for (const auto& [name, excite, macroName, level] : {
+             std::tuple<const char*, int, const char*, float> { "Tine Keys", 7, "BARK", -5.5f },
+             { "Reed Keys", 8, "GROWL", 3.0f } })
+    {
+        add (B (name, "Keys")
+                 .string (1, 0.8f, excite, 0.75f, 0.35f)
+                 .set ("osc2_on", 0).set ("sub_on", 0).set ("subosc_on", 0)
+                 .set ("osc1_damper", 0.85f)
+                 .filter1 (LP, 20000.0f, 0.0f)
+                 .amp (0.001f, 10.0f, 1.0f, 0.4f).velocity (0.0f)
+                 .macro (1, macroName, { { param ("osc1_ep_distance"), -0.3f } })
+                 .macro (2, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
+                 .macro (3, "TONE", { { param ("osc1_string_damp"), -0.3f } })
+                 .macro (4, "DECAY", { { param ("osc1_string_decay"), 0.2f } })
+                 .master (level));
+    }
+
+    // ======================================================================
+    // M7.5: ilanaSynth FX starting points (live audio input). In the
+    // instrument there is no input, so they are silent there.
+    // ======================================================================
+    add (B ("Live Body", "FX Input")
+             .set ("osc1_on", 0).set ("osc2_on", 0).set ("sub_on", 0).set ("subosc_on", 0)
+             .set ("in_trigger", 2).set ("in_note", 48).set ("in_dry", 0.5f).set ("in_body", 0.8f)
+             .set ("res_on", 1).set ("res_amount", 0.9f).set ("res_decay", 0.7f)
+             .set ("body_type", 2).set ("body_material", 0.6f).set ("body_size", 0.5f)
+             .filter1 (LP, 20000.0f, 0.0f)
+             .amp (0.01f, 1.0f, 1.0f, 0.5f).velocity (0.0f).master (0.0f)
+             .macro (1, "BODY", { { D::ResAmount, 0.5f } })
+             .macro (2, "DECAY", { { D::ResDecay, 0.3f } })
+             .macro (3, "MATERIAL", { { param ("body_material"), 0.4f } })
+             .macro (4, "SIZE", { { param ("body_size"), 0.4f } }));
+
+    add (B ("Live Wah", "FX Input")
+             .set ("osc1_mode", 4).set ("osc1_level", 1.0f).set ("osc2_on", 0).set ("sub_on", 0).set ("subosc_on", 0)
+             .set ("in_trigger", 2).set ("in_attack", 3.0f).set ("in_release", 120.0f)
+             .filter1 (LadderLP, 350.0f, 0.55f)
+             .mod ((int) Mod::Source::InputEnv, D::Filter1Cutoff, 0.55f)
+             .amp (0.005f, 1.0f, 1.0f, 0.3f).velocity (0.0f).master (0.0f)
+             .macro (1, "RANGE", { { D::Filter1Cutoff, 0.4f } })
+             .macro (2, "RESO", { { D::Filter1Reso, 0.4f } })
+             .macro (3, "DRY", { { param ("in_dry"), 0.6f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxReverb }).reverb (Room, 0.4f, 0.0f));
+
+    add (B ("Live Grains", "FX Input")
+             .granular (1, 0, 0.9f, 0.2f, 140.0f, 0.7f, 0.35f, 0.0f, 0.8f)
+             .set ("osc1_grain_live", 1).set ("osc1_sample_tuned", 0)
+             .set ("osc2_on", 0).set ("sub_on", 0).set ("subosc_on", 0)
+             .set ("in_trigger", 2).set ("in_dry", 0.4f)
+             .filter1 (LP, 16000.0f, 0.0f)
+             .amp (0.05f, 1.0f, 1.0f, 1.0f).velocity (0.0f).master (0.0f)
+             .macro (1, "BACK", { { D::Osc1SampleStart, 0.6f } })
+             .macro (2, "SIZE", { { param ("osc1_grain_size"), 0.3f } })
+             .macro (3, "PITCH", { { param ("osc1_grain_pitch"), 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.4f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.8f, 0.3f));
+
+    add (B ("Live Strings", "FX Input")
+             .string (1, 0.7f, 0, 0.9f, 0.3f)
+             .string (2, 0.5f, 0, 0.9f, 0.3f).set ("osc2_semi", 7.0f)
+             .set ("sub_on", 0).set ("subosc_on", 0)
+             .set ("in_trigger", 2).set ("in_note", 40).set ("in_strings", 0.5f).set ("in_dry", 0.6f)
+             .filter1 (LP, 12000.0f, 0.0f)
+             .amp (0.01f, 1.0f, 1.0f, 1.0f).velocity (0.0f).master (0.0f)
+             .macro (1, "RING", { { param ("in_strings"), 0.5f } })
+             .macro (2, "DECAY", { { param ("osc1_string_decay"), 0.1f }, { param ("osc2_string_decay"), 0.1f } })
+             .macro (3, "DRY", { { param ("in_dry"), 0.4f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.6f, 0.2f));
+
     return list;
 }
 } // namespace Library

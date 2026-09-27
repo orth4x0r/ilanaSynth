@@ -1,10 +1,60 @@
 #include "Wavetable.h"
 
+#include <cstring>
+
 #include <juce_dsp/juce_dsp.h>
 
 #include <cmath>
 
+// A wavetable .wav's frame size from its metadata: Serum's "clm " chunk
+// ("<!>2048 ...", also written by Vital and ilanaSynth) or the "uhWT" chunk
+// (both 2048 unless clm says otherwise). 0 if the file has neither.
+int Wavetable::readWavFrameSize (const juce::File& file)
+{
+    juce::FileInputStream stream (file);
+    if (! stream.openedOk())
+        return 0;
+    char header[12] {};
+    if (stream.read (header, 12) != 12 || std::memcmp (header, "RIFF", 4) != 0 || std::memcmp (header + 8, "WAVE", 4) != 0)
+        return 0;
+    while (! stream.isExhausted())
+    {
+        char id[4] {};
+        if (stream.read (id, 4) != 4)
+            break;
+        const auto size = (juce::int64) (juce::uint32) stream.readInt();
+        const auto next = stream.getPosition() + size + (size & 1);
+        if (std::memcmp (id, "clm ", 4) == 0 && size >= 3)
+        {
+            juce::MemoryBlock block;
+            stream.readIntoMemoryBlock (block, (juce::ssize_t) juce::jmin<juce::int64> (size, 256));
+            const auto text = block.toString();
+            if (text.startsWith ("<!>"))
+            {
+                const auto tagged = text.substring (3).getIntValue();
+                return tagged >= 16 && tagged <= 65536 ? tagged : 2048;
+            }
+            return 2048;
+        }
+        if (std::memcmp (id, "uhWT", 4) == 0)
+            return 2048;
+        if (! stream.setPosition (next))
+            break;
+    }
+    return 0;
+}
+
 bool Wavetable::loadFromFile (const juce::File& file, LoadMode mode)
+{
+    std::vector<std::vector<float>> frames;
+    if (! readFrames (file, mode, frames))
+        return false;
+    name = file.getFileNameWithoutExtension();
+    buildFromFrames (frames);
+    return true;
+}
+
+bool Wavetable::readFrames (const juce::File& file, LoadMode mode, std::vector<std::vector<float>>& frames)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -21,9 +71,19 @@ bool Wavetable::loadFromFile (const juce::File& file, LoadMode mode)
     int frameLength = 0;
     int frameCount = 0;
 
+    // A table made by Serum, Vital or ilanaSynth says its frame size.
+    if (const auto tagged = file.hasFileExtension ("wav") ? readWavFrameSize (file) : 0;
+        tagged > 0 && totalSamples % tagged == 0 && totalSamples / tagged <= 256)
+    {
+        frameLength = tagged;
+        frameCount = totalSamples / tagged;
+        if (mode == LoadMode::Automatic)
+            mode = LoadMode::Frames;
+    }
+
     for (const auto candidate : { 2048, 1024, 512, 4096, 256 })
     {
-        if (totalSamples % candidate == 0)
+        if (frameLength == 0 && totalSamples % candidate == 0)
         {
             const auto count = totalSamples / candidate;
 
@@ -59,7 +119,7 @@ bool Wavetable::loadFromFile (const juce::File& file, LoadMode mode)
 
     const auto sliceAsFrames = mode == LoadMode::Frames || (mode == LoadMode::Automatic && frameLength > 0);
 
-    std::vector<std::vector<float>> frames;
+    frames.clear();
 
     if (sliceAsFrames)
     {
@@ -91,12 +151,7 @@ bool Wavetable::loadFromFile (const juce::File& file, LoadMode mode)
         resynthesize (mono, reader->sampleRate, frames);
     }
 
-    if (frames.empty())
-        return false;
-
-    name = file.getFileNameWithoutExtension();
-    buildFromFrames (frames);
-    return true;
+    return ! frames.empty();
 }
 
 double Wavetable::detectPeriod (const float* audio, int numSamples, double sampleRate)

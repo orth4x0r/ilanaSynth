@@ -38,6 +38,8 @@ enum class Source
     // The LFO pool (M4): LFO 5-16.
     Lfo5, Lfo6, Lfo7, Lfo8, Lfo9, Lfo10, Lfo11, Lfo12,
     Lfo13, Lfo14, Lfo15, Lfo16,
+    // M7.5: the audio input's envelope follower (ilanaSynth FX).
+    InputEnv,
     Count
 };
 
@@ -397,6 +399,20 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("body_material", "Body Material");
         add ("body_size", "Body Size");
         add ("body_coupling", "Body Coupling Amount");
+
+        // M7.3 electric pianos, then M7.5 audio input (append only).
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_ep_distance", name + "Pickup Distance");
+            add (prefix + "_ep_position", name + "Pickup Offset");
+        }
+        add ("in_gain", "Input Gain");
+        add ("in_dry", "Input Dry");
+        add ("in_body", "Input to Body");
+        add ("in_strings", "Input to Strings");
+        add ("in_threshold", "Input Threshold");
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -535,6 +551,7 @@ inline juce::StringArray getSourceNames()
         names.add ("Env " + juce::String (env));
     for (int lfo = 5; lfo <= numLfoSources; ++lfo)
         names.add ("LFO " + juce::String (lfo));
+    names.add ("Input Env");
     return names;
 }
 

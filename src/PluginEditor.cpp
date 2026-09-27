@@ -1248,10 +1248,16 @@ public:
           resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), false),
           resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), false),
           resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), false),
-          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), false)
+          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), false),
+          bodyType (p.apvts, "body_type", "BODY"),
+          bodyMaterial (p.apvts, "body_material", "MATERIAL", resonatorColour(), false),
+          bodySize (p.apvts, "body_size", "SIZE", resonatorColour(), false),
+          bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
+          bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), false)
     {
         addAll (*this, filterDisplay, panel1, panel2, flow, balance,
-                resOn, resAmount, resDecay, resOffset, resKeytrack);
+                resOn, resAmount, resDecay, resOffset, resKeytrack,
+                bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
         startTimerHz (8);
     }
 
@@ -1286,10 +1292,10 @@ public:
         IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
         g.setColour (resonatorColour());
         g.setFont (IlanaTheme::font (13.0f, true));
-        g.drawText ("RESONATOR", resonatorCard.reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
+        g.drawText ("BODY", resonatorCard.reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (11.5f));
-        g.drawText ("tuned body after the filters", resonatorCard.reduced (12, 0).removeFromTop (26),
+        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
     }
 
@@ -1299,7 +1305,7 @@ public:
         area.removeFromTop (18);
 
         const auto panelHeight = juce::jlimit (200, 260, area.getHeight() * 9 / 20);
-        const auto bottomHeight = juce::jlimit (128, 170, area.getHeight() / 4);
+        const auto bottomHeight = juce::jlimit (160, 180, area.getHeight() / 4);
         const auto displayHeight = juce::jmax (90, area.getHeight() - panelHeight - bottomHeight - 16);
 
         filterDisplay.setBounds (area.removeFromTop (displayHeight));
@@ -1325,7 +1331,13 @@ public:
         auto resArea = bottom.reduced (8, 0);
         resArea.removeFromTop (26);
         resArea.removeFromBottom (4);
-        layoutRow (resArea, { &resOn, &resAmount, &resDecay, &resOffset, &resKeytrack });
+        // Switch and menus stacked on the left, then one row of full-size knobs.
+        auto menus = resArea.removeFromLeft (juce::jmin (150, resArea.getWidth() / 5));
+        const auto menuHeight = menus.getHeight() / 3;
+        resOn.setBounds (menus.removeFromTop (menuHeight).reduced (3, 2));
+        bodyType.setBounds (menus.removeFromTop (menuHeight).reduced (3, 1));
+        bodyCouplingMode.setBounds (menus.reduced (3, 1));
+        layoutRow (resArea, { &resAmount, &resDecay, &bodyMaterial, &bodySize, &resOffset, &resKeytrack, &bodyCoupling });
     }
 
 private:
@@ -1358,8 +1370,20 @@ private:
 
         const auto resonating = read ("res_on");
 
+        // MATERIAL and SIZE shape the modal bodies only; Classic is the old comb bank.
+        // String-to-string coupling works without the body, the other modes need one.
+        const auto* type = processorRef.apvts.getRawParameterValue ("body_type");
+        const auto* coupling = processorRef.apvts.getRawParameterValue ("body_coupling_mode");
+        const auto modal = resonating && type != nullptr && type->load() > 0.5f;
+        const auto couplingMode = coupling != nullptr ? (int) coupling->load() : 0;
+
         for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
             fade (*knob, resonating);
+        fade (bodyType, resonating);
+        fade (bodyMaterial, modal);
+        fade (bodySize, modal);
+        fade (bodyCouplingMode, true);
+        fade (bodyCoupling, couplingMode == 3 || (couplingMode != 0 && modal));
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -1370,6 +1394,8 @@ private:
     bool wasParallel = false;
     ToggleControl resOn;
     KnobControl resAmount, resDecay, resOffset, resKeytrack;
+    ComboControl bodyType, bodyCouplingMode;
+    KnobControl bodyMaterial, bodySize, bodyCoupling;
     juce::Rectangle<int> flowTitle, resonatorCard, balanceCard;
 };
 

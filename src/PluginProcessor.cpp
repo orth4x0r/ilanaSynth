@@ -574,6 +574,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("res_decay", "Res Decay", 0.0f, 1.0f, 0.7f);
     addFloat ("res_offset", "Res Offset", -12.0f, 12.0f, 0.0f, 1.0f, 1.0f);
     addFloat ("res_keytrack", "Res Key Track", 0.0f, 1.0f, 1.0f);
+    addChoice ("body_type", "Body Type", { "Classic", "Bar", "Plate", "Bell", "Shell" }, 0);
+    addFloat ("body_material", "Body Material", 0.0f, 1.0f, 0.0f);
+    addFloat ("body_size", "Body Size", 0.0f, 1.0f, 0.5f);
+    addChoice ("body_coupling_mode", "Body Coupling", { "Off", "String to body", "Body to string", "Strings" }, 0);
+    addFloat ("body_coupling", "Body Coupling Amount", 0.0f, 1.0f, 0.0f);
 
     // Clocked sample and hold + MSEG
     addChoice ("clock_div", "Clock S&H Div", getSyncDivisionNames(), 3);
@@ -1621,6 +1626,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.resonatorDecay = getParam ("res_decay");
     p.resonatorOffset = getParam ("res_offset");
     p.resonatorKeytrack = getParam ("res_keytrack");
+    p.bodyType = (int) getParam ("body_type");
+    p.bodyMaterial = getParam ("body_material");
+    p.bodySize = getParam ("body_size");
+    p.bodyCouplingMode = (int) getParam ("body_coupling_mode");
+    p.bodyCoupling = getParam ("body_coupling");
 
     if (getParam ("mpe_mode") > 0.5f)
         p.pitchBendRange = 48.0f;

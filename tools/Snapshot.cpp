@@ -6,6 +6,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <iostream>
 
 #include "PluginProcessor.h"
@@ -159,6 +160,14 @@ int runUiTests()
             reso = knob;
 
     expect (reso != nullptr, "filter page has a resonance knob");
+    for (const auto* id : { "body_material", "body_size", "body_coupling" })
+    {
+        const auto found = std::any_of (knobs.begin(), knobs.end(), [id] (const KnobControl* knob)
+        {
+            return knob->getParameterId() == id && visibleInTree (knob) && knob->getWidth() > 30;
+        });
+        expect (found, juce::String ("BODY card shows ") + id);
+    }
 
     if (reso != nullptr)
     {

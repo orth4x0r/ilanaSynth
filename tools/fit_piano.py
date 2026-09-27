@@ -20,7 +20,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from analyse_note import load  # noqa: E402
+from fit_model import load  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 EXE = os.path.join(ROOT, "build", "ilanaTableTest_artefacts", "Release", "ilanaTableTest.exe")

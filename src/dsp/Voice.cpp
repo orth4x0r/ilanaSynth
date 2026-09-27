@@ -137,6 +137,8 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
     resonatorL.prepare (newRate);
     resonatorR.prepare (newRate);
+    materialBodyL.prepare (newRate);
+    materialBodyR.prepare (newRate);
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
@@ -285,6 +287,13 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     resonatorL.reset();
     resonatorR.reset();
+    materialBodyL.reset();
+    materialBodyR.reset();
+    bodyStrikePending = true;
+    bodyTailSamplesRemaining = params.resonatorOn && params.bodyType != 0
+                                   ? (int) (sampleRate * juce::jmin (10.0,
+                                       1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)))
+                                   : 0;
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -372,6 +381,9 @@ void Voice::stopNote (float, bool allowTailOff)
 
     if (allowTailOff)
     {
+        if (params.resonatorOn && params.bodyType != 0)
+            bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
+                1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
         ampEnv.noteOff();
         filterEnv.noteOff();
         filter2Env.noteOff();
@@ -382,6 +394,7 @@ void Voice::stopNote (float, bool allowTailOff)
     }
     else
     {
+        bodyTailSamplesRemaining = 0;
         ampEnv.reset();
         filterEnv.reset();
         filter2Env.reset();
@@ -930,6 +943,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         float busL[FilterRoute::Count] {};
         float busR[FilterRoute::Count] {};
         float oscMono[VoiceParams::numOscillators] {};
+        float stringDrive[VoiceParams::numOscillators] {};
 
         const auto fmAmount = params.fmAmount + mods[(int) D::FmAmount];
         const auto fmFeedback = params.fmFeedback + mods[(int) D::FmFeedback];
@@ -1100,6 +1114,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     for (int u = 0; u < count; ++u)
                         stringFor (osc, u).addBridgeInput (-settings.couple * PianoTuning::get().coupling * bridge);
                 }
+                if (settings.stringMode && ! settings.sampleMode)
+                    stringDrive[osc] = stringSum / (float) juce::jmax (1, numOscUnison[osc]);
             }
             else
             {
@@ -1170,6 +1186,60 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             busR[routeSubOsc] += value;
         }
 
+        float bodyExciteL = 0.0f, bodyExciteR = 0.0f;
+        if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
+        {
+            if (bodyStrikePending && params.bodyCouplingMode == 1 && params.bodyCoupling > 0.0f)
+            {
+                bool hasString = false;
+                for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                    hasString = hasString || (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode);
+                if (hasString)
+                {
+                    materialBodyL.strike (params.bodyCoupling * velocityLevel);
+                    materialBodyR.strike (params.bodyCoupling * velocityLevel);
+                }
+            }
+            bodyStrikePending = false;
+            for (int bus = 0; bus < FilterRoute::Count; ++bus)
+            {
+                bodyExciteL += busL[bus];
+                bodyExciteR += busR[bus];
+            }
+            if (params.bodyCouplingMode == 1)
+            {
+                bodyExciteL *= 0.2f;
+                bodyExciteR *= 0.2f;
+                for (const auto drive : stringDrive)
+                {
+                    bodyExciteL += drive * params.bodyCoupling * 0.2f;
+                    bodyExciteR += drive * params.bodyCoupling * 0.2f;
+                }
+            }
+        }
+
+        if (params.bodyCouplingMode == 3 && params.bodyCoupling > 0.0f)
+        {
+            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+            {
+                if (! params.oscillatorEnabled[osc] || ! params.oscillators[osc].stringMode)
+                    continue;
+                auto otherDrive = 0.0f;
+                auto otherCount = 0;
+                for (int other = 0; other < VoiceParams::numOscillators; ++other)
+                    if (other != osc && params.oscillatorEnabled[other] && params.oscillators[other].stringMode)
+                    {
+                        otherDrive += stringDrive[other];
+                        ++otherCount;
+                    }
+                if (otherCount == 0)
+                    continue;
+                const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
+                for (int u = 0; u < count; ++u)
+                    stringFor (osc, u).addBridgeInput (0.015f * params.bodyCoupling * otherDrive / (float) otherCount);
+            }
+        }
+
         const auto drive = [] (float value, float amount) { return amount > 1.0f ? std::tanh (value * amount) : value; };
 
         // Filter 1 hears the Default and Filter-1 buses.
@@ -1221,21 +1291,47 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             outR += (both1R + both2R) * 0.7071f;
         }
 
-        if (params.resonatorOn && resonatorAmount > 0.001f)
+        float bodyWetL = 0.0f, bodyWetR = 0.0f;
+        if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
         {
             outL = resonatorL.process (outL);
             outR = resonatorR.process (outR);
+        }
+        else if (params.resonatorOn && resonatorAmount > 0.001f)
+        {
+            const auto exciteEnvelope = alternateAmpRouting ? 1.0f : ampValue;
+            bodyWetL = materialBodyL.process (bodyExciteL * exciteEnvelope);
+            bodyWetR = materialBodyR.process (bodyExciteR * exciteEnvelope);
+            outL *= 1.0f - resonatorAmount;
+            outR *= 1.0f - resonatorAmount;
+            if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
+                for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                    if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
+                        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                            stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (bodyWetL + bodyWetR));
         }
 
         const auto ampGain = (alternateAmpRouting ? 1.0f : ampValue) * ampVelScale
                              * juce::jlimit (0.0f, 2.0f, 1.0f + mods[(int) D::AmpLevel]);
 
-        left[startSample + i] += outL * ampGain;
-
-        if (right != nullptr)
-            right[startSample + i] += outR * ampGain;
+        if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
+        {
+            const auto wetGain = resonatorAmount * ampVelScale
+                                 * juce::jlimit (0.0f, 2.0f, 1.0f + mods[(int) D::AmpLevel]);
+            left[startSample + i] += outL * ampGain + bodyWetL * wetGain;
+            if (right != nullptr)
+                right[startSample + i] += outR * ampGain + bodyWetR * wetGain;
+            else
+                left[startSample + i] += outR * ampGain + bodyWetR * wetGain;
+        }
         else
-            left[startSample + i] += outR * ampGain;
+        {
+            left[startSample + i] += outL * ampGain;
+            if (right != nullptr)
+                right[startSample + i] += outR * ampGain;
+            else
+                left[startSample + i] += outR * ampGain;
+        }
 
         lastAmpValue = ampValue;
         lastLifetimeValue = ampValue;
@@ -1261,6 +1357,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         lastSamplePosition[osc] = params.oscillators[osc].sampleMode
                                       ? samplePositionOf (sampleUnison[osc][0], params.oscillators[osc].sample) : -1.0f;
+
+    if (bodyTailSamplesRemaining > 0)
+        bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
 
     if (! hasActiveAmpEnvelope())
     {
@@ -1300,6 +1399,8 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
 
 bool Voice::hasActiveAmpEnvelope() const
 {
+    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0)
+        return true;
     bool anyOscillator = false;
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -1428,8 +1529,22 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
     if (params.resonatorOn && params.resonatorAmount + blockMod (D::ResAmount) > 0.001f)
     {
         const auto offset = juce::jlimit (-24.0f, 24.0f, params.resonatorOffset + blockMod (D::ResOffset) * 12.0f);
-        resonatorL.setTuning (driftedFrequency, offset, params.resonatorKeytrack);
-        resonatorR.setTuning (driftedFrequency, offset, params.resonatorKeytrack);
+        if (params.bodyType == 0)
+        {
+            resonatorL.setTuning (driftedFrequency, offset, params.resonatorKeytrack);
+            resonatorR.setTuning (driftedFrequency, offset, params.resonatorKeytrack);
+        }
+        else
+        {
+            const auto noteHz = (driftedFrequency * (double) params.resonatorKeytrack
+                                 + 220.0 * (1.0 - (double) params.resonatorKeytrack))
+                                * std::exp2 ((double) offset / 12.0);
+            const auto decay = juce::jlimit (0.0f, 1.0f, params.resonatorDecay + blockMod (D::ResDecay));
+            materialBodyL.configure (params.bodyType - 1, params.bodyMaterial, params.bodySize,
+                                     decay, noteHz, params.quality, -1.0f);
+            materialBodyR.configure (params.bodyType - 1, params.bodyMaterial, params.bodySize,
+                                     decay, noteHz, params.quality, 1.0f);
+        }
     }
 
     updateFilterCoefficients (mods, filterEnvValue, filter2EnvValue);

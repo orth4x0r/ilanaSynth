@@ -151,6 +151,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
         || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
+        || id == "body_material" || id == "body_size" || id == "body_coupling"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
         || id == "res_decay" || id.endsWith ("_string_decay") || id.endsWith ("_string_damp")
         || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
@@ -661,12 +662,27 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "arp_gate")
         return "Note length within each step.";
 
-    // Resonator
+    // BODY
     if (id == "res_on")
-        return "Three tuned combs per voice: body or metal.";
+        return "Enable the BODY section. Classic keeps the original three-comb resonator.";
+
+    if (id == "body_type")
+        return "Classic, bar, plate, bell or shell. Material bodies use the oscillator mix as their exciter.";
+
+    if (id == "body_material")
+        return "Morph from wood through metal to glass: brightness, modal tuning and ring time.";
+
+    if (id == "body_size")
+        return "Larger bodies ring at lower modal frequencies.";
+
+    if (id == "body_coupling_mode")
+        return "Transfer energy from a struck string to the body, from the body back to a string, or between strings.";
+
+    if (id == "body_coupling")
+        return "Strength of the selected coupling path.";
 
     if (id == "res_amount")
-        return "Wet amount of the resonator bank.";
+        return "Wet amount of the selected body.";
 
     if (id == "res_decay")
         return "How long the resonances ring.";

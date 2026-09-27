@@ -391,6 +391,12 @@ inline const std::vector<ParamDestination>& getParamDestinations()
                                           : "fm_" + juce::String (source) + "to" + juce::String (target),
                          source == target ? "FM Osc" + juce::String (source) + " Feedback"
                                           : "FM Osc" + juce::String (source) + " > Osc" + juce::String (target));
+
+        // M7.2 BODY controls. Append only: older destination indices are
+        // stored in patches and host automation.
+        add ("body_material", "Body Material");
+        add ("body_size", "Body Size");
+        add ("body_coupling", "Body Coupling Amount");
         return true;
     }();
     juce::ignoreUnused (extended);

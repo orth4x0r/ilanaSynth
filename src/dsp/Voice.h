@@ -10,6 +10,7 @@
 #include "GranularOsc.h"
 #include "KarplusStrong.h"
 #include "LfoShape.h"
+#include "MaterialBody.h"
 #include "Modulation.h"
 #include "Mseg.h"
 #include "OscillatorIds.h"
@@ -259,6 +260,10 @@ struct VoiceParams
     float resonatorDecay = 0.7f;
     float resonatorOffset = 0.0f;
     float resonatorKeytrack = 1.0f;
+    int bodyType = 0; // Classic, Bar, Plate, Bell, Shell; Classic preserves res_*
+    float bodyMaterial = 0.0f, bodySize = 0.5f;
+    int bodyCouplingMode = 0; // Off, String to body, Body to string, Strings
+    float bodyCoupling = 0.0f;
 
     // The dedicated sub oscillator (sine/square/saw one or two octaves down).
     // It and the noise share one route.
@@ -439,6 +444,9 @@ private:
     GranularOsc grains[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
     double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
+    MaterialBody materialBodyL, materialBodyR;
+    bool bodyStrikePending = false;
+    int bodyTailSamplesRemaining = 0;
 
     FilterUnit filter1L, filter1R, filter2L, filter2R;
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;

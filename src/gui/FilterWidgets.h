@@ -200,7 +200,7 @@ private:
 // The voice's signal path, drawn live and clickable: oscillators on the
 // left wire into the filters (serial or parallel), then the resonator and
 // out.  Click an oscillator to choose where it goes, the SERIAL/PARALLEL
-// badge to switch, and RES to toggle the resonator.
+// badge to switch, and BODY to toggle the body.
 class SignalFlow : public juce::Component,
                    public juce::SettableTooltipClient,
                    private juce::Timer
@@ -279,7 +279,7 @@ public:
 
         drawBlock (g, layout.f1, "F1", juce::Colour (0xffff4fd8), true, false);
         drawBlock (g, layout.f2, "F2", juce::Colour (0xffb28aff), true, false);
-        drawBlock (g, layout.res, "RES", juce::Colour (0xffb28aff), resOn, over && layout.res.contains (mouse));
+        drawBlock (g, layout.res, "BODY", juce::Colour (0xffb28aff), resOn, over && layout.res.contains (mouse));
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
         g.setColour (juce::Colours::white.withAlpha (0.3f));
@@ -317,7 +317,7 @@ public:
     void mouseMove (const juce::MouseEvent& event) override
     {
         const auto layout = computeLayout();
-        juce::String tip = "Signal flow\nClick an oscillator to route it, the badge to switch serial/parallel, RES for the resonator.";
+        juce::String tip = "Signal flow\nClick an oscillator to route it, the badge to switch serial/parallel, BODY to toggle the body.";
 
         for (size_t row = 0; row < layout.sources.size(); ++row)
             if (layout.osc[row].contains (event.position))

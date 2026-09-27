@@ -10,6 +10,7 @@
 
 #include <set>
 #include <string>
+#include <tuple>
 
 namespace Presets
 {
@@ -2562,6 +2563,42 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "TONE", { { D::Filter1Cutoff, 0.3f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.3f, 0.15f, true).reverb (Room, 0.55f, 0.2f));
+
+    // M7.2: the physical string supplies a short, broadband strike. BODY
+    // receives the complete oscillator mix, so other oscillator modes can
+    // replace or layer with this exciter without changing its routing.
+    // Masters level-match the library: about -18 dB RMS in the fingerprint, or
+    // a 0.8 peak for the struck ones whose transient sits far above their RMS.
+    for (const auto& [name, shape, material, decay, level] : {
+             std::tuple<const char*, int, float, float, float> { "Wood Bar Hybrid", 1, 0.0f, 0.45f, 7.5f },
+             { "Metal Plate Hybrid", 2, 0.62f, 0.88f, 4.5f },
+             { "Bell Shell Hybrid", 3, 0.72f, 0.72f, 5.0f },
+             { "Glass Shell Hybrid", 4, 1.0f, 0.6f, 6.5f } })
+    {
+        add (B (name, "Pluck")
+                 .string (1, 0.85f, 0, 0.48f, 0.4f)
+                 .set ("osc2_on", 0).set ("sub_on", 0).set ("subosc_on", 0)
+                 .set ("res_on", 1).set ("res_amount", 0.92f).set ("res_decay", decay)
+                 .set ("body_type", (float) shape).set ("body_material", material).set ("body_size", 0.5f)
+                 .set ("body_coupling_mode", 1).set ("body_coupling", 0.8f)
+                 .filter1 (LP, 18000.0f, 0.0f)
+                 .amp (0.001f, 4.0f, 1.0f, 0.6f).master (level)
+                 .macro (1, "BODY", { { D::ResAmount, 0.5f } })
+                 .macro (2, "DECAY", { { D::ResDecay, 0.3f } })
+                 .macro (3, "MATERIAL", { { param ("body_material"), 0.4f } })
+                 .macro (4, "SIZE", { { param ("body_size"), 0.3f } }));
+    }
+
+    add (B ("Supersaw Bell Body", "Lead")
+             .osc1 (Analog, 0.25f, 0.8f).unison (1, 7, 16.0f, 0.6f)
+             .set ("sub_on", 0).set ("subosc_on", 0)
+             .set ("res_on", 1).set ("body_type", 3).set ("body_material", 0.8f)
+             .set ("res_amount", 0.72f).set ("res_decay", 0.68f)
+             .filter1 (LP, 12000.0f, 0.1f).amp (0.002f, 1.0f, 0.8f, 0.8f).master (0.0f)
+             .macro (1, "BODY", { { D::ResAmount, 0.5f } })
+             .macro (2, "SIZE", { { param ("body_size"), 0.4f } })
+             .macro (3, "MATERIAL", { { param ("body_material"), 0.4f } })
+             .macro (4, "DECAY", { { D::ResDecay, 0.3f } }));
 
     return list;
 }

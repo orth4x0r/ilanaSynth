@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so are M7.0 (follow-ups from the 1.2 polish pass) and M7.1 (the Generative card). Next up: the BODY section (M7.2).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so are M7.0 (follow-ups from the 1.2 polish pass), M7.1 (the Generative card) and M7.2 (the BODY section). Next up: electric pianos (M7.3).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -128,7 +128,7 @@ Left over from the bug and polish pass on 2026-09-26 (see the end of `docs/HANDO
 - **Probability sequencer**: each of 16 steps has a chance, a pitch range and a ratchet, all snapped to the scale.
 - **Strum mode** for note spray: up or down, with timing.
 
-#### M7.2: BODY section (was M8)
+#### M7.2: BODY section (was M8) — done
 - **Material bodies**: bar, plate, bell and shell. One MATERIAL knob morphs wood → metal → glass, with SIZE and DECAY.
 - **Coupling**: a string drives a body, a body rings a string, or two strings ring each other.
 - **The oscillator mix is the exciter.**

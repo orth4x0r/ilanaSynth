@@ -7404,7 +7404,7 @@ void runM71GenerativeTests()
             setParam (p, "euc_steps", 4.0f);
             setParam (p, "euc_hits", 1.0f);
             setParam (p, "euc_div", 2.0f);   // 1/4: a step is 24000 samples
-        }, { 60 }, 2.2, &audio);
+        }, { 60 }, 2.5, &audio);   // 117 248 samples: the second hit is measured up to 116 000
 
         const auto rms = [&audio] (int from, int to)
         {
@@ -7417,6 +7417,174 @@ void runM71GenerativeTests()
         const auto open = rms (4000, 20000), shut = rms (28000, 90000), openAgain = rms (100000, 116000);
         check (open > 0.01 && openAgain > 0.01 && shut < open * 0.05,
                "the trance gate follows Euclid 1/4 (open " + juce::String (open, 3) + ", shut " + juce::String (shut, 4) + ")");
+    }
+}
+
+void runM72BodyTests()
+{
+    std::cout << "M7.2 material bodies" << std::endl;
+    const auto render = [] (int shape, float material, float size, float decay, int quality)
+    {
+        MaterialBody body;
+        body.prepare (48000.0);
+        body.configure (shape, material, size, decay, 261.625565, quality);
+        std::vector<float> signal (48000);
+        for (int i = 0; i < (int) signal.size(); ++i)
+            signal[(size_t) i] = body.process (i == 0 ? 1.0f : 0.0f);
+        return signal;
+    };
+    const auto energy = [] (const std::vector<float>& x, int from, int to)
+    {
+        auto sum = 0.0;
+        for (int i = from; i < to; ++i)
+            sum += (double) x[(size_t) i] * x[(size_t) i];
+        return std::sqrt (sum / (double) (to - from));
+    };
+    const auto bar = render (0, 0.0f, 0.5f, 0.5f, 1);
+    const auto plate = render (1, 0.65f, 0.5f, 0.5f, 1);
+    const auto bell = render (2, 0.7f, 0.5f, 0.5f, 1);
+    const auto shell = render (3, 1.0f, 0.5f, 0.5f, 1);
+    for (const auto* sound : { &bar, &plate, &bell, &shell })
+    {
+        const auto valid = std::all_of (sound->begin(), sound->end(), [] (float x) { return std::isfinite (x) && std::abs (x) <= 2.0f; });
+        check (valid && energy (*sound, 1000, 5000) > 1.0e-5, "each body rings and stays bounded");
+    }
+    auto distinct = 0.0, total = 0.0;
+    for (int i = 0; i < 12000; ++i)
+    {
+        distinct += std::abs (bar[(size_t) i] - plate[(size_t) i]);
+        total += std::abs (bar[(size_t) i]) + std::abs (plate[(size_t) i]);
+    }
+    check (distinct > total * 0.1, "bar and plate have different modal spectra ("
+                                       + juce::String (distinct / juce::jmax (1.0e-12, total), 3) + ")");
+
+    // Switching a patch from Classic to a material body keeps its loudness
+    // in range: the wet body sits within 12 dB of the dry sound, for a
+    // sustained saw and for a plucked string, at short and long DECAY. A pluck
+    // lands a few cents off the body's narrow first mode, so it rings the
+    // body through STRING TO BODY coupling, as the Hybrid presets do.
+    for (const auto pluck : { false, true })
+        for (const auto decay : { 0.3f, 0.9f })
+            for (const auto shape : { 1, 2, 3, 4 })
+            {
+                const auto source = [pluck] (IlanaSynthAudioProcessor& p) { setParam (p, "osc1_mode", pluck ? 1.0f : 0.0f); };
+                const auto dry = renderCleanPatch (source, 60, 1.0);
+                const auto wet = renderCleanPatch ([source, shape, decay, pluck] (IlanaSynthAudioProcessor& p)
+                {
+                    source (p);
+                    setParam (p, "res_on", 1.0f);
+                    setParam (p, "res_amount", 1.0f);
+                    setParam (p, "res_decay", decay);
+                    setParam (p, "body_type", (float) shape);
+                    if (pluck)
+                    {
+                        setParam (p, "body_coupling_mode", 1.0f);
+                        setParam (p, "body_coupling", 0.8f);
+                    }
+                }, 60, 1.0);
+                const auto ratioDb = 20.0 * std::log10 (energy (wet, 0, 48000) / juce::jmax (1.0e-9, energy (dry, 0, 48000)));
+                check (std::abs (ratioDb) < 12.0, juce::String (pluck ? "a plucked string" : "a sustained saw")
+                                                      + " through BODY type " + juce::String (shape) + " at DECAY "
+                                                      + juce::String (decay, 1) + " stays near the dry level ("
+                                                      + juce::String (ratioDb, 1) + " dB)");
+            }
+
+    const auto small = render (0, 0.0f, 0.0f, 0.6f, 1);
+    const auto large = render (0, 0.0f, 1.0f, 0.6f, 1);
+    const auto smallHz = fundamentalOf (std::vector<float> (small.begin() + 3000, small.begin() + 18000), 48000.0);
+    const auto largeHz = fundamentalOf (std::vector<float> (large.begin() + 3000, large.begin() + 18000), 48000.0);
+    check (smallHz > largeHz * 2.5, "BODY SIZE lowers the modal pitch");
+
+    const auto shortRing = render (1, 0.65f, 0.5f, 0.1f, 1);
+    const auto longRing = render (1, 0.65f, 0.5f, 0.9f, 1);
+    check (energy (longRing, 20000, 24000) > energy (shortRing, 20000, 24000) * 10.0,
+           "BODY DECAY lengthens the modal tail");
+
+    const auto dryRelease = renderCleanPatch ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "amp_release", 0.01f);
+    }, 60, 0.6, 0.1);
+    const auto bodyRelease = renderCleanPatch ([] (IlanaSynthAudioProcessor& p)
+    {
+        setParam (p, "amp_release", 0.01f);
+        setParam (p, "res_on", 1.0f);
+        setParam (p, "body_type", 1.0f);
+        setParam (p, "res_amount", 1.0f);
+        setParam (p, "res_decay", 0.8f);
+    }, 60, 0.6, 0.1);
+    check (energy (bodyRelease, 18000, 22000) > energy (dryRelease, 18000, 22000) * 5.0
+           && energy (bodyRelease, 18000, 22000) > 1.0e-5,
+           "BODY continues ringing after the exciter envelope ends");
+
+    const auto renderCoupling = [] (int mode)
+    {
+        return renderCleanPatch ([mode] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "osc1_mode", 1.0f);
+            setParam (p, "osc1_excite", 0.0f);
+            setParam (p, "osc2_on", 1.0f);
+            setParam (p, "osc2_mode", 1.0f);
+            setParam (p, "osc2_excite", 0.0f);
+            setParam (p, "osc2_level", 0.7f);
+            setParam (p, "res_on", 1.0f);
+            setParam (p, "body_type", 2.0f);
+            setParam (p, "res_amount", 0.7f);
+            setParam (p, "body_coupling_mode", (float) mode);
+            setParam (p, "body_coupling", 1.0f);
+        }, 60, 0.35);
+    };
+    const auto uncoupled = renderCoupling (0);
+    for (int mode = 1; mode <= 3; ++mode)
+    {
+        const auto coupled = renderCoupling (mode);
+        auto squared = 0.0;
+        for (size_t i = 0; i < coupled.size(); ++i)
+        {
+            const auto delta = (double) coupled[i] - (double) uncoupled[i];
+            squared += delta * delta;
+        }
+        check (std::sqrt (squared / (double) coupled.size()) > 1.0e-5,
+               "coupling path " + juce::String (mode) + " changes the voice");
+    }
+
+    MaterialBody stress;
+    stress.prepare (48000.0);
+    stress.configure (2, 1.0f, 0.0f, 1.0f, 4000.0, 2);
+    auto finite = true;
+    for (int i = 0; i < 48000; ++i)
+    {
+        const auto value = stress.process (i & 1 ? 2.0f : -2.0f);
+        finite = finite && std::isfinite (value) && std::abs (value) <= 2.0f;
+    }
+    check (finite, "maximum material resonance stays finite under full drive");
+}
+
+// ILANA_BODY_FIT=<folder> writes impulse responses of the four material
+// bodies, so tools/fit_model.py can compare their modes with struck objects.
+void renderBodyFit (const juce::File& folder)
+{
+    folder.createDirectory();
+    struct Target { const char* name; int shape; float material, decay; double hz; };
+    for (const auto& target : { Target { "bar", 0, 0.0f, 0.45f, 261.625565 },
+                                { "plate", 1, 0.62f, 0.88f, 261.625565 },
+                                { "bell", 2, 0.72f, 0.72f, 523.251131 },
+                                { "glass", 3, 1.0f, 0.6f, 787.31 } })
+    {
+        MaterialBody body;
+        body.prepare (48000.0);
+        body.configure (target.shape, target.material, 0.5f, target.decay, target.hz, 2);
+        juce::AudioBuffer<float> buffer (1, 48000 * 3);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            buffer.setSample (0, i, body.process (i == 0 ? 1.0f : 0.0f));
+        const auto file = folder.getChildFile (juce::String (target.name) + ".wav");
+        file.deleteFile();
+        juce::WavAudioFormat format;
+        if (auto stream = file.createOutputStream())
+            if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (format.createWriterFor (stream.get(), 48000.0, 1, 24, {}, 0)))
+            {
+                stream.release();
+                writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+            }
     }
 }
 
@@ -7438,6 +7606,19 @@ int main()
         runArpHostStopTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M72_TEST", "").isNotEmpty())
+    {
+        runM72BodyTests();
+        std::cout << (failures == 0 ? "M7.2 TESTS PASSED" : "M7.2 TESTS FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (const auto folder = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_FIT", ""); folder.isNotEmpty())
+    {
+        renderBodyFit (juce::File (folder));
+        return 0;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M70_TEST", "").isNotEmpty())
@@ -7566,6 +7747,7 @@ int main()
     runM6bMatrixTests();
     runM70ExtendedFmModTests();
     runM71GenerativeTests();
+    runM72BodyTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

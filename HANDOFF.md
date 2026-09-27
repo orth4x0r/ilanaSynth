@@ -6,7 +6,7 @@ Updated 2026-09-27. The source tree is the source of truth. Work on `main`; Clau
 
 ## State
 - **Done:** M1–M7 (see [ROADMAP.md](ROADMAP.md)). M7.3 (electric pianos), M7.4 (wavetable editor) and M7.5 (ilanaSynth FX) were done in one pass by Claude on 2026-09-27, followed by a debug and polish pass. Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
-- **Next:** M8.1, the west-coast voice (wavefolder, low-pass gate; reference: online recordings, Buchla Easel V default as a fallback). Before it: the **listening round** for M7.3 and M7.5 (the user's, in Live).
+- **Next:** M8.1, the west-coast voice (wavefolder, low-pass gate; reference: online recordings, Buchla Easel V default as a fallback).
 - **Release:** v1.2 is tagged `v1.2.0`; the version is still 1.2.0 (v1.3 = M7–M10). The installer has not been rebuilt.
 - **Git:** everything through M7.5 and the debug/polish pass is committed on `main`, tagged `m7.3-done`, `m7.4-done`, `m7.5-done` and `m7-done`. Push only when the user asks.
 - **Plugin:** ilanaSynth and ilanaSynth FX installed to `C:\Program Files\Common Files\VST3` on 2026-09-27 (includes the CPU pass).
@@ -39,7 +39,7 @@ build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 `ILANA_M5_TEST=1 ilanaTableTest.exe` runs only the M5/M6/M6b tests (about a minute).
 
 ## Open issues
-- **EP listening round** not done yet. Fit errors: tine 124, reed 135 (both from about 2000); the rest is mostly the onset spectrum and between-partial noise (see the history file).
+- **EP fit gap:** tine 124, reed 135 (both from about 2000; listening round passed 2026-09-27); the rest is mostly the onset spectrum and between-partial noise (see the history file).
 - **ilanaSynth FX:** DRY is not delayed to match the oversamplers' latency; an input into a Classic body does nothing (material bodies only); live grains' randomness is unseeded, so their exact output varies run to run.
 - **Host automation** of the wavetable choice now also maps differently (the list grew by 12), like the other grown lists below.
 - **CPU tests on this machine:** it runs Windows' "Silent" power plan with background load, and the heavy-patch test swings 42–84% between identical runs (limit 50%). Compare builds by alternating runs (`ILANA_BENCH=1`) against a baseline build in a worktree (`git worktree add ../ilana-baseline <commit>`, then configure with `-DFETCHCONTENT_SOURCE_DIR_JUCE=<this build>/_deps/juce-src`). Measured that way, M5/M6 cost about +2% (heavy 42.4% against 41.6%).

@@ -140,7 +140,7 @@ It comes after the bodies: a tine and its tone bar are a struck bar, which M7.2 
 - **Tine** (Rhodes-style): a struck tine and tone bar. Pickup position and distance set how hard it barks.
 - **Reed** (Wurlitzer-style): a struck reed with a pickup, whose growl feeds into the drives and amps.
 - **Reference**: Rhodes and Wurlitzer recordings, soft and hard, low, middle and high. Fitted like the piano, with the bark and growl measured as the change in upper partials from soft to hard.
-- **Result:** fitted to Stage-73 V2 and Wurli V2 defaults (tine error 2499 → 124, reed 1677 → 135; `tools/fit_ep.py`). The listening round is still to do.
+- **Result:** fitted to Stage-73 V2 and Wurli V2 defaults (tine error 2499 → 124, reed 1677 → 135; `tools/fit_ep.py`). Listening round passed (2026-09-27), together with the M7.5 FX demos.
 
 #### M7.4: Wavetable editor (was M8b) — done
 The biggest gap against Vital and Serum 2, which both let you build tables in the plugin.

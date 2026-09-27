@@ -17,3 +17,4 @@ snapshots/
 *.suo
 *.aps
 CMakeUserPresets.json
+__pycache__/

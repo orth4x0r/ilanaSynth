@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX). Next up: the west-coast voice (M8.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX). Next up: real chaos and physics modulators (M8.1).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -14,7 +14,7 @@ The core of the plan is **one physical modelling engine used in two places**:
 
 **Engine:** from M3b on, the synth has up to **6 full oscillators** that are also the FM operators, and a **pool of 16 envelopes** and **16 LFOs**. The later milestones build on that engine.
 
-**Milestone numbers:** finished milestones keep their numbers. The plan after v1.2 was regrouped on 2026-09-26 into M7–M10 (v1.3) and M11–M14 (v1.4); each part notes its old number.
+**Milestone numbers:** finished milestones keep their numbers. The plan after v1.2 was regrouped on 2026-09-26 into M7–M10 (v1.3) and M11–M14 (v1.4), and again on 2026-09-27: M8 gained the modulator rework, the vector pad and resampling, and v1.4 shrank to two milestones. Each part notes its old number.
 
 ---
 
@@ -35,7 +35,7 @@ The fitting tool should become general (`tools/fit_model.py`, with the piano as 
 **Where references come from** (decided 2026-09-26: the user should not have to do anything):
 - **Internet first**, from sources that need no login. University of Iowa MIS has marimba, xylophone, vibraphone, crotales and bells (M7.2), as well as the piano already used.
 - **Installed plugins** only where their default (init) sound is the reference, rendered by a small headless JUCE host tool. This applies to Arturia Stage-73 V2 (Rhodes) and Wurli V2 (Wurlitzer) for M7.3. Picking specific presets needs the user, so it's avoided.
-- The per-milestone plan: M7.2 bodies from Iowa (search online for glass); M7.3 electric pianos from Stage-73 / Wurli defaults; M8.1 low-pass gate from online recordings (Buchla Easel V's default as a fallback); M8.3 feedback guitar from online recordings; M10 piano from the Iowa notes in `build/reference/`.
+- The per-milestone plan: M7.2 bodies from Iowa (search online for glass); M7.3 electric pianos from Stage-73 / Wurli defaults; M8.3 low-pass gate from online recordings (Buchla Easel V's default as a fallback); M8.5 feedback guitar from online recordings; M8.2 piano from the Iowa notes in `build/reference/` (the whole keyboard at pp, mf and ff); M8.1 modulators from their equations.
 - References rendered by a model (Stage-73, Wurli) are acceptable.
 
 ### Checks for every milestone
@@ -181,29 +181,78 @@ This ships as two separate plugins, which is simpler technically:
 
 The FX plugin adds input gain, a gate/trigger, and an envelope follower as a new modulation source. Both plugins share the engine and the preset format.
 
-### M8: West coast, filters, feedback and polish
-The west-coast voice and new filter models, the feedback guitar and Evolve, then the v1.3 polish.
+### M8: Modulators, piano, west coast, filters, feedback and polish
+Real chaos and physics modulators, a piano rework, the west-coast voice and new filter models, the feedback guitar with Evolve and the vector pad, resampling, then the v1.3 polish.
 
-#### M8.1: West-coast voice (was M10)
+#### M8.1: Chaos and physics modulators (new, redoes M2)
+The M2 shapes are stand-ins: the physics shapes share two generic knobs (Physics A/B), Bounce relaunches itself when it settles, the Lorenz shape has fixed constants and only outputs X, and S&H and Steps have no smoothing. M8.1 makes them real simulations with real parameters, at least as deep as Vital's random LFOs.
+- **Smoothing on every LFO**: a SMOOTH (glide) control, as a time or a fraction of a cycle, on every shape. It is what makes S&H, Steps and Square usable as slewed random or glide.
+- **Random family** (Vital's four styles and more): S&H, Sine Interpolate, **Perlin** (with octaves), Drunk walk (step size), each with a STEREO offset, a seed, and per-voice or shared randomness.
+- **Chaotic systems**, solved with a proper integrator (RK4, with sub-steps at high rates), their constants exposed:
+  - **Lorenz**: sigma, rho, beta, and the output axis (X, Y, Z or a mix)
+  - **Rossler**: a, b, c
+  - **Duffing** (driven): drive and damping, which walk from a steady swing through period doubling into chaos
+  - **Logistic and Henon maps**: stepped at the rate, with r morphing from a fixed value through the period-doubling cascade into chaos
+  - **Double pendulum**: two arm lengths, masses and start angles
+  - RATE sets the time scale; outputs are scaled to each attractor's known range so they fill -1 to +1 without clipping.
+- **Physics objects with real parameters** (replacing Physics A/B):
+  - **Bounce**: gravity, drop height, elasticity (restitution), air drag. It settles and stays down until retriggered, or loops if you choose. Outputs: height, and an **impact** pulse at each bounce (for striking the M8.3 low-pass gate).
+  - **Pendulum**: length, gravity, damping, start angle, and a periodic drive.
+  - **Spring**: mass, stiffness, damping, rest point; plucked by a trigger.
+  - **Friction**: a real stick-slip model (a mass on a spring dragged over a surface) with static and sliding friction and drag speed.
+- **Triggers**: note on, host sync, a Generative step (Euclid or the sequencer), free-running, or a manual button.
+- **Two outputs per modulator** (for example X/Y, or height/impact), as mod sources appended to the list.
+- **UI**: the LFO card draws the simulation (the ball, the pendulum, the attractor's trail) and shows named knobs for the chosen shape.
+- **Old patches**: the current Chaos, Bounce, Pendulum, Spring and Friction keep their indices and behaviour (shown as "classic" versions); the new ones are appended, so fingerprints don't move.
+- **Reference**: the equations themselves. Bounce times and heights match the analytic series, pendulum periods match length and gravity, Lorenz shows its known Lyapunov exponent (about 0.9) and bounds, and the random styles are compared with Vital's by ear.
+- **Checks**: no NaN or runaway at any setting, and CPU with all 16 LFOs chaotic and per voice.
+
+#### M8.2: Piano rework (new; replaces M10's piano pass)
+M4's piano fits its measurements (error 632 to 90.7) but sounds closer to a harpsichord than a piano. The fit only covered three notes at two dynamics, and the model has structural gaps that no fitting can close:
+- **The hammer is a pre-shaped force pulse, not a hammer.** A real felt hammer is a mass on a stiffening spring (force rising as compression to a power of about 2.5–3.5) that stays in contact with the moving string and is thrown back by it. That interaction is what makes soft notes dark and round and loud notes bright, with a smooth, even roll-off. The pulse is also high-passed before it reaches the string, which thins the fundamental: a thin, bright, even spectrum is the harpsichord sound.
+- **The soundboard is a handful of modes.** A real board is thousands of dense modes that colour the attack and give the "wood" in the sound. Commuted synthesis (a measured soundboard response folded into the excitation) is the usual way to get it cheaply.
+- **No bass "bark"**: the longitudinal and phantom partials from tension modulation, a large part of what makes a low piano note sound like a piano.
+- **Loss by register** is two constants (DAMP and a register slope), not fitted note by note.
+
+Plan:
+- **Diagnose first**: render the full Iowa MIS set (every note at pp, mf and ff) and compare spectrograms and partial decays with the recordings, alongside A/B listening. Write down which gap costs the most before building.
+- **A real hammer**: a nonlinear felt model (mass, stiffness, exponent, hysteresis) coupled to the string at the strike point, sample by sample. The strike-position notches and multiple contacts in the treble then come out of the physics.
+- **Strings**: 2–3 per note with their own detuning and two polarisations each (beating and the double decay), and a loss filter fitted per register.
+- **Tension modulation** for the bass bark and phantom partials.
+- **Soundboard**: commuted synthesis, or a dense modal or FDN body, fitted to a soundboard response taken from the recordings.
+- **The release**: the damper sound and the key-off decay.
+- **Fitted on the whole keyboard at three dynamics**, with a metric that follows the ear: spectral envelope over time, per-partial decay curves and beating. **Done** means the listening round says "piano", not only that the error dropped.
+- **Time limit**: a fixed budget. If it still isn't convincing, write down the gap and stop.
+- **Old patches**: the current hammer stays as "Hammer (classic)" for existing presets; the new piano hammer is appended.
+- **CPU**: a piano note will cost more (2–3 coupled strings and a hammer solved per sample); Eco keeps a lighter version.
+
+#### M8.3: West-coast voice (was M8.1, before that M10)
 - **Wavefolder**: fold amount, symmetry, and 1–4 stages.
 - **Low-pass gate**: a filter and amplifier in one, modelled on a vactrol, with its natural "bongo" decay.
-- **How to play it**: strike it with the M2 Bounce LFO or any envelope.
+- **How to play it**: strike it with the M8.1 Bounce impacts or any envelope.
 - **Where it lives**: a WEST card on the FILTER page, used in place of Filter 2 or alongside it.
 - **Reference**: recordings of a Buchla-style low-pass gate being struck, fitted on decay time and how brightness falls with level.
 
-#### M8.2: Filter models (was M10b)
-Grouped with M8.1 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
+#### M8.4: Filter models (was M8.2, before that M10b)
+Grouped with M8.3 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
 - **About 12–16 new models**, in the same FilterUnit structure: more ladder and diode variants, a state-variable multimode, an OTA/Sallen-Key style, an analogue-style notch/phaser filter, comb and formant variants, and a vowel/talking filter.
 - **Existing models keep their indices**, so old patches sound the same; new models are appended.
 - **UI**: the type grid gets categories or a scrolling list so it stays readable.
 - **Checks**: every new model gets the stability test (self-oscillation, extreme drive) and a fingerprint entry. Analogue-style models are checked against measured responses of the circuit they copy.
 
-#### M8.3: Feedback guitar and Evolve (was M11)
+#### M8.5: Feedback guitar, Evolve and the vector pad (was M8.3, plus the simple part of M12)
 - **Feedback guitar**: a new exciter type that puts an amp and speaker inside the string's feedback loop, with FEEDBACK and GAIN controls.
   - **Reference**: recordings of guitar feedback (a sustained note blooming into its harmonic), fitted on how fast it blooms and which harmonic it settles on.
 - **Evolve**: each macro can drift slowly within a range and at a rate you set. A **freeze** button captures the current state.
+- **Vector pad**: an XY pad that mixes any four of the six oscillators (the corners), plus X and Y as mod sources. It moves by hand, by a drawn path (a two-dimensional MSEG), by Evolve drift, or by MPE and joystick. Mostly UI: the DSP is four level controls. Morphing whole-patch snapshots stays in v1.4 (M12).
 
-#### M8.4: Polish (was M12)
+#### M8.6: Resample to oscillator (was M14, before that M16)
+- **BOUNCE**: render a note, or the whole patch, into a patch table or sample slot, in the background.
+- It reuses the offline note rendering the fitting tools already use, the M7.4 storage format, and resynthesis-to-wavetable.
+- Then granulate it, warp it, or use it as an exciter; the result is saved with the patch.
+- **New work**: samples embedded in the patch the way tables already are.
+
+#### M8.7: Polish (was M8.4, before that M12)
 - A PHYSICAL page with an animated string, body and hammer view.
 - Tour and README updates.
 
@@ -219,12 +268,11 @@ Left until the end on purpose: ilanaSynth is built for Windows first. Today it i
 Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets wait until here, so they can use every new feature. Planned (about 100, with a stretch goal of 300+ in the library to close the gap with Vital and Serum 2):
 
 - **Wavetable library**: grow from 40 to about 120 factory tables, made with the M7.4 editor.
-- **Piano quality**: one more fitting and listening pass on the acoustic keys (M4), with a fixed time limit. It stops there even if it still isn't a convincing piano.
 - **Physical instruments**
   - Strings (M1/M3): 10
   - Oscillator engine layers (M3b): 8
-  - Physics LFOs (M2): 6
-  - Acoustic keys (M4): 8
+  - Chaos and physics modulators (M8.1, M2): 8
+  - Acoustic keys (M4, M8.2): 8
   - Electric pianos (M7.3): 6
 - **Synthesis**
   - Deep FM (M5): 12
@@ -232,8 +280,9 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
 - **Generative and bodies**
   - Generative (M7.1): 8
   - Bodies and hybrids (M7.2): 12
-  - West coast and new filters (M8.1/M8.2): 10
-  - Feedback guitar and Evolve (M8.3): 8
+  - West coast and new filters (M8.3/M8.4): 10
+  - Feedback guitar, Evolve and vector pad (M8.5): 8
+  - Resampled sources (M8.6): 6
 - **FX plugin (M7.5)**: 10 presets
 
 ---
@@ -242,23 +291,19 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
 
 These are ideas to come back to after v1.3 ships. None of them block anything above. Each still follows the sound-fitting rule, and each gets its own presets when it lands.
 
-### M11: Pulsar synthesis (was M13)
-- **New oscillator mode**: trains of short "pulsaret" wave packets, whose rate sweeps from rhythm up to pitch.
-- **Controls**: the pulsaret shape comes from any wavetable, with a duty-cycle control.
+### M11: Pulse-train oscillator: pulsar and FOF (was M11 and M13; before that M13 and M15)
+One engine, because a FOF grain is a pulsar whose pulse is a decaying sine. It reuses the grain scheduler in `GranularOsc`, wavetable reading, and the unison bank.
+- **New oscillator mode**: trains of short pulses at a rate that sweeps from rhythm up to pitch, band-limited at audio rates.
+- **Pulse shape**: any wavetable with a duty-cycle control (pulsar), or a decaying sine with attack and bandwidth (FOF).
 - **Masking**: individual pulses can be dropped, driven by the M7.1 sequencers.
+- **Vowels (FOF)**: 5 formants with bandwidths, the vowel morph (A-E-I-O-U), male, female and child sets (the 3-formant table in `FilterUnit.h` is a start), consonant-style noise attacks, and a choir spread.
+- **Reference**: recordings of sung vowels, fitted on formant positions and bandwidths. This is where the real risk is: like the acoustic piano, it may build easily and still not sound convincing.
 
-### M12: Vector synthesis (was M14)
-- **XY pad**: morphs between four sources (any four of the M3b oscillators, or four snapshots).
-- **Movement**: the pad follows a drawable path, the Evolve drift, or joystick and MPE control.
+### M12: Snapshot vector synthesis (was the rest of M12, before that M14)
+- The M8.5 vector pad morphs between four whole-patch **snapshots** instead of four oscillators.
+- **The hard part**: switches and mode choices can't blend, so each one needs a rule (switch at the midpoint, or keep the nearest corner's value).
 
-### M13: FOF formant synthesis (was M15)
-- **New oscillator mode**: real vowel synthesis with 5 formants.
-- **Controls**: vowel morph (A-E-I-O-U), consonant-style attacks, gender/size, and a choir spread.
-
-### M14: Resample to oscillator (was M16)
-- Bounce a note or the whole patch into a sample or wavetable slot, using the M7.4 storage format.
-- Then granulate it, warp it, or use it as a pulsar source or exciter.
-- The result is saved with the patch.
+M13 and M14 no longer exist: FOF merged into M11, and resampling moved to M8.6.
 
 ---
 
@@ -281,4 +326,7 @@ These are ideas to come back to after v1.3 ships. None of them block anything ab
 | Platforms | Windows first. macOS, Linux and CI wait for M9 |
 | v1.4 | Pushed back and unscheduled. v1.3 is the next full release |
 | Edited wavetables | Stored in the patch as recipe, embedded data and file reference, in a versioned format; 16 patch-table slots |
-| Milestone numbers | Finished ones are fixed; the post-v1.2 plan was regrouped into M7–M14 (2026-09-26), with old numbers noted |
+| Chaos and physics LFOs | Rebuilt in M8.1 as real simulations with named parameters and smoothing; the M2 versions stay as "classic" for old patches |
+| Piano | Reworked in M8.2 (real hammer, strings, bass bark, soundboard, whole-keyboard fit), right after the modulators; the M4 hammer stays as "classic" |
+| v1.4 scope | Pulsar and FOF share one pulse-train engine (M11); the vector pad and resampling moved into v1.3 (M8.5, M8.6); only snapshot morphing is left (M12) |
+| Milestone numbers | Finished ones are fixed; the post-v1.2 plan was regrouped into M7–M14 (2026-09-26) and again on 2026-09-27, with old numbers noted |

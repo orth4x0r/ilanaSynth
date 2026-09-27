@@ -6,7 +6,7 @@ Updated 2026-09-27. The source tree is the source of truth. Work on `main`; Clau
 
 ## State
 - **Done:** M1–M7 (see [ROADMAP.md](ROADMAP.md)). M7.3 (electric pianos), M7.4 (wavetable editor) and M7.5 (ilanaSynth FX) were done in one pass by Claude on 2026-09-27, followed by a debug and polish pass. Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
-- **Next:** M8.1, the west-coast voice (wavefolder, low-pass gate; reference: online recordings, Buchla Easel V default as a fallback).
+- **Next:** M8.1, real chaos and physics modulators (named parameters, RK4 attractors, smoothing on every LFO; the M2 shapes stay as "classic"). Then M8.2, a piano rework (it sounds closer to a harpsichord: a pre-shaped hammer pulse, a thin soundboard, no bass bark), then M8.3, the west-coast voice. The roadmap was regrouped on 2026-09-27 (see ROADMAP.md).
 - **Release:** v1.2 is tagged `v1.2.0`; the version is still 1.2.0 (v1.3 = M7–M10). The installer has not been rebuilt.
 - **Git:** everything through M7.5 and the debug/polish pass is committed on `main`, tagged `m7.3-done`, `m7.4-done`, `m7.5-done` and `m7-done`. Push only when the user asks.
 - **Plugin:** ilanaSynth and ilanaSynth FX installed to `C:\Program Files\Common Files\VST3` on 2026-09-27 (includes the CPU pass).

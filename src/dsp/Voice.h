@@ -19,6 +19,7 @@
 #include "SamplePlayer.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
+#include "UnisonBank.h"
 #include "WavetableOscillator.h"
 
 namespace UnisonMode
@@ -363,7 +364,7 @@ public:
 
     float getLastWavetablePhase (int oscIndex) const
     {
-        return oscUnison[juce::jlimit (0, VoiceParams::numOscillators - 1, oscIndex)][0].getPhase();
+        return oscBank[juce::jlimit (0, VoiceParams::numOscillators - 1, oscIndex)].getPhase (0);
     }
     float getLastFilterValue() const { return lastFilterValue; }
     float getLastFilter2Value() const { return lastFilter2Value; }
@@ -414,6 +415,13 @@ private:
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
     void advanceVoiceLfos();
+
+    // Per block: the per-voice LFOs and the extra envelopes in use, so the
+    // sample loop walks short lists instead of testing every slot.
+    int perVoiceLfos[VoiceParams::numLfos] {};
+    int numPerVoiceLfos = 0;
+    int neededExtraEnvs[11] {};
+    int numNeededExtraEnvs = 0;
     bool hasActiveAmpEnvelope() const;
     void configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const;
     float voiceLfoValue (int lfo) const;
@@ -421,7 +429,9 @@ private:
 
     VoiceParams params;
 
-    WavetableOscillator oscUnison[VoiceParams::numOscillators][VoiceParams::maxUnison];
+    // Wavetable unison: each oscillator's voices render together (SIMD).
+    UnisonBank oscBank[VoiceParams::numOscillators];
+    static_assert (VoiceParams::maxUnison <= UnisonBank::maxLanes);
     // Keep the first three banks' default-construction seed sequence exactly
     // as before M3b. Extra banks use explicit seeds and do not advance the
     // shared KarplusStrong counter used by existing presets.
@@ -517,6 +527,8 @@ private:
     // Per-unison-voice pitch offsets (semitones) and gains from the unison
     // mode, detune and blend.
     double unisonOffset[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
+    // exp2 (offset / 12), worked out per block rather than every sub-block.
+    double unisonRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     float unisonGains[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     float glideCoeff = 1.0f;
     bool hasPlayedNote = false;

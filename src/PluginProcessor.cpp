@@ -263,6 +263,25 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         paramDestinations.push_back (entry);
     }
 
+    for (int env = 6; env <= 16; ++env)
+    {
+        const auto prefix = "env" + juce::String (env);
+        extraEnvIds[(size_t) (env - 6)] = { prefix + "_attack", prefix + "_decay", prefix + "_sustain",
+                                            prefix + "_release", prefix + "_curve", prefix + "_velocity" };
+    }
+
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        oscAmpEnvIds[(size_t) osc] = prefix + "_amp_env";
+        sampleFactoryIds[(size_t) osc] = prefix + "_sample_factory";
+
+        for (int target = 0; target < OscillatorIds::count; ++target)
+            fmMatrixIds[(size_t) osc][(size_t) target] = fmRouteId (osc, target);
+    }
+
+    buildParamCache();
+
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
         const auto prefix = "lfo" + juce::String (lfo + 1);
@@ -1079,30 +1098,134 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     return layout;
 }
 
-float IlanaSynthAudioProcessor::getParam (const char* id) const
+namespace
 {
-    const auto* value = apvts.getRawParameterValue (id);
+std::uint32_t hashParamId (const char* id) noexcept
+{
+    // FNV-1a.
+    std::uint32_t hash = 2166136261u;
 
-    if (value == nullptr)
-        return 0.0f;
+    for (; *id != 0; ++id)
+        hash = (hash ^ (std::uint8_t) *id) * 16777619u;
 
-    auto result = value->load();
+    return hash;
+}
+} // namespace
 
-    if (anyParamModulation)
+void IlanaSynthAudioProcessor::buildParamCache()
+{
+    const auto& parameters = getParameters();
+    std::uint32_t size = 1;
+
+    while (size < (std::uint32_t) parameters.size() * 4)
+        size <<= 1;
+
+    paramCache.assign (size, {});
+    paramCacheMask = size - 1;
+    paramCacheIds.clear();
+    paramCacheIds.reserve ((size_t) parameters.size());
+
+    for (auto* parameter : parameters)
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+            paramCacheIds.push_back (withId->paramID);
+
+    for (const auto& id : paramCacheIds)
     {
-        const auto found = rawToParamDestination.find (value);
+        ParamCacheEntry entry;
+        entry.id = id.toRawUTF8();
+        entry.hash = hashParamId (entry.id);
+        entry.value = apvts.getRawParameterValue (id);
 
-        if (found != rawToParamDestination.end())
+        if (entry.value == nullptr)
+            continue;
+
+        if (const auto found = rawToParamDestination.find (entry.value); found != rawToParamDestination.end())
+            entry.destination = found->second;
+
+        for (auto slot = entry.hash & paramCacheMask;; slot = (slot + 1) & paramCacheMask)
         {
-            const auto offset = paramDestinationOffsets[(size_t) found->second];
-
-            if (offset != 0.0f)
-                if (auto* parameter = paramDestinations[(size_t) found->second].parameter)
-                    result = parameter->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, parameter->convertTo0to1 (result) + offset));
+            if (paramCache[slot].id == nullptr)
+            {
+                paramCache[slot] = entry;
+                break;
+            }
         }
+    }
+}
+
+const IlanaSynthAudioProcessor::ParamCacheEntry* IlanaSynthAudioProcessor::findParam (const char* id) const
+{
+    if (paramCache.empty())
+        return nullptr;
+
+    const auto hash = hashParamId (id);
+
+    for (auto slot = hash & paramCacheMask;; slot = (slot + 1) & paramCacheMask)
+    {
+        const auto& candidate = paramCache[slot];
+
+        if (candidate.id == nullptr)
+            return nullptr; // not a parameter
+
+        if (candidate.hash == hash && std::strcmp (candidate.id, id) == 0)
+            return &candidate;
+    }
+}
+
+float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
+{
+    auto result = entry.value->load();
+
+    if (anyParamModulation && entry.destination >= 0)
+    {
+        const auto offset = paramDestinationOffsets[(size_t) entry.destination];
+
+        if (offset != 0.0f)
+            if (auto* parameter = paramDestinations[(size_t) entry.destination].parameter)
+                result = parameter->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, parameter->convertTo0to1 (result) + offset));
     }
 
     return result;
+}
+
+float IlanaSynthAudioProcessor::getParam (const char* id) const
+{
+    const auto* entry = findParam (id);
+    return entry != nullptr ? readParam (*entry) : 0.0f;
+}
+
+float IlanaSynthAudioProcessor::getRawParam (const ParamRef& ref) const
+{
+    auto* entry = ref.entry.load (std::memory_order_relaxed);
+
+    if (entry == nullptr)
+    {
+        entry = findParam (ref.toRawUTF8());
+
+        if (entry == nullptr)
+            return 0.0f;
+
+        ref.entry.store (entry, std::memory_order_relaxed);
+    }
+
+    return entry->value->load();
+}
+
+float IlanaSynthAudioProcessor::getParam (const ParamRef& ref) const
+{
+    auto* entry = ref.entry.load (std::memory_order_relaxed);
+
+    if (entry == nullptr)
+    {
+        entry = findParam (ref.toRawUTF8());
+
+        if (entry == nullptr)
+            return 0.0f;
+
+        ref.entry.store (entry, std::memory_order_relaxed);
+    }
+
+    return readParam (*entry);
 }
 
 void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -1442,22 +1565,22 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     {
         const auto& ids = oscCoreIds[(size_t) osc];
         auto& settings = p.oscillators[(size_t) osc];
-        const auto choice = (int) getParam (ids.table.toRawUTF8());
-        p.oscillatorEnabled[(size_t) osc] = getParam (ids.on.toRawUTF8()) > 0.5f;
+        const auto choice = (int) getParam (ids.table);
+        p.oscillatorEnabled[(size_t) osc] = getParam (ids.on) > 0.5f;
         settings.table = p.oscillatorEnabled[(size_t) osc]
                              ? spectralCache->get (osc, choice, getTableForChoice (choice),
-                                                   (int) getParam (ids.spectral.toRawUTF8()),
-                                                   getParam (ids.spectralAmount.toRawUTF8()))
+                                                   (int) getParam (ids.spectral),
+                                                   getParam (ids.spectralAmount))
                              : getTableForChoice (choice);
-        settings.frame = getParam (ids.frame.toRawUTF8());
-        settings.level = getParam (ids.level.toRawUTF8());
-        settings.pan = getParam (ids.pan.toRawUTF8());
-        settings.semitones = (double) getParam (ids.semi.toRawUTF8());
-        settings.cents = (double) getParam (ids.fine.toRawUTF8());
-        settings.unison = (int) getParam (ids.unison.toRawUTF8());
-        settings.detuneCents = getParam (ids.detune.toRawUTF8());
-        settings.spread = getParam (ids.spread.toRawUTF8());
-        settings.chord = (int) getParam (ids.chord.toRawUTF8());
+        settings.frame = getParam (ids.frame);
+        settings.level = getParam (ids.level);
+        settings.pan = getParam (ids.pan);
+        settings.semitones = (double) getParam (ids.semi);
+        settings.cents = (double) getParam (ids.fine);
+        settings.unison = (int) getParam (ids.unison);
+        settings.detuneCents = getParam (ids.detune);
+        settings.spread = getParam (ids.spread);
+        settings.chord = (int) getParam (ids.chord);
     }
 
     p.subOctaveOffset = 0;
@@ -1507,18 +1630,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                getParam ("e4_release"), getParam ("e4_curve") };
     for (int env = 6; env <= 16; ++env)
     {
-        const auto prefix = "env" + juce::String (env);
-        p.extraEnvs[(size_t) (env - 6)] = {
-            getParam ((prefix + "_attack").toRawUTF8()), getParam ((prefix + "_decay").toRawUTF8()),
-            getParam ((prefix + "_sustain").toRawUTF8()), getParam ((prefix + "_release").toRawUTF8()),
-            getParam ((prefix + "_curve").toRawUTF8()) };
-        p.extraEnvVelocity[(size_t) (env - 6)] = getParam ((prefix + "_velocity").toRawUTF8());
+        const auto& ids = extraEnvIds[(size_t) (env - 6)];
+        p.extraEnvs[(size_t) (env - 6)] = { getParam (ids.attack), getParam (ids.decay), getParam (ids.sustain),
+                                            getParam (ids.release), getParam (ids.curve) };
+        p.extraEnvVelocity[(size_t) (env - 6)] = getParam (ids.velocity);
     }
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
-    {
-        const auto id = juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_amp_env";
-        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, 16, (int) getParam (id.toRawUTF8()));
-    }
+        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, 16, (int) getParam (oscAmpEnvIds[(size_t) osc]));
     p.quality = juce::jlimit (0, 2, (int) getParam ("quality"));
 
     p.ampVelocity = getParam ("amp_velocity");
@@ -1552,61 +1670,59 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             if (source < 3 && target < 3)
                 continue;
 
-            const auto id = source == target ? "fm_fb" + juce::String (source + 1)
-                                              : "fm_" + juce::String (source + 1) + "to" + juce::String (target + 1);
-            p.fmMatrix[source][target] = getParam (id.toRawUTF8());
+            p.fmMatrix[source][target] = getParam (fmMatrixIds[(size_t) source][(size_t) target]);
         }
     p.fmMode = (int) getParam ("fm_mode");
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
-        p.oscOut[(size_t) osc] = getParam (oscCoreIds[(size_t) osc].out.toRawUTF8()) > 0.5f;
+        p.oscOut[(size_t) osc] = getParam (oscCoreIds[(size_t) osc].out) > 0.5f;
 
     const auto fillStringParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
     {
         const auto& ids = stringParamIds[(size_t) oscIndex];
-        const auto mode = (int) getParam (ids[0].toRawUTF8());
+        const auto mode = (int) getParam (ids[0]);
         osc.stringMode = mode == 1;
         osc.sampleMode = mode == 2 || mode == 3; // granular reads the sample too
         osc.granularMode = mode == 3;
-        osc.stringExcite = (int) getParam (ids[1].toRawUTF8());
-        osc.stringDecay = getParam (ids[2].toRawUTF8());
-        osc.stringDamping = getParam (ids[3].toRawUTF8());
-        osc.stringSustain = getParam (ids[4].toRawUTF8());
-        osc.stringStiffness = getParam (ids[5].toRawUTF8());
-        osc.stringPickup = getParam (ids[6].toRawUTF8());
-        osc.stringExcitationPosition = getParam (ids[7].toRawUTF8());
-        osc.stringPickHardness = getParam (ids[8].toRawUTF8());
-        osc.stringPickPosition = getParam (ids[9].toRawUTF8());
-        osc.stringSlap = getParam (ids[10].toRawUTF8()) > 0.5f;
+        osc.stringExcite = (int) getParam (ids[1]);
+        osc.stringDecay = getParam (ids[2]);
+        osc.stringDamping = getParam (ids[3]);
+        osc.stringSustain = getParam (ids[4]);
+        osc.stringStiffness = getParam (ids[5]);
+        osc.stringPickup = getParam (ids[6]);
+        osc.stringExcitationPosition = getParam (ids[7]);
+        osc.stringPickHardness = getParam (ids[8]);
+        osc.stringPickPosition = getParam (ids[9]);
+        osc.stringSlap = getParam (ids[10]) > 0.5f;
         const auto& extras = bowBuzzIds[(size_t) oscIndex];
-        osc.bowPressure = getParam (extras[0].toRawUTF8());
-        osc.bowSpeed = getParam (extras[1].toRawUTF8());
-        osc.bridgeBuzz = getParam (extras[2].toRawUTF8());
-        osc.fretRattle = getParam (extras[3].toRawUTF8());
+        osc.bowPressure = getParam (extras[0]);
+        osc.bowSpeed = getParam (extras[1]);
+        osc.bridgeBuzz = getParam (extras[2]);
+        osc.fretRattle = getParam (extras[3]);
         const auto& keys = keysParamIds[(size_t) oscIndex];
-        osc.hammerHardness = getParam (keys[0].toRawUTF8());
-        osc.couple = getParam (keys[1].toRawUTF8());
-        osc.damper = getParam (keys[2].toRawUTF8());
-        osc.registerMap = getParam (keys[3].toRawUTF8());
+        osc.hammerHardness = getParam (keys[0]);
+        osc.couple = getParam (keys[1]);
+        osc.damper = getParam (keys[2]);
+        osc.registerMap = getParam (keys[3]);
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
     {
         const auto& ids = sampleParamIds[(size_t) oscIndex];
         osc.sample = getSampleForOsc (oscIndex);
-        osc.sampleTuned = getParam (ids[0].toRawUTF8()) > 0.5f;
-        osc.sampleLoop = getParam (ids[1].toRawUTF8()) > 0.5f;
-        osc.sampleReverse = getParam (ids[2].toRawUTF8()) > 0.5f;
-        osc.sampleStart = getParam (ids[3].toRawUTF8());
-        osc.sampleEnd = getParam (ids[4].toRawUTF8());
-        osc.sampleFadeIn = getParam (ids[5].toRawUTF8());
-        osc.sampleFadeOut = getParam (ids[6].toRawUTF8());
+        osc.sampleTuned = getParam (ids[0]) > 0.5f;
+        osc.sampleLoop = getParam (ids[1]) > 0.5f;
+        osc.sampleReverse = getParam (ids[2]) > 0.5f;
+        osc.sampleStart = getParam (ids[3]);
+        osc.sampleEnd = getParam (ids[4]);
+        osc.sampleFadeIn = getParam (ids[5]);
+        osc.sampleFadeOut = getParam (ids[6]);
 
         const auto& grain = grainParamIds[(size_t) oscIndex];
-        osc.grainSizeMs = getParam (grain[0].toRawUTF8());
-        osc.grainDensity = getParam (grain[1].toRawUTF8());
-        osc.grainSpray = getParam (grain[2].toRawUTF8());
-        osc.grainPitch = getParam (grain[3].toRawUTF8());
-        osc.grainSpread = getParam (grain[4].toRawUTF8());
+        osc.grainSizeMs = getParam (grain[0]);
+        osc.grainDensity = getParam (grain[1]);
+        osc.grainSpray = getParam (grain[2]);
+        osc.grainPitch = getParam (grain[3]);
+        osc.grainSpread = getParam (grain[4]);
     };
 
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -1688,22 +1804,22 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             const auto& ids = lfoIds[(size_t) lfo];
             auto& lfoParams = p.lfos[lfo];
 
-            auto rate = (double) getParam (ids.rate.toRawUTF8());
+            auto rate = (double) getParam (ids.rate);
 
-            if (getParam (ids.sync.toRawUTF8()) > 0.5f)
-                rate = (currentBpm.load() / 60.0) / getSyncDivisionBeats ((int) getParam (ids.div.toRawUTF8()));
+            if (getParam (ids.sync) > 0.5f)
+                rate = (currentBpm.load() / 60.0) / getSyncDivisionBeats ((int) getParam (ids.div));
 
             for (int step = 0; step < 16; ++step)
-                lfoStepValues[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
+                lfoStepValues[lfo][step] = getParam (ids.steps[(size_t) step]);
 
-            lfoParams.keyTrack = getParam (ids.key.toRawUTF8()) > 0.5f;
-            lfoParams.perVoice = getParam (ids.retrig.toRawUTF8()) > 0.5f || lfoParams.keyTrack;
-            lfoParams.shape = (int) getParam (ids.shape.toRawUTF8());
+            lfoParams.keyTrack = getParam (ids.key) > 0.5f;
+            lfoParams.perVoice = getParam (ids.retrig) > 0.5f || lfoParams.keyTrack;
+            lfoParams.shape = (int) getParam (ids.shape);
             lfoParams.baseIncrement = juce::jlimit (0.001, 200.0, rate) / voiceRate;
-            lfoParams.startPhase = getParam (ids.phase.toRawUTF8());
-            lfoParams.physA = getParam (ids.physA.toRawUTF8());
-            lfoParams.physB = getParam (ids.physB.toRawUTF8());
-            lfoParams.kick = getParam (ids.kick.toRawUTF8()) > 0.5f;
+            lfoParams.startPhase = getParam (ids.phase);
+            lfoParams.physA = getParam (ids.physA);
+            lfoParams.physB = getParam (ids.physB);
+            lfoParams.kick = getParam (ids.kick) > 0.5f;
             lfoParams.steps = lfoStepValues[lfo];
             const auto isCurve = lfoParams.shape == curveShape;
             lfoParams.custom = isCurve ? activeLfoCurveTables[(size_t) lfo].data() : activeLfoCustom[(size_t) lfo].data();
@@ -1714,11 +1830,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     const auto fillWarpAndUnison = [this] (int oscIndex, VoiceParams::OscParams& osc)
     {
         const auto& ids = oscShapeIds[(size_t) oscIndex];
-        osc.warpMode = (int) getParam (ids.warp.toRawUTF8());
-        osc.warpAmount = getParam (ids.warpAmount.toRawUTF8());
-        osc.unisonMode = (int) getParam (ids.unisonMode.toRawUTF8());
-        osc.unisonBlend = getParam (ids.unisonBlend.toRawUTF8());
-        osc.route = (int) getParam (ids.route.toRawUTF8());
+        osc.warpMode = (int) getParam (ids.warp);
+        osc.warpAmount = getParam (ids.warpAmount);
+        osc.unisonMode = (int) getParam (ids.unisonMode);
+        osc.unisonBlend = getParam (ids.unisonBlend);
+        osc.route = (int) getParam (ids.route);
     };
 
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -1729,29 +1845,29 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     {
         const auto& ids = operatorIds[(size_t) osc];
         auto& settings = p.oscillators[(size_t) osc];
-        settings.tuneMode = juce::jlimit (0, OscTuning::Count - 1, (int) getParam (ids.tune.toRawUTF8()));
-        settings.ratio = OscTuning::snapRatio ((double) getParam (ids.ratio.toRawUTF8()), (int) getParam (ids.snap.toRawUTF8()));
-        settings.fixedHz = (double) getParam (ids.fixedHz.toRawUTF8());
-        settings.keyLevel = getParam (ids.keyLevel.toRawUTF8());
-        settings.feedbackType = juce::jlimit (0, FmFeedback::Count - 1, (int) getParam (ids.feedbackType.toRawUTF8()));
-        settings.warpMode2 = Warp::modeForStageTwoChoice ((int) getParam (ids.warp2.toRawUTF8()));
-        settings.warpAmount2 = getParam (ids.warp2Amount.toRawUTF8());
-        settings.pdEnv = juce::jlimit (0, 17, (int) getParam (ids.pdEnv.toRawUTF8()));
-        settings.pdEnvAmount = getParam (ids.pdEnvAmount.toRawUTF8());
-        p.fmNoise[osc] = getParam (fmNoiseIds[(size_t) osc].toRawUTF8());
+        settings.tuneMode = juce::jlimit (0, OscTuning::Count - 1, (int) getParam (ids.tune));
+        settings.ratio = OscTuning::snapRatio ((double) getParam (ids.ratio), (int) getParam (ids.snap));
+        settings.fixedHz = (double) getParam (ids.fixedHz);
+        settings.keyLevel = getParam (ids.keyLevel);
+        settings.feedbackType = juce::jlimit (0, FmFeedback::Count - 1, (int) getParam (ids.feedbackType));
+        settings.warpMode2 = Warp::modeForStageTwoChoice ((int) getParam (ids.warp2));
+        settings.warpAmount2 = getParam (ids.warp2Amount);
+        settings.pdEnv = juce::jlimit (0, 17, (int) getParam (ids.pdEnv));
+        settings.pdEnvAmount = getParam (ids.pdEnvAmount);
+        p.fmNoise[osc] = getParam (fmNoiseIds[(size_t) osc]);
     }
     p.fmNoiseColour = getParam ("fm_noise_color");
 
     for (int env = 0; env < 16; ++env)
     {
         const auto& ids = envelopeExtraIds[(size_t) env];
-        const auto delay = getParam (ids.delay.toRawUTF8());
-        const auto hold = getParam (ids.hold.toRawUTF8());
+        const auto delay = getParam (ids.delay);
+        const auto hold = getParam (ids.hold);
         auto& target = env == 0 ? p.ampEnv : env == 1 ? p.filterEnv : env == 2 ? p.filter2Env
                      : env == 3 ? p.modEnv : env == 4 ? p.env4 : p.extraEnvs[(size_t) (env - 5)];
         target.delay = delay;
         target.hold = hold;
-        p.envKeyRate[(size_t) env] = getParam (ids.keyRate.toRawUTF8());
+        p.envKeyRate[(size_t) env] = getParam (ids.keyRate);
     }
 
     // Envelopes an oscillator uses for its warp (ENV 6-16 only run when
@@ -1771,8 +1887,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     {
         for (int point = 0; point < Mseg::numPoints; ++point)
         {
-            p.msegShape.levels[point] = getParam (msegLevelIds[(size_t) point].toRawUTF8());
-            p.msegShape.times[point] = getParam (msegTimeIds[(size_t) point].toRawUTF8());
+            p.msegShape.levels[point] = getParam (msegLevelIds[(size_t) point]);
+            p.msegShape.times[point] = getParam (msegTimeIds[(size_t) point]);
         }
 
         p.msegShape.rateHz = (double) getParam ("mseg_rate");
@@ -2205,7 +2321,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     bool retriggers[numLfos] {};
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        retriggers[lfo] = getParam (lfoIds[(size_t) lfo].retrig.toRawUTF8()) > 0.5f;
+        retriggers[lfo] = getParam (lfoIds[(size_t) lfo].retrig) > 0.5f;
 
     for (const auto metadata : midiMessages)
     {
@@ -2215,18 +2331,18 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         for (int lfo = 0; lfo < numLfos; ++lfo)
         {
             const auto& ids = lfoIds[(size_t) lfo];
-            const auto shape = (int) getParam (ids.shape.toRawUTF8());
+            const auto shape = (int) getParam (ids.shape);
             if (retriggers[lfo])
             {
                 lfoPhases[(size_t) lfo] = 0.0;
-                lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA.toRawUTF8()));
+                lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA));
                 lfoPreviousShapes[(size_t) lfo] = shape;
             }
-            if (shape == LfoShapes::Pendulum && getParam (ids.kick.toRawUTF8()) > 0.5f)
+            if (shape == LfoShapes::Pendulum && getParam (ids.kick) > 0.5f)
             {
                 if (lfoPreviousShapes[(size_t) lfo] != shape)
                 {
-                    lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA.toRawUTF8()));
+                    lfoChaos[(size_t) lfo].resetPhysics (shape, getParam (ids.physA));
                     lfoPreviousShapes[(size_t) lfo] = shape;
                 }
                 lfoChaos[(size_t) lfo].kick (metadata.getMessage().getFloatVelocity());
@@ -2234,7 +2350,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         }
     }
 
-    const auto makeRate = [this] (const char* syncId, const char* rateId, const char* divId,
+    const auto makeRate = [this] (const ParamRef& syncId, const ParamRef& rateId, const ParamRef& divId,
                                   Mod::Destination rateDestination)
     {
         auto rate = getParam (rateId);
@@ -2260,11 +2376,11 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     {
         const auto& ids = lfoIds[(size_t) lfo];
 
-        lfoRates[lfo] = makeRate (ids.sync.toRawUTF8(), ids.rate.toRawUTF8(), ids.div.toRawUTF8(),
+        lfoRates[lfo] = makeRate (ids.sync, ids.rate, ids.div,
                                   Mod::lfoRateDestinationFor (lfo));
-        lfoShapes[lfo] = (float) (int) getParam (ids.shape.toRawUTF8());
-        lfoPhysA[lfo] = getParam (ids.physA.toRawUTF8());
-        lfoPhysB[lfo] = getParam (ids.physB.toRawUTF8());
+        lfoShapes[lfo] = (float) (int) getParam (ids.shape);
+        lfoPhysA[lfo] = getParam (ids.physA);
+        lfoPhysB[lfo] = getParam (ids.physB);
         if (lfoPreviousShapes[(size_t) lfo] != (int) lfoShapes[lfo])
         {
             lfoPreviousShapes[(size_t) lfo] = (int) lfoShapes[lfo];
@@ -2274,7 +2390,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         lfoIncrements[lfo] = (double) lfoRates[lfo] / currentSampleRate;
 
         for (int step = 0; step < 16; ++step)
-            lfoSteps[lfo][step] = getParam (ids.steps[(size_t) step].toRawUTF8());
+            lfoSteps[lfo][step] = getParam (ids.steps[(size_t) step]);
     }
 
     float* lfoBufferPointers[numLfos] {};
@@ -2325,12 +2441,18 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             else if (LfoShapes::isPhysics (shape))
                 chaos.advancePhysics (shape, lfoIncrements[lfo], lfoPhysA[lfo], lfoPhysB[lfo]);
 
-            lfoBufferPointers[lfo][i] = shape == 7
-                                            ? lfoSteps[lfo][stepIndex]
-                                            : (stateful ? chaos.value (shape, phase)
-                                                        : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
-                                                                    activeLfoCustom[(size_t) lfo].data(),
-                                                                    activeLfoCurveTables[(size_t) lfo].data()));
+            // LFO 1-4 always run (they share the clock's random generator,
+            // so skipping their draws would shift it), but an unrouted one's
+            // wave is only needed for the card's last value.
+            if (lfoRouted[(size_t) lfo] || stateful || shape == 7 || i == numSamples - 1)
+                lfoBufferPointers[lfo][i] = shape == 7
+                                                ? lfoSteps[lfo][stepIndex]
+                                                : (stateful ? chaos.value (shape, phase)
+                                                            : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
+                                                                        activeLfoCustom[(size_t) lfo].data(),
+                                                                        activeLfoCurveTables[(size_t) lfo].data()));
+            else
+                lfoBufferPointers[lfo][i] = 0.0f;
 
             auto nextPhase = phase + lfoIncrements[lfo];
 
@@ -2467,13 +2589,13 @@ float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
     if (const auto lfoIndex = Mod::lfoIndexFor (source); lfoIndex >= 0)
     {
         const auto& lfoId = lfoIds[(size_t) lfoIndex];
-        const auto shape = (int) getParam (lfoId.shape.toRawUTF8());
+        const auto shape = (int) getParam (lfoId.shape);
         const auto phase = lfoPhases[(size_t) lfoIndex];
 
         if (LfoShapes::isStateful (shape))
             return lfoChaos[(size_t) lfoIndex].value (shape, phase);
 
-        return shape == 7 ? getParam (lfoId.steps[(size_t) juce::jlimit (0, 15, (int) (phase * 16.0))].toRawUTF8())
+        return shape == 7 ? getParam (lfoId.steps[(size_t) juce::jlimit (0, 15, (int) (phase * 16.0))])
                           : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfoIndex].load(),
                                       activeLfoCustom[(size_t) lfoIndex].data(),
                                       activeLfoCurveTables[(size_t) lfoIndex].data());
@@ -2619,16 +2741,16 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
         const auto& ids = fxSlotIds[(size_t) (slot - 1)];
-        const auto type = (int) getParam (ids.type.toRawUTF8());
+        const auto type = (int) getParam (ids.type);
 
-        if (type == 0 || getParam (ids.bypass.toRawUTF8()) > 0.5f)
+        if (type == 0 || getParam (ids.bypass) > 0.5f)
         {
             fxSlotCpu[(size_t) (slot - 1)].store (0.0f);
             continue;
         }
 
-        const auto solo = getParam (ids.solo.toRawUTF8()) > 0.5f;
-        const auto blend = getParam (ids.mix.toRawUTF8());
+        const auto solo = getParam (ids.solo) > 0.5f;
+        const auto blend = getParam (ids.mix);
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
@@ -2920,7 +3042,7 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
 
         if (tapsOn && tapPattern == 6)
             for (int step = 0; step < 16; ++step)
-                customTapGains[step] = getParam (tapStepIds[(size_t) step].toRawUTF8());
+                customTapGains[step] = getParam (tapStepIds[(size_t) step]);
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -3465,7 +3587,7 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
     std::array<float, 16> levels {};
 
     for (int step = 0; step < 16; ++step)
-        levels[(size_t) step] = pattern == 8 ? getParam (gateStepIds[(size_t) step].toRawUTF8())
+        levels[(size_t) step] = pattern == 8 ? getParam (gateStepIds[(size_t) step])
                                              : gatePatternLevel (pattern, step);
 
     // Position in steps: from the host while playing, else free-running.
@@ -4167,9 +4289,9 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
             // Probability sequencer: a held key, raised by up to RANGE and
             // snapped to the scale, played RATCHET times in the step.
             const auto step = (size_t) (((number % pseqLength) + pseqLength) % pseqLength);
-            const auto stepChance = getParam (pseqChanceIds[step].toRawUTF8());
-            const auto range = juce::jlimit (0, 24, (int) getParam (pseqRangeIds[step].toRawUTF8()));
-            const auto ratchet = juce::jlimit (1, 4, (int) getParam (pseqRatchetIds[step].toRawUTF8()));
+            const auto stepChance = getParam (pseqChanceIds[step]);
+            const auto range = juce::jlimit (0, 24, (int) getParam (pseqRangeIds[step]));
+            const auto ratchet = juce::jlimit (1, 4, (int) getParam (pseqRatchetIds[step]));
 
             if (pseqRandom.nextFloat() < stepChance)
             {
@@ -4372,16 +4494,10 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
         return nullptr;
 
-    const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) oscIndex]);
-    const auto* value = apvts.getRawParameterValue (prefix + "_sample_factory");
+    const auto factoryIndex = (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]);
 
-    if (value != nullptr)
-    {
-        const auto factoryIndex = (int) value->load();
-
-        if (factoryIndex > 0 && factoryIndex <= (int) factorySamples.size())
-            return factorySamples[(size_t) (factoryIndex - 1)].get();
-    }
+    if (factoryIndex > 0 && factoryIndex <= (int) factorySamples.size())
+        return factorySamples[(size_t) (factoryIndex - 1)].get();
 
     const SampleData* user = nullptr;
 
@@ -4392,9 +4508,8 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
 
     // Granular with nothing loaded: grains from the vocal sample rather than silence.
     if (user == nullptr && ! factorySamples.empty())
-        if (const auto* mode = apvts.getRawParameterValue (prefix + "_mode"))
-            if ((int) mode->load() == 3)
-                return factorySamples[(size_t) juce::jmin (1, (int) factorySamples.size() - 1)].get();
+        if ((int) getRawParam (stringParamIds[(size_t) oscIndex][0]) == 3) // osc mode: Granular
+            return factorySamples[(size_t) juce::jmin (1, (int) factorySamples.size() - 1)].get();
 
     return user;
 }
@@ -4787,7 +4902,7 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
 
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto type = (int) getParam (fxSlotIds[(size_t) slot - 1].type.toRawUTF8());
+        const auto type = (int) getParam (fxSlotIds[(size_t) slot - 1].type);
         hasReverb = hasReverb || type == 13;
         hasDelay = hasDelay || type == 9;
     }

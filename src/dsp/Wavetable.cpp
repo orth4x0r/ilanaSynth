@@ -313,6 +313,12 @@ void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames)
                 for (auto& sample : frame)
                     sample *= scale;
     }
+
+    framePointers.clear();
+
+    for (const auto& level : levels)
+        for (const auto& frame : level)
+            framePointers.push_back (frame.data());
 }
 
 int Wavetable::getLevelForFrequency (double frequency, double sampleRate) const noexcept

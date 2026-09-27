@@ -40,6 +40,13 @@ public:
         return levels[(size_t) level][(size_t) frame].data();
     }
 
+    // One level's frames as a flat array of pointers: the unison bank reads
+    // it once per sample per voice instead of walking the nested vectors.
+    const float* const* getLevelFrames (int level) const noexcept
+    {
+        return framePointers.data() + (size_t) level * (size_t) numFrames;
+    }
+
     int getLevelForFrequency (double frequency, double sampleRate) const noexcept;
 
     const juce::String& getName() const noexcept { return name; }
@@ -51,6 +58,7 @@ private:
     int numFrames = 0;
     juce::String name;
     std::vector<std::vector<std::vector<float>>> levels;
+    std::vector<const float*> framePointers;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Wavetable)
 };

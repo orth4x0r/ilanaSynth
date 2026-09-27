@@ -74,6 +74,7 @@ juce_add_console_app(ilanaTableTest PRODUCT_NAME "ilanaTableTest")
 
 target_sources(ilanaTableTest PRIVATE
     tests/TableTest.cpp
+    tests/SamplingProfiler.cpp
     src/PluginProcessor.cpp
     src/dsp/Wavetable.cpp
     src/dsp/TableFactory.cpp
@@ -98,6 +99,13 @@ target_link_libraries(ilanaTableTest
     PUBLIC
         juce::juce_recommended_config_flags
 )
+
+# Symbols for the optimised test build, so ILANA_PROFILE can name lines.
+if (MSVC)
+    target_compile_options(ilanaTableTest PRIVATE /Zi)
+    target_link_options(ilanaTableTest PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    target_link_libraries(ilanaTableTest PRIVATE dbghelp winmm)
+endif()
 
 add_test(NAME table_tests COMMAND ilanaTableTest)
 

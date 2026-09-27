@@ -124,8 +124,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
-        for (int u = 0; u < VoiceParams::maxUnison; ++u)
-            oscUnison[osc][u].setSampleRate (newRate);
+        oscBank[osc].setSampleRate (newRate);
 
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
         {
@@ -282,7 +281,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         phase -= std::floor (phase);
 
         for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
-            oscUnison[osc][u].resetPhase (phase);
+            oscBank[osc].resetPhase (u, phase);
     }
 
     resonatorL.reset();
@@ -449,11 +448,9 @@ float Voice::voiceLfoValue (int lfo) const
 
 void Voice::advanceVoiceLfos()
 {
-    for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
+    for (int index = 0; index < numPerVoiceLfos; ++index)
     {
-        if (! params.lfos[lfo].perVoice)
-            continue;
-
+        const auto lfo = perVoiceLfos[index];
         const auto shape = params.lfos[lfo].shape;
 
         if (shape == LfoShapes::Chaos)
@@ -525,7 +522,7 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
 void Voice::updateUnisonLayout()
 {
     const auto layout = [] (const VoiceParams::OscParams& osc, int numUnison, int chord, float detuneCents,
-                            float blend, double* offsets, float* gains)
+                            float blend, double* offsets, double* ratios, float* gains)
     {
         auto power = 0.0f;
         const auto centreLow = (numUnison - 1) / 2;
@@ -549,7 +546,10 @@ void Voice::updateUnisonLayout()
         const auto norm = 1.0f / std::sqrt (juce::jmax (1.0e-6f, power));
 
         for (int u = 0; u < numUnison; ++u)
+        {
             gains[u] *= norm;
+            ratios[u] = std::exp2 (offsets[u] / 12.0);
+        }
     };
 
     constexpr Mod::Destination detuneDestinations[] { Mod::Destination::Osc1Detune,
@@ -571,7 +571,7 @@ void Voice::updateUnisonLayout()
         layout (settings, numOscUnison[osc], settings.chord,
                 juce::jlimit (0.0f, 100.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
                 settings.unisonBlend + blockMod (blendDestinations[osc]),
-                unisonOffset[osc], unisonGains[osc]);
+                unisonOffset[osc], unisonRatio[osc], unisonGains[osc]);
     }
 }
 
@@ -644,9 +644,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                                         blockMod (D::MeSustain), blockMod (D::MeRelease)), 3));
     env4.setParameters (keyScaled (modulatedEnvelope (params.env4, blockMod (D::E4Attack), blockMod (D::E4Decay),
                                                       blockMod (D::E4Sustain), blockMod (D::E4Release)), 4));
+    numNeededExtraEnvs = 0;
     for (int env = 0; env < (int) extraEnvs.size(); ++env)
         if (params.extraEnvNeeded[(size_t) env])
+        {
             extraEnvs[(size_t) env].setParameters (keyScaled (params.extraEnvs[(size_t) env], env + 5));
+            neededExtraEnvs[numNeededExtraEnvs++] = env;
+        }
+
+    numPerVoiceLfos = 0;
+    for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
+        if (params.lfos[lfo].perVoice)
+            perVoiceLfos[numPerVoiceLfos++] = lfo;
 
     if (params.msegEnvNeeded)
         envMseg.setParams (params.msegShape.levels, params.msegShape.times,
@@ -709,8 +718,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (params.oscillatorEnabled[osc] || oscEnableSmooth[osc].getCurrentValue() > 0.0005f)
-            for (int u = 0; u < numOscUnison[osc]; ++u)
-                oscUnison[osc][u].setWavetable (params.oscillators[osc].table);
+            oscBank[osc].setWavetable (params.oscillators[osc].table);
 
     const auto configureStrings = [this] (int osc)
     {
@@ -764,6 +772,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                          panGainL[osc], panGainR[osc]);
 
     computePans (VoiceParams::OscParams {}, 1, 0.0f, 0.0f, &panGainSubOscL, &panGainSubOscR);
+
+    // Each wavetable unison voice's blend gain and pan, folded per block.
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        oscBank[osc].setWeights (unisonGains[osc], panGainL[osc], panGainR[osc], numOscUnison[osc]);
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -887,6 +899,21 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // render exactly as before.
     auto anyAltFeedback = false;
     auto anyNoiseOperator = false;
+    // The FM cells that involve OSC 4-6. A zero cell adds nothing, so unless
+    // the extended cells are modulated only the non-zero ones are summed
+    // (in the same order as the full matrix).
+    int extendedFmCells[27][2];
+    auto numExtendedFmCells = 0;
+
+    for (int target = 0; target < VoiceParams::numOscillators; ++target)
+        for (int source = target < 3 ? 3 : 0; source < VoiceParams::numOscillators; ++source)
+            if (params.anyExtendedFmMods || params.fmMatrix[source][target] != 0.0f)
+            {
+                extendedFmCells[numExtendedFmCells][0] = source;
+                extendedFmCells[numExtendedFmCells][1] = target;
+                ++numExtendedFmCells;
+            }
+
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
@@ -919,9 +946,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto filter2Value = filter2Env.getNextSample();
         const auto modValue = modEnv.getNextSample();
         const auto env4Value = env4.getNextSample();
-        for (int env = 0; env < (int) extraEnvs.size(); ++env)
-            if (params.extraEnvNeeded[(size_t) env])
-                extraEnvValues[(size_t) env] = extraEnvs[(size_t) env].getNextSample();
+        for (int index = 0; index < numNeededExtraEnvs; ++index)
+        {
+            const auto env = (size_t) neededExtraEnvs[index];
+            extraEnvValues[env] = extraEnvs[env].getNextSample();
+        }
         if (params.msegEnvNeeded)
             msegEnvValue = juce::jlimit (0.0f, 1.0f, envMseg.getNextValue());
         const float envelopeValues[17] { ampValue, filterValue, filter2Value, modValue, env4Value,
@@ -958,9 +987,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                       + (params.fmMatrix[2][2] + mods[(int) D::Fm3Feedback]) * previousOsc[2])
         };
 
-        for (int target = 0; target < VoiceParams::numOscillators; ++target)
-            for (int source = target < 3 ? 3 : 0; source < VoiceParams::numOscillators; ++source)
-                fmInput[target] += (double) fmAmountAt (mods, source, target) * (double) previousOsc[source];
+        for (int cell = 0; cell < numExtendedFmCells; ++cell)
+        {
+            const auto source = extendedFmCells[cell][0];
+            const auto target = extendedFmCells[cell][1];
+            fmInput[target] += (double) fmAmountAt (mods, source, target) * (double) previousOsc[source];
+        }
 
         // Filtered and cross feedback replace an operator's plain self term.
         if (anyAltFeedback)
@@ -1053,8 +1085,24 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
 
                 auto stringSum = 0.0f;
+                const auto selectedEnv = envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
+                const auto oscGain = renderLevel * enable * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
+                const auto wavetable = ! settings.granularMode && ! settings.sampleMode && ! settings.stringMode;
 
-                for (int u = 0; u < numOscUnison[osc]; ++u)
+                if (wavetable)
+                {
+                    const auto sums = oscBank[osc].render (phase, frames, rate, params.quality == 2);
+                    const auto gain = oscGain * ring;
+                    oscMono[osc] += sums.mono * gain;
+
+                    if (params.oscOut[osc])
+                    {
+                        busL[routes[osc]] += sums.left * gain;
+                        busR[routes[osc]] += sums.right * gain;
+                    }
+                }
+
+                for (int u = 0; u < (wavetable ? 0 : numOscUnison[osc]); ++u)
                 {
                     float raw = 0.0f;
                     float sampleL = 0.0f;
@@ -1070,27 +1118,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         sampleUnison[osc][u].process (sampleL, sampleR);
                         raw = 0.5f * (sampleL + sampleR);
                     }
-                    else if (settings.stringMode)
+                    else
                     {
                         raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
                         stringSum += raw;
                     }
-                    else
-                    {
-                        oscUnison[osc][u].setFramePosition (frame);
-                        if (params.quality == 2)
-                        {
-                            const auto first = oscUnison[osc][u].getNextSample (phase, frames, rate * 0.5);
-                            const auto second = oscUnison[osc][u].getNextSample (phase, frames, rate * 0.5);
-                            raw = 0.5f * (first + second) * ring;
-                        }
-                        else
-                        {
-                            raw = oscUnison[osc][u].getNextSample (phase, frames, rate) * ring;
-                        }
-                    }
 
-                    const auto selectedEnv = envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
                     const auto gain = unisonGains[osc][u] * renderLevel * enable
                                       * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
                     oscMono[osc] += raw * gain;
@@ -1128,9 +1161,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             if (osc == 0 && params.hardSync && active[1] && active[0]
                 && ! params.oscillators[0].stringMode && ! params.oscillators[1].stringMode
                 && ! params.oscillators[0].sampleMode && ! params.oscillators[1].sampleMode
-                && oscUnison[0][0].wrappedThisSample())
+                && oscBank[0].lane0Wrapped())
                 for (int u = 0; u < numOscUnison[1]; ++u)
-                    oscUnison[1][u].resetPhase();
+                    oscBank[1].resetPhase (u, 0.0);
 
             if (osc == 1)
             {
@@ -1505,12 +1538,14 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                                                            * juce::jlimit (500.0, 0.45 * sampleRate, 8.0 * baseFreq)
                                                            / sampleRate));
 
+        oscBank[osc].setWarp (settings.warpMode, warp);
+        oscBank[osc].setWarp2 (settings.warpMode2, warp2);
+
+        oscBank[osc].setFrequencies (baseFreq, unisonRatio[osc], numOscUnison[osc]);
+
         for (int u = 0; u < numOscUnison[osc]; ++u)
         {
-            const auto frequencyU = baseFreq * std::exp2 (unisonOffset[osc][u] / 12.0);
-            oscUnison[osc][u].setFrequency (frequencyU);
-            oscUnison[osc][u].setWarp (settings.warpMode, warp);
-            oscUnison[osc][u].setWarp2 (settings.warpMode2, warp2);
+            const auto frequencyU = baseFreq * unisonRatio[osc][u];
 
             if (u < VoiceParams::maxBufferedUnison)
             {

@@ -299,7 +299,46 @@ public:
 private:
     void handleAsyncUpdate() override;
 
+    struct ParamCacheEntry
+    {
+        const char* id = nullptr;
+        std::uint32_t hash = 0;
+        const std::atomic<float>* value = nullptr;
+        int destination = -1;
+    };
+
+    // A parameter ID that remembers where its value lives: the first read
+    // looks it up, later reads go straight to it. Assigned and passed
+    // around like the juce::String it wraps.
+    class ParamRef
+    {
+    public:
+        ParamRef() = default;
+        ParamRef (const juce::String& newId) : id (newId) {}
+        ParamRef (const char* newId) : id (newId) {}
+        ParamRef (const ParamRef& other) : id (other.id) {}
+
+        ParamRef& operator= (const ParamRef& other)
+        {
+            id = other.id;
+            entry.store (nullptr, std::memory_order_relaxed);
+            return *this;
+        }
+
+        const char* toRawUTF8() const { return id.toRawUTF8(); }
+        operator const juce::String&() const { return id; }
+        operator juce::StringRef() const { return id; }
+
+        juce::String id;
+        mutable std::atomic<const ParamCacheEntry*> entry { nullptr };
+    };
+
     float getParam (const char* id) const;
+    float getParam (const ParamRef& ref) const;
+    // The stored value without modulation (as apvts.getRawParameterValue).
+    float getRawParam (const ParamRef& ref) const;
+    const ParamCacheEntry* findParam (const char* id) const;
+    float readParam (const ParamCacheEntry& entry) const;
     const Wavetable* getTableForChoice (int choiceIndex) const;
     void renderLfos (int numSamples, const juce::MidiBuffer& midiMessages);
     float staticSourceValue (int sourceIndex) const;
@@ -365,7 +404,7 @@ private:
     // own random generator, so the arp's sequence is unchanged.
     juce::Random pseqRandom { 16180 };
     long long engineStepCount = 0;
-    std::array<juce::String, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
+    std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
     int arpRatchetNote = 0, arpRatchetsLeft = 0, arpRatchetInterval = 0, arpRatchetCounter = 0;
     double euclidExciterPhase = 0.0;
@@ -388,17 +427,17 @@ private:
     void resetUserTableToDefault (int slot);
     mutable juce::SpinLock tableLock;
 
-    std::array<std::array<juce::String, 11>, OscillatorIds::count> stringParamIds;
-    std::array<std::array<juce::String, 4>, OscillatorIds::count> bowBuzzIds;
-    std::array<std::array<juce::String, 4>, OscillatorIds::count> keysParamIds;
+    std::array<std::array<ParamRef, 11>, OscillatorIds::count> stringParamIds;
+    std::array<std::array<ParamRef, 4>, OscillatorIds::count> bowBuzzIds;
+    std::array<std::array<ParamRef, 4>, OscillatorIds::count> keysParamIds;
     struct OscCoreIds
     {
-        juce::String on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
+        ParamRef on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
     };
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
-    struct ModSlotIds { juce::String src, dst, amt, curve, polarity, aux, bypass; };
+    struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass; };
     struct ModSlotRaw
     {
         std::atomic<float>* src = nullptr;
@@ -411,31 +450,38 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { juce::String shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<juce::String, 16> steps; };
-    struct OscShapeIds { juce::String warp, warpAmount, unisonMode, unisonBlend, route; };
+    struct LfoIds { ParamRef shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<ParamRef, 16> steps; };
+    struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     // M5/M6 operator and phase-distortion settings.
     struct OperatorIds
     {
-        juce::String tune, ratio, snap, fixedHz, keyLevel, feedbackType, warp2, warp2Amount, pdEnv, pdEnvAmount;
+        ParamRef tune, ratio, snap, fixedHz, keyLevel, feedbackType, warp2, warp2Amount, pdEnv, pdEnvAmount;
     };
     std::array<OperatorIds, OscillatorIds::count> operatorIds;
-    std::array<juce::String, OscillatorIds::count> fmNoiseIds;
+    std::array<ParamRef, OscillatorIds::count> fmNoiseIds;
     // DAHDSR extras and rate key scaling for ENV 1..16.
-    struct EnvelopeExtraIds { juce::String delay, hold, keyRate; };
+    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate; };
     std::array<EnvelopeExtraIds, 16> envelopeExtraIds;
-    std::array<juce::String, Mseg::numPoints> msegLevelIds, msegTimeIds;
+    std::array<ParamRef, Mseg::numPoints> msegLevelIds, msegTimeIds;
+    // ENV 6..16's ADSR, curve and velocity.
+    struct ExtraEnvIds { ParamRef attack, decay, sustain, release, curve, velocity; };
+    std::array<ExtraEnvIds, 11> extraEnvIds;
+    // Every FM matrix cell ([source][target]), each oscillator's amp
+    // envelope choice and sample source.
+    std::array<std::array<ParamRef, OscillatorIds::count>, OscillatorIds::count> fmMatrixIds;
+    std::array<ParamRef, OscillatorIds::count> oscAmpEnvIds, sampleFactoryIds;
 
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
     // Which LFOs a mod slot uses: LFO 5-16 only render in full when routed.
     std::array<bool, (size_t) numLfos> lfoRouted {};
-    struct FxSlotIds { juce::String type, bypass, solo, mix; };
+    struct FxSlotIds { ParamRef type, bypass, solo, mix; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
-    std::array<juce::String, 16> tapStepIds;
-    std::array<juce::String, 16> gateStepIds;
-    std::array<std::array<juce::String, 7>, OscillatorIds::count> sampleParamIds;
-    std::array<std::array<juce::String, 5>, OscillatorIds::count> grainParamIds;
+    std::array<ParamRef, 16> tapStepIds;
+    std::array<ParamRef, 16> gateStepIds;
+    std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
+    std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;
     std::vector<std::shared_ptr<SampleData>> sampleSlots;
@@ -499,6 +545,15 @@ private:
     };
     std::vector<ParamDestination> paramDestinations;
     std::unordered_map<const std::atomic<float>*, int> rawToParamDestination;
+
+    // getParam's lookup: an open-addressed hash of every parameter ID, built
+    // once in the constructor and read-only after (so any thread can use
+    // it). The value tree's own lookup is a string-keyed map, and a block
+    // makes over a thousand reads.
+    std::vector<ParamCacheEntry> paramCache;
+    std::vector<juce::String> paramCacheIds;
+    std::uint32_t paramCacheMask = 0;
+    void buildParamCache();
     std::array<float, (size_t) maxDestinations> paramDestinationOffsets {};
     bool anyParamModulation = false;
 

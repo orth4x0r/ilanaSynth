@@ -365,7 +365,8 @@ public:
         return value;
     }
 
-private:
+    // One warp stage (phase warp or phase distortion). Public so the
+    // unison bank runs the same chain.
     static double applyStage (int mode, float amount, double phase, bool& silent, float& gain)
     {
         if (Warp::isPhaseDistortion (mode))
@@ -377,6 +378,7 @@ private:
         return Warp::apply (mode, amount, phase, silent);
     }
 
+private:
     static float cubicInterpolate (const float* data, int index, float frac) noexcept
     {
         const auto y0 = data[index];

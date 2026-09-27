@@ -697,6 +697,45 @@ int runUiTests()
         settle (200);
     }
 
+    // M7.1: the Generative card switches between ARP, EUCLID and PROB SEQ.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("ARP/SEQ"));
+        settle (100);
+        std::vector<CardTabs*> cardTabs;
+        findAll<CardTabs> (*editor, cardTabs);
+        CardTabs* engineTabs = nullptr;
+        for (auto* candidate : cardTabs)
+            if (candidate->getNames().contains ("PROB SEQ"))
+                engineTabs = candidate;
+
+        expect (engineTabs != nullptr, "the ARP/SEQ page has a Generative card with ARP, EUCLID and PROB SEQ");
+
+        if (engineTabs != nullptr)
+        {
+            tabs->setCurrentTabIndex (tabIndex ("ARP/SEQ"));
+            engineTabs->setSelected (1, true);
+            settle (200);
+
+            const auto visibleWith = [&editor] (const juce::String& id)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == id)
+                        return knob->isVisible();
+                return false;
+            };
+
+            expect (visibleWith ("euc_hits") && ! visibleWith ("arp_gate") && ! visibleWith ("pseq_length"),
+                    "the EUCLID tab shows only Euclid's controls");
+            engineTabs->setSelected (2, true);
+            settle (200);
+            expect (visibleWith ("pseq_length") && ! visibleWith ("euc_hits"), "the PROB SEQ tab shows the sequencer");
+            expect (visibleWith ("spray_strum_time"), "the GENERATE card has STRUM TIME");
+            engineTabs->setSelected (0, true);
+        }
+    }
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -1002,6 +1041,53 @@ int main (int argc, char** argv)
         tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
         settle (400);
         save (*editor, outDir.getChildFile ("fm-no-input.png"));
+        processor.loadFactoryPreset (0);
+        tabs->setCurrentTabIndex (0);
+        settle (300);
+    }
+
+    // M7.1: the Generative card's EUCLID and PROB SEQ tabs, and strum.
+    {
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ARP/SEQ"));
+        settle (100);
+        std::vector<CardTabs*> cardTabs;
+        findAll<CardTabs> (*editor, cardTabs);
+        CardTabs* engineTabs = nullptr;
+        for (auto* candidate : cardTabs)
+            if (candidate->getNames().contains ("EUCLID"))
+                engineTabs = candidate;
+
+        set ("euc_on", 1.0f);
+        set ("euc_hits", 7.0f);
+        set ("euc_rotate", 2.0f);
+        set ("spray_strum", 1.0f);
+
+        if (engineTabs != nullptr)
+        {
+            engineTabs->setSelected (1, true);
+            settle (400);
+            save (*editor, outDir.getChildFile ("gen-euclid.png"));
+
+            set ("pseq_on", 1.0f);
+            set ("pseq_length", 12.0f);
+            for (int step = 1; step <= 16; ++step)
+            {
+                set ("pseq_chance" + juce::String (step), step % 3 == 0 ? 0.4f : 0.9f);
+                set ("pseq_range" + juce::String (step), (float) ((step * 5) % 13));
+                set ("pseq_ratchet" + juce::String (step), step % 4 == 0 ? 3.0f : 1.0f);
+            }
+            engineTabs->setSelected (2, true);
+            settle (400);
+            save (*editor, outDir.getChildFile ("gen-probseq.png"));
+            engineTabs->setSelected (0, true);
+        }
+
         processor.loadFactoryPreset (0);
         tabs->setCurrentTabIndex (0);
         settle (300);

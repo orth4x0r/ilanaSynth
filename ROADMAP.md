@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7.0 (follow-ups from the 1.2 polish pass). Next up: the Generative card (M7.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so are M7.0 (follow-ups from the 1.2 polish pass) and M7.1 (the Generative card). Next up: the BODY section (M7.2).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -123,7 +123,7 @@ Left over from the bug and polish pass on 2026-09-26 (see the end of `docs/HANDO
 - **Envelope and LFO pool cards**: show what each envelope or LFO modulates, as a small subtitle, and dim the unassigned ones.
 - **Number keys 1–9**: they switch tabs while the editor has focus. Check in Ableton whether this gets in the way (Live's computer keyboard doesn't use the number row); if it does, move the shortcut to Ctrl+1–9.
 
-#### M7.1: Generative card (was M7)
+#### M7.1: Generative card (was M7) — done
 - **Euclidean rhythm**: steps, hits and rotation. It can trigger notes, the physical exciter or the trance gate.
 - **Probability sequencer**: each of 16 steps has a chance, a pitch range and a ratchet, all snapped to the scale.
 - **Strum mode** for note spray: up or down, with timing.

@@ -242,3 +242,29 @@ Reported by the user: the arp not stopping in Ableton, FM into string oscillator
 - **Number keys:** kept. They act only without modifiers, and Live's computer MIDI keyboard uses letter keys, never the number row.
 - **Verified:** all targets build. `--uitest` has 0 failures, with new tests for the starters and quick-add. Fingerprints: 0 of 241 changed against `build/fingerprints-polish.csv`. `ilanaTableTest`: one failure, the heavy-patch CPU check at 54.6 % in a run where unrelated timings were also about 1.3x slower (machine load). Isolated reruns read 41.5 % and 41.1 %, as before.
 
+## M7.1: the Generative card (Claude, 2026-09-26)
+
+The roadmap gave three lines. These details were settled while building it.
+
+- **One note engine** (`processArpeggiator`) serves the arp, the probability sequencer and Euclid.
+  - While on, the sequencer (mode -1) takes over from the arp.
+  - Euclid in **Notes** mode rests the engine's steps that fall between hits. With the arp off, the engine plays the held chord (Chord mode) at Euclid's rate and gate.
+  - Step numbers come from the host's beat grid while it plays, so patterns line up with the bar. Otherwise they count from the first key.
+  - With only the arp on, behaviour is unchanged.
+- **Euclid** (`euc_*`): steps 2–32, hits, rotate, rate, gate and target. `euclidHit()` in `Generative.h` is Bresenham: E(3,8) = x..x..x.
+  - **Exciter** sends a private SysEx marker (0x7D "IL") into the synth's MIDI at each hit. `IlanaSynth::handleMidiEvent` calls `Voice::reExcite`, which re-triggers the Physical strings of keys still held. It is sample-accurate, including at 2x/4x oversampling.
+  - **Trance Gate** makes `processGate` use Euclid's steps, rate and hits.
+- **Probability sequencer** (`pseq_*`): rate, length (1–16) and gate, and per step a chance, a range (0–24 st upward from a random held key, snapped to `gen_scale`) and a ratchet (1–4). It has its own random generator (`pseqRandom`). Parameter IDs are built once.
+- **Strum** (`spray_strum`, `spray_strum_time`) is in `NoteSpray`. Notes starting on the same sample, played and sprayed, are held as pending items, sorted by pitch and spaced by the strum time. A strummed played note is released through its children list, so a release mid-strum leaves nothing stuck (tested).
+- **UI:**
+  - The ARP card is now the GENERATIVE card, with ARP / EUCLID / PROB SEQ pill tabs and a hint line. `EuclidDisplay` draws a ring and a strip; drag it to set hits and rotate. `ProbSeqEditor` has chance, range and ratchet lanes. Both are in `gui/GenerativeWidgets.h`.
+  - GENERATE gets a STRUM menu and a STRUM TIME knob. The spray's old knob that was labelled STRUM (the random spread) now reads SPREAD.
+- **Fixed on the way:** the arp arrays' preallocation (from the polish pass) sat inside `#if ILANA_FINGERPRINT_BUILD`. It now runs in every build.
+- **Presets** (Generative, appended at 241–244): Euclid Pluck Machine (arp + Euclid 7/16), Probability Bells (FM, A minor pentatonic, ratchets), Strummed Harp (strum up), Euclid Kalimba (Exciter 5/8). They are level-matched to the library (−17 to −22 dB RMS in the fingerprint).
+- **Verified:**
+  - All targets build.
+  - `ilanaTableTest` (full suite, including the CPU checks) and `--uitest`: 0 failures. `ILANA_M71_TEST=1` runs the new tests: pattern, chord hits, arp gating, chance 0, ratchets, range and scale, strum order both ways, strum release, exciter hits, trance gate.
+  - Fingerprints: 0 of the old 241 changed. The new baseline is `build/fingerprints-m7.1.csv`.
+  - Snapshots: `gen-euclid.png` and `gen-probseq.png`.
+  - No fitting to a reference: nothing here is a modelled sound. The listening round is the user's, in Live.
+

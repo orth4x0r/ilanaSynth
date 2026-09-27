@@ -24,6 +24,7 @@
 #include "gui/FilterWidgets.h"
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
+#include "gui/GenerativeWidgets.h"
 #include "gui/TableBrowser.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
@@ -2451,15 +2452,36 @@ public:
           genRoot (p.apvts, "gen_root", "ROOT"),
           genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
           sprayOn (p.apvts, "spray_on", "SPRAY"),
-          sprayDirection (p.apvts, "spray_direction", "DIRECTION")
+          sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
+          sprayStrum (p.apvts, "spray_strum", "STRUM"),
+          engineTabs ({ "ARP", "EUCLID", "PROB SEQ" }, { arpColour(), euclidColour(), pseqColour() }, false),
+          euclidDisplay (p, euclidColour()),
+          eucOn (p.apvts, "euc_on", "EUCLID"),
+          eucTarget (p.apvts, "euc_target", "TARGET"),
+          eucDiv (p.apvts, "euc_div", "RATE"),
+          eucSteps (p.apvts, "euc_steps", "STEPS", euclidColour(), false),
+          eucHits (p.apvts, "euc_hits", "HITS", euclidColour(), false),
+          eucRotate (p.apvts, "euc_rotate", "ROTATE", euclidColour(), false),
+          eucGate (p.apvts, "euc_gate", "GATE", euclidColour(), false),
+          pseqEditor (p, pseqColour()),
+          pseqOn (p.apvts, "pseq_on", "SEQ"),
+          pseqDiv (p.apvts, "pseq_div", "RATE"),
+          pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), false),
+          pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), false)
     {
         sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), false);
         sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), false);
-        spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "STRUM", generateColour(), false);
+        spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), false);
+        strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "STRUM TIME", generateColour(), false);
         sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), false);
         sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), false);
         addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
-                *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity);
+                *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity, sprayStrum, *strumTime);
+
+        // The Generative card: ARP, EUCLID and PROB SEQ share one card.
+        addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
+                pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate);
+        engineTabs.onSelect = [this] (int) { showEngineTab(); };
 
         addAndMakeVisible (step1);
         addAndMakeVisible (step2);
@@ -2488,12 +2510,18 @@ public:
 
         addAll (*this, mseg, msegLoop, msegRate, clockDiv,
                 arpDisplay, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
+
+        // Open on whichever part of the card is switched on.
+        engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : 0, false);
+        showEngineTab();
         startTimerHz (8);
     }
 
     static juce::Colour msegColour() { return juce::Colour (0xff6fe3c1); }
     static juce::Colour arpColour() { return juce::Colour (0xffff7ac6); }
     static juce::Colour generateColour() { return juce::Colour (0xffffd447); }
+    static juce::Colour euclidColour() { return juce::Colour (0xff4fd1c5); }
+    static juce::Colour pseqColour() { return juce::Colour (0xffff9f4a); }
 
     void paint (juce::Graphics& g) override
     {
@@ -2511,18 +2539,37 @@ public:
         title (stepTitle2, "STEPS", juce::Colour (0xff35c8ff));
 
         IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
-        IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, arpColour().withAlpha (0.35f));
+        const auto tab = engineTabs.getSelected();
+        const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : arpColour();
+        IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, tabColour.withAlpha (0.35f));
         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
         title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
-        title (arpCard.reduced (12, 0).removeFromTop (26), "ARPEGGIATOR", arpColour());
+        title (arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", tabColour);
         title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (11.5f));
         g.drawText ("drag points; assign it in the MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
-        g.drawText ("hold notes to play the pattern", arpCard.reduced (12, 0).removeFromTop (26),
-                    juce::Justification::centredRight);
+        {
+            // A hint under the header: what the tab shown does right now.
+            const auto arpOnNow = readOn ("arp_on"), seqOnNow = readOn ("pseq_on"), euclidOnNow = readOn ("euc_on");
+            juce::String hint;
+
+            if (tab == 0)
+                hint = seqOnNow && arpOnNow ? "the probability sequencer is playing instead" : "hold notes to play the pattern";
+            else if (tab == 1)
+                hint = (int) readValue ("euc_target") == 0 ? (arpOnNow || seqOnNow ? "rests the steps between hits" : "plays the held chord on each hit")
+                     : (int) readValue ("euc_target") == 1 ? "re-strikes Physical strings on each hit"
+                                                           : "drives the Trance Gate effect (add it in FX)";
+            else
+                hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
+
+            if (tab == 1 && ! euclidOnNow)
+                hint = "switch EUCLID on to use it";
+
+            g.drawText (hint, engineHint, juce::Justification::centredLeft);
+        }
         // "NOTE SPRAY" divider: the label, then a hairline to the card edge.
         if (! sprayDivider.isEmpty())
         {
@@ -2538,7 +2585,7 @@ public:
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (IlanaTheme::font (11.0f));
-        g.drawText ("scale snap and note spray", generateCard.reduced (12, 0).removeFromTop (26),
+        g.drawText ("scale snap, note spray and strum", generateCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
     }
 
@@ -2591,16 +2638,32 @@ public:
         msegLoop.setBounds (msegControls.removeFromTop (40).reduced (8, 4));
         layoutRow (msegControls, { &msegRate, &clockDiv });
 
-        // Arp card.
-        arpCard = right.removeFromTop ((right.getHeight() - 8) * 47 / 100);
+        // The Generative card (arp, Euclid, probability sequencer).
+        arpCard = right.removeFromTop ((right.getHeight() - 8) * 53 / 100);
         right.removeFromTop (8);
         generateCard = right;
 
         auto arpArea = arpCard.reduced (10, 0);
-        arpArea.removeFromTop (26);
+        auto header = arpArea.removeFromTop (26);
+        engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
+        engineHint = arpArea.removeFromTop (14).withTrimmedLeft (4);
         arpArea.removeFromBottom (6);
-        arpDisplay.setBounds (arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - 104)).reduced (0, 2));
+        const auto display = arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - 104)).reduced (0, 2);
+        arpDisplay.setBounds (display);
+        euclidDisplay.setBounds (display);
+        pseqEditor.setBounds (display);
         layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance });
+        {
+            // The switch sits over TARGET so the two menus keep their width.
+            auto euclidRow = arpArea;
+            auto column = euclidRow.removeFromLeft (euclidRow.getWidth() * 27 / 100);
+            eucOn.setBounds (column.removeFromTop (column.getHeight() * 40 / 100).reduced (3, 3));
+            eucTarget.setBounds (column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), 48)).reduced (3, 1));
+            const auto rateWidth = euclidRow.getWidth() * 26 / 100;
+            eucDiv.setBounds (euclidRow.removeFromLeft (rateWidth).withSizeKeepingCentre (rateWidth, 48).reduced (3, 1));
+            layoutRow (euclidRow, { &eucSteps, &eucHits, &eucRotate, &eucGate });
+        }
+        layoutRow (arpArea, { &pseqOn, &pseqDiv, &pseqLength, &pseqGate });
 
         // Generate card: scale row, then note spray (switch and direction,
         // with its amounts as one row of knobs).
@@ -2616,10 +2679,13 @@ public:
         sprayDivider = generate.removeFromTop (22);
 
         auto sprayRow = generate.removeFromTop (46);
-        sprayOn.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() * 42 / 100).reduced (3, 1));
-        sprayDirection.setBounds (sprayRow.removeFromLeft (sprayRow.getWidth() * 40 / 100).reduced (3, 1));
+        const auto third = sprayRow.getWidth() / 3;
+        sprayOn.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
+        sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
+        sprayStrum.setBounds (sprayRow.reduced (3, 1));
         generate.removeFromTop (4);
-        layoutRow (generate, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
+        layoutRow (generate, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(),
+                               strumTime.get() });
     }
 
     void visibilityChanged() override
@@ -2701,6 +2767,18 @@ private:
             if (control->getAlpha() != alpha)
                 control->setAlpha (alpha);
 
+        const auto dim = [] (std::initializer_list<juce::Component*> controls, bool on)
+        {
+            for (auto* control : controls)
+                if (control->getAlpha() != (on ? 1.0f : 0.45f))
+                    control->setAlpha (on ? 1.0f : 0.45f);
+        };
+
+        dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
+        dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
+        dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
+        repaint (engineHint);
+
         const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
         const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : 0.45f;
 
@@ -2709,6 +2787,32 @@ private:
                                           static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
             if (control->getAlpha() != sprayAlpha)
                 control->setAlpha (sprayAlpha);
+    }
+
+    float readValue (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    bool readOn (const char* id) const { return readValue (id) > 0.5f; }
+
+    void showEngineTab()
+    {
+        const auto tab = engineTabs.getSelected();
+
+        for (auto* control : std::initializer_list<juce::Component*> { &arpDisplay, &arpOn, &arpMode, &arpDiv, &arpOctaves,
+                                                                        &arpGate, &arpChance })
+            control->setVisible (tab == 0);
+
+        for (auto* control : std::initializer_list<juce::Component*> { &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps,
+                                                                        &eucHits, &eucRotate, &eucGate })
+            control->setVisible (tab == 1);
+
+        for (auto* control : std::initializer_list<juce::Component*> { &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate })
+            control->setVisible (tab == 2);
+
+        repaint();
     }
 
     StepEditor step1, step2;
@@ -2723,8 +2827,18 @@ private:
     KnobControl arpOctaves, arpGate, arpChance;
     ComboControl genScale, genRoot;
     ToggleControl genSnap, sprayOn;
-    ComboControl sprayDirection;
-    std::unique_ptr<KnobControl> sprayCount, sprayRange, spraySpread, sprayChance, sprayVelocity;
+    ComboControl sprayDirection, sprayStrum;
+    std::unique_ptr<KnobControl> sprayCount, sprayRange, spraySpread, sprayChance, sprayVelocity, strumTime;
+    CardTabs engineTabs;
+    EuclidDisplay euclidDisplay;
+    ToggleControl eucOn;
+    ComboControl eucTarget, eucDiv;
+    KnobControl eucSteps, eucHits, eucRotate, eucGate;
+    ProbSeqEditor pseqEditor;
+    ToggleControl pseqOn;
+    ComboControl pseqDiv;
+    KnobControl pseqLength, pseqGate;
+    juce::Rectangle<int> engineHint;
     juce::Rectangle<int> sprayDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;

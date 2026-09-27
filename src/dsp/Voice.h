@@ -385,6 +385,10 @@ public:
 
     void setCurrentPlaybackSampleRate (double newRate) override;
     void startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound* sound, int currentPitchWheelPosition) override;
+
+    // Re-strikes this voice's Physical strings while its key is held
+    // (Euclid's Exciter target). Other oscillator modes are left alone.
+    void reExcite (float level);
     void stopNote (float velocity, bool allowTailOff) override;
     void pitchWheelMoved (int newValue) override;
     void controllerMoved (int controllerNumber, int newValue) override;

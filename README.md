@@ -18,7 +18,7 @@ IlanaSynth is a complete sound design machine:
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **Resonator:** a tuned resonator after the filters.
 
-It all sits in a hardware-inspired interface with 241 factory presets.
+It all sits in a hardware-inspired interface with 245 factory presets.
 
 ---
 
@@ -178,11 +178,20 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Arpeggiator**: 9 modes (Up, Down, UpDown, Random, DownUp, Converge, Walk, Chord, Scale Random), 1–4 octaves, host-synced rate, gate and step chance, with a live pattern display.
   - While the host plays, steps lock to its beat grid. Notes start and stop on the exact sample they arrive.
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
+- **The Generative card** has three tabs:
+  - **ARP**: the arpeggiator above.
+  - **EUCLID**: a Euclidean rhythm. STEPS (2–32), HITS spread as evenly as possible over them, ROTATE, RATE and GATE. The ring shows the pattern and the step playing; drag on it to change the hits (up/down) or rotate (sideways). TARGET picks what it drives:
+    - **Notes**: rests the arp's steps between hits. With the arp off, it plays the held chord on each hit.
+    - **Exciter**: re-strikes the Physical strings of the notes held, on each hit, sample-accurately.
+    - **Trance Gate**: the Trance Gate effect plays the rhythm (add the effect in FX).
+  - **PROB SEQ**: a probability sequencer. Hold keys and it plays them through up to 16 steps. Each step has a CHANCE, a RANGE (how far above the key it may land, snapped to the scale) and a RATCHET (1–4 quick repeats). Drag in the lanes to draw; double-click a step to reset it. While on, it takes over from the arp.
+  - While the host plays, all three lock to its bar.
 - **Generate**:
   - Scale and root, with optional snapping of played notes.
   - **Note spray** adds random notes from the scale around each note you play:
     - 1–8 notes, up to 24 semitones away
     - upward, downward or both
+  - **Strum** (Up or Down, with STRUM TIME): notes that start together, played chords and sprayed notes alike, come out one after another in pitch order.
     - a strum spread in ms
     - chance and velocity randomness
 

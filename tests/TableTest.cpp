@@ -7168,6 +7168,258 @@ void runM70ExtendedFmModTests()
                + ", loud note " + juce::String (loudSideband, 3) + ")");
 }
 
+// M7.1: the Generative card (Euclid, probability sequencer, strum).
+namespace
+{
+struct NoteLog
+{
+    struct Event { int time, note; bool on; };
+    std::vector<Event> events;
+    int exciterHits = 0;
+
+    int ons() const
+    {
+        return (int) std::count_if (events.begin(), events.end(), [] (const Event& e) { return e.on; });
+    }
+};
+
+// Holds NOTES from the first block for SECONDS, logging what reaches the voices.
+NoteLog runGenerative (const std::function<void (IlanaSynthAudioProcessor&)>& configure,
+                       std::initializer_list<int> notes, double seconds, std::vector<float>* audio = nullptr)
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    configure (processor);
+
+    NoteLog log;
+    juce::AudioBuffer<float> buffer (2, 512);
+    const auto blocks = (int) (seconds * 48000.0 / 512.0);
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::MidiBuffer midi;
+
+        if (block == 0)
+            for (auto note : notes)
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+
+        for (const auto metadata : processor.getSynthMidiForTest())
+        {
+            const auto message = metadata.getMessage();
+
+            if (message.isNoteOnOrOff())
+                log.events.push_back ({ block * 512 + metadata.samplePosition, message.getNoteNumber(), message.isNoteOn() });
+            else if (message.isSysEx())
+                ++log.exciterHits;
+        }
+
+        if (audio != nullptr)
+            for (int i = 0; i < 512; ++i)
+                audio->push_back (buffer.getSample (0, i));
+    }
+
+    return log;
+}
+} // namespace
+
+void runM71GenerativeTests()
+{
+    std::cout << "M7.1 generative card" << std::endl;
+
+    // The Euclidean pattern: E(3,8) is x..x..x., and rotation shifts it.
+    {
+        juce::String pattern, rotated;
+        for (int step = 0; step < 8; ++step)
+        {
+            pattern += euclidHit (step, 3, 8, 0) ? "x" : ".";
+            rotated += euclidHit (step, 3, 8, 1) ? "x" : ".";
+        }
+        check (pattern == "x..x..x." && rotated == ".x..x..x", "Euclid E(3,8) is x..x..x. (rotated " + rotated + ")");
+        check (! euclidHit (0, 0, 8, 0) && euclidHit (5, 8, 8, 0), "Euclid with no hits is silent and with all hits is solid");
+    }
+
+    // Euclid alone plays the held chord on its hits: 5 of 16 sixteenths.
+    {
+        const auto log = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "euc_on", 1.0f);
+            setParam (p, "euc_steps", 16.0f);
+            setParam (p, "euc_hits", 5.0f);
+        }, { 60, 64, 67 }, 2.0 - 0.01);   // 16 sixteenths at 120 BPM, just under
+
+        check (log.ons() == 15, "Euclid 5/16 plays the three-note chord five times per bar (" + juce::String (log.ons()) + " note-ons)");
+    }
+
+    // Euclid gates the arp: 3 of 8 arp steps sound.
+    {
+        const auto log = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "arp_on", 1.0f);
+            setParam (p, "arp_div", 3.0f);   // 1/8: 8 steps in 2 s
+            setParam (p, "euc_on", 1.0f);
+            setParam (p, "euc_steps", 8.0f);
+            setParam (p, "euc_hits", 3.0f);
+        }, { 60 }, 2.0 - 0.01);
+
+        check (log.ons() == 3, "Euclid 3/8 rests five of eight arp steps (" + juce::String (log.ons()) + " note-ons)");
+    }
+
+    // Probability sequencer: chance 0 is silent; ratchets repeat; range
+    // stays in the scale and above the held key.
+    {
+        const auto silent = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "pseq_on", 1.0f);
+            for (int step = 1; step <= 16; ++step)
+                setParam (p, "pseq_chance" + juce::String (step), 0.0f);
+        }, { 60 }, 1.0);
+        check (silent.ons() == 0, "a probability sequencer at chance 0 plays nothing");
+
+        const auto ratchets = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "pseq_on", 1.0f);
+            setParam (p, "pseq_length", 4.0f);
+            setParam (p, "pseq_ratchet1", 3.0f);
+        }, { 60 }, 0.5 - 0.01);   // four sixteenths
+        check (ratchets.ons() == 6, "a ratchet of 3 on step 1 of 4 gives six notes (" + juce::String (ratchets.ons()) + ")");
+
+        const auto ranged = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "pseq_on", 1.0f);
+            setParam (p, "gen_scale", 1.0f);   // C major
+            for (int step = 1; step <= 16; ++step)
+                setParam (p, "pseq_range" + juce::String (step), 12.0f);
+        }, { 60 }, 4.0);
+
+        auto inScale = ranged.ons() > 20;   // 32 sixteenths in 4 s
+        auto moved = false;
+        for (const auto& event : ranged.events)
+            if (event.on)
+            {
+                inScale = inScale && event.note >= 60 && event.note <= 72 && Scales::contains (event.note, 1, 0);
+                moved = moved || event.note != 60;
+            }
+        check (inScale && moved, "RANGE 12 keeps the sequence in C major within an octave above the key");
+    }
+
+    // Strum: a chord comes out in pitch order, 30 ms apart; Down reverses it.
+    for (const auto direction : { 1, 2 })
+    {
+        const auto log = runGenerative ([direction] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "spray_strum", (float) direction);
+            setParam (p, "spray_strum_time", 30.0f);
+        }, { 64, 60, 67 }, 0.3);
+
+        std::vector<NoteLog::Event> ons;
+        for (const auto& event : log.events)
+            if (event.on)
+                ons.push_back (event);
+
+        const auto spacing = (int) (0.030 * 48000.0);
+        auto ordered = ons.size() == 3;
+        if (ordered)
+        {
+            const int expected[2][3] { { 60, 64, 67 }, { 67, 64, 60 } };
+            for (size_t i = 0; i < 3; ++i)
+                ordered = ordered && ons[i].note == expected[direction - 1][i]
+                          && std::abs (ons[i].time - (int) i * spacing) <= 2 * (int) i;   // the time snaps to 0.25 ms
+        }
+        juce::String got;
+        for (const auto& event : ons)
+            got << event.note << "@" << event.time << " ";
+        check (ordered, juce::String (direction == 1 ? "strum up" : "strum down") + " plays the chord in order, 30 ms apart (" + got + ")");
+    }
+
+    // A strummed chord released before its last note starts leaves nothing on.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        setParam (processor, "spray_strum", 1.0f);
+        setParam (processor, "spray_strum_time", 200.0f);
+        juce::AudioBuffer<float> buffer (2, 512);
+        std::array<int, 128> sounding {};
+
+        for (int block = 0; block < 400; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            if (block == 20)   // after the second note, before the third
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+
+            for (const auto metadata : processor.getSynthMidiForTest())
+            {
+                const auto message = metadata.getMessage();
+                if (message.isNoteOn())
+                    ++sounding[(size_t) message.getNoteNumber()];
+                else if (message.isNoteOff())
+                    --sounding[(size_t) message.getNoteNumber()];
+            }
+        }
+
+        check (std::all_of (sounding.begin(), sounding.end(), [] (int count) { return count == 0; })
+                   && processor.getActiveVoiceCount() == 0,
+               "releasing a chord mid-strum leaves no stuck notes");
+    }
+
+    // Exciter: one marker per hit reaches the voices.
+    {
+        const auto log = runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "euc_on", 1.0f);
+            setParam (p, "euc_target", 1.0f);
+            setParam (p, "euc_steps", 8.0f);
+            setParam (p, "euc_hits", 3.0f);
+            setParam (p, "euc_div", 3.0f);   // 1/8
+            setParam (p, "osc1_mode", 1.0f);
+        }, { 48 }, 2.0 - 0.01);
+
+        check (log.exciterHits == 3 && log.ons() == 1,
+               "Euclid on the exciter re-strikes 3 times in a bar without new notes ("
+                   + juce::String (log.exciterHits) + " hits)");
+    }
+
+    // Trance gate target: only the hit steps pass.
+    {
+        std::vector<float> audio;
+        runGenerative ([] (IlanaSynthAudioProcessor& p)
+        {
+            for (const auto& [id, value] : std::vector<std::pair<const char*, float>> {
+                     { "master_clip", 0.0f }, { "osc1_table", 8.0f }, { "amp_attack", 0.001f },
+                     { "amp_sustain", 1.0f }, { "osc2_on", 0.0f }, { "sub_on", 0.0f } })
+                setParam (p, id, value);
+            p.assignFxSlot (1, 16);
+            setParam (p, "fx_gate_smooth", 0.0f);
+            setParam (p, "euc_on", 1.0f);
+            setParam (p, "euc_target", 2.0f);
+            setParam (p, "euc_steps", 4.0f);
+            setParam (p, "euc_hits", 1.0f);
+            setParam (p, "euc_div", 2.0f);   // 1/4: a step is 24000 samples
+        }, { 60 }, 2.2, &audio);
+
+        const auto rms = [&audio] (int from, int to)
+        {
+            double sum = 0.0;
+            for (int i = from; i < to; ++i)
+                sum += (double) audio[(size_t) i] * audio[(size_t) i];
+            return std::sqrt (sum / (double) (to - from));
+        };
+
+        const auto open = rms (4000, 20000), shut = rms (28000, 90000), openAgain = rms (100000, 116000);
+        check (open > 0.01 && openAgain > 0.01 && shut < open * 0.05,
+               "the trance gate follows Euclid 1/4 (open " + juce::String (open, 3) + ", shut " + juce::String (shut, 4) + ")");
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -7177,6 +7429,15 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M71_TEST", "").isNotEmpty())
+    {
+        runM71GenerativeTests();
+        runScaleRandomReleaseTest();
+        runArpHostStopTests();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M70_TEST", "").isNotEmpty())
@@ -7304,6 +7565,7 @@ int main()
     runM6PhaseDistortionTests();
     runM6bMatrixTests();
     runM70ExtendedFmModTests();
+    runM71GenerativeTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

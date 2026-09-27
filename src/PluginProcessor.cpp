@@ -164,11 +164,20 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 {
 #if ILANA_FINGERPRINT_BUILD
     arpRandom.setSeed (31415);
+    lfoRandom.setSeed (27182);
+#endif
+
+    for (int step = 0; step < 16; ++step)
+    {
+        const auto n = juce::String (step + 1);
+        pseqChanceIds[(size_t) step] = "pseq_chance" + n;
+        pseqRangeIds[(size_t) step] = "pseq_range" + n;
+        pseqRatchetIds[(size_t) step] = "pseq_ratchet" + n;
+    }
+
     arpHeldNotes.ensureStorageAllocated (128);
     arpChordActive.ensureStorageAllocated (128);
     arpChordNotes.ensureStorageAllocated (128);
-    lfoRandom.setSeed (27182);
-#endif
     spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
                                                      TableFactory::getNumFactoryTables());
 
@@ -1036,6 +1045,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (juce::String (prefix) + "_velocity", "ENV " + juce::String (prefix[0] == 'f' ? 3 : prefix[0] == 'm' ? 4 : 5)
                                                            + " Velocity", 0.0f, 1.0f, 0.0f);
 
+    // M7.1: the Generative card. Euclidean rhythm, probability sequencer and
+    // strum. All off by default, so old patches play as before.
+    addBool ("euc_on", "Euclid On", false);
+    addChoice ("euc_target", "Euclid Target", { "Notes", "Exciter", "Trance Gate" }, 0);
+    addInt ("euc_steps", "Euclid Steps", 2, 32, 16);
+    addInt ("euc_hits", "Euclid Hits", 0, 32, 5);
+    addInt ("euc_rotate", "Euclid Rotate", 0, 31, 0);
+    addChoice ("euc_div", "Euclid Rate", getSyncDivisionNames(), 4);
+    addFloat ("euc_gate", "Euclid Gate", 0.05f, 1.0f, 0.5f);
+
+    addBool ("pseq_on", "Prob Seq On", false);
+    addChoice ("pseq_div", "Prob Seq Rate", getSyncDivisionNames(), 4);
+    addInt ("pseq_length", "Prob Seq Length", 1, 16, 16);
+    addFloat ("pseq_gate", "Prob Seq Gate", 0.05f, 1.0f, 0.5f);
+
+    for (int step = 1; step <= 16; ++step)
+    {
+        const auto n = juce::String (step);
+        addFloat ("pseq_chance" + n, "Prob Seq Chance " + n, 0.0f, 1.0f, 1.0f);
+        addInt ("pseq_range" + n, "Prob Seq Range " + n, 0, 24, 0);
+        addInt ("pseq_ratchet" + n, "Prob Seq Ratchet " + n, 1, 4, 1);
+    }
+
+    addChoice ("spray_strum", "Strum", { "Off", "Up", "Down" }, 0);
+    addFloat ("spray_strum_time", "Strum Time", 2.0f, 250.0f, 30.0f, 0.5f);
+
     return layout;
 }
 
@@ -1750,10 +1785,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         spray.spreadSamples = (int) (getParam ("spray_spread") * 0.001 * currentSampleRate);
         spray.chance = getParam ("spray_chance");
         spray.velocityRandom = getParam ("spray_velocity");
+        spray.strum = juce::jlimit (0, 2, (int) getParam ("spray_strum"));
+        spray.strumSamples = (int) (getParam ("spray_strum_time") * 0.001 * currentSampleRate);
         noteSpray.process (midiMessages, generatedMidi, buffer.getNumSamples(), spray);
     }
 
     processArpeggiator (generatedMidi, buffer.getNumSamples(), midiForSynth);
+    addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
@@ -3396,10 +3434,16 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
-    const auto stepBeats = juce::jmax (0.001, getSyncDivisionBeats ((int) getParam ("fx_gate_div")));
+    // M7.1: with Euclid on and aimed at the Trance Gate, the gate plays the
+    // Euclid rhythm at Euclid's rate and length.
+    const auto euclid = getParam ("euc_on") > 0.5f && (int) getParam ("euc_target") == 2;
+    const auto stepBeats = juce::jmax (0.001, getSyncDivisionBeats ((int) getParam (euclid ? "euc_div" : "fx_gate_div")));
     const auto stepsPerSample = (currentBpm.load() / 60.0) / stepBeats / currentSampleRate;
     const auto pattern = juce::jlimit (0, 8, (int) getParam ("fx_gate_pattern"));
-    const auto steps = juce::jlimit (2, 16, (int) getParam ("fx_gate_steps"));
+    const auto steps = euclid ? juce::jlimit (2, 32, (int) getParam ("euc_steps"))
+                              : juce::jlimit (2, 16, (int) getParam ("fx_gate_steps"));
+    const auto euclidHits = juce::jlimit (0, 32, (int) getParam ("euc_hits"));
+    const auto euclidRotate = juce::jlimit (0, 31, (int) getParam ("euc_rotate"));
     const auto swing = (double) juce::jlimit (0.0f, 0.5f, getParam ("fx_gate_swing"));
     const auto smooth = juce::jlimit (0.0f, 1.0f, getParam ("fx_gate_smooth"));
     const auto mix = getParam ("fx_gate_mix");
@@ -3438,13 +3482,14 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
             gateLastStep = step;
         }
 
-        auto level = levels[(size_t) step];
+        auto level = euclid ? (euclidHit (step, euclidHits, steps, euclidRotate) ? 1.0f : 0.0f)
+                            : levels[(size_t) (step & 15)];
 
-        if (pattern == 4)
+        if (! euclid && pattern == 4)
             level = (gateRandomMask & (1u << step)) != 0 ? 1.0f : 0.0f;
-        else if (pattern == 6)
+        else if (! euclid && pattern == 6)
             level = step <= gateCycleCount % steps ? 1.0f : 0.0f;
-        else if (pattern == 7)
+        else if (! euclid && pattern == 7)
             level = step >= gateCycleCount % steps ? 1.0f : 0.0f;
 
         gateEnvelope += (level - gateEnvelope) * (level > gateEnvelope ? attackCoeff : releaseCoeff);
@@ -3458,6 +3503,9 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
 
     gatePhase = std::fmod (position, 64.0);
     gateDisplayStep = gateLastStep;
+
+    if (euclid)
+        euclidDisplayStep.store (gateLastStep);
 }
 
 void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer)
@@ -3957,7 +4005,15 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     output.clear();
 
     const auto lastSample = juce::jmax (0, numSamples - 1);
-    const auto arpEnabled = getParam ("arp_on") > 0.5f;
+
+    // One note engine serves three things (M7.1): the arpeggiator, the
+    // probability sequencer (which takes over while on), and Euclid in Notes
+    // mode, which rests the engine's off-beat steps. With only Euclid on,
+    // the engine plays the held chord at Euclid's rate.
+    const auto arpOn = getParam ("arp_on") > 0.5f;
+    const auto pseqOn = getParam ("pseq_on") > 0.5f;
+    const auto euclidNotes = getParam ("euc_on") > 0.5f && (int) getParam ("euc_target") == 0;
+    const auto arpEnabled = arpOn || pseqOn || euclidNotes;
     const auto playing = hostPlaying.load();
     const auto transportStopped = arpHostWasPlaying && ! playing;
     arpHostWasPlaying = playing;
@@ -4021,18 +4077,23 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     arpWasEnabled = true;
 
     const auto bpm = juce::jmax (20.0, currentBpm.load());
-    auto beats = getSyncDivisionBeats ((int) getParam ("arp_div"));
+    auto beats = getSyncDivisionBeats ((int) getParam (pseqOn ? "pseq_div" : arpOn ? "arp_div" : "euc_div"));
 
     if (beats <= 0.0)
         beats = 0.5;
 
     const auto exactStep = (60.0 / bpm) * beats * currentSampleRate;
     const auto samplesPerStep = juce::jmax (16, (int) exactStep);
-    const auto gate = juce::jlimit (0.05f, 1.0f, getParam ("arp_gate"));
+    const auto gate = juce::jlimit (0.05f, 1.0f, getParam (pseqOn ? "pseq_gate" : arpOn ? "arp_gate" : "euc_gate"));
     const auto gateSamples = juce::jmax (8, (int) ((float) samplesPerStep * gate));
-    const auto octaves = juce::jlimit (1, 4, (int) getParam ("arp_octaves"));
-    const auto mode = juce::jlimit (0, 8, (int) getParam ("arp_mode"));
-    const auto chance = juce::jlimit (0.0f, 1.0f, getParam ("arp_chance"));
+    const auto octaves = arpOn && ! pseqOn ? juce::jlimit (1, 4, (int) getParam ("arp_octaves")) : 1;
+    // Mode -1 is the probability sequencer; 7 (Chord) serves Euclid alone.
+    const auto mode = pseqOn ? -1 : arpOn ? juce::jlimit (0, 8, (int) getParam ("arp_mode")) : 7;
+    const auto chance = arpOn && ! pseqOn ? juce::jlimit (0.0f, 1.0f, getParam ("arp_chance")) : 1.0f;
+    const auto euclidSteps = juce::jlimit (2, 32, (int) getParam ("euc_steps"));
+    const auto euclidHits = juce::jlimit (0, 32, (int) getParam ("euc_hits"));
+    const auto euclidRotate = juce::jlimit (0, 31, (int) getParam ("euc_rotate"));
+    const auto pseqLength = juce::jlimit (1, 16, (int) getParam ("pseq_length"));
     const auto ppqAtBlockStart = hostPpq.load();
 
     // While the host plays, steps land on its beat grid. A step played
@@ -4059,9 +4120,74 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         arpCounter = 0;
     }
 
+    // The step's number: from the host's beat grid while it plays (so
+    // patterns line up with the bar), else counted from the first key.
+    const auto stepNumber = [&] (int position)
+    {
+        if (! playing)
+            return engineStepCount;
+
+        const auto ppq = ppqAtBlockStart + (double) position / currentSampleRate * (bpm / 60.0);
+        return (long long) std::llround (ppq / beats);
+    };
+
     const auto triggerStep = [&] (int position)
     {
         releaseSounding (position);
+        arpRatchetsLeft = 0;
+
+        const auto number = stepNumber (position);
+        ++engineStepCount;
+        engineDisplayStep.store ((int) (number & 0xffffff));
+
+        if (euclidNotes)
+            euclidDisplayStep.store ((int) (((number % euclidSteps) + euclidSteps) % euclidSteps));
+
+        if (euclidNotes && ! euclidHit ((int) (((number % euclidSteps) + euclidSteps) % euclidSteps),
+                                        euclidHits, euclidSteps, euclidRotate))
+        {
+            // An off-beat of the Euclid rhythm: the step rests.
+            arpGateRemaining = gateSamples;
+            arpCounter = samplesToNextStep (position);
+            return;
+        }
+
+        if (mode == -1)
+        {
+            // Probability sequencer: a held key, raised by up to RANGE and
+            // snapped to the scale, played RATCHET times in the step.
+            const auto step = (size_t) (((number % pseqLength) + pseqLength) % pseqLength);
+            const auto stepChance = getParam (pseqChanceIds[step].toRawUTF8());
+            const auto range = juce::jlimit (0, 24, (int) getParam (pseqRangeIds[step].toRawUTF8()));
+            const auto ratchet = juce::jlimit (1, 4, (int) getParam (pseqRatchetIds[step].toRawUTF8()));
+
+            if (pseqRandom.nextFloat() < stepChance)
+            {
+                auto note = arpHeldNotes[pseqRandom.nextInt (arpHeldNotes.size())]
+                            + (range > 0 ? pseqRandom.nextInt (range + 1) : 0);
+                const auto scale = (int) getParam ("gen_scale");
+
+                if (scale > 0)
+                    note = Scales::quantize (note, scale, (int) getParam ("gen_root"));
+
+                note = juce::jlimit (0, 127, note);
+                const auto interval = juce::jmax (8, samplesPerStep / ratchet);
+                output.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), position);
+                arpActiveNote = note;
+                arpGateRemaining = juce::jmax (4, (int) ((float) interval * gate));
+                arpRatchetNote = note;
+                arpRatchetsLeft = ratchet - 1;
+                arpRatchetInterval = interval;
+                arpRatchetCounter = interval;
+            }
+            else
+            {
+                arpGateRemaining = gateSamples;
+            }
+
+            arpCounter = samplesToNextStep (position);
+            return;
+        }
 
         const auto note = selectArpNote (mode, octaves);
         const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
@@ -4103,16 +4229,32 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
                 return;
 
             if (arpCounter <= 0)
+            {
                 triggerStep (position);
+            }
+            else if (arpRatchetsLeft > 0 && arpRatchetCounter <= 0)
+            {
+                // The next repeat of a ratcheted step.
+                releaseSounding (position);
+                output.addEvent (juce::MidiMessage::noteOn (1, arpRatchetNote, (juce::uint8) 100), position);
+                arpActiveNote = arpRatchetNote;
+                arpGateRemaining = juce::jmax (4, (int) ((float) arpRatchetInterval * gate));
+                arpRatchetCounter = arpRatchetInterval;
+                --arpRatchetsLeft;
+            }
 
             auto advance = juce::jmin (to - position, arpCounter);
 
             if ((arpActiveNote >= 0 || ! arpChordActive.isEmpty()) && arpGateRemaining > 0)
                 advance = juce::jmin (advance, arpGateRemaining);
 
+            if (arpRatchetsLeft > 0)
+                advance = juce::jmin (advance, arpRatchetCounter);
+
             advance = juce::jmax (1, advance);
             arpCounter -= advance;
             arpGateRemaining -= advance;
+            arpRatchetCounter -= advance;
             position += advance;
         }
     };
@@ -4138,14 +4280,62 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         {
             releaseSounding (position);
             arpCounter = 0;
+            engineDisplayStep.store (-1);
         }
         else if (wasEmpty && ! arpHeldNotes.isEmpty())
         {
             arpCounter = 0;
+            arpRatchetsLeft = 0;
+            engineStepCount = 0;
         }
     }
 
     runSteps (position, numSamples);
+}
+
+// Euclid in Exciter mode: each hit re-strikes the Physical strings of the
+// notes held down. The hit travels as a private SysEx marker, so it lands
+// on its exact sample inside the synth's render (IlanaSynth::handleMidiEvent).
+void IlanaSynthAudioProcessor::addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples)
+{
+    if (getParam ("euc_on") < 0.5f || (int) getParam ("euc_target") != 1 || numSamples <= 0)
+    {
+        euclidExciterLastStep = -1;
+        return;
+    }
+
+    const auto bpm = juce::jmax (20.0, currentBpm.load());
+    const auto beats = juce::jmax (0.001, getSyncDivisionBeats ((int) getParam ("euc_div")));
+    const auto stepsPerSample = (bpm / 60.0) / beats / currentSampleRate;
+    const auto steps = juce::jlimit (2, 32, (int) getParam ("euc_steps"));
+    const auto hits = juce::jlimit (0, 32, (int) getParam ("euc_hits"));
+    const auto rotate = juce::jlimit (0, 31, (int) getParam ("euc_rotate"));
+    const auto start = hostPlaying.load() ? hostPpq.load() / beats : euclidExciterPhase;
+
+    // A jump back (a loop or a relocate) starts counting again.
+    if ((double) euclidExciterLastStep > start + 1.0)
+        euclidExciterLastStep = (long long) std::floor (start) - 1;
+
+    const auto end = start + (double) numSamples * stepsPerSample;
+
+    for (auto k = (long long) std::ceil (start - 1.0e-9); (double) k < end; ++k)
+    {
+        if (k <= euclidExciterLastStep)
+            continue;
+
+        euclidExciterLastStep = k;
+        euclidDisplayStep.store ((int) (((k % steps) + steps) % steps));
+        const auto offset = juce::jlimit (0, numSamples - 1, (int) std::ceil (((double) k - start) / stepsPerSample));
+
+        if (euclidHit ((int) (((k % steps) + steps) % steps), hits, steps, rotate))
+        {
+            const juce::uint8 marker[] { 0xf0, IlanaSynth::exciterMarker[0], IlanaSynth::exciterMarker[1],
+                                         IlanaSynth::exciterMarker[2], 100, 0xf7 };
+            midi.addEvent (marker, (int) sizeof (marker), offset);
+        }
+    }
+
+    euclidExciterPhase = std::fmod (end, 4096.0);
 }
 
 const Wavetable* IlanaSynthAudioProcessor::getTableForChoice (int choiceIndex) const

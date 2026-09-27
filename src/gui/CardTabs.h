@@ -20,6 +20,7 @@ public:
     std::function<void()> onOpen;
 
     int getSelected() const { return selected; }
+    const juce::StringArray& getNames() const { return names; }
 
     void setSelected (int index, bool notify)
     {

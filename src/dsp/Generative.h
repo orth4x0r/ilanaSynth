@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -59,6 +60,20 @@ inline int quantize (int note, int scale, int root)
 }
 } // namespace Scales
 
+// Euclidean rhythm: HITS spread as evenly as possible over STEPS (Bresenham),
+// the first hit on step 0 before ROTATE shifts the pattern later.
+inline bool euclidHit (int step, int hits, int steps, int rotate)
+{
+    if (steps <= 0 || hits <= 0)
+        return false;
+
+    if (hits >= steps)
+        return true;
+
+    const auto index = (((step - rotate) % steps) + steps) % steps;
+    return (index * hits) % steps < hits;
+}
+
 // Note spray: every played note throws extra notes around itself, snapped
 // to the scale, spread in time, with random velocity and a chance to skip.
 // The extra notes end when the note that spawned them is released.
@@ -77,6 +92,8 @@ public:
         int spreadSamples = 0;   // latest start of an extra note
         float chance = 1.0f;     // probability each extra note plays
         float velocityRandom = 0.3f;
+        int strum = 0;           // 0 off, 1 up (lowest first), 2 down
+        int strumSamples = 0;    // between strummed notes
     };
 
     NoteSpray()
@@ -90,6 +107,7 @@ public:
         pending.clear();
         inputMap.fill (-1);
         soundingCount.fill (0);
+        strummedPlayed.fill (false);
 
         for (auto& list : children)
             list.count = 0;
@@ -98,11 +116,20 @@ public:
     void process (const juce::MidiBuffer& input, juce::MidiBuffer& output, int numSamples, const Settings& settings)
     {
         output.clear();
+        const auto strumming = settings.strum != 0;
+        auto groupPosition = -1;
 
         for (const auto metadata : input)
         {
             const auto message = metadata.getMessage();
             const auto position = metadata.samplePosition;
+
+            // Notes that start together form one strum.
+            if (strumming && position != groupPosition)
+            {
+                finishStrum (groupPosition, settings);
+                groupPosition = position;
+            }
 
             if (message.isNoteOn())
                 handleNoteOn (message, position, output, settings);
@@ -116,6 +143,9 @@ public:
             else
                 output.addEvent (message, position);
         }
+
+        if (strumming)
+            finishStrum (groupPosition, settings);
 
         // Extra notes whose time has come.
         for (size_t i = 0; i < pending.size();)
@@ -143,7 +173,36 @@ private:
     struct Pending
     {
         int due = 0, note = 0, velocity = 0, channel = 1, parent = 0;
+        bool strum = false;   // in the strum being gathered
     };
+
+    // Lays the notes gathered at one position out in pitch order, one
+    // strum step apart (replacing the spray's random spread).
+    void finishStrum (int position, const Settings& settings)
+    {
+        if (position < 0)
+            return;
+
+        std::array<int, maxPending> group {};
+        auto count = 0;
+
+        for (int i = 0; i < (int) pending.size(); ++i)
+            if (pending[(size_t) i].strum)
+                group[(size_t) count++] = i;
+
+        std::sort (group.begin(), group.begin() + count, [this, &settings] (int a, int b)
+        {
+            const auto noteA = pending[(size_t) a].note, noteB = pending[(size_t) b].note;
+            return settings.strum == 2 ? noteA > noteB : noteA < noteB;
+        });
+
+        for (int k = 0; k < count; ++k)
+        {
+            auto& item = pending[(size_t) group[(size_t) k]];
+            item.due = position + k * juce::jmax (0, settings.strumSamples);
+            item.strum = false;
+        }
+    }
 
     struct ChildList
     {
@@ -192,7 +251,24 @@ private:
 
         const auto played = settings.snapInput ? Scales::quantize (input, settings.scale, settings.root) : input;
         inputMap[(size_t) input] = played;
-        noteOn (channel, played, velocity, position, output);
+
+        // Strummed: the played note waits its turn like the extra notes.
+        if (settings.strum != 0 && pending.size() < maxPending)
+        {
+            Pending item;
+            item.note = played;
+            item.channel = channel;
+            item.parent = input;
+            item.velocity = velocity;
+            item.due = position;
+            item.strum = true;
+            pending.push_back (item);
+            strummedPlayed[(size_t) input] = true;
+        }
+        else
+        {
+            noteOn (channel, played, velocity, position, output);
+        }
 
         if (! settings.sprayOn)
             return;
@@ -224,6 +300,7 @@ private:
             item.parent = input;
             item.velocity = juce::roundToInt ((float) velocity * (1.0f - settings.velocityRandom * random.nextFloat()));
             item.due = position + (settings.spreadSamples > 0 ? random.nextInt (settings.spreadSamples) : 0);
+            item.strum = settings.strum != 0;
             pending.push_back (item);
         }
     }
@@ -263,13 +340,19 @@ private:
             noteOff (list.channels[(size_t) i], list.notes[(size_t) i], position, output);
 
         list.count = 0;
-        noteOff (channel, played, position, output);
+
+        // A strummed played note was one of its own children.
+        if (! strummedPlayed[(size_t) input])
+            noteOff (channel, played, position, output);
+
+        strummedPlayed[(size_t) input] = false;
         inputMap[(size_t) input] = -1;
     }
 
     std::vector<Pending> pending;
     std::array<int, 128> inputMap {};
     std::array<int, 128> soundingCount {};
+    std::array<bool, 128> strummedPlayed {};
     std::array<ChildList, 128> children {};
     juce::Random random;
 };

@@ -466,6 +466,17 @@ void Voice::advanceVoiceLfos()
     }
 }
 
+void Voice::reExcite (float level)
+{
+    if (! isVoiceActive() || ! isKeyDown())
+        return;
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        if (params.oscillators[osc].stringMode && params.oscillatorEnabled[osc])
+            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                stringFor (osc, u).trigger (juce::jlimit (0.0f, 1.0f, level * velocityLevel * 1.25f));
+}
+
 void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                           float filter2Value, float modValue, float env4Value) const
 {

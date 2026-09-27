@@ -40,6 +40,29 @@ public:
 
     Mode getVoiceMode() const { return mode; }
 
+    // A private SysEx (non-commercial ID 0x7D, then "IL") asking every held
+    // voice to re-strike its Physical strings: Euclid's Exciter target.
+    static constexpr juce::uint8 exciterMarker[3] { 0x7d, 0x49, 0x4c };
+
+    void handleMidiEvent (const juce::MidiMessage& message) override
+    {
+        if (message.isSysEx() && message.getSysExDataSize() == 4)
+        {
+            const auto* data = message.getSysExData();
+
+            if (data[0] == exciterMarker[0] && data[1] == exciterMarker[1] && data[2] == exciterMarker[2])
+            {
+                for (auto* voice : voices)
+                    if (auto* ilanaVoice = dynamic_cast<Voice*> (voice))
+                        ilanaVoice->reExcite ((float) data[3] / 127.0f);
+
+                return;
+            }
+        }
+
+        Synthesiser::handleMidiEvent (message);
+    }
+
     void noteOn (int midiChannel, int midiNoteNumber, float velocity) override
     {
         if (mode == Mode::Poly)

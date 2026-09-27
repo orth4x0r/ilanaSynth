@@ -39,6 +39,24 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "fx_gate_steps")
         return juce::String (juce::roundToInt (value)) + " steps";
 
+    // M7.1 generative card.
+    if (id == "euc_steps")
+        return juce::String (juce::roundToInt (value)) + " steps";
+    if (id == "euc_hits")
+        return juce::String (juce::roundToInt (value)) + " hits";
+    if (id == "euc_rotate")
+        return "+" + juce::String (juce::roundToInt (value));
+    if (id == "euc_gate" || id == "pseq_gate" || id.startsWith ("pseq_chance"))
+        return asPercent();
+    if (id == "pseq_length")
+        return juce::String (juce::roundToInt (value)) + " steps";
+    if (id.startsWith ("pseq_range"))
+        return juce::roundToInt (value) == 0 ? juce::String ("root") : "+" + juce::String (juce::roundToInt (value)) + " st";
+    if (id.startsWith ("pseq_ratchet"))
+        return juce::String (juce::roundToInt (value)) + "x";
+    if (id == "spray_strum_time")
+        return asMilliseconds();
+
     if (id == "spray_count")
         return juce::String (juce::roundToInt (value)) + " notes";
     if (id == "sym_count")
@@ -152,6 +170,42 @@ inline juce::String describeValue (const juce::String& id, float value)
 
 inline juce::String describeParameter (const juce::String& id)
 {
+    // M7.1 generative card.
+    if (id == "euc_on")
+        return "Euclidean rhythm: HITS spread as evenly as possible over STEPS.";
+    if (id == "euc_target")
+        return "Notes: gates the arp's steps (with the arp off, plays the held chord on each hit). "
+               "Exciter: re-strikes Physical strings on each hit. Trance Gate: the gate effect follows the rhythm.";
+    if (id == "euc_steps")
+        return "Length of the rhythm in steps.";
+    if (id == "euc_hits")
+        return "How many steps play, spread evenly over the length.";
+    if (id == "euc_rotate")
+        return "Shifts the rhythm's start by this many steps.";
+    if (id == "euc_div")
+        return "Length of one step, synced to the host tempo.";
+    if (id == "euc_gate")
+        return "How long each hit holds its notes, as a share of the step.";
+    if (id == "pseq_on")
+        return "Probability sequencer: plays the held keys through 16 steps, each with a chance, a pitch range and "
+               "a ratchet, snapped to the scale. While on, it takes over from the arpeggiator.";
+    if (id == "pseq_div")
+        return "Length of one step, synced to the host tempo.";
+    if (id == "pseq_length")
+        return "How many of the 16 steps loop.";
+    if (id == "pseq_gate")
+        return "How long each note holds, as a share of its step (or ratchet).";
+    if (id.startsWith ("pseq_chance"))
+        return "The chance this step plays.";
+    if (id.startsWith ("pseq_range"))
+        return "How far above the held note this step may land, in semitones, snapped to the scale.";
+    if (id.startsWith ("pseq_ratchet"))
+        return "Repeats within the step: 1 plays once, 4 plays four quick notes.";
+    if (id == "spray_strum")
+        return "Strums chords (and sprayed notes): notes starting together are spread out, lowest first (Up) or highest first (Down).";
+    if (id == "spray_strum_time")
+        return "Time between strummed notes.";
+
     if (id == "quality")
         return "Eco caps each oscillator at four unison voices; Normal preserves the original engine; "
                "High averages two wavetable reads per sample for smoother highs.";

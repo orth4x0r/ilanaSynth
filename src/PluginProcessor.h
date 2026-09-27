@@ -361,6 +361,15 @@ private:
     int arpActiveNote = -1;
     bool arpWasEnabled = false;
     bool arpHostWasPlaying = false;
+    // M7.1: probability sequencer and Euclid state. The sequencer has its
+    // own random generator, so the arp's sequence is unchanged.
+    juce::Random pseqRandom { 16180 };
+    long long engineStepCount = 0;
+    std::array<juce::String, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
+    void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
+    int arpRatchetNote = 0, arpRatchetsLeft = 0, arpRatchetInterval = 0, arpRatchetCounter = 0;
+    double euclidExciterPhase = 0.0;
+    long long euclidExciterLastStep = -1;
 
     int crushCounter = 0;
     float crushHold[2] { 0.0f, 0.0f };
@@ -605,6 +614,8 @@ private:
     int gateCycleCount = 8;
     int gateLastStep = -1;
     std::atomic<int> gateDisplayStep { -1 };
+    std::atomic<int> engineDisplayStep { -1 };
+    std::atomic<int> euclidDisplayStep { -1 };
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
     std::array<std::atomic<float>, 2> outputPeaks {};
@@ -613,6 +624,16 @@ public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).
     static float gatePatternLevel (int pattern, int step);
     int getGateDisplayStep() const { return gateDisplayStep.load(); }
+
+    // The note engine's current step number (arp, probability sequencer or
+    // Euclid), or -1 while no key is held. For the Generative card's playhead.
+    int getEngineDisplayStep() const { return engineDisplayStep.load(); }
+
+    // The Euclid rhythm's current step (whichever target plays it), or -1.
+    int getEuclidDisplayStep() const { return euclidDisplayStep.load(); }
+
+    // Tests only: what the last block sent to the voices.
+    const juce::MidiBuffer& getSynthMidiForTest() const { return midiForSynth; }
 
     // Tests only: one arpeggiator note choice from the currently held notes.
     int pickArpNoteForTest (int mode, int octaves) { return selectArpNote (mode, octaves); }

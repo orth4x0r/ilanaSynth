@@ -2508,6 +2508,61 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .master (-3.0f).fx ({ FxLimiter, FxReverb }).limiter (-2.0f).reverb (Room, 0.5f, 0.18f));
 
+    // M7.1: the Generative card (Euclid, probability sequencer, strum).
+    add (B ("Euclid Pluck Machine", "Generative")
+             .string (1, 0.8f, 0, 0.55f, 0.35f).osc2 (SineT, 0.0f, 0.25f, -12)
+             .arp (ArpUpDown, D1_16, 2, 0.45f)
+             .set ("euc_on", 1).set ("euc_steps", 16).set ("euc_hits", 7).set ("euc_rotate", 2)
+             .filter1 (LadderLP, 3200.0f, 0.3f, 1.2f, 1.2f, 0.3f)
+             .fenv (0.001f, 0.18f, 0.1f, 0.2f).amp (0.001f, 0.6f, 0.0f, 0.3f).master (2.0f)
+             .macro (1, "CUTOFF", { { D::Filter1Cutoff, 0.4f } })
+             .macro (2, "DAMP", { { param ("osc1_string_damp"), 0.35f } })
+             .macro (3, "ECHO", { { D::FxDelayMix, 0.3f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.35f, 0.2f, true).reverb (Plate, 0.5f, 0.15f));
+
+    add (B ("Probability Bells", "Generative")
+             .osc1 (SineT, 0.0f, 0.8f).osc2 (SineT, 0.0f, 0.0f, 24).modOnly (2).fmRoute (2, 1, 0.3f)
+             .scale (MinorPenta, An)
+             .set ("pseq_on", 1).set ("pseq_length", 12).set ("pseq_gate", 0.35f)
+             .set ("pseq_chance1", 1.0f).set ("pseq_chance2", 0.5f).set ("pseq_chance3", 0.7f).set ("pseq_chance4", 0.35f)
+             .set ("pseq_chance5", 0.9f).set ("pseq_chance6", 0.4f).set ("pseq_chance7", 0.6f).set ("pseq_chance8", 0.3f)
+             .set ("pseq_chance9", 1.0f).set ("pseq_chance10", 0.45f).set ("pseq_chance11", 0.7f).set ("pseq_chance12", 0.5f)
+             .set ("pseq_range2", 7).set ("pseq_range3", 12).set ("pseq_range5", 5).set ("pseq_range6", 19)
+             .set ("pseq_range7", 12).set ("pseq_range10", 24).set ("pseq_range11", 7)
+             .set ("pseq_ratchet4", 2).set ("pseq_ratchet8", 3).set ("pseq_ratchet12", 2)
+             .env4 (0.001f, 0.4f, 0.0f, 0.3f).mod (Env4, D::Osc2Level, 0.6f)
+             .filter1 (LP, 9000.0f, 0.0f)
+             .amp (0.001f, 1.2f, 0.0f, 1.0f).master (-11.0f)
+             .macro (1, "METAL", { { D::FmAmount, 0.3f } })
+             .macro (2, "BRIGHT", { { D::Filter1Cutoff, 0.3f } })
+             .macro (3, "ECHO", { { D::FxDelayMix, 0.3f } })
+             .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.45f, 0.22f, true).reverb (Hall, 0.75f, 0.25f));
+
+    add (B ("Strummed Harp", "Generative")
+             .string (1, 0.8f, 0, 0.8f, 0.25f)
+             .set ("osc1_string_pick_pos", 0.3f)
+             .set ("spray_strum", 1).set ("spray_strum_time", 45.0f)
+             .filter1 (LP, 9000.0f, 0.0f)
+             .amp (0.001f, 3.0f, 0.0f, 1.5f).master (2.0f)
+             .macro (1, "DAMP", { { param ("osc1_string_damp"), 0.35f } })
+             .macro (2, "DECAY", { { param ("osc1_string_decay"), 0.2f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, -0.3f } })
+             .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.8f, 0.3f));
+
+    add (B ("Euclid Kalimba", "Generative")
+             .string (1, 0.8f, 0, 0.45f, 0.5f).set ("osc1_string_stiffness", 0.35f)
+             .set ("euc_on", 1).set ("euc_target", 1).set ("euc_steps", 8).set ("euc_hits", 5).set ("euc_div", D1_16)
+             .filter1 (LP, 6000.0f, 0.1f)
+             .amp (0.001f, 2.0f, 0.9f, 0.8f).master (4.0f)
+             .macro (1, "DAMP", { { param ("osc1_string_damp"), 0.3f } })
+             .macro (2, "STIFF", { { param ("osc1_string_stiffness"), 0.3f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.3f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.3f, 0.15f, true).reverb (Room, 0.55f, 0.2f));
+
     return list;
 }
 } // namespace Library

@@ -164,6 +164,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
         || id.endsWith ("_string_pick_hardness") || id.endsWith ("_string_pick_pos")
         || id.endsWith ("_phys_a") || id.endsWith ("_phys_b")
+        || (id.startsWith ("lfo") && (id.endsWith ("_smooth") || id.endsWith ("_stereo")))
         || id.endsWith ("_bow_pressure") || id.endsWith ("_bow_speed")
         || id.endsWith ("_bridge_buzz") || id.endsWith ("_fret_rattle")
         || id.endsWith ("_hammer_hard") || id.endsWith ("_couple") || id.endsWith ("_damper") || id.endsWith ("_register")
@@ -179,6 +180,31 @@ inline juce::String describeValue (const juce::String& id, float value)
 
 inline juce::String describeParameter (const juce::String& id)
 {
+    // M8.1: the simulated LFO shapes (any of the 16 LFOs).
+    if (id.startsWith ("lfo"))
+    {
+        const auto suffix = id.fromFirstOccurrenceOf ("_", false, false);
+        if (suffix == "smooth")
+            return "Glide on the LFO's output, as a fraction of a cycle. Turns S&H, Steps and Square into slewed "
+                   "random or glide. Works on every shape.";
+        if (suffix == "trigger")
+            return "What restarts a simulated shape: Note (each note), Free (never), Beat (each DIVISION of the host's "
+                   "beat) or Generative (Euclid's hits, else the probability sequencer's steps). FIRE triggers it by hand.";
+        if (suffix == "axis")
+            return "Which axis of the attractor is output A; output B is the next one. Mix blends X and Z.";
+        if (suffix == "loop")
+            return "Physics objects: start again once settled, instead of resting until the next trigger.";
+        if (suffix == "seed")
+            return "0: every voice and every note gets its own random sequence. 1-999: the same repeatable sequence "
+                   "everywhere, restarting on each trigger.";
+        if (suffix == "stereo")
+            return "Random shapes: how far output B departs from A (route B to the other side, or another target).";
+        if (suffix == "fire")
+            return "Triggers the LFO now.";
+        if (suffix.length() == 2 && suffix[0] == 'p')
+            return "The chosen shape's own parameter; its name and unit show on the knob (gravity, length, sigma...).";
+    }
+
     // M7.1 generative card.
     if (id == "euc_on")
         return "Euclidean rhythm: HITS spread as evenly as possible over STEPS.";
@@ -599,9 +625,10 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("lfo1_") || id.startsWith ("lfo2_") || id.startsWith ("lfo3_") || id.startsWith ("lfo4_"))
     {
         if (id.endsWith ("_shape"))
-            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Smooth Random glides to a new "
-                   "random value each cycle, Drunk wanders a little from where it was, Chaos follows a Lorenz "
-                   "attractor that never repeats. Bounce, Pendulum, Spring and Friction simulate motion.";
+            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Random: S&H, Sine Random, Perlin and "
+                   "Drunk Walk, with a seed and stereo. Chaos: Lorenz, Rossler, Duffing, the logistic and Henon maps and "
+                   "a double pendulum, solved properly. Physics: Bounce, Pendulum, Spring and Friction with real "
+                   "parameters. Each has two outputs (LFO n and LFO n B). The M2 versions stay as \"classic\".";
 
         if (id.endsWith ("_phys_a"))
             return "Physics shape: Bounce height, Pendulum swing, Spring stiffness, or Friction drive.";

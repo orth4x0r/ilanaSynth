@@ -265,15 +265,53 @@ private:
         {
             const auto routing = processorRef.readModSlot (slot);
 
-            if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+            if (routing.destination != 0 && (routing.source == source || routing.aux == source
+                                              || routing.source == Mod::lfoBSourceFor (lfo) || routing.aux == Mod::lfoBSourceFor (lfo)))
                 return true;
         }
 
         return false;
     }
 
+    // M8.1: a simulated shape's picture, a few seconds of it from a fresh
+    // start at RATE 1 Hz, rebuilt when its settings change.
+    float simValue (int lfo, const LfoSimSettings& settings, double phase) const
+    {
+        auto& cache = simTraces[(size_t) lfo];
+        if (cache.shape != settings.shape || cache.params != settings.p || cache.axis != settings.axis)
+        {
+            cache.shape = settings.shape;
+            cache.params = settings.p;
+            cache.axis = settings.axis;
+            LfoSim sim;
+            sim.sampleRate = 600.0;
+            sim.reset (settings, 3);
+            const auto seconds = LfoSimShapes::isPhysics (settings.shape) ? 3.0 : 4.0;
+            const auto perPoint = juce::jmax (1, (int) (seconds * 600.0 / (double) cache.values.size()));
+            for (auto& value : cache.values)
+                for (int i = 0; i < perPoint; ++i)
+                {
+                    float b = 0.0f;
+                    sim.next (settings, 1.0 / 600.0, value, b);
+                }
+        }
+        const auto index = juce::jlimit (0, (int) cache.values.size() - 1, (int) (phase * (double) cache.values.size()));
+        return cache.values[(size_t) index];
+    }
+
+    struct SimTrace
+    {
+        int shape = -1, axis = 0;
+        std::array<float, LfoSimInfo::numParams> params {};
+        std::array<float, 128> values {};
+    };
+    mutable std::array<SimTrace, (size_t) IlanaSynthAudioProcessor::numLfos> simTraces;
+
     float shapeValue (int lfo, int shape, double phase) const
     {
+        if (LfoSimShapes::isSim (shape))
+            return simValue (lfo, processorRef.readLfoSimSettings (lfo), juce::jlimit (0.0, 0.999999, phase));
+
         phase = LfoShapes::isPhysics (shape) ? juce::jlimit (0.0, 0.999999, phase)
                                              : phase - std::floor (phase);
 

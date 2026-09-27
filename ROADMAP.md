@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX). Next up: real chaos and physics modulators (M8.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) and M8.1 (chaos and physics modulators). Next up: the piano rework (M8.2).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -184,7 +184,7 @@ The FX plugin adds input gain, a gate/trigger, and an envelope follower as a new
 ### M8: Modulators, piano, west coast, filters, feedback and polish
 Real chaos and physics modulators, a piano rework, the west-coast voice and new filter models, the feedback guitar with Evolve and the vector pad, resampling, then the v1.3 polish.
 
-#### M8.1: Chaos and physics modulators (new, redoes M2)
+#### M8.1: Chaos and physics modulators (new, redoes M2) — done (listening round pending)
 The M2 shapes are stand-ins: the physics shapes share two generic knobs (Physics A/B), Bounce relaunches itself when it settles, the Lorenz shape has fixed constants and only outputs X, and S&H and Steps have no smoothing. M8.1 makes them real simulations with real parameters, at least as deep as Vital's random LFOs.
 - **Smoothing on every LFO**: a SMOOTH (glide) control, as a time or a fraction of a cycle, on every shape. It is what makes S&H, Steps and Square usable as slewed random or glide.
 - **Random family** (Vital's four styles and more): S&H, Sine Interpolate, **Perlin** (with octaves), Drunk walk (step size), each with a STEREO offset, a seed, and per-voice or shared randomness.

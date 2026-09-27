@@ -1803,6 +1803,28 @@ public:
             auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
             addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
                     controls->phase, controls->physA, controls->physB, controls->kick);
+            addAll (*this, controls->smooth, controls->stereo, controls->seed, controls->trigger, controls->axis, controls->loop);
+            for (auto& knob : controls->sim)
+                addChildComponent (*knob);
+            addChildComponent (controls->fire);
+            controls->fire.onClick = [this, lfo] { fire (lfo); };
+            groupShapeMenu (controls->shape.getComboBox());
+            controls->shape.getComboBox().onChange = [this, lfo] { if (userPickingShape) shapePicked (lfo); };
+            controls->shape.setPopupOverride ([this, lfo]
+            {
+                auto& combo = controlsList[(size_t) lfo]->shape.getComboBox();
+                juce::PopupMenu menu (*combo.getRootMenu());
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&combo).withMinimumWidth (combo.getWidth())
+                                        .withItemThatMustBeVisible (combo.getSelectedId()),
+                                    [this, lfo] (int id)
+                                    {
+                                        if (id <= 0)
+                                            return;
+                                        userPickingShape = true;
+                                        controlsList[(size_t) lfo]->shape.getComboBox().setSelectedId (id, juce::sendNotificationSync);
+                                        userPickingShape = false;
+                                    });
+            });
             controlsList.push_back (std::move (controls));
         }
 
@@ -1843,7 +1865,9 @@ public:
         area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
+        const auto simulated = LfoSimShapes::isSim (shape);
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * (simulated ? 38 : 55) / 100).reduced (2));
         area.removeFromLeft (8);
 
         // Control panel: options across the top, knobs underneath.
@@ -1851,6 +1875,12 @@ public:
         auto inner = panel.reduced (10, 6);
         inner.removeFromTop (20);
         auto& c = *controlsList[(size_t) displayIndex];
+
+        if (simulated)
+        {
+            layoutSimulated (c, inner, shape);
+            return;
+        }
 
         // Options stacked on the left, the two knobs full height on the right.
         auto options = inner.removeFromLeft (inner.getWidth() / 2);
@@ -1866,19 +1896,20 @@ public:
         c.kick.setBounds (lastOptions.reduced (3, 1));
 
         inner.removeFromLeft (8);
-        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
         if (LfoShapes::isPhysics (shape))
         {
             auto top = inner.removeFromTop (inner.getHeight() / 2);
-            c.rate.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (2));
-            c.phase.setBounds (top.reduced (2));
+            c.rate.setBounds (top.removeFromLeft (top.getWidth() / 3).reduced (2));
+            c.phase.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (2));
+            c.smooth.setBounds (top.reduced (2));
             c.physA.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (2));
             c.physB.setBounds (inner.reduced (2));
         }
         else
         {
-            c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
-            c.phase.setBounds (inner.reduced (3, 0));
+            c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 3).reduced (3, 0));
+            c.phase.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
+            c.smooth.setBounds (inner.reduced (3, 0));
         }
     }
 
@@ -1938,7 +1969,18 @@ private:
               , physA (state, "lfo" + juce::String (lfo) + "_phys_a", "HEIGHT", accent, followsTheme)
               , physB (state, "lfo" + juce::String (lfo) + "_phys_b", "BOUNCE", accent, followsTheme)
               , kick (state, "lfo" + juce::String (lfo) + "_kick", "KICK")
+              , smooth (state, "lfo" + juce::String (lfo) + "_smooth", "SMOOTH", accent, followsTheme)
+              , stereo (state, "lfo" + juce::String (lfo) + "_stereo", "STEREO", accent, followsTheme)
+              , seed (state, "lfo" + juce::String (lfo) + "_seed", "SEED", accent, followsTheme)
+              , trigger (state, "lfo" + juce::String (lfo) + "_trigger", "TRIGGER")
+              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUTPUT A")
+              , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),
+                                                              "P" + juce::String (param + 1), accent, followsTheme));
+            fire.setButtonText ("FIRE");
+            fire.setTooltip ("Triggers the LFO now: drops the ball, plucks the spring, restarts a seeded sequence.");
         }
 
         ComboControl shape;
@@ -1950,7 +1992,125 @@ private:
         KnobControl phase;
         KnobControl physA, physB;
         ToggleControl kick;
+        // M8.1
+        KnobControl smooth, stereo, seed;
+        ComboControl trigger, axis;
+        ToggleControl loop;
+        juce::TextButton fire;
+        std::vector<std::unique_ptr<KnobControl>> sim;
+        int labelledShape = -1;
     };
+
+    // The shape menu with section headings. The attachment maps menu
+    // positions to the parameter, so the items stay in parameter order.
+    static void groupShapeMenu (juce::ComboBox& combo)
+    {
+        juce::StringArray names;
+        for (int i = 0; i < combo.getNumItems(); ++i)
+            names.add (combo.getItemText (i));
+        const auto selected = combo.getSelectedId();
+        combo.clear (juce::dontSendNotification);
+        const auto add = [&] (const juce::String& heading, int first, int last)
+        {
+            combo.addSectionHeading (heading);
+            for (int i = first; i <= last && i < names.size(); ++i)
+                combo.addItem (names[i], i + 1);
+        };
+        add ("Waves", 0, LfoShapes::SmoothRandom - 1);
+        add ("Classic (M2)", LfoShapes::SmoothRandom, LfoShapes::Friction);
+        add ("Random", LfoSimShapes::RandomHold, LfoSimShapes::DrunkWalk);
+        add ("Chaos", LfoSimShapes::Lorenz, LfoSimShapes::DoublePendulum);
+        add ("Physics", LfoSimShapes::Bounce, LfoSimShapes::Friction);
+        combo.setSelectedId (selected, juce::dontSendNotification);
+    }
+
+    // Choosing a simulated shape from the menu loads its knobs' defaults
+    // (presets and automation keep whatever they set).
+    void shapePicked (int lfo)
+    {
+        const auto shape = controlsList[(size_t) lfo]->shape.getComboBox().getSelectedId() - 1;
+        if (! LfoSimShapes::isSim (shape))
+            return;
+        const auto& info = LfoSimInfo::get (shape);
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_p" + juce::String (param + 1)))
+                parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+    }
+
+    // FIRE: a momentary press of the LFO's fire parameter.
+    void fire (int lfo)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_fire"))
+        {
+            parameter->setValueNotifyingHost (1.0f);
+            juce::Timer::callAfterDelay (60, [parameter] { parameter->setValueNotifyingHost (0.0f); });
+        }
+        displays[(size_t) lfo]->triggerPreview();
+    }
+
+    // Names and value text of a simulated shape's knobs.
+    void labelSimulated (Controls& c, int shape)
+    {
+        if (c.labelledShape == shape)
+            return;
+        c.labelledShape = shape;
+        const auto& info = LfoSimInfo::get (shape);
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+        {
+            auto& knob = *c.sim[(size_t) param];
+            if (info.params[(size_t) param].name != nullptr)
+                knob.setLabelText (info.params[(size_t) param].name);
+            knob.getSlider().textFromValueFunction = [shape, param] (double value) { return LfoSimInfo::text (shape, param, (float) value); };
+            knob.getSlider().updateText();
+        }
+    }
+
+    // Simulated shapes: combos and switches on two rows, then a row of
+    // named knobs (RATE, SMOOTH, the shape's own, STEREO and SEED).
+    void layoutSimulated (Controls& c, juce::Rectangle<int> inner, int shape)
+    {
+        const auto& info = LfoSimInfo::get (shape);
+        labelSimulated (c, shape);
+
+        // Options on the left: SHAPE, then TRIGGER / DIVISION / OUTPUT, then
+        // the switches and FIRE.
+        auto options = inner.removeFromLeft (inner.getWidth() * 45 / 100);
+        inner.removeFromLeft (6);
+        const auto rowHeight = options.getHeight() / 3;
+        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
+        auto combos = options.removeFromTop (rowHeight);
+        const auto comboWidth = combos.getWidth() / (info.usesAxis ? 3 : 2);
+        c.trigger.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
+        c.div.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
+        if (info.usesAxis)
+            c.axis.setBounds (combos.reduced (3, 1));
+
+        std::vector<juce::Component*> row { &c.sync, &c.retrig, &c.key };
+        if (info.usesLoop)
+            row.push_back (&c.loop);
+        if (shape == LfoSimShapes::Pendulum)
+            row.push_back (&c.kick);
+        const auto toggleWidth = options.getWidth() / ((int) row.size() + 1);
+        for (auto* component : row)
+            component->setBounds (options.removeFromLeft (toggleWidth).reduced (2, 1));
+        c.fire.setBounds (options.reduced (2, 1).withTrimmedTop (13).withHeight (juce::jmin (24, juce::jmax (16, options.getHeight() - 14))));
+
+        // Knobs on the right, two rows of four.
+        std::vector<juce::Component*> knobs { &c.rate, &c.smooth };
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            if (info.params[(size_t) param].name != nullptr)
+                knobs.push_back (c.sim[(size_t) param].get());
+        if (info.usesStereo)
+            knobs.push_back (&c.stereo);
+        if (info.usesSeed)
+            knobs.push_back (&c.seed);
+        const auto perRow = juce::jmax (3, ((int) knobs.size() + 1) / 2);
+        const auto knobWidth = inner.getWidth() / perRow;
+        const auto knobHeight = inner.getHeight() / 2;
+        for (size_t k = 0; k < knobs.size(); ++k)
+            knobs[k]->setBounds (inner.getX() + (int) (k % (size_t) perRow) * knobWidth,
+                                 inner.getY() + (int) (k / (size_t) perRow) * knobHeight, knobWidth, knobHeight);
+    }
 
     void updateVisibility()
     {
@@ -1976,9 +2136,21 @@ private:
             c.key.setVisible (visible);
             c.phase.setVisible (visible);
             const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape")->load();
+            const auto simulated = LfoSimShapes::isSim (shape);
+            const auto& info = LfoSimInfo::get (simulated ? shape : LfoSimShapes::RandomHold);
+            c.phase.setVisible (visible && ! simulated);
             c.physA.setVisible (visible && LfoShapes::isPhysics (shape));
             c.physB.setVisible (visible && LfoShapes::isPhysics (shape));
-            c.kick.setVisible (visible && shape == LfoShapes::Pendulum);
+            c.kick.setVisible (visible && (shape == LfoShapes::Pendulum || shape == LfoSimShapes::Pendulum));
+            c.smooth.setVisible (visible);
+            c.trigger.setVisible (visible && simulated);
+            c.axis.setVisible (visible && simulated && info.usesAxis);
+            c.loop.setVisible (visible && simulated && info.usesLoop);
+            c.stereo.setVisible (visible && simulated && info.usesStereo);
+            c.seed.setVisible (visible && simulated && info.usesSeed);
+            c.fire.setVisible (visible && simulated);
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                c.sim[(size_t) param]->setVisible (visible && simulated && info.params[(size_t) param].name != nullptr);
         }
 
         thumbs.setSelected (selected);
@@ -2028,6 +2200,7 @@ private:
     std::vector<std::unique_ptr<Controls>> controlsList;
     int selected = 0;
     int lastShape = -1;
+    bool userPickingShape = false;
 };
 
 class EnvLfoPage : public juce::Component

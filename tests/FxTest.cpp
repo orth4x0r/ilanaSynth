@@ -318,8 +318,8 @@ int main()
         run (processor, [] (int) { return 0.0f; }, 48000);
         const auto quietEnvelope = processor.getInputEnvelope();
         const auto names = Mod::getSourceNames();
-        check (names[names.size() - 1] == "Input Env" && (int) Mod::Source::InputEnv == names.size() - 1,
-               "Input Env is the last mod source");
+        check (names[(int) Mod::Source::InputEnv] == "Input Env" && (int) Mod::Source::Count == names.size(),
+               "Input Env keeps its mod source index");
         check (loud > 0.4f && quietEnvelope < 0.01f, "the envelope follows the input (" + juce::String (loud, 3)
                                                          + " loud, " + juce::String (quietEnvelope, 4) + " after)");
 

@@ -9,6 +9,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
+#include "LfoSimView.h"
 
 class LfoDisplay : public juce::Component,
                    public juce::SettableTooltipClient,
@@ -56,6 +57,12 @@ public:
         }
 
         IlanaTheme::paintWell (g, bounds, 6.0f);
+
+        if (const auto simShape = (int) readParam ("_shape"); LfoSimShapes::isSim (simShape))
+        {
+            simPreview.paint (g, bounds.reduced (10.0f, 8.0f), processorRef.readLfoSimSettings (index), traceColour);
+            return;
+        }
 
         const auto plot = bounds.reduced (10.0f, 14.0f);
         const auto centreY = plot.getCentreY();
@@ -638,10 +645,31 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f);
 
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto elapsed = juce::jlimit (0.0, 0.2, (now - lastTimerMs) / 1000.0);
+        lastTimerMs = now;
+        if (isVisible() && LfoSimShapes::isSim ((int) readParam ("_shape")))
+            simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
+
         if (isShowing())
             repaint();
     }
 
+    // RATE in Hz, following SYNC at the host tempo.
+    double currentRate() const
+    {
+        if (readParam ("_sync") > 0.5f)
+        {
+            static const double beats[] = { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 0.75, 0.375 };
+            return (processorRef.getCurrentBpm() / 60.0) / beats[juce::jlimit (0, 10, (int) readParam ("_div"))];
+        }
+        return (double) readParam ("_rate");
+    }
+
+public:
+    void triggerPreview() { simPreview.trigger (processorRef.readLfoSimSettings (index)); }
+
+private:
     float readParam (const char* suffix) const
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (index + 1) + suffix))
@@ -668,4 +696,6 @@ private:
     float traceA = -1.0f, traceB = -1.0f;
     double lastPhase = 0.0;
     int cycleCount = 0;
+    LfoSimPreview simPreview;
+    double lastTimerMs = juce::Time::getMillisecondCounterHiRes();
 };

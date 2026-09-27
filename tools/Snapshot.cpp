@@ -817,6 +817,55 @@ int runUiTests()
         }
     }
 
+    // M8.1: the LFO card for a simulated shape.
+    {
+        const auto knobFor = [&editor] (const juce::String& id) -> KnobControl*
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id)
+                    return knob;
+            return nullptr;
+        };
+        const auto setShape = [&processor] (int shape)
+        {
+            if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+        };
+        tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        setShape (LfoSimShapes::Lorenz);
+        settle (300);
+        auto* p1 = knobFor ("lfo1_p1");
+        auto* p4 = knobFor ("lfo1_p4");
+        auto* start = knobFor ("lfo1_phase");
+        auto* smooth = knobFor ("lfo1_smooth");
+        expect (p1 != nullptr && p1->isVisible() && p1->getLabelText() == "SIGMA", "Lorenz shows a SIGMA knob");
+        expect (p1 != nullptr && p1->getSlider().getTextFromValue (0.5) == "10.00", "SIGMA reads 10.00 at the middle");
+        expect (p4 != nullptr && ! p4->isVisible(), "Lorenz hides the knobs it doesn't use");
+        expect (start != nullptr && ! start->isVisible() && smooth != nullptr && smooth->isVisible(),
+                "simulated shapes show SMOOTH instead of START");
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        auto fireShown = false;
+        for (auto* button : buttons)
+            fireShown = fireShown || (button->getButtonText() == "FIRE" && button->isVisible());
+        expect (fireShown, "the card has a FIRE button");
+
+        setShape (LfoSimShapes::Bounce);
+        settle (300);
+        expect (p1 != nullptr && p1->getLabelText() == "GRAVITY" && p4 != nullptr && p4->isVisible() && p4->getLabelText() == "DRAG",
+                "Bounce names its knobs GRAVITY ... DRAG");
+        setShape (0);
+        settle (300);
+        expect (p1 != nullptr && ! p1->isVisible() && smooth != nullptr && smooth->isVisible() && start != nullptr && start->isVisible(),
+                "classic shapes keep START and gain SMOOTH");
+        expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
+    }
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -1021,6 +1070,36 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("lfo-pool-main.png"));
         for (int lfo = 3; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
+    }
+
+    // M8.1: the simulated LFO shapes, each with its picture and named knobs.
+    {
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        const std::pair<int, const char*> shapes[] {
+            { LfoSimShapes::Bounce, "bounce" }, { LfoSimShapes::Pendulum, "pendulum" }, { LfoSimShapes::Spring, "spring" },
+            { LfoSimShapes::Friction, "friction" }, { LfoSimShapes::Lorenz, "lorenz" }, { LfoSimShapes::DoublePendulum, "double-pendulum" },
+            { LfoSimShapes::Duffing, "duffing" }, { LfoSimShapes::Perlin, "perlin" }, { LfoSimShapes::Henon, "henon" } };
+        for (const auto& [shape, name] : shapes)
+        {
+            if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+            const auto& info = LfoSimInfo::get (shape);
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                if (auto* parameter = processor.apvts.getParameter ("lfo1_p" + juce::String (param + 1)))
+                    parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+            if (auto* rate = processor.apvts.getParameter ("lfo1_rate"))
+                rate->setValueNotifyingHost (rate->convertTo0to1 (1.0f));
+            settle (1500);
+            save (*editor, outDir.getChildFile ("lfo-sim-" + juce::String (name) + ".png"));
+        }
+        if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+            parameter->setValueNotifyingHost (0.0f);
+        if (auto* rate = processor.apvts.getParameter ("lfo1_rate"))
+            rate->setValueNotifyingHost (rate->convertTo0to1 (4.0f));
+        settle (200);
     }
 
     // M4: the Hammered Strings preset on the OSC page.

@@ -303,6 +303,15 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         ids.physA = prefix + "_phys_a";
         ids.physB = prefix + "_phys_b";
         ids.kick = prefix + "_kick";
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            ids.sim[(size_t) param] = prefix + "_p" + juce::String (param + 1);
+        ids.smooth = prefix + "_smooth";
+        ids.axis = prefix + "_axis";
+        ids.trigger = prefix + "_trigger";
+        ids.loop = prefix + "_loop";
+        ids.seed = prefix + "_seed";
+        ids.stereo = prefix + "_stereo";
+        ids.fire = prefix + "_fire";
 
         for (int step = 0; step < 16; ++step)
             ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
@@ -695,7 +704,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // LFOs
     const juce::StringArray lfoShapes { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Draw", "Steps", "Curve",
-                                       "Smooth Random", "Drunk", "Chaos", "Bounce", "Pendulum", "Spring", "Friction" };
+                                       "Smooth Random", "Drunk", "Chaos (classic)", "Bounce (classic)", "Pendulum (classic)",
+                                       "Spring (classic)", "Friction (classic)",
+                                       // M8.1 (appended: patches store the index)
+                                       "Random S&H", "Sine Random", "Perlin", "Drunk Walk",
+                                       "Lorenz", "Rossler", "Duffing", "Logistic Map", "Henon Map", "Double Pendulum",
+                                       "Bounce", "Pendulum", "Spring", "Friction" };
 
     for (int lfo = 1; lfo <= numLfos; ++lfo)
     {
@@ -1125,6 +1139,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc + 1);
         addFloat (prefix + "_ep_distance", name + " Pickup Distance", 0.0f, 1.0f, 0.5f);
         addFloat (prefix + "_ep_position", name + " Pickup Offset", 0.0f, 1.0f, 0.5f);
+    }
+
+    // M8.1: the simulated LFO shapes' named parameters (mapped per shape,
+    // see LfoSimInfo), SMOOTH for every shape, triggers and output B.
+    // SMOOTH 0 and the rest only affect the new shapes, so old patches are
+    // unchanged.
+    for (int lfo = 1; lfo <= numLfos; ++lfo)
+    {
+        const auto prefix = "lfo" + juce::String (lfo);
+        const auto name = "LFO" + juce::String (lfo);
+        for (int param = 1; param <= LfoSimInfo::numParams; ++param)
+            addFloat (prefix + "_p" + juce::String (param), name + " Param " + juce::String (param), 0.0f, 1.0f, 0.5f);
+        addFloat (prefix + "_smooth", name + " Smooth", 0.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_axis", name + " Output", { "X", "Y", "Z", "Mix" }, 0);
+        addChoice (prefix + "_trigger", name + " Trigger", { "Note", "Free", "Beat", "Generative" }, 0);
+        addBool (prefix + "_loop", name + " Loop", false);
+        addInt (prefix + "_seed", name + " Seed", 0, 999, 0);
+        addFloat (prefix + "_stereo", name + " Stereo", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_fire", name + " Fire", false);
     }
 
     return layout;
@@ -1688,10 +1721,15 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     }
 
     lfoRouted.fill (false);
+    lfoRoutedB.fill (false);
     for (int i = 0; i < numActiveSlots; ++i)
         for (const auto source : { activeSlots[i].source, activeSlots[i].aux })
+        {
             if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
                 lfoRouted[(size_t) lfo] = true;
+            if (const auto lfo = Mod::lfoBIndexFor (source); lfo >= 0)
+                lfoRoutedB[(size_t) lfo] = true;
+        }
 
     const auto factor = oversamplingFactor.load();
 
@@ -1936,7 +1974,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.macros[3] = getParam ("macro4");
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
         p.lfoBuffers[lfo] = lfoBuffers.getReadPointer (lfoChannel (lfo));
+        p.lfoBuffersB[lfo] = lfoBuffers.getReadPointer (lfoChannelB (lfo));
+    }
 
     p.numModSlots = numActiveSlots;
     p.numActiveDestinations = 0;
@@ -2000,6 +2041,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             const auto isCurve = lfoParams.shape == curveShape;
             lfoParams.custom = isCurve ? activeLfoCurveTables[(size_t) lfo].data() : activeLfoCustom[(size_t) lfo].data();
             lfoParams.customSize = isCurve ? LfoCurve::tableSize : lfoDrawSteps;
+            lfoParams.sim = readLfoSimSettings (lfo);
+            lfoParams.smooth = getParam (ids.smooth);
+            lfoParams.needsB = lfoRoutedB[(size_t) lfo];
+            lfoParams.triggerCount = lfoTriggerCounts[(size_t) lfo];
         }
     }
 
@@ -2458,6 +2503,22 @@ bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)
     return cleared;
 }
 
+LfoSimSettings IlanaSynthAudioProcessor::readLfoSimSettings (int lfo) const
+{
+    const auto& ids = lfoIds[(size_t) juce::jlimit (0, numLfos - 1, lfo)];
+    LfoSimSettings settings;
+    settings.shape = (int) getParam (ids.shape);
+    if (! LfoSimShapes::isSim (settings.shape))
+        return settings;
+    for (int param = 0; param < LfoSimInfo::numParams; ++param)
+        settings.p[(size_t) param] = getParam (ids.sim[(size_t) param]);
+    settings.axis = (int) getParam (ids.axis);
+    settings.loop = getParam (ids.loop) > 0.5f;
+    settings.seed = (int) getParam (ids.seed);
+    settings.stereo = getParam (ids.stereo);
+    return settings;
+}
+
 void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffer& midiMessages)
 {
     if (lfoBuffers.getNumSamples() < numSamples)
@@ -2554,6 +2615,111 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         }
     }
 
+    // M8.1: the simulated shapes' settings and their triggers in this block,
+    // as sample offsets (MIDI offsets are at the base rate).
+    const auto oversampling = juce::jmax (1, juce::roundToInt (currentSampleRate / juce::jmax (1.0, baseSampleRate)));
+    LfoSimSettings simSettings[numLfos];
+    bool simShape[numLfos] {};
+    int simTriggers[numLfos][8] {};
+    int numSimTriggers[numLfos] {};
+    float smoothCoefficients[numLfos] {};
+    const auto addTrigger = [&] (int lfo, int offset)
+    {
+        if (numSimTriggers[lfo] < 8)
+            simTriggers[lfo][numSimTriggers[lfo]++] = juce::jlimit (0, juce::jmax (0, numSamples - 1), offset);
+    };
+
+    // Steps of a beat grid in this block: calls hit (offset, step number).
+    const auto forEachGridStep = [this, numSamples] (double beats, double& freePhase, long long& last, auto&& hit)
+    {
+        const auto perSample = (juce::jmax (20.0, currentBpm.load()) / 60.0) / juce::jmax (0.001, beats) / currentSampleRate;
+        const auto start = hostPlaying.load() ? hostPpq.load() / beats : freePhase;
+        if ((double) last > start + 1.0)
+            last = (long long) std::floor (start) - 1;
+        const auto end = start + (double) numSamples * perSample;
+        for (auto k = (long long) std::ceil (start - 1.0e-9); (double) k < end; ++k)
+        {
+            if (k <= last)
+                continue;
+            last = k;
+            hit ((int) std::ceil (((double) k - start) / perSample), k);
+        }
+        freePhase = std::fmod (end, 4096.0);
+    };
+
+    // The Generative steps: Euclid's hits, else the probability sequencer's
+    // steps. Shared by every LFO set to Generative.
+    int generativeSteps[16] {};
+    int numGenerativeSteps = 0;
+    {
+        auto wanted = false;
+        for (int lfo = 0; lfo < numLfos; ++lfo)
+            wanted = wanted || (LfoSimShapes::isSim ((int) getParam (lfoIds[(size_t) lfo].shape))
+                                && (int) getParam (lfoIds[(size_t) lfo].trigger) == 3);
+        const auto euclid = getParam ("euc_on") > 0.5f;
+        if (wanted && (euclid || getParam ("pseq_on") > 0.5f))
+        {
+            const auto beats = getSyncDivisionBeats ((int) getParam (euclid ? "euc_div" : "pseq_div"));
+            const auto steps = juce::jlimit (2, 32, (int) getParam ("euc_steps"));
+            const auto hits = juce::jlimit (0, 32, (int) getParam ("euc_hits"));
+            const auto rotate = juce::jlimit (0, 31, (int) getParam ("euc_rotate"));
+            forEachGridStep (beats, lfoGenerativePhase, lfoGenerativeLast, [&] (int offset, long long k)
+            {
+                if ((! euclid || euclidHit ((int) (((k % steps) + steps) % steps), hits, steps, rotate)) && numGenerativeSteps < 16)
+                    generativeSteps[numGenerativeSteps++] = offset;
+            });
+        }
+        else
+        {
+            lfoGenerativeLast = -1;
+        }
+    }
+
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        simSettings[lfo] = readLfoSimSettings (lfo);
+        simShape[lfo] = LfoSimShapes::isSim (simSettings[lfo].shape);
+        const auto& ids = lfoIds[(size_t) lfo];
+
+        const auto fire = getParam (ids.fire) > 0.5f;
+        if (fire && ! lfoFireWas[(size_t) lfo])
+        {
+            addTrigger (lfo, 0);
+            ++lfoTriggerCounts[(size_t) lfo];
+        }
+        lfoFireWas[(size_t) lfo] = fire;
+
+        if (! simShape[lfo])
+            continue;
+
+        const auto mode = (int) getParam (ids.trigger);
+        if (mode == 0)
+        {
+            for (const auto metadata : midiMessages)
+                if (metadata.getMessage().isNoteOn())
+                {
+                    addTrigger (lfo, metadata.samplePosition * oversampling);
+                    if (simSettings[lfo].shape == LfoSimShapes::Pendulum && getParam (ids.kick) > 0.5f)
+                        lfoSims[(size_t) lfo].trigger (simSettings[lfo], lfoSimSeedCounter++, true,
+                                                       metadata.getMessage().getFloatVelocity());
+                }
+        }
+        else if (mode == 2)
+        {
+            forEachGridStep (getSyncDivisionBeats ((int) getParam (ids.div)), lfoBeatPhase[(size_t) lfo], lfoBeatLast[(size_t) lfo],
+                             [&] (int offset, long long) { addTrigger (lfo, offset); ++lfoTriggerCounts[(size_t) lfo]; });
+        }
+        else if (mode == 3)
+        {
+            for (int step = 0; step < numGenerativeSteps; ++step)
+            {
+                addTrigger (lfo, generativeSteps[step]);
+                ++lfoTriggerCounts[(size_t) lfo];
+            }
+        }
+        std::sort (simTriggers[lfo], simTriggers[lfo] + numSimTriggers[lfo]);
+    }
+
     const auto makeRate = [this] (const ParamRef& syncId, const ParamRef& rateId, const ParamRef& divId,
                                   Mod::Destination rateDestination)
     {
@@ -2592,6 +2758,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                 lfoChaos[(size_t) lfo].resetPhysics ((int) lfoShapes[lfo], lfoPhysA[lfo]);
         }
         lfoIncrements[lfo] = (double) lfoRates[lfo] / currentSampleRate;
+        smoothCoefficients[lfo] = LfoSmoother::coefficientFor (getParam (ids.smooth), (double) lfoRates[lfo], currentSampleRate);
+        lfoSims[(size_t) lfo].sampleRate = currentSampleRate;
 
         for (int step = 0; step < 16; ++step)
             lfoSteps[lfo][step] = getParam (ids.steps[(size_t) step]);
@@ -2599,14 +2767,22 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
     float* lfoBufferPointers[numLfos] {};
 
+    float* lfoBufferPointersB[numLfos] {};
+
     for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
         lfoBufferPointers[lfo] = lfoBuffers.getWritePointer (lfoChannel (lfo));
+        lfoBufferPointersB[lfo] = lfoBuffers.getWritePointer (lfoChannelB (lfo));
+        juce::FloatVectorOperations::clear (lfoBufferPointersB[lfo], numSamples);
+    }
+    int nextSimTrigger[numLfos] {};
 
     // LFO 1-4 always render, as before the pool. LFO 5-16 render only when a
     // mod slot uses them; otherwise their phase just moves on for the cards.
     bool renderLfo[numLfos] {};
     for (int lfo = 0; lfo < numLfos; ++lfo)
-        renderLfo[lfo] = lfo < 4 || lfoRouted[(size_t) lfo];
+        renderLfo[lfo] = simShape[lfo] ? lfoRouted[(size_t) lfo] || lfoRoutedB[(size_t) lfo]
+                                       : lfo < 4 || lfoRouted[(size_t) lfo] || lfoRoutedB[(size_t) lfo];
 
     auto* clockBuffer = lfoBuffers.getWritePointer (4);
     auto* msegBuffer = lfoBuffers.getWritePointer (5);
@@ -2637,6 +2813,25 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             const auto stepIndex = juce::jlimit (0, 15, (int) (phase * 16.0));
             const auto shape = (int) lfoShapes[lfo];
 
+            if (simShape[lfo])
+            {
+                auto& sim = lfoSims[(size_t) lfo];
+                while (nextSimTrigger[lfo] < numSimTriggers[lfo] && simTriggers[lfo][nextSimTrigger[lfo]] <= i)
+                {
+                    sim.trigger (simSettings[lfo], lfoSimSeedCounter++);
+                    ++nextSimTrigger[lfo];
+                }
+                float a = 0.0f, b = 0.0f;
+                sim.next (simSettings[lfo], lfoIncrements[lfo], a, b);
+                if (smoothCoefficients[lfo] < 1.0f)
+                    lfoSmoothers[(size_t) lfo].process (a, b, smoothCoefficients[lfo]);
+                lfoBufferPointers[lfo][i] = a;
+                lfoBufferPointersB[lfo][i] = b;
+                auto next = phase + lfoIncrements[lfo];
+                lfoPhases[(size_t) lfo] = next - std::floor (next);
+                continue;
+            }
+
             auto& chaos = lfoChaos[(size_t) lfo];
             const auto stateful = LfoShapes::isStateful (shape);
 
@@ -2657,6 +2852,25 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                                                                         activeLfoCurveTables[(size_t) lfo].data()));
             else
                 lfoBufferPointers[lfo][i] = 0.0f;
+
+            // M8.1: SMOOTH and output B (a quarter cycle on for the
+            // periodic shapes). Both off leave the classic path untouched.
+            if (smoothCoefficients[lfo] < 1.0f || lfoRoutedB[(size_t) lfo])
+            {
+                auto a = lfoBufferPointers[lfo][i];
+                auto b = a;
+                if (lfoRoutedB[(size_t) lfo] && ! stateful && shape != 5)
+                {
+                    const auto quarter = phase + 0.25 - std::floor (phase + 0.25);
+                    b = shape == 7 ? lfoSteps[lfo][juce::jlimit (0, 15, (int) (quarter * 16.0))]
+                                   : lfoValue (shape, quarter, lfoSampleHolds[(size_t) lfo].load(),
+                                               activeLfoCustom[(size_t) lfo].data(), activeLfoCurveTables[(size_t) lfo].data());
+                }
+                if (smoothCoefficients[lfo] < 1.0f)
+                    lfoSmoothers[(size_t) lfo].process (a, b, smoothCoefficients[lfo]);
+                lfoBufferPointers[lfo][i] = a;
+                lfoBufferPointersB[lfo][i] = b;
+            }
 
             auto nextPhase = phase + lfoIncrements[lfo];
 
@@ -2689,7 +2903,10 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         if (renderLfo[lfo])
         {
             if (numSamples > 0)
+            {
                 lfoLastValues[(size_t) lfo].store (lfoBufferPointers[lfo][numSamples - 1]);
+                lfoLastValuesB[(size_t) lfo].store (lfoBufferPointersB[lfo][numSamples - 1]);
+            }
             continue;
         }
 
@@ -2699,7 +2916,8 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         phase -= std::floor (phase);
         lfoPhases[(size_t) lfo] = phase;
         const auto shape = (int) lfoShapes[lfo];
-        lfoLastValues[(size_t) lfo].store (LfoShapes::isStateful (shape) || shape == 7
+        lfoLastValuesB[(size_t) lfo].store (0.0f);
+        lfoLastValues[(size_t) lfo].store (LfoShapes::isStateful (shape) || shape == 7 || LfoSimShapes::isSim (shape)
                                                ? 0.0f
                                                : lfoValue (shape, phase, lfoSampleHolds[(size_t) lfo].load(),
                                                            activeLfoCustom[(size_t) lfo].data(),
@@ -2788,6 +3006,8 @@ void IlanaSynthAudioProcessor::processAcousticKeys (juce::AudioBuffer<float>& bu
 
 float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
 {
+    if (const auto lfoIndex = Mod::lfoBIndexFor (source); lfoIndex >= 0)
+        return lfoLastValuesB[(size_t) lfoIndex].load();
     if (source >= Mod::Source::Env6 && source <= Mod::Source::Env16)
         return getEnvMonitorExtra ((int) source - (int) Mod::Source::Env6);
     if (const auto lfoIndex = Mod::lfoIndexFor (source); lfoIndex >= 0)
@@ -2795,6 +3015,9 @@ float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
         const auto& lfoId = lfoIds[(size_t) lfoIndex];
         const auto shape = (int) getParam (lfoId.shape);
         const auto phase = lfoPhases[(size_t) lfoIndex];
+
+        if (LfoSimShapes::isSim (shape) || getParam (lfoId.smooth) > 0.0f)
+            return lfoLastValues[(size_t) lfoIndex].load();
 
         if (LfoShapes::isStateful (shape))
             return lfoChaos[(size_t) lfoIndex].value (shape, phase);
@@ -2873,6 +3096,8 @@ float IlanaSynthAudioProcessor::getArpStepRateHz() const
 
 float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
 {
+    if (const auto lfoIndex = Mod::lfoBIndexFor ((Mod::Source) sourceIndex); lfoIndex >= 0)
+        return lfoLastValuesB[(size_t) lfoIndex].load();
     const auto source = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, sourceIndex);
     if (source >= Mod::Source::Env6 && source <= Mod::Source::Env16)
         return getEnvMonitorExtra ((int) source - (int) Mod::Source::Env6);
@@ -2883,7 +3108,7 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         const auto shape = (int) getParam ((prefix + "_shape").toRawUTF8());
         const auto phase = (double) lfoPhaseDisplays[(size_t) lfoIndex].load();
 
-        if (LfoShapes::isStateful (shape))
+        if (LfoShapes::isStateful (shape) || LfoSimShapes::isSim (shape))
             return lfoLastValues[(size_t) lfoIndex].load();
 
         if (shape == 7)

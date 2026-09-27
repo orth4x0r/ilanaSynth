@@ -236,6 +236,11 @@ struct VoiceParams
         const float* steps = nullptr;  // 16 values
         const float* custom = nullptr; // lfoDrawSteps values
         int customSize = 0;
+        // M8.1
+        LfoSimSettings sim;            // the simulated shapes' settings
+        float smooth = 0.0f;           // SMOOTH, a fraction of a cycle
+        bool needsB = false;           // output B is routed
+        unsigned triggerCount = 0;     // beats, Generative steps and FIRE, counted by the processor
     };
 
     std::array<OscParams, numOscillators> oscillators;
@@ -319,6 +324,7 @@ struct VoiceParams
     float macros[4] { 0.0f, 0.0f, 0.0f, 0.0f };
 
     const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice
+    const float* lfoBuffersB[numLfos] {}; // their outputs B (M8.1)
     const float* clockSh = nullptr;
     const float* mseg = nullptr;
     // M7.5 live input (ilanaSynth FX), at the voice rate for this block, and
@@ -507,6 +513,13 @@ private:
     float lfoHolds[VoiceParams::numLfos] {};
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
+    // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
+    LfoSim lfoSims[VoiceParams::numLfos];
+    LfoSmoother lfoSmoothers[VoiceParams::numLfos];
+    float lfoValuesB[VoiceParams::numLfos] {};
+    float lfoSmoothCoefficients[VoiceParams::numLfos] {};
+    unsigned lfoSeenTriggers[VoiceParams::numLfos] {};
+    std::uint32_t lfoSimNotes = 0;
 
     double sampleRate = 44100.0;
     double baseFrequency = 440.0;

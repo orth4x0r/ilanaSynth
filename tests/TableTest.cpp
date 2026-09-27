@@ -8315,6 +8315,9 @@ void runProfile (int unison)
    #endif
 }
 
+#include "M81Tests.inc"
+#include "DemoRender.inc"
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -8346,6 +8349,13 @@ int main()
         runScaleRandomReleaseTest();
         runArpHostStopTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M81_TEST", "").isNotEmpty())
+    {
+        runM81ModulatorTests();
+        std::cout << (failures == 0 ? "M8.1 TESTS PASSED" : "M8.1 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8395,8 +8405,15 @@ int main()
 
     if (const auto demo = juce::SystemStats::getEnvironmentVariable ("ILANA_RENDER_DEMO", ""); demo.isNotEmpty())
     {
-        renderKeysDemos (juce::File (demo));
-        renderFmPdDemos (juce::File (demo).getChildFile ("fm-pd"));
+        // ILANA_DEMO_ONLY=m81 (or m82, ...) renders one milestone's demos.
+        const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_DEMO_ONLY", "");
+        if (only.isEmpty())
+        {
+            renderKeysDemos (juce::File (demo));
+            renderFmPdDemos (juce::File (demo).getChildFile ("fm-pd"));
+        }
+        if (only.isEmpty() || only == "m81")
+            Demo::renderM81 (juce::File (demo).getChildFile ("m81"));
         return 0;
     }
 
@@ -8502,6 +8519,7 @@ int main()
     runM73ElectricPianoTests();
     runM74WavetableEditorTests();
     runSplitRenderTest();
+    runM81ModulatorTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

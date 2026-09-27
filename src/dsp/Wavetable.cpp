@@ -27,7 +27,7 @@ int Wavetable::readWavFrameSize (const juce::File& file)
         if (std::memcmp (id, "clm ", 4) == 0 && size >= 3)
         {
             juce::MemoryBlock block;
-            stream.readIntoMemoryBlock (block, (juce::ssize_t) juce::jmin<juce::int64> (size, 256));
+            stream.readIntoMemoryBlock (block, (size_t) std::min<juce::int64> (size, 256));
             const auto text = block.toString();
             if (text.startsWith ("<!>"))
             {

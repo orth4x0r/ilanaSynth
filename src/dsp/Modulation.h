@@ -40,6 +40,9 @@ enum class Source
     Lfo13, Lfo14, Lfo15, Lfo16,
     // M7.5: the audio input's envelope follower (ilanaSynth FX).
     InputEnv,
+    // M8.1: every LFO's second output (B), for LFO 1-16.
+    Lfo1B, Lfo2B, Lfo3B, Lfo4B, Lfo5B, Lfo6B, Lfo7B, Lfo8B,
+    Lfo9B, Lfo10B, Lfo11B, Lfo12B, Lfo13B, Lfo14B, Lfo15B, Lfo16B,
     Count
 };
 
@@ -60,6 +63,17 @@ inline int lfoIndexFor (Source source)
     }
 }
 
+// LFO index 0..15 whose output B this source is, or -1.
+inline int lfoBIndexFor (Source source)
+{
+    return source >= Source::Lfo1B && source <= Source::Lfo16B ? (int) source - (int) Source::Lfo1B : -1;
+}
+
+inline Source lfoBSourceFor (int index)
+{
+    return (Source) ((int) Source::Lfo1B + juce::jlimit (0, numLfoSources - 1, index));
+}
+
 // The source for LFO index 0..15.
 inline Source lfoSourceFor (int index)
 {
@@ -77,7 +91,8 @@ inline bool isBipolarSource (Source source)
         case Source::KeyTrack: case Source::Random: case Source::ClockSh: case Source::Mseg:
             return true;
         default:
-            return source >= Source::Lfo5 && source <= Source::Lfo16;
+            return (source >= Source::Lfo5 && source <= Source::Lfo16)
+                   || (source >= Source::Lfo1B && source <= Source::Lfo16B);
     }
 }
 
@@ -552,6 +567,8 @@ inline juce::StringArray getSourceNames()
     for (int lfo = 5; lfo <= numLfoSources; ++lfo)
         names.add ("LFO " + juce::String (lfo));
     names.add ("Input Env");
+    for (int lfo = 1; lfo <= numLfoSources; ++lfo)
+        names.add ("LFO " + juce::String (lfo) + " B");
     return names;
 }
 

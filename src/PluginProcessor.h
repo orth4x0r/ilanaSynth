@@ -42,7 +42,9 @@ public:
     // LFO 1-4 keep lfoBuffers channels 0-3; the clocked S&H and MSEG sit at
     // 4 and 5, and LFO 5-16 follow.
     static constexpr int lfoChannel (int lfo) { return lfo < 4 ? lfo : lfo + 2; }
-    static constexpr int numLfoChannels = numLfos + 2;
+    // M8.1: each LFO's output B follows, from channel numLfos + 2.
+    static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
+    static constexpr int numLfoChannels = 2 * numLfos + 2;
     static constexpr int maxDestinations = 512;
 
     float getFxMod (Mod::Destination destination, float depth) const
@@ -92,6 +94,9 @@ public:
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
     bool isSpectralWarpReady (int osc) const { return spectralCache->isReady (osc); }
     float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
+    // M8.1: a simulated LFO shape's settings (the card's picture reads them too).
+    LfoSimSettings readLfoSimSettings (int lfo) const;
+    float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
     // (null when its warp is off or still building).
@@ -498,7 +503,13 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { ParamRef shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<ParamRef, 16> steps; };
+    struct LfoIds
+    {
+        ParamRef shape, rate, sync, div, retrig, phase, key, physA, physB, kick;
+        std::array<ParamRef, 16> steps;
+        std::array<ParamRef, LfoSimInfo::numParams> sim;
+        ParamRef smooth, axis, trigger, loop, seed, stereo, fire;
+    };
     struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     // M5/M6 operator and phase-distortion settings.
@@ -563,6 +574,18 @@ private:
     std::array<std::atomic<float>, (size_t) numLfos> lfoSampleHolds {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoLastValues {};
     std::array<LfoChaos, (size_t) numLfos> lfoChaos;
+    // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
+    std::array<LfoSim, (size_t) numLfos> lfoSims;
+    std::array<LfoSmoother, (size_t) numLfos> lfoSmoothers;
+    std::array<bool, (size_t) numLfos> lfoRoutedB {};
+    std::array<std::atomic<float>, (size_t) numLfos> lfoLastValuesB {};
+    std::array<bool, (size_t) numLfos> lfoFireWas {};
+    std::array<long long, (size_t) numLfos> lfoBeatLast = [] { std::array<long long, (size_t) numLfos> a {}; a.fill (-1); return a; }();
+    std::array<double, (size_t) numLfos> lfoBeatPhase {};
+    long long lfoGenerativeLast = -1;
+    double lfoGenerativePhase = 0.0;
+    std::array<unsigned, (size_t) numLfos> lfoTriggerCounts {};
+    std::uint32_t lfoSimSeedCounter = 1;
     juce::Random lfoRandom;
     juce::Random lfoPoolRandom { 31415 };
     juce::Random& randomForLfo (int lfo) { return lfo < 4 ? lfoRandom : lfoPoolRandom; }

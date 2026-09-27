@@ -252,6 +252,22 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         lfoChaos[lfo].resetPhysics (params.lfos[lfo].shape, params.lfos[lfo].physA);
         if (params.lfos[lfo].shape == LfoShapes::Pendulum && params.lfos[lfo].kick)
             lfoChaos[lfo].kick (velocity);
+
+        // M8.1: own seeds, so the voice's random sequence is untouched.
+        const auto& sim = params.lfos[lfo].sim;
+        lfoSmoothers[lfo].reset();
+        lfoSeenTriggers[lfo] = params.lfos[lfo].triggerCount;
+        if (LfoSimShapes::isSim (sim.shape))
+        {
+            lfoSims[lfo].reset (sim, ++lfoSimNotes * 7919u + (std::uint32_t) midiNoteNumber * 131u
+                                         + (std::uint32_t) (velocity * 1000.0f) + (std::uint32_t) lfo * 104729u);
+            if (sim.shape == LfoSimShapes::Pendulum && params.lfos[lfo].kick)
+                lfoSims[lfo].trigger (sim, 0, true, velocity);
+            float a = 0.0f, b = 0.0f;
+            lfoSims[lfo].next (sim, 0.0, a, b);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+        }
     }
 
     if (keepRunning)
@@ -441,6 +457,9 @@ float Voice::voiceLfoValue (int lfo) const
 {
     const auto& lfoParams = params.lfos[lfo];
 
+    if (LfoSimShapes::isSim (lfoParams.shape))
+        return lfoValues[lfo];
+
     if (LfoShapes::isStateful (lfoParams.shape))
         return lfoChaos[lfo].value (lfoParams.shape, lfoPhases[lfo]);
 
@@ -455,12 +474,38 @@ void Voice::advanceVoiceLfos()
         const auto lfo = perVoiceLfos[index];
         const auto shape = params.lfos[lfo].shape;
 
+        if (LfoSimShapes::isSim (shape))
+        {
+            float a = 0.0f, b = 0.0f;
+            lfoSims[lfo].next (params.lfos[lfo].sim, lfoIncrements[lfo], a, b);
+            if (lfoSmoothCoefficients[lfo] < 1.0f)
+                lfoSmoothers[lfo].process (a, b, lfoSmoothCoefficients[lfo]);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+            auto next = lfoPhases[lfo] + lfoIncrements[lfo];
+            lfoPhases[lfo] = next - std::floor (next);
+            continue;
+        }
+
         if (shape == LfoShapes::Chaos)
             lfoChaos[lfo].advance (lfoIncrements[lfo]);
         else if (LfoShapes::isPhysics (shape))
             lfoChaos[lfo].advancePhysics (shape, lfoIncrements[lfo], params.lfos[lfo].physA, params.lfos[lfo].physB);
 
         lfoValues[lfo] = voiceLfoValue (lfo);
+
+        if (lfoSmoothCoefficients[lfo] < 1.0f || params.lfos[lfo].needsB)
+        {
+            auto a = lfoValues[lfo];
+            auto b = a;
+            if (params.lfos[lfo].needsB && ! LfoShapes::isStateful (shape) && shape != LfoShapes::SampleHold)
+                b = lfoShapeAt (shape, lfoPhases[lfo] + 0.25 - std::floor (lfoPhases[lfo] + 0.25), lfoHolds[lfo],
+                                params.lfos[lfo].steps, params.lfos[lfo].custom, params.lfos[lfo].customSize);
+            if (lfoSmoothCoefficients[lfo] < 1.0f)
+                lfoSmoothers[lfo].process (a, b, lfoSmoothCoefficients[lfo]);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+        }
 
         auto next = lfoPhases[lfo] + lfoIncrements[lfo];
 
@@ -673,6 +718,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // octave above, 2 Hz an octave below.
         if (params.lfos[lfo].keyTrack)
             lfoIncrements[lfo] = juce::jmin (0.45, lfoIncrements[lfo] * currentFrequency / 4.0);
+
+        // M8.1: SMOOTH, and the triggers counted by the processor.
+        const auto& lfoSettings = params.lfos[lfo];
+        lfoSmoothCoefficients[lfo] = LfoSmoother::coefficientFor (lfoSettings.smooth, lfoIncrements[lfo] * sampleRate, sampleRate);
+        if (lfoSettings.triggerCount != lfoSeenTriggers[lfo])
+        {
+            lfoSeenTriggers[lfo] = lfoSettings.triggerCount;
+            if (lfoSettings.perVoice && LfoSimShapes::isSim (lfoSettings.shape))
+                lfoSims[lfo].trigger (lfoSettings.sim, ++lfoSimNotes * 7919u + (std::uint32_t) lfo);
+        }
+        lfoSims[lfo].sampleRate = sampleRate;
     }
 
     // Level key scaling: KEY LVL 1 is +6 dB per octave above C3 (and -6 dB
@@ -1672,6 +1728,13 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
 
     if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
         return lfoSource (lfo, params.lfoBuffers[lfo]);
+
+    if (const auto lfo = Mod::lfoBIndexFor (source); lfo >= 0)
+    {
+        if (params.lfos[lfo].perVoice)
+            return lfoValuesB[lfo];
+        return params.lfoBuffersB[lfo] != nullptr ? params.lfoBuffersB[lfo][renderStart + sampleIndex] : 0.0f;
+    }
 
     switch (source)
     {

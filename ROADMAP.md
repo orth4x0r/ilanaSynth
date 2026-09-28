@@ -285,6 +285,18 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
   - Resampled sources (M8.6): 6
 - **FX plugin (M7.5)**: 10 presets
 
+### Release polish: seven UI/UX rounds and six debug rounds, alternating — in progress
+Adversarial passes over v1.3 before release: each UI round looks for what is confusing, inconsistent or badly laid out, and each debug round hunts real bugs. Every round ends with the full test suite, the UI test and the fingerprint check.
+
+- **UI 1** — done: filter knobs show their units (RESO and GATE in %, DRIVE as 1.5x, ENV AMT in octaves, KEY TRK and AUDIO FM as signed %); the LFO thumbnails show the rate as the knob does; the tour mentions Live mode; both STEPS rows on ARP/SEQ list the same LFOs.
+- **Debug 1** — done:
+  - Knobs without a step are continuous. The default step was a thousandth of the range, which is coarse at the dense end of a skewed range: cutoff moved in 20 Hz steps (12.01 kHz), comb and pitch presets sat cents off, LFO rates in 0.04 Hz steps. 27 factory presets now get the exact values they were written with (a deliberate change).
+  - Loading a patch stops the old one: its voices, effect tails (reverb, delays, freeze, the piano body) and modulators (LFO phases and seeds, MSEG, Evolve, the vector path) start over, with a 2 ms ease from the last output sample so there is no click. A slow free-running LFO used to start wherever the last patch left it (Bounced Bell Grains came out 18 dB quieter after Vector Strike Pad). With both, 38 presets' fingerprints change; the fingerprint tool plays every preset in one processor, so they no longer depend on the preset before them, and the Linux baseline is updated.
+  - Five presets that were far quieter than the library (they only passed the level check on the previous preset's reverb tail) are raised: Pluck Walker, Self-Osc Choir, Riser Sweep, Swarm, Reversed Piano Wash. The level check now judges the loudest half second of two, so swells and risers count at the level they reach.
+  - Windows: every test that put a `Voice` (1.1 MB) on the stack overflowed Windows' 1 MB stack; they allocate it now.
+  - The theme's fonts and textures are released at JUCE shutdown instead of as statics at unload (freeing a FreeType face after JUCE's font engine is gone crashed a host on exit); the Lorenz table's cache is built in a thread-safe static initialiser.
+  - Typed values: times, dB/oct, semitones and signed amounts are rounded before choosing their format, so "1000 ms" / "1.00 s" and "-0.0" can't disagree when typed back (the round-trip test now tries 400 values per parameter).
+
 ---
 
 ## Later (v1.4, pushed back, not scheduled)

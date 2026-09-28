@@ -24,32 +24,28 @@ inline const juce::uint32 palette[]
 
 inline constexpr int numPalettes = 4;
 
-inline juce::Typeface::Ptr& regularTypefaceRef()
+// The fonts and textures, released when JUCE shuts down (after the last
+// editor closes) rather than as statics when the plugin is unloaded: by then
+// JUCE's font engine is gone, and freeing a FreeType face after it crashed
+// hosts on exit.
+struct ThemeResources : private juce::DeletedAtShutdown
 {
     // Book (400) rather than Medium: lighter strokes stay crisp at UI sizes.
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost400Book_ttf, (size_t) BinaryData::Jost400Book_ttfSize);
-
-    return typeface;
-}
-
-inline juce::Typeface::Ptr& mediumTypefaceRef()
-{
+    juce::Typeface::Ptr regular = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost400Book_ttf, (size_t) BinaryData::Jost400Book_ttfSize);
     // Used for small text: unhinted outlines thin out at tiny sizes, so the
     // medium weight keeps stems readable.
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost500Medium_ttf, (size_t) BinaryData::Jost500Medium_ttfSize);
+    juce::Typeface::Ptr medium = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost500Medium_ttf, (size_t) BinaryData::Jost500Medium_ttfSize);
+    juce::Typeface::Ptr bold = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost700Bold_ttf, (size_t) BinaryData::Jost700Bold_ttfSize);
+    juce::Image leather, metal; // built on first use
 
-    return typeface;
-}
+    ~ThemeResources() override { clearSingletonInstance(); }
 
-inline juce::Typeface::Ptr& boldTypefaceRef()
-{
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost700Bold_ttf, (size_t) BinaryData::Jost700Bold_ttfSize);
+    JUCE_DECLARE_SINGLETON_INLINE (ThemeResources, false)
+};
 
-    return typeface;
-}
+inline juce::Typeface::Ptr& regularTypefaceRef() { return ThemeResources::getInstance()->regular; }
+inline juce::Typeface::Ptr& mediumTypefaceRef() { return ThemeResources::getInstance()->medium; }
+inline juce::Typeface::Ptr& boldTypefaceRef() { return ThemeResources::getInstance()->bold; }
 
 // The editor renders its design space through a scale transform; this mirrors
 // that zoom so fonts can be snapped to whole device pixels (fractional
@@ -78,7 +74,8 @@ inline juce::FontOptions font (float height, bool bold = false)
 
 inline juce::Image& leatherTexture()
 {
-    static juce::Image image = []
+    auto& image = ThemeResources::getInstance()->leather;
+    if (image.isNull()) image = []
     {
         constexpr int size = 512;
         juce::Image img (juce::Image::ARGB, size, size, true);
@@ -119,7 +116,8 @@ inline juce::Image& leatherTexture()
 
 inline juce::Image& metalTexture()
 {
-    static juce::Image image = []
+    auto& image = ThemeResources::getInstance()->metal;
+    if (image.isNull()) image = []
     {
         constexpr int w = 1024;
         constexpr int h = 256;

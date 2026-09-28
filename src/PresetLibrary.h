@@ -1653,7 +1653,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "GATE", { { param ("arp_gate"), 0.3f } })
              .macro (3, "TONE", { { D::Filter1Cutoff, -0.4f } })
              .macro (4, "SPACE", { { D::FxDelayMix, 0.25f }, { D::FxReverbMix, 0.2f } })
-             .fx ({ FxDelay, FxReverb }).delay (D1_4T, 0.35f, 0.18f, true).reverb (Hall, 0.5f, 0.15f));
+             .fx ({ FxDelay, FxReverb }).delay (D1_4T, 0.35f, 0.18f, true).reverb (Hall, 0.5f, 0.15f).master (2.0f));
 
     add (B ("Trance Gate Arp", "Arp")
              .osc1 (Basic, 0.0f, 0.65f).unison (1, 7, 18.0f, 0.8f, Hypersaw, 0.7f)
@@ -1715,7 +1715,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "BREATH", { { D::NoiseLevel, 0.2f } })
              .macro (3, "PITCH", { { D::Filter2Cutoff, 0.1f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
-             .fx ({ FxLimiter, FxReverb }).limiter (-4.0f).reverb (Hall, 0.9f, 0.4f));
+             .fx ({ FxLimiter, FxReverb }).limiter (-4.0f).reverb (Hall, 0.9f, 0.4f).master (2.0f));
 
     add (B ("Ring Drone", "Drone")
              .osc1 (Fractal, 0.3f, 0.6f).osc2 (SineT, 0.0f, 0.0f, 0, 3.0f).warp (1, WRing, 0.5f)
@@ -1789,7 +1789,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "NOISE", { { D::NoiseLevel, 0.3f } })
              .macro (3, "PITCH", { { D::Osc1Pitch, 0.1f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
-             .fx ({ FxDelay, FxReverb }).delay (D1_8, 0.5f, 0.2f, true).reverb (Hall, 0.9f, 0.3f));
+             .fx ({ FxDelay, FxReverb }).delay (D1_8, 0.5f, 0.2f, true).reverb (Hall, 0.9f, 0.3f).master (4.0f));
 
     add (B ("Laser Zap", "FX")
              .osc1 (Basic, 0.0f, 0.7f)
@@ -2223,7 +2223,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "DENSITY", { { param ("osc1_grain_density"), -0.6f } })
              .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
-             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
+             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f).master (-1.0f));
 
     add (B ("Vinyl Dust Keys", "Keys")
              .osc1 (SoftSaw, 0.2f, 0.7f).osc2 (SineT, 0.0f, 0.35f, 12)

@@ -329,7 +329,8 @@ void runVoiceSmokeTest()
     Wavetable table2;
     table2.buildFromFrames (TableFactory::generate (3));
 
-    Voice voice;
+    auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+    auto& voice = *voiceOwner;
     voice.setCurrentPlaybackSampleRate (48000.0);
 
     VoiceParams p;
@@ -434,7 +435,8 @@ void runFrameModulationTest()
     const auto render = [&table, &lfo] (float frameParam, float macroValue, float modDepth,
                                         const float* lfoSource, Mod::Source source)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
@@ -520,7 +522,8 @@ void runCrossModulationTest()
 
     const auto render = [&table1, &table2] (float fm, float feedback, float ring, bool sync)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
@@ -605,7 +608,8 @@ void runKarplusStrongTest()
 
     const auto renderString = [&table] (float decay, float damping, int excite, float sustain)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
@@ -887,7 +891,8 @@ void runWeirdDspTest()
 
     const auto renderVoice = [&table] (const std::function<void (VoiceParams&)>& configure)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
@@ -1087,7 +1092,8 @@ void runSampleOscTest()
     const auto renderVoice = [&sample] (int note, int numSamples,
                                         const std::function<void (VoiceParams&)>& configure)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
@@ -1232,7 +1238,8 @@ void runSampleOscTest()
     }
 
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
@@ -1266,7 +1273,8 @@ void runSampleOscTest()
     }
 
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
@@ -1306,7 +1314,8 @@ void runSampleOscTest()
     }
 
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (sampleRate);
 
         VoiceParams p;
@@ -1384,7 +1393,8 @@ void runOsc2Test()
 
     const auto renderOsc2 = [&sineTable] (int semitones, bool stringMode)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
 
         VoiceParams p;
@@ -1490,7 +1500,8 @@ void runOscLevelTest()
     // Static level sweep
     const auto peakForLevel = [&] (float level)
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
         voice.setParams (makeParams (level));
         voice.startNote (57, 1.0f, nullptr, 8192);
@@ -1513,7 +1524,8 @@ void runOscLevelTest()
 
     // Level change while the note is held
     {
-        Voice voice;
+        auto voiceOwner = std::make_unique<Voice>(); // over 1 MB: too big for a 1 MB Windows stack
+        auto& voice = *voiceOwner;
         voice.setCurrentPlaybackSampleRate (48000.0);
         voice.setParams (makeParams (0.9f));
         voice.startNote (57, 1.0f, nullptr, 8192);
@@ -3756,6 +3768,8 @@ void runFactoryLibraryTest()
                 parameter->setValueNotifyingHost (value);
     };
 
+    // rms: the loudest half second (47 blocks) of the render, so a slow
+    // swell or riser is judged by the level it reaches.
     const auto render = [&processor] (int blocks, bool startNotes, double& rms)
     {
         juce::AudioBuffer<float> buffer (2, 512);
@@ -3763,6 +3777,7 @@ void runFactoryLibraryTest()
         auto sum = 0.0;
         auto count = 0;
         auto finite = true;
+        std::vector<double> blockEnergy;
 
         for (int block = 0; block < blocks; ++block)
         {
@@ -3774,6 +3789,7 @@ void runFactoryLibraryTest()
                     midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
 
             processor.processBlock (buffer, midi);
+            auto energy = 0.0;
 
             for (int channel = 0; channel < 2; ++channel)
                 for (int s = 0; s < 512; ++s)
@@ -3782,11 +3798,25 @@ void runFactoryLibraryTest()
                     finite = finite && std::isfinite (value);
                     peak = juce::jmax (peak, std::abs (value));
                     sum += (double) value * (double) value;
+                    energy += (double) value * (double) value;
                     ++count;
                 }
+            blockEnergy.push_back (energy);
         }
 
+        constexpr int window = 47;
         rms = std::sqrt (sum / juce::jmax (1, count));
+        if ((int) blockEnergy.size() >= window)
+        {
+            auto windowSum = 0.0, best = 0.0;
+            for (size_t b = 0; b < blockEnergy.size(); ++b)
+            {
+                windowSum += blockEnergy[b] - (b >= (size_t) window ? blockEnergy[b - window] : 0.0);
+                if (b + 1 >= (size_t) window)
+                    best = juce::jmax (best, windowSum);
+            }
+            rms = std::sqrt (best / (window * 1024.0));
+        }
         return finite ? peak : 1.0e9f;
     };
 
@@ -3826,7 +3856,7 @@ void runFactoryLibraryTest()
 
         setMacros (0.0f);
         double rms = 0.0;
-        const auto peak = render (90, true, rms);
+        const auto peak = render (180, true, rms);
 
         // ilanaSynth FX patches are silent without the audio input.
         if (categories[index] == "FX Input")
@@ -3875,6 +3905,9 @@ void runFactoryLibraryTest()
     for (const auto& level : levels)
     {
         const auto db = 20.0 * std::log10 (juce::jmax (1.0e-9, level.first / median));
+
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_LEVELS", "").isNotEmpty())
+            std::cout << "  LEVEL " << level.second << " " << juce::String (db, 1) << " dB" << std::endl;
 
         if (std::abs (db) > 14.0)
             outliers.add (level.second + " (" + juce::String (db, 1) + " dB)");
@@ -8379,6 +8412,7 @@ void runProfile (int unison)
 #include "M85Tests.inc"
 #include "M86Tests.inc"
 #include "M10Tests.inc"
+#include "PolishTests.inc"
 #include "DemoRender.inc"
 
 int main()
@@ -8427,6 +8461,25 @@ int main()
         PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", ""));
         M82::probe();
         return 0;
+    }
+
+    if (const auto target = juce::SystemStats::getEnvironmentVariable ("ILANA_LEVEL_SEQ", ""); target.isNotEmpty())
+    {
+        Polish::probeSequence (target);
+        return 0;
+    }
+
+    if (const auto list = juce::SystemStats::getEnvironmentVariable ("ILANA_LEVEL_PROBE", ""); list.isNotEmpty())
+    {
+        Polish::probeLevels (list);
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_POLISH_TEST", "").isNotEmpty())
+    {
+        runPolishTests();
+        std::cout << (failures == 0 ? "POLISH TESTS PASSED" : "POLISH TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M10_TEST", "").isNotEmpty())
@@ -8769,6 +8822,7 @@ int main()
     runM85Tests();
     runM86Tests();
     runM10Tests();
+    runPolishTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

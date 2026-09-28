@@ -106,7 +106,7 @@ void runTextRoundTripTest()
     juce::Random random (10);
     juce::StringArray wrong;
     for (auto* parameter : processor.getParameters())
-        for (int trial = 0; trial < 40; ++trial)
+        for (int trial = 0; trial < 400; ++trial)
         {
             const auto value = trial == 0 ? 0.0f : trial == 1 ? 1.0f : random.nextFloat();
             const auto text = parameter->getText (value, 1024);

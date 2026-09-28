@@ -412,8 +412,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     const auto addFloat = [&layout] (const juce::String& id, const juce::String& name, float min, float max,
                                      float def, float skew = 1.0f, float interval = 0.0f)
     {
-        const auto step = interval > 0.0f ? interval : (max - min) / 1000.0f;
-        const juce::NormalisableRange<float> range (min, max, step, skew);
+        // Continuous unless a step is asked for: a fixed step of a thousandth
+        // of the range is coarse at the dense end of a skewed range (cutoff
+        // moved in 20 Hz steps, comb tunings sat cents off).
+        const juce::NormalisableRange<float> range (min, max, juce::jmax (0.0f, interval), skew);
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { id, 1 }, name, range, def,
             juce::AudioParameterFloatAttributes()
@@ -425,27 +427,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                 {
                     const auto typed = text.trim();
                     // Every number in the text ("x32", "F1 +10 %", "-6.0 dB").
-                    const auto numbersIn = [] (const juce::String& typed)
+                    const auto numbersIn = [] (const juce::String& source)
                     {
-                    std::vector<float> numbers;
-                    for (int i = 0; i < typed.length();)
-                    {
-                        const auto c = typed[i];
-                        const auto startsNumber = juce::CharacterFunctions::isDigit (c)
-                                                  || ((c == '-' || c == '+' || c == '.') && i + 1 < typed.length()
-                                                      && (juce::CharacterFunctions::isDigit (typed[i + 1]) || typed[i + 1] == '.'));
-                        if (! startsNumber)
+                        std::vector<float> numbers;
+                        for (int i = 0; i < source.length();)
                         {
-                            ++i;
-                            continue;
+                            const auto c = source[i];
+                            const auto startsNumber = juce::CharacterFunctions::isDigit (c)
+                                                      || ((c == '-' || c == '+' || c == '.') && i + 1 < source.length()
+                                                          && (juce::CharacterFunctions::isDigit (source[i + 1]) || source[i + 1] == '.'));
+                            if (! startsNumber)
+                            {
+                                ++i;
+                                continue;
+                            }
+                            auto end = i + 1;
+                            while (end < source.length() && (juce::CharacterFunctions::isDigit (source[end]) || source[end] == '.'))
+                                ++end;
+                            numbers.push_back (source.substring (i, end).getFloatValue());
+                            i = end;
                         }
-                        auto end = i + 1;
-                        while (end < typed.length() && (juce::CharacterFunctions::isDigit (typed[end]) || typed[end] == '.'))
-                            ++end;
-                        numbers.push_back (typed.substring (i, end).getFloatValue());
-                        i = end;
-                    }
-                    return numbers;
+                        return numbers;
                     };
                     const auto numbers = numbersIn (typed);
                     if (numbers.empty())
@@ -483,13 +485,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                         (below == rising ? lo : hi) = mid;
                     }
                     // The bisection ends on the edge of the shown number's
-                    // rounding: look at the legal values around it.
+                    // rounding: look at the values around it (legal steps, or
+                    // small steps of the knob's travel when continuous).
                     const auto found = range.snapToLegalValue (range.convertFrom0to1 (0.5f * (lo + hi)));
-                    const auto legalStep = range.interval > 0.0f ? range.interval : (range.end - range.start) / 1000.0f;
                     for (int k = 0; k <= 60; ++k)
                         for (const auto sign : { 1.0f, -1.0f })
                         {
-                            const auto candidate = range.snapToLegalValue (juce::jlimit (range.start, range.end, found + sign * (float) k * legalStep));
+                            const auto candidate = range.interval > 0.0f
+                                ? range.snapToLegalValue (juce::jlimit (range.start, range.end, found + sign * (float) k * range.interval))
+                                : range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, hi + sign * (float) k * 1.0e-5f));
                             if (describeValue (id, candidate) == typed)
                                 return candidate;
                         }
@@ -1639,6 +1643,73 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     updateLatency();
 }
 
+// A new patch starts from silence: the old voices stop and the effects'
+// memory (reverb, delays, freeze, the piano body) is cleared, on the audio
+// thread and without allocating.
+void IlanaSynthAudioProcessor::cutPatchTails()
+{
+    synth.allNotesOff (0, false);
+    noteSpray.reset();
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        declick[channel] = lastOutput[channel];
+        tapeShift[channel].reset();
+        shimmerShift[channel].reset();
+        octaverShift[channel].reset();
+        smear[channel].reset();
+        freeze[channel].reset();
+        feedbackState[channel] = 0.0f;
+        delayDampState[channel] = 0.0f;
+    }
+
+    sympatheticStrings.reset();
+    soundboard.reset();
+    denseSoundboard.reset();
+    pedalResonance.reset();
+    mechanicalNoise.reset();
+    stutterBuffer.clear();
+    tapeStopBuffer.clear();
+    haasLine.reset();
+    feedbackLine.reset();
+    flangerLine.reset();
+    dimLine.reset();
+    springComb.reset();
+    chorus.reset();
+    phaser.reset();
+    convolution.reset();
+    delayLine.reset();
+    combLine.reset();
+    reverb.reset();
+
+    // The modulators start over too, as in a new instance, so a patch sounds
+    // the same whatever played before it (a slow free-running LFO otherwise
+    // starts wherever the last patch left it).
+    lfoRandom.setSeed (27182);
+    lfoPoolRandom.setSeed (31415);
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        lfoPhases[(size_t) lfo] = 0.0;
+        lfoSampleHolds[(size_t) lfo].store (randomForLfo (lfo).nextFloat() * 2.0f - 1.0f);
+        lfoFireWas[(size_t) lfo] = false;
+        lfoBeatLast[(size_t) lfo] = -1;
+        lfoSims[(size_t) lfo].restart();
+        lfoSmoothers[(size_t) lfo].reset();
+        lfoPreviousShapes[(size_t) lfo] = -1;
+    }
+    lfoSimSeedCounter = 1;
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        lfoChaos[(size_t) lfo].reset (randomForLfo (lfo));
+    mseg.reset();
+    clockShPhase = 0.0;
+    clockShValue = 0.0f;
+    vectorPathPhase = 0.0;
+    evolve.reset (4242u);
+    vectorDrift.reset (9191u);
+    for (auto& drift : macroDrift)
+        drift.store (0.0f);
+}
+
 // The oversamplers' filters delay the output a little; the host compensates.
 void IlanaSynthAudioProcessor::updateLatency()
 {
@@ -1851,6 +1922,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     liveInputSamples = 0;
     if (totalNumInputChannels > 0)
         captureLiveInput (buffer);
+
+    if (patchCut.exchange (false))
+        cutPatchTails();
 
     {
         const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
@@ -2505,6 +2579,26 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             for (int i = 0; i < buffer.getNumSamples(); ++i)
                 data[i] = std::tanh (data[i] * clipGain);
         }
+    }
+
+    // After a patch change: ease from where the old patch's output stopped
+    // (a 2 ms decay) instead of stepping from it to the new patch.
+    for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+    {
+        auto* data = buffer.getWritePointer (channel);
+        const auto numSamples = buffer.getNumSamples();
+        if (declick[channel] != 0.0f)
+        {
+            const auto decay = std::exp (-1.0f / (0.002f * (float) juce::jmax (1.0, baseSampleRate)));
+            for (int i = 0; i < numSamples; ++i)
+            {
+                data[i] += declick[channel];
+                declick[channel] *= decay;
+            }
+            if (std::abs (declick[channel]) < 1.0e-6f)
+                declick[channel] = 0.0f;
+        }
+        lastOutput[channel] = numSamples > 0 ? data[numSamples - 1] : lastOutput[channel];
     }
 
     // M7.5 DRY: the untouched input back in (without the oversamplers'
@@ -5801,6 +5895,7 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
     liveRetrigger = true;
+    patchCut = true;
     const auto& presets = Presets::getFactoryPresets();
 
     if (index < 0 || index >= (int) presets.size())
@@ -6354,6 +6449,7 @@ void IlanaSynthAudioProcessor::removeOscillator (int index)
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     liveRetrigger = true;
+    patchCut = true;
     auto state = stateIn.createCopy();
     {
         // Pre-mask M3b states saved a count of revealed envelopes.

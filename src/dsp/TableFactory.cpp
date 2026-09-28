@@ -439,18 +439,17 @@ std::vector<std::vector<float>> generateV11 (int tableIndex)
             return generateTable ([] (double t, double phase)
             {
                 // Integrate a fixed span, then read it as one cycle (crossfaded
-                // at the seam so it loops cleanly).
-                static std::vector<std::vector<float>> traces;
-
-                if (traces.empty())
+                // at the seam so it loops cleanly). Built once, in a static's
+                // initialiser so two threads building tables can't race on it.
+                static const auto traces = []
                 {
-                    traces.resize (64);
+                    std::vector<std::vector<float>> built (64);
 
                     for (int frame = 0; frame < 64; ++frame)
                     {
                         const auto rho = 24.0 + (double) frame / 63.0 * 14.0;
                         auto x = 1.0, y = 1.0, z = 1.0;
-                        auto& trace = traces[(size_t) frame];
+                        auto& trace = built[(size_t) frame];
                         trace.resize (2048);
                         const auto dt = 0.0015;
 
@@ -479,7 +478,8 @@ std::vector<std::vector<float>> generateV11 (int tableIndex)
                             tail = tail * keep + trace[0] * (1.0f - keep);
                         }
                     }
-                }
+                    return built;
+                }();
 
                 const auto frame = juce::jlimit (0, 63, (int) std::round (t * 63.0));
                 return traces[(size_t) frame][(size_t) juce::jlimit (0, 2047, (int) (phase * 2048.0))];

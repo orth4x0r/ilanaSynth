@@ -3888,13 +3888,14 @@ private:
     // Arp controls step back while the arp is off.
     void timerCallback() override
     {
-        // The step-row pickers list the patch's LFOs (and whatever a row shows).
+        // The step-row pickers list the patch's LFOs (and whatever either row
+        // shows), the same list in both rows.
         auto pickersChanged = false;
         for (int row = 0; row < 2; ++row)
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             {
                 auto& button = lfoButtons[(size_t) row][(size_t) lfo];
-                const auto shown = processorRef.isLfoShown (lfo) || button.getToggleState();
+                const auto shown = processorRef.isLfoShown (lfo) || step1.getLfoIndex() == lfo || step2.getLfoIndex() == lfo;
                 if (button.isVisible() != shown)
                 {
                     button.setVisible (shown);

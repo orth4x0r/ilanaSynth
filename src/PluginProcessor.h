@@ -546,6 +546,12 @@ private:
     int liveGateNote = -1;
     int liveInputSamples = 0;               // valid samples in liveDry this block
     std::atomic<bool> liveRetrigger { false }; // a patch loaded: restart the drone
+    // A patch loaded: stop the old one's voices and effect tails at the next
+    // block, easing from the last output sample to silence rather than
+    // stepping to it.
+    std::atomic<bool> patchCut { false };
+    float lastOutput[2] {}, declick[2] {};
+    void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
     struct OscCoreIds
     {

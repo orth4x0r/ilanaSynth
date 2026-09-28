@@ -6,6 +6,7 @@
 #include <array>
 #include <vector>
 
+#include "ParamInfo.h"
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
@@ -357,7 +358,7 @@ private:
         const auto synced = readParam (lfo, "_sync") > 0.5f;
         const juce::StringArray divisions { "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T", "1/8D", "1/16D" };
         const auto rateText = synced ? divisions[juce::jlimit (0, divisions.size() - 1, (int) readParam (lfo, "_div"))]
-                                     : juce::String (readParam (lfo, "_rate"), 2) + " Hz";
+                                     : describeValue ("lfo" + juce::String (lfo + 1) + "_rate", readParam (lfo, "_rate")); // as the RATE knob shows it
 
         g.setColour (juce::Colours::white.withAlpha (0.5f));
         g.setFont (IlanaTheme::font (11.0f));

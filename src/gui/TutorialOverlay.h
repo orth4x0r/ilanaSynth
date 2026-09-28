@@ -151,7 +151,7 @@ public:
             auto right = area.removeFromRight (area.getWidth() - 12);
 
             const juce::StringArray playTips {
-                "Each oscillator is Wavetable, Physical, Sample or Granular. Click TABLE for the visual browser; drop a wav on the display to sample it.",
+                "Each oscillator is Wavetable, Physical, Sample, Granular or Live (ilanaSynth FX's input). Click TABLE for the visual browser; drop a wav on the display to sample it.",
                 "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
                 "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
                 "Try the simulated LFO shapes (Lorenz, Bounce, Pendulum...), the WEST card on FILTER, or PHYSICAL to watch a string move.",

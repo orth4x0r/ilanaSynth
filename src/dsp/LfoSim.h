@@ -287,6 +287,13 @@ public:
             reset (s, freeSeed);
     }
 
+    // As a new instance: starts again (from the first seed) on the next sample.
+    void restart()
+    {
+        shape = -1;
+        rng = 1;
+    }
+
     // One sample. `cyclesPerSample` is RATE / sample rate. Returns A and B.
     void next (const LfoSimSettings& s, double cyclesPerSample, float& outA, float& outB)
     {

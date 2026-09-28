@@ -1117,7 +1117,7 @@ inline void addM10Presets (const std::function<void (const FactoryPreset&)>& add
              .macro (2, "START", { { D::Osc1SampleStart, 0.4f } })
              .macro (3, "ECHO", { { D::FxDelayMix, 0.35f } })
              .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
-             .fx ({ FxDelay, FxReverb }).delay (D1_4, 0.35f, 0.2f, true).reverb (Hall, 0.9f, 0.35f).master (0.0f));
+             .fx ({ FxDelay, FxReverb }).delay (D1_4, 0.35f, 0.2f, true).reverb (Hall, 0.9f, 0.35f).master (7.0f));
     add (B ("Frozen Feedback Table", "Lead")
              .bounceFrom ("Feedback Guitar Drone", 1, true, 48, 3.0f, 0.5f)
              .set ("sub_on", 0).filter1 (LadderLP, 3000.0f, 0.3f).amp (0.005f, 0.3f, 0.9f, 0.3f).mono (0.04f)

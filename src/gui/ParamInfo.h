@@ -16,6 +16,14 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
 // A number with the decimals its size calls for (under 1: two, under 10:
 // one, else none), judged after rounding, so 0.998 shows as "1.0" like 1.0
 // does and typed text reads back the same.
+// A value rounded to a fixed number of decimals, never "-0.0".
+inline juce::String describeFixed (float value, int decimals)
+{
+    const auto scale = std::pow (10.0f, (float) decimals);
+    const auto rounded = std::round (value * scale) / scale;
+    return juce::String (rounded == 0.0f ? 0.0f : rounded, decimals);
+}
+
 inline juce::String describeNumber (float value, int maxDecimals = 2)
 {
     const auto rounded = [value] (int decimals) { const auto scale = std::pow (10.0f, (float) decimals); return std::round (value * scale) / scale; };
@@ -28,9 +36,19 @@ inline juce::String describeNumber (float value, int maxDecimals = 2)
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // The filters' knobs in their own units.
+    if (id == "f1_reso" || id == "f2_reso" || id == "arp_gate")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id == "f1_drive" || id == "f2_drive")
+        return describeNumber (value, 1) + "x";
+    if (id == "f1_env" || id == "f2_env")
+        return (std::round (value * 10.0f) > 0.0f ? "+" : "") + describeFixed (value, 1) + " oct";
+    if (id == "f1_keytrack" || id == "f2_keytrack" || id == "f1_fm" || id == "f2_fm")
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     // M8.3: the WEST card.
     if (id == "west_decay")
-        return juce::String (value, 2) + "x";
+        return describeFixed (value, 2) + "x";
     if (id == "west_strike" || id == "west_open" || id == "west_fold" || id == "west_res")
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
     if (id == "west_sym")
@@ -40,8 +58,9 @@ inline juce::String describeValue (const juce::String& id, float value)
     const auto asMilliseconds = [value] { return juce::String (juce::roundToInt (value)) + " ms"; };
     const auto asSeconds = [value]
     {
-        return value < 1.0f ? juce::String (juce::roundToInt (value * 1000.0f)) + " ms"
-                            : juce::String (value, 2) + " s";
+        // Judged after rounding, so 0.9996 s shows as "1.00 s" like 1 s does.
+        return juce::roundToInt (value * 1000.0f) < 1000 ? juce::String (juce::roundToInt (value * 1000.0f)) + " ms"
+                                                         : juce::String (std::round (value * 100.0f) / 100.0f, 2) + " s";
     };
     const auto asHertz = [value]
     {
@@ -85,9 +104,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         return asPercent();
     // M7.5 audio input.
     if (id == "in_attack" || id == "in_release")
-        return value < 10.0f ? juce::String (value, 1) + " ms" : juce::String (juce::roundToInt (value)) + " ms";
+        return describeNumber (value, 1) + " ms";
     if (id == "in_gain" || id == "in_threshold")
-        return juce::String (value, 1) + " dB";
+        return describeFixed (value, 1) + " dB";
     if (id == "in_dry" || id == "in_body" || id == "in_strings")
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
     if (id.startsWith ("sym_note") || id == "in_note")
@@ -110,11 +129,11 @@ inline juce::String describeValue (const juce::String& id, float value)
                                              : (std::round (value * 100.0f) / 100.0f < 100.0f ? juce::String (std::round (value * 100.0f) / 100.0f, 2)
                                                                                            : juce::String (std::round (value * 10.0f) / 10.0f, 1)) + " Hz";
     if (isOscParameter (id, "_key_level"))
-        return (value > 0.0f ? "+" : "") + juce::String (value * 6.0f, 1) + " dB/oct";
+        return (std::round (value * 60.0f) > 0.0f ? "+" : "") + describeFixed (value * 6.0f, 1) + " dB/oct";
     if (isOscParameter (id, "_warp2_amt"))
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
-        return (value > 0.0f ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
         return value <= 0.0005f ? juce::String ("Off") : asSeconds();
     if (id.endsWith ("_hold"))
@@ -133,7 +152,7 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id == "filter_balance")
     {
-        if (std::abs (value) < 0.01f)
+        if (juce::roundToInt (value * 100.0f) == 0)
             return "F1 = F2";
 
         return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + " %"
@@ -162,13 +181,13 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id.endsWith ("_semi") || id.endsWith ("_fine") || id.endsWith ("_detune")
         || id == "fx_delay_pitch" || id == "fx_stutter_pitch" || id == "res_offset" || id == "bend_range")
-        return juce::String (value, value == std::floor (value) ? 0 : 1)
+        return juce::String (std::round (value * 10.0f) / 10.0f, std::round (value * 10.0f) == 10.0f * std::round (value) ? 0 : 1)
                + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 
     if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
         || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain"
         || (id.startsWith ("fx_eq_") && id.endsWith ("_gain")))
-        return juce::String (value, 1) + " dB";
+        return describeFixed (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
         return describeNumber (value, 1) + "x";
@@ -523,10 +542,10 @@ inline juce::String describeParameter (const juce::String& id)
         return "Saturates the signal going into the filter.";
 
     if (id == "f1_env" || id == "f2_env")
-        return "How much the Filter Envelope moves the cutoff.";
+        return "How far the filter envelope moves the cutoff, in octaves (negative closes it).";
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
-        return "Cutoff follows the played note (1.0 = full tracking).";
+        return "Cutoff follows the played note (100 % = full tracking: an octave up the keyboard moves it an octave).";
 
     if (id == "fm_mode")
         return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";

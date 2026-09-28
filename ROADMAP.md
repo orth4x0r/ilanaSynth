@@ -322,6 +322,9 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - A saved state restores into a new instance and saves again unchanged (every 15th preset and the resampled ones, with their embedded audio and tables): new test, passes.
   - GitHub Actions is manual-only (the account has no minutes left): `tools/verify.sh` runs the same gate locally (build, unit, FX and UI tests, fingerprints, pluginval on both plugins). Windows and macOS are only checked when the workflow is run by hand.
 - **UI 6** — done: 542 of the 2,070 parameters had no hover help (the status bar went blank): LFOs 5-16 (only 1-4 matched), the matrix slots' polarity, Via and bypass, the whole vector pad, feedback gain and distance, the Taps steps, the sample source, scale root, spray direction, oversampling factor and the MOD envelope's velocity. All have help now (`ILANA_PARAM_TEXT=1` lists it with each parameter).
+- **Debug 6** — done, nothing broken found; two new guards:
+  - Every preset's voices end after note-off (a chord held, released, then up to 15 s): none stuck; the slowest, Self Osc Drone, frees in 7.9 s.
+  - A host stopping the transport (all-notes-off CC 123, all-sound-off CC 120) with keys still down stops the arp, the probability sequencer and note spray; a control case (CC 1) checks the test can tell.
 
 ---
 

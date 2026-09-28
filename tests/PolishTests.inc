@@ -640,8 +640,99 @@ void runTuningAcrossRatesTest()
                + (bad.isEmpty() ? juce::String() : "; " + bad.joinIntoString (", ")) + ")");
 }
 
+// Debug 6: every voice lets go. A chord held half a second, released, then
+// up to 15 s of silence: all voices must end (a stuck one plays on and
+// burns CPU). (The slowest, a drone, takes about 8 s.)
+// ILANA_VOICE_REPORT=1 prints how long each preset takes.
+void runVoicesEndTest()
+{
+    juce::StringArray stuck;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    const auto categories = Presets::getFactoryPresetCategories();
+    const auto report = juce::SystemStats::getEnvironmentVariable ("ILANA_VOICE_REPORT", "").isNotEmpty();
+    auto slowest = 0.0;
+    juce::String slowestName;
+    for (int index = 1; index < names.size(); ++index)
+    {
+        if (categories[index] == "FX Input")
+            continue;
+        IlanaSynthAudioProcessor processor;
+        processor.loadFactoryPreset (index);
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto blocksPerSecond = 48000.0 / 512.0;
+        auto endedAt = -1.0;
+        for (int block = 0; block < (int) (15.5 * blocksPerSecond); ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (const auto note : { 48, 55, 60 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            if (block == (int) (0.5 * blocksPerSecond))
+                for (const auto note : { 48, 55, 60 })
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+            processor.processBlock (buffer, midi);
+            if (block > (int) (0.5 * blocksPerSecond) && processor.getActiveVoiceCount() == 0)
+            {
+                endedAt = block / blocksPerSecond - 0.5;
+                break;
+            }
+        }
+        if (report)
+            std::cout << "VOICES " << names[index] << ": " << (endedAt < 0 ? juce::String ("never") : juce::String (endedAt, 2) + " s") << std::endl;
+        if (endedAt < 0)
+            stuck.add (names[index]);
+        else if (endedAt > slowest)
+        {
+            slowest = endedAt;
+            slowestName = names[index];
+        }
+    }
+    check (stuck.isEmpty(), "every preset's voices end within 15 s of note-off (slowest " + slowestName + " " + juce::String (slowest, 1)
+               + " s" + (stuck.isEmpty() ? juce::String() : "; stuck: " + stuck.joinIntoString (", ")) + ")");
+}
+
+// A host stopping the transport sends all-notes-off (CC 123) or all-sound-
+// off (CC 120) with the keys still "held" from the plugin's point of view:
+// the arp, the probability sequencer and note spray must stop with it, not
+// keep generating notes.
+void runTransportStopTest()
+{
+    juce::StringArray bad;
+    for (const auto* engine : { "arp_on", "pseq_on", "spray_on" })
+        for (const auto controller : { 123, 120, 1 })
+        {
+            // CC 1 (mod wheel) is the control: the engine must still play.
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, engine, 1.0f);
+            processor.prepareToPlay (48000.0, 512);
+            juce::AudioBuffer<float> buffer (2, 512);
+            auto after = 0;
+            for (int block = 0; block < 400; ++block)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    for (const auto note : { 48, 55, 60 })
+                        midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                if (block == 94) // one second in, keys never released
+                    midi.addEvent (juce::MidiMessage::controllerEvent (1, controller, 0), 0);
+                processor.processBlock (buffer, midi);
+                // From 3 s on (well past any release), nothing may sound.
+                if (block > 94 + 3 * 94)
+                    after = juce::jmax (after, processor.getActiveVoiceCount());
+            }
+            if (controller == 1 ? after == 0 : after > 0)
+                bad.add (juce::String (engine) + " CC" + juce::String (controller) + " (" + juce::String (after) + " voices)");
+        }
+    check (bad.isEmpty(), "arp, sequencer and spray stop on all-notes-off and all-sound-off (" + bad.joinIntoString (", ") + ")");
+}
+
 void runTests()
 {
+    runTransportStopTest();
+    runVoicesEndTest();
     runTuningAcrossRatesTest();
     runStateRoundTripTest();
     runStateFuzzTest();

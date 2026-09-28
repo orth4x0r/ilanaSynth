@@ -7,8 +7,9 @@ run-to-run noise (random unison phases, drift, S&H) can explain.
     python3 tools/compare_fingerprints.py before.csv after.csv [--fail]
 
 Exits 1 when something changed (--fail is accepted for readability in CI).
-Presets silent in both runs (the ilanaSynth FX input presets, which the
-instrument renders without input) are skipped.
+Presets below -50 dB in both runs (the ilanaSynth FX input presets, which the
+instrument renders without input: silence or the previous preset's tail)
+are skipped.
 """
 import csv
 import sys
@@ -53,7 +54,9 @@ def main():
             changed += 1
             continue
 
-        if float(new["rms_db"]) <= -100.0 and float(old["rms_db"]) <= -100.0:
+        # Silent, or only the previous preset's tail (the tool plays them
+        # back to back), in both runs.
+        if float(new["rms_db"]) <= -50.0 and float(old["rms_db"]) <= -50.0:
             continue
         rms_delta = float(new["rms_db"]) - float(old["rms_db"])
         old_centroid = max(1.0, float(old["centroid_hz"]))

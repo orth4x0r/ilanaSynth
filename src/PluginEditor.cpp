@@ -2806,10 +2806,13 @@ private:
             knobs.push_back (&c.seed);
         const auto perRow = juce::jmax (3, ((int) knobs.size() + 1) / 2);
         const auto knobWidth = inner.getWidth() / perRow;
-        const auto knobHeight = inner.getHeight() / 2;
+        // A gap between the rows, so the second row's names don't read as
+        // the first row's values.
+        constexpr int rowGap = 8;
+        const auto knobHeight = (inner.getHeight() - rowGap) / 2;
         for (size_t k = 0; k < knobs.size(); ++k)
             knobs[k]->setBounds (inner.getX() + (int) (k % (size_t) perRow) * knobWidth,
-                                 inner.getY() + (int) (k / (size_t) perRow) * knobHeight, knobWidth, knobHeight);
+                                 inner.getY() + (int) (k / (size_t) perRow) * (knobHeight + rowGap), knobWidth, knobHeight);
     }
 
     void updateVisibility()
@@ -3128,6 +3131,26 @@ public:
                 paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
         }
 
+        // Compact cells: each amount under its knob.
+        if (compactCells)
+        {
+            g.setFont (IlanaTheme::font (10.5f));
+            const auto value = [&g, this] (juce::Rectangle<int> cell, const juce::String& id)
+            {
+                const auto amount = read (id);
+                g.setColour (juce::Colours::white.withAlpha (amount > 0.001f ? 0.85f : 0.4f));
+                g.drawText (describeValue (id, amount), cell.removeFromBottom (15), juce::Justification::centred);
+            };
+            for (const auto source : shown)
+            {
+                for (const auto target : shown)
+                    if (fmIn[(size_t) target])
+                        value (cells[(size_t) source][(size_t) target], FmDiagram::routeId (source, target));
+                if (fmIn[(size_t) source])
+                    value (noiseCells[(size_t) source], "fm_noise" + juce::String (source + 1));
+            }
+        }
+
         // Column and row headings.
         g.setFont (IlanaTheme::font (11.0f, true));
 
@@ -3387,35 +3410,58 @@ private:
 
         const auto rowHeight = inner.getHeight() / (count + 1);
 
+        // Short cells (six oscillators) get compact knobs, their values
+        // drawn in the cell's corner: the knob's own value box overlapped it.
+        compactCells = rowHeight < 82;
         const auto layoutRow = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
         {
             for (const auto target : shown)
             {
                 auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
                 storeCell (target, cell);
-                const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
-                knobFor (target).setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+                auto& knob = knobFor (target);
+                knob.setCompact (compactCells);
+                if (compactCells)
+                {
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 22, 110);
+                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize).translated (0, -6));
+                }
+                else
+                {
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
+                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+                }
             }
+        };
+
+        // A row's name above its OUT button, centred in the row head (they
+        // overlapped the next row's name in short rows).
+        const auto layoutHead = [] (juce::Rectangle<int> head)
+        {
+            return head.withSizeKeepingCentre (head.getWidth(), juce::jmin (60, head.getHeight()));
         };
 
         for (const auto source : shown)
         {
             auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
             auto head = row.removeFromLeft (70);
-            rowHeads[(size_t) source] = head.withTrimmedTop (head.getHeight() / 2 - 26);
-            outs[(size_t) source]->setBounds (rowHeads[(size_t) source].withTrimmedTop (20).withHeight (40).reduced (0, 2));
+            rowHeads[(size_t) source] = layoutHead (head);
+            // The toggle keeps 13 px on top for a label it doesn't have: let
+            // that sit over the row's name, the button starting just below.
+            const auto& block = rowHeads[(size_t) source];
+            outs[(size_t) source]->setBounds (block.withTrimmedTop (16 - 13).withHeight (13 + juce::jmin (24, block.getHeight() - 16)));
 
             layoutRow (row,
-                       [this, source] (int target) -> juce::Component& { return *knobs[(size_t) source][(size_t) target]; },
+                       [this, source] (int target) -> KnobControl& { return *knobs[(size_t) source][(size_t) target]; },
                        [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
         }
 
         auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
         auto head = row.removeFromLeft (70);
-        noiseHead = head.withTrimmedTop (head.getHeight() / 2 - 26);
+        noiseHead = layoutHead (head);
         layoutRow (row,
 
-                   [this] (int target) -> juce::Component& { return *noiseKnobs[(size_t) target]; },
+                   [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
                    [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
     }
 
@@ -3429,6 +3475,7 @@ private:
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
     std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
+    bool compactCells = false;
     std::unique_ptr<StripKnob> noiseColourKnob;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;

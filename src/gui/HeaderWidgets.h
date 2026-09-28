@@ -279,7 +279,9 @@ public:
         g.setColour (IlanaTheme::accent().withAlpha (hover ? 1.0f : 0.7f));
         g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        const auto categoryText = category.isNotEmpty() ? category.toUpperCase() : juce::String ("PRESET");
+        // Init's category is its own name: show it as the start-up label does.
+        const auto categoryText = category.isNotEmpty() && ! category.equalsIgnoreCase ("Init") ? category.toUpperCase()
+                                                                                                : juce::String ("PRESET");
         g.setColour (IlanaTheme::accent().withAlpha (0.8f));
         g.setFont (IlanaTheme::font (9.5f, true));
         g.drawText (categoryText + (isModified ? "   -   EDITED" : ""), text.removeFromTop (11),

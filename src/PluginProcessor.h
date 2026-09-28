@@ -397,6 +397,7 @@ private:
         const std::atomic<float>* value = nullptr;
         int destination = -1;
         bool discrete = false; // a choice, int or bool: read back rounded
+        float fallback = 0.0f; // the default, read in place of a non-finite value
     };
 
     // A parameter ID that remembers where its value lives: the first read

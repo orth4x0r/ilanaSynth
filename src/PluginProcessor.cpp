@@ -1394,6 +1394,8 @@ void IlanaSynthAudioProcessor::buildParamCache()
             entry.discrete = dynamic_cast<juce::AudioParameterChoice*> (parameter) != nullptr
                              || dynamic_cast<juce::AudioParameterInt*> (parameter) != nullptr
                              || dynamic_cast<juce::AudioParameterBool*> (parameter) != nullptr;
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                entry.fallback = ranged->convertFrom0to1 (ranged->getDefaultValue());
         }
 
         if (const auto found = rawToParamDestination.find (entry.value); found != rawToParamDestination.end())
@@ -1438,6 +1440,9 @@ static thread_local bool readingOnAudioThread = false;
 float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
 {
     auto result = entry.value->load();
+    // A host (or a damaged state) can set NaN, which parameters don't clamp.
+    if (! std::isfinite (result))
+        result = entry.fallback;
     if (entry.discrete)
         result = std::round (result);
 
@@ -1475,7 +1480,10 @@ float IlanaSynthAudioProcessor::getRawParam (const ParamRef& ref) const
         ref.entry.store (entry, std::memory_order_relaxed);
     }
 
-    return entry->discrete ? std::round (entry->value->load()) : entry->value->load();
+    auto value = entry->value->load();
+    if (! std::isfinite (value))
+        value = entry->fallback;
+    return entry->discrete ? std::round (value) : value;
 }
 
 float IlanaSynthAudioProcessor::getParam (const ParamRef& ref) const
@@ -6756,7 +6764,17 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     std::set<juce::String> savedIds;
 
     for (int child = 0; child < state.getNumChildren(); ++child)
-        savedIds.insert (state.getChild (child).getProperty ("id").toString());
+    {
+        auto node = state.getChild (child);
+        const auto id = node.getProperty ("id").toString();
+        savedIds.insert (id);
+
+        // A damaged state can hold "nan" or "inf": NaN survives the
+        // parameters' clamping and reached the voices as an index (a crash).
+        if (node.hasProperty ("value") && ! std::isfinite ((double) node.getProperty ("value")))
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id)))
+                node.setProperty ("value", ranged->convertFrom0to1 (ranged->getDefaultValue()), nullptr);
+    }
 
     for (auto* parameter : getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))

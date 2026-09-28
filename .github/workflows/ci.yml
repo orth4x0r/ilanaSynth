@@ -1,10 +1,12 @@
 # M9: build both plugins in every format and run the regression suite on
-# Windows, macOS and Linux for every push and pull request.
+# Windows, macOS and Linux for pushes to main and for pull requests.
 name: CI
 
 on:
+  # Pushes to main, and pull requests (a branch with an open pull request
+  # used to run everything twice: once for the push, once for the PR).
   push:
-    branches: [ main, "main-*" ]
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
 

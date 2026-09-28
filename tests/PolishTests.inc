@@ -403,8 +403,128 @@ void runConcurrencyTest()
            "presets load, state restores and parameters move while the audio thread plays (" + juce::String (blocks.load()) + " blocks)");
 }
 
+// Debug 4: hostile saved state. A host hands back whatever it stored:
+// truncated, bit-flipped, or with values that make no sense (NaN, huge,
+// negative, words). The patch must load without crashing and play finite.
+void runStateFuzzTest()
+{
+    IlanaSynthAudioProcessor source;
+    const auto names = source.getFactoryPresetNames();
+    source.loadFactoryPreset (names.indexOf ("Bounced Bell Grains")); // an embedded sample
+    source.flushAsyncUpdates();
+    juce::MemoryBlock good;
+    source.getStateInformation (good);
+    std::unique_ptr<juce::XmlElement> xml (juce::AudioProcessor::getXmlFromBinary (good.getData(), (int) good.getSize()));
+    const auto text = xml != nullptr ? xml->toString() : juce::String();
+
+    juce::Random random (4242);
+    auto badRuns = 0;
+    juce::StringArray bad;
+    for (int trial = 0; trial < 60; ++trial)
+    {
+        juce::MemoryBlock data;
+        if (trial % 3 == 0)
+        {
+            // Raw bytes, truncated or flipped.
+            data = good;
+            if (random.nextBool())
+                data.setSize ((size_t) random.nextInt ((int) data.getSize()));
+            else
+                for (int k = 0; k < 20; ++k)
+                    static_cast<char*> (data.getData())[random.nextInt ((int) data.getSize())] ^= (char) (1 << random.nextInt (8));
+        }
+        else
+        {
+            // Valid XML with nonsense values.
+            auto tree = juce::ValueTree::fromXml (text);
+            static const char* const nonsense[] { "nan", "inf", "-inf", "1e30", "-1e30", "-7", "banana", "" };
+            std::function<void (juce::ValueTree)> mangle = [&] (juce::ValueTree node)
+            {
+                for (int i = 0; i < node.getNumProperties(); ++i)
+                    if (random.nextFloat() < 0.15f)
+                        node.setProperty (node.getPropertyName (i), nonsense[random.nextInt (8)], nullptr);
+                for (int c = node.getNumChildren(); --c >= 0;)
+                {
+                    if (random.nextFloat() < 0.05f)
+                        node.removeChild (c, nullptr);
+                    else
+                        mangle (node.getChild (c));
+                }
+            };
+            mangle (tree);
+            if (auto out = tree.createXml())
+                juce::AudioProcessor::copyXmlToBinary (*out, data);
+        }
+
+        IlanaSynthAudioProcessor target;
+        target.setStateInformation (data.getData(), (int) data.getSize());
+        target.flushAsyncUpdates();
+        target.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto finite = true;
+        for (int b = 0; b < 30; ++b)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (b == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            target.processBlock (buffer, midi);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 256; ++i)
+                    finite = finite && std::isfinite (buffer.getSample (c, i));
+        }
+        // Saving it again must work too.
+        juce::MemoryBlock again;
+        target.getStateInformation (again);
+        if (! finite || again.getSize() == 0)
+        {
+            ++badRuns;
+            bad.add (juce::String (trial) + (finite ? " (no state)" : " (not finite)"));
+        }
+    }
+    check (badRuns == 0, "hostile saved states load, play finite and save again (" + bad.joinIntoString (", ") + ")");
+}
+
+// A host sending NaN for parameters (JUCE's parameters don't clamp it):
+// several presets with every parameter, or a random third of them, set to
+// NaN still play finite.
+void runNanParameterTest()
+{
+    juce::StringArray bad;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    juce::Random random (99);
+    for (int index = 1; index < names.size(); index += 37)
+        for (const auto share : { 1.0f, 0.33f })
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.loadFactoryPreset (index);
+            processor.prepareToPlay (48000.0, 256);
+            for (auto* parameter : processor.getParameters())
+                if (random.nextFloat() < share)
+                    parameter->setValue (std::numeric_limits<float>::quiet_NaN());
+            juce::AudioBuffer<float> buffer (2, 256);
+            auto finite = true;
+            for (int b = 0; b < 30; ++b)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (b == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                processor.processBlock (buffer, midi);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        finite = finite && std::isfinite (buffer.getSample (c, i));
+            }
+            if (! finite)
+                bad.add (names[index] + (share < 1.0f ? " (a third)" : " (all)"));
+        }
+    check (bad.isEmpty(), "NaN parameter values from a host still play finite (" + bad.joinIntoString (", ") + ")");
+}
+
 void runTests()
 {
+    runStateFuzzTest();
+    runNanParameterTest();
     runConcurrencyTest();
     runMonoTest();
     runHostEdgeTest();

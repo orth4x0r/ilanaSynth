@@ -723,7 +723,8 @@ inline juce::String describeParameter (const juce::String& id)
         return "Pitch bend range in semitones.";
 
     // LFOs (patterned)
-    if (id.startsWith ("lfo1_") || id.startsWith ("lfo2_") || id.startsWith ("lfo3_") || id.startsWith ("lfo4_"))
+    // Every LFO (1-16), not only the first four.
+    if (id.startsWith ("lfo") && id.length() > 4 && juce::CharacterFunctions::isDigit (id[3]) && id.contains ("_"))
     {
         if (id.endsWith ("_shape"))
             return "Waveform. Draw = design your own, Steps = 16-step sequencer. Random: S&H, Sine Random, Perlin and "
@@ -763,6 +764,47 @@ inline juce::String describeParameter (const juce::String& id)
     }
 
     // Mod matrix (patterned)
+    if (id.startsWith ("mod") && id.endsWith ("_pol"))
+        return "Polarity: Natural uses the source as it comes; Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
+    if (id.startsWith ("mod") && id.endsWith ("_aux"))
+        return "Via: a second source that scales this route (e.g. the mod wheel fading in an LFO). None = always full.";
+    if (id.startsWith ("mod") && id.endsWith ("_byp"))
+        return "Bypass: switches this route off without losing its settings.";
+
+    // Singles that had no help.
+    if (id.endsWith ("_sample_factory"))
+        return "Factory sample this oscillator plays in Sample or Granular mode (a loaded or dropped wav replaces it).";
+    if (id == "gen_root")
+        return "Root note of the GENERATE scale (scale snap, note spray, Euclid and the probability sequencer).";
+    if (id == "spray_direction")
+        return "Which way sprayed notes go from the one played: up, down or both.";
+    if (id == "os_factor")
+        return "How much OVERSAMPLE raises the voice rate: 2x, or 4x for the cleanest highs at more CPU.";
+    if (id.startsWith ("me_") && id.endsWith ("_velocity"))
+        return "How much note velocity scales the MOD envelope.";
+    if (id.endsWith ("_fb_gain"))
+        return "Feedback guitar: how loud the amp pushes sound back into the string (more sustains and blooms into feedback).";
+    if (id.endsWith ("_fb_distance"))
+        return "Feedback guitar: how far the string is from the amp; changes which harmonic the feedback locks onto.";
+    if (id.startsWith ("fx_taps_step"))
+        return "Level of this step in the Taps delay's custom pattern.";
+    if (id == "vec_on")
+        return "Vector pad on: the four corner oscillators crossfade by where the dot is (X / Y are also mod sources).";
+    if (id == "vec_x" || id == "vec_y")
+        return id == "vec_x" ? "Vector position left to right." : "Vector position bottom to top.";
+    if (id == "vec_a" || id == "vec_b" || id == "vec_c" || id == "vec_d")
+        return "The oscillator at this corner of the vector pad.";
+    if (id == "vec_path")
+        return "Moves the dot round the drawn path at PATH RATE (X / Y then offset the whole path).";
+    if (id == "vec_rate")
+        return "How fast the dot goes round the path.";
+    if (id.startsWith ("vec_px") || id.startsWith ("vec_py"))
+        return "A point of the vector path; drag the points on the pad.";
+    if (id == "vec_drift")
+        return "Lets the dot wander on its own around where it is.";
+    if (id == "vec_drift_rate")
+        return "How fast the drift wanders.";
+
     if (id.startsWith ("mod") && (id.endsWith ("_src") || id.endsWith ("_dst") || id.endsWith ("_amt")))
     {
         if (id.endsWith ("_src"))

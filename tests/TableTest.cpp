@@ -10,6 +10,7 @@
 
 #include "Presets.h"
 #include "PluginProcessor.h"
+#include "gui/ParamInfo.h"
 #include "dsp/GranularPitchShift.h"
 #include "dsp/FilterUnit.h"
 #include "dsp/FmAlgorithms.h"
@@ -8483,7 +8484,8 @@ int main()
         IlanaSynthAudioProcessor processor;
         for (auto* parameter : processor.getParameters())
             if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
-                std::cout << "PARAM " << withId->paramID << " | " << parameter->getText (0.0f, 64) << " | "
+                std::cout << "HELP " << withId->paramID << " | " << describeParameter (withId->paramID) << std::endl
+                          << "PARAM " << withId->paramID << " | " << parameter->getText (0.0f, 64) << " | "
                           << parameter->getText (parameter->getDefaultValue(), 64) << " | " << parameter->getText (1.0f, 64) << std::endl;
         return 0;
     }

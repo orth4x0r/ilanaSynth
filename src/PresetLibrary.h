@@ -551,6 +551,16 @@ public:
 
     Builder& arpChance (float chance) { return set ("arp_chance", chance); }
 
+    // M10: bounce another factory preset onto an oscillator at load time.
+    // The preset's own settings for that oscillator apply on top (e.g. a
+    // Granular mode set here plays the bounce as grains).
+    Builder& bounceFrom (const char* source, int index, bool toTable = false, int note = 60, float hold = 2.0f,
+                         float tail = 2.0f, bool withFx = true)
+    {
+        preset.bounces.push_back ({ source, index, toTable, note, hold, tail, withFx });
+        return *this;
+    }
+
     operator FactoryPreset() const { return preset; }
 
 private:

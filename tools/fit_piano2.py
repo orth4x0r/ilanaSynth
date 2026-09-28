@@ -24,7 +24,7 @@ from piano_metrics import compare  # noqa: E402
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 EXE_NAME = "ilanaTableTest.exe" if os.name == "nt" else "ilanaTableTest"
 EXE = os.environ.get("ILANA_FIT_EXE", os.path.join(ROOT, "build", "ilanaTableTest_artefacts", "Release", EXE_NAME))
-FIT = os.path.join(ROOT, "build", "fit82")
+FIT = os.environ.get("ILANA_FIT_DIR", os.path.join(ROOT, "build", "fit82"))
 NOTES = [21, 30, 39, 48, 60, 66, 75, 84, 93, 102]
 ALL_NOTES = list(range(21, 109, 3))
 

@@ -8365,6 +8365,7 @@ void runProfile (int unison)
 #include "M84Tests.inc"
 #include "M85Tests.inc"
 #include "M86Tests.inc"
+#include "M10Tests.inc"
 #include "DemoRender.inc"
 
 int main()
@@ -8413,6 +8414,13 @@ int main()
         PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", ""));
         M82::probe();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M10_TEST", "").isNotEmpty())
+    {
+        runM10Tests();
+        std::cout << (failures == 0 ? "M10 TESTS PASSED" : "M10 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M86_TEST", "").isNotEmpty())
@@ -8484,6 +8492,104 @@ int main()
         runM70ExtendedFmModTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
+    }
+
+    // ILANA_TABLE_DUMP=<file>: the first 40 factory tables' built frames
+    // (level 0 and level 6), for comparing two builds.
+    if (const auto dump = juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_DUMP", ""); dump.isNotEmpty())
+    {
+        juce::FileOutputStream out { juce::File (dump) };
+        out.setPosition (0);
+        out.truncate();
+        for (int i = 0; i < 40; ++i)
+        {
+            Wavetable table;
+            table.buildFromFrames (TableFactory::generate (i));
+            for (int level : { 0, 6 })
+                for (int frame = 0; frame < table.getNumFrames(); ++frame)
+                    out.write (table.getFrameData (level, frame), 2051 * sizeof (float));
+        }
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SYM_TEST", "").isNotEmpty())
+    {
+        runSympatheticResonanceTest();
+        return failures == 0 ? 0 : 1;
+    }
+
+    // ILANA_TABLE_FRAMES=<file>: frames 0, 32 and 63 of every factory table.
+    if (const auto dump = juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_FRAMES", ""); dump.isNotEmpty())
+    {
+        juce::FileOutputStream out { juce::File (dump) };
+        out.setPosition (0);
+        out.truncate();
+        for (int i = 0; i < TableFactory::getNumFactoryTables(); ++i)
+        {
+            const auto frames = TableFactory::generate (i);
+            for (int frame : { 0, 32, 63 })
+                out.write (frames[(size_t) frame].data(), 2048 * sizeof (float));
+        }
+        return 0;
+    }
+
+    // ILANA_LPG_PROBE=<folder>: single strikes of the low-pass gate (WEST on,
+    // a plain saw, fold off) at A2 and A4, with ILANA_WEST_TUNING applied,
+    // as <folder>/strike.<note>.wav (tools/fit_lpg.py measures them).
+    if (const auto probe = juce::SystemStats::getEnvironmentVariable ("ILANA_LPG_PROBE", ""); probe.isNotEmpty())
+    {
+        WestCoastTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_WEST_TUNING", ""));
+        juce::File (probe).createDirectory();
+        for (int note : { 45, 69 })
+        {
+            IlanaSynthAudioProcessor processor;
+            for (const auto& [id, value] : std::vector<std::pair<const char*, float>> {
+                     { "west_on", 1.0f }, { "west_fold", 0.0f }, { "osc1_table", 0.0f }, { "osc1_frame", 0.0f },
+                     { "osc2_on", 0.0f }, { "sub_on", 0.0f }, { "subosc_on", 0.0f }, { "f1_cutoff", 20000.0f },
+                     { "f1_env", 0.0f }, { "osc1_unison", 1.0f }, { "amp_sustain", 1.0f }, { "amp_release", 0.01f } })
+                setParam (processor, id, value);
+            processor.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> out (1, 48000), buffer (2, 256);
+            for (int start = 0; start < 48000; start += 256)
+            {
+                juce::MidiBuffer midi;
+                if (start == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 110), 0);
+                if (start == 256 * 180)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                out.copyFrom (0, start, buffer, 0, 0, juce::jmin (256, 48000 - start));
+            }
+            const auto file = juce::File (probe).getChildFile ("strike." + juce::String (note) + ".wav");
+            file.deleteFile();
+            juce::WavAudioFormat wav;
+            if (auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 48000.0, 1, 24, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
+                }
+        }
+        return 0;
+    }
+
+    // ILANA_TABLE_TIMING=1: how long each factory table takes to build.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_TIMING", "").isNotEmpty())
+    {
+        auto total = 0.0;
+        for (int i = 0; i < TableFactory::getNumFactoryTables(); ++i)
+        {
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            Wavetable table;
+            table.buildFromFrames (TableFactory::generate (i));
+            const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+            total += ms;
+            if (ms > 40.0)
+                std::cout << i << " " << TableFactory::getFactoryTableNames()[i] << ": " << ms << " ms" << std::endl;
+        }
+        std::cout << "all tables: " << total << " ms" << std::endl;
+        return 0;
     }
 
     // ILANA_PRESET_TEST=1 runs only the factory preset checks.
@@ -8640,6 +8746,7 @@ int main()
     runM84FilterTests();
     runM85Tests();
     runM86Tests();
+    runM10Tests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

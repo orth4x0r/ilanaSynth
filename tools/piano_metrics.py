@@ -28,7 +28,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 from analyse_note import load  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-REF = os.path.join(ROOT, "build", "reference", "piano", "SalamanderGrandPiano")
+# ILANA_PIANO_REF picks another reference folder: the Iowa MIS grand
+# (build/reference/piano/iowa, files <dyn>.<midi>.wav) or the Salamander
+# (piano_<midi>_<dyn>.wav).
+REF = os.environ.get("ILANA_PIANO_REF", os.path.join(ROOT, "build", "reference", "piano", "SalamanderGrandPiano"))
+
+
+def reference_path(folder, midi, dyn):
+    salamander = os.path.join(folder, f"piano_{midi}_{dyn}.wav")
+    return salamander if os.path.exists(salamander) else os.path.join(folder, f"{dyn}.{midi}.wav")
 DYNAMICS = ["pp", "mf", "ff"]
 ALL_NOTES = list(range(21, 109, 3))
 BANDS = 400.0 * 2.0 ** (np.arange(-10, 16) / 3.0)  # 40 Hz .. 12.7 kHz
@@ -167,7 +175,7 @@ def compare(ours_folder, ref_folder=REF, notes=ALL_NOTES, dynamics=DYNAMICS, det
     for midi in notes:
         for dyn in dynamics:
             ours_path = os.path.join(ours_folder, f"ours.{dyn}.n{midi}.wav")
-            ref_path = os.path.join(ref_folder, f"piano_{midi}_{dyn}.wav")
+            ref_path = reference_path(ref_folder, midi, dyn)
             if not (os.path.exists(ours_path) and os.path.exists(ref_path)):
                 continue
             feats[(midi, dyn)] = (features(ours_path, midi), features(ref_path, midi))

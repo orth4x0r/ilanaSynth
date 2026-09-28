@@ -179,10 +179,11 @@ void evolveAndVectorTests()
         }
         check (worst < 1.0e-5f, "the vector pad mixes at equal power");
 
-        const auto render = [] (bool vector, float x, float y, bool osc2)
+        const auto render = [] (bool vector, float x, float y, bool osc2, bool osc1 = true)
         {
             IlanaSynthAudioProcessor processor;
             processor.prepareToPlay (48000.0, 256);
+            setParam (processor, "osc1_on", osc1 ? 1.0f : 0.0f);
             setParam (processor, "osc2_on", osc2 ? 1.0f : 0.0f);
             setParam (processor, "osc2_semi", 7.0f);
             if (vector)
@@ -201,10 +202,11 @@ void evolveAndVectorTests()
         const auto left = render (true, 0.0f, 0.5f, true);
         const auto right = render (true, 1.0f, 0.5f, true);
         const auto onlyOsc2Plain = render (false, 0.5f, 0.5f, true);
+        const auto onlyOsc2 = render (false, 0.5f, 0.5f, true, false);
         check (std::abs (juce::Decibels::gainToDecibels (left / onlyOsc1)) < 0.5f,
                "the vector pad's left edge is Osc 1 alone (" + juce::String (juce::Decibels::gainToDecibels (left / onlyOsc1), 2) + " dB)");
-        check (right > 0.01f && std::abs (right - left) / left < 0.5f && onlyOsc2Plain > left,
-               "the right edge is Osc 2 alone, at a similar level");
+        check (right > 0.01f && std::abs (juce::Decibels::gainToDecibels (right / onlyOsc2)) < 0.5f && onlyOsc2Plain > left,
+               "the vector pad's right edge is Osc 2 alone (" + juce::String (juce::Decibels::gainToDecibels (right / onlyOsc2), 2) + " dB)");
     }
 
     // The path moves the position, and Vector X / Y are mod sources.

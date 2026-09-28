@@ -23,6 +23,7 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 #include <cmath>
 #include <memory>
 #include <set>
+#include <thread>
 #include <vector>
 
 namespace
@@ -45,17 +46,31 @@ struct FactoryTables
 {
     std::vector<std::unique_ptr<Wavetable>> tables;
 
+    // Built once per process, on all cores (the 120 tables take a few
+    // seconds on one).
     FactoryTables()
     {
         const auto names = TableFactory::getFactoryTableNames();
-
-        for (int i = 0; i < TableFactory::getNumFactoryTables(); ++i)
+        const auto count = TableFactory::getNumFactoryTables();
+        tables.resize ((size_t) count);
+        std::atomic<int> next { 0 };
+        const auto work = [&]
         {
-            auto table = std::make_unique<Wavetable>();
-            table->setName (names[i]);
-            table->buildFromFrames (TableFactory::generate (i));
-            tables.push_back (std::move (table));
-        }
+            for (auto i = next++; i < count; i = next++)
+            {
+                auto table = std::make_unique<Wavetable>();
+                table->setName (names[i]);
+                table->buildFromFrames (TableFactory::generate (i));
+                tables[(size_t) i] = std::move (table);
+            }
+        };
+        std::vector<std::thread> threads;
+        const auto helpers = juce::jlimit (0, 7, (int) std::thread::hardware_concurrency() - 1);
+        for (int t = 0; t < helpers; ++t)
+            threads.emplace_back (work);
+        work();
+        for (auto& thread : threads)
+            thread.join();
     }
 
     static const FactoryTables& get()
@@ -1273,6 +1288,15 @@ void IlanaSynthAudioProcessor::buildParamCache()
         if (entry.value == nullptr)
             continue;
 
+        // A stored choice or step isn't always an exact integer (index 7 of
+        // 136 comes back as 6.9999995), and (int) casts would truncate it.
+        {
+            auto* parameter = apvts.getParameter (id);
+            entry.discrete = dynamic_cast<juce::AudioParameterChoice*> (parameter) != nullptr
+                             || dynamic_cast<juce::AudioParameterInt*> (parameter) != nullptr
+                             || dynamic_cast<juce::AudioParameterBool*> (parameter) != nullptr;
+        }
+
         if (const auto found = rawToParamDestination.find (entry.value); found != rawToParamDestination.end())
             entry.destination = found->second;
 
@@ -1309,6 +1333,8 @@ const IlanaSynthAudioProcessor::ParamCacheEntry* IlanaSynthAudioProcessor::findP
 float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
 {
     auto result = entry.value->load();
+    if (entry.discrete)
+        result = std::round (result);
 
     if (anyParamModulation && entry.destination >= 0)
     {
@@ -1317,6 +1343,8 @@ float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
         if (offset != 0.0f)
             if (auto* parameter = paramDestinations[(size_t) entry.destination].parameter)
                 result = parameter->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, parameter->convertTo0to1 (result) + offset));
+        if (entry.discrete)
+            result = std::round (result);
     }
 
     return result;
@@ -1342,7 +1370,7 @@ float IlanaSynthAudioProcessor::getRawParam (const ParamRef& ref) const
         ref.entry.store (entry, std::memory_order_relaxed);
     }
 
-    return entry->value->load();
+    return entry->discrete ? std::round (entry->value->load()) : entry->value->load();
 }
 
 float IlanaSynthAudioProcessor::getParam (const ParamRef& ref) const
@@ -5239,6 +5267,9 @@ void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<Samp
     const juce::SpinLock::ScopedLockType lock (stateLock);
     samplePaths[(size_t) oscIndex] = path;
     embeddedSamples[(size_t) oscIndex] = embedded;
+    // The latest sample wins over a clear or reload still queued.
+    pendingSampleClear[(size_t) oscIndex] = false;
+    pendingSamplePaths[(size_t) oscIndex].clear();
 }
 
 bool IlanaSynthAudioProcessor::isSampleEmbedded (int oscIndex) const
@@ -5796,13 +5827,40 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                            });
     }
 
-    for (const auto& value : values)
+    const auto applyValues = [this, &values]
     {
-        if (auto* parameter = apvts.getParameter (value.first))
-        {
-            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+        for (const auto& value : values)
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
                 ranged->setValueNotifyingHost (ranged->convertTo0to1 (value.second));
+    };
+    applyValues();
+
+    // M10: resampled presets render their bounces now (synchronously, so a
+    // preset sounds the same the moment it is loaded), then their own
+    // settings go back on top of what the bounce set.
+    if (! presets[(size_t) index].bounces.empty())
+    {
+        const auto names = getFactoryPresetNames();
+        for (const auto& recipe : presets[(size_t) index].bounces)
+        {
+            const auto source = names.indexOf (juce::String (recipe.source));
+            if (source < 0 || source == index)
+                continue;
+            IlanaSynthAudioProcessor renderer;
+            renderer.loadFactoryPreset (source);
+            renderer.flushAsyncUpdates();
+            BounceRequest request;
+            request.targetOsc = juce::jlimit (0, OscillatorIds::count - 1, recipe.osc - 1);
+            request.toTable = recipe.toTable;
+            request.withFx = recipe.withFx;
+            request.muteOthers = false;
+            request.note = recipe.note;
+            request.holdSeconds = recipe.hold;
+            request.tailSeconds = recipe.tail;
+            juce::String message;
+            applyBounce (request, renderBounce (renderer.buildFullState(), request), message);
         }
+        applyValues();
     }
 
     // Presets written before the rack had slots only enabled modules; if this
@@ -5906,7 +5964,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
-    state.setProperty ("tableSchema", 2, nullptr);
+    state.setProperty ("tableSchema", 3, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -6266,7 +6324,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     // saved choices of a user slot move up.
     if ((int) state.getProperty ("tableSchema", 1) < 2)
     {
-        const auto added = TableFactory::getNumFactoryTables() - 16;
+        const auto added = 40 - 16; // the v1.1 tables (the v1.3 ones are moved below)
 
         for (int i = 0; i < state.getNumChildren(); ++i)
         {
@@ -6283,6 +6341,29 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
         state.setProperty ("tableSchema", 2, nullptr);
+    }
+
+    // v1.3 (M10) added 80 factory tables ahead of the User tables, for all
+    // six oscillators.
+    if ((int) state.getProperty ("tableSchema", 1) < 3)
+    {
+        const auto added = TableFactory::getNumFactoryTables() - 40;
+
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+            const auto id = child.getProperty ("id").toString();
+
+            for (const auto* prefix : OscillatorIds::prefixes)
+                if (id == juce::String (prefix) + "_table")
+                {
+                    const auto table = juce::roundToInt ((float) child.getProperty ("value"));
+                    if (table >= 40)
+                        child.setProperty ("value", table + added, nullptr);
+                }
+        }
+
+        state.setProperty ("tableSchema", 3, nullptr);
     }
 
     // v1.1 added explicit (FM) destinations ahead of the parameter

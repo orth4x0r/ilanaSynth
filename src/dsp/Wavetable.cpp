@@ -1,5 +1,7 @@
 #include "Wavetable.h"
 
+#include <array>
+
 #include <cstring>
 
 #include <juce_dsp/juce_dsp.h>
@@ -314,48 +316,74 @@ void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames)
 
     auto peak = 0.0f;
 
-    for (int frame = 0; frame < numFrames; ++frame)
+    // Two real frames per complex FFT (one in the real part, one in the
+    // imaginary), both ways: the spectra are split after the forward
+    // transform, and each level's two band-limited spectra are recombined
+    // so one inverse transform gives both frames.
+    for (int frame = 0; frame < numFrames; frame += 2)
     {
-        const auto& source = frames[(size_t) frame];
+        const auto pair = frame + 1 < numFrames;
+        const auto& a = frames[(size_t) frame];
+        const auto* b = pair ? &frames[(size_t) frame + 1] : nullptr;
 
         for (int i = 0; i < frameSize; ++i)
         {
-            const auto value = i < (int) source.size() ? source[(size_t) i] : 0.0f;
-            timeInput[(size_t) i] = Complex (value, 0.0f);
+            const auto re = i < (int) a.size() ? a[(size_t) i] : 0.0f;
+            const auto im = b != nullptr && i < (int) b->size() ? (*b)[(size_t) i] : 0.0f;
+            timeInput[(size_t) i] = Complex (re, im);
         }
 
         fft.perform (timeInput.data(), spectrum.data(), false);
+
+        // Each frame's energy up to harmonic k (from the packed spectrum:
+        // A[k] = (Z[k] + conj Z[N-k]) / 2, B[k] = (Z[k] - conj Z[N-k]) / 2j),
+        // so a frame with nothing inside a level's band comes out silent, not
+        // as its partner's rounding noise.
+        std::array<std::vector<double>, 2> energyUpTo;
+        for (auto& e : energyUpTo)
+            e.assign ((size_t) frameSize / 2 + 1, 0.0);
+        for (int bin = 1; bin <= frameSize / 2; ++bin)
+        {
+            const auto z = spectrum[(size_t) bin], mirror = std::conj (spectrum[(size_t) ((frameSize - bin) % frameSize)]);
+            const auto a = (z + mirror) * 0.5f, b = (z - mirror) * Complex (0.0f, -0.5f);
+            energyUpTo[0][(size_t) bin] = energyUpTo[0][(size_t) bin - 1] + std::norm (a);
+            energyUpTo[1][(size_t) bin] = energyUpTo[1][(size_t) bin - 1] + std::norm (b);
+        }
 
         for (int level = 0; level < numLevels; ++level)
         {
             const auto maxHarmonic = juce::jmax (1, numHarmonics >> level);
 
-            levelSpectrum = spectrum;
-            levelSpectrum[0] = Complex (0.0f, 0.0f);
-
-            for (int bin = 1; bin < frameSize / 2; ++bin)
+            // Each frame's spectrum is Hermitian, so keeping the same bins of
+            // the packed spectrum band-limits both at once.
+            std::fill (levelSpectrum.begin(), levelSpectrum.end(), Complex());
+            for (int bin = 1; bin < frameSize / 2 && bin <= maxHarmonic; ++bin)
             {
-                if (bin > maxHarmonic)
-                {
-                    levelSpectrum[(size_t) bin] = Complex (0.0f, 0.0f);
-                    levelSpectrum[(size_t) (frameSize - bin)] = Complex (0.0f, 0.0f);
-                }
+                levelSpectrum[(size_t) bin] = spectrum[(size_t) bin];
+                levelSpectrum[(size_t) (frameSize - bin)] = spectrum[(size_t) (frameSize - bin)];
             }
+            levelSpectrum[(size_t) frameSize / 2] = spectrum[(size_t) frameSize / 2]; // kept, as it always was
 
             fft.perform (levelSpectrum.data(), levelTime.data(), true);
 
-            auto& target = levels[(size_t) level][(size_t) frame];
-
-            for (int i = 0; i < frameSize; ++i)
+            for (int which = 0; which < (pair ? 2 : 1); ++which)
             {
-                const auto value = levelTime[(size_t) i].real();
-                target[(size_t) i + 1] = value;
-                peak = juce::jmax (peak, std::abs (value));
-            }
+                auto& target = levels[(size_t) level][(size_t) (frame + which)];
+                const auto& energy = energyUpTo[(size_t) which];
+                const auto inBand = energy[(size_t) juce::jmin (frameSize / 2 - 1, maxHarmonic)];
+                const auto silent = inBand <= energy[(size_t) frameSize / 2] * 1.0e-12;
 
-            target[0] = target[(size_t) frameSize];
-            target[(size_t) frameSize + 1] = target[1];
-            target[(size_t) frameSize + 2] = target[2];
+                for (int i = 0; i < frameSize; ++i)
+                {
+                    const auto value = silent ? 0.0f : which == 0 ? levelTime[(size_t) i].real() : levelTime[(size_t) i].imag();
+                    target[(size_t) i + 1] = value;
+                    peak = juce::jmax (peak, std::abs (value));
+                }
+
+                target[0] = target[(size_t) frameSize];
+                target[(size_t) frameSize + 1] = target[1];
+                target[(size_t) frameSize + 2] = target[2];
+            }
         }
     }
 

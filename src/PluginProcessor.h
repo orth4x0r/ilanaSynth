@@ -396,6 +396,7 @@ private:
         std::uint32_t hash = 0;
         const std::atomic<float>* value = nullptr;
         int destination = -1;
+        bool discrete = false; // a choice, int or bool: read back rounded
     };
 
     // A parameter ID that remembers where its value lives: the first read

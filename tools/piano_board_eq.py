@@ -14,7 +14,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from piano_metrics import ALL_NOTES, DYNAMICS, REF, load_mono  # noqa: E402
+from piano_metrics import ALL_NOTES, DYNAMICS, REF, load_mono, reference_path  # noqa: E402
 
 CENTRES = 31.25 * 2.0 ** np.arange(10)
 
@@ -40,7 +40,7 @@ def main():
     for midi in notes:
         for dyn in DYNAMICS:
             a_path = os.path.join(ours, f"ours.{dyn}.n{midi}.wav")
-            b_path = os.path.join(REF, f"piano_{midi}_{dyn}.wav")
+            b_path = reference_path(REF, midi, dyn)
             if not (os.path.exists(a_path) and os.path.exists(b_path)):
                 continue
             a, b = octave_levels(a_path), octave_levels(b_path)

@@ -68,8 +68,39 @@ void runBouncePresetTest()
     check (! processor.isSampleEmbedded (0), "a plain preset loaded after a resampled one drops its bounce");
 }
 
+// Every parameter ID once (pluginval found osc4-6_out declared twice: a
+// host sees two parameters with one ID and state restore sets only one).
+void runUniqueIdTest()
+{
+    IlanaSynthAudioProcessor processor;
+    std::set<juce::String> seen;
+    juce::StringArray duplicates;
+    for (auto* parameter : processor.getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+            if (! seen.insert (withId->paramID).second)
+                duplicates.add (withId->paramID);
+    check (duplicates.isEmpty(), "every parameter ID is declared once" + (duplicates.isEmpty() ? juce::String() : " (" + duplicates.joinIntoString (", ") + ")"));
+
+    // And each restores from a saved state.
+    IlanaSynthAudioProcessor source;
+    juce::Random random (9);
+    for (auto* parameter : source.getParameters())
+        parameter->setValueNotifyingHost (random.nextFloat());
+    juce::MemoryBlock state;
+    source.getStateInformation (state);
+    IlanaSynthAudioProcessor target;
+    target.setStateInformation (state.getData(), (int) state.getSize());
+    juce::StringArray wrong;
+    for (int i = 0; i < source.getParameters().size(); ++i)
+        if (source.getParameters()[i]->getCurrentValueAsText() != target.getParameters()[i]->getCurrentValueAsText())
+            if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (target.getParameters()[i]))
+                wrong.add (withId->paramID);
+    check (wrong.isEmpty(), "every parameter comes back from a saved state" + (wrong.isEmpty() ? juce::String() : " (" + wrong.joinIntoString (", ") + ")"));
+}
+
 void runTests()
 {
+    runUniqueIdTest();
     runPresetIdTest();
     runBouncePresetTest();
     const auto factory = TableFactory::getNumFactoryTables();

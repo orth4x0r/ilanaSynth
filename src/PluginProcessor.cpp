@@ -612,7 +612,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fm_fb2", "FM Osc2 Feedback", 0.0f, 1.0f, 0.0f);
     addFloat ("fm_fb3", "FM Osc3 Feedback", 0.0f, 1.0f, 0.0f);
     addChoice ("fm_mode", "FM Mode", { "Phase", "Through-Zero", "Exponential" }, 0);
-    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    // OSC 1-3 here; OSC 4-6 add theirs with the M3b parameters below (this
+    // loop once ran over all six and declared those three twice).
+    for (int osc = 0; osc < 3; ++osc)
         addBool (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_out",
                  "Osc" + juce::String (osc + 1) + " Output", true);
     addFloat ("ring_mod", "Ring Mod", 0.0f, 1.0f, 0.0f);

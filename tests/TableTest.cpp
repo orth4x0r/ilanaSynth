@@ -8469,6 +8469,18 @@ int main()
         return 0;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PARAM_TEXT", "").isNotEmpty())
+    {
+        // Every parameter's text at its minimum, default and maximum (to
+        // review units and formats).
+        IlanaSynthAudioProcessor processor;
+        for (auto* parameter : processor.getParameters())
+            if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+                std::cout << "PARAM " << withId->paramID << " | " << parameter->getText (0.0f, 64) << " | "
+                          << parameter->getText (parameter->getDefaultValue(), 64) << " | " << parameter->getText (1.0f, 64) << std::endl;
+        return 0;
+    }
+
     if (const auto target = juce::SystemStats::getEnvironmentVariable ("ILANA_LEVEL_SEQ", ""); target.isNotEmpty())
     {
         Polish::probeSequence (target);

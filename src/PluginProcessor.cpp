@@ -517,10 +517,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             juce::ParameterID { id, 1 }, name, min, max, def,
             juce::AudioParameterIntAttributes()
                 .withStringFromValueFunction ([id] (int value, int) { return describeValue (id, (float) value); })
-                .withValueFromStringFunction ([] (const juce::String& text)
+                .withValueFromStringFunction ([id, min, max] (const juce::String& text)
                 {
-                    // Note names ("C#3", C3 = 60) as well as plain numbers.
+                    // A word the knob shows ("Free" is not note F).
+                    for (const auto candidate : { min, max })
+                        if (describeValue (id, (float) candidate).equalsIgnoreCase (text.trim()))
+                            return candidate;
+
+                    // Note names ("C#3", C3 = 60) as well as plain numbers
+                    // and numbered items ("#29").
                     const auto trimmed = text.trim().toUpperCase();
+                    if (trimmed.startsWithChar ('#'))
+                        return trimmed.substring (1).getIntValue();
                     const auto letter = trimmed.isNotEmpty() ? trimmed[0] : 0;
                     const int offsets[] { 9, 11, 0, 2, 4, 5, 7 }; // A B C D E F G
 

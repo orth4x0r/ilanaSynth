@@ -474,6 +474,30 @@ public:
         }
     }
 
+    // Check boxes (the tour's "Don't show this again") in the theme's font
+    // and colours; the stock one drew its text in the default typeface.
+    void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool) override
+    {
+        const auto box = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ 13.0f, (float) button.getHeight() * 0.5f });
+        g.setColour (juce::Colours::white.withAlpha (highlighted ? 0.12f : 0.07f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (button.getToggleState() ? IlanaTheme::accent() : juce::Colours::white.withAlpha (0.35f));
+        g.drawRoundedRectangle (box, 4.0f, 1.4f);
+
+        if (button.getToggleState())
+        {
+            juce::Path tick;
+            tick.startNewSubPath (box.getX() + 4.5f, box.getCentreY());
+            tick.lineTo (box.getX() + 7.8f, box.getBottom() - 5.0f);
+            tick.lineTo (box.getRight() - 4.0f, box.getY() + 5.0f);
+            g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        g.setColour (button.findColour (juce::ToggleButton::textColourId));
+        g.setFont (IlanaTheme::font (13.0f));
+        g.drawText (button.getButtonText(), button.getLocalBounds().withTrimmedLeft (30), juce::Justification::centredLeft);
+    }
+
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                            juce::Slider& slider) override

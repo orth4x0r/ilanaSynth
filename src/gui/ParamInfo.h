@@ -36,6 +36,33 @@ inline juce::String describeNumber (float value, int maxDecimals = 2)
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // Counts and ratios in their own words.
+    if (id == "arp_octaves")
+        return juce::String (juce::roundToInt (value)) + " oct";
+    if (id == "west_stages")
+        return juce::String (juce::roundToInt (value)) + (juce::roundToInt (value) == 1 ? " stage" : " stages");
+    if (id == "fx_comp_ratio")
+        return describeNumber (value, 1) + ":1";
+    if (id == "fx_crush_bits")
+        return juce::String (juce::roundToInt (value)) + " bits";
+    if (id == "fx_crush_down")
+        return juce::String (juce::roundToInt (value)) + "x";
+    if (id == "fx_smear_density")
+        return juce::String (juce::roundToInt (value)) + " grains";
+    if (id.startsWith ("lfo") && id.endsWith ("_seed"))
+        return juce::roundToInt (value) == 0 ? juce::String ("Free") : "#" + juce::String (juce::roundToInt (value));
+    // Amounts from -1 to 1 as signed percent (mod depths, step values).
+    if ((id.startsWith ("mod") && id.endsWith ("_amt")) || (id.startsWith ("lfo") && id.contains ("_step")))
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    // Plain 0..1 (or 0..2) amounts as percent.
+    if (id == "fx_feedback_tone" || id == "fx_flanger_depth" || id == "fx_dim_depth" || id == "fx_gate_smooth"
+        || id == "fx_trem_depth" || id == "fx_delay_duck" || id == "fx_chorus_depth" || id == "fx_delay_wow"
+        || id == "fx_phaser_depth" || id == "fx_reverb_size" || id.startsWith ("fx_taps_step")
+        || id == "fx_amp_bass" || id == "fx_amp_mid" || id == "fx_amp_treble"
+        || id.endsWith ("_fb_gain") || id.endsWith ("_fb_distance")
+        || id == "vec_x" || id == "vec_y" || id.startsWith ("vec_px") || id.startsWith ("vec_py"))
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     // Stereo position: C, or how far left or right.
     if (id.endsWith ("_pan"))
     {

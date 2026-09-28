@@ -312,6 +312,7 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - FIRE's 60 ms release timer held a raw parameter pointer (closing the plugin within it wrote to freed memory); it goes through a SafePointer, and closing the editor lets go of a held FIRE.
   - "Eco is cheaper" takes the best of three interleaved passes (one pass swung by a third with machine load).
   - pluginval on the Linux CI runner crashed on exit in some runs (never locally, never under ASan): CI now runs it under gdb, so a crash prints every thread's backtrace.
+- **UI 4** — done: every parameter's text at its minimum, default and maximum was listed (`ILANA_PARAM_TEXT=1 ilanaTableTest`) and the bare numbers given units: mod amounts and step values as signed %, effect depths, sizes, tone and ducking as %, the amp's bass/mid/treble as %, compressor ratio as 4:1, crusher bits and downsampling, smear grains, arp octaves, west-coast stages, vector positions, feedback gain and distance; an LFO seed of 0 reads Free (and "#29" style seeds and words type back). The tour's check box uses the theme (it was drawn in the default font), and the tour names Cmd on macOS instead of Ctrl.
 
 ---
 

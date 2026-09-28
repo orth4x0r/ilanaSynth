@@ -9,6 +9,16 @@ class TutorialOverlay : public juce::Component,
                         private juce::Timer
 {
 public:
+    // The shortcut modifier as the platform names it.
+    static juce::String commandKey()
+    {
+       #if JUCE_MAC
+        return "Cmd";
+       #else
+        return "Ctrl";
+       #endif
+    }
+
     TutorialOverlay()
     {
         closeButton.setButtonText ("GOT IT");
@@ -161,7 +171,7 @@ public:
             const juce::StringArray workflowTips {
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; VECTOR mixes four oscillators and lets the macros EVOLVE.",
-                "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
+                "DICE rolls a fresh patch, INIT resets, " + commandKey() + "+Z undoes everything - HIST lists your history.",
                 "371 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
                 "FM has six operators, 16 one-click algorithms and a noise operator. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
             };
@@ -171,7 +181,7 @@ public:
 
             g.setColour (juce::Colours::white.withAlpha (0.3f));
             g.setFont (IlanaTheme::font (12.5f));
-            g.drawText ("1-9, 0 switch tabs    Ctrl+Z / Ctrl+Shift+Z undo / redo    ? reopens this tour",
+            g.drawText ("1-9, 0 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    ? reopens this tour",
                         shortcuts, juce::Justification::centredLeft);
         }
     }

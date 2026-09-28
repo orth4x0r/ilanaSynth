@@ -7543,9 +7543,25 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
         sizes.addItem (200 + i, juce::String (juce::roundToInt (zoomChoices[i] * 100.0f)) + "%",
                        true, juce::approximatelyEqual (uiZoom, zoomChoices[i]));
 
+    // Engine quality and oversampling, also on the SCOPE tab (where they were
+    // hard to find).
+    const auto read = [this] (const char* id) { return processorRef.apvts.getRawParameterValue (id)->load(); };
+    juce::PopupMenu quality;
+    const char* const qualityNames[] { "Eco (unison capped at 4)", "Normal", "High" };
+    for (int i = 0; i < 3; ++i)
+        quality.addItem (600 + i, qualityNames[i], true, juce::roundToInt (read ("quality")) == i);
+    juce::PopupMenu oversampling;
+    const auto oversampled = read ("oversampling") > 0.5f;
+    const auto factor = juce::roundToInt (read ("os_factor"));
+    oversampling.addItem (700, "Off", true, ! oversampled);
+    oversampling.addItem (701, "2x", true, oversampled && factor == 0);
+    oversampling.addItem (702, "4x", true, oversampled && factor == 1);
+
     juce::PopupMenu menu;
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
+    menu.addSubMenu ("Engine quality", quality);
+    menu.addSubMenu ("Oversampling", oversampling);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
@@ -7573,6 +7589,26 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                     mpe->beginChangeGesture();
                                     mpe->setValueNotifyingHost (mpe->getValue() > 0.5f ? 0.0f : 1.0f);
                                     mpe->endChangeGesture();
+                                }
+                            }
+                            else if (result >= 600 && result < 800)
+                            {
+                                const auto set = [&safeThis] (const char* id, float value)
+                                {
+                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (id))
+                                    {
+                                        parameter->beginChangeGesture();
+                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                                        parameter->endChangeGesture();
+                                    }
+                                };
+                                if (result < 700)
+                                    set ("quality", (float) (result - 600));
+                                else
+                                {
+                                    set ("oversampling", result == 700 ? 0.0f : 1.0f);
+                                    if (result > 700)
+                                        set ("os_factor", (float) (result - 701));
                                 }
                             }
                             else if (result == 400)

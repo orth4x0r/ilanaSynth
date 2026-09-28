@@ -285,7 +285,7 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
   - Resampled sources (M8.6): 6
 - **FX plugin (M7.5)**: 10 presets
 
-### Release polish: seven UI/UX rounds and six debug rounds, alternating — in progress
+### Release polish: seven UI/UX rounds and six debug rounds, alternating — done
 Adversarial passes over v1.3 before release: each UI round looks for what is confusing, inconsistent or badly laid out, and each debug round hunts real bugs. Every round ends with the full test suite, the UI test and the fingerprint check.
 
 - **UI 1** — done: filter knobs show their units (RESO and GATE in %, DRIVE as 1.5x, ENV AMT in octaves, KEY TRK and AUDIO FM as signed %); the LFO thumbnails show the rate as the knob does; the tour mentions Live mode; both STEPS rows on ARP/SEQ list the same LFOs.
@@ -325,6 +325,7 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
 - **Debug 6** — done, nothing broken found; two new guards:
   - Every preset's voices end after note-off (a chord held, released, then up to 15 s): none stuck; the slowest, Self Osc Drone, frees in 7.9 s.
   - A host stopping the transport (all-notes-off CC 123, all-sound-off CC 120) with keys still down stops the arp, the probability sequencer and note spray; a control case (CC 1) checks the test can tell.
+- **UI 7** — done: engine quality (Eco / Normal / High) and oversampling (off / 2x / 4x) are also in the settings (gear) menu; they were only on the SCOPE tab. A last look at the header menus, the added-oscillator and pool states found nothing else (the line and dot across MAIN's envelope while a note plays is its live level).
 
 ---
 

@@ -13,33 +13,33 @@ struct PianoModelTuning
 {
     // Hammer mass (g), felt exponent and felt force at 1 mm (N), from A0 to
     // C8; HAMMER multiplies the felt by 4^(+-hardnessRange).
-    float massBass = 11.8894f, massTreble = 6.5f;
-    float exponentBass = 2.058f, exponentTreble = 3.525f;
-    float feltBass = 65.0f, feltTreble = 35.2f;
+    float massBass = 10.3894f, massTreble = 5.03f;
+    float exponentBass = 2.44702f, exponentTreble = 3.0f;
+    float feltBass = 65.0f, feltTreble = 30.0f;
     float hardnessRange = 0.5f;
     // Felt hysteresis (units of 1e-4 s).
     float hysteresis = 0.0f;
     // Hammer speed at velocity 0 and 127 (m/s).
-    float speedLow = 0.3f, speedHigh = 5.6f;
+    float speedLow = 0.3f, speedHigh = 3.44049f;
     // String impedance sqrt(T mu) at C4 and at A0 (kg/s).
-    float impedanceC4 = 1.531f, impedanceBass = 4.48f;
+    float impedanceC4 = 1.70649f, impedanceBass = 3.8332f;
     // Strike point as a fraction of the string, bass and treble.
-    float strikeBass = 0.1305f, strikeTreble = 0.1052f;
+    float strikeBass = 0.12705f, strikeTreble = 0.0958556f;
     // Inharmonicity B at C4, and its rise per octave (as a power of 2) up
     // and down the keyboard.
-    float inharmonicityC4 = 0.00036f, inharmonicityTreble = 0.85f, inharmonicityBass = 0.15415f;
+    float inharmonicityC4 = 0.00018318f, inharmonicityTreble = 0.8155f, inharmonicityBass = -0.16085f;
     // The fundamental's T60 at C4 (DECAY 0.5), how it scales with pitch,
     // and the T60 at 3 kHz (DAMP 0.5); the vertical polarisation's share.
-    float t60C4 = 14.5f, t60Register = 0.861224f, t60Upper = 4.645f, promptRatio = 0.124f;
+    float t60C4 = 13.275f, t60Register = 0.784095f, t60Upper = 5.8035f, promptRatio = 0.14458f;
     // The horizontal polarisation: how much of the strike, its level and
     // its detuning (cents).
-    float aftersound = 0.3f, horizontalMix = 0.78f, horizontalCents = 0.2118f;
+    float aftersound = 0.1824f, horizontalMix = 1.00707f, horizontalCents = 0.4118f;
     // The bass bark: tension modulation and the longitudinal modes.
-    float tensionModulation = 0.02f, longitudinal = 0.0f, longitudinalRatio = 17.0f;
+    float tensionModulation = 0.01f, longitudinal = 0.0515025f, longitudinalRatio = 17.0f;
     // Knock (level, frequency at C4, level per octave), level and balance
     // (level per octave from C4).
-    float knock = 0.174312f, knockFrequency = 1700.2f, knockRegister = 1.5f;
-    float outputGain = 0.2f, balance = 0.0521806f;
+    float knock = 0.176802f, knockFrequency = 541.704f, knockRegister = 1.40893f;
+    float outputGain = 0.367f, balance = 0.0521806f;
 
     static PianoModelTuning& get()
     {
@@ -108,7 +108,7 @@ private:
 
 public:
     // The dense soundboard (a later part of M8.2).
-    float boardMix = 3.0f, boardDecay = 0.423077f, boardLowCut = 103.555f, boardTilt = 0.018388f, boardDensity = 0.431009f;
+    float boardMix = 3.0f, boardDecay = 0.6f, boardLowCut = 100.674f, boardTilt = 0.569308f, boardDensity = 0.431009f;
     // The measured colour: dB per octave band, 31 Hz .. 16 kHz.
     std::array<float, 10> boardEq { 9.00f, 9.00f, -1.12f, -4.71f, 2.49f, -1.02f, 1.36f, 2.99f, -7.20f, -9.00f };
 };

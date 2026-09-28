@@ -55,12 +55,13 @@ void probe()
         }
 }
 // The render of one piano string, for the checks below.
-std::vector<float> renderString (int note, float velocity, float hardness, double seconds, bool eco = false, int* contact = nullptr)
+std::vector<float> renderString (int note, float velocity, float hardness, double seconds, bool eco = false, int* contact = nullptr,
+                                 float strikeKnob = 0.0f)
 {
     KarplusStrong string;
     string.prepare (48000.0);
     string.setParams (KarplusStrong::Excite::Piano, 0.0f, 0.5f, 0.5f);
-    string.setPhysicalParams (0.5f, 0.0f, 0.0f, 1.0f, 0.0f, false);
+    string.setPhysicalParams (0.5f, 0.0f, strikeKnob, 1.0f, 0.0f, false);
     string.setKeysParams (hardness, 0.8f);
     string.setEco (eco);
     string.setFrequency (440.0 * std::pow (2.0, (note - 69) / 12.0));
@@ -160,10 +161,11 @@ void runTests()
                    + " Hz centroid), harder felt is brighter (" + juce::String (felt, 0) + " -> " + juce::String (hard, 0) + " Hz)");
     }
 
-    // The strike point near 1/8 thins the partials with a node there.
+    // A strike at 1/8 (EXCITE POS 0.25) thins the partials with a node
+    // there (the fitted default sits between two partials' nodes).
     {
         const auto f0 = 440.0 * std::pow (2.0, (48 - 69) / 12.0);
-        const auto x = renderString (48, 0.7f, 0.5f, 1.3);
+        const auto x = renderString (48, 0.7f, 0.5f, 1.3, false, nullptr, 0.25f);
         std::vector<double> levels;
         for (int n = 1; n <= 14; ++n)
             levels.push_back (partial (x, f0, n, 3.0e-4).second);

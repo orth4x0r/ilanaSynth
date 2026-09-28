@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) and M8.4 (filter models). Next up: feedback guitar, Evolve and the vector pad (M8.5).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) and M8.5 (feedback guitar, Evolve, vector pad). Next up: resample to oscillator (M8.6).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -240,7 +240,7 @@ Grouped with M8.3 because the west-coast filter shares the filter code. Filter v
 - **UI**: the type grid gets categories or a scrolling list so it stays readable.
 - **Checks**: every new model gets the stability test (self-oscillation, extreme drive) and a fingerprint entry. Analogue-style models are checked against measured responses of the circuit they copy.
 
-#### M8.5: Feedback guitar, Evolve and the vector pad (was M8.3, plus the simple part of M12)
+#### M8.5: Feedback guitar, Evolve and the vector pad (was M8.3, plus the simple part of M12) — done (feedback fitted to a description; listening round pending)
 - **Feedback guitar**: a new exciter type that puts an amp and speaker inside the string's feedback loop, with FEEDBACK and GAIN controls.
   - **Reference**: recordings of guitar feedback (a sustained note blooming into its harmonic), fitted on how fast it blooms and which harmonic it settles on.
 - **Evolve**: each macro can drift slowly within a range and at a rate you set. A **freeze** button captures the current state.

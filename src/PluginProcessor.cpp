@@ -234,6 +234,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             keysParamIds[(size_t) i] = { prefix + "_hammer_hard", prefix + "_couple",
                                           prefix + "_damper", prefix + "_register" };
             electricParamIds[(size_t) i] = { prefix + "_ep_distance", prefix + "_ep_position" };
+            feedbackParamIds[(size_t) i] = { prefix + "_fb_gain", prefix + "_fb_distance" };
             grainLiveIds[(size_t) i] = prefix + "_grain_live";
             sampleParamIds[(size_t) i] = { prefix + "_sample_tuned", prefix + "_sample_loop",
                                            prefix + "_sample_reverse", prefix + "_sample_start",
@@ -316,6 +317,16 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         for (int step = 0; step < 16; ++step)
             ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
     }
+
+    for (int m = 0; m < 4; ++m)
+    {
+        macroIds[(size_t) m] = "macro" + juce::String (m + 1);
+        evolveIds[(size_t) m] = { "macro" + juce::String (m + 1) + "_evolve", "macro" + juce::String (m + 1) + "_evolve_rate" };
+    }
+    for (int point = 0; point < numVectorPoints; ++point)
+        vectorPathIds[(size_t) point] = { "vec_px" + juce::String (point + 1), "vec_py" + juce::String (point + 1) };
+    evolve.reset (4242u);
+    vectorDrift.reset (9191u);
 
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
@@ -497,7 +508,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -636,7 +647,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -959,7 +970,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -1162,6 +1173,42 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // M8.2: the soundboard model. Classic keeps old patches as they were.
     addChoice ("sb_model", "Soundboard Model", { "Classic", "Dense" }, 0);
+
+    // M8.5: the Feedback exciter's amp (GAIN) and how far it stands from
+    // the guitar (DISTANCE); FEEDBACK is the string's SUSTAIN.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_fb_gain", name + " Feedback Gain", 0.0f, 1.0f, 0.5f);
+        addFloat (prefix + "_fb_distance", name + " Feedback Distance", 0.0f, 1.0f, 0.5f);
+    }
+
+    // M8.5: Evolve (each macro drifts within a range) and the vector pad.
+    for (int macro = 1; macro <= 4; ++macro)
+    {
+        addFloat ("macro" + juce::String (macro) + "_evolve", "Macro " + juce::String (macro) + " Evolve", 0.0f, 1.0f, 0.0f);
+        addFloat ("macro" + juce::String (macro) + "_evolve_rate", "Macro " + juce::String (macro) + " Evolve Rate", 0.01f, 2.0f, 0.1f, 0.4f);
+    }
+    addBool ("vec_on", "Vector On", false);
+    addFloat ("vec_x", "Vector X", 0.0f, 1.0f, 0.5f);
+    addFloat ("vec_y", "Vector Y", 0.0f, 1.0f, 0.5f);
+    {
+        const juce::StringArray oscillators { "Osc 1", "Osc 2", "Osc 3", "Osc 4", "Osc 5", "Osc 6" };
+        const char* corners[] { "a", "b", "c", "d" };
+        for (int c = 0; c < 4; ++c)
+            addChoice (juce::String ("vec_") + corners[c], "Vector Corner " + juce::String::charToString ((juce::juce_wchar) ('A' + c)), oscillators, c);
+    }
+    addBool ("vec_path", "Vector Path", false);
+    addFloat ("vec_rate", "Vector Path Rate", 0.01f, 10.0f, 0.2f, 0.3f);
+    for (int point = 1; point <= numVectorPoints; ++point)
+    {
+        const auto angle = juce::MathConstants<double>::twoPi * (point - 1) / numVectorPoints;
+        addFloat ("vec_px" + juce::String (point), "Vector Path X" + juce::String (point), 0.0f, 1.0f, (float) (0.5 + 0.35 * std::cos (angle)));
+        addFloat ("vec_py" + juce::String (point), "Vector Path Y" + juce::String (point), 0.0f, 1.0f, (float) (0.5 + 0.35 * std::sin (angle)));
+    }
+    addFloat ("vec_drift", "Vector Drift", 0.0f, 1.0f, 0.0f);
+    addFloat ("vec_drift_rate", "Vector Drift Rate", 0.01f, 2.0f, 0.1f, 0.4f);
 
     // M8.3: the west-coast voice (off by default).
     addBool ("west_on", "West On", false);
@@ -1800,6 +1847,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     for (int lfo = 0; lfo < numLfos; ++lfo)
         lfoPhaseDisplays[(size_t) lfo].store ((float) lfoPhases[(size_t) lfo]);
 
+    updateEvolveAndVector (buffer.getNumSamples());
     evaluateGlobalModulation (activeSlots, numActiveSlots);
 
     VoiceParams p;
@@ -1816,7 +1864,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                                                    getParam (ids.spectralAmount))
                              : getTableForChoice (choice);
         settings.frame = getParam (ids.frame);
-        settings.level = getParam (ids.level);
+        settings.level = getParam (ids.level) * vectorGains[(size_t) osc];
         settings.pan = getParam (ids.pan);
         settings.semitones = (double) getParam (ids.semi);
         settings.cents = (double) getParam (ids.fine);
@@ -1950,6 +1998,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         const auto& electric = electricParamIds[(size_t) oscIndex];
         osc.epDistance = getParam (electric[0]);
         osc.epPosition = getParam (electric[1]);
+        if (osc.stringExcite == 10)
+        {
+            osc.fbGain = getParam (feedbackParamIds[(size_t) oscIndex][0]);
+            osc.fbDistance = getParam (feedbackParamIds[(size_t) oscIndex][1]);
+        }
     };
 
     const auto fillSampleParams = [this] (int oscIndex, VoiceParams::OscParams& osc)
@@ -2015,10 +2068,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.clockSh = lfoBuffers.getReadPointer (4);
     p.mseg = lfoBuffers.getReadPointer (5);
 
-    p.macros[0] = getParam ("macro1");
-    p.macros[1] = getParam ("macro2");
-    p.macros[2] = getParam ("macro3");
-    p.macros[3] = getParam ("macro4");
+    p.macros[0] = macroValue (0);
+    p.macros[1] = macroValue (1);
+    p.macros[2] = macroValue (2);
+    p.macros[3] = macroValue (3);
+    p.vectorX = vectorX.load();
+    p.vectorY = vectorY.load();
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -2552,6 +2607,132 @@ bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)
     }
 
     return cleared;
+}
+
+// M8.5: a macro's value with Evolve's drift.
+float IlanaSynthAudioProcessor::macroValue (int macro) const
+{
+    const auto index = juce::jlimit (0, 3, macro);
+    return juce::jlimit (0.0f, 1.0f, getParam (macroIds[(size_t) index]) + macroDrift[(size_t) index].load());
+}
+
+std::array<float, 4> IlanaSynthAudioProcessor::vectorWeights (float x, float y)
+{
+    // Equal power: A top left, B top right, C bottom left, D bottom right.
+    x = juce::jlimit (0.0f, 1.0f, x);
+    y = juce::jlimit (0.0f, 1.0f, y);
+    return { std::sqrt ((1.0f - x) * y), std::sqrt (x * y), std::sqrt ((1.0f - x) * (1.0f - y)), std::sqrt (x * (1.0f - y)) };
+}
+
+int IlanaSynthAudioProcessor::getVectorCorner (int corner) const
+{
+    const char* ids[] { "vec_a", "vec_b", "vec_c", "vec_d" };
+    return (int) getParam (ids[juce::jlimit (0, 3, corner)]);
+}
+
+bool IlanaSynthAudioProcessor::isVectorPathOn() const { return getParam ("vec_path") > 0.5f; }
+
+juce::Point<float> IlanaSynthAudioProcessor::getVectorPathPoint (int point) const
+{
+    const auto index = juce::jlimit (0, numVectorPoints - 1, point);
+    return { getParam (vectorPathIds[(size_t) index].first), getParam (vectorPathIds[(size_t) index].second) };
+}
+
+// The point `phase` (0..1) of the way round the closed path.
+static juce::Point<float> pointOnPath (const std::array<juce::Point<float>, IlanaSynthAudioProcessor::numVectorPoints>& points, double phase)
+{
+    std::array<float, IlanaSynthAudioProcessor::numVectorPoints> lengths {};
+    auto total = 0.0f;
+    for (int i = 0; i < IlanaSynthAudioProcessor::numVectorPoints; ++i)
+    {
+        lengths[(size_t) i] = points[(size_t) i].getDistanceFrom (points[(size_t) ((i + 1) % IlanaSynthAudioProcessor::numVectorPoints)]);
+        total += lengths[(size_t) i];
+    }
+    if (total <= 1.0e-6f)
+        return points[0];
+    auto remaining = (float) (phase - std::floor (phase)) * total;
+    for (int i = 0; i < IlanaSynthAudioProcessor::numVectorPoints; ++i)
+    {
+        if (remaining <= lengths[(size_t) i] || i == IlanaSynthAudioProcessor::numVectorPoints - 1)
+        {
+            const auto t = lengths[(size_t) i] > 0.0f ? remaining / lengths[(size_t) i] : 0.0f;
+            return points[(size_t) i] + (points[(size_t) ((i + 1) % IlanaSynthAudioProcessor::numVectorPoints)] - points[(size_t) i]) * juce::jlimit (0.0f, 1.0f, t);
+        }
+        remaining -= lengths[(size_t) i];
+    }
+    return points[0];
+}
+
+void IlanaSynthAudioProcessor::updateEvolveAndVector (int numSamples)
+{
+    const auto seconds = (double) numSamples / juce::jmax (1.0, baseSampleRate);
+
+    // Evolve.
+    std::array<float, 4> amounts {}, rates {};
+    for (int m = 0; m < 4; ++m)
+    {
+        amounts[(size_t) m] = getParam (evolveIds[(size_t) m].first);
+        rates[(size_t) m] = getParam (evolveIds[(size_t) m].second);
+    }
+    evolve.advance (seconds, amounts, rates);
+    for (int m = 0; m < 4; ++m)
+        macroDrift[(size_t) m].store (evolve.offset (m));
+
+    // The vector pad: hand position, or the path, then drift.
+    vectorGains.fill (1.0f);
+    if (getParam ("vec_on") < 0.5f)
+    {
+        vectorX.store (getParam ("vec_x"));
+        vectorY.store (getParam ("vec_y"));
+        return;
+    }
+    auto position = juce::Point<float> (getParam ("vec_x"), getParam ("vec_y"));
+    if (isVectorPathOn())
+    {
+        vectorPathPhase = std::fmod (vectorPathPhase + seconds * (double) getParam ("vec_rate"), 1.0);
+        std::array<juce::Point<float>, numVectorPoints> points;
+        for (int i = 0; i < numVectorPoints; ++i)
+            points[(size_t) i] = getVectorPathPoint (i);
+        // The hand position offsets the path from its centre.
+        position = pointOnPath (points, vectorPathPhase) + (position - juce::Point<float> (0.5f, 0.5f));
+    }
+    const auto drift = getParam ("vec_drift");
+    if (drift > 0.0f)
+    {
+        const auto rate = getParam ("vec_drift_rate");
+        vectorDrift.advance (seconds, { drift * 0.5f, drift * 0.5f, 0.0f, 0.0f }, { rate, rate * 1.37f, 0.1f, 0.1f });
+        position += { vectorDrift.offset (0), vectorDrift.offset (1) };
+    }
+    position = { juce::jlimit (0.0f, 1.0f, position.x), juce::jlimit (0.0f, 1.0f, position.y) };
+    vectorX.store (position.x);
+    vectorY.store (position.y);
+
+    const auto weights = vectorWeights (position.x, position.y);
+    std::array<float, OscillatorIds::count> power {};
+    std::array<bool, OscillatorIds::count> used {};
+    for (int c = 0; c < 4; ++c)
+    {
+        const auto osc = juce::jlimit (0, OscillatorIds::count - 1, getVectorCorner (c));
+        power[(size_t) osc] += weights[(size_t) c] * weights[(size_t) c];
+        used[(size_t) osc] = true;
+    }
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        if (used[(size_t) osc])
+            vectorGains[(size_t) osc] = std::sqrt (power[(size_t) osc]);
+}
+
+void IlanaSynthAudioProcessor::freezeEvolve()
+{
+    for (int m = 0; m < 4; ++m)
+    {
+        const auto frozen = macroValue (m);
+        if (auto* parameter = apvts.getParameter ("macro" + juce::String (m + 1)))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (frozen));
+        if (auto* amount = apvts.getParameter ("macro" + juce::String (m + 1) + "_evolve"))
+            amount->setValueNotifyingHost (0.0f);
+        macroDrift[(size_t) m].store (0.0f);
+    }
+    evolve.reset();
 }
 
 LfoSimSettings IlanaSynthAudioProcessor::readLfoSimSettings (int lfo) const
@@ -3186,10 +3367,12 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
 
     switch (source)
     {
-        case Mod::Source::Macro1:     return getParam ("macro1");
-        case Mod::Source::Macro2:     return getParam ("macro2");
-        case Mod::Source::Macro3:     return getParam ("macro3");
-        case Mod::Source::Macro4:     return getParam ("macro4");
+        case Mod::Source::Macro1:     return macroValue (0);
+        case Mod::Source::Macro2:     return macroValue (1);
+        case Mod::Source::Macro3:     return macroValue (2);
+        case Mod::Source::Macro4:     return macroValue (3);
+        case Mod::Source::VectorX:    return vectorX.load();
+        case Mod::Source::VectorY:    return vectorY.load();
         case Mod::Source::ModWheel:   return modWheelDisplay.load();
         case Mod::Source::Aftertouch: return aftertouchDisplay.load();
         case Mod::Source::Expression: return expressionDisplay.load();
@@ -3212,10 +3395,12 @@ float IlanaSynthAudioProcessor::staticSourceValue (int sourceIndex) const
 {
     switch ((Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, sourceIndex))
     {
-        case Mod::Source::Macro1:     return getParam ("macro1");
-        case Mod::Source::Macro2:     return getParam ("macro2");
-        case Mod::Source::Macro3:     return getParam ("macro3");
-        case Mod::Source::Macro4:     return getParam ("macro4");
+        case Mod::Source::Macro1:     return macroValue (0);
+        case Mod::Source::Macro2:     return macroValue (1);
+        case Mod::Source::Macro3:     return macroValue (2);
+        case Mod::Source::Macro4:     return macroValue (3);
+        case Mod::Source::VectorX:    return vectorX.load();
+        case Mod::Source::VectorY:    return vectorY.load();
         case Mod::Source::ModWheel:   return modWheelValue;
         case Mod::Source::Aftertouch: return aftertouchValue;
         case Mod::Source::Expression: return expressionValue;

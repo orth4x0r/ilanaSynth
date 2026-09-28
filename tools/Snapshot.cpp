@@ -13,6 +13,7 @@
 #include "gui/HeaderWidgets.h"
 #include "gui/CardTabs.h"
 #include "gui/FilterWidgets.h"
+#include "gui/VectorPad.h"
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
@@ -867,6 +868,29 @@ int runUiTests()
         expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
     }
 
+    // M8.5: the VECTOR page has the pad and EVOLVE.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("VECTOR"));
+        settle (200);
+        auto* page = tabs->getCurrentContentComponent();
+        expect (page != nullptr && findChild<VectorPadDisplay> (*page) != nullptr, "the VECTOR page shows the vector pad");
+        std::vector<KnobControl*> knobs;
+        if (page != nullptr)
+            findAll<KnobControl> (*page, knobs);
+        auto evolveKnobs = 0;
+        for (auto* knob : knobs)
+            if (knob->getParameterId().endsWith ("_evolve"))
+                ++evolveKnobs;
+        expect (evolveKnobs == 4, "EVOLVE has a knob for each macro");
+        std::vector<juce::TextButton*> buttons;
+        if (page != nullptr)
+            findAll<juce::TextButton> (*page, buttons);
+        auto freeze = false;
+        for (auto* b : buttons)
+            freeze = freeze || b->getButtonText() == "FREEZE";
+        expect (freeze, "EVOLVE has a FREEZE button");
+    }
+
     // M8.4: the type grid turns to the page holding a new model.
     {
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
@@ -1181,6 +1205,21 @@ int main (int argc, char** argv)
                 bar->setSelected (0, true);
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (0.0f);
+    }
+
+    // M8.5: the VECTOR page, with the pad on and a path.
+    {
+        for (const auto& [id, value] : { std::pair<const char*, float> { "vec_on", 1.0f }, { "vec_path", 1.0f },
+                                         { "vec_drift", 0.3f }, { "macro1_evolve", 0.4f }, { "macro3_evolve", 0.2f },
+                                         { "osc4_on", 1.0f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("VECTOR"));
+        settle (600);
+        save (*editor, outDir.getChildFile ("vector-page.png"));
+        for (const auto* id : { "vec_on", "vec_path", "vec_drift", "macro1_evolve", "macro3_evolve", "osc4_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
     // M8.4: the second page of filter models.

@@ -16,6 +16,7 @@
 #include "dsp/IlanaSynth.h"
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
+#include "dsp/Evolve.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -96,6 +97,17 @@ public:
     float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
     // M8.1: a simulated LFO shape's settings (the card's picture reads them too).
     LfoSimSettings readLfoSimSettings (int lfo) const;
+    // M8.5: Evolve and the vector pad.
+    static constexpr int numVectorPoints = 8;
+    float macroValue (int macro) const;
+    static std::array<float, 4> vectorWeights (float x, float y);
+    juce::Point<float> getVectorPosition() const { return { vectorX.load(), vectorY.load() }; }
+    int getVectorCorner (int corner) const;
+    bool isVectorPathOn() const;
+    juce::Point<float> getVectorPathPoint (int point) const;
+    float getMacroDrift (int macro) const { return macroDrift[(size_t) juce::jlimit (0, 3, macro)].load(); }
+    void freezeEvolve();
+
     // M8.3: the loudest voice's WEST gate conductance, for the card.
     float getWestGateLevel() const { return westGateDisplay.load(); }
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
@@ -466,6 +478,7 @@ private:
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> bowBuzzIds;
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> keysParamIds;
     std::array<std::array<ParamRef, 2>, OscillatorIds::count> electricParamIds;
+    std::array<std::array<ParamRef, 2>, OscillatorIds::count> feedbackParamIds;
 
     // M7.5 audio input (ilanaSynth FX). The instrument has no input, so all
     // of this stays silent there.
@@ -579,6 +592,16 @@ private:
     // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
     std::array<LfoSim, (size_t) numLfos> lfoSims;
     std::atomic<float> westGateDisplay { 0.0f };
+    // M8.5
+    void updateEvolveAndVector (int numSamples);
+    MacroEvolve evolve, vectorDrift;
+    std::array<std::atomic<float>, 4> macroDrift {};
+    std::atomic<float> vectorX { 0.5f }, vectorY { 0.5f };
+    std::array<float, OscillatorIds::count> vectorGains = [] { std::array<float, OscillatorIds::count> g {}; g.fill (1.0f); return g; }();
+    double vectorPathPhase = 0.0;
+    std::array<ParamRef, 4> macroIds;
+    std::array<std::pair<ParamRef, ParamRef>, 4> evolveIds;
+    std::array<std::pair<ParamRef, ParamRef>, numVectorPoints> vectorPathIds;
     std::array<LfoSmoother, (size_t) numLfos> lfoSmoothers;
     std::array<bool, (size_t) numLfos> lfoRoutedB {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoLastValuesB {};

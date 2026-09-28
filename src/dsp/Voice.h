@@ -188,6 +188,7 @@ struct VoiceParams
         // release, and how much the string changes from bass to treble.
         float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;
         float epDistance = 0.5f, epPosition = 0.5f; // M7.3 tine/reed pickup
+        float fbGain = 0.5f, fbDistance = 0.5f;     // M8.5 feedback amp
         int chord = 0;
 
         bool sampleMode = false;
@@ -323,6 +324,7 @@ struct VoiceParams
     float pitchBendRange = 2.0f;
 
     float macros[4] { 0.0f, 0.0f, 0.0f, 0.0f };
+    float vectorX = 0.5f, vectorY = 0.5f; // M8.5
 
     const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice
     const float* lfoBuffersB[numLfos] {}; // their outputs B (M8.1)

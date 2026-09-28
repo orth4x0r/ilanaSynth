@@ -43,6 +43,8 @@ enum class Source
     // M8.1: every LFO's second output (B), for LFO 1-16.
     Lfo1B, Lfo2B, Lfo3B, Lfo4B, Lfo5B, Lfo6B, Lfo7B, Lfo8B,
     Lfo9B, Lfo10B, Lfo11B, Lfo12B, Lfo13B, Lfo14B, Lfo15B, Lfo16B,
+    // M8.5: the vector pad's position.
+    VectorX, VectorY,
     Count
 };
 
@@ -93,6 +95,7 @@ inline bool isBipolarSource (Source source)
         default:
             return (source >= Source::Lfo5 && source <= Source::Lfo16)
                    || (source >= Source::Lfo1B && source <= Source::Lfo16B);
+        // (VectorX / VectorY run 0..1.)
     }
 }
 
@@ -435,6 +438,12 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("west_decay", "West Decay");
         add ("west_open", "West Open");
         add ("west_strike", "West Strike");
+
+        // M8.5 (append only).
+        for (int osc = 0; osc < 6; ++osc)
+            add (juce::String (prefixes[osc]) + "_fb_gain", "Osc" + juce::String (osc + 1) + " Feedback Gain");
+        add ("vec_x", "Vector X");
+        add ("vec_y", "Vector Y");
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -576,6 +585,8 @@ inline juce::StringArray getSourceNames()
     names.add ("Input Env");
     for (int lfo = 1; lfo <= numLfoSources; ++lfo)
         names.add ("LFO " + juce::String (lfo) + " B");
+    names.add ("Vector X");
+    names.add ("Vector Y");
     return names;
 }
 

@@ -321,4 +321,31 @@ void renderM83 (const juce::File& folder)
     render (folder, "07 WEST in place of Filter 2, after Filter 1", "",
             west + S { { "west_pos", 1.0f }, { "west_fold", 0.35f }, { "f1_cutoff", 2500.0f }, { "f1_reso", 0.5f } }, notes, 5.5);
 }
+// M8.5: feedback guitar, Evolve and the vector pad.
+void renderM85 (const juce::File& folder)
+{
+    using S = std::vector<std::pair<juce::String, float>>;
+    const S guitar { { "osc1_mode", 1.0f }, { "osc1_excite", 10.0f }, { "osc1_string_sustain", 0.6f }, { "osc1_string_decay", 0.8f },
+                     { "osc1_string_damp", 0.5f }, { "osc2_on", 0.0f }, { "sub_on", 0.0f }, { "amp_sustain", 1.0f },
+                     { "amp_release", 1.0f }, { "f1_cutoff", 16000.0f } };
+    for (float distance : { 0.2f, 0.5f, 0.8f })
+        render (folder, "01 Feedback guitar - amp distance " + juce::String (distance, 1), "",
+                guitar + S { { "osc1_fb_distance", distance }, { "osc1_fb_gain", 0.6f } },
+                held ({ 45 }, 0.05, 5.5) + held ({ 52 }, 6.0, 11.5), 12.0);
+    render (folder, "02 Feedback guitar - FEEDBACK 0 then 0.8", "", guitar + S { { "osc1_string_sustain", 0.0f } },
+            held ({ 40 }, 0.05, 4.5) + held ({ 40 }, 5.0, 11.0), 11.5,
+            [] (IlanaSynthAudioProcessor& p, double t) { setParam (p, "osc1_string_sustain", t < 4.8 ? 0.0f : 0.8f); });
+
+    // Evolve: a filter macro drifting under a held chord.
+    render (folder, "03 Evolve - macro 1 on cutoff, drifting", "",
+            S { { "f1_cutoff", 900.0f }, { "f1_reso", 0.4f }, { "macro1", 0.5f }, { "macro1_evolve", 0.5f }, { "macro1_evolve_rate", 0.4f } }
+                + route (1, Mod::Source::Macro1, (int) Mod::Destination::Filter1Cutoff, 0.7f),
+            held ({ 48, 55, 60, 64 }, 0.05, 11.5), 12.0);
+
+    // The vector pad travelling its path over four oscillators.
+    render (folder, "04 Vector pad - path over four oscillators", "",
+            S { { "vec_on", 1.0f }, { "vec_path", 1.0f }, { "vec_rate", 0.15f }, { "osc2_on", 1.0f }, { "osc2_semi", 7.0f },
+                { "sub_on", 1.0f }, { "osc4_on", 1.0f }, { "osc4_semi", 12.0f }, { "f1_cutoff", 6000.0f } },
+            held ({ 48, 60 }, 0.05, 11.5), 12.0);
+}
 } // namespace Demo

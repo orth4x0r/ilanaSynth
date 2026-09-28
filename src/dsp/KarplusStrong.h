@@ -10,6 +10,7 @@
 
 #include "ElectricPiano.h"
 #include "PianoString.h"
+#include "FeedbackGuitar.h"
 #include "PianoTuning.h"
 
 #if defined (_MSC_VER)
@@ -32,10 +33,11 @@ public:
         External, // M4: driven by the other oscillators (the FM matrix inputs)
         Tine,     // M7.3: a Rhodes-style tine and tone bar (ElectricPiano)
         Reed,     // M7.3: a Wurlitzer-style reed
-        Piano     // M8.2: a nonlinear felt hammer on a split waveguide (PianoString)
+        Piano,    // M8.2: a nonlinear felt hammer on a split waveguide (PianoString)
+        Feedback  // M8.5: a pluck, then an amp and speaker in the loop (FeedbackLoop)
     };
 
-    static constexpr int numExcites = 10;
+    static constexpr int numExcites = 11;
     bool isElectric() const { return excite == Excite::Tine || excite == Excite::Reed; }
     bool isPiano() const { return excite == Excite::Piano; }
 
@@ -57,6 +59,7 @@ public:
         buffer.assign ((size_t) size, 0.0f);
         electric.prepare (sampleRate);
         piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
+        feedbackLoop.prepare (sampleRate);
         reset();
     }
 
@@ -102,6 +105,12 @@ public:
         updateHammerFeedback();
         updatePianoDispersion();
         updatePiano();
+    }
+
+    // M8.5: the Feedback exciter's amp: FEEDBACK is the string's SUSTAIN.
+    void setFeedbackParams (float gain, float distance)
+    {
+        feedbackLoop.setParams (excite == Excite::Feedback ? sustainLevel : 0.0f, gain, distance);
     }
 
     // M8.2: Eco quality lightens the Piano exciter (fewer allpasses, one
@@ -398,6 +407,12 @@ public:
             case Excite::External:
                 excitation = juce::jlimit (-2.0f, 2.0f, externalInput) * (0.02f + sustainLevel * 0.3f)
                              * (0.25f + 0.75f * strikeVelocity);
+                break;
+
+            case Excite::Feedback:
+                // The amp hears the pickup and pushes the string back
+                // through the air.
+                excitation = feedbackLoop.process (output);
                 break;
 
             case Excite::Burst:
@@ -924,5 +939,6 @@ private:
     Excite excite = Excite::Burst;
     ElectricPiano electric;
     PianoString piano;
+    FeedbackLoop feedbackLoop;
     bool eco = false;
 };

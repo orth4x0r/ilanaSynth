@@ -1560,6 +1560,7 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setKeysParams (settings.hammerHardness, settings.damper);
     string.setEco (params.quality == 0);
+    string.setFeedbackParams (settings.fbGain, settings.fbDistance);
     if (string.isElectric())
         string.setElectricParams (settings.epDistance, settings.epPosition);
 }
@@ -1818,6 +1819,8 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::Env4:       return env4Value * velocityScaleFor (params.env4Velocity);
         case Mod::Source::FilterEnv2: return filter2Value * velocityScaleFor (params.filter2EnvVelocity);
         case Mod::Source::InputEnv:   return params.inputEnv != nullptr ? params.inputEnv[renderStart + sampleIndex] : 0.0f;
+        case Mod::Source::VectorX:    return params.vectorX;
+        case Mod::Source::VectorY:    return params.vectorY;
         case Mod::Source::None:
         case Mod::Source::Count:
         default:                      return 0.0f;

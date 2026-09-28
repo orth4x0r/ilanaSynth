@@ -22,6 +22,7 @@
 #include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
+#include "gui/VectorPad.h"
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
 #include "gui/GenerativeWidgets.h"
@@ -149,12 +150,15 @@ class OscPage : public juce::Component,
               damper (state, prefix + "_damper", "DAMPER"),
               registerMap (state, prefix + "_register", "REGISTER"),
               epDistance (state, prefix + "_ep_distance", "DISTANCE"),
-              epPosition (state, prefix + "_ep_position", "OFFSET") {}
+              epPosition (state, prefix + "_ep_position", "OFFSET"),
+              fbGain (state, prefix + "_fb_gain", "AMP GAIN"),
+              fbDistance (state, prefix + "_fb_distance", "DISTANCE") {}
 
         KnobControl stiffness, pickup, excitePos, hardness, pickPos;
         KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
         KnobControl hammer, couple, damper, registerMap;
         KnobControl epDistance, epPosition; // M7.3 Tine / Reed pickup
+        KnobControl fbGain, fbDistance;     // M8.5 feedback amp
         ToggleControl slap;
     };
 
@@ -255,7 +259,8 @@ public:
                     physicalControls.bridgeBuzz, physicalControls.fretRattle,
                     physicalControls.hammer, physicalControls.couple,
                     physicalControls.damper, physicalControls.registerMap,
-                    physicalControls.epDistance, physicalControls.epPosition);
+                    physicalControls.epDistance, physicalControls.epPosition,
+                    physicalControls.fbGain, physicalControls.fbDistance);
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
@@ -829,7 +834,10 @@ private:
                                       &physicalControls.stiffness, &physicalControls.pickup,
                                       &physicalControls.excitePos, &physicalControls.hardness,
                                       &physicalControls.pickPos });
-            layoutSlots (extraRow, { &physicalControls.hammer, &physicalControls.bowPressure, &physicalControls.bowSpeed,
+            const auto feedbackExcite = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_excite")->load() == 10.0f;
+            layoutSlots (extraRow, { &physicalControls.hammer,
+                                     feedbackExcite ? (juce::Component*) &physicalControls.fbGain : (juce::Component*) &physicalControls.bowPressure,
+                                     feedbackExcite ? (juce::Component*) &physicalControls.fbDistance : (juce::Component*) &physicalControls.bowSpeed,
                                      &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
                                      &physicalControls.couple, &physicalControls.damper, &physicalControls.registerMap });
             layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
@@ -958,7 +966,7 @@ private:
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
-                 &phys.epDistance, &phys.epPosition, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
+                 &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
                  removeButtons[(size_t) i].get() };
     }
 
@@ -999,6 +1007,11 @@ private:
             const auto bow = stringVisible
                              && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
             physicalControls.bowPressure.setVisible (bow);
+            // M8.5: the Feedback exciter's amp; SUSTAIN is its FEEDBACK.
+            const auto feedbackExcite = stringVisible && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 10.0f;
+            physicalControls.fbGain.setVisible (feedbackExcite);
+            physicalControls.fbDistance.setVisible (feedbackExcite);
+            controls[(size_t) i]->stringSustain.setLabelText (feedbackExcite ? "FEEDBACK" : "SUSTAIN");
             physicalControls.bowSpeed.setVisible (bow);
             const auto electric = stringVisible && isElectric (i);
             const auto exciteChoice = processorRef.apvts.getRawParameterValue (prefix + "_excite")->load();
@@ -1480,6 +1493,165 @@ private:
     ComboControl position, mode, source;
     KnobControl fold, symmetry, stages, decay, resonance, strike, open;
     juce::Rectangle<int> picture;
+};
+
+// M8.5: the VECTOR page. The vector pad (four oscillators at the corners,
+// moved by hand, by a path or by drift) and EVOLVE (each macro drifting
+// within a range; FREEZE keeps where they are).
+class VectorPage : public juce::Component,
+                   private juce::Timer
+{
+public:
+    explicit VectorPage (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          pad (p),
+          on (p.apvts, "vec_on", "ON"),
+          path (p.apvts, "vec_path", "PATH"),
+          cornerA (p.apvts, "vec_a", "TOP LEFT"),
+          cornerB (p.apvts, "vec_b", "TOP RIGHT"),
+          cornerC (p.apvts, "vec_c", "BOTTOM LEFT"),
+          cornerD (p.apvts, "vec_d", "BOTTOM RIGHT"),
+          x (p.apvts, "vec_x", "X", colour(), false),
+          y (p.apvts, "vec_y", "Y", colour(), false),
+          rate (p.apvts, "vec_rate", "PATH RATE", colour(), false),
+          drift (p.apvts, "vec_drift", "DRIFT", colour(), false),
+          driftRate (p.apvts, "vec_drift_rate", "DRIFT RATE", colour(), false)
+    {
+        addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
+        for (int m = 0; m < 4; ++m)
+        {
+            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", "EVOLVE",
+                                                                    evolveColour(), false));
+            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", "RATE",
+                                                                  evolveColour(), false));
+            addAndMakeVisible (*evolveAmount.back());
+            addAndMakeVisible (*evolveRate.back());
+        }
+        freeze.setButtonText ("FREEZE");
+        freeze.setTooltip ("Keeps the macros where Evolve has taken them, and stops the drift.");
+        freeze.onClick = [this] { processorRef.freezeEvolve(); };
+        addAndMakeVisible (freeze);
+        startTimerHz (20);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xff5fd3ff); }
+    static juce::Colour evolveColour() { return juce::Colour (0xffc58bff); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintPageBackground (g, getLocalBounds());
+        IlanaTheme::paintCard (g, vectorCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
+
+        auto header = vectorCard.reduced (12, 0).removeFromTop (28);
+        g.setColour (colour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("VECTOR", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+
+        header = evolveCard.reduced (12, 0).removeFromTop (28);
+        g.setColour (evolveColour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("EVOLVE", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+
+        // Each macro: its name, where it is set and where it has drifted to.
+        for (int m = 0; m < 4; ++m)
+        {
+            const auto row = macroRows[(size_t) m];
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.setFont (IlanaTheme::font (11.5f, true));
+            g.drawText (processorRef.getMacroName (m).toUpperCase(), row.withWidth (110).withHeight (18), juce::Justification::centredLeft);
+            const auto bar = juce::Rectangle<float> ((float) row.getX(), (float) row.getY() + 24.0f, 100.0f, 6.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRoundedRectangle (bar, 3.0f);
+            const auto set = readParam ("macro" + juce::String (m + 1));
+            const auto now = processorRef.macroValue (m);
+            g.setColour (juce::Colours::white.withAlpha (0.5f));
+            g.fillRect (bar.getX() + bar.getWidth() * set - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f);
+            g.setColour (evolveColour());
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ bar.getX() + bar.getWidth() * now, bar.getCentreY() }));
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (12);
+        vectorCard = area.removeFromLeft (area.getWidth() * 58 / 100);
+        area.removeFromLeft (10);
+        evolveCard = area;
+
+        auto inner = vectorCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        inner.removeFromBottom (8);
+        const auto side = juce::jmin (inner.getHeight(), inner.getWidth() / 2 + 40);
+        pad.setBounds (inner.removeFromLeft (side));
+        inner.removeFromLeft (10);
+        auto toggles = inner.removeFromTop (40);
+        on.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
+        path.setBounds (toggles.reduced (3, 1));
+        auto combos1 = inner.removeFromTop (44);
+        cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
+        cornerB.setBounds (combos1.reduced (3, 1));
+        auto combos2 = inner.removeFromTop (44);
+        cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
+        cornerD.setBounds (combos2.reduced (3, 1));
+        inner.removeFromTop (6);
+        auto knobs1 = inner.removeFromTop (inner.getHeight() / 2);
+        layoutRow (knobs1, { &x, &y, &rate });
+        layoutRow (inner, { &drift, &driftRate });
+
+        auto rows = evolveCard.reduced (12, 0);
+        rows.removeFromTop (30);
+        freeze.setBounds (rows.removeFromBottom (40).reduced (0, 6).withWidth (120));
+        const auto rowHeight = rows.getHeight() / 4;
+        for (int m = 0; m < 4; ++m)
+        {
+            auto row = rows.removeFromTop (rowHeight);
+            macroRows[(size_t) m] = row.withWidth (116).withTrimmedTop (8);
+            row.removeFromLeft (120);
+            evolveAmount[(size_t) m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
+            evolveRate[(size_t) m]->setBounds (row.reduced (2, 0));
+        }
+    }
+
+private:
+    float readParam (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    void timerCallback() override
+    {
+        const auto active = readParam ("vec_on") > 0.5f;
+        for (juce::Component* c : { (juce::Component*) &path, (juce::Component*) &cornerA, (juce::Component*) &cornerB,
+                                     (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
+                                     (juce::Component*) &y, (juce::Component*) &rate, (juce::Component*) &drift,
+                                     (juce::Component*) &driftRate, (juce::Component*) &pad })
+        {
+            const auto alpha = active ? 1.0f : 0.45f;
+            if (c->getAlpha() != alpha)
+                c->setAlpha (alpha);
+        }
+        rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : 0.45f);
+        if (isShowing())
+            repaint (evolveCard);
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    VectorPadDisplay pad;
+    ToggleControl on, path;
+    ComboControl cornerA, cornerB, cornerC, cornerD;
+    KnobControl x, y, rate, drift, driftRate;
+    std::vector<std::unique_ptr<KnobControl>> evolveAmount, evolveRate;
+    juce::TextButton freeze;
+    juce::Rectangle<int> vectorCard, evolveCard;
+    std::array<juce::Rectangle<int>, 4> macroRows;
 };
 
 class FilterPage : public juce::Component,
@@ -6054,6 +6226,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tabs.addTab ("FM", juce::Colour (0xff18181c), new FmPage (p), true);
     tabs.addTab ("ARP/SEQ", juce::Colour (0xff18181c), new SeqPage (p), true);
     tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
+    tabs.addTab ("VECTOR", juce::Colour (0xff18181c), new VectorPage (p), true);
     tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
     tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).

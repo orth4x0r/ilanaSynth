@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) and M8.2 (piano rework). Next up: the west-coast voice (M8.3).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) and M8.3 (west-coast voice). Next up: filter models (M8.4).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -226,7 +226,7 @@ Plan:
 - **Old patches**: the current hammer stays as "Hammer (classic)" for existing presets; the new piano hammer is appended.
 - **CPU**: a piano note will cost more (2–3 coupled strings and a hammer solved per sample); Eco keeps a lighter version.
 
-#### M8.3: West-coast voice (was M8.1, before that M10)
+#### M8.3: West-coast voice (was M8.1, before that M10) — done (fitted to the published vactrol figures; listening round pending)
 - **Wavefolder**: fold amount, symmetry, and 1–4 stages.
 - **Low-pass gate**: a filter and amplifier in one, modelled on a vactrol, with its natural "bongo" decay.
 - **How to play it**: strike it with the M8.1 Bounce impacts or any envelope.

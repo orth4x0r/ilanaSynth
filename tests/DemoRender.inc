@@ -77,6 +77,12 @@ std::vector<std::pair<juce::String, float>> route (int slot, Mod::Source source,
     return { { prefix + "_src", (float) source }, { prefix + "_dst", (float) destination }, { prefix + "_amt", amount } };
 }
 
+std::vector<Event> operator+ (std::vector<Event> a, const std::vector<Event>& b)
+{
+    a.insert (a.end(), b.begin(), b.end());
+    return a;
+}
+
 std::vector<std::pair<juce::String, float>> operator+ (std::vector<std::pair<juce::String, float>> a,
                                                        const std::vector<std::pair<juce::String, float>>& b)
 {
@@ -277,5 +283,42 @@ void renderM82 (const juce::File& folder)
             }
         std::cout << "demo AB " << dynamic << " written" << std::endl;
     }
+}
+// M8.3: the west-coast voice.
+void renderM83 (const juce::File& folder)
+{
+    using S = std::vector<std::pair<juce::String, float>>;
+    const S west { { "west_on", 1.0f }, { "f1_cutoff", 18000.0f }, { "amp_sustain", 1.0f }, { "amp_release", 1.5f } };
+    std::vector<Event> notes;
+    const int melody[] { 48, 55, 60, 63, 58, 55, 51, 53, 48, 60, 67, 65, 63, 60, 58, 55 };
+    for (int n = 0; n < 16; ++n)
+    {
+        notes.push_back ({ 0.1 + n * 0.3, juce::MidiMessage::noteOn (1, melody[n], (juce::uint8) (60 + (n * 37) % 60)) });
+        notes.push_back ({ 0.1 + n * 0.3 + 0.25, juce::MidiMessage::noteOff (1, melody[n]) });
+    }
+    render (folder, "01 Bongo - struck gate, folded", "", west + S { { "west_fold", 0.45f }, { "west_stages", 2.0f } }, notes, 5.5);
+    render (folder, "02 Bounce strikes the gate (LFO 1 B)", "",
+            west + shapeDefaults (1, LfoSimShapes::Bounce)
+                + S { { "west_src", (float) Mod::Source::Lfo1B }, { "lfo1_rate", 1.2f }, { "lfo1_trigger", 0.0f }, { "west_fold", 0.5f } },
+            held ({ 43, 55 }, 0.05, 3.0) + held ({ 46, 58 }, 3.2, 6.5), 7.0);
+    render (folder, "03 Fold sweep 0 to 100 percent (gate held open)", "",
+            west + S { { "west_open", 1.0f }, { "west_strike", 0.0f }, { "west_stages", 1.0f } },
+            held ({ 45 }, 0.05, 7.8), 8.0,
+            [] (IlanaSynthAudioProcessor& p, double t) { setParam (p, "west_fold", (float) juce::jmin (1.0, t / 7.5)); });
+    render (folder, "04 Symmetry sweep (even harmonics)", "",
+            west + S { { "west_open", 1.0f }, { "west_strike", 0.0f }, { "west_fold", 0.5f } },
+            held ({ 45 }, 0.05, 7.8), 8.0,
+            [] (IlanaSynthAudioProcessor& p, double t) { setParam (p, "west_sym", (float) juce::jlimit (-1.0, 1.0, -1.0 + t / 3.75)); });
+    render (folder, "05 Stages 1 2 3 4 (2 s each)", "",
+            west + S { { "west_open", 1.0f }, { "west_strike", 0.0f }, { "west_fold", 0.55f } },
+            held ({ 45 }, 0.05, 7.8), 8.0,
+            [] (IlanaSynthAudioProcessor& p, double t) { setParam (p, "west_stages", (float) (1 + juce::jmin (3, (int) (t / 2.0)))); });
+    for (int mode = 0; mode < 3; ++mode)
+    {
+        const char* names[] { "Combo", "Low Pass", "VCA" };
+        render (folder, juce::String ("06 Gate mode - ") + names[mode], "", west + S { { "west_mode", (float) mode }, { "west_fold", 0.4f } }, notes, 5.5);
+    }
+    render (folder, "07 WEST in place of Filter 2, after Filter 1", "",
+            west + S { { "west_pos", 1.0f }, { "west_fold", 0.35f }, { "f1_cutoff", 2500.0f }, { "f1_reso", 0.5f } }, notes, 5.5);
 }
 } // namespace Demo

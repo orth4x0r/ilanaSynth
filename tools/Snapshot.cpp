@@ -866,6 +866,44 @@ int runUiTests()
         expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
     }
 
+    // M8.3: the FILTER page's WEST tab shows the west-coast card.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        settle (200);
+        std::vector<CardTabs*> cardTabs;
+        findAll<CardTabs> (*editor, cardTabs);
+        CardTabs* westTabs = nullptr;
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                westTabs = bar;
+        expect (westTabs != nullptr, "the FILTER page has FILTER 2 / WEST tabs");
+        if (westTabs != nullptr)
+        {
+            const auto visibleKnob = [&editor] (const juce::String& id)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == id)
+                    {
+                        auto shown = true;
+                        for (juce::Component* c = knob; c != nullptr && c->getParentComponent() != nullptr; c = c->getParentComponent())
+                            shown = shown && c->isVisible();
+                        if (shown)
+                            return true;
+                    }
+                return false;
+            };
+            westTabs->setSelected (1, true);
+            settle (200);
+            expect (visibleKnob ("west_fold") && visibleKnob ("west_decay") && ! visibleKnob ("f2_cutoff"),
+                    "the WEST tab shows FOLD and DECAY in Filter 2's place");
+            westTabs->setSelected (0, true);
+            settle (200);
+            expect (visibleKnob ("f2_cutoff") && ! visibleKnob ("west_fold"), "the FILTER 2 tab brings Filter 2 back");
+        }
+    }
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -1100,6 +1138,26 @@ int main (int argc, char** argv)
         if (auto* rate = processor.apvts.getParameter ("lfo1_rate"))
             rate->setValueNotifyingHost (rate->convertTo0to1 (4.0f));
         settle (200);
+    }
+
+    // M8.3: the WEST card (FILTER page, FILTER 2 / WEST tabs).
+    {
+        if (auto* parameter = processor.apvts.getParameter ("west_on"))
+            parameter->setValueNotifyingHost (1.0f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        std::vector<CardTabs*> cardTabs;
+        if (auto* page = tabs->getCurrentContentComponent())
+            findAll<CardTabs> (*page, cardTabs);
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                bar->setSelected (1, true);
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-west.png"));
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                bar->setSelected (0, true);
+        if (auto* parameter = processor.apvts.getParameter ("west_on"))
+            parameter->setValueNotifyingHost (0.0f);
     }
 
     // M4: the Hammered Strings preset on the OSC page.

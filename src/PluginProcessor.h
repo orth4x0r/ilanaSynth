@@ -96,6 +96,8 @@ public:
     float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
     // M8.1: a simulated LFO shape's settings (the card's picture reads them too).
     LfoSimSettings readLfoSimSettings (int lfo) const;
+    // M8.3: the loudest voice's WEST gate conductance, for the card.
+    float getWestGateLevel() const { return westGateDisplay.load(); }
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
@@ -576,6 +578,7 @@ private:
     std::array<LfoChaos, (size_t) numLfos> lfoChaos;
     // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
     std::array<LfoSim, (size_t) numLfos> lfoSims;
+    std::atomic<float> westGateDisplay { 0.0f };
     std::array<LfoSmoother, (size_t) numLfos> lfoSmoothers;
     std::array<bool, (size_t) numLfos> lfoRoutedB {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoLastValuesB {};

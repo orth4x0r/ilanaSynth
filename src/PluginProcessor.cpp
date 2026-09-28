@@ -1163,6 +1163,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // M8.2: the soundboard model. Classic keeps old patches as they were.
     addChoice ("sb_model", "Soundboard Model", { "Classic", "Dense" }, 0);
 
+    // M8.3: the west-coast voice (off by default).
+    addBool ("west_on", "West On", false);
+    addChoice ("west_pos", "West Position", { "After Filters", "Replace Filter 2" }, 0);
+    addFloat ("west_fold", "West Fold", 0.0f, 1.0f, 0.3f);
+    addFloat ("west_sym", "West Symmetry", -1.0f, 1.0f, 0.0f);
+    addInt ("west_stages", "West Stages", 1, 4, 2);
+    addChoice ("west_mode", "West Gate Mode", { "Combo", "Low Pass", "VCA" }, 0);
+    addFloat ("west_decay", "West Decay", 0.1f, 4.0f, 1.0f, 0.5f);
+    addFloat ("west_res", "West Resonance", 0.0f, 1.0f, 0.2f);
+    addFloat ("west_strike", "West Strike", 0.0f, 1.0f, 1.0f);
+    addFloat ("west_open", "West Open", 0.0f, 1.0f, 0.0f);
+    {
+        juce::StringArray sources { "Note Strike" };
+        const auto names = Mod::getSourceNames();
+        for (int i = 1; i < names.size(); ++i)
+            sources.add (names[i]);
+        addChoice ("west_src", "West Strike Source", sources, 0);
+    }
+
     return layout;
 }
 
@@ -1735,6 +1754,16 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                 lfoRoutedB[(size_t) lfo] = true;
         }
 
+    // M8.3: the WEST gate's strike source is read by the voices directly.
+    if (getParam ("west_on") > 0.5f)
+    {
+        const auto westSource = (Mod::Source) (int) getParam ("west_src");
+        if (const auto lfo = Mod::lfoIndexFor (westSource); lfo >= 0)
+            lfoRouted[(size_t) lfo] = true;
+        if (const auto lfo = Mod::lfoBIndexFor (westSource); lfo >= 0)
+            lfoRoutedB[(size_t) lfo] = true;
+    }
+
     const auto factor = oversamplingFactor.load();
 
     if (factor > 1)
@@ -1963,6 +1992,20 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.bodyType = (int) getParam ("body_type");
     p.bodyMaterial = getParam ("body_material");
     p.bodySize = getParam ("body_size");
+    p.west.on = getParam ("west_on") > 0.5f;
+    if (p.west.on)
+    {
+        p.west.position = (int) getParam ("west_pos");
+        p.west.fold = getParam ("west_fold");
+        p.west.symmetry = getParam ("west_sym");
+        p.west.stages = (int) getParam ("west_stages");
+        p.west.mode = (int) getParam ("west_mode");
+        p.west.decay = getParam ("west_decay");
+        p.west.resonance = getParam ("west_res");
+        p.west.strike = getParam ("west_strike");
+        p.west.open = getParam ("west_open");
+        p.west.source = (int) getParam ("west_src"); // 0 strike, else the Mod::Source index
+    }
     p.bodyCouplingMode = (int) getParam ("body_coupling_mode");
     p.bodyCoupling = getParam ("body_coupling");
 
@@ -2204,10 +2247,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         samplePositions.fill (-1.0f);
         std::array<float, OscillatorIds::count> phases {};
 
+        auto westLevel = 0.0f;
         for (int i = 0; i < synth.getNumVoices(); ++i)
         {
             if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             {
+                westLevel = juce::jmax (westLevel, voice->getWestGateLevel());
                 const auto amp = voice->getLastAmpValue();
                 const auto activity = voice->getLastLifetimeValue();
 
@@ -2235,6 +2280,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                 }
             }
         }
+        westGateDisplay.store (westLevel);
+
 
         activeVoiceCount.store (activeVoices);
         envMonitorAmp.store (bestAmp);

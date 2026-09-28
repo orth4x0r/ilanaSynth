@@ -428,6 +428,13 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("in_body", "Input to Body");
         add ("in_strings", "Input to Strings");
         add ("in_threshold", "Input Threshold");
+
+        // M8.3 west-coast voice (append only).
+        add ("west_fold", "West Fold");
+        add ("west_sym", "West Symmetry");
+        add ("west_decay", "West Decay");
+        add ("west_open", "West Open");
+        add ("west_strike", "West Strike");
         return true;
     }();
     juce::ignoreUnused (extended);

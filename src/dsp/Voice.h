@@ -10,6 +10,7 @@
 #include "GranularOsc.h"
 #include "KarplusStrong.h"
 #include "LfoShape.h"
+#include "WestCoast.h"
 #include "MaterialBody.h"
 #include "Modulation.h"
 #include "Mseg.h"
@@ -332,6 +333,18 @@ struct VoiceParams
     const float* liveInput = nullptr;
     const float* inputEnv = nullptr;
     float inputToBody = 0.0f, inputToStrings = 0.0f;
+
+    // M8.3: the west-coast voice (wavefolder into a low-pass gate).
+    struct WestParams
+    {
+        bool on = false;
+        int position = 0;       // 0 after the filters, 1 in place of Filter 2
+        float fold = 0.3f, symmetry = 0.0f;
+        int stages = 2;
+        int mode = 0;           // LowPassGate::Mode
+        float decay = 1.0f, resonance = 0.2f, strike = 1.0f, open = 0.0f;
+        int source = 0;         // 0: a strike on each note; else Mod::Source (source - 1 + 1)
+    } west;
     LfoParams lfos[numLfos];
 
     // Only the slots that are switched on, packed at the front, plus the
@@ -370,6 +383,7 @@ public:
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     float getLastAmpValue() const { return lastAmpValue; }
+    float getWestGateLevel() const { return params.west.on && isVoiceActive() ? westGateL.getConductance() : 0.0f; }
     float getLastLifetimeValue() const { return lastLifetimeValue; }
     float getLastExtraEnvValue (int index) const { return extraEnvValues[(size_t) juce::jlimit (0, 10, index)]; }
     float getLastSamplePosition (int oscIndex) const
@@ -471,6 +485,10 @@ private:
     double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
     MaterialBody materialBodyL, materialBodyR;
+    // M8.3
+    Wavefolder westFolderL, westFolderR;
+    LowPassGate westGateL, westGateR;
+    int westStrikeRemaining = 0;
     bool bodyStrikePending = false;
     int bodyTailSamplesRemaining = 0;
 

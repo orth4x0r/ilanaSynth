@@ -1358,6 +1358,129 @@ private:
     int type = -1;
 };
 
+// M8.3: the WEST card: a wavefolder into a low-pass gate. It sits where
+// Filter 2's card is (the FILTER 2 / WEST tabs), and runs after the filters
+// or in Filter 2's place.
+class WestPanel : public juce::Component,
+                  private juce::Timer
+{
+public:
+    explicit WestPanel (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          on (p.apvts, "west_on", "ON"),
+          position (p.apvts, "west_pos", "PLACE"),
+          mode (p.apvts, "west_mode", "GATE"),
+          source (p.apvts, "west_src", "STRIKE BY"),
+          fold (p.apvts, "west_fold", "FOLD", colour(), false),
+          symmetry (p.apvts, "west_sym", "SYMMETRY", colour(), false),
+          stages (p.apvts, "west_stages", "STAGES", colour(), false),
+          decay (p.apvts, "west_decay", "DECAY", colour(), false),
+          resonance (p.apvts, "west_res", "RESO", colour(), false),
+          strike (p.apvts, "west_strike", "STRIKE", colour(), false),
+          open (p.apvts, "west_open", "OPEN", colour(), false)
+    {
+        addAll (*this, on, position, mode, source, fold, symmetry, stages, decay, resonance, strike, open);
+        startTimerHz (30);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xffffb347); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
+        auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
+        g.setColour (colour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("WEST", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (52), juce::Justification::centredLeft);
+
+        // The fold's transfer curve and the gate's vactrol, lit by its level.
+        const auto plot = picture.toFloat();
+        IlanaTheme::paintWell (g, plot, 5.0f);
+        const auto curveArea = plot.withWidth (plot.getWidth() * 0.62f).reduced (8.0f, 6.0f);
+        juce::Path curve;
+        const auto gain = 0.35 + 11.65 * (double) (read ("west_fold") * read ("west_fold"));
+        const auto bias = 0.5 * (double) read ("west_sym");
+        const auto stagesNow = juce::jlimit (1, 4, (int) read ("west_stages"));
+        for (int i = 0; i <= 120; ++i)
+        {
+            const auto x = -1.0 + 2.0 * i / 120.0;
+            auto y = x * gain + bias;
+            for (int s = 0; s < stagesNow; ++s)
+            {
+                y = Wavefolder::fold (y);
+                if (s + 1 < stagesNow)
+                    y *= 1.0 + 0.35 * gain / (double) stagesNow;
+            }
+            const auto px = curveArea.getX() + curveArea.getWidth() * (float) i / 120.0f;
+            const auto py = curveArea.getCentreY() - (float) y * curveArea.getHeight() * 0.45f;
+            if (i == 0) curve.startNewSubPath (px, py); else curve.lineTo (px, py);
+        }
+        g.setColour (colour());
+        g.strokePath (curve, juce::PathStrokeType (1.6f));
+
+        const auto glow = juce::jlimit (0.0f, 1.0f, processorRef.getWestGateLevel());
+        const auto cell = plot.withTrimmedLeft (plot.getWidth() * 0.66f).reduced (10.0f, 8.0f);
+        const auto led = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ cell.getX() + 14.0f, cell.getCentreY() });
+        g.setColour (colour().withAlpha (0.15f + 0.85f * glow));
+        g.fillEllipse (led.expanded (6.0f * glow));
+        g.setColour (juce::Colours::white.withAlpha (0.3f + 0.6f * glow));
+        g.fillEllipse (led.reduced (5.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("LPG", cell.withTrimmedLeft (30.0f), juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (10, 0);
+        area.removeFromTop (30);
+        auto top = area.removeFromTop (area.getHeight() * 2 / 5);
+        auto options = top.removeFromLeft (top.getWidth() / 2);
+        picture = top.reduced (4, 2);
+        const auto optionHeight = options.getHeight() / 2;
+        auto row1 = options.removeFromTop (optionHeight);
+        on.setBounds (row1.removeFromLeft (row1.getWidth() / 3).reduced (3, 1));
+        position.setBounds (row1.reduced (3, 1));
+        auto row2 = options;
+        mode.setBounds (row2.removeFromLeft (row2.getWidth() / 2).reduced (3, 1));
+        source.setBounds (row2.reduced (3, 1));
+        area.removeFromTop (4);
+        layoutRow (area, { &fold, &symmetry, &stages, &decay, &resonance, &strike, &open });
+    }
+
+private:
+    float read (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    void timerCallback() override
+    {
+        const auto active = read ("west_on") > 0.5f;
+        for (juce::Component* c : { (juce::Component*) &fold, (juce::Component*) &symmetry, (juce::Component*) &stages,
+                                     (juce::Component*) &decay, (juce::Component*) &resonance, (juce::Component*) &strike,
+                                     (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
+                                     (juce::Component*) &position })
+        {
+            const auto alpha = active ? 1.0f : 0.4f;
+            if (c->getAlpha() != alpha)
+                c->setAlpha (alpha);
+        }
+        if (isShowing())
+            repaint (picture);
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    ToggleControl on;
+    ComboControl position, mode, source;
+    KnobControl fold, symmetry, stages, decay, resonance, strike, open;
+    juce::Rectangle<int> picture;
+};
+
 class FilterPage : public juce::Component,
                    private juce::Timer
 {
@@ -1367,6 +1490,8 @@ public:
           filterDisplay (p),
           panel1 (p, 1, juce::Colour (0xffff4fd8)),
           panel2 (p, 2, juce::Colour (0xffb28aff)),
+          westPanel (p),
+          secondTabs ({ "FILTER 2", "WEST" }, { juce::Colour (0xffb28aff), WestPanel::colour() }, false),
           flow (p),
           balance (p.apvts, "filter_balance", "", IlanaTheme::accent(), true),
           resOn (p.apvts, "res_on", "ON"),
@@ -1380,6 +1505,16 @@ public:
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
           bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), false)
     {
+        addChildComponent (westPanel);
+        addAndMakeVisible (secondTabs);
+        secondTabs.onSelect = [this] (int index)
+        {
+            panel2.setVisible (index == 0);
+            westPanel.setVisible (index == 1);
+        };
+        // Open on WEST when a patch uses it in Filter 2's place.
+        if (const auto* west = p.apvts.getRawParameterValue ("west_on"); west != nullptr && west->load() > 0.5f)
+            secondTabs.setSelected (1, false);
         addAll (*this, filterDisplay, panel1, panel2, flow, balance,
                 resOn, resAmount, resDecay, resOffset, resKeytrack,
                 bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
@@ -1440,6 +1575,13 @@ public:
         panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - 10) / 2));
         panels.removeFromLeft (10);
         panel2.setBounds (panels);
+        westPanel.setBounds (panels);
+        // The FILTER 2 / WEST tabs, top right of that card.
+        const auto tabWidth = secondTabs.getIdealWidth();
+        secondTabs.setBounds (panels.getRight() - tabWidth - 10, panels.getY() + 5, tabWidth, 18);
+        panel2.setVisible (secondTabs.getSelected() == 0);
+        westPanel.setVisible (secondTabs.getSelected() == 1);
+        secondTabs.toFront (false);
 
         area.removeFromTop (8);
         auto bottom = area.removeFromTop (bottomHeight);
@@ -1514,6 +1656,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
     FilterPanel panel1, panel2;
+    WestPanel westPanel;
+    CardTabs secondTabs;
     SignalFlow flow;
     KnobControl balance;
     bool wasParallel = false;

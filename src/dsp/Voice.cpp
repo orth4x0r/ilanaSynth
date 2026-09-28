@@ -138,6 +138,10 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     resonatorR.prepare (newRate);
     materialBodyL.prepare (newRate);
     materialBodyR.prepare (newRate);
+    westGateL.prepare (newRate);
+    westGateR.prepare (newRate);
+    westFolderL.reset();
+    westFolderR.reset();
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
@@ -306,6 +310,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     resonatorR.reset();
     materialBodyL.reset();
     materialBodyR.reset();
+    // M8.3: the gate is struck by the note (a vactrol keeps its state: a
+    // new strike on a still-lit cell starts from where it is).
+    westStrikeRemaining = params.west.on ? juce::jmax (1, (int) (WestCoastTuning::get().strikeSeconds * sampleRate)) : 0;
     bodyStrikePending = true;
     bodyTailSamplesRemaining = params.resonatorOn && params.bodyType != 0
                                    ? (int) (sampleRate * juce::jmin (10.0,
@@ -741,6 +748,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         keyLevelGain[osc] = keyLevel != 0.0f
                                 ? juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (keyLevel * 6.0f * keyTrackOctaves, -120.0f))
                                 : 1.0f;
+    }
+
+    if (params.west.on)
+    {
+        westFolderL.setParams (params.west.fold, params.west.symmetry, params.west.stages);
+        westFolderR.setParams (params.west.fold, params.west.symmetry, params.west.stages);
     }
 
     glideCoeff = params.glideTime > 0.001f
@@ -1358,6 +1371,33 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         float outL, outR;
 
+        // M8.3: the west-coast voice's control (the LED's drive): a strike
+        // on each note, or any mod source, on top of OPEN.
+        const auto westProcess = [&] (float& l, float& r)
+        {
+            const auto& w = params.west;
+            auto control = w.open;
+            if (w.source == 0)
+            {
+                if (westStrikeRemaining > 0)
+                {
+                    control += 2.0f * w.strike * velocityLevel; // the LED overdriven
+                    --westStrikeRemaining;
+                }
+            }
+            else
+            {
+                control += 2.0f * w.strike * juce::jlimit (0.0f, 1.0f, sourceValue ((Mod::Source) w.source, i, ampValue, filterValue,
+                                                                             filter2Value, modValue, env4Value));
+            }
+            const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
+            westGateL.setParams (gateMode, w.decay, w.resonance);
+            westGateR.setParams (gateMode, w.decay, w.resonance);
+            l = westGateL.process (westFolderL.process (l), control);
+            r = westGateR.process (westFolderR.process (r), control);
+        };
+        const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
+
         if (params.filtersParallel)
         {
             // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
@@ -1368,20 +1408,40 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
             const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
 
-            outL = (f1L * gain1 + filter2L.process (in2L) * gain2) * 0.7071f;
-            outR = (f1R * gain1 + filter2R.process (in2R) * gain2) * 0.7071f;
+            auto f2L = in2L, f2R = in2R;
+            if (westReplacesFilter2)
+                westProcess (f2L, f2R);
+            else
+            {
+                f2L = filter2L.process (in2L);
+                f2R = filter2R.process (in2R);
+            }
+            outL = (f1L * gain1 + f2L * gain2) * 0.7071f;
+            outR = (f1R * gain1 + f2R * gain2) * 0.7071f;
         }
         else
         {
             const auto f2inL = drive (f1L + busL[FilterRoute::Filter2], drive2);
             const auto f2inR = drive (f1R + busR[FilterRoute::Filter2], drive2);
 
-            outL = filter2L.process (f2inL);
-            outR = filter2R.process (f2inR);
+            if (westReplacesFilter2)
+            {
+                outL = f2inL;
+                outR = f2inR;
+                westProcess (outL, outR);
+            }
+            else
+            {
+                outL = filter2L.process (f2inL);
+                outR = filter2R.process (f2inR);
+            }
         }
 
         outL += busL[FilterRoute::Direct];
         outR += busR[FilterRoute::Direct];
+
+        if (params.west.on && params.west.position == 0)
+            westProcess (outL, outR);
 
         // A separate parallel pair keeps the existing serial/parallel paths
         // bit-identical whenever no oscillator selects Both.

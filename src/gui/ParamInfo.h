@@ -15,6 +15,14 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // M8.3: the WEST card.
+    if (id == "west_decay")
+        return juce::String (value, 2) + "x";
+    if (id == "west_strike" || id == "west_open" || id == "west_fold" || id == "west_res")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id == "west_sym")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     const auto asPercent = [value] { return juce::String (juce::roundToInt (value * 100.0f)) + " %"; };
     const auto asMilliseconds = [value] { return juce::String (juce::roundToInt (value)) + " ms"; };
     const auto asSeconds = [value]
@@ -323,6 +331,17 @@ inline juce::String describeParameter (const juce::String& id)
         return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
+    if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
+    if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";
+    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100 % folds about a dozen times.";
+    if (id == "west_sym") return "Offsets the fold: even harmonics, a hollower or reedier tone.";
+    if (id == "west_stages") return "Folders in a row: more stages, denser harmonics.";
+    if (id == "west_mode") return "Combo: filter and amplifier together (the classic bongo). Low Pass: the filter only. VCA: the level only.";
+    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63 %, slower as it darkens).";
+    if (id == "west_res") return "Resonance of the gate's filter.";
+    if (id == "west_strike") return "How hard the gate is struck (times velocity for a note strike, or the chosen source's level).";
+    if (id == "west_open") return "Holds the gate partly open, so notes sustain under the strikes.";
+    if (id == "west_src") return "What strikes the gate: each note, or any mod source (an envelope, or LFO n B with Bounce for its impacts).";
     if (id == "sb_model") return "Classic: the M4 board. Dense: 48 wooden modes a side and the colour measured from a real grand (for the Piano exciter).";
     if (id == "sb_mix") return "How much soundboard resonance is heard.";
     if (id == "sb_tone") return "Lid and mic position: closed and dark to open and bright.";

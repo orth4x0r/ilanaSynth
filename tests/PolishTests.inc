@@ -248,8 +248,108 @@ void runRepeatableLoadTest()
                + juce::String (after, 1) + " dB after another)");
 }
 
+// Debug 2: hosts' edge cases. Every 12th preset at four sample rates and
+// odd block sizes (including 0, 1 and more than announced), with MIDI edge
+// cases (velocity-0 note-ons, all-notes-off, extreme bends, sustain):
+// output stays finite and bounded.
+void runHostEdgeTest()
+{
+    juce::StringArray bad;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    int run = 0;
+    for (const auto rate : { 22050.0, 44100.0, 96000.0, 192000.0 })
+        for (const auto block : { 1, 17, 480 })
+        {
+            // A different slice of the library for each setting.
+            for (int index = 1 + (run++ % 12); index < names.size(); index += 12)
+            {
+                IlanaSynthAudioProcessor processor;
+                processor.loadFactoryPreset (index);
+                processor.prepareToPlay (rate, block);
+                const auto seconds = block == 1 ? 0.05 : 0.4;
+                const auto total = (int) (rate * seconds);
+                juce::AudioBuffer<float> buffer (2, juce::jmax (block * 3, 1));
+                auto peak = 0.0f;
+                auto finite = true;
+                auto done = 0;
+                for (int b = 0; done < total; ++b)
+                {
+                    // Every fifth block is longer than announced; one is empty.
+                    const auto length = b == 3 ? 0 : (b % 5 == 4 ? block * 3 : block);
+                    buffer.setSize (2, length, false, false, true);
+                    buffer.clear();
+                    juce::MidiBuffer midi;
+                    if (b == 0)
+                        for (const auto note : { 36, 60, 64, 67, 96 })
+                            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 127), 0);
+                    if (b == 1)
+                    {
+                        midi.addEvent (juce::MidiMessage::pitchWheel (1, 16383), 0);
+                        midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 0), 0); // a note-off
+                    }
+                    if (b == 2)
+                        midi.addEvent (juce::MidiMessage::pitchWheel (1, 0), 0);
+                    if (done > total / 2 && done - length <= total / 2)
+                        midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+                    processor.processBlock (buffer, midi);
+                    for (int c = 0; c < 2; ++c)
+                        for (int i = 0; i < length; ++i)
+                        {
+                            const auto v = buffer.getSample (c, i);
+                            finite = finite && std::isfinite (v);
+                            peak = juce::jmax (peak, std::abs (v));
+                        }
+                    done += juce::jmax (1, length);
+                }
+                if (! finite || peak > 8.0f)
+                    bad.add (names[index] + " @" + juce::String (rate / 1000.0, 1) + "k/" + juce::String (block)
+                             + (finite ? " peak " + juce::String (peak, 1) : " not finite"));
+            }
+        }
+    check (bad.isEmpty(), "presets stay finite and bounded at 22-192 kHz and odd block sizes (" + bad.joinIntoString (", ") + ")");
+}
+
+// A mono output bus (the processor accepts one): every preset renders
+// into a one-channel buffer without touching a second channel.
+void runMonoTest()
+{
+    juce::StringArray bad;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    for (int index = 1; index < names.size(); index += 5)
+    {
+        IlanaSynthAudioProcessor processor;
+        auto layout = processor.getBusesLayout();
+        layout.outputBuses.getReference (0) = juce::AudioChannelSet::mono();
+        if (! processor.setBusesLayout (layout))
+        {
+            bad.add ("mono layout refused");
+            break;
+        }
+        processor.loadFactoryPreset (index);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (1, 256);
+        auto finite = true;
+        for (int b = 0; b < 40; ++b)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (b == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 256; ++i)
+                finite = finite && std::isfinite (buffer.getSample (0, i));
+        }
+        if (! finite)
+            bad.add (names[index]);
+    }
+    check (bad.isEmpty(), "presets render into a mono output (" + bad.joinIntoString (", ") + ")");
+}
+
 void runTests()
 {
+    runMonoTest();
+    runHostEdgeTest();
     runContinuousTest();
     runRepeatableLoadTest();
     runPatchCutTest();

@@ -394,6 +394,48 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         feedbackHistory[osc] = feedbackFiltered[osc] = 0.0f;
 }
 
+void Voice::resetForNewPatch()
+{
+    for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
+                          &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
+        filter->reset();
+    westGateL.reset();
+    westGateR.reset();
+    westFolderL.reset();
+    westFolderR.reset();
+    westStrikeRemaining = 0;
+    resonatorL.reset();
+    resonatorR.reset();
+    materialBodyL.reset();
+    materialBodyR.reset();
+    bodyStrikePending = false;
+    bodyTailSamplesRemaining = 0;
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
+        {
+            stringFor (osc, u).reset();
+            sampleUnison[osc][u].reset();
+        }
+        feedbackHistory[osc] = feedbackFiltered[osc] = previousOsc[osc] = 0.0f;
+    }
+    fmNoiseState = 0.0f;
+
+    // As a new instance: no note to glide from, and the seeded generators
+    // start their sequences again (the analog ones stay free in the plugin,
+    // as the constructor leaves them).
+#if ILANA_FINGERPRINT_BUILD
+    random.setSeed (12345);
+    driftRandom.setSeed (54321);
+#endif
+    fmNoiseRandom.setSeed (31337);
+    lfoPoolRandom.setSeed (27183);
+    lfoSimNotes = 0;
+    driftValue = driftTarget = 0.0f;
+    hasPlayedNote = false;
+}
+
 void Voice::stopNote (float, bool allowTailOff)
 {
     // The synth hard-stops a voice before reusing it; a mono note change

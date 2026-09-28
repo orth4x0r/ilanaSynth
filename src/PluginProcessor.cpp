@@ -1478,6 +1478,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     noteSpray.reset();
     arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (4096);
+    // A new stream: nothing to ease from.
+    for (int channel = 0; channel < 2; ++channel)
+        lastOutput[channel] = declick[channel] = 0.0f;
 
     currentSampleRate = sampleRate;
     sympatheticStrings.prepare (sampleRate);
@@ -1649,6 +1652,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 void IlanaSynthAudioProcessor::cutPatchTails()
 {
     synth.allNotesOff (0, false);
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+        if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
+            voice->resetForNewPatch();
     noteSpray.reset();
 
     for (int channel = 0; channel < 2; ++channel)

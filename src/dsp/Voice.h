@@ -427,6 +427,10 @@ public:
     // (Euclid's Exciter target). Other oscillator modes are left alone.
     void reExcite (float level);
     void stopNote (float velocity, bool allowTailOff) override;
+    // A new patch: clear what the last one left in the voice (filter and
+    // body memory, the vactrol, strings, glide origin, random sequences),
+    // so its first notes don't carry the old patch's ringing.
+    void resetForNewPatch();
     void pitchWheelMoved (int newValue) override;
     void controllerMoved (int controllerNumber, int newValue) override;
     void channelPressureChanged (int newValue) override;

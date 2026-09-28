@@ -297,6 +297,14 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - The theme's fonts and textures are released at JUCE shutdown instead of as statics at unload (freeing a FreeType face after JUCE's font engine is gone crashed a host on exit); the Lorenz table's cache is built in a thread-safe static initialiser.
   - Typed values: times, dB/oct, semitones and signed amounts are rounded before choosing their format, so "1000 ms" / "1.00 s" and "-0.0" can't disagree when typed back (the round-trip test now tries 400 values per parameter).
 - **UI 2** — done: the PHYSICAL page says plainly when the chosen oscillator isn't a string (the view dims with "NO STRING"; the card says what it plays instead, centred over SWITCH TO PHYSICAL); the EVOLVE rows have space and a hairline between them, so a row's labels no longer read as the values above; vector DRIFT shows %; MATRIX's bobbing chevron no longer sits on a starter button; the CPU readout and the unison display showed a float's full precision ("CPU 2.7733%": `juce::String (x, 0)` means default precision); SCOPE's quality box is labelled.
+- **Debug 2** — done:
+  - Sanitizers: the tests, the UI test and every snapshot state ran under AddressSanitizer and UndefinedBehaviorSanitizer. One finding: the strings' seed counter (`KarplusStrong::nextSeed`) overflowed an `int` after about 270,000 strings (undefined behaviour in a long session); it wraps as unsigned now, with the same seeds until then.
+  - A patch load now also clears what the last patch left inside the voices: filter and body memory, the west-coast fold and vactrol, strings and samples, and the glide origin (the first note glided from the old patch's last pitch). Live West Fold, silent on its own, played the previous patch's filter ringing at -27 dB. The seeded generators restart as in a new instance (the analog drift and pan stay free in the plugin, as before).
+  - Note Spray's generator was never seeded (a default `juce::Random` seeds itself from the clock), so a spray patch played differently every time it loaded; it restarts from a fixed seed now.
+  - `prepareToPlay` clears the patch-change ease (a new stream has nothing to ease from).
+  - The LookAndFeel's hover map is keyed by component address and never forgot one: it is pruned now, and a stale entry starts from the right state.
+  - New regression tests: every 12th preset at 22-192 kHz with blocks of 0, 1, 17 and more than announced, velocity-0 note-ons, all-notes-off, extreme bends and sustain; every 5th preset into a mono output.
+  - Fingerprints are now identical run to run, and 21 more presets' baselines change: all order effects in the old baseline (fresh renders are unchanged, Grand Piano included).
 
 ---
 

@@ -882,8 +882,10 @@ private:
 
     static int nextSeed()
     {
-        static std::atomic<int> counter { 0 };
-        return counter.fetch_add (1) * 7919 + 12345;
+        // Unsigned, so a long session wraps instead of overflowing an int
+        // (undefined); the same seeds as before until then.
+        static std::atomic<std::uint32_t> counter { 0 };
+        return (int) (counter.fetch_add (1) * 7919u + 12345u);
     }
 
     std::vector<float> buffer;

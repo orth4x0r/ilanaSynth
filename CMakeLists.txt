@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ilanaSynth VERSION 1.2.0 LANGUAGES C CXX)
+project(ilanaSynth VERSION 1.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,12 +19,21 @@ FetchContent_Declare(JUCE
 )
 FetchContent_MakeAvailable(JUCE)
 
+# M9: the formats. VST3 and the standalone everywhere, AU on macOS, and
+# CLAP through clap-juce-extensions (ILANA_CLAP=OFF skips it).
+option(ILANA_CLAP "Build CLAP versions of both plugins" ON)
+if (APPLE)
+    set(ILANA_FORMATS VST3 AU Standalone)
+else()
+    set(ILANA_FORMATS VST3 Standalone)
+endif()
+
 juce_add_plugin(ilanaSynth
     COMPANY_NAME "Ilana Audio"
     BUNDLE_ID "com.ilanaaudio.ilanasynth"
     PLUGIN_MANUFACTURER_CODE Ilan
     PLUGIN_CODE Ilns
-    FORMATS VST3 Standalone
+    FORMATS ${ILANA_FORMATS}
     PRODUCT_NAME "ilanaSynth"
     DESCRIPTION "Aggressive wavetable synthesizer"
     IS_SYNTH TRUE
@@ -75,7 +84,7 @@ juce_add_plugin(ilanaSynthFX
     BUNDLE_ID "com.ilanaaudio.ilanasynthfx"
     PLUGIN_MANUFACTURER_CODE Ilan
     PLUGIN_CODE Ilnf
-    FORMATS VST3 Standalone
+    FORMATS ${ILANA_FORMATS}
     PRODUCT_NAME "ilanaSynth FX"
     DESCRIPTION "ilanaSynth as an effect: live input into bodies, strings, grains and filters"
     IS_SYNTH FALSE
@@ -114,6 +123,21 @@ target_link_libraries(ilanaSynthFX
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+
+if (ILANA_CLAP)
+    FetchContent_Declare(clap-juce-extensions
+        GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+        GIT_TAG 55525c9858d4b25687be7759a5e0f70eccef218e
+        GIT_SUBMODULES_RECURSE TRUE
+    )
+    FetchContent_MakeAvailable(clap-juce-extensions)
+    clap_juce_extensions_plugin(TARGET ilanaSynth
+        CLAP_ID "com.ilanaaudio.ilanasynth"
+        CLAP_FEATURES instrument synthesizer stereo)
+    clap_juce_extensions_plugin(TARGET ilanaSynthFX
+        CLAP_ID "com.ilanaaudio.ilanasynthfx"
+        CLAP_FEATURES audio-effect stereo)
+endif()
 
 enable_testing()
 

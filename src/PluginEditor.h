@@ -83,7 +83,7 @@ private:
     static constexpr int envLfoTabIndex = 3;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
-    static constexpr const char* appVersion = "1.2";
+    static constexpr const char* appVersion = "1.3";
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, (size_t) Mod::Source::Count> usedModSources {};

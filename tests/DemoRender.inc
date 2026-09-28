@@ -220,9 +220,18 @@ void renderM82 (const juce::File& folder)
 
     // A/B: the reference grand's note, then ours (dry, no reverb), for a
     // spread of notes at each dynamic.
-    const auto reference = juce::File::getCurrentWorkingDirectory().getChildFile ("build/reference/piano/SalamanderGrandPiano");
+    // The Iowa grand when it is there (the fit's reference since M10), else
+    // the Salamander.
+    const auto iowa = juce::File::getCurrentWorkingDirectory().getChildFile ("build/reference/piano/iowa");
+    const auto reference = iowa.isDirectory() ? iowa
+                                              : juce::File::getCurrentWorkingDirectory().getChildFile ("build/reference/piano/SalamanderGrandPiano");
     if (! reference.isDirectory())
         return;
+    const auto referenceNote = [&reference, iowa] (int note, const char* dynamic)
+    {
+        return reference == iowa ? reference.getChildFile (juce::String (dynamic) + "." + juce::String (note) + ".wav")
+                                 : reference.getChildFile ("piano_" + juce::String (note) + "_" + dynamic + ".wav");
+    };
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
     for (const auto* dynamic : { "pp", "mf", "ff" })
@@ -232,7 +241,7 @@ void renderM82 (const juce::File& folder)
         for (int note : { 24, 36, 48, 60, 72, 84, 96 })
         {
             if (auto reader = std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (
-                    reference.getChildFile ("piano_" + juce::String (note) + "_" + dynamic + ".wav"))))
+                    referenceNote (note, dynamic))))
             {
                 juce::AudioBuffer<float> ref (2, 48000 * 2);
                 ref.clear();

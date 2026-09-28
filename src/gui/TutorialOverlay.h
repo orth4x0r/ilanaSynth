@@ -162,7 +162,7 @@ public:
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; VECTOR mixes four oscillators and lets the macros EVOLVE.",
                 "DICE rolls a fresh patch, INIT resets, Ctrl+Z undoes everything - HIST lists your history.",
-                "241 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
+                "371 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
                 "FM has six operators, 16 one-click algorithms and a noise operator. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
             };
 

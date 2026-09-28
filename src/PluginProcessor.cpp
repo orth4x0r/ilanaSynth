@@ -413,11 +413,88 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                      float def, float skew = 1.0f, float interval = 0.0f)
     {
         const auto step = interval > 0.0f ? interval : (max - min) / 1000.0f;
+        const juce::NormalisableRange<float> range (min, max, step, skew);
         layout.add (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID { id, 1 }, name,
-            juce::NormalisableRange<float> (min, max, step, skew), def,
-            juce::AudioParameterFloatAttributes().withStringFromValueFunction (
-                [id] (float value, int) { return describeValue (id, value); })));
+            juce::ParameterID { id, 1 }, name, range, def,
+            juce::AudioParameterFloatAttributes()
+                .withStringFromValueFunction ([id] (float value, int) { return describeValue (id, value); })
+                // Typed values ("97 %", "250 ms", "1.2 kHz"): the number, read in
+                // whichever unit makes it display as typed, so text -> value ->
+                // text comes back the same (hosts and CLAP validators check).
+                .withValueFromStringFunction ([id, range] (const juce::String& text)
+                {
+                    const auto typed = text.trim();
+                    // Every number in the text ("x32", "F1 +10 %", "-6.0 dB").
+                    const auto numbersIn = [] (const juce::String& typed)
+                    {
+                    std::vector<float> numbers;
+                    for (int i = 0; i < typed.length();)
+                    {
+                        const auto c = typed[i];
+                        const auto startsNumber = juce::CharacterFunctions::isDigit (c)
+                                                  || ((c == '-' || c == '+' || c == '.') && i + 1 < typed.length()
+                                                      && (juce::CharacterFunctions::isDigit (typed[i + 1]) || typed[i + 1] == '.'));
+                        if (! startsNumber)
+                        {
+                            ++i;
+                            continue;
+                        }
+                        auto end = i + 1;
+                        while (end < typed.length() && (juce::CharacterFunctions::isDigit (typed[end]) || typed[end] == '.'))
+                            ++end;
+                        numbers.push_back (typed.substring (i, end).getFloatValue());
+                        i = end;
+                    }
+                    return numbers;
+                    };
+                    const auto numbers = numbersIn (typed);
+                    if (numbers.empty())
+                        return range.start;
+                    auto best = juce::jlimit (range.start, range.end, numbers.back());
+                    auto bestDistance = std::numeric_limits<float>::max();
+                    for (const auto number : numbers)
+                        for (const auto scale : { 1.0f, 0.01f, 1000.0f, 0.001f, 100.0f, -1.0f, -0.01f, -1000.0f, -0.001f })
+                        {
+                            const auto candidate = range.snapToLegalValue (juce::jlimit (range.start, range.end, number * scale));
+                            const auto shown = describeValue (id, candidate);
+                            if (shown == typed)
+                                return candidate;
+                            const auto distance = std::abs (candidate - number * scale);
+                            if (distance < bestDistance && scale > 0.0f)
+                            {
+                                bestDistance = distance;
+                                best = candidate;
+                            }
+                        }
+
+                    // Any other scaling (dB/oct as 6x the value, ...): bisect
+                    // the range for the value whose shown number matches.
+                    const auto shownNumber = [&id, &numbersIn] (float v)
+                    {
+                        const auto n = numbersIn (describeValue (id, v));
+                        return n.empty() ? v : n.front();
+                    };
+                    auto lo = 0.0f, hi = 1.0f;
+                    const auto rising = shownNumber (range.convertFrom0to1 (1.0f)) >= shownNumber (range.convertFrom0to1 (0.0f));
+                    for (int step = 0; step < 40; ++step)
+                    {
+                        const auto mid = 0.5f * (lo + hi);
+                        const auto below = shownNumber (range.convertFrom0to1 (mid)) < numbers.front();
+                        (below == rising ? lo : hi) = mid;
+                    }
+                    // The bisection ends on the edge of the shown number's
+                    // rounding: look at the legal values around it.
+                    const auto found = range.snapToLegalValue (range.convertFrom0to1 (0.5f * (lo + hi)));
+                    const auto legalStep = range.interval > 0.0f ? range.interval : (range.end - range.start) / 1000.0f;
+                    for (int k = 0; k <= 60; ++k)
+                        for (const auto sign : { 1.0f, -1.0f })
+                        {
+                            const auto candidate = range.snapToLegalValue (juce::jlimit (range.start, range.end, found + sign * (float) k * legalStep));
+                            if (describeValue (id, candidate) == typed)
+                                return candidate;
+                        }
+                    return best;
+                })));
     };
 
     // Integer parameters use the same value text as the others (units, note

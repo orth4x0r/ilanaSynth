@@ -4,7 +4,11 @@
 Flags presets whose loudness, brightness or stereo width moved more than the
 run-to-run noise (random unison phases, drift, S&H) can explain.
 
-    python3 tools/compare_fingerprints.py before.csv after.csv
+    python3 tools/compare_fingerprints.py before.csv after.csv [--fail]
+
+Exits 1 when something changed (--fail is accepted for readability in CI).
+Presets silent in both runs (the ilanaSynth FX input presets, which the
+instrument renders without input) are skipped.
 """
 import csv
 import sys
@@ -21,7 +25,11 @@ NOISY = {"Clock Weirdo", "S&H Techno", "Self Osc Drone", "Chord Pad", "Wide Chor
          "Metal Hat", "Granular Clap", "Drunk Tom", "Feedback Choir", "Harmonic Cut Pad", "Grain Choir", "Swarm",
          "Vinyl Dust Keys", "Frozen Grain Lead", "Lorenz Bass", "Drunk Tape Keys", "Chaos Filter Pad",
          "Pentatonic Rain", "Scale Walker", "Hirajoshi Spray", "Blues Machine", "Granular Riser", "Lorenz Radio",
-         "Bitwise Arp", "Throat Drone"}
+         "Bitwise Arp", "Throat Drone",
+         # v1.3 (M10) presets built on random sequencers, spray, chaos and drift
+         "Harp Cascade", "Lorenz Wash", "Double Pendulum Chaos", "Henon Glitch", "Rossler Tide", "Prob Seq Bells",
+         "Ratchet Arp Machine", "Scale Spray Keys", "Prob Seq Drone", "Buchla Bongo Melody", "Evolve Macro Pad",
+         "Vector Path Drift", "Evolving Vector Drone", "Baked Chaos Loop", "Six-Voice Drift"}
 
 
 def load(path):
@@ -34,7 +42,8 @@ def main():
         print(__doc__)
         return 2
 
-    before, after = load(sys.argv[1]), load(sys.argv[2])
+    paths = [a for a in sys.argv[1:] if not a.startswith("--")]
+    before, after = load(paths[0]), load(paths[1])
     changed = 0
 
     for name, old in before.items():
@@ -44,6 +53,8 @@ def main():
             changed += 1
             continue
 
+        if float(new["rms_db"]) <= -100.0 and float(old["rms_db"]) <= -100.0:
+            continue
         rms_delta = float(new["rms_db"]) - float(old["rms_db"])
         old_centroid = max(1.0, float(old["centroid_hz"]))
         centroid_ratio = float(new["centroid_hz"]) / old_centroid

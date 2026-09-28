@@ -1,5 +1,5 @@
 #define AppName "ilanaSynth"
-#define AppVersion "1.2"
+#define AppVersion "1.3"
 #define AppPublisher "Ilana Audio"
 #define RepoRoot ".."
 
@@ -20,7 +20,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\ilanaSynth.exe
-VersionInfoVersion=1.2.0.0
+VersionInfoVersion=1.3.0.0
 VersionInfoProductName={#AppName}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription=ilanaSynth v{#AppVersion} installer
@@ -32,6 +32,10 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Files]
 Source: "{#RepoRoot}\build\ilanaSynth_artefacts\Release\VST3\ilanaSynth.vst3\*"; DestDir: "{commoncf}\VST3\ilanaSynth.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\build\ilanaSynth_artefacts\Release\Standalone\ilanaSynth.exe"; DestDir: "{app}"; Flags: ignoreversion
+; M9: the effect plugin and the CLAP versions (skipped if they were not built).
+Source: "{#RepoRoot}\build\ilanaSynthFX_artefacts\Release\VST3\ilanaSynth FX.vst3\*"; DestDir: "{commoncf}\VST3\ilanaSynth FX.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#RepoRoot}\build\ilanaSynth_artefacts\Release\CLAP\ilanaSynth.clap"; DestDir: "{commoncf}\CLAP"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoRoot}\build\ilanaSynthFX_artefacts\Release\CLAP\ilanaSynth FX.clap"; DestDir: "{commoncf}\CLAP"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]

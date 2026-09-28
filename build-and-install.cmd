@@ -7,6 +7,7 @@ rem  Builds the ilanaSynth VST3 + standalone (Release) and ilanaSynth FX (the
 rem  effect that plays audio input) and installs them:
 rem    VST3       -> C:\Program Files\Common Files\VST3\ilanaSynth.vst3
 rem    VST3 (FX)  -> C:\Program Files\Common Files\VST3\ilanaSynth FX.vst3
+rem    CLAP       -> C:\Program Files\Common Files\CLAP\ilanaSynth.clap (and FX)
 rem    Standalone -> C:\Program Files\ilanaSynth\ilanaSynth.exe
 rem
 rem  Needs: Visual Studio 2022 (or Build Tools) with "Desktop development
@@ -75,7 +76,7 @@ if errorlevel 1 (
 
 echo.
 echo === Building the VST3s and standalone (Release) ===
-"%CMAKE%" --build build --config Release --target ilanaSynth_VST3 ilanaSynth_Standalone ilanaSynthFX_VST3 --parallel
+"%CMAKE%" --build build --config Release --target ilanaSynth_VST3 ilanaSynth_Standalone ilanaSynthFX_VST3 ilanaSynth_CLAP ilanaSynthFX_CLAP --parallel
 if errorlevel 1 goto :fail
 
 set "VST3_SRC=%~dp0build\ilanaSynth_artefacts\Release\VST3\ilanaSynth.vst3"
@@ -113,6 +114,16 @@ if exist "%FX_SRC%" (
     )
 )
 
+set "CLAP_DST=%COMMON%\CLAP"
+for %%P in ("%~dp0build\ilanaSynth_artefacts\Release\CLAP\ilanaSynth.clap" "%~dp0build\ilanaSynthFX_artefacts\Release\CLAP\ilanaSynth FX.clap") do (
+    if exist %%P (
+        if not exist "%CLAP_DST%" mkdir "%CLAP_DST%"
+        echo === Installing %%~nxP to "%CLAP_DST%" ===
+        copy /y %%P "%CLAP_DST%\" >nul
+        if errorlevel 1 echo WARNING: could not copy %%~nxP ^(close your DAW and run this again^).
+    )
+)
+
 if exist "%APP_SRC%" (
     echo === Installing the standalone app to "%APP_DST%" ===
     if not exist "%APP_DST%" mkdir "%APP_DST%"
@@ -129,6 +140,7 @@ echo ==========================================================================
 echo  Done. ilanaSynth is installed.
 echo    VST3:       %VST3_DST%
 echo    VST3 (FX):  %FX_DST%
+echo    CLAP:       %CLAP_DST%
 echo    Standalone: %APP_DST%\ilanaSynth.exe  (shortcut on the desktop)
 echo  Rescan plugins in your DAW to pick it up.
 echo ==========================================================================

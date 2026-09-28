@@ -13,6 +13,19 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
     return false;
 }
 
+// A number with the decimals its size calls for (under 1: two, under 10:
+// one, else none), judged after rounding, so 0.998 shows as "1.0" like 1.0
+// does and typed text reads back the same.
+inline juce::String describeNumber (float value, int maxDecimals = 2)
+{
+    const auto rounded = [value] (int decimals) { const auto scale = std::pow (10.0f, (float) decimals); return std::round (value * scale) / scale; };
+    if (maxDecimals >= 2 && std::abs (rounded (2)) < 1.0f)
+        return juce::String (rounded (2), 2);
+    if (maxDecimals >= 1 && std::abs (rounded (1)) < 10.0f)
+        return juce::String (rounded (1), 1);
+    return juce::String (juce::roundToInt (value));
+}
+
 inline juce::String describeValue (const juce::String& id, float value)
 {
     // M8.3: the WEST card.
@@ -36,9 +49,8 @@ inline juce::String describeValue (const juce::String& id, float value)
 
         // Note juce::String (value, 0) means "default precision", not "no
         // decimals", so whole numbers go through roundToInt.
-        return magnitude >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz"
-                                    : (magnitude < 10.0f ? juce::String (value, magnitude < 1.0f ? 2 : 1)
-                                                         : juce::String (juce::roundToInt (value))) + " Hz";
+        return std::round (magnitude) >= 1000.0f ? juce::String (std::round (value / 10.0f) / 100.0f, 2) + " kHz"
+                                                 : describeNumber (value) + " Hz";
     };
 
     if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
@@ -91,9 +103,12 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     // M5 operators, M6 phase distortion, DAHDSR extras.
     if (isOscParameter (id, "_ratio"))
-        return "x" + juce::String (value, value < 10.0f ? 3 : 2);
+        return "x" + (std::abs (std::round (value * 1000.0f) / 1000.0f) < 10.0f ? juce::String (std::round (value * 1000.0f) / 1000.0f, 3)
+                                                                                  : juce::String (std::round (value * 100.0f) / 100.0f, 2));
     if (isOscParameter (id, "_fixed_hz"))
-        return value >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz" : juce::String (value, value < 100.0f ? 2 : 1) + " Hz";
+        return std::round (value) >= 1000.0f ? juce::String (std::round (value / 10.0f) / 100.0f, 2) + " kHz"
+                                             : (std::round (value * 100.0f) / 100.0f < 100.0f ? juce::String (std::round (value * 100.0f) / 100.0f, 2)
+                                                                                           : juce::String (std::round (value * 10.0f) / 10.0f, 1)) + " Hz";
     if (isOscParameter (id, "_key_level"))
         return (value > 0.0f ? "+" : "") + juce::String (value * 6.0f, 1) + " dB/oct";
     if (isOscParameter (id, "_warp2_amt"))
@@ -156,7 +171,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::String (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
-        return juce::String (value, value < 10.0f ? 1 : 0) + "x";
+        return describeNumber (value, 1) + "x";
 
     if (id.endsWith ("_mix") || id.endsWith ("_amount") || id.endsWith ("_level") || id.endsWith ("_width")
         || id.endsWith ("_spread") || id.endsWith ("_sustain") || id.endsWith ("_velocity")
@@ -183,7 +198,10 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
-    return juce::String (value, value == std::floor (value) ? 0 : 2);
+    // Whole numbers without decimals, judged after rounding to two places
+    // (0.997 is "1", as 1.0 is), so text and value round-trip.
+    const auto rounded = std::round (value * 100.0f) / 100.0f;
+    return rounded == std::floor (rounded) ? juce::String (juce::roundToInt (rounded)) : juce::String (rounded, 2);
 }
 
 inline juce::String describeParameter (const juce::String& id)

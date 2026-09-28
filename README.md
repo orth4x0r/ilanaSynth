@@ -1,4 +1,4 @@
-# IlanaSynth — v1.2
+# IlanaSynth — v1.3
 
 **IlanaSynth, para un sonido más buto.** (for a more brutal sound)
 
@@ -19,11 +19,11 @@ IlanaSynth is a complete sound design machine:
 - **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
 - **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
 
-It all sits in a hardware-inspired interface with 256 factory presets.
+It all sits in a hardware-inspired interface with 371 factory presets.
 
 ---
 
-## What's new since 1.2 (v1.3, in progress)
+## What's new in 1.3
 
 - **Generative card**: Euclidean rhythms, a probability sequencer and strum (M7.1).
 - **BODY section**: bar, plate, bell and shell bodies with a MATERIAL knob, and string/body coupling (M7.2).
@@ -46,6 +46,8 @@ It all sits in a hardware-inspired interface with 256 factory presets.
 - **VECTOR** page (M8.5): an XY pad mixing any four oscillators, moved by hand, by a drawn path, by drift or by modulation (Vector X / Y are mod sources), and **EVOLVE**: each macro drifts within a range, with FREEZE.
 - **BOUNCE** (M8.6) on every oscillator card: renders the patch (one note, with or without its effects) in the background and puts it on that oscillator as a tuned sample or cut into a wavetable. The bounce is saved inside the patch; from there granulate it, warp it, or drive a string with it (Osc In).
 - **PHYSICAL** page (M8.7): an animated view of a Physical oscillator's string, its hammer, pick, bow or amp, and the body, with that string's controls and the body and soundboard switches.
+- **Preset pack** (M10): 114 new presets across all of the above (strings, six-oscillator layers, chaos and physics modulation, acoustic and electric keys, deep FM, phase distortion, generative, bodies, west coast and the new filters, feedback guitar, vector and Evolve, resampled sources, and ten for ilanaSynth FX), and **80 new wavetables** (120 in all, with new Keys and Bass categories).
+- **Formats and platforms** (M9): **CLAP** versions of both plugins, **AU** on macOS, Linux VST3/CLAP/standalone builds, and CI that builds and tests every change on Windows, macOS and Linux (including the pluginval and CLAP validators).
 - Old patches and sessions load and sound as before.
 
 ---
@@ -287,7 +289,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard can be hidden.
   - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
-- **Presets**: 241 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
+- **Presets**: 371 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
 
 ---
 
@@ -318,12 +320,12 @@ git pull origin main
 The script also installs **ilanaSynth FX** (`C:\Program Files\Common Files\VST3\ilanaSynth FX.vst3`). In Ableton Live it appears under Audio Effects: put it on an audio track (or after an instrument) and play into it. It needs no MIDI (use TRIGGER on the INPUT page); to play it from a MIDI track, set that track's MIDI To the FX track.
 
 ### Windows: installer
-1. Run `ilanaSynth-1.2-Windows-Setup.exe`, which installs the VST3 and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
+1. Run `ilanaSynth-1.3-Windows-Setup.exe`, which installs both plugins (VST3 and CLAP) and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
 2. Rescan your plugin folder in your DAW.
 3. The standalone `ilanaSynth.exe` needs no DAW at all.
 
 ### macOS
-There is no pre-built macOS binary in this release. Building it yourself takes about ten minutes, and needs internet the first time for JUCE:
+Release builds (VST3, AU, CLAP and the standalone, universal) come from the Release workflow; they are signed and notarised when the repository has the Apple signing secrets (see `.github/workflows/release.yml`). To build it yourself (about ten minutes, and internet the first time for JUCE):
 
 ```bash
 xcode-select --install   # Apple compilers, once
@@ -332,9 +334,19 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-Copy the built `ilanaSynth.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or `~/Library/Audio/Plug-Ins/VST3/`) and rescan in your DAW.
+Copy the built `ilanaSynth.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or `~/Library/Audio/Plug-Ins/VST3/`), the `.component` to `/Library/Audio/Plug-Ins/Components/` and the `.clap` to `/Library/Audio/Plug-Ins/CLAP/`, then rescan in your DAW.
 
 The standalone app is in `build/ilanaSynth_artefacts/Release/Standalone/`. If macOS refuses to open it, run `xattr -dr com.apple.quarantine <path to ilanaSynth.app>`.
+
+### Linux
+Install the build packages once (Debian/Ubuntu: `sudo apt install build-essential cmake ninja-build libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev`), then:
+
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Copy `build/ilanaSynth_artefacts/Release/VST3/ilanaSynth.vst3` to `~/.vst3/` and `build/ilanaSynth_artefacts/Release/CLAP/ilanaSynth.clap` to `~/.clap/` (the same for ilanaSynth FX). `-DILANA_CLAP=OFF` skips CLAP.
 
 ---
 
@@ -396,4 +408,4 @@ cmake --build build --config Release
 
 ---
 
-*IlanaSynth v1.2 — Ilana Audio.*
+*IlanaSynth v1.3 — Ilana Audio.*

@@ -98,8 +98,32 @@ void runUniqueIdTest()
     check (wrong.isEmpty(), "every parameter comes back from a saved state" + (wrong.isEmpty() ? juce::String() : " (" + wrong.joinIntoString (", ") + ")"));
 }
 
+// A value shown as text and typed back comes back as the same text (hosts
+// let you type values; the CLAP validator checks this for every parameter).
+void runTextRoundTripTest()
+{
+    IlanaSynthAudioProcessor processor;
+    juce::Random random (10);
+    juce::StringArray wrong;
+    for (auto* parameter : processor.getParameters())
+        for (int trial = 0; trial < 40; ++trial)
+        {
+            const auto value = trial == 0 ? 0.0f : trial == 1 ? 1.0f : random.nextFloat();
+            const auto text = parameter->getText (value, 1024);
+            const auto back = parameter->getText (parameter->getValueForText (text), 1024);
+            if (back != text)
+            {
+                wrong.add (parameter->getName (64) + ": '" + text + "' -> '" + back + "'");
+                break;
+            }
+        }
+    check (wrong.isEmpty(), "every parameter's text reads back as the same value" + (wrong.isEmpty() ? juce::String()
+               : " (" + juce::String (wrong.size()) + " wrong, e.g. " + wrong.joinIntoString ("; ").substring (0, 600) + ")"));
+}
+
 void runTests()
 {
+    runTextRoundTripTest();
     runUniqueIdTest();
     runPresetIdTest();
     runBouncePresetTest();

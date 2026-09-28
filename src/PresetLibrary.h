@@ -2700,10 +2700,10 @@ inline std::vector<FactoryPreset> build()
     // polarisations, the bass bark), fitted across the whole keyboard at
     // pp, mf and ff (tools/fit_piano2.py).
     add (B ("Grand Piano", "Keys")
-             .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.2946f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
+             .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.2803f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
              .set ("osc1_excite", 9)
              .set ("osc2_on", 0).set ("sub_on", 0)
-             .keysBody (0.8f, 1.0f, 0.1371f, 0.5f, 0.45f, 0.2f)
+             .keysBody (0.8f, 1.0f, 0.04577f, 0.5f, 0.45f, 0.2f)
              .set ("sb_model", 1)
              .filter1 (LP, 20000.0f, 0.0f)
              .amp (0.001f, 5.0f, 1.0f, 1.0f).velocity (0.0f)

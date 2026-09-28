@@ -560,7 +560,7 @@ void processorTests()
         const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
         check (peak < 100.0f, "16 chaotic LFOs per voice (A and B routed) stay stable (peak " + juce::String (peak, 2) + ")");
         std::cout << "INFO: 8 voices x 16 chaotic LFOs: " << juce::String (elapsed / 2.0 * 100.0, 1) << "% of real time" << std::endl;
-        check (elapsed < 2.0, "16 chaotic LFOs per voice render faster than real time");
+        checkTiming (elapsed < 2.0, "16 chaotic LFOs per voice render faster than real time");
     }
 
     // Beat trigger: a free-running Spring is plucked on each beat.

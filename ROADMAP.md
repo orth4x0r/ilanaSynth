@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator), M8.7 (polish) and M10 (preset pack, done first: see below). Next up: portability and release quality (M9).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator), M8.7 (polish), M10 (preset pack) and M9 (portability and release quality): v1.3 is feature-complete.**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -256,7 +256,7 @@ Grouped with M8.3 because the west-coast filter shares the filter code. Filter v
 - A PHYSICAL page with an animated string, body and hammer view.
 - Tour and README updates.
 
-### M9: Portability and release quality (was M12b)
+### M9: Portability and release quality (was M12b) — done (signed macOS releases wait for the Apple secrets)
 Left until the end on purpose: ilanaSynth is built for Windows first. Today it is a Windows VST3 plus standalone, with macOS as build-it-yourself.
 - **macOS**: a signed and notarised pre-built VST3 and standalone.
 - **AU** (macOS) and **CLAP** on the same JUCE build.

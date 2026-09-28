@@ -72,6 +72,9 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                  : describeNumber (value) + " Hz";
     };
 
+    if (id == "vec_drift")
+        return asPercent();
+
     if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
 

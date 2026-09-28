@@ -296,6 +296,7 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - Windows: every test that put a `Voice` (1.1 MB) on the stack overflowed Windows' 1 MB stack; they allocate it now.
   - The theme's fonts and textures are released at JUCE shutdown instead of as statics at unload (freeing a FreeType face after JUCE's font engine is gone crashed a host on exit); the Lorenz table's cache is built in a thread-safe static initialiser.
   - Typed values: times, dB/oct, semitones and signed amounts are rounded before choosing their format, so "1000 ms" / "1.00 s" and "-0.0" can't disagree when typed back (the round-trip test now tries 400 values per parameter).
+- **UI 2** — done: the PHYSICAL page says plainly when the chosen oscillator isn't a string (the view dims with "NO STRING"; the card says what it plays instead, centred over SWITCH TO PHYSICAL); the EVOLVE rows have space and a hairline between them, so a row's labels no longer read as the values above; vector DRIFT shows %; MATRIX's bobbing chevron no longer sits on a starter button; the CPU readout and the unison display showed a float's full precision ("CPU 2.7733%": `juce::String (x, 0)` means default precision); SCOPE's quality box is labelled.
 
 ---
 

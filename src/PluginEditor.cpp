@@ -1656,10 +1656,16 @@ public:
         g.setFont (IlanaTheme::font (11.0f));
         g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
 
-        // Each macro: its name, where it is set and where it has drifted to.
+        // Each macro: its name, where it is set and where it has drifted to,
+        // with a hairline between rows.
         for (int m = 0; m < 4; ++m)
         {
             const auto row = macroRows[(size_t) m];
+            if (m > 0)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.07f));
+                g.fillRect (evolveCard.getX() + 12, row.getY() - 10, evolveCard.getWidth() - 24, 1);
+            }
             g.setColour (juce::Colours::white.withAlpha (0.8f));
             g.setFont (IlanaTheme::font (11.5f, true));
             g.drawText (processorRef.getMacroName (m).toUpperCase(), row.withWidth (110).withHeight (18), juce::Justification::centredLeft);
@@ -1711,6 +1717,9 @@ public:
             auto row = rows.removeFromTop (rowHeight);
             macroRows[(size_t) m] = row.withWidth (116).withTrimmedTop (8);
             row.removeFromLeft (120);
+            // A gap under each row, so a row's labels don't read as the
+            // values of the row above.
+            row.removeFromBottom (8);
             evolveAmount[(size_t) m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
             evolveRate[(size_t) m]->setBounds (row.reduced (2, 0));
         }
@@ -1814,10 +1823,18 @@ public:
 
         if (! isPhysical (chosen))
         {
-            g.setColour (juce::Colours::white.withAlpha (0.6f));
-            g.setFont (IlanaTheme::font (12.0f));
-            g.drawText ("OSC " + juce::String (chosen + 1) + " is not in Physical mode.", stringCard.reduced (14).withTrimmedTop (30).removeFromTop (40),
-                        juce::Justification::centredLeft);
+            // Centred in the card, above the SWITCH button.
+            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
+            const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
+            auto message = makePhysical.getBounds().withHeight (40).translated (0, -48).withWidth (stringCard.getWidth() - 28)
+                                                  .withX (stringCard.getX() + 14);
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.setFont (IlanaTheme::font (12.5f));
+            g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ", so it has no string.",
+                        message.removeFromTop (20), juce::Justification::centred);
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.setFont (IlanaTheme::font (11.5f));
+            g.drawText ("Switch it to Physical to edit its string and exciter here.", message, juce::Justification::centred);
         }
     }
 
@@ -1841,7 +1858,7 @@ public:
 
         auto controls = stringCard.reduced (10, 0);
         controls.removeFromTop (30);
-        makePhysical.setBounds (controls.withTrimmedTop (44).removeFromTop (30).withWidth (180));
+        makePhysical.setBounds (juce::Rectangle<int> (220, 34).withCentre (controls.getCentre().translated (0, 20)));
         if (excite != nullptr)
         {
             excite->setBounds (controls.removeFromTop (44).reduced (3, 1));
@@ -4674,9 +4691,13 @@ public:
         g.setFont (IlanaTheme::font (10.5f, true));
         g.drawText ("OR START FROM ONE OF THESE", starterArea().withHeight (16).translated (0, -22), juce::Justification::centred);
 
-        // A chevron bobbing towards the source chips.
+        // A chevron bobbing towards the source chips, under the starters
+        // (left out when there is no room: it used to sit on a starter).
         const auto bob = 4.0f * std::sin (now * 3.0f);
-        const auto tip = juce::Point<float> (area.toFloat().getCentreX(), (float) getHeight() - 22.0f + bob);
+        const auto tipY = juce::jmax ((float) getHeight() - 22.0f, (float) starterArea().getBottom() + 18.0f);
+        if (tipY + 6.0f > (float) getHeight())
+            return;
+        const auto tip = juce::Point<float> (area.toFloat().getCentreX(), tipY + bob);
         juce::Path chevron;
         chevron.startNewSubPath (tip.translated (-10.0f, -8.0f));
         chevron.lineTo (tip);
@@ -7004,7 +7025,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     const auto statusY = 43;
     g.setFont (IlanaTheme::font (10.5f));
     g.setColour (cpuColour);
-    g.drawText ("CPU " + juce::String (cpu, 0) + "%",
+    g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
                 juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);
 
     g.setColour (juce::Colours::white.withAlpha (0.4f));

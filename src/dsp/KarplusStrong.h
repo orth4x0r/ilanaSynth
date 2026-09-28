@@ -313,6 +313,17 @@ public:
             delay = pianoLoopDelay;
             coefficient = pianoCoefficient;
         }
+        // The damping low-pass in the loop delays the fundamental too (about
+        // (1 - c) / c samples): take its phase delay off as well, or the
+        // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
+        if (! hammered)
+        {
+            const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
+            const auto pole = 1.0 - (double) lowpassCoefficient;
+            const auto lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
+            delay = juce::jmin (delay + lowpassDelay, period - 1.25);
+        }
+
         auto readPosition = (double) writePosition - period
                             + delay;
 

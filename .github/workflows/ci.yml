@@ -1,13 +1,10 @@
 # M9: build both plugins in every format and run the regression suite on
-# Windows, macOS and Linux for pushes to main and for pull requests.
+# Windows, macOS and Linux.
 name: CI
 
+# Manual only (Actions > CI > Run workflow): the account has no Actions
+# minutes to spare. tools/verify.sh runs the same checks locally.
 on:
-  # Pushes to main, and pull requests (a branch with an open pull request
-  # used to run everything twice: once for the push, once for the PR).
-  push:
-    branches: [ main ]
-  pull_request:
   workflow_dispatch:
 
 concurrency:

@@ -1,4 +1,4 @@
-# M9: release builds. On a version tag (v1.3.0, ...) or by hand: a signed and
+# M9: release builds, run by hand on a version tag (v1.3.0, ...): a signed and
 # notarised macOS package (VST3, AU, CLAP, standalone; universal), the
 # Windows installer, and a Linux archive, attached to a draft GitHub release.
 #
@@ -10,9 +10,9 @@
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   for notarytool
 name: Release
 
+# Manual only (Actions > Release > Run workflow, on a tag): the account has
+# no Actions minutes to spare, so a tag push no longer starts it.
 on:
-  push:
-    tags: [ "v*" ]
   workflow_dispatch:
 
 permissions:

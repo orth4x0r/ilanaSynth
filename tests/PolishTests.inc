@@ -521,8 +521,129 @@ void runNanParameterTest()
     check (bad.isEmpty(), "NaN parameter values from a host still play finite (" + bad.joinIntoString (", ") + ")");
 }
 
+// Debug 5: a saved project comes back as it was. Save, restore into a new
+// instance, save again: the two states must match exactly (every 15th
+// preset, and the resampled ones with their embedded audio and tables).
+void runStateRoundTripTest()
+{
+    IlanaSynthAudioProcessor probe;
+    const auto names = probe.getFactoryPresetNames();
+    juce::Array<int> indices;
+    for (int index = 1; index < names.size(); index += 15)
+        indices.add (index);
+    for (const auto* name : { "Bounced Bell Grains", "Tabled Cello", "Frozen Feedback Table" })
+        indices.addIfNotAlreadyThere (names.indexOf (name));
+
+    juce::StringArray bad;
+    for (const auto index : indices)
+    {
+        IlanaSynthAudioProcessor first;
+        first.loadFactoryPreset (index);
+        first.flushAsyncUpdates();
+        juce::MemoryBlock saved;
+        first.getStateInformation (saved);
+
+        IlanaSynthAudioProcessor second;
+        second.setStateInformation (saved.getData(), (int) saved.getSize());
+        second.flushAsyncUpdates();
+        juce::MemoryBlock again;
+        second.getStateInformation (again);
+
+        std::unique_ptr<juce::XmlElement> a (juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize()));
+        std::unique_ptr<juce::XmlElement> b (juce::AudioProcessor::getXmlFromBinary (again.getData(), (int) again.getSize()));
+        if (a == nullptr || b == nullptr || ! a->isEquivalentTo (b.get(), false))
+        {
+            // Name the first attribute that differs, for the report.
+            juce::String where;
+            if (a != nullptr && b != nullptr)
+                for (auto* child : a->getChildIterator())
+                {
+                    auto* other = b->getChildByAttribute ("id", child->getStringAttribute ("id"));
+                    if (child->hasAttribute ("id") && (other == nullptr || ! child->isEquivalentTo (other, false)))
+                    {
+                        where = child->getStringAttribute ("id") + " " + child->getStringAttribute ("value") + " -> "
+                                + (other != nullptr ? other->getStringAttribute ("value") : juce::String ("missing"));
+                        break;
+                    }
+                    if (! child->hasAttribute ("id") && b->getChildByName (child->getTagName()) != nullptr
+                        && ! child->isEquivalentTo (b->getChildByName (child->getTagName()), false))
+                    {
+                        where = child->getTagName();
+                        break;
+                    }
+                }
+            bad.add (names[index] + (where.isNotEmpty() ? " [" + where + "]" : juce::String()));
+        }
+    }
+    check (bad.isEmpty(), "a saved state restores and saves again unchanged (" + bad.joinIntoString (", ") + ")");
+}
+
+// A4 stays A4 at every sample rate and oversampling setting, for a
+// wavetable (Init) and a Physical string (Nylon String): the fundamental
+// from the autocorrelation of the held note.
+void runTuningAcrossRatesTest()
+{
+    juce::StringArray bad;
+    auto worst = 0.0;
+    for (const auto* preset : { "Init", "Nylon String" })
+        for (const auto rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            for (const auto oversample : { 0, 2, 4 })
+            {
+                IlanaSynthAudioProcessor processor;
+                const auto names = processor.getFactoryPresetNames();
+                processor.loadFactoryPreset (juce::jmax (0, names.indexOf (preset)));
+                setParam (processor, "oversampling", oversample > 0 ? 1.0f : 0.0f);
+                setParam (processor, "os_factor", oversample == 4 ? 1.0f : 0.0f);
+                processor.prepareToPlay (rate, 512);
+                juce::AudioBuffer<float> buffer (2, 512);
+                std::vector<float> mono;
+                const auto total = (int) (rate * 0.5);
+                for (int done = 0; done < total; done += 512)
+                {
+                    buffer.clear();
+                    juce::MidiBuffer midi;
+                    if (done == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 69, (juce::uint8) 100), 0);
+                    processor.processBlock (buffer, midi);
+                    for (int i = 0; i < 512; ++i)
+                        mono.push_back (buffer.getSample (0, i) + buffer.getSample (1, i));
+                }
+                // 100 ms from 150 ms in (past the attack).
+                const auto start = (size_t) (rate * 0.15), length = (size_t) (rate * 0.1);
+                const auto minLag = (int) (rate / 480.0), maxLag = (int) (rate / 400.0);
+                auto bestLag = minLag;
+                auto best = -1.0e30;
+                std::vector<double> scores ((size_t) maxLag + 2, 0.0);
+                for (int lag = minLag - 1; lag <= maxLag + 1; ++lag)
+                {
+                    double sum = 0.0;
+                    for (size_t i = start; i < start + length; ++i)
+                        sum += (double) mono[i] * mono[i + (size_t) lag];
+                    scores[(size_t) lag] = sum;
+                    if (lag >= minLag && lag <= maxLag && sum > best)
+                    {
+                        best = sum;
+                        bestLag = lag;
+                    }
+                }
+                // Parabolic interpolation around the peak.
+                const auto a = scores[(size_t) bestLag - 1], b = scores[(size_t) bestLag], c = scores[(size_t) bestLag + 1];
+                const auto shift = (a - 2.0 * b + c) != 0.0 ? 0.5 * (a - c) / (a - 2.0 * b + c) : 0.0;
+                const auto hz = rate / ((double) bestLag + shift);
+                const auto cents = 1200.0 * std::log2 (hz / 440.0);
+                worst = juce::jmax (worst, std::abs (cents));
+                if (std::abs (cents) > 5.0)
+                    bad.add (juce::String (preset) + " @" + juce::String (rate / 1000.0, 1) + "k os" + juce::String (oversample)
+                             + ": " + juce::String (cents, 1) + " ct");
+            }
+    check (bad.isEmpty(), "A4 in tune within 5 cents at 44.1-192 kHz, oversampled or not (worst " + juce::String (worst, 2) + " ct"
+               + (bad.isEmpty() ? juce::String() : "; " + bad.joinIntoString (", ")) + ")");
+}
+
 void runTests()
 {
+    runTuningAcrossRatesTest();
+    runStateRoundTripTest();
     runStateFuzzTest();
     runNanParameterTest();
     runConcurrencyTest();

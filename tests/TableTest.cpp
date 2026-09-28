@@ -777,8 +777,15 @@ void runPhysicalStringTest()
         return peak;
     };
     check (slapAt (0.2f) < slapAt (1.0f) * 0.5f, "slap follows velocity");
-    check (attackBrightness (slapped) > attackBrightness (legacy) * 1.2,
-           "slap adds a short attack transient");
+    // What the slap adds: the difference from the same pluck without it
+    // (the plain pluck's own brightness moves with the loop's read
+    // fraction, so a ratio of the two sat on its threshold).
+    std::vector<float> added (slapped.size());
+    for (size_t i = 0; i < added.size(); ++i)
+        added[i] = slapped[i] - legacy[i];
+    check (attackBrightness (added) > attackBrightness (legacy) * 0.2,
+           "slap adds a short attack transient (adds " + juce::String (attackBrightness (added), 2) + " to "
+               + juce::String (attackBrightness (legacy), 2) + ")");
 
     for (const auto& samples : { stiff, pickup, excitation, hard, slapped })
     {
@@ -8739,6 +8746,14 @@ int main()
         runWarpTests();
         runFmMatrixTests();
         std::cout << (failures == 0 ? "M5 TESTS PASSED" : "M5 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_KS_TEST", "").isNotEmpty())
+    {
+        runKarplusStrongTest();
+        runPhysicalStringTest();
+        std::cout << (failures == 0 ? "KS TESTS PASSED" : "KS TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 

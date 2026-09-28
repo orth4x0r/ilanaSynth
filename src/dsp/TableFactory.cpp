@@ -1,4 +1,5 @@
 #include "TableFactory.h"
+#include "TableFFT.h"
 
 #include <juce_dsp/juce_dsp.h>
 
@@ -159,7 +160,7 @@ std::vector<std::vector<float>> additiveTable (AmplitudeFunction&& amplitudeFor,
                                                PhaseFunction phaseFor = {})
 {
     using Complex = std::complex<float>;
-    juce::dsp::FFT fft ((int) std::log2 ((double) frameSize));
+    const TableFFT fft ((int) std::log2 ((double) frameSize)); // the same tables on every platform
     std::vector<Complex> spectrum ((size_t) frameSize), time ((size_t) frameSize);
     std::vector<std::vector<float>> frames ((size_t) numFrames, std::vector<float> ((size_t) frameSize, 0.0f));
     partials = juce::jmin (partials, frameSize / 2 - 1);
@@ -174,9 +175,11 @@ std::vector<std::vector<float>> additiveTable (AmplitudeFunction&& amplitudeFor,
         for (int n = 1; n <= partials; ++n)
         {
             const auto a = (float) amplitudeFor (t, n) * (float) frameSize * 0.5f;
-            const auto phase = (float) (juce::MathConstants<double>::twoPi * phaseFor (n));
-            const auto c = std::polar (a, phase); // a e^(j phase) / j = -j a e^(j phase)
-            spectrum[(size_t) n] = Complex (c.imag(), -c.real());
+            // a e^(j phase) / j = -j a e^(j phase). (Not std::polar: a can be
+            // negative, which libc++ treats as undefined.)
+            const auto phase = juce::MathConstants<double>::twoPi * phaseFor (n);
+            const auto re = a * (float) std::cos (phase), im = a * (float) std::sin (phase);
+            spectrum[(size_t) n] = Complex (im, -re);
             spectrum[(size_t) (frameSize - n)] = std::conj (spectrum[(size_t) n]);
         }
 

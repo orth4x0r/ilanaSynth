@@ -446,12 +446,14 @@ void renderM10 (const juce::File& folder)
             continue;
         std::vector<Event> events;
         auto seconds = 7.0;
+        static constexpr int bassLine[] { 36, 36, 43, 36, 39, 36, 46, 43 };
+        static constexpr int melody[] { 60, 63, 67, 70, 72, 70, 67, 63 };
         if (category == "Bass")
             for (int k = 0; k < 8; ++k)
-                events = events + held ({ (int[]) { 36, 36, 43, 36, 39, 36, 46, 43 }[k] }, 0.05 + k * 0.4, 0.05 + k * 0.4 + 0.3);
+                events = events + held ({ bassLine[k] }, 0.05 + k * 0.4, 0.05 + k * 0.4 + 0.3);
         else if (category == "Lead" || category == "Pluck")
             for (int k = 0; k < 8; ++k)
-                events = events + held ({ (int[]) { 60, 63, 67, 70, 72, 70, 67, 63 }[k] }, 0.05 + k * 0.45, 0.05 + k * 0.45 + 0.38);
+                events = events + held ({ melody[k] }, 0.05 + k * 0.45, 0.05 + k * 0.45 + 0.38);
         else if (category == "Generative")
             events = held ({ 50, 57, 62 }, 0.05, 6.0);
         else if (category == "Drone" || category == "FX")

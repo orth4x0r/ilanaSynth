@@ -1,4 +1,5 @@
 #include "Wavetable.h"
+#include "TableFFT.h"
 
 #include <array>
 
@@ -307,7 +308,7 @@ void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames)
                    std::vector<std::vector<float>> ((size_t) numFrames,
                                                     std::vector<float> ((size_t) frameSize + 3, 0.0f)));
 
-    juce::dsp::FFT fft ((int) std::log2 ((double) frameSize));
+    const TableFFT fft ((int) std::log2 ((double) frameSize)); // the same tables on every platform
 
     std::vector<Complex> timeInput ((size_t) frameSize);
     std::vector<Complex> spectrum ((size_t) frameSize);

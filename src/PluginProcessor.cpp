@@ -1831,6 +1831,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         {
             displayFrequency.store ((float) juce::MidiMessage::getMidiNoteInHertz (metadata.getMessage().getNoteNumber()));
             displayPhase.store (0.0f);
+            ++noteOnCount;
         }
     }
 
@@ -2433,6 +2434,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         if (peak > held.load())
             held.store (peak);
     }
+    outputLevelDisplay.store (buffer.getMagnitude (0, buffer.getNumSamples()));
 
     const auto elapsedSeconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startTicks);
     const auto availableSeconds = (double) buffer.getNumSamples() / juce::jmax (1.0, currentSampleRate);

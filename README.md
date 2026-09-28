@@ -38,6 +38,14 @@ It all sits in a hardware-inspired interface with 256 factory presets.
   - **Input Env**, the input's envelope, is a new modulation source (the INPUT chip)
   - input **GAIN** and **DRY**
   - quick starts: Live Body, Live Wah, Live Grains and Live Strings. The effect opens on Live Body.
+- **Simulated LFO shapes** (M8.1): random family (Random Hold, Sine Random, Perlin, Drunk Walk), chaotic attractors and maps (Lorenz, Rössler, Duffing, Logistic, Hénon, Double Pendulum) and physics (Bounce, Pendulum, Spring, Friction), each with its own named knobs, SMOOTH, a second output (**LFO n B**, a new mod source) and FIRE to kick it.
+- **Grand Piano** (M8.2): a new **Piano** exciter (a nonlinear felt hammer on a stiff, two-polarisation string with tension modulation) and a **Dense** soundboard, fitted note by note to the Salamander Grand (a Yamaha C5) across the keyboard at three dynamics. Preset: Grand Piano.
+- **WEST** (M8.3): a west-coast card on the FILTER page, after the filters or in place of Filter 2: a wavefolder (FOLD, SYMMETRY, 1–4 stages) into a vactrol **low-pass gate** struck by each note or by any mod source (try LFO B with the Bounce shape).
+- **13 more filter models** (M8.4), on a second page of the type grid: Ladder BP and Drive, SEM, OTA LP and BP, MS-20 HP, Steiner-Parker, Phaser Notch, damped and morphing combs, Vowel, Talking and Twin Peak.
+- **Feedback** exciter (M8.5): an amp and speaker in the string's loop, so a held note blooms into a harmonic; AMP GAIN and DISTANCE pick how and which.
+- **VECTOR** page (M8.5): an XY pad mixing any four oscillators, moved by hand, by a drawn path, by drift or by modulation (Vector X / Y are mod sources), and **EVOLVE**: each macro drifts within a range, with FREEZE.
+- **BOUNCE** (M8.6) on every oscillator card: renders the patch (one note, with or without its effects) in the background and puts it on that oscillator as a tuned sample or cut into a wavetable. The bounce is saved inside the patch; from there granulate it, warp it, or drive a string with it (Osc In).
+- **PHYSICAL** page (M8.7): an animated view of a Physical oscillator's string, its hammer, pick, bow or amp, and the body, with that string's controls and the body and soundboard switches.
 - Old patches and sessions load and sound as before.
 
 ---
@@ -129,7 +137,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
     - **DAMPER** stops the string once the key (and sustain pedal) is up; **REGISTER** makes treble strings stiffer and brighter and bass strings longer.
     - Bridge buzz and velocity-sensitive fret rattle are optional.
     - **Tine** and **Reed**: electric pianos in place of the string, with DECAY, DAMP (tone), pickup DISTANCE and OFFSET, HAMMER and DAMPER.
-  - **Sample**: any `.wav` up to 120 s.
+  - **Sample**: any `.wav` up to 120 s, or a **BOUNCE** of the patch itself (saved inside the patch).
     - Tuned or untuned playback, loop / one-shot, reverse, start and end points, and fades.
     - Five factory samples are built in: Metal Hit, Vocal Ah, Sub Tone, Vinyl Loop and Noise Rise. Right-click the display to pick one.
   - **Granular**: grains from the oscillator's sample (a vocal until you load your own).
@@ -167,7 +175,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - Every route is a modulation destination.
 
 ### Filters (2)
-- 12 models, in three groups on the FILTER page (CLASSIC, CHARACTER, SPECIAL):
+- 25 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to thirteen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
   - Low pass, Band pass, High pass and Notch (12 or 24 dB)
   - Ladder LP and Ladder HP
   - Diode LP and MS-20 LP
@@ -267,7 +275,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 
 ### Interface
 - **Design**: hardware-inspired, with 4 colour themes. Resize it from the corner (75–200%) or from the settings menu.
-- **Tabs**: MAIN, OSC, FILTER, ENV/LFO, FM, ARP/SEQ, MATRIX, FX and SCOPE. Number keys 1–9 switch between them.
+- **Tabs**: MAIN, OSC, FILTER, ENV/LFO, FM, ARP/SEQ, MATRIX, VECTOR, PHYSICAL, FX and SCOPE. Number keys 1–9 and 0 switch to the first ten.
 - **Header**:
   - preset name with category and an EDITED marker
   - previous / next and favourite

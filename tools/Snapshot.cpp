@@ -14,6 +14,7 @@
 #include "gui/CardTabs.h"
 #include "gui/FilterWidgets.h"
 #include "gui/VectorPad.h"
+#include "gui/PhysicalView.h"
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
@@ -921,6 +922,28 @@ int runUiTests()
                 "a bounce puts OSC 2 in Sample mode with the sample controls showing");
     }
 
+    // M8.7: the PHYSICAL page follows the patch's Physical oscillator.
+    {
+        processor.loadFactoryPreset (names.indexOf ("Grand Piano"));
+        tabs->setCurrentTabIndex (tabIndex ("PHYSICAL"));
+        settle (400);
+        auto* page = tabs->getCurrentContentComponent();
+        expect (page != nullptr && findChild<PhysicalView> (*page) != nullptr, "the PHYSICAL page shows the animated string");
+        std::vector<KnobControl*> knobs;
+        if (page != nullptr)
+            findAll<KnobControl> (*page, knobs);
+        juce::String physicalPrefix;
+        for (const auto* prefix : OscillatorIds::prefixes)
+            if (physicalPrefix.isEmpty() && juce::roundToInt (processor.apvts.getRawParameterValue (juce::String (prefix) + "_mode")->load()) == 1)
+                physicalPrefix = prefix;
+        auto bound = false;
+        for (auto* knob : knobs)
+            bound = bound || (knob->getParameterId() == physicalPrefix + "_string_decay" && visibleInTree (knob));
+        expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Grand Piano's string (" + physicalPrefix + ")");
+        processor.loadFactoryPreset (neuroWobble);
+        settle (200);
+    }
+
     // M8.4: the type grid turns to the page holding a new model.
     {
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
@@ -1252,6 +1275,38 @@ int main (int argc, char** argv)
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
+
+    // M8.7: the PHYSICAL page, a moment after a note (Grand Piano, then a
+    // feedback guitar).
+    for (const auto& [presetName, file] : { std::pair<const char*, const char*> { "Grand Piano", "physical-page.png" },
+                                            { "", "physical-feedback.png" } })
+    {
+        if (juce::String (presetName).isNotEmpty())
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+        else
+        {
+            processor.loadFactoryPreset (0);
+            for (const auto& [id, value] : { std::pair<const char*, float> { "osc1_mode", 1.0f }, { "osc1_excite", 10.0f },
+                                             { "osc1_string_sustain", 0.6f }, { "osc2_on", 0.0f } })
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        }
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("PHYSICAL"));
+        settle (300);
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int block = 0; block < 20; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 110), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+        }
+        settle (350);
+        save (*editor, outDir.getChildFile (file));
+        processor.panic();
+    }
+    processor.loadFactoryPreset (0);
 
     // M8.5: the VECTOR page, with the pad on and a path.
     {

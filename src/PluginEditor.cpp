@@ -23,6 +23,7 @@
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
 #include "gui/VectorPad.h"
+#include "gui/PhysicalView.h"
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
 #include "gui/GenerativeWidgets.h"
@@ -1748,6 +1749,248 @@ private:
     juce::TextButton freeze;
     juce::Rectangle<int> vectorCard, evolveCard;
     std::array<juce::Rectangle<int>, 4> macroRows;
+};
+
+// M8.7: the PHYSICAL page. The animated string, its exciter and the body
+// for one oscillator (the first in Physical mode unless another is picked),
+// with that oscillator's string controls and the shared body and
+// soundboard switches beside it.
+class PhysicalPage : public juce::Component,
+                     private juce::Timer
+{
+public:
+    explicit PhysicalPage (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          view (p),
+          resOn (p.apvts, "res_on", "BODY"),
+          bodyType (p.apvts, "body_type", "BODY TYPE"),
+          sbOn (p.apvts, "sb_on", "SOUNDBOARD"),
+          sbModel (p.apvts, "sb_model", "BOARD MODEL")
+    {
+        addAll (*this, view, resOn, bodyType, sbOn, sbModel);
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            auto& button = oscButtons[(size_t) i];
+            button.setButtonText ("OSC " + juce::String (i + 1));
+            button.setClickingTogglesState (false);
+            button.onClick = [this, i] { choose (i, true); };
+            addAndMakeVisible (button);
+        }
+        makePhysical.setButtonText ("SWITCH TO PHYSICAL");
+        makePhysical.setTooltip ("Puts this oscillator in Physical mode.");
+        makePhysical.onClick = [this]
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (prefix() + "_mode"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (1.0f));
+        };
+        addChildComponent (makePhysical);
+        choose (firstPhysical(), false);
+        startTimerHz (5);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xffffb35c); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintPageBackground (g, getLocalBounds());
+        IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
+
+        const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note)
+        {
+            auto header = card.reduced (12, 0).removeFromTop (28);
+            g.setColour (colour());
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.drawText (name, header, juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (11.0f));
+            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (13.0f, true)), name)) + 14),
+                        juce::Justification::centredLeft);
+        };
+        title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings");
+        title (stringCard, "OSC " + juce::String (chosen + 1) + " STRING", "");
+        title (bodyCard, "BODY", "shared by every string");
+
+        if (! isPhysical (chosen))
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.6f));
+            g.setFont (IlanaTheme::font (12.0f));
+            g.drawText ("OSC " + juce::String (chosen + 1) + " is not in Physical mode.", stringCard.reduced (14).withTrimmedTop (30).removeFromTop (40),
+                        juce::Justification::centredLeft);
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (12);
+        viewCard = area.removeFromLeft (area.getWidth() * 60 / 100);
+        area.removeFromLeft (10);
+        bodyCard = area.removeFromBottom (juce::jmin (150, area.getHeight() / 3));
+        area.removeFromBottom (10);
+        stringCard = area;
+
+        auto inner = viewCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        auto picker = inner.removeFromTop (30);
+        const auto buttonWidth = picker.getWidth() / OscillatorIds::count;
+        for (auto& button : oscButtons)
+            button.setBounds (picker.removeFromLeft (buttonWidth).reduced (3, 3));
+        inner.removeFromTop (6);
+        view.setBounds (inner.withTrimmedBottom (10));
+
+        auto controls = stringCard.reduced (10, 0);
+        controls.removeFromTop (30);
+        makePhysical.setBounds (controls.withTrimmedTop (44).removeFromTop (30).withWidth (180));
+        if (excite != nullptr)
+        {
+            excite->setBounds (controls.removeFromTop (44).reduced (3, 1));
+            controls.removeFromTop (4);
+            const auto rows = (int) (knobs.size() + 3) / 4;
+            const auto rowHeight = juce::jmin (120, controls.getHeight() / juce::jmax (1, rows));
+            for (int row = 0; row < rows; ++row)
+            {
+                std::vector<juce::Component*> items;
+                for (size_t k = (size_t) row * 4; k < juce::jmin (knobs.size(), (size_t) row * 4 + 4); ++k)
+                    items.push_back (knobs[k].get());
+                while (items.size() < 4)
+                    items.push_back (nullptr);
+                auto rowArea = controls.removeFromTop (rowHeight);
+                const auto cell = rowArea.getWidth() / 4;
+                for (auto* item : items)
+                {
+                    auto slot = rowArea.removeFromLeft (cell);
+                    if (item != nullptr)
+                        item->setBounds (slot.reduced (2, 6));
+                }
+            }
+        }
+
+        auto body = bodyCard.reduced (10, 0);
+        body.removeFromTop (30);
+        auto top = body.removeFromTop (44);
+        resOn.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 6));
+        bodyType.setBounds (top.reduced (3, 1));
+        auto bottom = body.removeFromTop (44);
+        sbOn.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2).reduced (3, 6));
+        sbModel.setBounds (bottom.reduced (3, 1));
+    }
+
+    int getChosenOscillator() const { return chosen; }
+
+private:
+    juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
+
+    float readParam (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    bool isPhysical (int osc) const
+    {
+        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 1;
+    }
+
+    int firstPhysical() const
+    {
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (isPhysical (i) && processorRef.isOscillatorShown (i))
+                return i;
+        return 0;
+    }
+
+    void choose (int osc, bool byHand)
+    {
+        chosen = juce::jlimit (0, OscillatorIds::count - 1, osc);
+        pickedByHand = pickedByHand || byHand;
+        const auto id = prefix();
+        view.setOscillator (id);
+
+        // The string's controls, rebound to the chosen oscillator.
+        knobs.clear();
+        if (excite == nullptr || excitePrefix != id) // not while its own menu may be calling back
+        {
+            excite = std::make_unique<ComboControl> (processorRef.apvts, id + "_excite", "EXCITE");
+            addAndMakeVisible (*excite);
+            excitePrefix = id;
+        }
+        // The knobs this exciter uses (as on the OSC card).
+        shownExcite = juce::roundToInt (readParam (id + "_excite"));
+        const auto hammer = shownExcite == 5 || shownExcite == 9, feedback = shownExcite == 10, bow = shownExcite == 4;
+        std::vector<std::pair<const char*, const char*>> knobIds {
+            { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_string_sustain", feedback ? "FEEDBACK" : "SUSTAIN" },
+            { "_string_stiffness", "STIFF" }, { "_string_excite_pos", "EXCITE POS" }, { "_string_pickup", "PICKUP" } };
+        if (hammer)
+            knobIds.push_back ({ "_hammer_hard", "HAMMER" });
+        else if (bow)
+            knobIds.insert (knobIds.end(), { { "_bow_pressure", "PRESSURE" }, { "_bow_speed", "SPEED" } });
+        else if (feedback)
+            knobIds.insert (knobIds.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
+        else
+            knobIds.insert (knobIds.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_bridge_buzz", "BUZZ" } });
+        for (const auto& [suffix, label] : knobIds)
+            if (processorRef.apvts.getParameter (id + suffix) != nullptr)
+            {
+                knobs.push_back (std::make_unique<KnobControl> (processorRef.apvts, id + suffix, label, colour(), false));
+                addAndMakeVisible (*knobs.back());
+            }
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            oscButtons[(size_t) i].setToggleState (i == chosen, juce::dontSendNotification);
+        updateAvailability();
+        resized();
+        repaint();
+    }
+
+    void updateAvailability()
+    {
+        const auto physical = isPhysical (chosen);
+        makePhysical.setVisible (! physical);
+        if (excite != nullptr)
+            excite->setVisible (physical);
+        for (auto& knob : knobs)
+            knob->setVisible (physical);
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            auto& button = oscButtons[(size_t) i];
+            button.setVisible (processorRef.isOscillatorShown (i));
+            button.setAlpha (isPhysical (i) ? 1.0f : 0.5f);
+        }
+        const auto resonator = readParam ("res_on") > 0.5f;
+        bodyType.setAlpha (resonator ? 1.0f : 0.45f);
+        sbModel.setAlpha (readParam ("sb_on") > 0.5f ? 1.0f : 0.45f);
+    }
+
+    void timerCallback() override
+    {
+        // Follow the patch: a preset with its Physical string on another
+        // oscillator moves the view there, unless one was picked by hand.
+        if (! pickedByHand && ! isPhysical (chosen) && isPhysical (firstPhysical()))
+            choose (firstPhysical(), false);
+        else if (juce::roundToInt (readParam (prefix() + "_excite")) != shownExcite)
+            choose (chosen, false);
+        if (lastPhysical != isPhysical (chosen))
+        {
+            lastPhysical = isPhysical (chosen);
+            repaint();
+        }
+        updateAvailability();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    PhysicalView view;
+    ToggleControl resOn;
+    ComboControl bodyType;
+    ToggleControl sbOn;
+    ComboControl sbModel;
+    std::array<juce::TextButton, OscillatorIds::count> oscButtons;
+    juce::TextButton makePhysical;
+    std::unique_ptr<ComboControl> excite;
+    juce::String excitePrefix;
+    std::vector<std::unique_ptr<KnobControl>> knobs;
+    int chosen = 0, shownExcite = -1;
+    bool pickedByHand = false, lastPhysical = false;
+    juce::Rectangle<int> viewCard, stringCard, bodyCard;
 };
 
 class FilterPage : public juce::Component,
@@ -6323,6 +6566,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tabs.addTab ("ARP/SEQ", juce::Colour (0xff18181c), new SeqPage (p), true);
     tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
     tabs.addTab ("VECTOR", juce::Colour (0xff18181c), new VectorPage (p), true);
+    tabs.addTab ("PHYSICAL", juce::Colour (0xff18181c), new PhysicalPage (p), true);
     tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
     tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
@@ -7461,11 +7705,12 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
     const auto code = key.getKeyCode();
 
-    if (code >= '1' && code <= '9')
+    if (code >= '0' && code <= '9')
     {
-        if (code - '1' < tabs.getNumTabs())
+        const auto index = code == '0' ? 9 : code - '1'; // 0 is the tenth tab
+        if (index < tabs.getNumTabs())
         {
-            tabs.setCurrentTabIndex (code - '1');
+            tabs.setCurrentTabIndex (index);
             return true;
         }
 

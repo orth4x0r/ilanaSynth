@@ -404,3 +404,11 @@ The roadmap gave three lines. These details were settled while building it.
 - **Demos:** `ILANA_DEMO_ONLY=m86` (a reverb pad bounced and played as chords, a filter sweep bounced into a wavetable with an LFO on FRAME, Grand Piano bounced and played through a low-pass). Listening round: pending.
 - Not done: bouncing a chord or a phrase (one note only), and a sample editor for the bounce (START/END/FADE knobs trim it).
 
+## M8.7: Polish (Claude, 2026-09-28)
+
+- **PHYSICAL page** (a tab after VECTOR): `src/gui/PhysicalView.h` draws a Physical oscillator's string as the sum of 16 modes (levels from the strike point and hardness, rates bent by STIFF, dying with DECAY and DAMP, slowed down so the motion shows), restarted by every note (`getNoteOnCount`), kept moving while the output sounds (bow, feedback, SUSTAIN), with the exciter at EXCITE POS (pick, felt hammer, bow, tine or reed, or the amp throwing sound back for Feedback) and the body or soundboard glowing with the output (`getOutputPeak`, not reset by reading, unlike the meter's peaks). Beside it: OSC 1-6 buttons (it follows the patch's first Physical oscillator unless one is picked; SWITCH TO PHYSICAL for one that isn't), that string's EXCITE and the knobs its exciter uses (as on the OSC card: HAMMER for hammers, PRESSURE/SPEED for the bow, AMP GAIN/DISTANCE for Feedback, HARDNESS/BUZZ for plucks), and the BODY card (BODY, BODY TYPE, SOUNDBOARD, BOARD MODEL).
+- **Keys:** 0 now opens the tenth tab (FX moved there when VECTOR and PHYSICAL arrived).
+- **Tour:** the "new" chips list the M7/M8 features; two tips point at the simulated LFOs, WEST, PHYSICAL, BOUNCE, VECTOR and EVOLVE.
+- **README:** "What's new since 1.2" covers M8.1-M8.7; the oscillator, filter and interface sections mention BOUNCE, the 25 filter models and the new tabs.
+- **Tests:** UI tests for the page (the view is there and follows Grand Piano's string); snapshots `physical-page.png` (Grand Piano) and `physical-feedback.png`. All suites pass; fingerprints: only Live Body and Live Wah, as always.
+

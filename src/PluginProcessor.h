@@ -242,6 +242,10 @@ public:
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
+    // For views that animate with the playing (the PHYSICAL page): notes
+    // started so far, and the last block's peak (not reset by reading).
+    unsigned getNoteOnCount() const { return noteOnCount.load(); }
+    float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
 
     // LFO phase of every sounding voice (for tests and diagnostics).
@@ -817,6 +821,8 @@ private:
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
     std::array<std::atomic<float>, 2> outputPeaks {};
+    std::atomic<unsigned> noteOnCount { 0 };
+    std::atomic<float> outputLevelDisplay { 0.0f };
 
 public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).

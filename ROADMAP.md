@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) and M8.6 (resample to oscillator). Next up: polish (M8.7).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator) and M8.7 (polish). Next up: portability and release quality (M9).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -252,7 +252,7 @@ Grouped with M8.3 because the west-coast filter shares the filter code. Filter v
 - Then granulate it, warp it, or use it as an exciter; the result is saved with the patch.
 - **New work**: samples embedded in the patch the way tables already are.
 
-#### M8.7: Polish (was M8.4, before that M12)
+#### M8.7: Polish (was M8.4, before that M12) — done
 - A PHYSICAL page with an animated string, body and hammer view.
 - Tour and README updates.
 

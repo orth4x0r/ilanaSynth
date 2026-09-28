@@ -5,6 +5,8 @@
 #include <cmath>
 #include <vector>
 
+#include "LfoSim.h"
+
 inline float lfoPreviewValue (int shape, double phase);
 
 inline float lfoShapeValue (int shape, double phase)

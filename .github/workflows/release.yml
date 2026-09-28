@@ -1,0 +1,130 @@
+# M9: release builds, run by hand on a version tag (v1.3.0, ...): a signed and
+# notarised macOS package (VST3, AU, CLAP, standalone; universal), the
+# Windows installer, and a Linux archive, attached to a draft GitHub release.
+#
+# macOS signing needs these repository secrets (Settings > Secrets > Actions);
+# without them the macOS build is still made, but unsigned:
+#   MACOS_CERT_P12        base64 of a "Developer ID Application" certificate (.p12)
+#   MACOS_CERT_PASSWORD   its password
+#   MACOS_SIGN_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   for notarytool
+name: Release
+
+# Manual only (Actions > Release > Run workflow, on a tag): the account has
+# no Actions minutes to spare, so a tag push no longer starts it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 120
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (universal)
+        run: |
+          brew install ninja
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --parallel 4 --target ilanaSynth_VST3 ilanaSynth_AU ilanaSynth_CLAP ilanaSynth_Standalone \
+            ilanaSynthFX_VST3 ilanaSynthFX_AU ilanaSynthFX_CLAP ilanaSynthFX_Standalone
+      - name: Collect
+        run: |
+          mkdir -p dist/ilanaSynth
+          for t in ilanaSynth ilanaSynthFX; do
+            cp -R build/${t}_artefacts/Release/VST3/*.vst3 build/${t}_artefacts/Release/AU/*.component \
+                  build/${t}_artefacts/Release/CLAP/*.clap build/${t}_artefacts/Release/Standalone/*.app dist/ilanaSynth/
+          done
+          cp README.md dist/ilanaSynth/
+      - name: Sign and notarise
+        if: env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          for bundle in dist/ilanaSynth/*.vst3 dist/ilanaSynth/*.component dist/ilanaSynth/*.clap dist/ilanaSynth/*.app; do
+            codesign --force --deep --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$bundle"
+          done
+          ditto -c -k --keepParent dist/ilanaSynth ilanaSynth-macOS.zip
+          xcrun notarytool submit ilanaSynth-macOS.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          for bundle in dist/ilanaSynth/*.vst3 dist/ilanaSynth/*.component dist/ilanaSynth/*.clap dist/ilanaSynth/*.app; do
+            xcrun stapler staple "$bundle"
+          done
+      - name: Package
+        run: |
+          rm -f ilanaSynth-macOS.zip
+          ditto -c -k --keepParent dist/ilanaSynth ilanaSynth-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ilanaSynth-macOS
+          path: ilanaSynth-macOS.zip
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release --parallel 4 --target ilanaSynth_VST3 ilanaSynth_CLAP ilanaSynth_Standalone ilanaSynthFX_VST3 ilanaSynthFX_CLAP ilanaSynthFX_Standalone
+      - name: Installer
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ilanaSynth.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ilanaSynth-Windows
+          path: release/*.exe
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 4 --target ilanaSynth_VST3 ilanaSynth_CLAP ilanaSynth_Standalone ilanaSynthFX_VST3 ilanaSynthFX_CLAP ilanaSynthFX_Standalone
+      - name: Package
+        run: |
+          mkdir -p dist/ilanaSynth
+          for t in ilanaSynth ilanaSynthFX; do
+            cp -R build/${t}_artefacts/Release/VST3/*.vst3 build/${t}_artefacts/Release/CLAP/*.clap build/${t}_artefacts/Release/Standalone/* dist/ilanaSynth/
+          done
+          cp README.md dist/ilanaSynth/
+          tar -C dist -czf ilanaSynth-Linux-x64.tar.gz ilanaSynth
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ilanaSynth-Linux
+          path: ilanaSynth-Linux-x64.tar.gz
+
+  release:
+    needs: [ macos, windows, linux ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: artifacts/**/*

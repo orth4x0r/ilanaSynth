@@ -16,6 +16,7 @@
 #include "dsp/IlanaSynth.h"
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
+#include "dsp/Evolve.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -42,7 +43,9 @@ public:
     // LFO 1-4 keep lfoBuffers channels 0-3; the clocked S&H and MSEG sit at
     // 4 and 5, and LFO 5-16 follow.
     static constexpr int lfoChannel (int lfo) { return lfo < 4 ? lfo : lfo + 2; }
-    static constexpr int numLfoChannels = numLfos + 2;
+    // M8.1: each LFO's output B follows, from channel numLfos + 2.
+    static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
+    static constexpr int numLfoChannels = 2 * numLfos + 2;
     static constexpr int maxDestinations = 512;
 
     float getFxMod (Mod::Destination destination, float depth) const
@@ -62,7 +65,7 @@ public:
     void copyFxChainToOtherBank();
     bool isShowingChainA() const { return showingChainA; }
     IlanaSynthAudioProcessor();
-    ~IlanaSynthAudioProcessor() override = default;
+    ~IlanaSynthAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -92,6 +95,22 @@ public:
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
     bool isSpectralWarpReady (int osc) const { return spectralCache->isReady (osc); }
     float getLfoLiveValue (int lfo) const { return lfoLastValues[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
+    // M8.1: a simulated LFO shape's settings (the card's picture reads them too).
+    LfoSimSettings readLfoSimSettings (int lfo) const;
+    // M8.5: Evolve and the vector pad.
+    static constexpr int numVectorPoints = 8;
+    float macroValue (int macro) const;
+    static std::array<float, 4> vectorWeights (float x, float y);
+    juce::Point<float> getVectorPosition() const { return { vectorX.load(), vectorY.load() }; }
+    int getVectorCorner (int corner) const;
+    bool isVectorPathOn() const;
+    juce::Point<float> getVectorPathPoint (int point) const;
+    float getMacroDrift (int macro) const { return macroDrift[(size_t) juce::jlimit (0, 3, macro)].load(); }
+    void freezeEvolve();
+
+    // M8.3: the loudest voice's WEST gate conductance, for the card.
+    float getWestGateLevel() const { return westGateDisplay.load(); }
+    float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
     // (null when its warp is off or still building).
@@ -223,6 +242,10 @@ public:
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
+    // For views that animate with the playing (the PHYSICAL page): notes
+    // started so far, and the last block's peak (not reset by reading).
+    unsigned getNoteOnCount() const { return noteOnCount.load(); }
+    float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
 
     // LFO phase of every sounding voice (for tests and diagnostics).
@@ -314,8 +337,39 @@ public:
     int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
     void clearTableNotice();
     bool loadUserSample (int oscIndex, const juce::File& file);
+    // Puts audio on an oscillator's sample slot. An embedded sample (a
+    // bounce) is saved inside the patch; a file-backed one by its path.
+    void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
+    bool isSampleEmbedded (int oscIndex) const;
     const SampleData* getSampleForOsc (int oscIndex) const;
     void flushAsyncUpdates();
+
+    // M8.6: resample to oscillator. The patch plays one note on a copy of
+    // the processor, off the audio thread, and the result lands on an
+    // oscillator: as its sample (Sample mode) or resynthesised into a patch
+    // wavetable (Wavetable mode).
+    struct BounceRequest
+    {
+        int targetOsc = 0;
+        bool toTable = false;
+        bool withFx = true;         // false: the voice alone, every effect off
+        bool muteOthers = true;     // the other oscillators switched off after
+        int note = 60, velocity = 100;
+        double holdSeconds = 2.0, tailSeconds = 2.0;
+    };
+    enum class BounceState { Idle, Rendering, Done, Failed };
+    // Message thread. False if a bounce is already running.
+    bool startBounce (const BounceRequest& request);
+    BounceState getBounceState() const { return bounceState.load(); }
+    float getBounceProgress() const { return bounceProgress.load(); }
+    juce::String getBounceMessage() const;
+    // The render itself: the state playing one note, trimmed and
+    // normalised. Null if silent or cancelled. Any thread.
+    static std::shared_ptr<SampleData> renderBounce (const juce::ValueTree& state, const BounceRequest& request,
+                                                     std::atomic<float>* progress = nullptr,
+                                                     const std::atomic<bool>* cancel = nullptr);
+    // Puts a render on the target oscillator (message thread).
+    bool applyBounce (const BounceRequest& request, std::shared_ptr<SampleData> audio, juce::String& message);
 
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
@@ -323,12 +377,27 @@ public:
 private:
     void handleAsyncUpdate() override;
 
+    // M8.6 bounce: the render thread hands its result over through these
+    // (under stateLock) and the async update applies it.
+    class BounceThread;
+    std::unique_ptr<BounceThread> bounceThread;
+    std::atomic<BounceState> bounceState { BounceState::Idle };
+    std::atomic<float> bounceProgress { 0.0f };
+    BounceRequest pendingBounce;
+    std::shared_ptr<SampleData> bounceResult;
+    bool bounceReady = false;
+    juce::String bounceMessage;
+    static juce::ValueTree encodeSample (const SampleData& data);
+    static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree);
+
     struct ParamCacheEntry
     {
         const char* id = nullptr;
         std::uint32_t hash = 0;
         const std::atomic<float>* value = nullptr;
         int destination = -1;
+        bool discrete = false; // a choice, int or bool: read back rounded
+        float fallback = 0.0f; // the default, read in place of a non-finite value
     };
 
     // A parameter ID that remembers where its value lives: the first read
@@ -459,6 +528,7 @@ private:
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> bowBuzzIds;
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> keysParamIds;
     std::array<std::array<ParamRef, 2>, OscillatorIds::count> electricParamIds;
+    std::array<std::array<ParamRef, 2>, OscillatorIds::count> feedbackParamIds;
 
     // M7.5 audio input (ilanaSynth FX). The instrument has no input, so all
     // of this stays silent there.
@@ -477,6 +547,12 @@ private:
     int liveGateNote = -1;
     int liveInputSamples = 0;               // valid samples in liveDry this block
     std::atomic<bool> liveRetrigger { false }; // a patch loaded: restart the drone
+    // A patch loaded: stop the old one's voices and effect tails at the next
+    // block, easing from the last output sample to silence rather than
+    // stepping to it.
+    std::atomic<bool> patchCut { false };
+    float lastOutput[2] {}, declick[2] {};
+    void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
     struct OscCoreIds
     {
@@ -498,7 +574,13 @@ private:
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
-    struct LfoIds { ParamRef shape, rate, sync, div, retrig, phase, key, physA, physB, kick; std::array<ParamRef, 16> steps; };
+    struct LfoIds
+    {
+        ParamRef shape, rate, sync, div, retrig, phase, key, physA, physB, kick;
+        std::array<ParamRef, 16> steps;
+        std::array<ParamRef, LfoSimInfo::numParams> sim;
+        ParamRef smooth, axis, trigger, loop, seed, stereo, fire;
+    };
     struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     // M5/M6 operator and phase-distortion settings.
@@ -539,6 +621,7 @@ private:
     mutable juce::SpinLock sampleLock;
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
+    std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
     bool samplesReloadPending = false;
@@ -563,6 +646,29 @@ private:
     std::array<std::atomic<float>, (size_t) numLfos> lfoSampleHolds {};
     std::array<std::atomic<float>, (size_t) numLfos> lfoLastValues {};
     std::array<LfoChaos, (size_t) numLfos> lfoChaos;
+    // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
+    std::array<LfoSim, (size_t) numLfos> lfoSims;
+    std::atomic<float> westGateDisplay { 0.0f };
+    // M8.5
+    void updateEvolveAndVector (int numSamples);
+    MacroEvolve evolve, vectorDrift;
+    std::array<std::atomic<float>, 4> macroDrift {};
+    std::atomic<float> vectorX { 0.5f }, vectorY { 0.5f };
+    std::array<float, OscillatorIds::count> vectorGains = [] { std::array<float, OscillatorIds::count> g {}; g.fill (1.0f); return g; }();
+    double vectorPathPhase = 0.0;
+    std::array<ParamRef, 4> macroIds;
+    std::array<std::pair<ParamRef, ParamRef>, 4> evolveIds;
+    std::array<std::pair<ParamRef, ParamRef>, numVectorPoints> vectorPathIds;
+    std::array<LfoSmoother, (size_t) numLfos> lfoSmoothers;
+    std::array<bool, (size_t) numLfos> lfoRoutedB {};
+    std::array<std::atomic<float>, (size_t) numLfos> lfoLastValuesB {};
+    std::array<bool, (size_t) numLfos> lfoFireWas {};
+    std::array<long long, (size_t) numLfos> lfoBeatLast = [] { std::array<long long, (size_t) numLfos> a {}; a.fill (-1); return a; }();
+    std::array<double, (size_t) numLfos> lfoBeatPhase {};
+    long long lfoGenerativeLast = -1;
+    double lfoGenerativePhase = 0.0;
+    std::array<unsigned, (size_t) numLfos> lfoTriggerCounts {};
+    std::uint32_t lfoSimSeedCounter = 1;
     juce::Random lfoRandom;
     juce::Random lfoPoolRandom { 31415 };
     juce::Random& randomForLfo (int lfo) { return lfo < 4 ? lfoRandom : lfoPoolRandom; }
@@ -680,6 +786,7 @@ private:
 
     // M4 acoustic keys, shared by every voice (base rate, after the voices).
     Soundboard soundboard;
+    DenseSoundboard denseSoundboard;
     PedalResonance pedalResonance;
     MechanicalNoise mechanicalNoise;
     bool keysPedalDown = false, soundboardWasOn = false;
@@ -722,6 +829,8 @@ private:
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
     std::array<std::atomic<float>, 2> outputPeaks {};
+    std::atomic<unsigned> noteOnCount { 0 };
+    std::atomic<float> outputLevelDisplay { 0.0f };
 
 public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).

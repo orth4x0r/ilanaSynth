@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Svf.h"
+#include "FilterModels2.h"
 
 #include <cmath>
 #include <complex>
@@ -25,19 +26,31 @@ enum
     CombMinus,
     Formant,
     Morph,
+    // M8.4 (appended; patches store the index)
+    LadderBand, LadderDrive, Sem, OtaLow, OtaBand, Ms20High, Steiner, PhaserNotch,
+    CombDamped, CombMorph, VowelBank, Talking, TwinPeak,
     Count
 };
 
 inline juce::StringArray getNames()
 {
     return { "Low Pass", "Band Pass", "High Pass", "Notch", "Ladder LP", "Ladder HP",
-             "Diode LP", "MS-20 LP", "Comb +", "Comb -", "Formant", "Morph" };
+             "Diode LP", "MS-20 LP", "Comb +", "Comb -", "Formant", "Morph",
+             "Ladder BP", "Ladder Drive", "SEM", "OTA LP", "OTA BP", "MS-20 HP", "Steiner", "Phaser Notch",
+             "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak" };
 }
 
 inline bool isSvf (int type) { return type >= LowPass && type <= Notch; }
 inline bool isLadder (int type) { return type == LadderLow || type == LadderHigh; }
-inline bool isComb (int type) { return type == CombPlus || type == CombMinus; }
-inline bool usesMorph (int type) { return type == Formant || type == Morph; }
+inline bool isComb (int type) { return type == CombPlus || type == CombMinus || type == CombDamped || type == CombMorph; }
+inline bool usesMorph (int type)
+{
+    return type == Formant || type == Morph || type == Sem || type == Steiner || type == PhaserNotch
+           || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak;
+}
+// The M8.4 models ignore the 12/24 dB switch (each has its own order).
+inline bool usesSlope (int type) { return type < LadderBand; }
+inline bool isModel2 (int type) { return type >= LadderBand && type < Count && ! isComb (type); }
 
 // Vowel formants (Hz) for A E I O U and their relative levels; the Formant
 // filter's morph walks through them.
@@ -76,6 +89,108 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
     resonance = juce::jlimit (0.0, 1.0, resonance);
     std::complex<double> h;
 
+    // M8.4 models (small-signal).
+    if (type >= LadderBand)
+    {
+        const auto onePole = 1.0 / (1.0 + s);
+        const auto svfBank = [] (std::complex<double> ss, double kk, double& unused) { unused = 0.0; return ss * ss + kk * ss + 1.0; };
+        double unused = 0.0;
+        switch (type)
+        {
+            case LadderBand:
+            {
+                const auto k = 4.0 * resonance;
+                const auto g2 = onePole * onePole, g3 = g2 * onePole, g4 = g3 * onePole;
+                return 3.6 * (g2 - g3) / (1.0 + k * g4) * (1.0 + 0.5 * k) * 0.8;
+            }
+            case LadderDrive:
+            {
+                const auto k = 4.0 * resonance;
+                return std::pow (onePole, 4) / (1.0 + k * std::pow (onePole, 4)) * (1.0 + 0.5 * k) * 0.8;
+            }
+            case OtaLow:
+            {
+                const auto k = 3.9 * resonance;
+                return std::pow (onePole, 4) / (1.0 + k * std::pow (onePole, 4)) * (1.0 + 0.3 * k);
+            }
+            case OtaBand:
+            {
+                const auto k = 3.2 * resonance;
+                const auto core = onePole * onePole * std::pow (1.0 - onePole, 2);
+                return core / (1.0 + k * core) * (2.0 + k * 0.5) * (1.0 + 0.3 * k);
+            }
+            case Ms20High:
+            {
+                const auto k = juce::jmin (1.96, resonance * 2.0);
+                return s * s / (s * s + (2.0 - k) * s + 1.0);
+            }
+            case Sem:
+            {
+                const auto k = 2.0 * (1.0 - 0.94 * resonance);
+                const auto d = svfBank (s, k, unused);
+                const auto lp = 1.0 / d, hp = s * s / d;
+                const auto m = juce::jlimit (0.0, 1.0, morph);
+                return m < 0.5 ? lp + hp * (2.0 * m) : hp + lp * (2.0 - 2.0 * m);
+            }
+            case Steiner:
+            {
+                const auto k = 2.0 - 1.97 * resonance;
+                const auto d = svfBank (s, k, unused);
+                const auto m = juce::jlimit (0.0, 1.0, morph) * 2.0;
+                const auto low = juce::jmax (0.0, 1.0 - m), band = 1.0 - std::abs (m - 1.0), high = juce::jmax (0.0, m - 1.0);
+                return (low + band * s * k * 1.2 + high * s * s) / d;
+            }
+            case PhaserNotch:
+            {
+                const auto spread = 1.0 + 3.0 * juce::jlimit (0.0, 1.0, morph);
+                std::complex<double> a (1.0, 0.0);
+                for (int i = 0; i < 4; ++i)
+                {
+                    const auto w = std::pow (spread, ((double) i - 1.5) / 1.5);
+                    a *= (w - s) / (w + s);
+                }
+                const auto f = 0.85 * resonance;
+                return 0.5 * (1.0 + a / (1.0 - f * a));
+            }
+            case TwinPeak:
+            {
+                const auto k = 1.2 - 1.15 * resonance;
+                const auto second = std::pow (2.0, 2.0 * juce::jlimit (0.0, 1.0, morph));
+                const auto d1 = svfBank (s, k, unused);
+                const auto s2 = s / second;
+                const auto d2 = svfBank (s2, k, unused);
+                return 0.3 / d1 + (s / d1 + s2 / d2) * k * 0.8;
+            }
+            case VowelBank:
+            case Talking:
+            {
+                // Five band-passes at the vowel's formants (as VowelFilter).
+                Filters2::VowelFilter::Vowel a, b;
+                const auto count = type == Talking ? 8 : 5;
+                const auto position = juce::jlimit (0.0, 1.0, morph) * (double) (count - 1);
+                const auto index = juce::jmin (count - 2, (int) position);
+                const auto frac = position - (double) index;
+                a = type == Talking ? Filters2::VowelFilter::talkingVowels()[(size_t) index] : Filters2::VowelFilter::maleVowels()[(size_t) index];
+                b = type == Talking ? Filters2::VowelFilter::talkingVowels()[(size_t) index + 1] : Filters2::VowelFilter::maleVowels()[(size_t) index + 1];
+                const auto shift = juce::jlimit (0.4, 2.5, std::sqrt (cutoff / 1000.0));
+                const auto sharp = 1.6 - 1.2 * resonance;
+                std::complex<double> sum;
+                for (int f = 0; f < 5; ++f)
+                {
+                    const auto hz = std::exp (std::log (a[(size_t) f].hz) + (std::log (b[(size_t) f].hz) - std::log (a[(size_t) f].hz)) * frac) * shift;
+                    const auto bw = (a[(size_t) f].bandwidth + (b[(size_t) f].bandwidth - a[(size_t) f].bandwidth) * frac) * sharp * shift;
+                    const auto db = a[(size_t) f].db + (b[(size_t) f].db - a[(size_t) f].db) * frac;
+                    const auto kk = bw / hz;
+                    const auto ss = s * cutoff / hz;
+                    sum += ss / (ss * ss + kk * ss + 1.0) * kk * std::pow (10.0, db / 20.0);
+                }
+                return sum * (type == Talking ? 3.2 : 1.6);
+            }
+            default:
+                break;
+        }
+    }
+
     if (isLadder (type) || type == DiodeLow)
     {
         const auto k = type == DiodeLow ? juce::jmin (3.6, resonance * 3.8) : juce::jmin (3.95, resonance * 4.15);
@@ -103,7 +218,9 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
     if (isComb (type))
     {
         // The comb's delay is one period of the cutoff frequency.
-        const auto feedback = combFeedback (resonance) * (type == CombMinus ? -1.0 : 1.0);
+        auto feedback = combFeedback (resonance) * (type == CombMinus ? -1.0 : 1.0);
+        if (type == CombMorph)
+            feedback = combFeedback (resonance) * (juce::jlimit (0.0, 1.0, morph) * 2.0 - 1.0);
         const auto delay = std::exp (-juce::MathConstants<double>::twoPi * s);
         return (1.0 - 0.5 * std::abs (feedback)) / (1.0 - feedback * delay);
     }
@@ -369,12 +486,17 @@ public:
         double combDelay = 1.0;
         double combFeedback = 0.0;
         float morph = 0.0f;
+        // M8.4 models set themselves from these.
+        double sampleRate = 48000.0, cutoff = 1000.0, resonance = 0.0;
     };
 
     static Coefficients makeCoefficients (int type, double sampleRate, double cutoff, double resonance, float morph = 0.0f)
     {
         Coefficients c;
         c.morph = juce::jlimit (0.0f, 1.0f, morph);
+        c.sampleRate = sampleRate;
+        c.cutoff = cutoff;
+        c.resonance = juce::jlimit (0.0, 1.0, resonance);
 
         switch (type)
         {
@@ -393,8 +515,12 @@ public:
 
             case FilterType::CombPlus:
             case FilterType::CombMinus:
+            case FilterType::CombDamped:
+            case FilterType::CombMorph:
                 c.combDelay = sampleRate / juce::jlimit (20.0, sampleRate * 0.45, cutoff);
                 c.combFeedback = FilterType::combFeedback (resonance) * (type == FilterType::CombMinus ? -1.0 : 1.0);
+                if (type == FilterType::CombMorph)
+                    c.combFeedback = FilterType::combFeedback (resonance) * ((double) c.morph * 2.0 - 1.0);
                 break;
 
             case FilterType::Formant:
@@ -465,9 +591,26 @@ public:
 
             case FilterType::CombPlus:
             case FilterType::CombMinus:
+            case FilterType::CombDamped:
+            case FilterType::CombMorph:
                 combDelay = juce::jlimit (1.0, (double) juce::jmax (1, combMask - 4), c.combDelay);
                 combFeedback = c.combFeedback;
+                // Comb Damped: the loop loses its highs fast (a plucked-tube
+                // tone); the others keep the gentle 0.7 damping.
+                combDampCoefficient = type == FilterType::CombDamped ? 0.18f : 0.7f;
                 break;
+
+            case FilterType::LadderBand:
+            case FilterType::LadderDrive: driveLadder.set (c.sampleRate, c.cutoff, c.resonance, type == FilterType::LadderBand); break;
+            case FilterType::Sem:          sem.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::OtaLow:
+            case FilterType::OtaBand:      ota.set (c.sampleRate, c.cutoff, c.resonance, type == FilterType::OtaBand); break;
+            case FilterType::Ms20High:     ms20High.set (c.sampleRate, c.cutoff, c.resonance); break;
+            case FilterType::Steiner:      steiner.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::PhaserNotch:  phaser.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::VowelBank:
+            case FilterType::Talking:      vowel.set (c.sampleRate, c.cutoff, c.resonance, c.morph, type == FilterType::Talking); break;
+            case FilterType::TwinPeak:     twinPeak.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
 
             case FilterType::Formant:
                 for (int band = 0; band < 3; ++band)
@@ -492,6 +635,14 @@ public:
         ladder.reset();
         diode.reset();
         ms20.reset();
+        driveLadder.reset();
+        sem.reset();
+        ota.reset();
+        ms20High.reset();
+        steiner.reset();
+        phaser.reset();
+        vowel.reset();
+        twinPeak.reset();
 
         for (auto& band : formantBands)
             band.reset();
@@ -512,7 +663,21 @@ public:
             case FilterType::Ms20Low:    return ms20.process (input, slope24);
 
             case FilterType::CombPlus:
-            case FilterType::CombMinus:  return processComb (input);
+            case FilterType::CombMinus:
+            case FilterType::CombDamped:
+            case FilterType::CombMorph:  return processComb (input);
+
+            case FilterType::LadderBand:
+            case FilterType::LadderDrive: return driveLadder.process (input);
+            case FilterType::Sem:         return sem.process (input);
+            case FilterType::OtaLow:
+            case FilterType::OtaBand:     return ota.process (input);
+            case FilterType::Ms20High:    return ms20High.process (input);
+            case FilterType::Steiner:     return steiner.process (input);
+            case FilterType::PhaserNotch: return phaser.process (input);
+            case FilterType::VowelBank:
+            case FilterType::Talking:     return vowel.process (input);
+            case FilterType::TwinPeak:    return twinPeak.process (input);
 
             case FilterType::Formant:
             {
@@ -561,7 +726,7 @@ private:
         const auto b = combBuffer[(size_t) ((base + 1) & combMask)];
         const auto delayed = a + (b - a) * frac;
 
-        combDamp += 0.7f * (delayed - combDamp);
+        combDamp += combDampCoefficient * (delayed - combDamp);
         const auto fed = input + (float) combFeedback * combDamp;
         combBuffer[(size_t) combWrite] = std::tanh (fed * 0.5f) * 2.0f;
         combWrite = (combWrite + 1) & combMask;
@@ -578,6 +743,16 @@ private:
     LadderFilter ladder;
     DiodeFilter diode;
     Ms20Filter ms20;
+    // M8.4
+    Filters2::DriveLadder driveLadder;
+    Filters2::SemFilter sem;
+    Filters2::OtaFilter ota;
+    Filters2::Ms20HighPass ms20High;
+    Filters2::SteinerParker steiner;
+    Filters2::PhaserNotch phaser;
+    Filters2::VowelFilter vowel;
+    Filters2::TwinPeak twinPeak;
+    float combDampCoefficient = 0.7f;
 
     std::vector<float> combBuffer;
     int combMask = 0;

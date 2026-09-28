@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX). Next up: real chaos and physics modulators (M8.1).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator), M8.7 (polish), M10 (preset pack) and M9 (portability and release quality): v1.3 is feature-complete.**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -184,7 +184,7 @@ The FX plugin adds input gain, a gate/trigger, and an envelope follower as a new
 ### M8: Modulators, piano, west coast, filters, feedback and polish
 Real chaos and physics modulators, a piano rework, the west-coast voice and new filter models, the feedback guitar with Evolve and the vector pad, resampling, then the v1.3 polish.
 
-#### M8.1: Chaos and physics modulators (new, redoes M2)
+#### M8.1: Chaos and physics modulators (new, redoes M2) — done (listening round pending)
 The M2 shapes are stand-ins: the physics shapes share two generic knobs (Physics A/B), Bounce relaunches itself when it settles, the Lorenz shape has fixed constants and only outputs X, and S&H and Steps have no smoothing. M8.1 makes them real simulations with real parameters, at least as deep as Vital's random LFOs.
 - **Smoothing on every LFO**: a SMOOTH (glide) control, as a time or a fraction of a cycle, on every shape. It is what makes S&H, Steps and Square usable as slewed random or glide.
 - **Random family** (Vital's four styles and more): S&H, Sine Interpolate, **Perlin** (with octaves), Drunk walk (step size), each with a STEREO offset, a seed, and per-voice or shared randomness.
@@ -207,7 +207,7 @@ The M2 shapes are stand-ins: the physics shapes share two generic knobs (Physics
 - **Reference**: the equations themselves. Bounce times and heights match the analytic series, pendulum periods match length and gravity, Lorenz shows its known Lyapunov exponent (about 0.9) and bounds, and the random styles are compared with Vital's by ear.
 - **Checks**: no NaN or runaway at any setting, and CPU with all 16 LFOs chaotic and per voice.
 
-#### M8.2: Piano rework (new; replaces M10's piano pass)
+#### M8.2: Piano rework (new; replaces M10's piano pass) — done (listening round pending; gap written down)
 M4's piano fits its measurements (error 632 to 90.7) but sounds closer to a harpsichord than a piano. The fit only covered three notes at two dynamics, and the model has structural gaps that no fitting can close:
 - **The hammer is a pre-shaped force pulse, not a hammer.** A real felt hammer is a mass on a stiffening spring (force rising as compression to a power of about 2.5–3.5) that stays in contact with the moving string and is thrown back by it. That interaction is what makes soft notes dark and round and loud notes bright, with a smooth, even roll-off. The pulse is also high-passed before it reaches the string, which thins the fundamental: a thin, bright, even spectrum is the harpsichord sound.
 - **The soundboard is a handful of modes.** A real board is thousands of dense modes that colour the attack and give the "wood" in the sound. Commuted synthesis (a measured soundboard response folded into the excitation) is the usual way to get it cheaply.
@@ -226,37 +226,37 @@ Plan:
 - **Old patches**: the current hammer stays as "Hammer (classic)" for existing presets; the new piano hammer is appended.
 - **CPU**: a piano note will cost more (2–3 coupled strings and a hammer solved per sample); Eco keeps a lighter version.
 
-#### M8.3: West-coast voice (was M8.1, before that M10)
+#### M8.3: West-coast voice (was M8.1, before that M10) — done (fitted to the published vactrol figures; listening round pending)
 - **Wavefolder**: fold amount, symmetry, and 1–4 stages.
 - **Low-pass gate**: a filter and amplifier in one, modelled on a vactrol, with its natural "bongo" decay.
 - **How to play it**: strike it with the M8.1 Bounce impacts or any envelope.
 - **Where it lives**: a WEST card on the FILTER page, used in place of Filter 2 or alongside it.
 - **Reference**: recordings of a Buchla-style low-pass gate being struck, fitted on decay time and how brightness falls with level.
 
-#### M8.4: Filter models (was M8.2, before that M10b)
+#### M8.4: Filter models (was M8.2, before that M10b) — done
 Grouped with M8.3 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
 - **About 12–16 new models**, in the same FilterUnit structure: more ladder and diode variants, a state-variable multimode, an OTA/Sallen-Key style, an analogue-style notch/phaser filter, comb and formant variants, and a vowel/talking filter.
 - **Existing models keep their indices**, so old patches sound the same; new models are appended.
 - **UI**: the type grid gets categories or a scrolling list so it stays readable.
 - **Checks**: every new model gets the stability test (self-oscillation, extreme drive) and a fingerprint entry. Analogue-style models are checked against measured responses of the circuit they copy.
 
-#### M8.5: Feedback guitar, Evolve and the vector pad (was M8.3, plus the simple part of M12)
+#### M8.5: Feedback guitar, Evolve and the vector pad (was M8.3, plus the simple part of M12) — done (feedback fitted to a description; listening round pending)
 - **Feedback guitar**: a new exciter type that puts an amp and speaker inside the string's feedback loop, with FEEDBACK and GAIN controls.
   - **Reference**: recordings of guitar feedback (a sustained note blooming into its harmonic), fitted on how fast it blooms and which harmonic it settles on.
 - **Evolve**: each macro can drift slowly within a range and at a rate you set. A **freeze** button captures the current state.
 - **Vector pad**: an XY pad that mixes any four of the six oscillators (the corners), plus X and Y as mod sources. It moves by hand, by a drawn path (a two-dimensional MSEG), by Evolve drift, or by MPE and joystick. Mostly UI: the DSP is four level controls. Morphing whole-patch snapshots stays in v1.4 (M12).
 
-#### M8.6: Resample to oscillator (was M14, before that M16)
+#### M8.6: Resample to oscillator (was M14, before that M16) — done (listening round pending)
 - **BOUNCE**: render a note, or the whole patch, into a patch table or sample slot, in the background.
 - It reuses the offline note rendering the fitting tools already use, the M7.4 storage format, and resynthesis-to-wavetable.
 - Then granulate it, warp it, or use it as an exciter; the result is saved with the patch.
 - **New work**: samples embedded in the patch the way tables already are.
 
-#### M8.7: Polish (was M8.4, before that M12)
+#### M8.7: Polish (was M8.4, before that M12) — done
 - A PHYSICAL page with an animated string, body and hammer view.
 - Tour and README updates.
 
-### M9: Portability and release quality (was M12b)
+### M9: Portability and release quality (was M12b) — done (signed macOS releases wait for the Apple secrets)
 Left until the end on purpose: ilanaSynth is built for Windows first. Today it is a Windows VST3 plus standalone, with macOS as build-it-yourself.
 - **macOS**: a signed and notarised pre-built VST3 and standalone.
 - **AU** (macOS) and **CLAP** on the same JUCE build.
@@ -264,7 +264,7 @@ Left until the end on purpose: ilanaSynth is built for Windows first. Today it i
 - **CI**: builds and the regression suite (`ilanaTableTest`, the UI test, fingerprints) on Windows, macOS and Linux for every change.
 - **Bug-fix pass**: run the stability, CPU and old-patch tests across hosts before each release.
 
-### M10: Preset pack (was M17)
+### M10: Preset pack (was M17) — done (114 presets, 80 tables; listening round pending)
 Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets wait until here, so they can use every new feature. Planned (about 100, with a stretch goal of 300+ in the library to close the gap with Vital and Serum 2):
 
 - **Wavetable library**: grow from 40 to about 120 factory tables, made with the M7.4 editor.
@@ -284,6 +284,48 @@ Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets
   - Feedback guitar, Evolve and vector pad (M8.5): 8
   - Resampled sources (M8.6): 6
 - **FX plugin (M7.5)**: 10 presets
+
+### Release polish: seven UI/UX rounds and six debug rounds, alternating — done
+Adversarial passes over v1.3 before release: each UI round looks for what is confusing, inconsistent or badly laid out, and each debug round hunts real bugs. Every round ends with the full test suite, the UI test and the fingerprint check.
+
+- **UI 1** — done: filter knobs show their units (RESO and GATE in %, DRIVE as 1.5x, ENV AMT in octaves, KEY TRK and AUDIO FM as signed %); the LFO thumbnails show the rate as the knob does; the tour mentions Live mode; both STEPS rows on ARP/SEQ list the same LFOs.
+- **Debug 1** — done:
+  - Knobs without a step are continuous. The default step was a thousandth of the range, which is coarse at the dense end of a skewed range: cutoff moved in 20 Hz steps (12.01 kHz), comb and pitch presets sat cents off, LFO rates in 0.04 Hz steps. 27 factory presets now get the exact values they were written with (a deliberate change).
+  - Loading a patch stops the old one: its voices, effect tails (reverb, delays, freeze, the piano body) and modulators (LFO phases and seeds, MSEG, Evolve, the vector path) start over, with a 2 ms ease from the last output sample so there is no click. A slow free-running LFO used to start wherever the last patch left it (Bounced Bell Grains came out 18 dB quieter after Vector Strike Pad). With both, 38 presets' fingerprints change; the fingerprint tool plays every preset in one processor, so they no longer depend on the preset before them, and the Linux baseline is updated.
+  - Five presets that were far quieter than the library (they only passed the level check on the previous preset's reverb tail) are raised: Pluck Walker, Self-Osc Choir, Riser Sweep, Swarm, Reversed Piano Wash. The level check now judges the loudest half second of two, so swells and risers count at the level they reach.
+  - Windows: every test that put a `Voice` (1.1 MB) on the stack overflowed Windows' 1 MB stack; they allocate it now.
+  - The theme's fonts and textures are released at JUCE shutdown instead of as statics at unload (freeing a FreeType face after JUCE's font engine is gone crashed a host on exit); the Lorenz table's cache is built in a thread-safe static initialiser.
+  - Typed values: times, dB/oct, semitones and signed amounts are rounded before choosing their format, so "1000 ms" / "1.00 s" and "-0.0" can't disagree when typed back (the round-trip test now tries 400 values per parameter).
+- **UI 2** — done: the PHYSICAL page says plainly when the chosen oscillator isn't a string (the view dims with "NO STRING"; the card says what it plays instead, centred over SWITCH TO PHYSICAL); the EVOLVE rows have space and a hairline between them, so a row's labels no longer read as the values above; vector DRIFT shows %; MATRIX's bobbing chevron no longer sits on a starter button; the CPU readout and the unison display showed a float's full precision ("CPU 2.7733%": `juce::String (x, 0)` means default precision); SCOPE's quality box is labelled.
+- **Debug 2** — done:
+  - Sanitizers: the tests, the UI test and every snapshot state ran under AddressSanitizer and UndefinedBehaviorSanitizer. One finding: the strings' seed counter (`KarplusStrong::nextSeed`) overflowed an `int` after about 270,000 strings (undefined behaviour in a long session); it wraps as unsigned now, with the same seeds until then.
+  - A patch load now also clears what the last patch left inside the voices: filter and body memory, the west-coast fold and vactrol, strings and samples, and the glide origin (the first note glided from the old patch's last pitch). Live West Fold, silent on its own, played the previous patch's filter ringing at -27 dB. The seeded generators restart as in a new instance (the analog drift and pan stay free in the plugin, as before).
+  - Note Spray's generator was never seeded (a default `juce::Random` seeds itself from the clock), so a spray patch played differently every time it loaded; it restarts from a fixed seed now.
+  - `prepareToPlay` clears the patch-change ease (a new stream has nothing to ease from).
+  - The LookAndFeel's hover map is keyed by component address and never forgot one: it is pruned now, and a stale entry starts from the right state.
+  - New regression tests: every 12th preset at 22-192 kHz with blocks of 0, 1, 17 and more than announced, velocity-0 note-ons, all-notes-off, extreme bends and sustain; every 5th preset into a mono output.
+  - Fingerprints are now identical run to run, and 21 more presets' baselines change: all order effects in the old baseline (fresh renders are unchanged, Grand Piano included).
+- **UI 3** — done: a Physical oscillator's card shows its string after a strike (from EXCITE POS, with the exciter named) instead of the wavetable it no longer plays, without the 3D button, and dragging it no longer moves a hidden frame; PAN reads C / L 25 / R 25 instead of a bare number; EXCITE POS at 0 reads Auto and PICK POS at 0 reads Off (what 0 does), and typed words ("C", "Auto", "Off") read back instead of jumping to the start of the range; the keyboard strip names each C.
+- **Debug 3** — done:
+  - Threads: a new test plays notes on an audio thread while the message thread loads presets, restores state and moves parameters, run under ThreadSanitizer. One race: modulation offsets (rewritten by the audio thread every block) were applied to parameter reads on any thread, so a preset load chose its default macros' directions from whatever the last patch's modulation had left. Offsets now apply only to the audio thread's reads; TSan is clean.
+  - The full test suite ran clean under AddressSanitizer and UndefinedBehaviorSanitizer, and an ASan build of the synth passed pluginval (strictness 10) with no reports, teardown included.
+  - FIRE's 60 ms release timer held a raw parameter pointer (closing the plugin within it wrote to freed memory); it goes through a SafePointer, and closing the editor lets go of a held FIRE.
+  - "Eco is cheaper" takes the best of three interleaved passes (one pass swung by a third with machine load).
+  - pluginval on the Linux CI runner crashed on exit in some runs (never locally, never under ASan): CI now runs it under gdb, so a crash prints every thread's backtrace.
+- **UI 4** — done: every parameter's text at its minimum, default and maximum was listed (`ILANA_PARAM_TEXT=1 ilanaTableTest`) and the bare numbers given units: mod amounts and step values as signed %, effect depths, sizes, tone and ducking as %, the amp's bass/mid/treble as %, compressor ratio as 4:1, crusher bits and downsampling, smear grains, arp octaves, west-coast stages, vector positions, feedback gain and distance; an LFO seed of 0 reads Free (and "#29" style seeds and words type back). The tour's check box uses the theme (it was drawn in the default font), and the tour names Cmd on macOS instead of Ctrl.
+- **Debug 4** — done:
+  - Hostile saved state: a new test loads 60 damaged versions of a real state (truncated, bit-flipped, or valid XML with values like nan, inf, 1e30, -7, "banana", and missing nodes) and plays each. A saved value of "nan" crashed the plugin: NaN passes through JUCE's parameter clamping and reached the voices as an index. Non-finite values in a state now load as the parameter's default, and every parameter read falls back to the default for a non-finite value (a host can send NaN too; a second new test sets every parameter, or a random third, to NaN and plays).
+  - CI no longer runs twice per push to a branch with an open pull request (the push and the pull request each ran the full three-platform matrix).
+- **UI 5** — done: with six oscillators the FM matrix hid its row names (OSC 2-6, NOISE) behind the OUT buttons and drew each amount over its knob; the names now sit above their OUT buttons and short cells use compact knobs with the amount underneath; the simulated LFOs' second row of knobs (RHO, BETA, SEED...) had its names run into the first row's values; the header shows PRESET for Init as it does at start-up (it read INIT above "Init" once Init was chosen).
+- **Debug 5** — done:
+  - Physical strings (all but the piano) played flat: the damping low-pass inside the loop delays the fundamental by about 0.7 samples and only the dispersion allpass was compensated, so A4 sat 11 cents flat at 44.1/48 kHz (6 at 96 kHz). The low-pass's phase delay at the note is now taken off; a new test holds A4 within 5 cents (worst now 1.7) for a wavetable and a string at 44.1-192 kHz, with and without 2x/4x oversampling. The old preset tuning test allowed 30 cents, so it passed. 14 string presets' fingerprints change (the loop now reads its delay line at a different fraction, whose linear interpolation also sets their brightness); the slap test now measures what the slap adds instead of a ratio that sat on its threshold.
+  - A saved state restores into a new instance and saves again unchanged (every 15th preset and the resampled ones, with their embedded audio and tables): new test, passes.
+  - GitHub Actions is manual-only (the account has no minutes left): `tools/verify.sh` runs the same gate locally (build, unit, FX and UI tests, fingerprints, pluginval on both plugins). Windows and macOS are only checked when the workflow is run by hand.
+- **UI 6** — done: 542 of the 2,070 parameters had no hover help (the status bar went blank): LFOs 5-16 (only 1-4 matched), the matrix slots' polarity, Via and bypass, the whole vector pad, feedback gain and distance, the Taps steps, the sample source, scale root, spray direction, oversampling factor and the MOD envelope's velocity. All have help now (`ILANA_PARAM_TEXT=1` lists it with each parameter).
+- **Debug 6** — done, nothing broken found; two new guards:
+  - Every preset's voices end after note-off (a chord held, released, then up to 15 s): none stuck; the slowest, Self Osc Drone, frees in 7.9 s.
+  - A host stopping the transport (all-notes-off CC 123, all-sound-off CC 120) with keys still down stops the arp, the probability sequencer and note spray; a control case (CC 1) checks the test can tell.
+- **UI 7** — done: engine quality (Eco / Normal / High) and oversampling (off / 2x / 4x) are also in the settings (gear) menu; they were only on the SCOPE tab. A last look at the header menus, the added-oscillator and pool states found nothing else (the line and dot across MAIN's envelope while a note plays is its live level).
 
 ---
 

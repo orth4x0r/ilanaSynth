@@ -81,7 +81,7 @@ public:
 
             g.setColour (juce::Colours::white.withAlpha (0.4f));
             g.setFont (IlanaTheme::font (10.5f));
-            g.drawText (juce::String (unison) + (unison == 1 ? " VOICE   -   " : " VOICES   -   ") + juce::String (detune, 0) + " ct   -   "
+            g.drawText (juce::String (unison) + (unison == 1 ? " VOICE   -   " : " VOICES   -   ") + juce::String (juce::roundToInt (detune)) + " ct   -   "
                             + juce::String (juce::roundToInt (spread * 100.0f)) + "% WIDTH",
                         header.toNearestInt(), juce::Justification::centredRight);
 

@@ -104,6 +104,9 @@ public:
 
     void reset()
     {
+        // Seeded, so a patch plays its spray the same way each time it loads
+        // (a default juce::Random seeds itself from the clock).
+        random.setSeed (0x5b7a1);
         pending.clear();
         inputMap.fill (-1);
         soundingCount.fill (0);

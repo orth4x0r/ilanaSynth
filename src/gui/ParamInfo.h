@@ -13,14 +13,93 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
     return false;
 }
 
+// A number with the decimals its size calls for (under 1: two, under 10:
+// one, else none), judged after rounding, so 0.998 shows as "1.0" like 1.0
+// does and typed text reads back the same.
+// A value rounded to a fixed number of decimals, never "-0.0".
+inline juce::String describeFixed (float value, int decimals)
+{
+    const auto scale = std::pow (10.0f, (float) decimals);
+    const auto rounded = std::round (value * scale) / scale;
+    return juce::String (rounded == 0.0f ? 0.0f : rounded, decimals);
+}
+
+inline juce::String describeNumber (float value, int maxDecimals = 2)
+{
+    const auto rounded = [value] (int decimals) { const auto scale = std::pow (10.0f, (float) decimals); return std::round (value * scale) / scale; };
+    if (maxDecimals >= 2 && std::abs (rounded (2)) < 1.0f)
+        return juce::String (rounded (2), 2);
+    if (maxDecimals >= 1 && std::abs (rounded (1)) < 10.0f)
+        return juce::String (rounded (1), 1);
+    return juce::String (juce::roundToInt (value));
+}
+
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // Counts and ratios in their own words.
+    if (id == "arp_octaves")
+        return juce::String (juce::roundToInt (value)) + " oct";
+    if (id == "west_stages")
+        return juce::String (juce::roundToInt (value)) + (juce::roundToInt (value) == 1 ? " stage" : " stages");
+    if (id == "fx_comp_ratio")
+        return describeNumber (value, 1) + ":1";
+    if (id == "fx_crush_bits")
+        return juce::String (juce::roundToInt (value)) + " bits";
+    if (id == "fx_crush_down")
+        return juce::String (juce::roundToInt (value)) + "x";
+    if (id == "fx_smear_density")
+        return juce::String (juce::roundToInt (value)) + " grains";
+    if (id.startsWith ("lfo") && id.endsWith ("_seed"))
+        return juce::roundToInt (value) == 0 ? juce::String ("Free") : "#" + juce::String (juce::roundToInt (value));
+    // Amounts from -1 to 1 as signed percent (mod depths, step values).
+    if ((id.startsWith ("mod") && id.endsWith ("_amt")) || (id.startsWith ("lfo") && id.contains ("_step")))
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    // Plain 0..1 (or 0..2) amounts as percent.
+    if (id == "fx_feedback_tone" || id == "fx_flanger_depth" || id == "fx_dim_depth" || id == "fx_gate_smooth"
+        || id == "fx_trem_depth" || id == "fx_delay_duck" || id == "fx_chorus_depth" || id == "fx_delay_wow"
+        || id == "fx_phaser_depth" || id == "fx_reverb_size" || id.startsWith ("fx_taps_step")
+        || id == "fx_amp_bass" || id == "fx_amp_mid" || id == "fx_amp_treble"
+        || id.endsWith ("_fb_gain") || id.endsWith ("_fb_distance")
+        || id == "vec_x" || id == "vec_y" || id.startsWith ("vec_px") || id.startsWith ("vec_py"))
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    // Stereo position: C, or how far left or right.
+    if (id.endsWith ("_pan"))
+    {
+        const auto percent = juce::roundToInt (value * 100.0f);
+        return percent == 0 ? juce::String ("C") : (percent < 0 ? "L " : "R ") + juce::String (std::abs (percent));
+    }
+    // 0 is not a position: the exciter's own spot, or no pick filtering.
+    if (id.endsWith ("_string_excite_pos") && juce::roundToInt (value * 100.0f) == 0)
+        return "Auto";
+    if (id.endsWith ("_string_pick_pos") && juce::roundToInt (value * 100.0f) == 0)
+        return "Off";
+
+    // The filters' knobs in their own units.
+    if (id == "f1_reso" || id == "f2_reso" || id == "arp_gate")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id == "f1_drive" || id == "f2_drive")
+        return describeNumber (value, 1) + "x";
+    if (id == "f1_env" || id == "f2_env")
+        return (std::round (value * 10.0f) > 0.0f ? "+" : "") + describeFixed (value, 1) + " oct";
+    if (id == "f1_keytrack" || id == "f2_keytrack" || id == "f1_fm" || id == "f2_fm")
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
+    // M8.3: the WEST card.
+    if (id == "west_decay")
+        return describeFixed (value, 2) + "x";
+    if (id == "west_strike" || id == "west_open" || id == "west_fold" || id == "west_res")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+    if (id == "west_sym")
+        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+
     const auto asPercent = [value] { return juce::String (juce::roundToInt (value * 100.0f)) + " %"; };
     const auto asMilliseconds = [value] { return juce::String (juce::roundToInt (value)) + " ms"; };
     const auto asSeconds = [value]
     {
-        return value < 1.0f ? juce::String (juce::roundToInt (value * 1000.0f)) + " ms"
-                            : juce::String (value, 2) + " s";
+        // Judged after rounding, so 0.9996 s shows as "1.00 s" like 1 s does.
+        return juce::roundToInt (value * 1000.0f) < 1000 ? juce::String (juce::roundToInt (value * 1000.0f)) + " ms"
+                                                         : juce::String (std::round (value * 100.0f) / 100.0f, 2) + " s";
     };
     const auto asHertz = [value]
     {
@@ -28,10 +107,12 @@ inline juce::String describeValue (const juce::String& id, float value)
 
         // Note juce::String (value, 0) means "default precision", not "no
         // decimals", so whole numbers go through roundToInt.
-        return magnitude >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz"
-                                    : (magnitude < 10.0f ? juce::String (value, magnitude < 1.0f ? 2 : 1)
-                                                         : juce::String (juce::roundToInt (value))) + " Hz";
+        return std::round (magnitude) >= 1000.0f ? juce::String (std::round (value / 10.0f) / 100.0f, 2) + " kHz"
+                                                 : describeNumber (value) + " Hz";
     };
+
+    if (id == "vec_drift")
+        return asPercent();
 
     if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
@@ -65,9 +146,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         return asPercent();
     // M7.5 audio input.
     if (id == "in_attack" || id == "in_release")
-        return value < 10.0f ? juce::String (value, 1) + " ms" : juce::String (juce::roundToInt (value)) + " ms";
+        return describeNumber (value, 1) + " ms";
     if (id == "in_gain" || id == "in_threshold")
-        return juce::String (value, 1) + " dB";
+        return describeFixed (value, 1) + " dB";
     if (id == "in_dry" || id == "in_body" || id == "in_strings")
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
     if (id.startsWith ("sym_note") || id == "in_note")
@@ -83,15 +164,18 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     // M5 operators, M6 phase distortion, DAHDSR extras.
     if (isOscParameter (id, "_ratio"))
-        return "x" + juce::String (value, value < 10.0f ? 3 : 2);
+        return "x" + (std::abs (std::round (value * 1000.0f) / 1000.0f) < 10.0f ? juce::String (std::round (value * 1000.0f) / 1000.0f, 3)
+                                                                                  : juce::String (std::round (value * 100.0f) / 100.0f, 2));
     if (isOscParameter (id, "_fixed_hz"))
-        return value >= 1000.0f ? juce::String (value / 1000.0f, 2) + " kHz" : juce::String (value, value < 100.0f ? 2 : 1) + " Hz";
+        return std::round (value) >= 1000.0f ? juce::String (std::round (value / 10.0f) / 100.0f, 2) + " kHz"
+                                             : (std::round (value * 100.0f) / 100.0f < 100.0f ? juce::String (std::round (value * 100.0f) / 100.0f, 2)
+                                                                                           : juce::String (std::round (value * 10.0f) / 10.0f, 1)) + " Hz";
     if (isOscParameter (id, "_key_level"))
-        return (value > 0.0f ? "+" : "") + juce::String (value * 6.0f, 1) + " dB/oct";
+        return (std::round (value * 60.0f) > 0.0f ? "+" : "") + describeFixed (value * 6.0f, 1) + " dB/oct";
     if (isOscParameter (id, "_warp2_amt"))
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
-        return (value > 0.0f ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
         return value <= 0.0005f ? juce::String ("Off") : asSeconds();
     if (id.endsWith ("_hold"))
@@ -110,7 +194,7 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id == "filter_balance")
     {
-        if (std::abs (value) < 0.01f)
+        if (juce::roundToInt (value * 100.0f) == 0)
             return "F1 = F2";
 
         return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + " %"
@@ -139,16 +223,16 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id.endsWith ("_semi") || id.endsWith ("_fine") || id.endsWith ("_detune")
         || id == "fx_delay_pitch" || id == "fx_stutter_pitch" || id == "res_offset" || id == "bend_range")
-        return juce::String (value, value == std::floor (value) ? 0 : 1)
+        return juce::String (std::round (value * 10.0f) / 10.0f, std::round (value * 10.0f) == 10.0f * std::round (value) ? 0 : 1)
                + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 
     if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
         || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain"
         || (id.startsWith ("fx_eq_") && id.endsWith ("_gain")))
-        return juce::String (value, 1) + " dB";
+        return describeFixed (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
-        return juce::String (value, value < 10.0f ? 1 : 0) + "x";
+        return describeNumber (value, 1) + "x";
 
     if (id.endsWith ("_mix") || id.endsWith ("_amount") || id.endsWith ("_level") || id.endsWith ("_width")
         || id.endsWith ("_spread") || id.endsWith ("_sustain") || id.endsWith ("_velocity")
@@ -164,6 +248,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_string_stiffness") || id.endsWith ("_string_pickup") || id.endsWith ("_string_excite_pos")
         || id.endsWith ("_string_pick_hardness") || id.endsWith ("_string_pick_pos")
         || id.endsWith ("_phys_a") || id.endsWith ("_phys_b")
+        || (id.startsWith ("lfo") && (id.endsWith ("_smooth") || id.endsWith ("_stereo")))
         || id.endsWith ("_bow_pressure") || id.endsWith ("_bow_speed")
         || id.endsWith ("_bridge_buzz") || id.endsWith ("_fret_rattle")
         || id.endsWith ("_hammer_hard") || id.endsWith ("_couple") || id.endsWith ("_damper") || id.endsWith ("_register")
@@ -174,11 +259,39 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
-    return juce::String (value, value == std::floor (value) ? 0 : 2);
+    // Whole numbers without decimals, judged after rounding to two places
+    // (0.997 is "1", as 1.0 is), so text and value round-trip.
+    const auto rounded = std::round (value * 100.0f) / 100.0f;
+    return rounded == std::floor (rounded) ? juce::String (juce::roundToInt (rounded)) : juce::String (rounded, 2);
 }
 
 inline juce::String describeParameter (const juce::String& id)
 {
+    // M8.1: the simulated LFO shapes (any of the 16 LFOs).
+    if (id.startsWith ("lfo"))
+    {
+        const auto suffix = id.fromFirstOccurrenceOf ("_", false, false);
+        if (suffix == "smooth")
+            return "Glide on the LFO's output, as a fraction of a cycle. Turns S&H, Steps and Square into slewed "
+                   "random or glide. Works on every shape.";
+        if (suffix == "trigger")
+            return "What restarts a simulated shape: Note (each note), Free (never), Beat (each DIVISION of the host's "
+                   "beat) or Generative (Euclid's hits, else the probability sequencer's steps). FIRE triggers it by hand.";
+        if (suffix == "axis")
+            return "Which axis of the attractor is output A; output B is the next one. Mix blends X and Z.";
+        if (suffix == "loop")
+            return "Physics objects: start again once settled, instead of resting until the next trigger.";
+        if (suffix == "seed")
+            return "0: every voice and every note gets its own random sequence. 1-999: the same repeatable sequence "
+                   "everywhere, restarting on each trigger.";
+        if (suffix == "stereo")
+            return "Random shapes: how far output B departs from A (route B to the other side, or another target).";
+        if (suffix == "fire")
+            return "Triggers the LFO now.";
+        if (suffix.length() == 2 && suffix[0] == 'p')
+            return "The chosen shape's own parameter; its name and unit show on the knob (gravity, length, sigma...).";
+    }
+
     // M7.1 generative card.
     if (id == "euc_on")
         return "Euclidean rhythm: HITS spread as evenly as possible over STEPS.";
@@ -273,7 +386,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
     if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
     if (isOscParameter (id, "_hammer_hard"))
-        return "Hammer felt hardness (Hammer exciter). Harder felt and faster keys give a shorter contact and a brighter tone.";
+        return "Hammer felt hardness (Hammer and Piano exciters). Harder felt and faster keys give a shorter contact and a brighter tone.";
     if (id == "in_gain") return "ilanaSynth FX: the input's level into the engine (DRY is not affected).";
     if (id == "in_dry") return "ilanaSynth FX: the untouched input, added back at the end.";
     if (id == "in_body") return "ilanaSynth FX: how hard the input rings the BODY section (switch BODY on, any type but Classic).";
@@ -297,6 +410,18 @@ inline juce::String describeParameter (const juce::String& id)
         return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
+    if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
+    if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";
+    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100 % folds about a dozen times.";
+    if (id == "west_sym") return "Offsets the fold: even harmonics, a hollower or reedier tone.";
+    if (id == "west_stages") return "Folders in a row: more stages, denser harmonics.";
+    if (id == "west_mode") return "Combo: filter and amplifier together (the classic bongo). Low Pass: the filter only. VCA: the level only.";
+    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63 %, slower as it darkens).";
+    if (id == "west_res") return "Resonance of the gate's filter.";
+    if (id == "west_strike") return "How hard the gate is struck (times velocity for a note strike, or the chosen source's level).";
+    if (id == "west_open") return "Holds the gate partly open, so notes sustain under the strikes.";
+    if (id == "west_src") return "What strikes the gate: each note, or any mod source (an envelope, or LFO n B with Bounce for its impacts).";
+    if (id == "sb_model") return "Classic: the M4 board. Dense: 48 wooden modes a side and the colour measured from a real grand (for the Piano exciter).";
     if (id == "sb_mix") return "How much soundboard resonance is heard.";
     if (id == "sb_tone") return "Lid and mic position: closed and dark to open and bright.";
     if (id == "sb_size") return "Soundboard size: a bigger board is lower and rings longer.";
@@ -343,7 +468,9 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (isOscParameter (id, "_excite", false))
         return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string. "
-               "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed.";
+               "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed. "
+               "Piano strikes the string with a real felt hammer (it brightens as it compresses), with two polarisations "
+               "and the bass's bark; Hammer (classic) is the M4 model, kept for old patches.";
 
     if (isOscParameter (id, "_string_decay", false))
         return "How long the string rings.";
@@ -361,13 +488,13 @@ inline juce::String describeParameter (const juce::String& id)
         return "Pickup position. Move it to change the string's harmonic notches.";
 
     if (id.endsWith ("_string_excite_pos"))
-        return "Excitation position on the string. Changes which harmonics ring.";
+        return "Excitation position on the string. Changes which harmonics ring. Auto (at 0) uses the exciter's natural spot, about an eighth of the string.";
 
     if (id.endsWith ("_string_pick_hardness"))
         return "Pick hardness. Harder picks give a brighter attack.";
 
     if (id.endsWith ("_string_pick_pos"))
-        return "Where the pick strikes the string. Changes the attack spectrum.";
+        return "Where the pick strikes the string. Changes the attack spectrum. Off at 0.";
 
     if (id.endsWith ("_string_slap"))
         return "Adds a short noisy slap to the start of each pluck.";
@@ -457,10 +584,10 @@ inline juce::String describeParameter (const juce::String& id)
         return "Saturates the signal going into the filter.";
 
     if (id == "f1_env" || id == "f2_env")
-        return "How much the Filter Envelope moves the cutoff.";
+        return "How far the filter envelope moves the cutoff, in octaves (negative closes it).";
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
-        return "Cutoff follows the played note (1.0 = full tracking).";
+        return "Cutoff follows the played note (100 % = full tracking: an octave up the keyboard moves it an octave).";
 
     if (id == "fm_mode")
         return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
@@ -596,12 +723,14 @@ inline juce::String describeParameter (const juce::String& id)
         return "Pitch bend range in semitones.";
 
     // LFOs (patterned)
-    if (id.startsWith ("lfo1_") || id.startsWith ("lfo2_") || id.startsWith ("lfo3_") || id.startsWith ("lfo4_"))
+    // Every LFO (1-16), not only the first four.
+    if (id.startsWith ("lfo") && id.length() > 4 && juce::CharacterFunctions::isDigit (id[3]) && id.contains ("_"))
     {
         if (id.endsWith ("_shape"))
-            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Smooth Random glides to a new "
-                   "random value each cycle, Drunk wanders a little from where it was, Chaos follows a Lorenz "
-                   "attractor that never repeats. Bounce, Pendulum, Spring and Friction simulate motion.";
+            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Random: S&H, Sine Random, Perlin and "
+                   "Drunk Walk, with a seed and stereo. Chaos: Lorenz, Rossler, Duffing, the logistic and Henon maps and "
+                   "a double pendulum, solved properly. Physics: Bounce, Pendulum, Spring and Friction with real "
+                   "parameters. Each has two outputs (LFO n and LFO n B). The M2 versions stay as \"classic\".";
 
         if (id.endsWith ("_phys_a"))
             return "Physics shape: Bounce height, Pendulum swing, Spring stiffness, or Friction drive.";
@@ -635,6 +764,47 @@ inline juce::String describeParameter (const juce::String& id)
     }
 
     // Mod matrix (patterned)
+    if (id.startsWith ("mod") && id.endsWith ("_pol"))
+        return "Polarity: Natural uses the source as it comes; Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
+    if (id.startsWith ("mod") && id.endsWith ("_aux"))
+        return "Via: a second source that scales this route (e.g. the mod wheel fading in an LFO). None = always full.";
+    if (id.startsWith ("mod") && id.endsWith ("_byp"))
+        return "Bypass: switches this route off without losing its settings.";
+
+    // Singles that had no help.
+    if (id.endsWith ("_sample_factory"))
+        return "Factory sample this oscillator plays in Sample or Granular mode (a loaded or dropped wav replaces it).";
+    if (id == "gen_root")
+        return "Root note of the GENERATE scale (scale snap, note spray, Euclid and the probability sequencer).";
+    if (id == "spray_direction")
+        return "Which way sprayed notes go from the one played: up, down or both.";
+    if (id == "os_factor")
+        return "How much OVERSAMPLE raises the voice rate: 2x, or 4x for the cleanest highs at more CPU.";
+    if (id.startsWith ("me_") && id.endsWith ("_velocity"))
+        return "How much note velocity scales the MOD envelope.";
+    if (id.endsWith ("_fb_gain"))
+        return "Feedback guitar: how loud the amp pushes sound back into the string (more sustains and blooms into feedback).";
+    if (id.endsWith ("_fb_distance"))
+        return "Feedback guitar: how far the string is from the amp; changes which harmonic the feedback locks onto.";
+    if (id.startsWith ("fx_taps_step"))
+        return "Level of this step in the Taps delay's custom pattern.";
+    if (id == "vec_on")
+        return "Vector pad on: the four corner oscillators crossfade by where the dot is (X / Y are also mod sources).";
+    if (id == "vec_x" || id == "vec_y")
+        return id == "vec_x" ? "Vector position left to right." : "Vector position bottom to top.";
+    if (id == "vec_a" || id == "vec_b" || id == "vec_c" || id == "vec_d")
+        return "The oscillator at this corner of the vector pad.";
+    if (id == "vec_path")
+        return "Moves the dot round the drawn path at PATH RATE (X / Y then offset the whole path).";
+    if (id == "vec_rate")
+        return "How fast the dot goes round the path.";
+    if (id.startsWith ("vec_px") || id.startsWith ("vec_py"))
+        return "A point of the vector path; drag the points on the pad.";
+    if (id == "vec_drift")
+        return "Lets the dot wander on its own around where it is.";
+    if (id == "vec_drift_rate")
+        return "How fast the drift wanders.";
+
     if (id.startsWith ("mod") && (id.endsWith ("_src") || id.endsWith ("_dst") || id.endsWith ("_amt")))
     {
         if (id.endsWith ("_src"))

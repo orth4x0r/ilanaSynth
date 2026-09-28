@@ -551,6 +551,16 @@ public:
 
     Builder& arpChance (float chance) { return set ("arp_chance", chance); }
 
+    // M10: bounce another factory preset onto an oscillator at load time.
+    // The preset's own settings for that oscillator apply on top (e.g. a
+    // Granular mode set here plays the bounce as grains).
+    Builder& bounceFrom (const char* source, int index, bool toTable = false, int note = 60, float hold = 2.0f,
+                         float tail = 2.0f, bool withFx = true)
+    {
+        preset.bounces.push_back ({ source, index, toTable, note, hold, tail, withFx });
+        return *this;
+    }
+
     operator FactoryPreset() const { return preset; }
 
 private:
@@ -572,6 +582,17 @@ inline const char* bounceCurve = "0,1,-0.6;0.4,-1,0.6;0.6,0.2,-0.6;0.8,-1,0.6;0.
 inline const char* wobbleCurve = "0,-1,0;0.25,1,0;0.375,-1,0;0.5,1,0;0.75,-1,0;1,-1,0";
 inline const char* swellCurve = "0,-1,0.6;0.7,1,-0.5;1,-1,0";
 inline const char* triplCurve = "0,1,-0.7;0.33,-1,0;0.333,1,-0.7;0.66,-1,0;0.667,1,-0.7;1,-1,0";
+
+} // namespace Library
+} // namespace Presets
+
+#include <functional>
+
+namespace Presets
+{
+namespace Library
+{
+#include "PresetPackM10.h"
 
 inline std::vector<FactoryPreset> build()
 {
@@ -1632,7 +1653,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "GATE", { { param ("arp_gate"), 0.3f } })
              .macro (3, "TONE", { { D::Filter1Cutoff, -0.4f } })
              .macro (4, "SPACE", { { D::FxDelayMix, 0.25f }, { D::FxReverbMix, 0.2f } })
-             .fx ({ FxDelay, FxReverb }).delay (D1_4T, 0.35f, 0.18f, true).reverb (Hall, 0.5f, 0.15f));
+             .fx ({ FxDelay, FxReverb }).delay (D1_4T, 0.35f, 0.18f, true).reverb (Hall, 0.5f, 0.15f).master (2.0f));
 
     add (B ("Trance Gate Arp", "Arp")
              .osc1 (Basic, 0.0f, 0.65f).unison (1, 7, 18.0f, 0.8f, Hypersaw, 0.7f)
@@ -1694,7 +1715,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "BREATH", { { D::NoiseLevel, 0.2f } })
              .macro (3, "PITCH", { { D::Filter2Cutoff, 0.1f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
-             .fx ({ FxLimiter, FxReverb }).limiter (-4.0f).reverb (Hall, 0.9f, 0.4f));
+             .fx ({ FxLimiter, FxReverb }).limiter (-4.0f).reverb (Hall, 0.9f, 0.4f).master (2.0f));
 
     add (B ("Ring Drone", "Drone")
              .osc1 (Fractal, 0.3f, 0.6f).osc2 (SineT, 0.0f, 0.0f, 0, 3.0f).warp (1, WRing, 0.5f)
@@ -1768,7 +1789,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "NOISE", { { D::NoiseLevel, 0.3f } })
              .macro (3, "PITCH", { { D::Osc1Pitch, 0.1f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
-             .fx ({ FxDelay, FxReverb }).delay (D1_8, 0.5f, 0.2f, true).reverb (Hall, 0.9f, 0.3f));
+             .fx ({ FxDelay, FxReverb }).delay (D1_8, 0.5f, 0.2f, true).reverb (Hall, 0.9f, 0.3f).master (4.0f));
 
     add (B ("Laser Zap", "FX")
              .osc1 (Basic, 0.0f, 0.7f)
@@ -2202,7 +2223,7 @@ inline std::vector<FactoryPreset> build()
              .macro (2, "DENSITY", { { param ("osc1_grain_density"), -0.6f } })
              .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.35f } })
-             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f));
+             .fx ({ FxReverb }).reverb (Hall, 0.9f, 0.35f).master (-1.0f));
 
     add (B ("Vinyl Dust Keys", "Keys")
              .osc1 (SoftSaw, 0.2f, 0.7f).osc2 (SineT, 0.0f, 0.35f, 12)
@@ -2674,6 +2695,26 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "DRY", { { param ("in_dry"), 0.4f } })
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxReverb }).reverb (Hall, 0.6f, 0.2f));
+
+    // M8.2: the reworked piano (Piano exciter: a real felt hammer, two
+    // polarisations, the bass bark), fitted across the whole keyboard at
+    // pp, mf and ff (tools/fit_piano2.py).
+    add (B ("Grand Piano", "Keys")
+             .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.2803f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
+             .set ("osc1_excite", 9)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.8f, 1.0f, 0.04577f, 0.5f, 0.45f, 0.2f)
+             .set ("sb_model", 1)
+             .filter1 (LP, 20000.0f, 0.0f)
+             .amp (0.001f, 5.0f, 1.0f, 1.0f).velocity (0.0f)
+             .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
+             .macro (2, "PEDAL", { { param ("pedal_res"), 0.45f } })
+             .macro (3, "DECAY", { { param ("osc1_string_decay"), 0.3f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
+    // M10: the v1.3 pack.
+    addM10Presets (add);
 
     return list;
 }

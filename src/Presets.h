@@ -19,6 +19,20 @@ struct FactoryPreset
     std::vector<const char*> macroNames {};
     std::vector<const char*> lfoCurves {}; // LfoCurve strings for LFO 1..4 (for the Curve shape)
     const char* category = nullptr;        // the original 80 use getLegacyCategories() instead
+
+    // M10: a factory preset can't carry audio, so a resampled one carries a
+    // recipe instead: another factory preset, played and bounced (M8.6)
+    // onto an oscillator when the preset loads.
+    struct Bounce
+    {
+        const char* source = nullptr; // a factory preset's name
+        int osc = 1;                  // 1-6
+        bool toTable = false;
+        int note = 60;
+        float hold = 2.0f, tail = 2.0f;
+        bool withFx = true;
+    };
+    std::vector<Bounce> bounces {};
 };
 
 inline const std::vector<FactoryPreset>& getLegacyPresets()

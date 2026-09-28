@@ -40,6 +40,11 @@ enum class Source
     Lfo13, Lfo14, Lfo15, Lfo16,
     // M7.5: the audio input's envelope follower (ilanaSynth FX).
     InputEnv,
+    // M8.1: every LFO's second output (B), for LFO 1-16.
+    Lfo1B, Lfo2B, Lfo3B, Lfo4B, Lfo5B, Lfo6B, Lfo7B, Lfo8B,
+    Lfo9B, Lfo10B, Lfo11B, Lfo12B, Lfo13B, Lfo14B, Lfo15B, Lfo16B,
+    // M8.5: the vector pad's position.
+    VectorX, VectorY,
     Count
 };
 
@@ -60,6 +65,17 @@ inline int lfoIndexFor (Source source)
     }
 }
 
+// LFO index 0..15 whose output B this source is, or -1.
+inline int lfoBIndexFor (Source source)
+{
+    return source >= Source::Lfo1B && source <= Source::Lfo16B ? (int) source - (int) Source::Lfo1B : -1;
+}
+
+inline Source lfoBSourceFor (int index)
+{
+    return (Source) ((int) Source::Lfo1B + juce::jlimit (0, numLfoSources - 1, index));
+}
+
 // The source for LFO index 0..15.
 inline Source lfoSourceFor (int index)
 {
@@ -77,7 +93,9 @@ inline bool isBipolarSource (Source source)
         case Source::KeyTrack: case Source::Random: case Source::ClockSh: case Source::Mseg:
             return true;
         default:
-            return source >= Source::Lfo5 && source <= Source::Lfo16;
+            return (source >= Source::Lfo5 && source <= Source::Lfo16)
+                   || (source >= Source::Lfo1B && source <= Source::Lfo16B);
+        // (VectorX / VectorY run 0..1.)
     }
 }
 
@@ -413,6 +431,19 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("in_body", "Input to Body");
         add ("in_strings", "Input to Strings");
         add ("in_threshold", "Input Threshold");
+
+        // M8.3 west-coast voice (append only).
+        add ("west_fold", "West Fold");
+        add ("west_sym", "West Symmetry");
+        add ("west_decay", "West Decay");
+        add ("west_open", "West Open");
+        add ("west_strike", "West Strike");
+
+        // M8.5 (append only).
+        for (int osc = 0; osc < 6; ++osc)
+            add (juce::String (prefixes[osc]) + "_fb_gain", "Osc" + juce::String (osc + 1) + " Feedback Gain");
+        add ("vec_x", "Vector X");
+        add ("vec_y", "Vector Y");
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -552,6 +583,10 @@ inline juce::StringArray getSourceNames()
     for (int lfo = 5; lfo <= numLfoSources; ++lfo)
         names.add ("LFO " + juce::String (lfo));
     names.add ("Input Env");
+    for (int lfo = 1; lfo <= numLfoSources; ++lfo)
+        names.add ("LFO " + juce::String (lfo) + " B");
+    names.add ("Vector X");
+    names.add ("Vector Y");
     return names;
 }
 

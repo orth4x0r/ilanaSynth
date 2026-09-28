@@ -169,6 +169,10 @@ public:
         g.setFont (IlanaTheme::font (11.5f, true));
         g.drawText (hold ? "HOLD" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
+        // The engine quality box beside it has no label of its own.
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("QUALITY", qualityBox.getBounds().withX (qualityBox.getX() - 62).withWidth (56),
+                    juce::Justification::centredRight);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }

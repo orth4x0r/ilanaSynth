@@ -22,6 +22,8 @@
 #include "gui/CardTabs.h"
 #include "gui/EnvThumbs.h"
 #include "gui/FilterWidgets.h"
+#include "gui/VectorPad.h"
+#include "gui/PhysicalView.h"
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
 #include "gui/GenerativeWidgets.h"
@@ -149,12 +151,15 @@ class OscPage : public juce::Component,
               damper (state, prefix + "_damper", "DAMPER"),
               registerMap (state, prefix + "_register", "REGISTER"),
               epDistance (state, prefix + "_ep_distance", "DISTANCE"),
-              epPosition (state, prefix + "_ep_position", "OFFSET") {}
+              epPosition (state, prefix + "_ep_position", "OFFSET"),
+              fbGain (state, prefix + "_fb_gain", "AMP GAIN"),
+              fbDistance (state, prefix + "_fb_distance", "DISTANCE") {}
 
         KnobControl stiffness, pickup, excitePos, hardness, pickPos;
         KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
         KnobControl hammer, couple, damper, registerMap;
         KnobControl epDistance, epPosition; // M7.3 Tine / Reed pickup
+        KnobControl fbGain, fbDistance;     // M8.5 feedback amp
         ToggleControl slap;
     };
 
@@ -227,7 +232,7 @@ public:
           , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "STRINGS")
-          , sbOn (p.apvts, "sb_on", "BOARD"), sbMix (p.apvts, "sb_mix", "BODY MIX"), sbTone (p.apvts, "sb_tone", "TONE")
+          , sbOn (p.apvts, "sb_on", "BOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "BODY MIX"), sbTone (p.apvts, "sb_tone", "TONE")
           , sbSize (p.apvts, "sb_size", "SIZE"), stretch (p.apvts, "stretch", "STRETCH")
           , pedalRes (p.apvts, "pedal_res", "PEDAL RES"), mechKey (p.apvts, "mech_key", "KEY NOISE")
           , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
@@ -242,6 +247,7 @@ public:
                 prefix + "_mode", i, oscColour (i), i == 0);
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD .WAV");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
+            bounceButtons[(size_t) i] = std::make_unique<juce::TextButton> ("BOUNCE");
         }
 
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -255,11 +261,12 @@ public:
                     physicalControls.bridgeBuzz, physicalControls.fretRattle,
                     physicalControls.hammer, physicalControls.couple,
                     physicalControls.damper, physicalControls.registerMap,
-                    physicalControls.epDistance, physicalControls.epPosition);
+                    physicalControls.epDistance, physicalControls.epPosition,
+                    physicalControls.fbGain, physicalControls.fbDistance);
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
-        addAll (*this, sbOn, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
+        addAll (*this, sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         for (int i = 0; i < 6; ++i)
         {
             symNotes[(size_t) i] = std::make_unique<KnobControl> (p.apvts, "sym_note" + juce::String (i + 1),
@@ -295,6 +302,12 @@ public:
                              "A factory table is copied into one of the patch's 16 tables first.");
             edit.onClick = [this, i] { openTableEditor (i); };
             addAndMakeVisible (edit);
+            auto& bounce = *bounceButtons[(size_t) i];
+            bounce.setTooltip ("Resample: play the whole patch (one note, optionally with its effects) and put the "
+                               "result on this oscillator, as a tuned sample or cut into a wavetable. "
+                               "The bounce is saved inside the patch.");
+            bounce.onClick = [this, i] { showBounceMenu (i); };
+            addAndMakeVisible (bounce);
         }
 
         addAll (*this, subShape, subOctave, noiseLevel);
@@ -391,6 +404,9 @@ public:
     // Patch loads change which oscillators are shown.
     void timerCallback() override
     {
+        if (bouncingOsc >= 0)
+            updateBounce();
+
         if (const auto version = processorRef.getRevealVersion(); version != lastRevealVersion)
         {
             lastRevealVersion = version;
@@ -603,7 +619,7 @@ public:
         keysCard = area.removeFromTop (keysCardHeight);
         auto keysArea = keysCard.withTrimmedTop (symHeaderHeight).reduced (10, 0);
         layoutSlots (keysArea.removeFromTop (symRowHeight),
-                     { &sbOn, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
+                     { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
     }
 
 private:
@@ -740,7 +756,12 @@ private:
         titleStrip.removeFromRight (6);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
         titleStrip.removeFromRight (4);
-        editButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (44).withSizeKeepingCentre (44, 15));
+        if (getMode (index) == 0)
+        {
+            editButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (44).withSizeKeepingCentre (44, 15));
+            titleStrip.removeFromRight (4);
+        }
+        bounceButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (bounceButtonWide == index ? 92 : 58).withSizeKeepingCentre (bounceButtonWide == index ? 92 : 58, 15));
 
         auto content = band.reduced (8);
         content.removeFromTop (20);
@@ -829,7 +850,10 @@ private:
                                       &physicalControls.stiffness, &physicalControls.pickup,
                                       &physicalControls.excitePos, &physicalControls.hardness,
                                       &physicalControls.pickPos });
-            layoutSlots (extraRow, { &physicalControls.hammer, &physicalControls.bowPressure, &physicalControls.bowSpeed,
+            const auto feedbackExcite = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_excite")->load() == 10.0f;
+            layoutSlots (extraRow, { &physicalControls.hammer,
+                                     feedbackExcite ? (juce::Component*) &physicalControls.fbGain : (juce::Component*) &physicalControls.bowPressure,
+                                     feedbackExcite ? (juce::Component*) &physicalControls.fbDistance : (juce::Component*) &physicalControls.bowSpeed,
                                      &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
                                      &physicalControls.couple, &physicalControls.damper, &physicalControls.registerMap });
             layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
@@ -958,8 +982,8 @@ private:
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt, &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
-                 &phys.epDistance, &phys.epPosition, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
-                 removeButtons[(size_t) i].get() };
+                 &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
+                 removeButtons[(size_t) i].get(), bounceButtons[(size_t) i].get() };
     }
 
     void updateModeVisibility()
@@ -999,12 +1023,27 @@ private:
             const auto bow = stringVisible
                              && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 4.0f;
             physicalControls.bowPressure.setVisible (bow);
+            // M8.5: the Feedback exciter's amp; SUSTAIN is its FEEDBACK.
+            const auto feedbackExcite = stringVisible && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 10.0f;
+            physicalControls.fbGain.setVisible (feedbackExcite);
+            physicalControls.fbDistance.setVisible (feedbackExcite);
+            controls[(size_t) i]->stringSustain.setLabelText (feedbackExcite ? "FEEDBACK" : "SUSTAIN");
             physicalControls.bowSpeed.setVisible (bow);
             const auto electric = stringVisible && isElectric (i);
-            physicalControls.hammer.setVisible (electric || (stringVisible
-                                                && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 5.0f));
+            const auto exciteChoice = processorRef.apvts.getRawParameterValue (prefix + "_excite")->load();
+            physicalControls.hammer.setVisible (electric || (stringVisible && (exciteChoice == 5.0f || exciteChoice == 9.0f)));
             physicalControls.epDistance.setVisible (electric);
             physicalControls.epPosition.setVisible (electric);
+            // M8.2: the Piano exciter's hammer and strings are physical; the
+            // pick, pickup and buzz controls don't apply.
+            if (stringVisible && exciteChoice == 9.0f)
+                for (juce::Component* control : { (juce::Component*) &physicalControls.pickup,
+                                                  (juce::Component*) &physicalControls.hardness,
+                                                  (juce::Component*) &physicalControls.pickPos,
+                                                  (juce::Component*) &physicalControls.slap,
+                                                  (juce::Component*) &physicalControls.bridgeBuzz,
+                                                  (juce::Component*) &physicalControls.fretRattle })
+                    control->setVisible (false);
             if (electric)
                 for (juce::Component* control : { (juce::Component*) &physicalControls.stiffness,
                                                   (juce::Component*) &physicalControls.pickup,
@@ -1079,7 +1118,8 @@ private:
     bool isElectric (int index) const
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
-        return processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() >= 7.0f;
+        const auto excite = processorRef.apvts.getRawParameterValue (prefix + "_excite")->load();
+        return excite == 7.0f || excite == 8.0f;
     }
 
     static void setGroupEnabled (std::initializer_list<juce::Component*> controls, bool enabled)
@@ -1154,6 +1194,85 @@ private:
 public:
     // M7.4: EDIT. A user table is edited in place; a factory table is first
     // copied into a free patch table, which the oscillator then plays.
+    // M8.6: the BOUNCE menu. The choices stay set for the next bounce.
+    void showBounceMenu (int index)
+    {
+        if (bouncingOsc >= 0)
+            return;
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Bounce the patch into OSC " + juce::String (index + 1));
+        menu.addItem (1, "As a sample (tuned, one note)");
+        menu.addItem (2, "As a wavetable (cut into single cycles)");
+        menu.addSeparator();
+        menu.addItem (3, "Include the effects", true, bounceRequest.withFx);
+        menu.addItem (4, "Mute the other oscillators", true, bounceRequest.muteOthers);
+        juce::PopupMenu notes, lengths;
+        for (int note : { 36, 48, 60, 72 })
+            notes.addItem (100 + note, juce::MidiMessage::getMidiNoteName (note, true, true, 4), true, bounceRequest.note == note);
+        for (double hold : { 0.5, 1.0, 2.0, 4.0, 8.0 })
+            lengths.addItem (300 + (int) (hold * 2.0), juce::String (hold, hold < 1.0 ? 1 : 0) + " s held + 2 s release",
+                             true, std::abs (bounceRequest.holdSeconds - hold) < 1.0e-3);
+        menu.addSubMenu ("Note", notes);
+        menu.addSubMenu ("Length", lengths);
+
+        juce::Component::SafePointer<OscPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (bounceButtons[(size_t) index].get()),
+                            [safe, index] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+                                auto& request = safe->bounceRequest;
+                                if (result == 1 || result == 2)
+                                {
+                                    request.targetOsc = index;
+                                    request.toTable = result == 2;
+                                    request.tailSeconds = 2.0;
+                                    if (safe->processorRef.startBounce (request))
+                                    {
+                                        safe->bouncingOsc = index;
+                                        safe->updateBounce();
+                                    }
+                                    return;
+                                }
+                                if (result == 3) request.withFx = ! request.withFx;
+                                if (result == 4) request.muteOthers = ! request.muteOthers;
+                                if (result >= 100 && result < 300) request.note = result - 100;
+                                if (result >= 300) request.holdSeconds = (result - 300) / 2.0;
+                                safe->showBounceMenu (index); // keep choosing
+                            });
+    }
+
+    void updateBounce()
+    {
+        const auto state = processorRef.getBounceState();
+        auto& button = *bounceButtons[(size_t) juce::jlimit (0, OscillatorIds::count - 1, bouncingOsc)];
+        if (state == IlanaSynthAudioProcessor::BounceState::Rendering)
+        {
+            button.setButtonText ("BOUNCING " + juce::String (juce::roundToInt (processorRef.getBounceProgress() * 100.0f)) + "%");
+            if (bounceButtonWide != bouncingOsc)
+            {
+                bounceButtonWide = bouncingOsc;
+                resized();
+            }
+            for (auto& other : bounceButtons)
+                other->setEnabled (false);
+            return;
+        }
+        button.setButtonText ("BOUNCE");
+        for (auto& other : bounceButtons)
+            other->setEnabled (true);
+        bouncingOsc = -1;
+        bounceButtonWide = -1;
+        resized();
+        const auto message = processorRef.getBounceMessage();
+        if (state == IlanaSynthAudioProcessor::BounceState::Failed)
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Bounce", message);
+        else
+            button.setTooltip (message);
+        updateModeVisibility();
+        updateEnabled();
+    }
+
     void openTableEditor (int index)
     {
         const auto id = juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table";
@@ -1199,7 +1318,9 @@ private:
     std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
     std::array<juce::Rectangle<int>, OscillatorIds::count> chainLabel {}, chainBay {};
 
-    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons;
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons, bounceButtons;
+    IlanaSynthAudioProcessor::BounceRequest bounceRequest;
+    int bouncingOsc = -1, bounceButtonWide = -1;
     juce::TextButton addButton;
     std::unique_ptr<juce::FileChooser> tableChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
@@ -1216,6 +1337,7 @@ private:
     // the mechanism's noises, shared by every voice.
     juce::Rectangle<int> keysCard;
     ToggleControl sbOn;
+    ComboControl sbModel;
     KnobControl sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal;
     std::array<std::unique_ptr<KnobControl>, 6> symNotes;
 
@@ -1323,7 +1445,8 @@ private:
         if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))
             type = juce::jlimit (0, FilterType::Count - 1, (int) value->load());
 
-        const auto hasSlope = type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant;
+        const auto hasSlope = type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant
+                              && FilterType::usesSlope (type);
         slope.setVisible (hasSlope);
         morph.setVisible (FilterType::usesMorph (type));
         resized();
@@ -1346,6 +1469,547 @@ private:
     int type = -1;
 };
 
+// M8.3: the WEST card: a wavefolder into a low-pass gate. It sits where
+// Filter 2's card is (the FILTER 2 / WEST tabs), and runs after the filters
+// or in Filter 2's place.
+class WestPanel : public juce::Component,
+                  private juce::Timer
+{
+public:
+    explicit WestPanel (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          on (p.apvts, "west_on", "ON"),
+          position (p.apvts, "west_pos", "PLACE"),
+          mode (p.apvts, "west_mode", "GATE"),
+          source (p.apvts, "west_src", "STRIKE BY"),
+          fold (p.apvts, "west_fold", "FOLD", colour(), false),
+          symmetry (p.apvts, "west_sym", "SYMMETRY", colour(), false),
+          stages (p.apvts, "west_stages", "STAGES", colour(), false),
+          decay (p.apvts, "west_decay", "DECAY", colour(), false),
+          resonance (p.apvts, "west_res", "RESO", colour(), false),
+          strike (p.apvts, "west_strike", "STRIKE", colour(), false),
+          open (p.apvts, "west_open", "OPEN", colour(), false)
+    {
+        addAll (*this, on, position, mode, source, fold, symmetry, stages, decay, resonance, strike, open);
+        startTimerHz (30);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xffffb347); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
+        auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
+        g.setColour (colour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("WEST", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (52), juce::Justification::centredLeft);
+
+        // The fold's transfer curve and the gate's vactrol, lit by its level.
+        const auto plot = picture.toFloat();
+        IlanaTheme::paintWell (g, plot, 5.0f);
+        const auto curveArea = plot.withWidth (plot.getWidth() * 0.62f).reduced (8.0f, 6.0f);
+        juce::Path curve;
+        const auto gain = 0.35 + 11.65 * (double) (read ("west_fold") * read ("west_fold"));
+        const auto bias = 0.5 * (double) read ("west_sym");
+        const auto stagesNow = juce::jlimit (1, 4, (int) read ("west_stages"));
+        for (int i = 0; i <= 120; ++i)
+        {
+            const auto x = -1.0 + 2.0 * i / 120.0;
+            auto y = x * gain + bias;
+            for (int s = 0; s < stagesNow; ++s)
+            {
+                y = Wavefolder::fold (y);
+                if (s + 1 < stagesNow)
+                    y *= 1.0 + 0.35 * gain / (double) stagesNow;
+            }
+            const auto px = curveArea.getX() + curveArea.getWidth() * (float) i / 120.0f;
+            const auto py = curveArea.getCentreY() - (float) y * curveArea.getHeight() * 0.45f;
+            if (i == 0) curve.startNewSubPath (px, py); else curve.lineTo (px, py);
+        }
+        g.setColour (colour());
+        g.strokePath (curve, juce::PathStrokeType (1.6f));
+
+        const auto glow = juce::jlimit (0.0f, 1.0f, processorRef.getWestGateLevel());
+        const auto cell = plot.withTrimmedLeft (plot.getWidth() * 0.66f).reduced (10.0f, 8.0f);
+        const auto led = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ cell.getX() + 14.0f, cell.getCentreY() });
+        g.setColour (colour().withAlpha (0.15f + 0.85f * glow));
+        g.fillEllipse (led.expanded (6.0f * glow));
+        g.setColour (juce::Colours::white.withAlpha (0.3f + 0.6f * glow));
+        g.fillEllipse (led.reduced (5.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.setFont (IlanaTheme::font (10.5f, true));
+        g.drawText ("LPG", cell.withTrimmedLeft (30.0f), juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (10, 0);
+        area.removeFromTop (30);
+        auto top = area.removeFromTop (area.getHeight() * 2 / 5);
+        auto options = top.removeFromLeft (top.getWidth() / 2);
+        picture = top.reduced (4, 2);
+        const auto optionHeight = options.getHeight() / 2;
+        auto row1 = options.removeFromTop (optionHeight);
+        on.setBounds (row1.removeFromLeft (row1.getWidth() / 3).reduced (3, 1));
+        position.setBounds (row1.reduced (3, 1));
+        auto row2 = options;
+        mode.setBounds (row2.removeFromLeft (row2.getWidth() / 2).reduced (3, 1));
+        source.setBounds (row2.reduced (3, 1));
+        area.removeFromTop (4);
+        layoutRow (area, { &fold, &symmetry, &stages, &decay, &resonance, &strike, &open });
+    }
+
+private:
+    float read (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    void timerCallback() override
+    {
+        const auto active = read ("west_on") > 0.5f;
+        for (juce::Component* c : { (juce::Component*) &fold, (juce::Component*) &symmetry, (juce::Component*) &stages,
+                                     (juce::Component*) &decay, (juce::Component*) &resonance, (juce::Component*) &strike,
+                                     (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
+                                     (juce::Component*) &position })
+        {
+            const auto alpha = active ? 1.0f : 0.4f;
+            if (c->getAlpha() != alpha)
+                c->setAlpha (alpha);
+        }
+        if (isShowing())
+            repaint (picture);
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    ToggleControl on;
+    ComboControl position, mode, source;
+    KnobControl fold, symmetry, stages, decay, resonance, strike, open;
+    juce::Rectangle<int> picture;
+};
+
+// M8.5: the VECTOR page. The vector pad (four oscillators at the corners,
+// moved by hand, by a path or by drift) and EVOLVE (each macro drifting
+// within a range; FREEZE keeps where they are).
+class VectorPage : public juce::Component,
+                   private juce::Timer
+{
+public:
+    explicit VectorPage (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          pad (p),
+          on (p.apvts, "vec_on", "ON"),
+          path (p.apvts, "vec_path", "PATH"),
+          cornerA (p.apvts, "vec_a", "TOP LEFT"),
+          cornerB (p.apvts, "vec_b", "TOP RIGHT"),
+          cornerC (p.apvts, "vec_c", "BOTTOM LEFT"),
+          cornerD (p.apvts, "vec_d", "BOTTOM RIGHT"),
+          x (p.apvts, "vec_x", "X", colour(), false),
+          y (p.apvts, "vec_y", "Y", colour(), false),
+          rate (p.apvts, "vec_rate", "PATH RATE", colour(), false),
+          drift (p.apvts, "vec_drift", "DRIFT", colour(), false),
+          driftRate (p.apvts, "vec_drift_rate", "DRIFT RATE", colour(), false)
+    {
+        addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
+        for (int m = 0; m < 4; ++m)
+        {
+            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", "EVOLVE",
+                                                                    evolveColour(), false));
+            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", "RATE",
+                                                                  evolveColour(), false));
+            addAndMakeVisible (*evolveAmount.back());
+            addAndMakeVisible (*evolveRate.back());
+        }
+        freeze.setButtonText ("FREEZE");
+        freeze.setTooltip ("Keeps the macros where Evolve has taken them, and stops the drift.");
+        freeze.onClick = [this] { processorRef.freezeEvolve(); };
+        addAndMakeVisible (freeze);
+        startTimerHz (20);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xff5fd3ff); }
+    static juce::Colour evolveColour() { return juce::Colour (0xffc58bff); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintPageBackground (g, getLocalBounds());
+        IlanaTheme::paintCard (g, vectorCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
+
+        auto header = vectorCard.reduced (12, 0).removeFromTop (28);
+        g.setColour (colour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("VECTOR", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+
+        header = evolveCard.reduced (12, 0).removeFromTop (28);
+        g.setColour (evolveColour());
+        g.setFont (IlanaTheme::font (13.0f, true));
+        g.drawText ("EVOLVE", header, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (IlanaTheme::font (11.0f));
+        g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+
+        // Each macro: its name, where it is set and where it has drifted to,
+        // with a hairline between rows.
+        for (int m = 0; m < 4; ++m)
+        {
+            const auto row = macroRows[(size_t) m];
+            if (m > 0)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.07f));
+                g.fillRect (evolveCard.getX() + 12, row.getY() - 10, evolveCard.getWidth() - 24, 1);
+            }
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.setFont (IlanaTheme::font (11.5f, true));
+            g.drawText (processorRef.getMacroName (m).toUpperCase(), row.withWidth (110).withHeight (18), juce::Justification::centredLeft);
+            const auto bar = juce::Rectangle<float> ((float) row.getX(), (float) row.getY() + 24.0f, 100.0f, 6.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRoundedRectangle (bar, 3.0f);
+            const auto set = readParam ("macro" + juce::String (m + 1));
+            const auto now = processorRef.macroValue (m);
+            g.setColour (juce::Colours::white.withAlpha (0.5f));
+            g.fillRect (bar.getX() + bar.getWidth() * set - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f);
+            g.setColour (evolveColour());
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ bar.getX() + bar.getWidth() * now, bar.getCentreY() }));
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (12);
+        vectorCard = area.removeFromLeft (area.getWidth() * 58 / 100);
+        area.removeFromLeft (10);
+        evolveCard = area;
+
+        auto inner = vectorCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        inner.removeFromBottom (8);
+        const auto side = juce::jmin (inner.getHeight(), inner.getWidth() / 2 + 40);
+        pad.setBounds (inner.removeFromLeft (side));
+        inner.removeFromLeft (10);
+        auto toggles = inner.removeFromTop (40);
+        on.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
+        path.setBounds (toggles.reduced (3, 1));
+        auto combos1 = inner.removeFromTop (44);
+        cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
+        cornerB.setBounds (combos1.reduced (3, 1));
+        auto combos2 = inner.removeFromTop (44);
+        cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
+        cornerD.setBounds (combos2.reduced (3, 1));
+        inner.removeFromTop (6);
+        auto knobs1 = inner.removeFromTop (inner.getHeight() / 2);
+        layoutRow (knobs1, { &x, &y, &rate });
+        layoutRow (inner, { &drift, &driftRate });
+
+        auto rows = evolveCard.reduced (12, 0);
+        rows.removeFromTop (30);
+        freeze.setBounds (rows.removeFromBottom (40).reduced (0, 6).withWidth (120));
+        const auto rowHeight = rows.getHeight() / 4;
+        for (int m = 0; m < 4; ++m)
+        {
+            auto row = rows.removeFromTop (rowHeight);
+            macroRows[(size_t) m] = row.withWidth (116).withTrimmedTop (8);
+            row.removeFromLeft (120);
+            // A gap under each row, so a row's labels don't read as the
+            // values of the row above.
+            row.removeFromBottom (8);
+            evolveAmount[(size_t) m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
+            evolveRate[(size_t) m]->setBounds (row.reduced (2, 0));
+        }
+    }
+
+private:
+    float readParam (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    void timerCallback() override
+    {
+        const auto active = readParam ("vec_on") > 0.5f;
+        for (juce::Component* c : { (juce::Component*) &path, (juce::Component*) &cornerA, (juce::Component*) &cornerB,
+                                     (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
+                                     (juce::Component*) &y, (juce::Component*) &rate, (juce::Component*) &drift,
+                                     (juce::Component*) &driftRate, (juce::Component*) &pad })
+        {
+            const auto alpha = active ? 1.0f : 0.45f;
+            if (c->getAlpha() != alpha)
+                c->setAlpha (alpha);
+        }
+        rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : 0.45f);
+        if (isShowing())
+            repaint (evolveCard);
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    VectorPadDisplay pad;
+    ToggleControl on, path;
+    ComboControl cornerA, cornerB, cornerC, cornerD;
+    KnobControl x, y, rate, drift, driftRate;
+    std::vector<std::unique_ptr<KnobControl>> evolveAmount, evolveRate;
+    juce::TextButton freeze;
+    juce::Rectangle<int> vectorCard, evolveCard;
+    std::array<juce::Rectangle<int>, 4> macroRows;
+};
+
+// M8.7: the PHYSICAL page. The animated string, its exciter and the body
+// for one oscillator (the first in Physical mode unless another is picked),
+// with that oscillator's string controls and the shared body and
+// soundboard switches beside it.
+class PhysicalPage : public juce::Component,
+                     private juce::Timer
+{
+public:
+    explicit PhysicalPage (IlanaSynthAudioProcessor& p)
+        : processorRef (p),
+          view (p),
+          resOn (p.apvts, "res_on", "BODY"),
+          bodyType (p.apvts, "body_type", "BODY TYPE"),
+          sbOn (p.apvts, "sb_on", "SOUNDBOARD"),
+          sbModel (p.apvts, "sb_model", "BOARD MODEL")
+    {
+        addAll (*this, view, resOn, bodyType, sbOn, sbModel);
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            auto& button = oscButtons[(size_t) i];
+            button.setButtonText ("OSC " + juce::String (i + 1));
+            button.setClickingTogglesState (false);
+            button.onClick = [this, i] { choose (i, true); };
+            addAndMakeVisible (button);
+        }
+        makePhysical.setButtonText ("SWITCH TO PHYSICAL");
+        makePhysical.setTooltip ("Puts this oscillator in Physical mode.");
+        makePhysical.onClick = [this]
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (prefix() + "_mode"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (1.0f));
+        };
+        addChildComponent (makePhysical);
+        choose (firstPhysical(), false);
+        startTimerHz (5);
+    }
+
+    static juce::Colour colour() { return juce::Colour (0xffffb35c); }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintPageBackground (g, getLocalBounds());
+        IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
+
+        const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note)
+        {
+            auto header = card.reduced (12, 0).removeFromTop (28);
+            g.setColour (colour());
+            g.setFont (IlanaTheme::font (13.0f, true));
+            g.drawText (name, header, juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (IlanaTheme::font (11.0f));
+            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (13.0f, true)), name)) + 14),
+                        juce::Justification::centredLeft);
+        };
+        title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings");
+        title (stringCard, "OSC " + juce::String (chosen + 1) + " STRING", "");
+        title (bodyCard, "BODY", "shared by every string");
+
+        if (! isPhysical (chosen))
+        {
+            // Centred in the card, above the SWITCH button.
+            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
+            const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
+            auto message = makePhysical.getBounds().withHeight (40).translated (0, -48).withWidth (stringCard.getWidth() - 28)
+                                                  .withX (stringCard.getX() + 14);
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.setFont (IlanaTheme::font (12.5f));
+            g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ", so it has no string.",
+                        message.removeFromTop (20), juce::Justification::centred);
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.setFont (IlanaTheme::font (11.5f));
+            g.drawText ("Switch it to Physical to edit its string and exciter here.", message, juce::Justification::centred);
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (12);
+        viewCard = area.removeFromLeft (area.getWidth() * 60 / 100);
+        area.removeFromLeft (10);
+        bodyCard = area.removeFromBottom (juce::jmin (150, area.getHeight() / 3));
+        area.removeFromBottom (10);
+        stringCard = area;
+
+        auto inner = viewCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        auto picker = inner.removeFromTop (30);
+        const auto buttonWidth = picker.getWidth() / OscillatorIds::count;
+        for (auto& button : oscButtons)
+            button.setBounds (picker.removeFromLeft (buttonWidth).reduced (3, 3));
+        inner.removeFromTop (6);
+        view.setBounds (inner.withTrimmedBottom (10));
+
+        auto controls = stringCard.reduced (10, 0);
+        controls.removeFromTop (30);
+        makePhysical.setBounds (juce::Rectangle<int> (220, 34).withCentre (controls.getCentre().translated (0, 20)));
+        if (excite != nullptr)
+        {
+            excite->setBounds (controls.removeFromTop (44).reduced (3, 1));
+            controls.removeFromTop (4);
+            const auto rows = (int) (knobs.size() + 3) / 4;
+            const auto rowHeight = juce::jmin (120, controls.getHeight() / juce::jmax (1, rows));
+            for (int row = 0; row < rows; ++row)
+            {
+                std::vector<juce::Component*> items;
+                for (size_t k = (size_t) row * 4; k < juce::jmin (knobs.size(), (size_t) row * 4 + 4); ++k)
+                    items.push_back (knobs[k].get());
+                while (items.size() < 4)
+                    items.push_back (nullptr);
+                auto rowArea = controls.removeFromTop (rowHeight);
+                const auto cell = rowArea.getWidth() / 4;
+                for (auto* item : items)
+                {
+                    auto slot = rowArea.removeFromLeft (cell);
+                    if (item != nullptr)
+                        item->setBounds (slot.reduced (2, 6));
+                }
+            }
+        }
+
+        auto body = bodyCard.reduced (10, 0);
+        body.removeFromTop (30);
+        auto top = body.removeFromTop (44);
+        resOn.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 6));
+        bodyType.setBounds (top.reduced (3, 1));
+        auto bottom = body.removeFromTop (44);
+        sbOn.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2).reduced (3, 6));
+        sbModel.setBounds (bottom.reduced (3, 1));
+    }
+
+    int getChosenOscillator() const { return chosen; }
+
+private:
+    juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
+
+    float readParam (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    bool isPhysical (int osc) const
+    {
+        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 1;
+    }
+
+    int firstPhysical() const
+    {
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (isPhysical (i) && processorRef.isOscillatorShown (i))
+                return i;
+        return 0;
+    }
+
+    void choose (int osc, bool byHand)
+    {
+        chosen = juce::jlimit (0, OscillatorIds::count - 1, osc);
+        pickedByHand = pickedByHand || byHand;
+        const auto id = prefix();
+        view.setOscillator (id);
+
+        // The string's controls, rebound to the chosen oscillator.
+        knobs.clear();
+        if (excite == nullptr || excitePrefix != id) // not while its own menu may be calling back
+        {
+            excite = std::make_unique<ComboControl> (processorRef.apvts, id + "_excite", "EXCITE");
+            addAndMakeVisible (*excite);
+            excitePrefix = id;
+        }
+        // The knobs this exciter uses (as on the OSC card).
+        shownExcite = juce::roundToInt (readParam (id + "_excite"));
+        const auto hammer = shownExcite == 5 || shownExcite == 9, feedback = shownExcite == 10, bow = shownExcite == 4;
+        std::vector<std::pair<const char*, const char*>> knobIds {
+            { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_string_sustain", feedback ? "FEEDBACK" : "SUSTAIN" },
+            { "_string_stiffness", "STIFF" }, { "_string_excite_pos", "EXCITE POS" }, { "_string_pickup", "PICKUP" } };
+        if (hammer)
+            knobIds.push_back ({ "_hammer_hard", "HAMMER" });
+        else if (bow)
+            knobIds.insert (knobIds.end(), { { "_bow_pressure", "PRESSURE" }, { "_bow_speed", "SPEED" } });
+        else if (feedback)
+            knobIds.insert (knobIds.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
+        else
+            knobIds.insert (knobIds.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_bridge_buzz", "BUZZ" } });
+        for (const auto& [suffix, label] : knobIds)
+            if (processorRef.apvts.getParameter (id + suffix) != nullptr)
+            {
+                knobs.push_back (std::make_unique<KnobControl> (processorRef.apvts, id + suffix, label, colour(), false));
+                addAndMakeVisible (*knobs.back());
+            }
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            oscButtons[(size_t) i].setToggleState (i == chosen, juce::dontSendNotification);
+        updateAvailability();
+        resized();
+        repaint();
+    }
+
+    void updateAvailability()
+    {
+        const auto physical = isPhysical (chosen);
+        makePhysical.setVisible (! physical);
+        if (excite != nullptr)
+            excite->setVisible (physical);
+        for (auto& knob : knobs)
+            knob->setVisible (physical);
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            auto& button = oscButtons[(size_t) i];
+            button.setVisible (processorRef.isOscillatorShown (i));
+            button.setAlpha (isPhysical (i) ? 1.0f : 0.5f);
+        }
+        const auto resonator = readParam ("res_on") > 0.5f;
+        bodyType.setAlpha (resonator ? 1.0f : 0.45f);
+        sbModel.setAlpha (readParam ("sb_on") > 0.5f ? 1.0f : 0.45f);
+    }
+
+    void timerCallback() override
+    {
+        // Follow the patch: a preset with its Physical string on another
+        // oscillator moves the view there, unless one was picked by hand.
+        if (! pickedByHand && ! isPhysical (chosen) && isPhysical (firstPhysical()))
+            choose (firstPhysical(), false);
+        else if (juce::roundToInt (readParam (prefix() + "_excite")) != shownExcite)
+            choose (chosen, false);
+        if (lastPhysical != isPhysical (chosen))
+        {
+            lastPhysical = isPhysical (chosen);
+            repaint();
+        }
+        updateAvailability();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    PhysicalView view;
+    ToggleControl resOn;
+    ComboControl bodyType;
+    ToggleControl sbOn;
+    ComboControl sbModel;
+    std::array<juce::TextButton, OscillatorIds::count> oscButtons;
+    juce::TextButton makePhysical;
+    std::unique_ptr<ComboControl> excite;
+    juce::String excitePrefix;
+    std::vector<std::unique_ptr<KnobControl>> knobs;
+    int chosen = 0, shownExcite = -1;
+    bool pickedByHand = false, lastPhysical = false;
+    juce::Rectangle<int> viewCard, stringCard, bodyCard;
+};
+
 class FilterPage : public juce::Component,
                    private juce::Timer
 {
@@ -1355,6 +2019,8 @@ public:
           filterDisplay (p),
           panel1 (p, 1, juce::Colour (0xffff4fd8)),
           panel2 (p, 2, juce::Colour (0xffb28aff)),
+          westPanel (p),
+          secondTabs ({ "FILTER 2", "WEST" }, { juce::Colour (0xffb28aff), WestPanel::colour() }, false),
           flow (p),
           balance (p.apvts, "filter_balance", "", IlanaTheme::accent(), true),
           resOn (p.apvts, "res_on", "ON"),
@@ -1368,6 +2034,16 @@ public:
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
           bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), false)
     {
+        addChildComponent (westPanel);
+        addAndMakeVisible (secondTabs);
+        secondTabs.onSelect = [this] (int index)
+        {
+            panel2.setVisible (index == 0);
+            westPanel.setVisible (index == 1);
+        };
+        // Open on WEST when a patch uses it in Filter 2's place.
+        if (const auto* west = p.apvts.getRawParameterValue ("west_on"); west != nullptr && west->load() > 0.5f)
+            secondTabs.setSelected (1, false);
         addAll (*this, filterDisplay, panel1, panel2, flow, balance,
                 resOn, resAmount, resDecay, resOffset, resKeytrack,
                 bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
@@ -1428,6 +2104,14 @@ public:
         panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - 10) / 2));
         panels.removeFromLeft (10);
         panel2.setBounds (panels);
+        westPanel.setBounds (panels);
+        // The FILTER 2 / WEST tabs, top right of that card, left of the
+        // slope switch (96 px from the right).
+        const auto tabWidth = secondTabs.getIdealWidth();
+        secondTabs.setBounds (panels.getRight() - tabWidth - 118, panels.getY() + 5, tabWidth, 18);
+        panel2.setVisible (secondTabs.getSelected() == 0);
+        westPanel.setVisible (secondTabs.getSelected() == 1);
+        secondTabs.toFront (false);
 
         area.removeFromTop (8);
         auto bottom = area.removeFromTop (bottomHeight);
@@ -1502,6 +2186,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
     FilterPanel panel1, panel2;
+    WestPanel westPanel;
+    CardTabs secondTabs;
     SignalFlow flow;
     KnobControl balance;
     bool wasParallel = false;
@@ -1803,6 +2489,28 @@ public:
             auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
             addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
                     controls->phase, controls->physA, controls->physB, controls->kick);
+            addAll (*this, controls->smooth, controls->stereo, controls->seed, controls->trigger, controls->axis, controls->loop);
+            for (auto& knob : controls->sim)
+                addChildComponent (*knob);
+            addChildComponent (controls->fire);
+            controls->fire.onClick = [this, lfo] { fire (lfo); };
+            groupShapeMenu (controls->shape.getComboBox());
+            controls->shape.getComboBox().onChange = [this, lfo] { if (userPickingShape) shapePicked (lfo); };
+            controls->shape.setPopupOverride ([this, lfo]
+            {
+                auto& combo = controlsList[(size_t) lfo]->shape.getComboBox();
+                juce::PopupMenu menu (*combo.getRootMenu());
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&combo).withMinimumWidth (combo.getWidth())
+                                        .withItemThatMustBeVisible (combo.getSelectedId()),
+                                    [this, lfo] (int id)
+                                    {
+                                        if (id <= 0)
+                                            return;
+                                        userPickingShape = true;
+                                        controlsList[(size_t) lfo]->shape.getComboBox().setSelectedId (id, juce::sendNotificationSync);
+                                        userPickingShape = false;
+                                    });
+            });
             controlsList.push_back (std::move (controls));
         }
 
@@ -1824,7 +2532,14 @@ public:
     ~LfoSection() override
     {
         for (int lfo = 1; lfo <= IlanaSynthAudioProcessor::numLfos; ++lfo)
+        {
             processorRef.apvts.removeParameterListener ("lfo" + juce::String (lfo) + "_shape", this);
+            // Let go of a FIRE pressed just before closing (its release timer
+            // won't run once this is gone, and FIRE only acts on a press).
+            if (auto* fireParameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo) + "_fire"))
+                if (fireParameter->getValue() > 0.5f)
+                    fireParameter->setValueNotifyingHost (0.0f);
+        }
         cancelPendingUpdate();
     }
 
@@ -1843,7 +2558,9 @@ public:
         area.removeFromTop (8);
 
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
+        const auto simulated = LfoSimShapes::isSim (shape);
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * (simulated ? 38 : 55) / 100).reduced (2));
         area.removeFromLeft (8);
 
         // Control panel: options across the top, knobs underneath.
@@ -1851,6 +2568,12 @@ public:
         auto inner = panel.reduced (10, 6);
         inner.removeFromTop (20);
         auto& c = *controlsList[(size_t) displayIndex];
+
+        if (simulated)
+        {
+            layoutSimulated (c, inner, shape);
+            return;
+        }
 
         // Options stacked on the left, the two knobs full height on the right.
         auto options = inner.removeFromLeft (inner.getWidth() / 2);
@@ -1866,19 +2589,20 @@ public:
         c.kick.setBounds (lastOptions.reduced (3, 1));
 
         inner.removeFromLeft (8);
-        const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
         if (LfoShapes::isPhysics (shape))
         {
             auto top = inner.removeFromTop (inner.getHeight() / 2);
-            c.rate.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (2));
-            c.phase.setBounds (top.reduced (2));
+            c.rate.setBounds (top.removeFromLeft (top.getWidth() / 3).reduced (2));
+            c.phase.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (2));
+            c.smooth.setBounds (top.reduced (2));
             c.physA.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (2));
             c.physB.setBounds (inner.reduced (2));
         }
         else
         {
-            c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
-            c.phase.setBounds (inner.reduced (3, 0));
+            c.rate.setBounds (inner.removeFromLeft (inner.getWidth() / 3).reduced (3, 0));
+            c.phase.setBounds (inner.removeFromLeft (inner.getWidth() / 2).reduced (3, 0));
+            c.smooth.setBounds (inner.reduced (3, 0));
         }
     }
 
@@ -1938,7 +2662,18 @@ private:
               , physA (state, "lfo" + juce::String (lfo) + "_phys_a", "HEIGHT", accent, followsTheme)
               , physB (state, "lfo" + juce::String (lfo) + "_phys_b", "BOUNCE", accent, followsTheme)
               , kick (state, "lfo" + juce::String (lfo) + "_kick", "KICK")
+              , smooth (state, "lfo" + juce::String (lfo) + "_smooth", "SMOOTH", accent, followsTheme)
+              , stereo (state, "lfo" + juce::String (lfo) + "_stereo", "STEREO", accent, followsTheme)
+              , seed (state, "lfo" + juce::String (lfo) + "_seed", "SEED", accent, followsTheme)
+              , trigger (state, "lfo" + juce::String (lfo) + "_trigger", "TRIGGER")
+              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUTPUT A")
+              , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),
+                                                              "P" + juce::String (param + 1), accent, followsTheme));
+            fire.setButtonText ("FIRE");
+            fire.setTooltip ("Triggers the LFO now: drops the ball, plucks the spring, restarts a seeded sequence.");
         }
 
         ComboControl shape;
@@ -1950,7 +2685,135 @@ private:
         KnobControl phase;
         KnobControl physA, physB;
         ToggleControl kick;
+        // M8.1
+        KnobControl smooth, stereo, seed;
+        ComboControl trigger, axis;
+        ToggleControl loop;
+        juce::TextButton fire;
+        std::vector<std::unique_ptr<KnobControl>> sim;
+        int labelledShape = -1;
     };
+
+    // The shape menu with section headings. The attachment maps menu
+    // positions to the parameter, so the items stay in parameter order.
+    static void groupShapeMenu (juce::ComboBox& combo)
+    {
+        juce::StringArray names;
+        for (int i = 0; i < combo.getNumItems(); ++i)
+            names.add (combo.getItemText (i));
+        const auto selected = combo.getSelectedId();
+        combo.clear (juce::dontSendNotification);
+        const auto add = [&] (const juce::String& heading, int first, int last)
+        {
+            combo.addSectionHeading (heading);
+            for (int i = first; i <= last && i < names.size(); ++i)
+                combo.addItem (names[i], i + 1);
+        };
+        add ("Waves", 0, LfoShapes::SmoothRandom - 1);
+        add ("Classic (M2)", LfoShapes::SmoothRandom, LfoShapes::Friction);
+        add ("Random", LfoSimShapes::RandomHold, LfoSimShapes::DrunkWalk);
+        add ("Chaos", LfoSimShapes::Lorenz, LfoSimShapes::DoublePendulum);
+        add ("Physics", LfoSimShapes::Bounce, LfoSimShapes::Friction);
+        combo.setSelectedId (selected, juce::dontSendNotification);
+    }
+
+    // Choosing a simulated shape from the menu loads its knobs' defaults
+    // (presets and automation keep whatever they set).
+    void shapePicked (int lfo)
+    {
+        const auto shape = controlsList[(size_t) lfo]->shape.getComboBox().getSelectedId() - 1;
+        if (! LfoSimShapes::isSim (shape))
+            return;
+        const auto& info = LfoSimInfo::get (shape);
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_p" + juce::String (param + 1)))
+                parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+    }
+
+    // FIRE: a momentary press of the LFO's fire parameter.
+    void fire (int lfo)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_fire"))
+        {
+            parameter->setValueNotifyingHost (1.0f);
+            // Through a SafePointer: closing the plugin within the 60 ms would
+            // otherwise leave this writing to a deleted parameter.
+            juce::Component::SafePointer<juce::Component> safeThis (this);
+            juce::Timer::callAfterDelay (60, [safeThis, parameter]
+            {
+                if (safeThis != nullptr)
+                    parameter->setValueNotifyingHost (0.0f);
+            });
+        }
+        displays[(size_t) lfo]->triggerPreview();
+    }
+
+    // Names and value text of a simulated shape's knobs.
+    void labelSimulated (Controls& c, int shape)
+    {
+        if (c.labelledShape == shape)
+            return;
+        c.labelledShape = shape;
+        const auto& info = LfoSimInfo::get (shape);
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+        {
+            auto& knob = *c.sim[(size_t) param];
+            if (info.params[(size_t) param].name != nullptr)
+                knob.setLabelText (info.params[(size_t) param].name);
+            knob.getSlider().textFromValueFunction = [shape, param] (double value) { return LfoSimInfo::text (shape, param, (float) value); };
+            knob.getSlider().updateText();
+        }
+    }
+
+    // Simulated shapes: combos and switches on two rows, then a row of
+    // named knobs (RATE, SMOOTH, the shape's own, STEREO and SEED).
+    void layoutSimulated (Controls& c, juce::Rectangle<int> inner, int shape)
+    {
+        const auto& info = LfoSimInfo::get (shape);
+        labelSimulated (c, shape);
+
+        // Options on the left: SHAPE, then TRIGGER / DIVISION / OUTPUT, then
+        // the switches and FIRE.
+        auto options = inner.removeFromLeft (inner.getWidth() * 45 / 100);
+        inner.removeFromLeft (6);
+        const auto rowHeight = options.getHeight() / 3;
+        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
+        auto combos = options.removeFromTop (rowHeight);
+        const auto comboWidth = combos.getWidth() / (info.usesAxis ? 3 : 2);
+        c.trigger.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
+        c.div.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
+        if (info.usesAxis)
+            c.axis.setBounds (combos.reduced (3, 1));
+
+        std::vector<juce::Component*> row { &c.sync, &c.retrig, &c.key };
+        if (info.usesLoop)
+            row.push_back (&c.loop);
+        if (shape == LfoSimShapes::Pendulum)
+            row.push_back (&c.kick);
+        const auto toggleWidth = options.getWidth() / ((int) row.size() + 1);
+        for (auto* component : row)
+            component->setBounds (options.removeFromLeft (toggleWidth).reduced (2, 1));
+        c.fire.setBounds (options.reduced (2, 1).withTrimmedTop (13).withHeight (juce::jmin (24, juce::jmax (16, options.getHeight() - 14))));
+
+        // Knobs on the right, two rows of four.
+        std::vector<juce::Component*> knobs { &c.rate, &c.smooth };
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            if (info.params[(size_t) param].name != nullptr)
+                knobs.push_back (c.sim[(size_t) param].get());
+        if (info.usesStereo)
+            knobs.push_back (&c.stereo);
+        if (info.usesSeed)
+            knobs.push_back (&c.seed);
+        const auto perRow = juce::jmax (3, ((int) knobs.size() + 1) / 2);
+        const auto knobWidth = inner.getWidth() / perRow;
+        // A gap between the rows, so the second row's names don't read as
+        // the first row's values.
+        constexpr int rowGap = 8;
+        const auto knobHeight = (inner.getHeight() - rowGap) / 2;
+        for (size_t k = 0; k < knobs.size(); ++k)
+            knobs[k]->setBounds (inner.getX() + (int) (k % (size_t) perRow) * knobWidth,
+                                 inner.getY() + (int) (k / (size_t) perRow) * (knobHeight + rowGap), knobWidth, knobHeight);
+    }
 
     void updateVisibility()
     {
@@ -1976,9 +2839,21 @@ private:
             c.key.setVisible (visible);
             c.phase.setVisible (visible);
             const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape")->load();
+            const auto simulated = LfoSimShapes::isSim (shape);
+            const auto& info = LfoSimInfo::get (simulated ? shape : LfoSimShapes::RandomHold);
+            c.phase.setVisible (visible && ! simulated);
             c.physA.setVisible (visible && LfoShapes::isPhysics (shape));
             c.physB.setVisible (visible && LfoShapes::isPhysics (shape));
-            c.kick.setVisible (visible && shape == LfoShapes::Pendulum);
+            c.kick.setVisible (visible && (shape == LfoShapes::Pendulum || shape == LfoSimShapes::Pendulum));
+            c.smooth.setVisible (visible);
+            c.trigger.setVisible (visible && simulated);
+            c.axis.setVisible (visible && simulated && info.usesAxis);
+            c.loop.setVisible (visible && simulated && info.usesLoop);
+            c.stereo.setVisible (visible && simulated && info.usesStereo);
+            c.seed.setVisible (visible && simulated && info.usesSeed);
+            c.fire.setVisible (visible && simulated);
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                c.sim[(size_t) param]->setVisible (visible && simulated && info.params[(size_t) param].name != nullptr);
         }
 
         thumbs.setSelected (selected);
@@ -2028,6 +2903,7 @@ private:
     std::vector<std::unique_ptr<Controls>> controlsList;
     int selected = 0;
     int lastShape = -1;
+    bool userPickingShape = false;
 };
 
 class EnvLfoPage : public juce::Component
@@ -2253,6 +3129,26 @@ public:
 
             if (fmIn[(size_t) source])
                 paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
+        }
+
+        // Compact cells: each amount under its knob.
+        if (compactCells)
+        {
+            g.setFont (IlanaTheme::font (10.5f));
+            const auto value = [&g, this] (juce::Rectangle<int> cell, const juce::String& id)
+            {
+                const auto amount = read (id);
+                g.setColour (juce::Colours::white.withAlpha (amount > 0.001f ? 0.85f : 0.4f));
+                g.drawText (describeValue (id, amount), cell.removeFromBottom (15), juce::Justification::centred);
+            };
+            for (const auto source : shown)
+            {
+                for (const auto target : shown)
+                    if (fmIn[(size_t) target])
+                        value (cells[(size_t) source][(size_t) target], FmDiagram::routeId (source, target));
+                if (fmIn[(size_t) source])
+                    value (noiseCells[(size_t) source], "fm_noise" + juce::String (source + 1));
+            }
         }
 
         // Column and row headings.
@@ -2514,35 +3410,58 @@ private:
 
         const auto rowHeight = inner.getHeight() / (count + 1);
 
+        // Short cells (six oscillators) get compact knobs, their values
+        // drawn in the cell's corner: the knob's own value box overlapped it.
+        compactCells = rowHeight < 82;
         const auto layoutRow = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
         {
             for (const auto target : shown)
             {
                 auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
                 storeCell (target, cell);
-                const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
-                knobFor (target).setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+                auto& knob = knobFor (target);
+                knob.setCompact (compactCells);
+                if (compactCells)
+                {
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 22, 110);
+                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize).translated (0, -6));
+                }
+                else
+                {
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
+                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
+                }
             }
+        };
+
+        // A row's name above its OUT button, centred in the row head (they
+        // overlapped the next row's name in short rows).
+        const auto layoutHead = [] (juce::Rectangle<int> head)
+        {
+            return head.withSizeKeepingCentre (head.getWidth(), juce::jmin (60, head.getHeight()));
         };
 
         for (const auto source : shown)
         {
             auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
             auto head = row.removeFromLeft (70);
-            rowHeads[(size_t) source] = head.withTrimmedTop (head.getHeight() / 2 - 26);
-            outs[(size_t) source]->setBounds (rowHeads[(size_t) source].withTrimmedTop (20).withHeight (40).reduced (0, 2));
+            rowHeads[(size_t) source] = layoutHead (head);
+            // The toggle keeps 13 px on top for a label it doesn't have: let
+            // that sit over the row's name, the button starting just below.
+            const auto& block = rowHeads[(size_t) source];
+            outs[(size_t) source]->setBounds (block.withTrimmedTop (16 - 13).withHeight (13 + juce::jmin (24, block.getHeight() - 16)));
 
             layoutRow (row,
-                       [this, source] (int target) -> juce::Component& { return *knobs[(size_t) source][(size_t) target]; },
+                       [this, source] (int target) -> KnobControl& { return *knobs[(size_t) source][(size_t) target]; },
                        [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
         }
 
         auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
         auto head = row.removeFromLeft (70);
-        noiseHead = head.withTrimmedTop (head.getHeight() / 2 - 26);
+        noiseHead = layoutHead (head);
         layoutRow (row,
 
-                   [this] (int target) -> juce::Component& { return *noiseKnobs[(size_t) target]; },
+                   [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
                    [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
     }
 
@@ -2556,6 +3475,7 @@ private:
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
     std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
+    bool compactCells = false;
     std::unique_ptr<StripKnob> noiseColourKnob;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;
@@ -3046,13 +3966,14 @@ private:
     // Arp controls step back while the arp is off.
     void timerCallback() override
     {
-        // The step-row pickers list the patch's LFOs (and whatever a row shows).
+        // The step-row pickers list the patch's LFOs (and whatever either row
+        // shows), the same list in both rows.
         auto pickersChanged = false;
         for (int row = 0; row < 2; ++row)
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             {
                 auto& button = lfoButtons[(size_t) row][(size_t) lfo];
-                const auto shown = processorRef.isLfoShown (lfo) || button.getToggleState();
+                const auto shown = processorRef.isLfoShown (lfo) || step1.getLfoIndex() == lfo || step2.getLfoIndex() == lfo;
                 if (button.isVisible() != shown)
                 {
                     button.setVisible (shown);
@@ -3831,9 +4752,13 @@ public:
         g.setFont (IlanaTheme::font (10.5f, true));
         g.drawText ("OR START FROM ONE OF THESE", starterArea().withHeight (16).translated (0, -22), juce::Justification::centred);
 
-        // A chevron bobbing towards the source chips.
+        // A chevron bobbing towards the source chips, under the starters
+        // (left out when there is no room: it used to sit on a starter).
         const auto bob = 4.0f * std::sin (now * 3.0f);
-        const auto tip = juce::Point<float> (area.toFloat().getCentreX(), (float) getHeight() - 22.0f + bob);
+        const auto tipY = juce::jmax ((float) getHeight() - 22.0f, (float) starterArea().getBottom() + 18.0f);
+        if (tipY + 6.0f > (float) getHeight())
+            return;
+        const auto tip = juce::Point<float> (area.toFloat().getCentreX(), tipY + bob);
         juce::Path chevron;
         chevron.startNewSubPath (tip.translated (-10.0f, -8.0f));
         chevron.lineTo (tip);
@@ -5723,6 +6648,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tabs.addTab ("FM", juce::Colour (0xff18181c), new FmPage (p), true);
     tabs.addTab ("ARP/SEQ", juce::Colour (0xff18181c), new SeqPage (p), true);
     tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
+    tabs.addTab ("VECTOR", juce::Colour (0xff18181c), new VectorPage (p), true);
+    tabs.addTab ("PHYSICAL", juce::Colour (0xff18181c), new PhysicalPage (p), true);
     tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
     tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
@@ -6159,7 +7086,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     const auto statusY = 43;
     g.setFont (IlanaTheme::font (10.5f));
     g.setColour (cpuColour);
-    g.drawText ("CPU " + juce::String (cpu, 0) + "%",
+    g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
                 juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);
 
     g.setColour (juce::Colours::white.withAlpha (0.4f));
@@ -6616,9 +7543,25 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
         sizes.addItem (200 + i, juce::String (juce::roundToInt (zoomChoices[i] * 100.0f)) + "%",
                        true, juce::approximatelyEqual (uiZoom, zoomChoices[i]));
 
+    // Engine quality and oversampling, also on the SCOPE tab (where they were
+    // hard to find).
+    const auto read = [this] (const char* id) { return processorRef.apvts.getRawParameterValue (id)->load(); };
+    juce::PopupMenu quality;
+    const char* const qualityNames[] { "Eco (unison capped at 4)", "Normal", "High" };
+    for (int i = 0; i < 3; ++i)
+        quality.addItem (600 + i, qualityNames[i], true, juce::roundToInt (read ("quality")) == i);
+    juce::PopupMenu oversampling;
+    const auto oversampled = read ("oversampling") > 0.5f;
+    const auto factor = juce::roundToInt (read ("os_factor"));
+    oversampling.addItem (700, "Off", true, ! oversampled);
+    oversampling.addItem (701, "2x", true, oversampled && factor == 0);
+    oversampling.addItem (702, "4x", true, oversampled && factor == 1);
+
     juce::PopupMenu menu;
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
+    menu.addSubMenu ("Engine quality", quality);
+    menu.addSubMenu ("Oversampling", oversampling);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
@@ -6646,6 +7589,26 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                     mpe->beginChangeGesture();
                                     mpe->setValueNotifyingHost (mpe->getValue() > 0.5f ? 0.0f : 1.0f);
                                     mpe->endChangeGesture();
+                                }
+                            }
+                            else if (result >= 600 && result < 800)
+                            {
+                                const auto set = [&safeThis] (const char* id, float value)
+                                {
+                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (id))
+                                    {
+                                        parameter->beginChangeGesture();
+                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                                        parameter->endChangeGesture();
+                                    }
+                                };
+                                if (result < 700)
+                                    set ("quality", (float) (result - 600));
+                                else
+                                {
+                                    set ("oversampling", result == 700 ? 0.0f : 1.0f);
+                                    if (result > 700)
+                                        set ("os_factor", (float) (result - 701));
                                 }
                             }
                             else if (result == 400)
@@ -6861,11 +7824,12 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
     const auto code = key.getKeyCode();
 
-    if (code >= '1' && code <= '9')
+    if (code >= '0' && code <= '9')
     {
-        if (code - '1' < tabs.getNumTabs())
+        const auto index = code == '0' ? 9 : code - '1'; // 0 is the tenth tab
+        if (index < tabs.getNumTabs())
         {
-            tabs.setCurrentTabIndex (code - '1');
+            tabs.setCurrentTabIndex (index);
             return true;
         }
 

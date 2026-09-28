@@ -1,0 +1,117 @@
+# M9: build both plugins in every format and run the regression suite on
+# Windows, macOS and Linux.
+name: CI
+
+# Manual only (Actions > CI > Run workflow): the account has no Actions
+# minutes to spare. tools/verify.sh runs the same checks locally.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+            exe: ""
+            pluginval: pluginval_Linux.zip
+          - name: Windows
+            os: windows-2022
+            exe: ".exe"
+            pluginval: pluginval_Windows.zip
+          - name: macOS
+            os: macos-14
+            exe: ""
+            pluginval: pluginval_macOS.zip
+    env:
+      ILANA_CI: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev xvfb gdb
+
+      - name: Configure (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; fi
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          T=build/ilanaTableTest_artefacts/Release/ilanaTableTest${{ matrix.exe }}
+          "$T" | tee table-test.txt
+          grep -q "ALL TESTS PASSED" table-test.txt
+
+      - name: FX plugin tests
+        shell: bash
+        run: build/ilanaFxTest_artefacts/Release/ilanaFxTest${{ matrix.exe }}
+
+      - name: UI tests
+        shell: bash
+        run: |
+          S=build/ilanaSnapshot_artefacts/Release/ilanaSnapshot${{ matrix.exe }}
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$S" --uitest; else "$S" --uitest; fi
+
+      - name: Preset fingerprints
+        shell: bash
+        run: |
+          build/ilanaFingerprint_artefacts/Release/ilanaFingerprint${{ matrix.exe }} fingerprints.csv
+          # Fingerprints differ in the last bits between platforms: compare
+          # against the committed baseline on Linux only (the others upload).
+          if [ "$RUNNER_OS" = "Linux" ]; then python3 tools/compare_fingerprints.py tests/fingerprints-linux.csv fingerprints.csv --fail; fi
+
+      - name: pluginval (VST3, strictness 10)
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/${{ matrix.pluginval }}
+          unzip -q -o pluginval.zip
+          if [ "$RUNNER_OS" = "macOS" ]; then PV=pluginval.app/Contents/MacOS/pluginval; else PV=./pluginval${{ matrix.exe }}; fi
+          for plugin in "build/ilanaSynth_artefacts/Release/VST3/ilanaSynth.vst3" "build/ilanaSynthFX_artefacts/Release/VST3/ilanaSynth FX.vst3"; do
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              # Under gdb: pluginval has crashed on exit now and then on this
+              # runner only; if it does, the backtraces show where.
+              xvfb-run -a gdb -q -batch -return-child-result -ex run -ex "thread apply all bt 25" \
+                --args "$PV" --strictness-level 10 --validate-in-process --timeout-ms 600000 "$plugin"
+            else
+              "$PV" --strictness-level 10 --validate-in-process --timeout-ms 600000 "$plugin"
+            fi
+          done
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilanaSynth-${{ matrix.name }}
+          path: |
+            build/ilanaSynth_artefacts/Release/VST3
+            build/ilanaSynth_artefacts/Release/CLAP
+            build/ilanaSynth_artefacts/Release/AU
+            build/ilanaSynth_artefacts/Release/Standalone
+            build/ilanaSynthFX_artefacts/Release/VST3
+            build/ilanaSynthFX_artefacts/Release/CLAP
+            build/ilanaSynthFX_artefacts/Release/AU
+            build/ilanaSynthFX_artefacts/Release/Standalone
+            fingerprints.csv
+            table-test.txt
+          if-no-files-found: warn

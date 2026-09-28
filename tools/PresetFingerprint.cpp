@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "PluginProcessor.h"
+#include "dsp/FilterUnit.h"
 
 namespace
 {
@@ -24,12 +25,15 @@ struct Fingerprint
     double side = 0.0;
 };
 
-Fingerprint render (IlanaSynthAudioProcessor& processor, int presetIndex)
+Fingerprint render (IlanaSynthAudioProcessor& processor, int presetIndex,
+                    std::function<void (IlanaSynthAudioProcessor&)> tweak = nullptr)
 {
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
 
     processor.loadFactoryPreset (presetIndex);
+    if (tweak != nullptr)
+        tweak (processor);
     processor.panic();
 
     // Clear effect tails left from the previous preset.
@@ -157,6 +161,27 @@ int main (int argc, char** argv)
         const auto print = render (processor, i);
         out << i << ",\"" << names[i].toStdString() << "\"," << print.rmsDb << "," << print.peak << ","
             << print.centroid << "," << print.side << "\n";
+    }
+
+    // M8.4: every filter model on Init (Filter 1, cutoff 1.5 kHz, reso and
+    // morph halfway), so a model change shows up too.
+    const auto filterNames = FilterType::getNames();
+    for (int type = 0; type < FilterType::Count; ++type)
+    {
+        const auto print = render (processor, 0, [type] (IlanaSynthAudioProcessor& p)
+        {
+            const auto set = [&p] (const char* id, float value)
+            {
+                if (auto* parameter = p.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set ("f1_type", (float) type);
+            set ("f1_cutoff", 1500.0f);
+            set ("f1_reso", 0.5f);
+            set ("f1_morph", 0.5f);
+        });
+        out << (names.size() + type) << ",\"Filter model: " << filterNames[type].toStdString() << "\"," << print.rmsDb << ","
+            << print.peak << "," << print.centroid << "," << print.side << "\n";
     }
 
     std::cout << "wrote " << names.size() << " fingerprints to " << argv[1] << std::endl;

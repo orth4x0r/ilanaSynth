@@ -419,6 +419,7 @@ public:
 
     juce::Slider& getSlider() { return slider; }
     void setLabelText (const juce::String& text) { label.setText (text, juce::dontSendNotification); }
+    juce::String getLabelText() const { return label.getText(); }
     const juce::String& getParameterId() const { return parameterId; }
     int getNumRoutings() const { return (int) routings.size(); }
 

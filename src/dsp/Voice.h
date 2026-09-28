@@ -10,6 +10,7 @@
 #include "GranularOsc.h"
 #include "KarplusStrong.h"
 #include "LfoShape.h"
+#include "WestCoast.h"
 #include "MaterialBody.h"
 #include "Modulation.h"
 #include "Mseg.h"
@@ -187,6 +188,7 @@ struct VoiceParams
         // release, and how much the string changes from bass to treble.
         float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;
         float epDistance = 0.5f, epPosition = 0.5f; // M7.3 tine/reed pickup
+        float fbGain = 0.5f, fbDistance = 0.5f;     // M8.5 feedback amp
         int chord = 0;
 
         bool sampleMode = false;
@@ -236,6 +238,11 @@ struct VoiceParams
         const float* steps = nullptr;  // 16 values
         const float* custom = nullptr; // lfoDrawSteps values
         int customSize = 0;
+        // M8.1
+        LfoSimSettings sim;            // the simulated shapes' settings
+        float smooth = 0.0f;           // SMOOTH, a fraction of a cycle
+        bool needsB = false;           // output B is routed
+        unsigned triggerCount = 0;     // beats, Generative steps and FIRE, counted by the processor
     };
 
     std::array<OscParams, numOscillators> oscillators;
@@ -317,8 +324,10 @@ struct VoiceParams
     float pitchBendRange = 2.0f;
 
     float macros[4] { 0.0f, 0.0f, 0.0f, 0.0f };
+    float vectorX = 0.5f, vectorY = 0.5f; // M8.5
 
     const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice
+    const float* lfoBuffersB[numLfos] {}; // their outputs B (M8.1)
     const float* clockSh = nullptr;
     const float* mseg = nullptr;
     // M7.5 live input (ilanaSynth FX), at the voice rate for this block, and
@@ -326,6 +335,18 @@ struct VoiceParams
     const float* liveInput = nullptr;
     const float* inputEnv = nullptr;
     float inputToBody = 0.0f, inputToStrings = 0.0f;
+
+    // M8.3: the west-coast voice (wavefolder into a low-pass gate).
+    struct WestParams
+    {
+        bool on = false;
+        int position = 0;       // 0 after the filters, 1 in place of Filter 2
+        float fold = 0.3f, symmetry = 0.0f;
+        int stages = 2;
+        int mode = 0;           // LowPassGate::Mode
+        float decay = 1.0f, resonance = 0.2f, strike = 1.0f, open = 0.0f;
+        int source = 0;         // 0: a strike on each note; else Mod::Source (source - 1 + 1)
+    } west;
     LfoParams lfos[numLfos];
 
     // Only the slots that are switched on, packed at the front, plus the
@@ -364,6 +385,7 @@ public:
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     float getLastAmpValue() const { return lastAmpValue; }
+    float getWestGateLevel() const { return params.west.on && isVoiceActive() ? westGateL.getConductance() : 0.0f; }
     float getLastLifetimeValue() const { return lastLifetimeValue; }
     float getLastExtraEnvValue (int index) const { return extraEnvValues[(size_t) juce::jlimit (0, 10, index)]; }
     float getLastSamplePosition (int oscIndex) const
@@ -405,6 +427,10 @@ public:
     // (Euclid's Exciter target). Other oscillator modes are left alone.
     void reExcite (float level);
     void stopNote (float velocity, bool allowTailOff) override;
+    // A new patch: clear what the last one left in the voice (filter and
+    // body memory, the vactrol, strings, glide origin, random sequences),
+    // so its first notes don't carry the old patch's ringing.
+    void resetForNewPatch();
     void pitchWheelMoved (int newValue) override;
     void controllerMoved (int controllerNumber, int newValue) override;
     void channelPressureChanged (int newValue) override;
@@ -465,6 +491,10 @@ private:
     double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
     MaterialBody materialBodyL, materialBodyR;
+    // M8.3
+    Wavefolder westFolderL, westFolderR;
+    LowPassGate westGateL, westGateR;
+    int westStrikeRemaining = 0;
     bool bodyStrikePending = false;
     int bodyTailSamplesRemaining = 0;
 
@@ -507,6 +537,13 @@ private:
     float lfoHolds[VoiceParams::numLfos] {};
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
+    // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
+    LfoSim lfoSims[VoiceParams::numLfos];
+    LfoSmoother lfoSmoothers[VoiceParams::numLfos];
+    float lfoValuesB[VoiceParams::numLfos] {};
+    float lfoSmoothCoefficients[VoiceParams::numLfos] {};
+    unsigned lfoSeenTriggers[VoiceParams::numLfos] {};
+    std::uint32_t lfoSimNotes = 0;
 
     double sampleRate = 44100.0;
     double baseFrequency = 440.0;

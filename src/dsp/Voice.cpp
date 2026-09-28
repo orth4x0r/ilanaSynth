@@ -138,6 +138,10 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     resonatorR.prepare (newRate);
     materialBodyL.prepare (newRate);
     materialBodyR.prepare (newRate);
+    westGateL.prepare (newRate);
+    westGateR.prepare (newRate);
+    westFolderL.reset();
+    westFolderR.reset();
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
@@ -252,6 +256,22 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         lfoChaos[lfo].resetPhysics (params.lfos[lfo].shape, params.lfos[lfo].physA);
         if (params.lfos[lfo].shape == LfoShapes::Pendulum && params.lfos[lfo].kick)
             lfoChaos[lfo].kick (velocity);
+
+        // M8.1: own seeds, so the voice's random sequence is untouched.
+        const auto& sim = params.lfos[lfo].sim;
+        lfoSmoothers[lfo].reset();
+        lfoSeenTriggers[lfo] = params.lfos[lfo].triggerCount;
+        if (LfoSimShapes::isSim (sim.shape))
+        {
+            lfoSims[lfo].reset (sim, ++lfoSimNotes * 7919u + (std::uint32_t) midiNoteNumber * 131u
+                                         + (std::uint32_t) (velocity * 1000.0f) + (std::uint32_t) lfo * 104729u);
+            if (sim.shape == LfoSimShapes::Pendulum && params.lfos[lfo].kick)
+                lfoSims[lfo].trigger (sim, 0, true, velocity);
+            float a = 0.0f, b = 0.0f;
+            lfoSims[lfo].next (sim, 0.0, a, b);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+        }
     }
 
     if (keepRunning)
@@ -290,6 +310,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     resonatorR.reset();
     materialBodyL.reset();
     materialBodyR.reset();
+    // M8.3: the gate is struck by the note (a vactrol keeps its state: a
+    // new strike on a still-lit cell starts from where it is).
+    westStrikeRemaining = params.west.on ? juce::jmax (1, (int) (WestCoastTuning::get().strikeSeconds * sampleRate)) : 0;
     bodyStrikePending = true;
     bodyTailSamplesRemaining = params.resonatorOn && params.bodyType != 0
                                    ? (int) (sampleRate * juce::jmin (10.0,
@@ -371,6 +394,48 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         feedbackHistory[osc] = feedbackFiltered[osc] = 0.0f;
 }
 
+void Voice::resetForNewPatch()
+{
+    for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
+                          &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
+        filter->reset();
+    westGateL.reset();
+    westGateR.reset();
+    westFolderL.reset();
+    westFolderR.reset();
+    westStrikeRemaining = 0;
+    resonatorL.reset();
+    resonatorR.reset();
+    materialBodyL.reset();
+    materialBodyR.reset();
+    bodyStrikePending = false;
+    bodyTailSamplesRemaining = 0;
+
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
+        {
+            stringFor (osc, u).reset();
+            sampleUnison[osc][u].reset();
+        }
+        feedbackHistory[osc] = feedbackFiltered[osc] = previousOsc[osc] = 0.0f;
+    }
+    fmNoiseState = 0.0f;
+
+    // As a new instance: no note to glide from, and the seeded generators
+    // start their sequences again (the analog ones stay free in the plugin,
+    // as the constructor leaves them).
+#if ILANA_FINGERPRINT_BUILD
+    random.setSeed (12345);
+    driftRandom.setSeed (54321);
+#endif
+    fmNoiseRandom.setSeed (31337);
+    lfoPoolRandom.setSeed (27183);
+    lfoSimNotes = 0;
+    driftValue = driftTarget = 0.0f;
+    hasPlayedNote = false;
+}
+
 void Voice::stopNote (float, bool allowTailOff)
 {
     // The synth hard-stops a voice before reusing it; a mono note change
@@ -441,6 +506,9 @@ float Voice::voiceLfoValue (int lfo) const
 {
     const auto& lfoParams = params.lfos[lfo];
 
+    if (LfoSimShapes::isSim (lfoParams.shape))
+        return lfoValues[lfo];
+
     if (LfoShapes::isStateful (lfoParams.shape))
         return lfoChaos[lfo].value (lfoParams.shape, lfoPhases[lfo]);
 
@@ -455,12 +523,38 @@ void Voice::advanceVoiceLfos()
         const auto lfo = perVoiceLfos[index];
         const auto shape = params.lfos[lfo].shape;
 
+        if (LfoSimShapes::isSim (shape))
+        {
+            float a = 0.0f, b = 0.0f;
+            lfoSims[lfo].next (params.lfos[lfo].sim, lfoIncrements[lfo], a, b);
+            if (lfoSmoothCoefficients[lfo] < 1.0f)
+                lfoSmoothers[lfo].process (a, b, lfoSmoothCoefficients[lfo]);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+            auto next = lfoPhases[lfo] + lfoIncrements[lfo];
+            lfoPhases[lfo] = next - std::floor (next);
+            continue;
+        }
+
         if (shape == LfoShapes::Chaos)
             lfoChaos[lfo].advance (lfoIncrements[lfo]);
         else if (LfoShapes::isPhysics (shape))
             lfoChaos[lfo].advancePhysics (shape, lfoIncrements[lfo], params.lfos[lfo].physA, params.lfos[lfo].physB);
 
         lfoValues[lfo] = voiceLfoValue (lfo);
+
+        if (lfoSmoothCoefficients[lfo] < 1.0f || params.lfos[lfo].needsB)
+        {
+            auto a = lfoValues[lfo];
+            auto b = a;
+            if (params.lfos[lfo].needsB && ! LfoShapes::isStateful (shape) && shape != LfoShapes::SampleHold)
+                b = lfoShapeAt (shape, lfoPhases[lfo] + 0.25 - std::floor (lfoPhases[lfo] + 0.25), lfoHolds[lfo],
+                                params.lfos[lfo].steps, params.lfos[lfo].custom, params.lfos[lfo].customSize);
+            if (lfoSmoothCoefficients[lfo] < 1.0f)
+                lfoSmoothers[lfo].process (a, b, lfoSmoothCoefficients[lfo]);
+            lfoValues[lfo] = a;
+            lfoValuesB[lfo] = b;
+        }
 
         auto next = lfoPhases[lfo] + lfoIncrements[lfo];
 
@@ -673,6 +767,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // octave above, 2 Hz an octave below.
         if (params.lfos[lfo].keyTrack)
             lfoIncrements[lfo] = juce::jmin (0.45, lfoIncrements[lfo] * currentFrequency / 4.0);
+
+        // M8.1: SMOOTH, and the triggers counted by the processor.
+        const auto& lfoSettings = params.lfos[lfo];
+        lfoSmoothCoefficients[lfo] = LfoSmoother::coefficientFor (lfoSettings.smooth, lfoIncrements[lfo] * sampleRate, sampleRate);
+        if (lfoSettings.triggerCount != lfoSeenTriggers[lfo])
+        {
+            lfoSeenTriggers[lfo] = lfoSettings.triggerCount;
+            if (lfoSettings.perVoice && LfoSimShapes::isSim (lfoSettings.shape))
+                lfoSims[lfo].trigger (lfoSettings.sim, ++lfoSimNotes * 7919u + (std::uint32_t) lfo);
+        }
+        lfoSims[lfo].sampleRate = sampleRate;
     }
 
     // Level key scaling: KEY LVL 1 is +6 dB per octave above C3 (and -6 dB
@@ -685,6 +790,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         keyLevelGain[osc] = keyLevel != 0.0f
                                 ? juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (keyLevel * 6.0f * keyTrackOctaves, -120.0f))
                                 : 1.0f;
+    }
+
+    if (params.west.on)
+    {
+        westFolderL.setParams (params.west.fold, params.west.symmetry, params.west.stages);
+        westFolderR.setParams (params.west.fold, params.west.symmetry, params.west.stages);
     }
 
     glideCoeff = params.glideTime > 0.001f
@@ -710,7 +821,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // hammered note uses no more strings than that (detuned unison
         // strings in the bass beat audibly, which a real one cannot).
         if (settings.stringMode && settings.registerMap > 0.0f
-            && settings.stringExcite == (int) KarplusStrong::Excite::Hammer && numOscUnison[osc] > 1)
+            && (settings.stringExcite == (int) KarplusStrong::Excite::Hammer || settings.stringExcite == (int) KarplusStrong::Excite::Piano)
+            && numOscUnison[osc] > 1)
         {
             const auto note = getCurrentlyPlayingNote();
             numOscUnison[osc] = juce::jmin (numOscUnison[osc], note < 35 ? 1 : (note < 47 ? 2 : 3));
@@ -1301,6 +1413,33 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         float outL, outR;
 
+        // M8.3: the west-coast voice's control (the LED's drive): a strike
+        // on each note, or any mod source, on top of OPEN.
+        const auto westProcess = [&] (float& l, float& r)
+        {
+            const auto& w = params.west;
+            auto control = w.open;
+            if (w.source == 0)
+            {
+                if (westStrikeRemaining > 0)
+                {
+                    control += 2.0f * w.strike * velocityLevel; // the LED overdriven
+                    --westStrikeRemaining;
+                }
+            }
+            else
+            {
+                control += 2.0f * w.strike * juce::jlimit (0.0f, 1.0f, sourceValue ((Mod::Source) w.source, i, ampValue, filterValue,
+                                                                             filter2Value, modValue, env4Value));
+            }
+            const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
+            westGateL.setParams (gateMode, w.decay, w.resonance);
+            westGateR.setParams (gateMode, w.decay, w.resonance);
+            l = westGateL.process (westFolderL.process (l), control);
+            r = westGateR.process (westFolderR.process (r), control);
+        };
+        const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
+
         if (params.filtersParallel)
         {
             // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
@@ -1311,20 +1450,40 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
             const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
 
-            outL = (f1L * gain1 + filter2L.process (in2L) * gain2) * 0.7071f;
-            outR = (f1R * gain1 + filter2R.process (in2R) * gain2) * 0.7071f;
+            auto f2L = in2L, f2R = in2R;
+            if (westReplacesFilter2)
+                westProcess (f2L, f2R);
+            else
+            {
+                f2L = filter2L.process (in2L);
+                f2R = filter2R.process (in2R);
+            }
+            outL = (f1L * gain1 + f2L * gain2) * 0.7071f;
+            outR = (f1R * gain1 + f2R * gain2) * 0.7071f;
         }
         else
         {
             const auto f2inL = drive (f1L + busL[FilterRoute::Filter2], drive2);
             const auto f2inR = drive (f1R + busR[FilterRoute::Filter2], drive2);
 
-            outL = filter2L.process (f2inL);
-            outR = filter2R.process (f2inR);
+            if (westReplacesFilter2)
+            {
+                outL = f2inL;
+                outR = f2inR;
+                westProcess (outL, outR);
+            }
+            else
+            {
+                outL = filter2L.process (f2inL);
+                outR = filter2R.process (f2inR);
+            }
         }
 
         outL += busL[FilterRoute::Direct];
         outR += busR[FilterRoute::Direct];
+
+        if (params.west.on && params.west.position == 0)
+            westProcess (outL, outR);
 
         // A separate parallel pair keeps the existing serial/parallel paths
         // bit-identical whenever no oscillator selects Both.
@@ -1442,6 +1601,8 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
                               settings.stringPickPosition, settings.stringSlap);
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setKeysParams (settings.hammerHardness, settings.damper);
+    string.setEco (params.quality == 0);
+    string.setFeedbackParams (settings.fbGain, settings.fbDistance);
     if (string.isElectric())
         string.setElectricParams (settings.epDistance, settings.epPosition);
 }
@@ -1673,6 +1834,13 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
     if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
         return lfoSource (lfo, params.lfoBuffers[lfo]);
 
+    if (const auto lfo = Mod::lfoBIndexFor (source); lfo >= 0)
+    {
+        if (params.lfos[lfo].perVoice)
+            return lfoValuesB[lfo];
+        return params.lfoBuffersB[lfo] != nullptr ? params.lfoBuffersB[lfo][renderStart + sampleIndex] : 0.0f;
+    }
+
     switch (source)
     {
         case Mod::Source::ModEnv:     return modValue * velocityScaleFor (params.modEnvVelocity);
@@ -1693,6 +1861,8 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::Env4:       return env4Value * velocityScaleFor (params.env4Velocity);
         case Mod::Source::FilterEnv2: return filter2Value * velocityScaleFor (params.filter2EnvVelocity);
         case Mod::Source::InputEnv:   return params.inputEnv != nullptr ? params.inputEnv[renderStart + sampleIndex] : 0.0f;
+        case Mod::Source::VectorX:    return params.vectorX;
+        case Mod::Source::VectorY:    return params.vectorY;
         case Mod::Source::None:
         case Mod::Source::Count:
         default:                      return 0.0f;

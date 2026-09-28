@@ -12,6 +12,9 @@
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
 #include "gui/CardTabs.h"
+#include "gui/FilterWidgets.h"
+#include "gui/VectorPad.h"
+#include "gui/PhysicalView.h"
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
@@ -817,6 +820,190 @@ int runUiTests()
         }
     }
 
+    // M8.1: the LFO card for a simulated shape.
+    {
+        const auto knobFor = [&editor] (const juce::String& id) -> KnobControl*
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id)
+                    return knob;
+            return nullptr;
+        };
+        const auto setShape = [&processor] (int shape)
+        {
+            if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+        };
+        tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        setShape (LfoSimShapes::Lorenz);
+        settle (300);
+        auto* p1 = knobFor ("lfo1_p1");
+        auto* p4 = knobFor ("lfo1_p4");
+        auto* start = knobFor ("lfo1_phase");
+        auto* smooth = knobFor ("lfo1_smooth");
+        expect (p1 != nullptr && p1->isVisible() && p1->getLabelText() == "SIGMA", "Lorenz shows a SIGMA knob");
+        expect (p1 != nullptr && p1->getSlider().getTextFromValue (0.5) == "10.00", "SIGMA reads 10.00 at the middle");
+        expect (p4 != nullptr && ! p4->isVisible(), "Lorenz hides the knobs it doesn't use");
+        expect (start != nullptr && ! start->isVisible() && smooth != nullptr && smooth->isVisible(),
+                "simulated shapes show SMOOTH instead of START");
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        auto fireShown = false;
+        for (auto* button : buttons)
+            fireShown = fireShown || (button->getButtonText() == "FIRE" && button->isVisible());
+        expect (fireShown, "the card has a FIRE button");
+
+        setShape (LfoSimShapes::Bounce);
+        settle (300);
+        expect (p1 != nullptr && p1->getLabelText() == "GRAVITY" && p4 != nullptr && p4->isVisible() && p4->getLabelText() == "DRAG",
+                "Bounce names its knobs GRAVITY ... DRAG");
+        setShape (0);
+        settle (300);
+        expect (p1 != nullptr && ! p1->isVisible() && smooth != nullptr && smooth->isVisible() && start != nullptr && start->isVisible(),
+                "classic shapes keep START and gain SMOOTH");
+        expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
+    }
+
+    // M8.5: the VECTOR page has the pad and EVOLVE.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("VECTOR"));
+        settle (200);
+        auto* page = tabs->getCurrentContentComponent();
+        expect (page != nullptr && findChild<VectorPadDisplay> (*page) != nullptr, "the VECTOR page shows the vector pad");
+        std::vector<KnobControl*> knobs;
+        if (page != nullptr)
+            findAll<KnobControl> (*page, knobs);
+        auto evolveKnobs = 0;
+        for (auto* knob : knobs)
+            if (knob->getParameterId().endsWith ("_evolve"))
+                ++evolveKnobs;
+        expect (evolveKnobs == 4, "EVOLVE has a knob for each macro");
+        std::vector<juce::TextButton*> buttons;
+        if (page != nullptr)
+            findAll<juce::TextButton> (*page, buttons);
+        auto freeze = false;
+        for (auto* b : buttons)
+            freeze = freeze || b->getButtonText() == "FREEZE";
+        expect (freeze, "EVOLVE has a FREEZE button");
+    }
+
+    // M8.6: BOUNCE on every oscillator card; a bounce turns the card to
+    // Sample mode.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("OSC"));
+        settle (200);
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        auto bounces = 0;
+        for (auto* button : buttons)
+            bounces += button->getButtonText() == "BOUNCE" && visibleInTree (button) ? 1 : 0;
+        expect (bounces >= 2, "the oscillator cards have BOUNCE buttons (" + juce::String (bounces) + ")");
+
+        IlanaSynthAudioProcessor::BounceRequest request;
+        request.targetOsc = 1;
+        request.holdSeconds = 0.5;
+        request.tailSeconds = 0.5;
+        request.muteOthers = false;
+        processor.startBounce (request);
+        for (int i = 0; i < 300 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
+            settle (50);
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        auto sampleShown = false;
+        for (auto* knob : knobs)
+            sampleShown = sampleShown || (knob->getParameterId() == "osc2_sample_start" && visibleInTree (knob));
+        expect (processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Done && sampleShown,
+                "a bounce puts OSC 2 in Sample mode with the sample controls showing");
+    }
+
+    // M8.7: the PHYSICAL page follows the patch's Physical oscillator.
+    {
+        processor.loadFactoryPreset (names.indexOf ("Grand Piano"));
+        tabs->setCurrentTabIndex (tabIndex ("PHYSICAL"));
+        settle (400);
+        auto* page = tabs->getCurrentContentComponent();
+        expect (page != nullptr && findChild<PhysicalView> (*page) != nullptr, "the PHYSICAL page shows the animated string");
+        std::vector<KnobControl*> knobs;
+        if (page != nullptr)
+            findAll<KnobControl> (*page, knobs);
+        juce::String physicalPrefix;
+        for (const auto* prefix : OscillatorIds::prefixes)
+            if (physicalPrefix.isEmpty() && juce::roundToInt (processor.apvts.getRawParameterValue (juce::String (prefix) + "_mode")->load()) == 1)
+                physicalPrefix = prefix;
+        auto bound = false;
+        for (auto* knob : knobs)
+            bound = bound || (knob->getParameterId() == physicalPrefix + "_string_decay" && visibleInTree (knob));
+        expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Grand Piano's string (" + physicalPrefix + ")");
+        processor.loadFactoryPreset (neuroWobble);
+        settle (200);
+    }
+
+    // M8.4: the type grid turns to the page holding a new model.
+    {
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Steiner));
+        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        settle (200);
+        std::vector<FilterTypeGrid*> grids;
+        findAll<FilterTypeGrid> (*editor, grids);
+        auto onSecond = false;
+        for (auto* grid : grids)
+        {
+            grid->repaint();
+            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
+            juce::Graphics g (image);
+            grid->paintEntireComponent (g, false);
+            onSecond = onSecond || grid->getPage() == 1;
+        }
+        expect (! grids.empty() && onSecond, "the filter type grid shows the page with the new models");
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (0.0f);
+    }
+
+    // M8.3: the FILTER page's WEST tab shows the west-coast card.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        settle (200);
+        std::vector<CardTabs*> cardTabs;
+        findAll<CardTabs> (*editor, cardTabs);
+        CardTabs* westTabs = nullptr;
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                westTabs = bar;
+        expect (westTabs != nullptr, "the FILTER page has FILTER 2 / WEST tabs");
+        if (westTabs != nullptr)
+        {
+            const auto visibleKnob = [&editor] (const juce::String& id)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == id)
+                    {
+                        auto shown = true;
+                        for (juce::Component* c = knob; c != nullptr && c->getParentComponent() != nullptr; c = c->getParentComponent())
+                            shown = shown && c->isVisible();
+                        if (shown)
+                            return true;
+                    }
+                return false;
+            };
+            westTabs->setSelected (1, true);
+            settle (200);
+            expect (visibleKnob ("west_fold") && visibleKnob ("west_decay") && ! visibleKnob ("f2_cutoff"),
+                    "the WEST tab shows FOLD and DECAY in Filter 2's place");
+            westTabs->setSelected (0, true);
+            settle (200);
+            expect (visibleKnob ("f2_cutoff") && ! visibleKnob ("west_fold"), "the FILTER 2 tab brings Filter 2 back");
+        }
+    }
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -1021,6 +1208,134 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("lfo-pool-main.png"));
         for (int lfo = 3; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
+    }
+
+    // M8.1: the simulated LFO shapes, each with its picture and named knobs.
+    {
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        if (auto* page = tabs->getCurrentContentComponent())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        const std::pair<int, const char*> shapes[] {
+            { LfoSimShapes::Bounce, "bounce" }, { LfoSimShapes::Pendulum, "pendulum" }, { LfoSimShapes::Spring, "spring" },
+            { LfoSimShapes::Friction, "friction" }, { LfoSimShapes::Lorenz, "lorenz" }, { LfoSimShapes::DoublePendulum, "double-pendulum" },
+            { LfoSimShapes::Duffing, "duffing" }, { LfoSimShapes::Perlin, "perlin" }, { LfoSimShapes::Henon, "henon" } };
+        for (const auto& [shape, name] : shapes)
+        {
+            if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+            const auto& info = LfoSimInfo::get (shape);
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                if (auto* parameter = processor.apvts.getParameter ("lfo1_p" + juce::String (param + 1)))
+                    parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+            if (auto* rate = processor.apvts.getParameter ("lfo1_rate"))
+                rate->setValueNotifyingHost (rate->convertTo0to1 (1.0f));
+            settle (1500);
+            save (*editor, outDir.getChildFile ("lfo-sim-" + juce::String (name) + ".png"));
+        }
+        if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
+            parameter->setValueNotifyingHost (0.0f);
+        if (auto* rate = processor.apvts.getParameter ("lfo1_rate"))
+            rate->setValueNotifyingHost (rate->convertTo0to1 (4.0f));
+        settle (200);
+    }
+
+    // M8.3: the WEST card (FILTER page, FILTER 2 / WEST tabs).
+    {
+        if (auto* parameter = processor.apvts.getParameter ("west_on"))
+            parameter->setValueNotifyingHost (1.0f);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        std::vector<CardTabs*> cardTabs;
+        if (auto* page = tabs->getCurrentContentComponent())
+            findAll<CardTabs> (*page, cardTabs);
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                bar->setSelected (1, true);
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-west.png"));
+        for (auto* bar : cardTabs)
+            if (bar->getNames().contains ("WEST"))
+                bar->setSelected (0, true);
+        if (auto* parameter = processor.apvts.getParameter ("west_on"))
+            parameter->setValueNotifyingHost (0.0f);
+    }
+
+    // M8.6: an oscillator playing a bounce of the patch.
+    {
+        IlanaSynthAudioProcessor::BounceRequest request;
+        request.targetOsc = 1;
+        request.muteOthers = false;
+        processor.startBounce (request);
+        for (int i = 0; i < 400 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
+            settle (50);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        settle (600);
+        save (*editor, outDir.getChildFile ("osc-bounce.png"));
+        for (const auto* id : { "osc2_mode", "osc2_on", "osc2_semi" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+    }
+
+    // M8.7: the PHYSICAL page, a moment after a note (Grand Piano, then a
+    // feedback guitar).
+    for (const auto& [presetName, file] : { std::pair<const char*, const char*> { "Grand Piano", "physical-page.png" },
+                                            { "", "physical-feedback.png" } })
+    {
+        if (juce::String (presetName).isNotEmpty())
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+        else
+        {
+            processor.loadFactoryPreset (0);
+            for (const auto& [id, value] : { std::pair<const char*, float> { "osc1_mode", 1.0f }, { "osc1_excite", 10.0f },
+                                             { "osc1_string_sustain", 0.6f }, { "osc2_on", 0.0f } })
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        }
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("PHYSICAL"));
+        settle (300);
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int block = 0; block < 20; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 110), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+        }
+        settle (350);
+        save (*editor, outDir.getChildFile (file));
+        processor.panic();
+    }
+    processor.loadFactoryPreset (0);
+
+    // M8.5: the VECTOR page, with the pad on and a path.
+    {
+        for (const auto& [id, value] : { std::pair<const char*, float> { "vec_on", 1.0f }, { "vec_path", 1.0f },
+                                         { "vec_drift", 0.3f }, { "macro1_evolve", 0.4f }, { "macro3_evolve", 0.2f },
+                                         { "osc4_on", 1.0f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("VECTOR"));
+        settle (600);
+        save (*editor, outDir.getChildFile ("vector-page.png"));
+        for (const auto* id : { "vec_on", "vec_path", "vec_drift", "macro1_evolve", "macro3_evolve", "osc4_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+    }
+
+    // M8.4: the second page of filter models.
+    {
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::VowelBank));
+        if (auto* parameter = processor.apvts.getParameter ("f1_reso"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.6f));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-models-2.png"));
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (0.0f);
+        if (auto* parameter = processor.apvts.getParameter ("f1_reso"))
+            parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
     // M4: the Hammered Strings preset on the OSC page.

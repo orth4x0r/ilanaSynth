@@ -34,7 +34,7 @@ protected:
     int current = 0;
 };
 
-// All twelve filter models as a grid of buttons, each with a small drawing
+// All filter models as a grid of buttons (two pages), each with a small drawing
 // of its response, so the type can be picked by eye.
 class FilterTypeGrid : public ParamBoundComponent
 {
@@ -48,22 +48,28 @@ public:
 
     static juce::StringArray shortNames()
     {
-        return { "LP", "BP", "HP", "NOTCH", "LADDER", "LAD HP", "DIODE", "MS-20", "COMB +", "COMB -", "FORMANT", "MORPH" };
+        return { "LP", "BP", "HP", "NOTCH", "LADDER", "LAD HP", "DIODE", "MS-20", "COMB +", "COMB -", "FORMANT", "MORPH",
+                 "LAD BP", "DRIVE", "SEM", "OTA LP", "OTA BP", "MS HP", "STEINER", "PHASER", "DAMPED", "MIX",
+                 "VOWEL", "TALK", "TWIN" };
     }
 
     void paint (juce::Graphics& g) override
     {
+        followCurrent();
         const auto names = shortNames();
+        const auto& groups = pages()[(size_t) page];
 
-        // Family labels over each block of four, with thin dividers between.
-        for (int group = 0; group < numGroups; ++group)
+        // Family labels over each block, with thin dividers between.
+        for (int group = 0; group < (int) groups.size(); ++group)
         {
             const auto block = groupBounds (group);
-            const auto holdsCurrent = current / 4 == group;
+            const auto& types = groups[(size_t) group].types;
+            const auto holdsCurrent = std::find (types.begin(), types.end(), current) != types.end();
             g.setColour (holdsCurrent ? colour.withAlpha (0.9f) : juce::Colours::white.withAlpha (0.4f));
             g.setFont (IlanaTheme::font (9.5f, true));
-            g.drawText (groupNames()[group], block.withHeight (labelHeight).reduced (3.0f, 0.0f).toNearestInt(),
-                        juce::Justification::centredLeft);
+            auto label = block.withHeight (labelHeight).reduced (3.0f, 0.0f);
+            label.setRight (juce::jmin (label.getRight(), pageBounds().getX() - 4.0f));
+            g.drawText (groups[(size_t) group].name, label.toNearestInt(), juce::Justification::centredLeft);
 
             if (group > 0)
             {
@@ -73,62 +79,136 @@ public:
             }
         }
 
-        for (int type = 0; type < FilterType::Count; ++type)
+        // The page switch: the classic twelve, then M8.4's models.
         {
-            const auto cell = cellBounds (type).reduced (2.0f);
-            const auto active = type == current;
-            const auto hovered = isMouseOver() && cellBounds (type).contains (getMouseXYRelative().toFloat());
+            const auto pill = pageBounds();
+            const auto hovered = isMouseOver() && pill.contains (getMouseXYRelative().toFloat());
+            g.setColour (colour.withAlpha (hovered ? 0.35f : 0.18f));
+            g.fillRoundedRectangle (pill, 5.0f);
+            g.setColour (colour);
+            g.setFont (IlanaTheme::font (9.5f, true));
+            g.drawText (page == 0 ? "MORE  >" : "<  CLASSIC", pill, juce::Justification::centred);
+        }
 
-            g.setColour (active ? colour.withAlpha (0.2f) : juce::Colours::white.withAlpha (hovered ? 0.07f : 0.03f));
-            g.fillRoundedRectangle (cell, 4.0f);
-            g.setColour (active ? colour.withAlpha (0.9f) : juce::Colours::white.withAlpha (0.1f));
-            g.drawRoundedRectangle (cell.reduced (0.5f), 4.0f, active ? 1.3f : 1.0f);
+        for (int group = 0; group < (int) groups.size(); ++group)
+        {
+            for (auto type : groups[(size_t) group].types)
+            {
+                const auto cell = cellBounds (type).reduced (2.0f);
+                const auto active = type == current;
+                const auto hovered = isMouseOver() && cellBounds (type).contains (getMouseXYRelative().toFloat());
 
-            // Small response drawing on the left, name beside it.
-            auto inner = cell.reduced (6.0f, 4.0f);
-            const auto curveArea = inner.removeFromLeft (juce::jmin (30.0f, inner.getWidth() * 0.4f));
-            inner.removeFromLeft (4.0f);
-            paintCurve (g, type, curveArea, active);
+                g.setColour (active ? colour.withAlpha (0.2f) : juce::Colours::white.withAlpha (hovered ? 0.07f : 0.03f));
+                g.fillRoundedRectangle (cell, 4.0f);
+                g.setColour (active ? colour.withAlpha (0.9f) : juce::Colours::white.withAlpha (0.1f));
+                g.drawRoundedRectangle (cell.reduced (0.5f), 4.0f, active ? 1.3f : 1.0f);
 
-            g.setColour (active ? colour : juce::Colours::white.withAlpha (0.6f));
-            g.setFont (IlanaTheme::font (10.5f, active));
-            g.drawFittedText (names[type], inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+                // Small response drawing on the left, name beside it.
+                auto inner = cell.reduced (6.0f, 4.0f);
+                const auto curveArea = inner.removeFromLeft (juce::jmin (30.0f, inner.getWidth() * 0.4f));
+                inner.removeFromLeft (4.0f);
+                paintCurve (g, type, curveArea, active);
+
+                g.setColour (active ? colour : juce::Colours::white.withAlpha (0.6f));
+                g.setFont (IlanaTheme::font (10.5f, active));
+                g.drawFittedText (names[type], inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+            }
         }
     }
 
     void mouseDown (const juce::MouseEvent& event) override
     {
-        for (int type = 0; type < FilterType::Count; ++type)
-            if (cellBounds (type).contains (event.position))
-                setValue (type);
+        followCurrent();
+        if (pageBounds().contains (event.position))
+        {
+            page = 1 - page;
+            pageChosen = true;
+            repaint();
+            return;
+        }
+        for (const auto& group : pages()[(size_t) page])
+            for (auto type : group.types)
+                if (cellBounds (type).contains (event.position))
+                    setValue (type);
     }
 
     // Label strip above the cells (the page adds it to the grid's height).
     static constexpr int labelHeight = 13;
 
+    int getPage() const { return page; }
+    void setPage (int newPage) { page = juce::jlimit (0, 1, newPage); pageChosen = true; repaint(); }
+
 private:
-    // Three families of four, each a 2 x 2 block: CLASSIC (LP, BP, HP,
-    // NOTCH), CHARACTER (LADDER, LAD HP, DIODE, MS-20) and SPECIAL (COMB +,
-    // COMB -, FORMANT, MORPH). The type indices are unchanged.
-    static constexpr int numGroups = 3;
+    struct Group
+    {
+        const char* name;
+        std::vector<int> types;
+    };
+
+    // Two pages of families, each a block two cells high. Page 1 is the
+    // classic twelve (CLASSIC, CHARACTER, SPECIAL); page 2 holds M8.4's
+    // models. Type indices are unchanged.
+    static const std::array<std::vector<Group>, 2>& pages()
+    {
+        using namespace FilterType;
+        static const std::array<std::vector<Group>, 2> list {
+            std::vector<Group> { { "CLASSIC", { LowPass, BandPass, HighPass, Notch } },
+                                 { "CHARACTER", { LadderLow, LadderHigh, DiodeLow, Ms20Low } },
+                                 { "SPECIAL", { CombPlus, CombMinus, Formant, Morph } } },
+            std::vector<Group> { { "ANALOG", { LadderDrive, LadderBand, OtaLow, OtaBand, Ms20High, Sem } },
+                                 { "SHAPES", { Steiner, PhaserNotch, TwinPeak, CombMorph } },
+                                 { "VOICE", { VowelBank, Talking, CombDamped } } }
+        };
+        return list;
+    }
+
     static constexpr float groupGap = 10.0f;
 
-    static juce::StringArray groupNames() { return { "CLASSIC", "CHARACTER", "SPECIAL" }; }
+    static int columnsOf (const Group& group) { return ((int) group.types.size() + 1) / 2; }
+
+    juce::Rectangle<float> pageBounds() const { return { (float) getWidth() - 70.0f, 0.0f, 70.0f, (float) labelHeight }; }
 
     juce::Rectangle<float> groupBounds (int group) const
     {
-        const auto width = ((float) getWidth() - groupGap * (float) (numGroups - 1)) / (float) numGroups;
-        return { (float) group * (width + groupGap), 0.0f, width, (float) getHeight() };
+        const auto& groups = pages()[(size_t) page];
+        auto columns = 0;
+        for (const auto& g : groups)
+            columns += columnsOf (g);
+        const auto columnWidth = ((float) getWidth() - groupGap * (float) (groups.size() - 1)) / (float) juce::jmax (1, columns);
+        auto x = 0.0f;
+        for (int i = 0; i < group; ++i)
+            x += columnWidth * (float) columnsOf (groups[(size_t) i]) + groupGap;
+        return { x, 0.0f, columnWidth * (float) columnsOf (groups[(size_t) group]), (float) getHeight() };
     }
 
     juce::Rectangle<float> cellBounds (int type) const
     {
-        const auto block = groupBounds (type / 4).withTrimmedTop ((float) labelHeight);
-        const auto index = type % 4;
-        const auto width = block.getWidth() * 0.5f;
-        const auto height = block.getHeight() * 0.5f;
-        return { block.getX() + (float) (index % 2) * width, block.getY() + (float) (index / 2) * height, width, height };
+        const auto& groups = pages()[(size_t) page];
+        for (int group = 0; group < (int) groups.size(); ++group)
+        {
+            const auto& types = groups[(size_t) group].types;
+            const auto it = std::find (types.begin(), types.end(), type);
+            if (it == types.end())
+                continue;
+            const auto index = (int) (it - types.begin());
+            const auto columns = columnsOf (groups[(size_t) group]);
+            const auto block = groupBounds (group).withTrimmedTop ((float) labelHeight);
+            const auto width = block.getWidth() / (float) columns;
+            const auto height = block.getHeight() * 0.5f;
+            return { block.getX() + (float) (index % columns) * width, block.getY() + (float) (index / columns) * height, width, height };
+        }
+        return {};
     }
+
+    // Show the page holding the current type, unless the user flipped it.
+    void followCurrent()
+    {
+        if (! pageChosen)
+            page = current >= FilterType::LadderBand ? 1 : 0;
+    }
+
+    int page = 0;
+    bool pageChosen = false;
 
     void paintCurve (juce::Graphics& g, int type, juce::Rectangle<float> area, bool active) const
     {

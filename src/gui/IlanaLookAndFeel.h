@@ -24,32 +24,28 @@ inline const juce::uint32 palette[]
 
 inline constexpr int numPalettes = 4;
 
-inline juce::Typeface::Ptr& regularTypefaceRef()
+// The fonts and textures, released when JUCE shuts down (after the last
+// editor closes) rather than as statics when the plugin is unloaded: by then
+// JUCE's font engine is gone, and freeing a FreeType face after it crashed
+// hosts on exit.
+struct ThemeResources : private juce::DeletedAtShutdown
 {
     // Book (400) rather than Medium: lighter strokes stay crisp at UI sizes.
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost400Book_ttf, (size_t) BinaryData::Jost400Book_ttfSize);
-
-    return typeface;
-}
-
-inline juce::Typeface::Ptr& mediumTypefaceRef()
-{
+    juce::Typeface::Ptr regular = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost400Book_ttf, (size_t) BinaryData::Jost400Book_ttfSize);
     // Used for small text: unhinted outlines thin out at tiny sizes, so the
     // medium weight keeps stems readable.
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost500Medium_ttf, (size_t) BinaryData::Jost500Medium_ttfSize);
+    juce::Typeface::Ptr medium = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost500Medium_ttf, (size_t) BinaryData::Jost500Medium_ttfSize);
+    juce::Typeface::Ptr bold = juce::Typeface::createSystemTypefaceFor (BinaryData::Jost700Bold_ttf, (size_t) BinaryData::Jost700Bold_ttfSize);
+    juce::Image leather, metal; // built on first use
 
-    return typeface;
-}
+    ~ThemeResources() override { clearSingletonInstance(); }
 
-inline juce::Typeface::Ptr& boldTypefaceRef()
-{
-    static juce::Typeface::Ptr typeface = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::Jost700Bold_ttf, (size_t) BinaryData::Jost700Bold_ttfSize);
+    JUCE_DECLARE_SINGLETON_INLINE (ThemeResources, false)
+};
 
-    return typeface;
-}
+inline juce::Typeface::Ptr& regularTypefaceRef() { return ThemeResources::getInstance()->regular; }
+inline juce::Typeface::Ptr& mediumTypefaceRef() { return ThemeResources::getInstance()->medium; }
+inline juce::Typeface::Ptr& boldTypefaceRef() { return ThemeResources::getInstance()->bold; }
 
 // The editor renders its design space through a scale transform; this mirrors
 // that zoom so fonts can be snapped to whole device pixels (fractional
@@ -78,7 +74,8 @@ inline juce::FontOptions font (float height, bool bold = false)
 
 inline juce::Image& leatherTexture()
 {
-    static juce::Image image = []
+    auto& image = ThemeResources::getInstance()->leather;
+    if (image.isNull()) image = []
     {
         constexpr int size = 512;
         juce::Image img (juce::Image::ARGB, size, size, true);
@@ -119,7 +116,8 @@ inline juce::Image& leatherTexture()
 
 inline juce::Image& metalTexture()
 {
-    static juce::Image image = []
+    auto& image = ThemeResources::getInstance()->metal;
+    if (image.isNull()) image = []
     {
         constexpr int w = 1024;
         constexpr int h = 256;
@@ -476,6 +474,30 @@ public:
         }
     }
 
+    // Check boxes (the tour's "Don't show this again") in the theme's font
+    // and colours; the stock one drew its text in the default typeface.
+    void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool) override
+    {
+        const auto box = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ 13.0f, (float) button.getHeight() * 0.5f });
+        g.setColour (juce::Colours::white.withAlpha (highlighted ? 0.12f : 0.07f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (button.getToggleState() ? IlanaTheme::accent() : juce::Colours::white.withAlpha (0.35f));
+        g.drawRoundedRectangle (box, 4.0f, 1.4f);
+
+        if (button.getToggleState())
+        {
+            juce::Path tick;
+            tick.startNewSubPath (box.getX() + 4.5f, box.getCentreY());
+            tick.lineTo (box.getX() + 7.8f, box.getBottom() - 5.0f);
+            tick.lineTo (box.getRight() - 4.0f, box.getY() + 5.0f);
+            g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        g.setColour (button.findColour (juce::ToggleButton::textColourId));
+        g.setFont (IlanaTheme::font (13.0f));
+        g.drawText (button.getButtonText(), button.getLocalBounds().withTrimmedLeft (30), juce::Justification::centredLeft);
+    }
+
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                            juce::Slider& slider) override
@@ -711,8 +733,21 @@ private:
 
     float animatedHover (const void* key, bool isOver, float rate)
     {
-        auto& state = hoverStates()[key];
+        auto& states = hoverStates();
         const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        // Keyed by component address and never told when one is deleted:
+        // drop entries not painted for a minute once there are many, so the
+        // map doesn't grow with every editor opened.
+        if (states.size() > 2048)
+            for (auto it = states.begin(); it != states.end();)
+                it = now - it->second.lastTime > 60000.0 ? states.erase (it) : std::next (it);
+
+        auto& state = states[key];
+        // Not painted for seconds (or a new component at a reused address):
+        // start from where it should be rather than from a stale glow.
+        if (state.lastTime > 0.0 && now - state.lastTime > 2000.0)
+            state.value = isOver ? 1.0f : 0.0f;
         const auto dt = state.lastTime > 0.0 ? juce::jlimit (0.0, 0.1, (now - state.lastTime) * 0.001) : 0.016;
         state.lastTime = now;
 

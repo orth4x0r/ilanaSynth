@@ -299,7 +299,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
     if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
     if (isOscParameter (id, "_hammer_hard"))
-        return "Hammer felt hardness (Hammer exciter). Harder felt and faster keys give a shorter contact and a brighter tone.";
+        return "Hammer felt hardness (Hammer and Piano exciters). Harder felt and faster keys give a shorter contact and a brighter tone.";
     if (id == "in_gain") return "ilanaSynth FX: the input's level into the engine (DRY is not affected).";
     if (id == "in_dry") return "ilanaSynth FX: the untouched input, added back at the end.";
     if (id == "in_body") return "ilanaSynth FX: how hard the input rings the BODY section (switch BODY on, any type but Classic).";
@@ -323,6 +323,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
+    if (id == "sb_model") return "Classic: the M4 board. Dense: 48 wooden modes a side and the colour measured from a real grand (for the Piano exciter).";
     if (id == "sb_mix") return "How much soundboard resonance is heard.";
     if (id == "sb_tone") return "Lid and mic position: closed and dark to open and bright.";
     if (id == "sb_size") return "Soundboard size: a bigger board is lower and rings longer.";
@@ -369,7 +370,9 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (isOscParameter (id, "_excite", false))
         return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string. "
-               "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed.";
+               "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed. "
+               "Piano strikes the string with a real felt hammer (it brightens as it compresses), with two polarisations "
+               "and the bass's bark; Hammer (classic) is the M4 model, kept for old patches.";
 
     if (isOscParameter (id, "_string_decay", false))
         return "How long the string rings.";

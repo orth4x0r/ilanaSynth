@@ -227,7 +227,7 @@ public:
           , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "STRINGS")
-          , sbOn (p.apvts, "sb_on", "BOARD"), sbMix (p.apvts, "sb_mix", "BODY MIX"), sbTone (p.apvts, "sb_tone", "TONE")
+          , sbOn (p.apvts, "sb_on", "BOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "BODY MIX"), sbTone (p.apvts, "sb_tone", "TONE")
           , sbSize (p.apvts, "sb_size", "SIZE"), stretch (p.apvts, "stretch", "STRETCH")
           , pedalRes (p.apvts, "pedal_res", "PEDAL RES"), mechKey (p.apvts, "mech_key", "KEY NOISE")
           , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
@@ -259,7 +259,7 @@ public:
         }
 
         addAll (*this, symOn, symManual, symAmount, symDecay, symCount);
-        addAll (*this, sbOn, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
+        addAll (*this, sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         for (int i = 0; i < 6; ++i)
         {
             symNotes[(size_t) i] = std::make_unique<KnobControl> (p.apvts, "sym_note" + juce::String (i + 1),
@@ -603,7 +603,7 @@ public:
         keysCard = area.removeFromTop (keysCardHeight);
         auto keysArea = keysCard.withTrimmedTop (symHeaderHeight).reduced (10, 0);
         layoutSlots (keysArea.removeFromTop (symRowHeight),
-                     { &sbOn, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
+                     { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
     }
 
 private:
@@ -1001,10 +1001,20 @@ private:
             physicalControls.bowPressure.setVisible (bow);
             physicalControls.bowSpeed.setVisible (bow);
             const auto electric = stringVisible && isElectric (i);
-            physicalControls.hammer.setVisible (electric || (stringVisible
-                                                && processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() == 5.0f));
+            const auto exciteChoice = processorRef.apvts.getRawParameterValue (prefix + "_excite")->load();
+            physicalControls.hammer.setVisible (electric || (stringVisible && (exciteChoice == 5.0f || exciteChoice == 9.0f)));
             physicalControls.epDistance.setVisible (electric);
             physicalControls.epPosition.setVisible (electric);
+            // M8.2: the Piano exciter's hammer and strings are physical; the
+            // pick, pickup and buzz controls don't apply.
+            if (stringVisible && exciteChoice == 9.0f)
+                for (juce::Component* control : { (juce::Component*) &physicalControls.pickup,
+                                                  (juce::Component*) &physicalControls.hardness,
+                                                  (juce::Component*) &physicalControls.pickPos,
+                                                  (juce::Component*) &physicalControls.slap,
+                                                  (juce::Component*) &physicalControls.bridgeBuzz,
+                                                  (juce::Component*) &physicalControls.fretRattle })
+                    control->setVisible (false);
             if (electric)
                 for (juce::Component* control : { (juce::Component*) &physicalControls.stiffness,
                                                   (juce::Component*) &physicalControls.pickup,
@@ -1079,7 +1089,8 @@ private:
     bool isElectric (int index) const
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
-        return processorRef.apvts.getRawParameterValue (prefix + "_excite")->load() >= 7.0f;
+        const auto excite = processorRef.apvts.getRawParameterValue (prefix + "_excite")->load();
+        return excite == 7.0f || excite == 8.0f;
     }
 
     static void setGroupEnabled (std::initializer_list<juce::Component*> controls, bool enabled)
@@ -1216,6 +1227,7 @@ private:
     // the mechanism's noises, shared by every voice.
     juce::Rectangle<int> keysCard;
     ToggleControl sbOn;
+    ComboControl sbModel;
     KnobControl sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal;
     std::array<std::unique_ptr<KnobControl>, 6> symNotes;
 

@@ -497,7 +497,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -636,7 +636,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -959,7 +959,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -1160,6 +1160,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_fire", name + " Fire", false);
     }
 
+    // M8.2: the soundboard model. Classic keeps old patches as they were.
+    addChoice ("sb_model", "Soundboard Model", { "Classic", "Dense" }, 0);
+
     return layout;
 }
 
@@ -1302,6 +1305,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     currentSampleRate = sampleRate;
     sympatheticStrings.prepare (sampleRate);
     soundboard.prepare (sampleRate);
+    denseSoundboard.prepare (sampleRate);
     pedalResonance.prepare (sampleRate);
     mechanicalNoise.prepare (sampleRate);
     keysPedalDown = false;
@@ -2996,8 +3000,14 @@ void IlanaSynthAudioProcessor::processAcousticKeys (juce::AudioBuffer<float>& bu
     if (soundboardOn)
     {
         if (! soundboardWasOn)
+        {
             soundboard.reset();
-        soundboard.process (left, right, numSamples, getParam ("sb_mix"), getParam ("sb_tone"), getParam ("sb_size"));
+            denseSoundboard.reset();
+        }
+        if ((int) getParam ("sb_model") == 1)
+            denseSoundboard.process (left, right, numSamples, getParam ("sb_mix"), getParam ("sb_tone"), getParam ("sb_size"));
+        else
+            soundboard.process (left, right, numSamples, getParam ("sb_mix"), getParam ("sb_tone"), getParam ("sb_size"));
     }
     soundboardWasOn = soundboardOn;
 

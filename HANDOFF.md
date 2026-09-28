@@ -5,12 +5,12 @@ Updated 2026-09-27. The source tree is the source of truth. Work on `main`; Clau
 **Keep this file short** (under about 60 lines): current state, next step, open issues and the rules below. When a milestone is done, move its detailed notes to the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
 
 ## State
-- **Done:** M1–M7 and M8.1 (real chaos and physics modulators, 2026-09-27, Claude, in a cloud session on Linux). Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
-- **Next:** M8.2, the piano rework, then M8.3 (west coast), M8.4 (filters), M8.5 (feedback guitar, Evolve, vector pad), M8.6 (resampling) and M8.7 (polish).
-- **Pending listening rounds (the user's):** M8.1's demos in `build/demo/m81/` (random shapes against Vital by ear).
+- **Done:** M1–M7, M8.1 (chaos and physics modulators) and M8.2 (piano rework: the Piano exciter, a dense soundboard, the Grand Piano preset; whole-keyboard error 2593 → 522 against the Salamander grand), by Claude in a cloud session on Linux, 2026-09-27/28. Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
+- **Next:** M8.3 (west coast), M8.4 (filters), M8.5 (feedback guitar, Evolve, vector pad), M8.6 (resampling) and M8.7 (polish).
+- **Pending listening rounds (the user's):** M8.1's demos in `build/demo/m81/` (random shapes against Vital by ear); M8.2's in `build/demo/m82/` (Grand Piano against Hammered Strings, and A/B files: the Salamander note, then ours). The piano's remaining gap is listed in the history file.
 - **References:** the Iowa MIS site is blocked by the cloud session's network policy (allow `theremin.music.uiowa.edu`). The Salamander Grand Piano (Yamaha C5, CC-BY 3.0, 30 notes A0–C8 at pp/mf/ff, from GitHub) is in `build/reference/piano/SalamanderGrandPiano/` as a fallback. No low-pass-gate or guitar-feedback recordings were reachable yet (archive.org, freesound and wikimedia are blocked too).
 - **Release:** v1.2 is tagged `v1.2.0`; the version is still 1.2.0 (v1.3 = M7–M10). The installer has not been rebuilt.
-- **Git:** M8 work is on branch `main-717xmh`, pushed after each sub-milestone, tagged `m8.1-done` onwards.
+- **Git:** M8 work is on branch `main-717xmh`, pushed after each sub-milestone. Tags `m8.1-done` onwards exist only in the cloud session (its git proxy refuses tag pushes): recreate them from the commit messages if wanted.
 - **Plugin:** the installed VST3s (2026-09-27) predate M8; build and install on the Windows PC (`build-and-install.cmd`).
 - **Two plugins:** `ilanaSynth` (instrument) and `ilanaSynthFX` (`ILANA_FX=1`, an effect with audio input) build from the same sources and share parameters and presets. FX-only code is behind `IlanaSynthAudioProcessor::isEffectBuild`.
 - **Linux:** the tests and tools build headless with gcc and Ninja (see the M8.1 history notes for the packages). Compare fingerprints only against a baseline from the same platform.

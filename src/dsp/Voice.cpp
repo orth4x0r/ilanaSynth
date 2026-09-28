@@ -766,7 +766,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // hammered note uses no more strings than that (detuned unison
         // strings in the bass beat audibly, which a real one cannot).
         if (settings.stringMode && settings.registerMap > 0.0f
-            && settings.stringExcite == (int) KarplusStrong::Excite::Hammer && numOscUnison[osc] > 1)
+            && (settings.stringExcite == (int) KarplusStrong::Excite::Hammer || settings.stringExcite == (int) KarplusStrong::Excite::Piano)
+            && numOscUnison[osc] > 1)
         {
             const auto note = getCurrentlyPlayingNote();
             numOscUnison[osc] = juce::jmin (numOscUnison[osc], note < 35 ? 1 : (note < 47 ? 2 : 3));
@@ -1498,6 +1499,7 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
                               settings.stringPickPosition, settings.stringSlap);
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setKeysParams (settings.hammerHardness, settings.damper);
+    string.setEco (params.quality == 0);
     if (string.isElectric())
         string.setElectricParams (settings.epDistance, settings.epPosition);
 }

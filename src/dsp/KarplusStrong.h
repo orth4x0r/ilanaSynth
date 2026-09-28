@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ElectricPiano.h"
+#include "PianoString.h"
 #include "PianoTuning.h"
 
 #if defined (_MSC_VER)
@@ -30,11 +31,13 @@ public:
         Hammer,  // M4: a felt hammer strikes, harder with velocity
         External, // M4: driven by the other oscillators (the FM matrix inputs)
         Tine,     // M7.3: a Rhodes-style tine and tone bar (ElectricPiano)
-        Reed      // M7.3: a Wurlitzer-style reed
+        Reed,     // M7.3: a Wurlitzer-style reed
+        Piano     // M8.2: a nonlinear felt hammer on a split waveguide (PianoString)
     };
 
-    static constexpr int numExcites = 9;
+    static constexpr int numExcites = 10;
     bool isElectric() const { return excite == Excite::Tine || excite == Excite::Reed; }
+    bool isPiano() const { return excite == Excite::Piano; }
 
     KarplusStrong()
         : random (nextSeed())
@@ -53,6 +56,7 @@ public:
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
         electric.prepare (sampleRate);
+        piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
         reset();
     }
 
@@ -71,12 +75,14 @@ public:
         thiranInput = thiranOutput = 0.0f;
         bridgeInput = 0.0f;
         electric.reset();
+        piano.reset();
     }
 
     void setFrequency (double hz)
     {
         electric.setFrequency (hz);
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
+        piano.setNote (hz, juce::roundToInt (69.0 + 12.0 * std::log2 (juce::jmax (1.0, hz) / 440.0)));
         updateHammerFeedback();
         updatePianoDispersion();
     }
@@ -95,6 +101,15 @@ public:
         feedback = 0.90f + decay * 0.0995f;
         updateHammerFeedback();
         updatePianoDispersion();
+        updatePiano();
+    }
+
+    // M8.2: Eco quality lightens the Piano exciter (fewer allpasses, one
+    // polarisation, no longitudinal modes).
+    void setEco (bool newEco)
+    {
+        eco = newEco;
+        updatePiano();
     }
 
     void setPhysicalParams (float newStiffness, float newPickup, float newExcitationPosition,
@@ -109,6 +124,7 @@ public:
         dispersionCoefficient = -0.7f * stiffness;
         updateDispersionDelay();
         updatePianoDispersion();
+        updatePiano();
     }
 
     void setBowAndBuzz (float pressure, float speed, float bridgeBuzz, float fretRattle)
@@ -125,6 +141,7 @@ public:
     {
         hammerHardness = juce::jlimit (0.0f, 1.0f, newHammerHardness);
         damper = juce::jlimit (0.0f, 1.0f, newDamper);
+        updatePiano();
     }
 
     // M7.3: the tine or reed's knobs (DECAY, DAMP, pickup distance and
@@ -142,6 +159,8 @@ public:
         // level (the loop resonates, so a little goes a long way).
         if (isElectric())
             electric.addForce (value * 0.02f);
+        else if (isPiano())
+            piano.addBridgeInput (value * 0.1f);
         else
             bridgeInput += value * 0.1f;
     }
@@ -151,7 +170,13 @@ public:
     // so scale it by pitch: the same loss per second in every register
     // (calibrated at C3; lower strings keep their long bass sustain),
     // rather than wiping out the treble.
-    void addBridgeInput (float value) { bridgeInput += value * (float) juce::jmin (1.0, 130.81 / frequency); }
+    void addBridgeInput (float value)
+    {
+        if (isPiano())
+            piano.addBridgeInput (value * (float) juce::jmin (1.0, 130.81 / frequency));
+        else
+            bridgeInput += value * (float) juce::jmin (1.0, 130.81 / frequency);
+    }
 
     void trigger (float velocity)
     {
@@ -164,6 +189,13 @@ public:
         {
             strikeVelocity = level;
             electric.trigger (level);
+            return;
+        }
+
+        if (isPiano())
+        {
+            strikeVelocity = level;
+            piano.trigger (level, random.nextFloat());
             return;
         }
 
@@ -247,6 +279,9 @@ public:
 
         if (isElectric())
             return electric.process (noteHeld);
+
+        if (isPiano())
+            return piano.process (noteHeld);
 
         if (excite == Excite::Bow)
             return processBowed (expression, noteHeld);
@@ -824,6 +859,12 @@ private:
         return x > 10.0 ? 0.0f : hammerLevel * 0.75f * (float) (x * std::exp (1.0 - x));
     }
 
+    void updatePiano()
+    {
+        if (isPiano())
+            piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition, eco);
+    }
+
     static int nextSeed()
     {
         static std::atomic<int> counter { 0 };
@@ -882,4 +923,6 @@ private:
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;
     ElectricPiano electric;
+    PianoString piano;
+    bool eco = false;
 };

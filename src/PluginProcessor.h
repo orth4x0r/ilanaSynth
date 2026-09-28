@@ -703,6 +703,7 @@ private:
 
     // M4 acoustic keys, shared by every voice (base rate, after the voices).
     Soundboard soundboard;
+    DenseSoundboard denseSoundboard;
     PedalResonance pedalResonance;
     MechanicalNoise mechanicalNoise;
     bool keysPedalDown = false, soundboardWasOn = false;

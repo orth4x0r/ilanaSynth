@@ -172,4 +172,110 @@ void renderM81 (const juce::File& folder)
             chord, 10.0,
             [] (IlanaSynthAudioProcessor& processor, double time) { setParam (processor, "lfo1_smooth", time < 5.0 ? 0.0f : 0.4f); });
 }
+// M8.2: the reworked piano, and A/B files against the reference grand.
+void renderM82 (const juce::File& folder)
+{
+    folder.createDirectory();
+    std::vector<Event> scale;
+    auto time = 0.1;
+    for (int dynamic = 0; dynamic < 3; ++dynamic)
+        for (int note : { 36, 43, 48, 55, 60, 67, 72, 79, 84, 91, 96 })
+        {
+            const auto velocity = dynamic == 0 ? 25 : dynamic == 1 ? 64 : 120;
+            scale.push_back ({ time, juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity) });
+            scale.push_back ({ time + 0.9, juce::MidiMessage::noteOff (1, note) });
+            time += 0.45;
+        }
+    for (const auto* preset : { "Grand Piano", "Hammered Strings" })
+        render (folder, juce::String ("01 Scale pp mf ff - ") + preset, preset, {}, scale, time + 1.5);
+
+    // A pedalled progression, then deep bass notes (the bark).
+    std::vector<Event> music { { 0.0, juce::MidiMessage::controllerEvent (1, 64, 127) } };
+    const int chords[4][4] { { 48, 55, 64, 72 }, { 45, 52, 60, 69 }, { 41, 53, 60, 65 }, { 43, 55, 62, 71 } };
+    for (int c = 0; c < 4; ++c)
+    {
+        const auto at = 0.1 + c * 1.6;
+        for (int n = 0; n < 4; ++n)
+            music.push_back ({ at + n * 0.12, juce::MidiMessage::noteOn (1, chords[c][n], (juce::uint8) (70 + 12 * n)) });
+        music.push_back ({ at + 1.5, juce::MidiMessage::controllerEvent (1, 64, 0) });
+        music.push_back ({ at + 1.55, juce::MidiMessage::controllerEvent (1, 64, 127) });
+        for (int n = 0; n < 4; ++n)
+            music.push_back ({ at + 1.52, juce::MidiMessage::noteOff (1, chords[c][n]) });
+    }
+    music.push_back ({ 6.6, juce::MidiMessage::controllerEvent (1, 64, 0) });
+    for (int i = 0; i < 3; ++i)
+    {
+        const int bass[] { 21, 28, 33 };
+        music.push_back ({ 7.0 + i * 1.8, juce::MidiMessage::noteOn (1, bass[i], (juce::uint8) 120) });
+        music.push_back ({ 7.0 + i * 1.8 + 1.6, juce::MidiMessage::noteOff (1, bass[i]) });
+    }
+    for (const auto* preset : { "Grand Piano", "Hammered Strings" })
+        render (folder, juce::String ("02 Chords and bass - ") + preset, preset, {}, music, 12.5);
+
+    // A/B: the reference grand's note, then ours (dry, no reverb), for a
+    // spread of notes at each dynamic.
+    const auto reference = juce::File::getCurrentWorkingDirectory().getChildFile ("build/reference/piano/SalamanderGrandPiano");
+    if (! reference.isDirectory())
+        return;
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    for (const auto* dynamic : { "pp", "mf", "ff" })
+    {
+        const auto velocity = juce::String (dynamic) == "pp" ? 20 : juce::String (dynamic) == "mf" ? 60 : 124;
+        std::vector<float> left, right;
+        for (int note : { 24, 36, 48, 60, 72, 84, 96 })
+        {
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (
+                    reference.getChildFile ("piano_" + juce::String (note) + "_" + dynamic + ".wav"))))
+            {
+                juce::AudioBuffer<float> ref (2, 48000 * 2);
+                ref.clear();
+                reader->read (&ref, 0, 48000 * 2, 0, true, true);
+                for (int i = 0; i < ref.getNumSamples(); ++i)
+                {
+                    const auto fade = i > 48000 * 2 - 4800 ? (float) (48000 * 2 - i) / 4800.0f : 1.0f;
+                    left.push_back (ref.getSample (0, i) * fade);
+                    right.push_back (ref.getSample (1, i) * fade);
+                }
+            }
+            IlanaSynthAudioProcessor processor;
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Grand Piano"));
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                processor.assignFxSlot (slot, 0);
+            processor.prepareToPlay (48000.0, 480);
+            juce::AudioBuffer<float> buffer (2, 480);
+            for (int block = 0; block < 200; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
+                if (block == 180)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                for (int i = 0; i < 480; ++i)
+                {
+                    left.push_back (buffer.getSample (0, i));
+                    right.push_back (buffer.getSample (1, i));
+                }
+            }
+        }
+        juce::AudioBuffer<float> out (2, (int) left.size());
+        for (int i = 0; i < (int) left.size(); ++i)
+        {
+            out.setSample (0, i, left[(size_t) i]);
+            out.setSample (1, i, right[(size_t) i]);
+        }
+        const auto file = folder.getChildFile (juce::String ("03 AB reference then ours - ") + dynamic + ".wav");
+        file.deleteFile();
+        juce::WavAudioFormat wav;
+        if (auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+            if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 48000.0, 2, 24, {}, 0)))
+            {
+                stream.release();
+                writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
+            }
+        std::cout << "demo AB " << dynamic << " written" << std::endl;
+    }
+}
 } // namespace Demo

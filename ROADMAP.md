@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) and M8.1 (chaos and physics modulators). Next up: the piano rework (M8.2).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) and M8.2 (piano rework). Next up: the west-coast voice (M8.3).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -207,7 +207,7 @@ The M2 shapes are stand-ins: the physics shapes share two generic knobs (Physics
 - **Reference**: the equations themselves. Bounce times and heights match the analytic series, pendulum periods match length and gravity, Lorenz shows its known Lyapunov exponent (about 0.9) and bounds, and the random styles are compared with Vital's by ear.
 - **Checks**: no NaN or runaway at any setting, and CPU with all 16 LFOs chaotic and per voice.
 
-#### M8.2: Piano rework (new; replaces M10's piano pass)
+#### M8.2: Piano rework (new; replaces M10's piano pass) — done (listening round pending; gap written down)
 M4's piano fits its measurements (error 632 to 90.7) but sounds closer to a harpsichord than a piano. The fit only covered three notes at two dynamics, and the model has structural gaps that no fitting can close:
 - **The hammer is a pre-shaped force pulse, not a hammer.** A real felt hammer is a mass on a stiffening spring (force rising as compression to a power of about 2.5–3.5) that stays in contact with the moving string and is thrown back by it. That interaction is what makes soft notes dark and round and loud notes bright, with a smooth, even roll-off. The pulse is also high-passed before it reaches the string, which thins the fundamental: a thin, bright, even spectrum is the harpsichord sound.
 - **The soundboard is a handful of modes.** A real board is thousands of dense modes that colour the attack and give the "wood" in the sound. Commuted synthesis (a measured soundboard response folded into the excitation) is the usual way to get it cheaply.

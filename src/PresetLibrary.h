@@ -2675,6 +2675,23 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxReverb }).reverb (Hall, 0.6f, 0.2f));
 
+    // M8.2: the reworked piano (Piano exciter: a real felt hammer, two
+    // polarisations, the bass bark), fitted across the whole keyboard at
+    // pp, mf and ff (tools/fit_piano2.py).
+    add (B ("Grand Piano", "Keys")
+             .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.3f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
+             .set ("osc1_excite", 9)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .keysBody (0.8f, 1.0f, 0.4616f, 0.5f, 0.45f, 0.2f)
+             .set ("sb_model", 1)
+             .filter1 (LP, 20000.0f, 0.0f)
+             .amp (0.001f, 5.0f, 1.0f, 1.0f).velocity (0.0f)
+             .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
+             .macro (2, "PEDAL", { { param ("pedal_res"), 0.45f } })
+             .macro (3, "DECAY", { { param ("osc1_string_decay"), 0.3f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
     return list;
 }
 } // namespace Library

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "PianoTuning.h"
+#include "PianoModelTuning.h"
 
 // M4 acoustic keys: the parts of a piano that are shared by every note and
 // so live after the voices, once for the whole synth. All storage is
@@ -222,6 +223,140 @@ private:
     }
     double sampleRate = 48000.0;
     float lastSize = -1.0f;
+};
+
+// M8.2: a denser soundboard for the Piano exciter. Its colour is a curve
+// taken from the recordings (the real grand's long-term spectrum over the
+// bare string model's, per octave band: PianoModelTuning::boardEq), and its
+// wood is 48 modes a side, spaced ever closer up to 4 kHz like a plate's,
+// ringing for boardDecay seconds (less higher up).
+class DenseSoundboard
+{
+public:
+    static constexpr int numModes = 48;
+    static constexpr int numBands = 10; // octave bands, 31 Hz .. 16 kHz
+
+    void prepare (double rate)
+    {
+        sampleRate = juce::jmax (1.0, rate);
+        designedFor = {};
+        reset();
+    }
+
+    void reset()
+    {
+        for (auto& channel : modes)
+            for (auto& mode : channel)
+                mode.reset();
+        for (auto& channel : eq)
+            for (auto& band : channel)
+                band.reset();
+        for (auto& channel : lowCut)
+            for (auto& filter : channel)
+                filter.reset();
+    }
+
+    void process (float* left, float* right, int numSamples, float mix, float tone, float size)
+    {
+        design (tone, size);
+        const auto& t = PianoModelTuning::get();
+        const auto wood = juce::jlimit (0.0f, 1.0f, mix) * t.boardMix;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float input[2] { left[i], right != nullptr ? right[i] : left[i] };
+            for (int channel = 0; channel < (right != nullptr ? 2 : 1); ++channel)
+            {
+                auto x = input[channel];
+                for (auto& band : eq[(size_t) channel])
+                    x = band.process (x);
+                x = lowCut[(size_t) channel][1].process (lowCut[(size_t) channel][0].process (x));
+                auto body = 0.0f;
+                for (int m = 0; m < numModes; ++m)
+                    body += modes[(size_t) channel][(size_t) m].process (x) * gains[(size_t) channel][(size_t) m];
+                auto out = x + body * wood;
+                out = std::isfinite (out) ? juce::jlimit (-8.0f, 8.0f, out) : 0.0f;
+                (channel == 0 ? left : right)[i] = out;
+            }
+        }
+    }
+
+private:
+    struct Biquad
+    {
+        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+        void peak (double rate, double frequency, double q, double gainDb)
+        {
+            const auto a = std::pow (10.0, gainDb / 40.0);
+            const auto w = juce::MathConstants<double>::twoPi * juce::jmin (frequency, rate * 0.45) / rate;
+            const auto alpha = std::sin (w) / (2.0 * q), c = std::cos (w), a0 = 1.0 + alpha / a;
+            b0 = (1.0 + alpha * a) / a0; b1 = -2.0 * c / a0; b2 = (1.0 - alpha * a) / a0;
+            a1 = -2.0 * c / a0; a2 = (1.0 - alpha / a) / a0;
+        }
+        void highPass (double rate, double frequency, double q)
+        {
+            const auto w = juce::MathConstants<double>::twoPi * frequency / rate;
+            const auto alpha = std::sin (w) / (2.0 * q), c = std::cos (w), a0 = 1.0 + alpha;
+            b0 = (1.0 + c) / 2.0 / a0; b1 = -(1.0 + c) / a0; b2 = b0; a1 = -2.0 * c / a0; a2 = (1.0 - alpha) / a0;
+        }
+        void reset() { z1 = z2 = 0.0; }
+        float process (float x)
+        {
+            const auto y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return (float) y;
+        }
+    };
+
+    // TONE tilts the measured curve (lid and mic: +-6 dB at 16 kHz), SIZE
+    // moves the modes (as the classic board's does).
+    void design (float tone, float size)
+    {
+        const auto& t = PianoModelTuning::get();
+        const std::array<float, 8> key { tone, size, t.boardDecay, t.boardLowCut, t.boardTilt, t.boardDensity, t.boardEq[0], t.boardEq[9] };
+        if (key == designedFor && eqKey == t.boardEq)
+            return;
+        designedFor = key;
+        eqKey = t.boardEq;
+
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            for (int band = 0; band < numBands; ++band)
+            {
+                const auto centre = 31.25 * std::pow (2.0, band);
+                const auto tilt = ((double) tone - 0.5) * 12.0 * (double) band / (numBands - 1) + (double) t.boardTilt * ((double) band - 4.5);
+                eq[(size_t) channel][(size_t) band].peak (sampleRate, centre, 1.2, (double) t.boardEq[(size_t) band] + tilt);
+            }
+            lowCut[(size_t) channel][0].highPass (sampleRate, (double) t.boardLowCut, 0.5412);
+            lowCut[(size_t) channel][1].highPass (sampleRate, (double) t.boardLowCut, 1.3066);
+        }
+
+        const auto scale = std::exp2 (0.5 - (double) size);
+        juce::Random random (8282);
+        for (int m = 0; m < numModes; ++m)
+        {
+            // Plate-like: spacing shrinks as the square root rises.
+            const auto x = ((double) m + 0.5) / (double) numModes;
+            const auto hz = (70.0 + 4000.0 * std::pow (x, 1.0 + (double) t.boardDensity)) * scale;
+            const auto t60 = juce::jmax (0.01, (double) t.boardDecay * (1.0 - 0.6 * x));
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const auto detune = 1.0 + ((double) random.nextFloat() - 0.5) * 0.06;
+                modes[(size_t) channel][(size_t) m].set (sampleRate, hz * detune, t60);
+                gains[(size_t) channel][(size_t) m] = (random.nextBool() ? 1.0f : -1.0f) * (0.5f + 0.5f * random.nextFloat())
+                                                      * 3.0f / std::sqrt ((float) numModes);
+            }
+        }
+    }
+
+    double sampleRate = 48000.0;
+    std::array<float, 8> designedFor {};
+    std::array<float, numBands> eqKey {};
+    std::array<std::array<AcousticKeysDetail::Mode, numModes>, 2> modes;
+    std::array<std::array<float, numModes>, 2> gains {};
+    std::array<std::array<Biquad, numBands>, 2> eq;
+    std::array<std::array<Biquad, 2>, 2> lowCut;
 };
 
 // With the sustain pedal down every damper lifts, so the whole keyboard's

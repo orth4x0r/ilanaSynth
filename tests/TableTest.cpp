@@ -1741,7 +1741,32 @@ void runPresetTuningTest()
         }
 
         const auto semitones = 12.0 * std::log2 (frequency / noteFrequency);
-        const auto cents = std::abs ((semitones - std::round (semitones)) * 100.0);
+        auto cents = std::abs ((semitones - std::round (semitones)) * 100.0);
+
+        // Autocorrelation can lock onto a mix of partials in rich or
+        // inharmonic sounds (the M8.2 piano's hammer and board); confirm an
+        // out-of-tune reading with the strongest spectral peak within half a
+        // semitone of the note (Goertzel sweep, 1 cent steps).
+        if (cents > 30.0)
+        {
+            auto best = 0.0, bestHz = noteFrequency;
+            for (double c = -50.0; c <= 50.0; c += 1.0)
+            {
+                const auto hz = noteFrequency * std::pow (2.0, c / 1200.0);
+                const auto w = juce::MathConstants<double>::twoPi * hz / 48000.0;
+                std::complex<double> sum;
+                const auto length = (int) samples.size();
+                for (int i = 0; i < length; ++i)
+                    sum += (double) samples[(size_t) i] * (0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * i / length))
+                           * std::polar (1.0, -w * i);
+                if (std::abs (sum) > best)
+                {
+                    best = std::abs (sum);
+                    bestHz = hz;
+                }
+            }
+            cents = std::abs (1200.0 * std::log2 (bestHz / noteFrequency));
+        }
 
         if (cents > worstCents)
         {
@@ -5378,7 +5403,7 @@ void runM4Tests()
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
             check (choice != nullptr && choice->getAllValueStrings().size() >= 7
-                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer"
+                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer (classic)"
                        && choice->getAllValueStrings()[6] == "Osc In",
                    juce::String (id) + " appends Hammer and Osc In after Bow");
         }
@@ -5847,6 +5872,8 @@ void debugPresetNotes (const juce::String& presetName)
     const auto tuning = juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO_TUNING", "");
     if (! PianoTuning::get().apply (tuning))
         std::cout << "unknown tuning name in: " << tuning << std::endl;
+    if (! PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", "")))
+        std::cout << "unknown piano2 tuning name" << std::endl;
     const auto overrides = juce::StringArray::fromTokens (
         juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_OVERRIDES", ""), ";", "");
     const auto folder = juce::File (juce::SystemStats::getEnvironmentVariable (
@@ -5867,13 +5894,30 @@ void debugPresetNotes (const juce::String& presetName)
             for (int note : { 40, 60, 84 })
                 renders.push_back ({ "ours.v" + juce::String (velocity) + ".n" + juce::String (note) + ".wav", note, velocity });
     }
+    else if (juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_SET", "") == "keyboard")
+    {
+        // M8.2: the whole keyboard (the Salamander grand's notes, a minor
+        // third apart from A0) at pp, mf and ff, named ours.<dyn>.n<midi>.wav.
+        // ILANA_NOTE_LIST="21,60,..." and ILANA_NOTE_DYNAMICS="mf,ff" narrow it.
+        auto notes = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_LIST", ""), ",", "");
+        if (notes.isEmpty())
+            for (int note = 21; note <= 108; note += 3)
+                notes.add (juce::String (note));
+        auto dynamics = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_DYNAMICS", "pp,mf,ff"), ",", "");
+        for (const auto& dynamic : dynamics)
+        {
+            const auto velocity = dynamic == "pp" ? 20 : dynamic == "mf" ? 60 : 124;
+            for (const auto& note : notes)
+                renders.push_back ({ "ours." + dynamic + ".n" + note.trim() + ".wav", note.getIntValue(), velocity });
+        }
+    }
     else
     {
         for (const auto& [dynamic, velocity] : { std::pair<const char*, int> { "mf", 80 }, { "ff", 120 } })
             for (const auto& [noteName, note] : { std::pair<const char*, int> { "E1", 28 }, { "C4", 60 }, { "C7", 96 } })
                 renders.push_back ({ juce::String ("ours.") + dynamic + "." + noteName + ".wav", note, velocity });
     }
-    const auto totalBlocks = electric ? 500 : 600;
+    const auto totalBlocks = electric ? 500 : juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_SECONDS", "6").getIntValue() * 100;
     const auto releaseBlock = electric ? 400 : -1;
 
     for (const auto& render : renders)
@@ -7318,7 +7362,7 @@ void runM73ElectricPianoTests()
         for (const auto* id : { "osc1_excite", "sub_excite", "osc4_excite" })
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
-            check (choice != nullptr && choice->choices.size() == 9 && choice->choices[6] == "Osc In"
+            check (choice != nullptr && choice->choices.size() >= 9 && choice->choices[6] == "Osc In"
                        && choice->choices[7] == "Tine" && choice->choices[8] == "Reed",
                    juce::String (id) + ": Tine and Reed are appended after Osc In (indices 7 and 8)");
         }
@@ -8316,6 +8360,7 @@ void runProfile (int unison)
 }
 
 #include "M81Tests.inc"
+#include "M82Tests.inc"
 #include "DemoRender.inc"
 
 int main()
@@ -8349,6 +8394,20 @@ int main()
         runScaleRandomReleaseTest();
         runArpHostStopTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO_PROBE", "").isNotEmpty())
+    {
+        PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", ""));
+        M82::probe();
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M82_TEST", "").isNotEmpty())
+    {
+        runM82PianoTests();
+        std::cout << (failures == 0 ? "M8.2 TESTS PASSED" : "M8.2 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8388,6 +8447,15 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    // ILANA_PRESET_TEST=1 runs only the factory preset checks.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_TEST", "").isNotEmpty())
+    {
+        runPresetSanityTest();
+        runPresetTuningTest();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     // ILANA_ARP_TEST=1 runs only the arpeggiator tests.
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_ARP_TEST", "").isNotEmpty())
     {
@@ -8414,6 +8482,8 @@ int main()
         }
         if (only.isEmpty() || only == "m81")
             Demo::renderM81 (juce::File (demo).getChildFile ("m81"));
+        if (only.isEmpty() || only == "m82")
+            Demo::renderM82 (juce::File (demo).getChildFile ("m82"));
         return 0;
     }
 
@@ -8520,6 +8590,7 @@ int main()
     runM74WavetableEditorTests();
     runSplitRenderTest();
     runM81ModulatorTests();
+    runM82PianoTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

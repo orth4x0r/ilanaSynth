@@ -43,7 +43,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev xvfb
+            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev xvfb gdb
 
       - name: Configure (Linux, macOS)
         if: runner.os != 'Windows'
@@ -91,7 +91,10 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then PV=pluginval.app/Contents/MacOS/pluginval; else PV=./pluginval${{ matrix.exe }}; fi
           for plugin in "build/ilanaSynth_artefacts/Release/VST3/ilanaSynth.vst3" "build/ilanaSynthFX_artefacts/Release/VST3/ilanaSynth FX.vst3"; do
             if [ "$RUNNER_OS" = "Linux" ]; then
-              xvfb-run -a "$PV" --strictness-level 10 --validate-in-process --timeout-ms 600000 "$plugin"
+              # Under gdb: pluginval has crashed on exit now and then on this
+              # runner only; if it does, the backtraces show where.
+              xvfb-run -a gdb -q -batch -return-child-result -ex run -ex "thread apply all bt 25" \
+                --args "$PV" --strictness-level 10 --validate-in-process --timeout-ms 600000 "$plugin"
             else
               "$PV" --strictness-level 10 --validate-in-process --timeout-ms 600000 "$plugin"
             fi

@@ -5404,8 +5404,14 @@ void runM3bEngineTests()
         }
         return juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start) * 500.0;
     };
-    const auto normalCpu = sixOscCpu (1);
-    const auto ecoCpu = sixOscCpu (0);
+    // Best of three, interleaved: one pass of each swung by a third between
+    // runs with machine load, which made "Eco is cheaper" flaky.
+    auto normalCpu = 1.0e9, ecoCpu = 1.0e9;
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        normalCpu = juce::jmin (normalCpu, sixOscCpu (1));
+        ecoCpu = juce::jmin (ecoCpu, sixOscCpu (0));
+    }
     std::cout << "  cpu: six oscillators Normal " << normalCpu << " ms/s, Eco " << ecoCpu << " ms/s" << std::endl;
     checkTiming (normalCpu < 400.0 && ecoCpu < 400.0 && ecoCpu < normalCpu,
            "six-oscillator Normal and Eco stay within budget and Eco is cheaper");

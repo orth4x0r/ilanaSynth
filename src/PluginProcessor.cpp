@@ -1421,13 +1421,19 @@ const IlanaSynthAudioProcessor::ParamCacheEntry* IlanaSynthAudioProcessor::findP
     }
 }
 
+// Set while this thread runs processChunk. Modulation offsets are the audio
+// thread's: another thread (the editor, a preset load) reads the plain
+// value, rather than racing on offsets the audio thread rewrites each block
+// (a preset load chose its macros' directions from them).
+static thread_local bool readingOnAudioThread = false;
+
 float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
 {
     auto result = entry.value->load();
     if (entry.discrete)
         result = std::round (result);
 
-    if (anyParamModulation && entry.destination >= 0)
+    if (readingOnAudioThread && anyParamModulation && entry.destination >= 0)
     {
         const auto offset = paramDestinationOffsets[(size_t) entry.destination];
 
@@ -1921,6 +1927,12 @@ void IlanaSynthAudioProcessor::prepareLiveInput (int numSamples, int factor, juc
 void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     const auto startTicks = juce::Time::getHighResolutionTicks();
+    struct AudioThreadReads
+    {
+        bool previous = readingOnAudioThread;
+        AudioThreadReads() { readingOnAudioThread = true; }
+        ~AudioThreadReads() { readingOnAudioThread = previous; }
+    } audioThreadReads;
 
     juce::ScopedNoDenormals noDenormals;
     spectralCache->setSynchronous (isNonRealtime());

@@ -1,3 +1,4 @@
+#include <thread>
 // The polish and debug rounds after M10: regressions for what they fixed.
 // Included by TableTest.cpp.
 
@@ -346,8 +347,65 @@ void runMonoTest()
     check (bad.isEmpty(), "presets render into a mono output (" + bad.joinIntoString (", ") + ")");
 }
 
+// Debug 3: a host's threads. The audio thread plays notes without a break
+// while this (message) thread loads presets, restores and saves state and
+// moves parameters: nothing may crash, and the output stays finite.
+void runConcurrencyTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 128);
+    std::atomic<bool> running { true };
+    std::atomic<bool> finite { true };
+    std::atomic<int> blocks { 0 };
+    std::thread audio ([&]
+    {
+        juce::AudioBuffer<float> buffer (2, 128);
+        int n = 0;
+        while (running.load())
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (n % 40 == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48 + (n / 40) % 24, (juce::uint8) 100), 0);
+            if (n % 40 == 30)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 48 + (n / 40) % 24), 0);
+            processor.processBlock (buffer, midi);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 128; ++i)
+                    if (! std::isfinite (buffer.getSample (c, i)))
+                        finite = false;
+            ++n;
+            blocks = n;
+        }
+    });
+
+    const auto names = processor.getFactoryPresetNames();
+    juce::Random random (77);
+    juce::MemoryBlock state;
+    for (int round = 0; round < 60; ++round)
+    {
+        processor.loadFactoryPreset (1 + random.nextInt (names.size() - 1));
+        const auto& parameters = processor.getParameters();
+        for (int k = 0; k < 20; ++k)
+            parameters[random.nextInt (parameters.size())]->setValueNotifyingHost (random.nextFloat());
+        if (round % 5 == 0)
+        {
+            processor.getStateInformation (state);
+            processor.setStateInformation (state.getData(), (int) state.getSize());
+        }
+        const auto target = blocks.load() + 4;
+        while (blocks.load() < target && running.load())
+            std::this_thread::yield();
+    }
+    running = false;
+    audio.join();
+    check (finite.load() && blocks.load() > 200,
+           "presets load, state restores and parameters move while the audio thread plays (" + juce::String (blocks.load()) + " blocks)");
+}
+
 void runTests()
 {
+    runConcurrencyTest();
     runMonoTest();
     runHostEdgeTest();
     runContinuousTest();

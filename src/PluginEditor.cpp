@@ -2532,7 +2532,14 @@ public:
     ~LfoSection() override
     {
         for (int lfo = 1; lfo <= IlanaSynthAudioProcessor::numLfos; ++lfo)
+        {
             processorRef.apvts.removeParameterListener ("lfo" + juce::String (lfo) + "_shape", this);
+            // Let go of a FIRE pressed just before closing (its release timer
+            // won't run once this is gone, and FIRE only acts on a press).
+            if (auto* fireParameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo) + "_fire"))
+                if (fireParameter->getValue() > 0.5f)
+                    fireParameter->setValueNotifyingHost (0.0f);
+        }
         cancelPendingUpdate();
     }
 
@@ -2729,7 +2736,14 @@ private:
         if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_fire"))
         {
             parameter->setValueNotifyingHost (1.0f);
-            juce::Timer::callAfterDelay (60, [parameter] { parameter->setValueNotifyingHost (0.0f); });
+            // Through a SafePointer: closing the plugin within the 60 ms would
+            // otherwise leave this writing to a deleted parameter.
+            juce::Component::SafePointer<juce::Component> safeThis (this);
+            juce::Timer::callAfterDelay (60, [safeThis, parameter]
+            {
+                if (safeThis != nullptr)
+                    parameter->setValueNotifyingHost (0.0f);
+            });
         }
         displays[(size_t) lfo]->triggerPreview();
     }

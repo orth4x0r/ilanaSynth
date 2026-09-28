@@ -306,6 +306,12 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - New regression tests: every 12th preset at 22-192 kHz with blocks of 0, 1, 17 and more than announced, velocity-0 note-ons, all-notes-off, extreme bends and sustain; every 5th preset into a mono output.
   - Fingerprints are now identical run to run, and 21 more presets' baselines change: all order effects in the old baseline (fresh renders are unchanged, Grand Piano included).
 - **UI 3** — done: a Physical oscillator's card shows its string after a strike (from EXCITE POS, with the exciter named) instead of the wavetable it no longer plays, without the 3D button, and dragging it no longer moves a hidden frame; PAN reads C / L 25 / R 25 instead of a bare number; EXCITE POS at 0 reads Auto and PICK POS at 0 reads Off (what 0 does), and typed words ("C", "Auto", "Off") read back instead of jumping to the start of the range; the keyboard strip names each C.
+- **Debug 3** — done:
+  - Threads: a new test plays notes on an audio thread while the message thread loads presets, restores state and moves parameters, run under ThreadSanitizer. One race: modulation offsets (rewritten by the audio thread every block) were applied to parameter reads on any thread, so a preset load chose its default macros' directions from whatever the last patch's modulation had left. Offsets now apply only to the audio thread's reads; TSan is clean.
+  - The full test suite ran clean under AddressSanitizer and UndefinedBehaviorSanitizer, and an ASan build of the synth passed pluginval (strictness 10) with no reports, teardown included.
+  - FIRE's 60 ms release timer held a raw parameter pointer (closing the plugin within it wrote to freed memory); it goes through a SafePointer, and closing the editor lets go of a held FIRE.
+  - "Eco is cheaper" takes the best of three interleaved passes (one pass swung by a third with machine load).
+  - pluginval on the Linux CI runner crashed on exit in some runs (never locally, never under ASan): CI now runs it under gdb, so a crash prints every thread's backtrace.
 
 ---
 

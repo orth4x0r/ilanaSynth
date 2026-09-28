@@ -82,7 +82,15 @@ BOARD_PARAMETERS = [
     ("sb_mix", "preset", 1.0, 0.0, 1.0, 0.1),
     ("sb_tone", "preset", 0.5, 0.0, 1.0, 0.08),
 ]
-if "--board" in sys.argv:
+if "--both" in sys.argv:
+    PARAMETERS = BOARD_PARAMETERS + [p for p in PARAMETERS if p[0] not in {b[0] for b in BOARD_PARAMETERS}]
+    ACTIVE = {p[0] for p in PARAMETERS}
+    sys.argv.append("--board")  # same renders (the dense board on) and best file
+elif "--both" in sys.argv:
+    PARAMETERS = BOARD_PARAMETERS + [p for p in PARAMETERS if p[0] not in {b[0] for b in BOARD_PARAMETERS}]
+    ACTIVE = {p[0] for p in PARAMETERS}
+    sys.argv.append("--board")  # same renders (the dense board on) and best file
+elif "--board" in sys.argv:
     PARAMETERS = BOARD_PARAMETERS + [p for p in PARAMETERS if p[0] not in {b[0] for b in BOARD_PARAMETERS}]
     ACTIVE = {b[0] for b in BOARD_PARAMETERS}
 else:
@@ -139,6 +147,9 @@ def main():
     print(f"start error {current:.1f} {detail} {registers}", file=log, flush=True)
 
     workers = max(2, (os.cpu_count() or 4) - 1)
+    for a in sys.argv:
+        if a.startswith("--workers="):
+            workers = max(1, int(a.split("=", 1)[1]))
     rng = random.Random(82)
     with concurrent.futures.ProcessPoolExecutor(workers) as pool:
         for iteration in range(iterations):

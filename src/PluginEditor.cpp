@@ -1335,7 +1335,8 @@ private:
         if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))
             type = juce::jlimit (0, FilterType::Count - 1, (int) value->load());
 
-        const auto hasSlope = type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant;
+        const auto hasSlope = type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant
+                              && FilterType::usesSlope (type);
         slope.setVisible (hasSlope);
         morph.setVisible (FilterType::usesMorph (type));
         resized();
@@ -1576,9 +1577,10 @@ public:
         panels.removeFromLeft (10);
         panel2.setBounds (panels);
         westPanel.setBounds (panels);
-        // The FILTER 2 / WEST tabs, top right of that card.
+        // The FILTER 2 / WEST tabs, top right of that card, left of the
+        // slope switch (96 px from the right).
         const auto tabWidth = secondTabs.getIdealWidth();
-        secondTabs.setBounds (panels.getRight() - tabWidth - 10, panels.getY() + 5, tabWidth, 18);
+        secondTabs.setBounds (panels.getRight() - tabWidth - 118, panels.getY() + 5, tabWidth, 18);
         panel2.setVisible (secondTabs.getSelected() == 0);
         westPanel.setVisible (secondTabs.getSelected() == 1);
         secondTabs.toFront (false);

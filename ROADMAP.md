@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) and M8.3 (west-coast voice). Next up: filter models (M8.4).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) and M8.4 (filter models). Next up: feedback guitar, Evolve and the vector pad (M8.5).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -233,7 +233,7 @@ Plan:
 - **Where it lives**: a WEST card on the FILTER page, used in place of Filter 2 or alongside it.
 - **Reference**: recordings of a Buchla-style low-pass gate being struck, fitted on decay time and how brightness falls with level.
 
-#### M8.4: Filter models (was M8.2, before that M10b)
+#### M8.4: Filter models (was M8.2, before that M10b) — done
 Grouped with M8.3 because the west-coast filter shares the filter code. Filter variety is 12 models today against 60+ in Serum 2, so the goal is a worthwhile jump, not parity.
 - **About 12–16 new models**, in the same FilterUnit structure: more ladder and diode variants, a state-variable multimode, an OTA/Sallen-Key style, an analogue-style notch/phaser filter, comb and formant variants, and a vowel/talking filter.
 - **Existing models keep their indices**, so old patches sound the same; new models are appended.

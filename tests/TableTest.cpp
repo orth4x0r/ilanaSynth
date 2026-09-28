@@ -8362,6 +8362,7 @@ void runProfile (int unison)
 #include "M81Tests.inc"
 #include "M82Tests.inc"
 #include "M83Tests.inc"
+#include "M84Tests.inc"
 #include "DemoRender.inc"
 
 int main()
@@ -8403,6 +8404,13 @@ int main()
         PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", ""));
         M82::probe();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M84_TEST", "").isNotEmpty())
+    {
+        runM84FilterTests();
+        std::cout << (failures == 0 ? "M8.4 TESTS PASSED" : "M8.4 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M83_TEST", "").isNotEmpty())
@@ -8602,6 +8610,7 @@ int main()
     runM81ModulatorTests();
     runM82PianoTests();
     runM83WestTests();
+    runM84FilterTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -12,6 +12,7 @@
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
 #include "gui/CardTabs.h"
+#include "gui/FilterWidgets.h"
 #include "gui/EnvThumbs.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
@@ -866,6 +867,28 @@ int runUiTests()
         expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
     }
 
+    // M8.4: the type grid turns to the page holding a new model.
+    {
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Steiner));
+        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        settle (200);
+        std::vector<FilterTypeGrid*> grids;
+        findAll<FilterTypeGrid> (*editor, grids);
+        auto onSecond = false;
+        for (auto* grid : grids)
+        {
+            grid->repaint();
+            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
+            juce::Graphics g (image);
+            grid->paintEntireComponent (g, false);
+            onSecond = onSecond || grid->getPage() == 1;
+        }
+        expect (! grids.empty() && onSecond, "the filter type grid shows the page with the new models");
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (0.0f);
+    }
+
     // M8.3: the FILTER page's WEST tab shows the west-coast card.
     {
         tabs->setCurrentTabIndex (tabIndex ("FILTER"));
@@ -1158,6 +1181,21 @@ int main (int argc, char** argv)
                 bar->setSelected (0, true);
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (0.0f);
+    }
+
+    // M8.4: the second page of filter models.
+    {
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::VowelBank));
+        if (auto* parameter = processor.apvts.getParameter ("f1_reso"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.6f));
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-models-2.png"));
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (0.0f);
+        if (auto* parameter = processor.apvts.getParameter ("f1_reso"))
+            parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
     // M4: the Hammered Strings preset on the OSC page.

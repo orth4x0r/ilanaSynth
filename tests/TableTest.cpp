@@ -8364,6 +8364,7 @@ void runProfile (int unison)
 #include "M83Tests.inc"
 #include "M84Tests.inc"
 #include "M85Tests.inc"
+#include "M86Tests.inc"
 #include "DemoRender.inc"
 
 int main()
@@ -8412,6 +8413,13 @@ int main()
         PianoModelTuning::get().apply (juce::SystemStats::getEnvironmentVariable ("ILANA_PIANO2_TUNING", ""));
         M82::probe();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_M86_TEST", "").isNotEmpty())
+    {
+        runM86Tests();
+        std::cout << (failures == 0 ? "M8.6 TESTS PASSED" : "M8.6 TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M85_TEST", "").isNotEmpty())
@@ -8519,6 +8527,8 @@ int main()
             Demo::renderM83 (juce::File (demo).getChildFile ("m83"));
         if (only.isEmpty() || only == "m85")
             Demo::renderM85 (juce::File (demo).getChildFile ("m85"));
+        if (only.isEmpty() || only == "m86")
+            Demo::renderM86 (juce::File (demo).getChildFile ("m86"));
         return 0;
     }
 
@@ -8629,6 +8639,7 @@ int main()
     runM83WestTests();
     runM84FilterTests();
     runM85Tests();
+    runM86Tests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) and M8.5 (feedback guitar, Evolve, vector pad). Next up: resample to oscillator (M8.6).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) and M8.6 (resample to oscillator). Next up: polish (M8.7).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -246,7 +246,7 @@ Grouped with M8.3 because the west-coast filter shares the filter code. Filter v
 - **Evolve**: each macro can drift slowly within a range and at a rate you set. A **freeze** button captures the current state.
 - **Vector pad**: an XY pad that mixes any four of the six oscillators (the corners), plus X and Y as mod sources. It moves by hand, by a drawn path (a two-dimensional MSEG), by Evolve drift, or by MPE and joystick. Mostly UI: the DSP is four level controls. Morphing whole-patch snapshots stays in v1.4 (M12).
 
-#### M8.6: Resample to oscillator (was M14, before that M16)
+#### M8.6: Resample to oscillator (was M14, before that M16) — done (listening round pending)
 - **BOUNCE**: render a note, or the whole patch, into a patch table or sample slot, in the background.
 - It reuses the offline note rendering the fitting tools already use, the M7.4 storage format, and resynthesis-to-wavetable.
 - Then granulate it, warp it, or use it as an exciter; the result is saved with the patch.

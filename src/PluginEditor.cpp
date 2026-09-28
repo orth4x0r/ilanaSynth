@@ -246,6 +246,7 @@ public:
                 prefix + "_mode", i, oscColour (i), i == 0);
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD .WAV");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
+            bounceButtons[(size_t) i] = std::make_unique<juce::TextButton> ("BOUNCE");
         }
 
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -300,6 +301,12 @@ public:
                              "A factory table is copied into one of the patch's 16 tables first.");
             edit.onClick = [this, i] { openTableEditor (i); };
             addAndMakeVisible (edit);
+            auto& bounce = *bounceButtons[(size_t) i];
+            bounce.setTooltip ("Resample: play the whole patch (one note, optionally with its effects) and put the "
+                               "result on this oscillator, as a tuned sample or cut into a wavetable. "
+                               "The bounce is saved inside the patch.");
+            bounce.onClick = [this, i] { showBounceMenu (i); };
+            addAndMakeVisible (bounce);
         }
 
         addAll (*this, subShape, subOctave, noiseLevel);
@@ -396,6 +403,9 @@ public:
     // Patch loads change which oscillators are shown.
     void timerCallback() override
     {
+        if (bouncingOsc >= 0)
+            updateBounce();
+
         if (const auto version = processorRef.getRevealVersion(); version != lastRevealVersion)
         {
             lastRevealVersion = version;
@@ -745,7 +755,12 @@ private:
         titleStrip.removeFromRight (6);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
         titleStrip.removeFromRight (4);
-        editButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (44).withSizeKeepingCentre (44, 15));
+        if (getMode (index) == 0)
+        {
+            editButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (44).withSizeKeepingCentre (44, 15));
+            titleStrip.removeFromRight (4);
+        }
+        bounceButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (bounceButtonWide == index ? 92 : 58).withSizeKeepingCentre (bounceButtonWide == index ? 92 : 58, 15));
 
         auto content = band.reduced (8);
         content.removeFromTop (20);
@@ -967,7 +982,7 @@ private:
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
-                 removeButtons[(size_t) i].get() };
+                 removeButtons[(size_t) i].get(), bounceButtons[(size_t) i].get() };
     }
 
     void updateModeVisibility()
@@ -1178,6 +1193,85 @@ private:
 public:
     // M7.4: EDIT. A user table is edited in place; a factory table is first
     // copied into a free patch table, which the oscillator then plays.
+    // M8.6: the BOUNCE menu. The choices stay set for the next bounce.
+    void showBounceMenu (int index)
+    {
+        if (bouncingOsc >= 0)
+            return;
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Bounce the patch into OSC " + juce::String (index + 1));
+        menu.addItem (1, "As a sample (tuned, one note)");
+        menu.addItem (2, "As a wavetable (cut into single cycles)");
+        menu.addSeparator();
+        menu.addItem (3, "Include the effects", true, bounceRequest.withFx);
+        menu.addItem (4, "Mute the other oscillators", true, bounceRequest.muteOthers);
+        juce::PopupMenu notes, lengths;
+        for (int note : { 36, 48, 60, 72 })
+            notes.addItem (100 + note, juce::MidiMessage::getMidiNoteName (note, true, true, 4), true, bounceRequest.note == note);
+        for (double hold : { 0.5, 1.0, 2.0, 4.0, 8.0 })
+            lengths.addItem (300 + (int) (hold * 2.0), juce::String (hold, hold < 1.0 ? 1 : 0) + " s held + 2 s release",
+                             true, std::abs (bounceRequest.holdSeconds - hold) < 1.0e-3);
+        menu.addSubMenu ("Note", notes);
+        menu.addSubMenu ("Length", lengths);
+
+        juce::Component::SafePointer<OscPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (bounceButtons[(size_t) index].get()),
+                            [safe, index] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+                                auto& request = safe->bounceRequest;
+                                if (result == 1 || result == 2)
+                                {
+                                    request.targetOsc = index;
+                                    request.toTable = result == 2;
+                                    request.tailSeconds = 2.0;
+                                    if (safe->processorRef.startBounce (request))
+                                    {
+                                        safe->bouncingOsc = index;
+                                        safe->updateBounce();
+                                    }
+                                    return;
+                                }
+                                if (result == 3) request.withFx = ! request.withFx;
+                                if (result == 4) request.muteOthers = ! request.muteOthers;
+                                if (result >= 100 && result < 300) request.note = result - 100;
+                                if (result >= 300) request.holdSeconds = (result - 300) / 2.0;
+                                safe->showBounceMenu (index); // keep choosing
+                            });
+    }
+
+    void updateBounce()
+    {
+        const auto state = processorRef.getBounceState();
+        auto& button = *bounceButtons[(size_t) juce::jlimit (0, OscillatorIds::count - 1, bouncingOsc)];
+        if (state == IlanaSynthAudioProcessor::BounceState::Rendering)
+        {
+            button.setButtonText ("BOUNCING " + juce::String (juce::roundToInt (processorRef.getBounceProgress() * 100.0f)) + "%");
+            if (bounceButtonWide != bouncingOsc)
+            {
+                bounceButtonWide = bouncingOsc;
+                resized();
+            }
+            for (auto& other : bounceButtons)
+                other->setEnabled (false);
+            return;
+        }
+        button.setButtonText ("BOUNCE");
+        for (auto& other : bounceButtons)
+            other->setEnabled (true);
+        bouncingOsc = -1;
+        bounceButtonWide = -1;
+        resized();
+        const auto message = processorRef.getBounceMessage();
+        if (state == IlanaSynthAudioProcessor::BounceState::Failed)
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Bounce", message);
+        else
+            button.setTooltip (message);
+        updateModeVisibility();
+        updateEnabled();
+    }
+
     void openTableEditor (int index)
     {
         const auto id = juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table";
@@ -1223,7 +1317,9 @@ private:
     std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
     std::array<juce::Rectangle<int>, OscillatorIds::count> chainLabel {}, chainBay {};
 
-    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons;
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons, bounceButtons;
+    IlanaSynthAudioProcessor::BounceRequest bounceRequest;
+    int bouncingOsc = -1, bounceButtonWide = -1;
     juce::TextButton addButton;
     std::unique_ptr<juce::FileChooser> tableChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;

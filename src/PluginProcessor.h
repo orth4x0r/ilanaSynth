@@ -65,7 +65,7 @@ public:
     void copyFxChainToOtherBank();
     bool isShowingChainA() const { return showingChainA; }
     IlanaSynthAudioProcessor();
-    ~IlanaSynthAudioProcessor() override = default;
+    ~IlanaSynthAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -333,14 +333,58 @@ public:
     int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
     void clearTableNotice();
     bool loadUserSample (int oscIndex, const juce::File& file);
+    // Puts audio on an oscillator's sample slot. An embedded sample (a
+    // bounce) is saved inside the patch; a file-backed one by its path.
+    void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
+    bool isSampleEmbedded (int oscIndex) const;
     const SampleData* getSampleForOsc (int oscIndex) const;
     void flushAsyncUpdates();
+
+    // M8.6: resample to oscillator. The patch plays one note on a copy of
+    // the processor, off the audio thread, and the result lands on an
+    // oscillator: as its sample (Sample mode) or resynthesised into a patch
+    // wavetable (Wavetable mode).
+    struct BounceRequest
+    {
+        int targetOsc = 0;
+        bool toTable = false;
+        bool withFx = true;         // false: the voice alone, every effect off
+        bool muteOthers = true;     // the other oscillators switched off after
+        int note = 60, velocity = 100;
+        double holdSeconds = 2.0, tailSeconds = 2.0;
+    };
+    enum class BounceState { Idle, Rendering, Done, Failed };
+    // Message thread. False if a bounce is already running.
+    bool startBounce (const BounceRequest& request);
+    BounceState getBounceState() const { return bounceState.load(); }
+    float getBounceProgress() const { return bounceProgress.load(); }
+    juce::String getBounceMessage() const;
+    // The render itself: the state playing one note, trimmed and
+    // normalised. Null if silent or cancelled. Any thread.
+    static std::shared_ptr<SampleData> renderBounce (const juce::ValueTree& state, const BounceRequest& request,
+                                                     std::atomic<float>* progress = nullptr,
+                                                     const std::atomic<bool>* cancel = nullptr);
+    // Puts a render on the target oscillator (message thread).
+    bool applyBounce (const BounceRequest& request, std::shared_ptr<SampleData> audio, juce::String& message);
 
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     void handleAsyncUpdate() override;
+
+    // M8.6 bounce: the render thread hands its result over through these
+    // (under stateLock) and the async update applies it.
+    class BounceThread;
+    std::unique_ptr<BounceThread> bounceThread;
+    std::atomic<BounceState> bounceState { BounceState::Idle };
+    std::atomic<float> bounceProgress { 0.0f };
+    BounceRequest pendingBounce;
+    std::shared_ptr<SampleData> bounceResult;
+    bool bounceReady = false;
+    juce::String bounceMessage;
+    static juce::ValueTree encodeSample (const SampleData& data);
+    static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree);
 
     struct ParamCacheEntry
     {
@@ -565,6 +609,7 @@ private:
     mutable juce::SpinLock sampleLock;
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
+    std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
     bool samplesReloadPending = false;

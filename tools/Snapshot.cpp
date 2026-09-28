@@ -891,6 +891,36 @@ int runUiTests()
         expect (freeze, "EVOLVE has a FREEZE button");
     }
 
+    // M8.6: BOUNCE on every oscillator card; a bounce turns the card to
+    // Sample mode.
+    {
+        tabs->setCurrentTabIndex (tabIndex ("OSC"));
+        settle (200);
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        auto bounces = 0;
+        for (auto* button : buttons)
+            bounces += button->getButtonText() == "BOUNCE" && visibleInTree (button) ? 1 : 0;
+        expect (bounces >= 2, "the oscillator cards have BOUNCE buttons (" + juce::String (bounces) + ")");
+
+        IlanaSynthAudioProcessor::BounceRequest request;
+        request.targetOsc = 1;
+        request.holdSeconds = 0.5;
+        request.tailSeconds = 0.5;
+        request.muteOthers = false;
+        processor.startBounce (request);
+        for (int i = 0; i < 300 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
+            settle (50);
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        auto sampleShown = false;
+        for (auto* knob : knobs)
+            sampleShown = sampleShown || (knob->getParameterId() == "osc2_sample_start" && visibleInTree (knob));
+        expect (processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Done && sampleShown,
+                "a bounce puts OSC 2 in Sample mode with the sample controls showing");
+    }
+
     // M8.4: the type grid turns to the page holding a new model.
     {
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
@@ -1205,6 +1235,22 @@ int main (int argc, char** argv)
                 bar->setSelected (0, true);
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (0.0f);
+    }
+
+    // M8.6: an oscillator playing a bounce of the patch.
+    {
+        IlanaSynthAudioProcessor::BounceRequest request;
+        request.targetOsc = 1;
+        request.muteOthers = false;
+        processor.startBounce (request);
+        for (int i = 0; i < 400 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
+            settle (50);
+        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        settle (600);
+        save (*editor, outDir.getChildFile ("osc-bounce.png"));
+        for (const auto* id : { "osc2_mode", "osc2_on", "osc2_semi" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
     // M8.5: the VECTOR page, with the pad on and a path.

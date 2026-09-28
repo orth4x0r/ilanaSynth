@@ -1,13 +1,13 @@
 # Current handoff
 
-Updated 2026-09-27. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit at the same time.
+Updated 2026-09-28. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit at the same time.
 
 **Keep this file short** (under about 60 lines): current state, next step, open issues and the rules below. When a milestone is done, move its detailed notes to the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
 
 ## State
-- **Done:** M1–M7, M8.1 (chaos and physics modulators) M8.2 (piano rework: the Piano exciter, a dense soundboard, the Grand Piano preset; whole-keyboard error 2593 → 522 against the Salamander grand) M8.3 (west-coast voice: wavefolder and vactrol low-pass gate, the WEST card) M8.4 (13 filter models appended, a two-page type grid) and M8.5 (the Feedback exciter, Evolve, the vector pad on a new VECTOR tab), by Claude in a cloud session on Linux, 2026-09-27/28. Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
-- **Next:** M8.6 (resampling) and M8.7 (polish).
-- **Pending listening rounds (the user's):** M8.1's demos in `build/demo/m81/` (random shapes against Vital by ear); M8.2's in `build/demo/m82/` (Grand Piano against Hammered Strings, and A/B files: the Salamander note, then ours); M8.3's in `build/demo/m83/` and M8.5's in `build/demo/m85/` (both fitted to written descriptions, not recordings: re-fits are owed once recordings are reachable). The piano's remaining gap is listed in the history file.
+- **Done:** M1–M7, M8.1 (chaos and physics modulators) M8.2 (piano rework: the Piano exciter, a dense soundboard, the Grand Piano preset; whole-keyboard error 2593 → 522 against the Salamander grand) M8.3 (west-coast voice: wavefolder and vactrol low-pass gate, the WEST card) M8.4 (13 filter models appended, a two-page type grid) M8.5 (the Feedback exciter, Evolve, the vector pad on a new VECTOR tab) and M8.6 (BOUNCE: resample the patch into an oscillator's sample or a patch wavetable, saved inside the patch), by Claude in a cloud session on Linux, 2026-09-27/28. Notes for every milestone are at the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
+- **Next:** M8.7 (polish).
+- **Pending listening rounds (the user's):** M8.1's demos in `build/demo/m81/` (random shapes against Vital by ear); M8.2's in `build/demo/m82/` (Grand Piano against Hammered Strings, and A/B files: the Salamander note, then ours); M8.6's in `build/demo/m86/` (bounces played back); M8.3's in `build/demo/m83/` and M8.5's in `build/demo/m85/` (both fitted to written descriptions, not recordings: re-fits are owed once recordings are reachable). The piano's remaining gap is listed in the history file.
 - **References:** the Iowa MIS site is blocked by the cloud session's network policy (allow `theremin.music.uiowa.edu`). The Salamander Grand Piano (Yamaha C5, CC-BY 3.0, 30 notes A0–C8 at pp/mf/ff, from GitHub) is in `build/reference/piano/SalamanderGrandPiano/` as a fallback. No low-pass-gate or guitar-feedback recordings were reachable yet (archive.org, freesound and wikimedia are blocked too).
 - **Release:** v1.2 is tagged `v1.2.0`; the version is still 1.2.0 (v1.3 = M7–M10). The installer has not been rebuilt.
 - **Git:** M8 work is on branch `main-717xmh`, pushed after each sub-milestone. Tags `m8.1-done` onwards exist only in the cloud session (its git proxy refuses tag pushes): recreate them from the commit messages if wanted.
@@ -19,7 +19,7 @@ Updated 2026-09-27. The source tree is the source of truth. Work on `main`; Clau
 `ILANA_RENDER_DEMO=build/demo ilanaTableTest` writes the keys demos, `build/demo/fm-pd/` and one folder per M8 milestone (`m81/`...); `ILANA_DEMO_ONLY=m81` renders one milestone's. `ILANA_RENDER_DEMO=build/demo/fx ilanaFxTest` writes the FX presets over drums, plucks and a voice. The EP references are in `build/reference/ep/` and the fitted notes in `build/fit-ep/<model>/base/`.
 
 ## Rules that still apply
-- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`. `build/fingerprints-m7.5.csv` is the current Windows baseline (256 presets; the first 250 match `build/fingerprints-m7.2.csv`); on Linux, `build/fingerprints-m8.4.csv` (with a row per filter model) (`build/fingerprints-v1.2.csv` is v1.2's). New presets are appended at the end of the list. Against v1.2, 26 reverb presets differ at the tool's 48 kHz only, because the reverb now gets the real sample rate. At 44.1 kHz they are unchanged. Two more (Through-Zero Growl, Shift Bass) differ only because voice random state carries over between presets within the run.
+- **Old presets must not change.** Check with `ilanaFingerprint` before and after, then `python tools/compare_fingerprints.py before.csv after.csv`. `build/fingerprints-m7.5.csv` is the current Windows baseline (256 presets; the first 250 match `build/fingerprints-m7.2.csv`); on Linux, `build/fingerprints-m8.6.csv` (with a row per filter model; Live Body and Live Wah always differ run to run) (`build/fingerprints-v1.2.csv` is v1.2's). New presets are appended at the end of the list. Against v1.2, 26 reverb presets differ at the tool's 48 kHz only, because the reverb now gets the real sample rate. At 44.1 kHz they are unchanged. Two more (Through-Zero Growl, Shift Bass) differ only because voice random state carries over between presets within the run.
 - **Parameter IDs and choice indices are never renumbered.** New choices, destinations and sources are appended.
   - Mod destinations: the 115 legacy parameter destinations are fixed at 96..210; OSC 4–6 start at 211; newer parameters are appended after `Destination::Count` (`paramDestinationFor`), in list order (M4's 89, then M5/M6's 52). `maxDestinations` is 512 (411 used: M7.3's pickup and M7.5's input parameters came after M7.2's BODY).
   - LFO 5–16 and ENV 6–16 are appended sources. Mod slots 33–64 are appended parameters.
@@ -38,7 +38,7 @@ build/ilanaFxTest_artefacts/Release/ilanaFxTest.exe
 build/ilanaSnapshot_artefacts/Release/ilanaSnapshot.exe --uitest
 build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 ```
-`ILANA_M5_TEST=1 ilanaTableTest.exe` runs only the M5/M6/M6b tests (about a minute); `ILANA_M81_TEST=1` only M8.1's.
+`ILANA_M5_TEST=1 ilanaTableTest.exe` runs only the M5/M6/M6b tests (about a minute); `ILANA_M81_TEST=1` only M8.1's (likewise `ILANA_M82_TEST` ... `ILANA_M86_TEST`).
 
 ## Open issues
 - **EP fit gap:** tine 124, reed 135 (both from about 2000; listening round passed 2026-09-27); the rest is mostly the onset spectrum and between-partial noise (see the history file).

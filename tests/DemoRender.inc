@@ -348,4 +348,79 @@ void renderM85 (const juce::File& folder)
                 { "sub_on", 1.0f }, { "osc4_on", 1.0f }, { "osc4_semi", 12.0f }, { "f1_cutoff", 6000.0f } },
             held ({ 48, 60 }, 0.05, 11.5), 12.0);
 }
+// M8.6: bounces, rendered in the first block and played back.
+void renderM86 (const juce::File& folder)
+{
+    using S = std::vector<std::pair<juce::String, float>>;
+    using Request = IlanaSynthAudioProcessor::BounceRequest;
+    const auto bounce = [] (IlanaSynthAudioProcessor& p, const Request& request)
+    {
+        juce::MemoryBlock block;
+        p.getStateInformation (block);
+        std::unique_ptr<juce::XmlElement> xml (juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize()));
+        auto audio = IlanaSynthAudioProcessor::renderBounce (juce::ValueTree::fromXml (*xml), request);
+        juce::String message;
+        p.applyBounce (request, audio, message);
+        std::cout << "  " << message << std::endl;
+    };
+
+    // A pad with its reverb, bounced at C4 into OSC 2 and played as chords.
+    render (folder, "01 Bounce - reverb pad into a sample, played as chords", "",
+            S { { "osc1_unison", 5.0f }, { "osc1_detune", 25.0f }, { "f1_cutoff", 2500.0f }, { "amp_attack", 0.3f },
+                { "amp_release", 1.5f }, { "fx_reverb_mix", 0.4f } },
+            held ({ 48, 52, 55 }, 0.05, 3.5) + held ({ 45, 48, 52 }, 4.0, 7.5) + held ({ 41, 45, 48, 53 }, 8.0, 11.5), 12.5,
+            [bounce] (IlanaSynthAudioProcessor& p, double t)
+            {
+                if (t > 0.0)
+                    return;
+                p.assignFxSlot (1, 13);
+                Request request;
+                request.targetOsc = 1;
+                request.holdSeconds = 2.0;
+                request.tailSeconds = 3.0;
+                bounce (p, request);
+                // Played back dry: the reverb is already in the sample.
+                setParam (p, "fx_reverb_on", 0.0f);
+                setParam (p, "amp_attack", 0.005f);
+                setParam (p, "f1_cutoff", 16000.0f);
+            });
+
+    // A filter-swept saw, cut into a wavetable; an LFO scans the frames.
+    render (folder, "02 Bounce - filter sweep into a wavetable, LFO on FRAME", "",
+            S { { "f1_cutoff", 300.0f }, { "f1_env", 4.0f }, { "f1_reso", 0.5f }, { "fe_decay", 1.5f }, { "fe_sustain", 0.0f } },
+            held ({ 48 }, 0.05, 3.9) + held ({ 55 }, 4.0, 7.9) + held ({ 43, 50 }, 8.0, 11.5), 12.0,
+            [bounce] (IlanaSynthAudioProcessor& p, double t)
+            {
+                if (t > 0.0)
+                    return;
+                Request request;
+                request.toTable = true;
+                request.note = 48;
+                request.holdSeconds = 2.0;
+                bounce (p, request);
+                setParam (p, "f1_cutoff", 12000.0f);
+                setParam (p, "f1_env", 0.0f);
+                setParam (p, "f1_reso", 0.2f);
+                for (const auto& [id, value] : route (1, Mod::Source::Lfo1, (int) Mod::Destination::Osc1Frame, 1.0f))
+                    setParam (p, id, value);
+                setParam (p, "lfo1_rate", 0.25f);
+            });
+
+    // The Grand Piano bounced at C4 and played as a sampler: fast, and
+    // through a low-pass it never had.
+    render (folder, "03 Bounce - Grand Piano into a sample, through a low-pass", "Grand Piano",
+            S {}, held ({ 48, 55, 60, 64 }, 0.05, 2.9) + held ({ 36, 60 }, 3.0, 5.9) + held ({ 67, 72, 76 }, 6.0, 9.0), 10.0,
+            [bounce] (IlanaSynthAudioProcessor& p, double t)
+            {
+                if (t > 0.0)
+                    return;
+                Request request;
+                request.targetOsc = 0;
+                request.holdSeconds = 3.0;
+                request.tailSeconds = 1.0;
+                bounce (p, request);
+                setParam (p, "f1_cutoff", 1800.0f);
+                setParam (p, "f1_reso", 0.35f);
+            });
+}
 } // namespace Demo

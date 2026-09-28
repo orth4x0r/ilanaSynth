@@ -423,4 +423,34 @@ void renderM86 (const juce::File& folder)
                 setParam (p, "f1_reso", 0.35f);
             });
 }
+// M10: every pack preset playing a phrase that suits its category.
+void renderM10 (const juce::File& folder)
+{
+    IlanaSynthAudioProcessor probe;
+    const auto names = probe.getFactoryPresetNames();
+    const auto categories = Presets::getFactoryPresetCategories();
+    const auto first = names.indexOf ("Nylon Twelve");
+    for (int i = juce::jmax (0, first); i < names.size(); ++i)
+    {
+        const auto category = categories[i];
+        if (category == "FX Input")
+            continue;
+        std::vector<Event> events;
+        auto seconds = 7.0;
+        if (category == "Bass")
+            for (int k = 0; k < 8; ++k)
+                events = events + held ({ (int[]) { 36, 36, 43, 36, 39, 36, 46, 43 }[k] }, 0.05 + k * 0.4, 0.05 + k * 0.4 + 0.3);
+        else if (category == "Lead" || category == "Pluck")
+            for (int k = 0; k < 8; ++k)
+                events = events + held ({ (int[]) { 60, 63, 67, 70, 72, 70, 67, 63 }[k] }, 0.05 + k * 0.45, 0.05 + k * 0.45 + 0.38);
+        else if (category == "Generative")
+            events = held ({ 50, 57, 62 }, 0.05, 6.0);
+        else if (category == "Drone" || category == "FX")
+            events = held ({ 45 }, 0.05, 5.5);
+        else // Pad, Keys, Chords
+            events = held ({ 48, 55, 60, 64 }, 0.05, 3.0) + held ({ 45, 52, 57, 60 }, 3.3, 6.2);
+        const auto name = juce::String (i - first + 1).paddedLeft ('0', 3) + " " + category + " - " + names[i];
+        render (folder, name, names[i], {}, events, seconds);
+    }
+}
 } // namespace Demo

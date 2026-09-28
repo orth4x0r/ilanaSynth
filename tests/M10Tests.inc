@@ -33,8 +33,45 @@ std::unique_ptr<IlanaSynthAudioProcessor> loadSchema2 (const std::vector<std::pa
     return target;
 }
 
+void runPresetIdTest()
+{
+    IlanaSynthAudioProcessor processor;
+    juce::StringArray unknown;
+    for (const auto& preset : Presets::getFactoryPresets())
+        for (const auto& value : preset.values)
+            if (processor.apvts.getParameter (value.id) == nullptr)
+                unknown.addIfNotAlreadyThere (juce::String (preset.name) + ": " + value.id);
+    check (unknown.isEmpty(), "every factory preset value names a real parameter" + (unknown.isEmpty() ? juce::String() : " (" + unknown.joinIntoString (", ") + ")"));
+}
+
+// The resampled presets bounce another preset when they load.
+void runBouncePresetTest()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto names = processor.getFactoryPresetNames();
+    processor.loadFactoryPreset (names.indexOf ("Bounced Bell Grains"));
+    const auto* sample = processor.getSampleForOsc (0);
+    check (processor.isSampleEmbedded (0) && sample != nullptr && sample->getNumSamples() > 48000
+               && juce::roundToInt (rawValue (processor, "osc1_mode")) == 3,
+           "Bounced Bell Grains loads with Church Bell Shell bounced onto OSC 1, played as grains");
+
+    processor.loadFactoryPreset (names.indexOf ("Tabled Cello"));
+    const auto choice = juce::roundToInt (rawValue (processor, "osc1_table"));
+    const auto slot = choice - TableFactory::getNumFactoryTables();
+    check (slot >= 0 && processor.isUserSlotEdited (slot) && juce::roundToInt (rawValue (processor, "osc1_mode")) == 0,
+           "Tabled Cello loads with Cello Section cut into a patch wavetable");
+
+    // Loading a plain preset afterwards clears the bounce.
+    processor.loadFactoryPreset (names.indexOf ("Bounced Bell Grains"));
+    processor.loadFactoryPreset (0);
+    processor.flushAsyncUpdates();
+    check (! processor.isSampleEmbedded (0), "a plain preset loaded after a resampled one drops its bounce");
+}
+
 void runTests()
 {
+    runPresetIdTest();
+    runBouncePresetTest();
     const auto factory = TableFactory::getNumFactoryTables();
     check (factory == 120 && TableFactory::getFactoryTableNames().size() == factory
                && TableFactory::getFactoryTableCategories().size() == factory,

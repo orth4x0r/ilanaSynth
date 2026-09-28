@@ -583,6 +583,17 @@ inline const char* wobbleCurve = "0,-1,0;0.25,1,0;0.375,-1,0;0.5,1,0;0.75,-1,0;1
 inline const char* swellCurve = "0,-1,0.6;0.7,1,-0.5;1,-1,0";
 inline const char* triplCurve = "0,1,-0.7;0.33,-1,0;0.333,1,-0.7;0.66,-1,0;0.667,1,-0.7;1,-1,0";
 
+} // namespace Library
+} // namespace Presets
+
+#include <functional>
+
+namespace Presets
+{
+namespace Library
+{
+#include "PresetPackM10.h"
+
 inline std::vector<FactoryPreset> build()
 {
     using B = Builder;
@@ -2701,6 +2712,9 @@ inline std::vector<FactoryPreset> build()
              .macro (3, "DECAY", { { param ("osc1_string_decay"), 0.3f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .master (0.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
+    // M10: the v1.3 pack.
+    addM10Presets (add);
 
     return list;
 }

@@ -1,6 +1,6 @@
 # ilanaSynth roadmap
 
-This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator) and M8.7 (polish). Next up: portability and release quality (M9).**
+This is the plan for what comes after v1.1. **v1.2 (M1–M6b) is done, and so is M7 (M7.0–M7.5: follow-ups, the Generative card, the BODY section, electric pianos, the wavetable editor and ilanaSynth FX) M8.1 (chaos and physics modulators) M8.2 (piano rework) M8.3 (west-coast voice) M8.4 (filter models) M8.5 (feedback guitar, Evolve, vector pad) M8.6 (resample to oscillator), M8.7 (polish) and M10 (preset pack, done first: see below). Next up: portability and release quality (M9).**
 
 The core of the plan is **one physical modelling engine used in two places**:
 - **PHYSICAL oscillator mode**: any oscillator can be a string or other modelled instrument. It replaces String mode, and old String patches migrate to it.
@@ -264,7 +264,7 @@ Left until the end on purpose: ilanaSynth is built for Windows first. Today it i
 - **CI**: builds and the regression suite (`ilanaTableTest`, the UI test, fingerprints) on Windows, macOS and Linux for every change.
 - **Bug-fix pass**: run the stability, CPU and old-patch tests across hosts before each release.
 
-### M10: Preset pack (was M17)
+### M10: Preset pack (was M17) — done (114 presets, 80 tables; listening round pending)
 Moved from v1.4 so v1.3 ships with presets for everything in it. All new presets wait until here, so they can use every new feature. Planned (about 100, with a stretch goal of 300+ in the library to close the gap with Vital and Serum 2):
 
 - **Wavetable library**: grow from 40 to about 120 factory tables, made with the M7.4 editor.

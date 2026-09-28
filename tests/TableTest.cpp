@@ -8512,6 +8512,13 @@ int main()
         return 0;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_TEST", "").isNotEmpty())
+    {
+        runFactoryLibraryTest();
+        std::cout << (failures == 0 ? "LIBRARY TESTS PASSED" : "LIBRARY TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SYM_TEST", "").isNotEmpty())
     {
         runSympatheticResonanceTest();
@@ -8635,6 +8642,8 @@ int main()
             Demo::renderM85 (juce::File (demo).getChildFile ("m85"));
         if (only.isEmpty() || only == "m86")
             Demo::renderM86 (juce::File (demo).getChildFile ("m86"));
+        if (only.isEmpty() || only == "m10")
+            Demo::renderM10 (juce::File (demo).getChildFile ("m10"));
         return 0;
     }
 

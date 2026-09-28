@@ -82,6 +82,7 @@ namespace M85
 void feedbackTests()
 {
     auto sustained = 0, low = 0, bloomed = 0, total = 0;
+    std::vector<double> swells;
     auto finite = true;
     for (int note : { 40, 45, 52, 57, 64 })
         for (float distance : { 0.25f, 0.5f, 0.75f })
@@ -92,7 +93,12 @@ void feedbackTests()
             sustained += b.finalDb > b.pluckDb - 6.0 ? 1 : 0;
             low += b.harmonic <= 3 ? 1 : 0;
             bloomed += b.bloomSeconds >= 0.3 && b.bloomSeconds <= 4.0 ? 1 : 0;
+            swells.push_back (b.finalDb - b.pluckDb);
         }
+    std::sort (swells.begin(), swells.end());
+    check (swells[swells.size() / 2] > 8.0 && swells[swells.size() / 2] < 30.0,
+           "Feedback: the held note swells by " + juce::String (swells[swells.size() / 2], 1)
+               + " dB (median; the recordings: 12-21 dB)");
     check (finite && sustained == total, "Feedback: a plucked note holds instead of dying (" + juce::String (sustained) + " of " + juce::String (total) + ")");
     check (low * 10 >= total * 7, "Feedback: it settles on a low harmonic (1st-3rd) in " + juce::String (low) + " of " + juce::String (total) + " cases");
     check (bloomed * 10 >= total * 7, "Feedback: it blooms after 0.3-4 s in " + juce::String (bloomed) + " of " + juce::String (total) + " cases");

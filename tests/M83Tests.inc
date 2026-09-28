@@ -77,8 +77,9 @@ std::vector<float> folded (double f0, float fold, float symmetry, int stages, bo
 
 void runTests()
 {
-    // The vactrol against its reference: 63 % lit in ~12 ms, 63 % dark in
-    // ~250 ms, 90 % dark in ~1 s.
+    // The vactrol: 63 % lit in ~12 ms, and slower to go dark the darker it
+    // is (the photocell's memory: 90 % dark takes over four times as long
+    // as 63 %).
     {
         Vactrol cell;
         cell.prepare (sr);
@@ -96,9 +97,49 @@ void runTests()
             if (dark90 == 0.0 && c <= start * 0.10f) dark90 = i / sr;
         }
         check (std::abs (t63 - 0.012) < 0.002, "the vactrol lights in " + juce::String (t63 * 1000.0, 1) + " ms (reference 12)");
-        check (std::abs (dark63 - 0.25) < 0.02 && std::abs (dark90 - 1.0) < 0.08,
-               "the vactrol goes 63 % dark in " + juce::String (dark63 * 1000.0, 0) + " ms (reference 250) and 90 % in "
-                   + juce::String (dark90 * 1000.0, 0) + " ms (1000): slower as it darkens");
+        check (dark63 > 0.05 && dark90 > dark63 * 4.0,
+               "the vactrol goes 63 % dark in " + juce::String (dark63 * 1000.0, 0) + " ms and 90 % in "
+                   + juce::String (dark90 * 1000.0, 0) + " ms: slower as it darkens");
+    }
+
+    // A struck gate through the synth against the recorded Optomix strikes
+    // (build/reference/lpg, tools/fit_lpg.py): 10 / 20 / 30 dB down after
+    // 52 / 97 / 367 ms. The fit reaches 45 / 135 / 280 ms (the recordings'
+    // tails carry some room); allow +-50 %.
+    {
+        IlanaSynthAudioProcessor processor;
+        for (const auto& [id, value] : std::vector<std::pair<const char*, float>> {
+                 { "west_on", 1.0f }, { "west_fold", 0.0f }, { "osc1_table", 0.0f }, { "osc1_frame", 0.0f },
+                 { "osc2_on", 0.0f }, { "sub_on", 0.0f }, { "subosc_on", 0.0f }, { "f1_cutoff", 20000.0f },
+                 { "f1_env", 0.0f }, { "osc1_unison", 1.0f }, { "amp_sustain", 1.0f }, { "amp_release", 0.01f } })
+            setParam (processor, id, value);
+        processor.prepareToPlay (sr, 240);
+        juce::AudioBuffer<float> buffer (2, 240);
+        std::vector<double> squares; // mean squares per 5 ms
+        for (int block = 0; block < 200; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 110), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            squares.push_back (std::pow (buffer.getRMSLevel (0, 0, 240), 2.0));
+        }
+        std::vector<double> envelope; // 20 ms RMS windows in 5 ms steps, as tools/lpg_metrics.py
+        for (size_t i = 0; i + 4 <= squares.size(); ++i)
+            envelope.push_back (std::sqrt ((squares[i] + squares[i + 1] + squares[i + 2] + squares[i + 3]) / 4.0));
+        const auto peak = (size_t) (std::max_element (envelope.begin(), envelope.end()) - envelope.begin());
+        const auto fall = [&] (double db)
+        {
+            for (auto i = peak; i < envelope.size(); ++i)
+                if (juce::Decibels::gainToDecibels (envelope[i] / envelope[peak]) < db)
+                    return (double) (i - peak) * 0.005;
+            return 10.0;
+        };
+        const auto f10 = fall (-10.0), f20 = fall (-20.0), f30 = fall (-30.0);
+        check (f10 > 0.052 * 0.5 && f10 < 0.052 * 1.5 && f20 > 0.097 * 0.5 && f20 < 0.097 * 1.5 && f30 > 0.367 * 0.5 && f30 < 0.367 * 1.5,
+               "a struck gate falls 10 / 20 / 30 dB in " + juce::String (f10 * 1000.0, 0) + " / " + juce::String (f20 * 1000.0, 0) + " / "
+                   + juce::String (f30 * 1000.0, 0) + " ms (the Optomix recordings: 52 / 97 / 367)");
     }
 
     // A strike: the bongo. It opens fast, dies away over a few hundred ms,

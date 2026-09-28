@@ -451,7 +451,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                     };
                     const auto numbers = numbersIn (typed);
                     if (numbers.empty())
+                    {
+                        // A word the knob shows ("C", "Auto", "Off"): the value
+                        // that shows it; otherwise the start of the range.
+                        for (const auto candidate : { 0.0f, range.start, range.end })
+                            if (range.getRange().contains (candidate) || candidate == range.end)
+                                if (describeValue (id, candidate).equalsIgnoreCase (typed))
+                                    return candidate;
                         return range.start;
+                    }
                     auto best = juce::jlimit (range.start, range.end, numbers.back());
                     auto bestDistance = std::numeric_limits<float>::max();
                     for (const auto number : numbers)

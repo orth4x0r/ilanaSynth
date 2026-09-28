@@ -36,6 +36,18 @@ inline juce::String describeNumber (float value, int maxDecimals = 2)
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // Stereo position: C, or how far left or right.
+    if (id.endsWith ("_pan"))
+    {
+        const auto percent = juce::roundToInt (value * 100.0f);
+        return percent == 0 ? juce::String ("C") : (percent < 0 ? "L " : "R ") + juce::String (std::abs (percent));
+    }
+    // 0 is not a position: the exciter's own spot, or no pick filtering.
+    if (id.endsWith ("_string_excite_pos") && juce::roundToInt (value * 100.0f) == 0)
+        return "Auto";
+    if (id.endsWith ("_string_pick_pos") && juce::roundToInt (value * 100.0f) == 0)
+        return "Off";
+
     // The filters' knobs in their own units.
     if (id == "f1_reso" || id == "f2_reso" || id == "arp_gate")
         return juce::String (juce::roundToInt (value * 100.0f)) + " %";
@@ -449,13 +461,13 @@ inline juce::String describeParameter (const juce::String& id)
         return "Pickup position. Move it to change the string's harmonic notches.";
 
     if (id.endsWith ("_string_excite_pos"))
-        return "Excitation position on the string. Changes which harmonics ring.";
+        return "Excitation position on the string. Changes which harmonics ring. Auto (at 0) uses the exciter's natural spot, about an eighth of the string.";
 
     if (id.endsWith ("_string_pick_hardness"))
         return "Pick hardness. Harder picks give a brighter attack.";
 
     if (id.endsWith ("_string_pick_pos"))
-        return "Where the pick strikes the string. Changes the attack spectrum.";
+        return "Where the pick strikes the string. Changes the attack spectrum. Off at 0.";
 
     if (id.endsWith ("_string_slap"))
         return "Adds a short noisy slap to the start of each pluck.";

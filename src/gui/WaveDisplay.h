@@ -126,6 +126,13 @@ public:
             return;
         }
 
+        if (isPhysicalString())
+        {
+            drawString (g, bounds.reduced (12.0f));
+            IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
+            return;
+        }
+
         if (isElectricPiano())
         {
             g.setColour (borderColour);
@@ -226,7 +233,7 @@ public:
         if (isGranularMode())
             setPositionFromX (event.position.x);
 
-        if (isSampleMode())
+        if (isSampleMode() || isPhysicalString() || isElectricPiano() || isLiveInput())
             return;
 
         setFrameFromX (event.position.x);
@@ -292,6 +299,62 @@ private:
             return false;
         const auto mode = readChoice (modeId);
         return mode == 4 || (mode == 3 && readChoice (modeId.upToLastOccurrenceOf ("_mode", false, false) + "_grain_live") > 0);
+    }
+
+    // A Physical oscillator's string (the Tine and Reed excites show their
+    // pickup instead): it has no wavetable to show.
+    bool isPhysicalString() const
+    {
+        return modeId.isNotEmpty() && readChoice (modeId) == 1 && ! isElectricPiano();
+    }
+
+    // The string at rest after a strike: its first modes, weighted by where it
+    // is struck (EXCITE POS; Auto is about an eighth of the way along).
+    void drawString (juce::Graphics& g, juce::Rectangle<float> area) const
+    {
+        const auto prefix = modeId.upToLastOccurrenceOf ("_mode", false, false);
+        static const char* const excites[] { "BURST", "NOISE", "SAW", "PULSE", "BOW", "HAMMER", "OSC IN", "TINE", "REED", "PIANO HAMMER", "FEEDBACK" };
+        const auto excite = juce::jlimit (0, 10, readChoice (prefix + "_excite"));
+        const auto position = readPlain (prefix + "_string_excite_pos");
+        const auto strike = position > 0.005f ? juce::jlimit (0.02f, 0.5f, position) : 0.125f;
+
+        g.setColour (traceColour);
+        g.setFont (IlanaTheme::font (12.5f, true));
+        auto header = area.removeFromTop (18.0f);
+        g.drawText ("STRING", header.toNearestInt(), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (IlanaTheme::font (10.5f));
+        g.drawText (juce::String (excites[excite]).toLowerCase() + " at " + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + " %" : juce::String ("auto")),
+                    header.toNearestInt(), juce::Justification::centredRight);
+
+        auto footer = area.removeFromBottom (16.0f);
+        g.drawText ("the PHYSICAL tab shows it moving", footer.toNearestInt(), juce::Justification::centredLeft);
+
+        const auto left = area.getX() + 8.0f, right = area.getRight() - 8.0f, mid = area.getCentreY() + area.getHeight() * 0.18f;
+        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.fillRoundedRectangle (left - 4.0f, mid - 12.0f, 4.0f, 24.0f, 1.5f);
+        g.fillRoundedRectangle (right, mid - 9.0f, 5.0f, 18.0f, 1.5f);
+
+        const auto heightAt = [strike] (double x)
+        {
+            auto y = 0.0;
+            for (int n = 1; n <= 12; ++n)
+                y += std::sin (juce::MathConstants<double>::pi * n * strike) * std::sin (juce::MathConstants<double>::pi * n * x) / (n * n);
+            return y;
+        };
+        const auto scale = area.getHeight() * 0.55f / (float) juce::jmax (0.05, heightAt (strike));
+        juce::Path string;
+        for (int i = 0; i <= 120; ++i)
+        {
+            const auto x = (double) i / 120.0;
+            const auto px = left + (right - left) * (float) x, py = mid - (float) heightAt (x) * scale;
+            if (i == 0) string.startNewSubPath (px, py); else string.lineTo (px, py);
+        }
+        g.setColour (traceColour.withAlpha (0.25f));
+        g.strokePath (string, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved));
+        g.setColour (traceColour);
+        g.strokePath (string, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved));
+        g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ left + (right - left) * strike, mid - (float) heightAt (strike) * scale }));
     }
 
     // M7.3: a Physical oscillator on the Tine or Reed excite shows its pickup.
@@ -664,8 +727,8 @@ private:
     void timerCallback() override
     {
         // The 3D waterfall only applies to tables.
-        modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput());
-        setTooltip (isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+        modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput() && ! isPhysicalString());
+        setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). The PHYSICAL tab shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
                                         "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                     : isLiveInput() ? "The audio coming into ilanaSynth FX."
                     : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."

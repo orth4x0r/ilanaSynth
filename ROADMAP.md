@@ -305,6 +305,7 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
   - The LookAndFeel's hover map is keyed by component address and never forgot one: it is pruned now, and a stale entry starts from the right state.
   - New regression tests: every 12th preset at 22-192 kHz with blocks of 0, 1, 17 and more than announced, velocity-0 note-ons, all-notes-off, extreme bends and sustain; every 5th preset into a mono output.
   - Fingerprints are now identical run to run, and 21 more presets' baselines change: all order effects in the old baseline (fresh renders are unchanged, Grand Piano included).
+- **UI 3** — done: a Physical oscillator's card shows its string after a strike (from EXCITE POS, with the exciter named) instead of the wavetable it no longer plays, without the 3D button, and dragging it no longer moves a hidden frame; PAN reads C / L 25 / R 25 instead of a bare number; EXCITE POS at 0 reads Auto and PICK POS at 0 reads Off (what 0 does), and typed words ("C", "Auto", "Off") read back instead of jumping to the start of the range; the keyboard strip names each C.
 
 ---
 

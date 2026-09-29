@@ -1424,12 +1424,9 @@ public:
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour.withAlpha (0.35f));
 
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
-        g.setColour (colour);
-        g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 3.0f, 6.0f, 6.0f);
+        IlanaTheme::paintCardTitle (g, header, title, colour);
         header.removeFromLeft (14);
-
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText (title, header, juce::Justification::centredLeft);
 
         const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), title);
         g.setColour (IlanaTheme::Ui::text2);
@@ -1517,9 +1514,7 @@ public:
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
-        g.setColour (colour());
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("WEST", header, juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, header, "WEST", colour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (52), juce::Justification::centredLeft);
@@ -1658,17 +1653,13 @@ public:
         IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
-        g.setColour (colour());
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("VECTOR", header, juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, header, "VECTOR", colour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (70), juce::Justification::centredLeft);
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
-        g.setColour (evolveColour());
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("EVOLVE", header, juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, header, "EVOLVE", evolveColour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
@@ -1826,12 +1817,10 @@ public:
         const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note)
         {
             auto header = card.reduced (12, 0).removeFromTop (28);
-            g.setColour (colour());
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText (name, header, juce::Justification::centredLeft);
+            IlanaTheme::paintCardTitle (g, header, name, colour());
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), name)) + 14),
+            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), name)) + 30),
                         juce::Justification::centredLeft);
         };
         title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings");
@@ -2096,9 +2085,7 @@ public:
         }
 
         IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
-        g.setColour (resonatorColour());
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("BODY", resonatorCard.reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, resonatorCard.reduced (12, 0).removeFromTop (26), "BODY", resonatorColour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26),
@@ -3097,9 +3084,7 @@ public:
             g.drawText (soundingText(), operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
         }
 
-        g.setColour (fmColour());
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("FM MATRIX", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", fmColour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
@@ -4406,8 +4391,7 @@ public:
         oscView.setBounds (left);
         const auto anyHidden = std::find (shownStrips.begin(), shownStrips.end(), false) != shownStrips.end();
 
-        // Switched-off oscillators fold to a title line; open ones share the
-        // room (a little larger than the three-card size at most).
+        // Switched-off oscillators fold to a title line.
         auto numOpen = 0, numFolded = 0;
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -4417,7 +4401,10 @@ public:
         const auto baseHeight = (left.getHeight() - 16) / 3;
         const auto spare = left.getHeight() - (numOpen + numFolded - 1) * 8 - numFolded * foldedHeight
                            - (anyHidden ? addButtonHeight + 8 : 0);
-        const auto oscHeight = juce::jlimit (baseHeight, baseHeight * 5 / 4, spare / juce::jmax (1, numOpen));
+        // Open cards keep the three-card size: taller ones only spread their
+        // rows apart.
+        const auto oscHeight = baseHeight;
+        juce::ignoreUnused (spare);
         auto columnHeight = anyHidden ? addButtonHeight : -8;
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -6385,19 +6372,69 @@ private:
         const auto cellWidth = (grid.getWidth() - labelWidth - 8) / columns;
         size_t pick = 0;
 
+        if (empty)
+        {
+            for (size_t group = 0; group < quickAddGroups().size(); ++group)
+            {
+                auto row = grid.removeFromTop (rowHeight);
+                quickAddLabels[group]->setVisible (true);
+                quickAddLabels[group]->setJustificationType (juce::Justification::centredRight);
+                quickAddLabels[group]->setBounds (row.removeFromLeft (labelWidth));
+                row.removeFromLeft (8);
+
+                for (int i = 0; i < quickAddGroups()[group].count; ++i, ++pick)
+                {
+                    auto& button = *quickAddButtons[pick];
+                    button.setVisible (true);
+                    button.setBounds (row.removeFromLeft (cellWidth).reduced (3, 4));
+                }
+            }
+
+            return;
+        }
+
+        // With effects loaded, the picks move under the rack's rows (three
+        // across, a small heading per group) while they fit.
+        auto column = juce::Rectangle<int> (14, rowsTop + numVisibleRows() * rowHeightOfSlots + 14, 300, 0);
+        column.setBottom (getHeight() - 12);
+        constexpr int headingHeight = 14, buttonHeight = 22, across = 3;
+        auto needed = 0;
+
+        for (const auto& group : quickAddGroups())
+            needed += headingHeight + (group.count + across - 1) / across * buttonHeight + 2;
+
+        const auto fits = needed <= column.getHeight();
+
         for (size_t group = 0; group < quickAddGroups().size(); ++group)
         {
-            auto row = grid.removeFromTop (rowHeight);
-            quickAddLabels[group]->setVisible (empty);
-            quickAddLabels[group]->setBounds (row.removeFromLeft (labelWidth));
-            row.removeFromLeft (8);
+            quickAddLabels[group]->setVisible (fits);
 
-            for (int i = 0; i < quickAddGroups()[group].count; ++i, ++pick)
+            if (fits)
+            {
+                quickAddLabels[group]->setJustificationType (juce::Justification::bottomLeft);
+                quickAddLabels[group]->setBounds (column.removeFromTop (headingHeight).withTrimmedLeft (2));
+            }
+
+            const auto count = quickAddGroups()[group].count;
+
+            for (int i = 0; i < count; ++i, ++pick)
             {
                 auto& button = *quickAddButtons[pick];
-                button.setVisible (empty);
-                button.setBounds (row.removeFromLeft (cellWidth).reduced (3, 4));
+                button.setVisible (fits);
+
+                if (fits)
+                {
+                    if (i % across == 0 && i > 0)
+                        column.removeFromTop (buttonHeight);
+
+                    const auto cellWidth2 = column.getWidth() / across;
+                    button.setBounds (juce::Rectangle<int> (column.getX() + (i % across) * cellWidth2, column.getY(),
+                                                            cellWidth2, buttonHeight).reduced (2, 2));
+                }
             }
+
+            if (fits)
+                column.removeFromTop (buttonHeight + 2);
         }
     }
 
@@ -6601,6 +6638,7 @@ private:
     std::vector<StackPanel> stackPanels;
     int selectedSlot = 0;
     static constexpr int rowHeight = 39;
+    static constexpr int rowHeightOfSlots = rowHeight;
     int rowsTop = 60;
     bool dragReady = false;
     bool cardDragActive = false;

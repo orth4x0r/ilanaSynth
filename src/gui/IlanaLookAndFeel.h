@@ -180,6 +180,15 @@ inline void paintTag (juce::Graphics& g, juce::Point<float> centre, juce::Colour
     g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre));
 }
 
+// A card's title: its tag, then the name in the text colour.
+inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& text, juce::Colour colour)
+{
+    paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
+    g.setColour (Ui::text);
+    g.setFont (font (TextSize::body, true));
+    g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
+}
+
 // An on/off switch: a pill with a sliding knob. `amount` runs 0 (off) to 1
 // (on) so callers can animate it; the on state glows in `colour`.
 inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float amount, juce::Colour colour, float hover = 0.0f)

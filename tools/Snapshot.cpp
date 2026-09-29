@@ -605,7 +605,14 @@ int runUiTests()
             settle (400);
             const auto* slot1 = processor.apvts.getRawParameterValue ("fx_slot1");
             expect (slot1 != nullptr && (int) slot1->load() == 13, "quick-add REVERB puts a reverb in slot 1");
-            expect (! reverb->isVisible(), "quick-add buttons hide once the rack has an effect");
+            // With an effect loaded the picks move under the rack's rows.
+            const auto* page = pages->getCurrentPage();
+            expect (reverb->isVisible() && page != nullptr && reverb->getX() < 330 && reverb->getY() > 100,
+                    "quick-add buttons move under the rack once it has an effect");
+            reverb->triggerClick();
+            settle (400);
+            const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
+            expect (slot2 != nullptr && (int) slot2->load() == 13, "a second quick-add goes into slot 2");
         }
     }
 

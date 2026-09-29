@@ -500,6 +500,31 @@ private:
     int bodyTailSamplesRemaining = 0;
 
     FilterUnit filter1L, filter1R, filter2L, filter2R;
+
+    // A pair fed the same signal from the same (reset) state gives the same
+    // output, so while linked only the left filter runs (the right one's
+    // state is stale). The first different input copies the left state over
+    // and the pair runs apart until the next reset.
+    bool filter1Linked = true, filter2Linked = true;
+
+    static void processFilterPair (FilterUnit& left, FilterUnit& right, bool& linked,
+                                   float inLeft, float inRight, float& outLeft, float& outRight)
+    {
+        if (linked)
+        {
+            if (inLeft == inRight)
+            {
+                outLeft = outRight = left.process (inLeft);
+                return;
+            }
+
+            right = left;
+            linked = false;
+        }
+
+        outLeft = left.process (inLeft);
+        outRight = right.process (inRight);
+    }
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;
 
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;

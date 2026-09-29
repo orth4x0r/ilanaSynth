@@ -125,7 +125,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress, 1.0 / length);
+                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress, length, 1.0);
                 }
 
                 break;
@@ -145,7 +145,7 @@ public:
                 {
                     const auto progress = position / length;
                     currentValue = params.sustain
-                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress, -1.0 / length);
+                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress, length, -1.0);
                 }
 
                 break;
@@ -168,7 +168,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = releaseStart * (float) shaped (1.0 - progress, -1.0 / length);
+                    currentValue = releaseStart * (float) shaped (1.0 - progress, length, -1.0);
                 }
 
                 break;
@@ -187,12 +187,12 @@ public:
 private:
     // progress^exponent. pow() is exact for an exponent of 1, so zero tension
     // skips the call. Otherwise the curve is computed every spanSteps
-    // samples (step: the progress per sample, signed with the direction)
+    // samples (1 / length of progress each, with the stage's direction)
     // and followed on a straight line in between, wherever the curve is
     // gentle enough that the line stays within maxLineError of it (the
     // error of a chord: |f''| span^2 / 8, f'' = e (e - 1) x^(e - 2)). Short
     // stages and the steep end near zero are computed every sample.
-    double shaped (double progress, double step)
+    double shaped (double progress, double length, double direction)
     {
         if (exponent == 1.0)
             return progress;
@@ -201,7 +201,7 @@ private:
             return lineLowValue + (progress - lineLow) * lineSlope;
 
         const auto value = std::pow (progress, exponent);
-        const auto end = juce::jlimit (0.0, 1.0, progress + step * spanSteps);
+        const auto end = juce::jlimit (0.0, 1.0, progress + direction * spanSteps / length);
         const auto low = juce::jmin (progress, end), high = juce::jmax (progress, end);
         lineValid = false;
 

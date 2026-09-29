@@ -146,6 +146,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->prepare (newRate);
+    filter1Linked = filter2Linked = true;
 }
 
 void Voice::syncSamplePlayers()
@@ -367,6 +368,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
+    filter1Linked = filter2Linked = true;
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -399,6 +401,7 @@ void Voice::resetForNewPatch()
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
+    filter1Linked = filter2Linked = true;
     westGateL.reset();
     westGateR.reset();
     westFolderL.reset();
@@ -1492,8 +1495,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto inL = hasF1Bus ? drive (busL[FilterRoute::Default] + busL[FilterRoute::Filter1], drive1) : defaultL;
         const auto inR = hasF1Bus ? drive (busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1) : defaultR;
 
-        auto f1L = filter1L.process (inL);
-        auto f1R = filter1R.process (inR);
+        float f1L, f1R;
+        processFilterPair (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R);
 
         float outL, outR;
 
@@ -1539,8 +1542,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 westProcess (f2L, f2R);
             else
             {
-                f2L = filter2L.process (in2L);
-                f2R = filter2R.process (in2R);
+                processFilterPair (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R);
             }
             outL = (f1L * gain1 + f2L * gain2) * 0.7071f;
             outR = (f1R * gain1 + f2R * gain2) * 0.7071f;
@@ -1558,8 +1560,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
             else
             {
-                outL = filter2L.process (f2inL);
-                outR = filter2R.process (f2inR);
+                processFilterPair (filter2L, filter2R, filter2Linked, f2inL, f2inR, outL, outR);
             }
         }
 

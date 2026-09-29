@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <utility>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
@@ -205,6 +208,7 @@ public:
 
     void setMacroName (int macroIndex, const juce::String& name)
     {
+        ++dataEpoch;
         apvts.state.setProperty ("macroName" + juce::String (macroIndex + 1), name, nullptr);
     }
 
@@ -249,12 +253,24 @@ public:
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
 
     // Changes whenever something the editor draws may have changed: any
-    // parameter, a table or reveal change, a new note, or a block rendered
-    // while something sounds (voices, output or input). Views compare it to
+    // parameter, an edit to data that isn't a parameter (LFO curves and
+    // drawn steps, tables, samples, macro names, a restored state), a table
+    // or reveal change, a new note, or a block rendered while something
+    // sounds (voices, output or input). Views compare it to
     // skip repainting while nothing moves.
+    // For the editor's EDITED marker: the preset name and the parameters'
+    // fingerprint when it was loaded or saved (kept here so it outlives the
+    // editor). Message thread only.
+    std::optional<std::pair<juce::String, juce::int64>> loadedPresetFingerprint;
+
+    unsigned getDataEpoch() const { return dataEpoch.load(); }
+    // Counts sample loads (a new sample can reuse a freed one's address).
+    unsigned getSampleEpoch() const { return sampleEpoch.load(); }
+
     juce::uint64 getUiEpoch() const
     {
         return (juce::uint64) paramEpoch.load() + ((juce::uint64) liveEpoch.load() << 32)
+             + (juce::uint64) dataEpoch.load() * 15485863u
              + (juce::uint64) revealVersion.load() * 7919u + (juce::uint64) tableNoticeVersion.load() * 104729u
              + (juce::uint64) noteOnCount.load() * 1299709u;
     }
@@ -778,7 +794,7 @@ private:
         void parameterGestureChanged (int, bool) override {}
         std::atomic<unsigned>& epoch;
     };
-    std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 };
+    std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 }, dataEpoch { 0 }, sampleEpoch { 0 };
     ParamEpoch paramEpochListener { paramEpoch };
 
     juce::dsp::Chorus<float> chorus;

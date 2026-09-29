@@ -115,6 +115,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // Smoothing and decay steps (tuned at 30 Hz) since the last paint,
+        // however long ago that was.
+        {
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            paintTicks = lastPaintMs > 0.0 ? (float) juce::jlimit (0.0, 300.0, (now - lastPaintMs) * 0.03) : 1.0f;
+            lastPaintMs = now;
+        }
+
         const auto bounds = getLocalBounds().toFloat();
 
         IlanaTheme::paintWell (g, bounds, 6.0f);
@@ -205,9 +213,24 @@ public:
 private:
     void timerCallback() override
     {
-        paintTicks = frameTicks();
+        if (! isShowing())
+            return;
 
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
+            lastChangeMs = juce::Time::getMillisecondCounterHiRes();
+
+        if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
+        {
+            repaint();
+            return;
+        }
+
+        // Peaks and the spectrum fall away after the sound stops (for a few
+        // seconds at most: a host that stops processing leaves old audio).
+        const auto falling = peakHoldL > 0.002f || peakHoldR > 0.002f || decaying()
+                             || std::any_of (spectrumPeak.begin(), spectrumPeak.end(), [] (float v) { return v > 0.002f; });
+
+        if (falling && ! hold && juce::Time::getMillisecondCounterHiRes() - lastChangeMs < 4000.0)
             repaint();
     }
 
@@ -508,7 +531,17 @@ private:
     std::vector<float> spectrumSmoothed;
     std::vector<float> spectrumPeak;
     float scopeGain = 1.0f;
-    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) the next paint stands for
+    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
+    double lastPaintMs = 0.0, lastChangeMs = 0.0;
+
+    // Something still falling (peaks, spectrum): keep painting until it rests.
+    bool decaying() const
+    {
+        auto level = 0.0f;
+        for (const auto v : spectrumSmoothed)
+            level = juce::jmax (level, v);
+        return level > 0.002f;
+    }
     IlanaAnim::ChangeGate changeGate;
     float spectrumGain = 1.0f;
     float peakHoldL = 0.0f;

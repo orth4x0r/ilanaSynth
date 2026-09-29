@@ -2229,7 +2229,7 @@ public:
         : settings (settingsRef),
           thumbs (p, []
           {
-              std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP ENV", "amp", Mod::Source::AmpEnv, IlanaTheme::accent() },
+              std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP ENV", "amp", Mod::Source::AmpEnv, modSourceColour ((int) Mod::Source::AmpEnv) },
                        EnvThumbBar::Env { "FILT ENV", "fe", Mod::Source::FilterEnv, juce::Colour (0xffff4fd8) },
                        EnvThumbBar::Env { "FILT 2 ENV", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xffb28aff) },
                        EnvThumbBar::Env { "MOD ENV", "me", Mod::Source::ModEnv, juce::Colour (0xff8fff3b) },
@@ -2239,14 +2239,14 @@ public:
                                     (Mod::Source) ((int) Mod::Source::Env6 + env - 6), extraColour (env) });
               return envs;
           }()),
-          ampDisplay (p, "amp", IlanaTheme::accent(), true),
+          ampDisplay (p, "amp", modSourceColour ((int) Mod::Source::AmpEnv), false),
           feDisplay (p, "fe", juce::Colour (0xffff4fd8)),
           f2eDisplay (p, "f2e", juce::Colour (0xffb28aff)),
           meDisplay (p, "me", juce::Colour (0xff8fff3b)),
           e4Display (p, "e4", juce::Colour (0xff5b8cff)),
-          ampA (p.apvts, "amp_attack", "ATTACK"), ampD (p.apvts, "amp_decay", "DECAY"),
-          ampS (p.apvts, "amp_sustain", "SUSTAIN"), ampR (p.apvts, "amp_release", "RELEASE"),
-          ampVel (p.apvts, "amp_velocity", "VEL"), ampCurve (p.apvts, "amp_curve", "TENSION"),
+          ampA (p.apvts, "amp_attack", "ATTACK", modSourceColour ((int) Mod::Source::AmpEnv), false), ampD (p.apvts, "amp_decay", "DECAY", modSourceColour ((int) Mod::Source::AmpEnv), false),
+          ampS (p.apvts, "amp_sustain", "SUSTAIN", modSourceColour ((int) Mod::Source::AmpEnv), false), ampR (p.apvts, "amp_release", "RELEASE", modSourceColour ((int) Mod::Source::AmpEnv), false),
+          ampVel (p.apvts, "amp_velocity", "VEL", modSourceColour ((int) Mod::Source::AmpEnv), false), ampCurve (p.apvts, "amp_curve", "TENSION", modSourceColour ((int) Mod::Source::AmpEnv), false),
           feA (p.apvts, "fe_attack", "ATTACK"), feD (p.apvts, "fe_decay", "DECAY"),
           feS (p.apvts, "fe_sustain", "SUSTAIN"), feR (p.apvts, "fe_release", "RELEASE"),
           feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", "TENSION", juce::Colour (0xffff4fd8), false),
@@ -2285,11 +2285,11 @@ public:
         // M5 DAHDSR and rate key scaling: a second row on every envelope.
         {
             const char* const prefixes[] { "amp", "fe", "f2e", "me", "e4" };
-            const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+            const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
                                            juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
 
             for (int env = 0; env < 5; ++env)
-                addStageTwoKnobs (p, prefixes[env], colours[env], units[(size_t) env], env == 0);
+                addStageTwoKnobs (p, prefixes[env], colours[env], units[(size_t) env], false);
         }
 
         for (int env = 6; env <= 16; ++env)
@@ -2372,7 +2372,7 @@ public:
         if (panel.isEmpty())
             return;
 
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
                                        juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
         const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" };
         const auto index = juce::jlimit (0, 4, selected);
@@ -3731,6 +3731,7 @@ public:
                 button.setButtonText ("LFO " + juce::String (lfo + 1));
                 button.setClickingTogglesState (true);
                 button.setRadioGroupId (100 + row);
+                button.setColour (juce::TextButton::buttonOnColourId, IlanaSynthAudioProcessor::lfoColour (lfo));
                 button.setTooltip ("Edit the steps of LFO " + juce::String (lfo + 1) + " in this row");
                 button.onClick = [this, row, lfo]
                 {
@@ -4370,7 +4371,7 @@ public:
             case 2: return juce::Colour (0xffb28aff);
             case 3: return juce::Colour (0xff8fff3b);
             case 4: return juce::Colour (0xff5b8cff);
-            default: return IlanaTheme::accent();
+            default: return modSourceColour ((int) Mod::Source::AmpEnv);
         }
     }
 
@@ -4606,9 +4607,7 @@ private:
         if (processorRef.getRevealVersion() != lastRevealVersion)
             updateStrips();
 
-        if (! isShowing())
-            return;
-
+        // (Kept up to date while hidden too, so the page never opens stale.)
         const auto lfo = lfoTabs.getSelected();
         const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
         const auto synced = sync != nullptr && sync->load() > 0.5f;
@@ -7115,7 +7114,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     updateHeaderButtons();
     updateUndoButtons();
-    loadedFingerprint = parameterFingerprint();
+    adoptLoadedFingerprint();
 
     // Drag the corner (or the host's window edge) to any size between 75% and
     // 200%; the aspect ratio is fixed and the size is remembered.
@@ -7699,7 +7698,7 @@ void IlanaSynthAudioProcessorEditor::savePreset()
         if (safeThis == nullptr)
             return;
 
-        safeThis->loadedFingerprint = safeThis->parameterFingerprint();
+        safeThis->rememberLoadedFingerprint();
 
         if (safeThis->presetPanel != nullptr)
             safeThis->presetPanel->refresh();
@@ -7766,7 +7765,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
     animator.startTimerHz (60);
 
     updateHeaderButtons();
-    loadedFingerprint = parameterFingerprint();
+    rememberLoadedFingerprint();
 }
 
 void IlanaSynthAudioProcessorEditor::showHistoryMenu()
@@ -7843,7 +7842,7 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
                         : juce::String();
 
     if (nameChanged)
-        loadedFingerprint = parameterFingerprint();
+        adoptLoadedFingerprint();
 
     presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
                              parameterFingerprint() != loadedFingerprint);
@@ -8249,14 +8248,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
     if (tutorial.isVisible() && key.getKeyCode() == juce::KeyPress::escapeKey)
     {
-        tutorial.setVisible (false);
-
-        if (settings != nullptr)
-        {
-            settings->setValue ("seenIntro", "1");
-            settings->saveIfNeeded();
-        }
-
+        tutorial.dismiss();
         return true;
     }
 
@@ -8300,4 +8292,22 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     }
 
     return false;
+}
+
+// The preset's fingerprint when it was loaded or saved, kept in the
+// processor with the preset's name so a reopened editor still shows EDITED.
+void IlanaSynthAudioProcessorEditor::rememberLoadedFingerprint()
+{
+    loadedFingerprint = parameterFingerprint();
+    processorRef.loadedPresetFingerprint = { processorRef.getCurrentPresetName(), loadedFingerprint };
+}
+
+void IlanaSynthAudioProcessorEditor::adoptLoadedFingerprint()
+{
+    const auto& kept = processorRef.loadedPresetFingerprint;
+
+    if (kept.has_value() && kept->first == processorRef.getCurrentPresetName())
+        loadedFingerprint = kept->second;
+    else
+        rememberLoadedFingerprint();
 }

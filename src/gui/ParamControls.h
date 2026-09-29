@@ -165,7 +165,7 @@ inline juce::Colour modSourceColour (int sourceIndex)
 
     switch ((Mod::Source) sourceIndex)
     {
-        case Mod::Source::AmpEnv:     return IlanaTheme::accent();
+        case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
         case Mod::Source::FilterEnv:  return juce::Colour (0xffff4fd8);
         case Mod::Source::FilterEnv2: return juce::Colour (0xffb28aff);
         case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);

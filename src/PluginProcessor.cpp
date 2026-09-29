@@ -2709,6 +2709,7 @@ void IlanaSynthAudioProcessor::copyScopeData (float* left, float* right, int num
 
 void IlanaSynthAudioProcessor::setLfoCustomPoint (int lfoIndex, int step, float value)
 {
+    ++dataEpoch; // what the editor draws changes
     if (lfoIndex < 0 || lfoIndex >= numLfos || step < 0 || step >= lfoDrawSteps)
         return;
 
@@ -2733,6 +2734,7 @@ LfoCurve IlanaSynthAudioProcessor::getLfoCurve (int lfoIndex) const
 
 void IlanaSynthAudioProcessor::setLfoCurve (int lfoIndex, const LfoCurve& curve)
 {
+    ++dataEpoch; // what the editor draws changes
     if (lfoIndex < 0 || lfoIndex >= numLfos)
         return;
 
@@ -5439,6 +5441,8 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
 
 bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file)
 {
+    ++sampleEpoch;
+    ++dataEpoch; // what the editor draws changes
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
         return false;
 
@@ -5472,6 +5476,8 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
 
 void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path)
 {
+    ++sampleEpoch;
+    ++dataEpoch; // what the editor draws changes
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
         return;
 
@@ -5503,6 +5509,7 @@ bool IlanaSynthAudioProcessor::isSampleEmbedded (int oscIndex) const
 
 bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& file, Wavetable::LoadMode mode)
 {
+    ++dataEpoch; // what the editor draws changes
     if (slot < 0 || slot >= numUserSlots)
         return false;
 
@@ -5515,6 +5522,7 @@ bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& fi
 
 void IlanaSynthAudioProcessor::swapUserTable (int slot, std::shared_ptr<Wavetable> table)
 {
+    ++dataEpoch; // what the editor draws changes
     const juce::SpinLock::ScopedLockType lock (tableLock);
     auto& index = retiredTableIndex[(size_t) slot];
     retiredTables[(size_t) (slot * 3 + index)] = std::move (userTables[(size_t) slot]);
@@ -5524,6 +5532,7 @@ void IlanaSynthAudioProcessor::swapUserTable (int slot, std::shared_ptr<Wavetabl
 
 bool IlanaSynthAudioProcessor::setUserTable (int slot, const WavetableDoc& doc)
 {
+    ++dataEpoch; // what the editor draws changes
     if (slot < 0 || slot >= numUserSlots || doc.frames.empty())
         return false;
 
@@ -5543,6 +5552,7 @@ bool IlanaSynthAudioProcessor::setUserTable (int slot, const WavetableDoc& doc)
 // factory tables live for the whole program), so 16 slots cost nothing.
 void IlanaSynthAudioProcessor::resetUserTableToDefault (int slot)
 {
+    ++dataEpoch; // what the editor draws changes
     if (slot < 0 || slot >= numUserSlots)
         return;
 
@@ -5708,6 +5718,7 @@ int IlanaSynthAudioProcessor::getNumAllPresets() const
 
 void IlanaSynthAudioProcessor::loadPresetByIndex (int index)
 {
+    ++dataEpoch; // what the editor draws changes
     const auto factoryCount = (int) Presets::getFactoryPresets().size();
 
     if (index < 0)
@@ -5942,6 +5953,7 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
 
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
+    ++dataEpoch; // what the editor draws changes
     liveRetrigger = true;
     patchCut = true;
     const auto& presets = Presets::getFactoryPresets();
@@ -6171,6 +6183,7 @@ bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)
 
 bool IlanaSynthAudioProcessor::loadPresetFromFile (const juce::File& file)
 {
+    ++dataEpoch; // what the editor draws changes
     std::unique_ptr<juce::XmlElement> xml (juce::XmlDocument::parse (file));
 
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
@@ -6809,6 +6822,7 @@ void IlanaSynthAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 
 void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    ++dataEpoch; // what the editor draws changes
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
 
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))

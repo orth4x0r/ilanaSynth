@@ -139,6 +139,8 @@ private:
     std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = false;
     juce::int64 loadedFingerprint = 0;
+    void rememberLoadedFingerprint();
+    void adoptLoadedFingerprint();
 
     juce::ValueTree slotA, slotB;
     bool showingA = true;

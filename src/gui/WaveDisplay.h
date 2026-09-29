@@ -537,9 +537,10 @@ private:
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.42f;
 
-        if (cachedSample != sample || (int) cachedPeaks.size() != width)
+        if (cachedSample != sample || cachedSampleEpoch != processorRef.getSampleEpoch() || (int) cachedPeaks.size() != width)
         {
             cachedSample = sample;
+            cachedSampleEpoch = processorRef.getSampleEpoch();
             cachedPeaks.assign ((size_t) width, 0.0f);
 
             for (int x = 0; x < width; ++x)
@@ -743,9 +744,10 @@ private:
 
         const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
 
-        if (sample != lastSample)
+        if (sample != lastSample || processorRef.getSampleEpoch() != lastSampleEpoch)
         {
             lastSample = sample;
+            lastSampleEpoch = processorRef.getSampleEpoch();
             loadFlash = sample != nullptr ? 1.0f : 0.0f;
         }
 
@@ -982,8 +984,10 @@ private:
     juce::Colour traceColour;
     bool followsTheme = false;
     mutable const SampleData* cachedSample = nullptr;
+    mutable unsigned cachedSampleEpoch = 0;
     mutable std::vector<float> cachedPeaks;
     const SampleData* lastSample = nullptr;
+    unsigned lastSampleEpoch = 0;
     float loadFlash = 0.0f;
     float displayedFrame = 0.0f;
     bool sampleDragHover = false;

@@ -426,16 +426,14 @@ public:
         // off) by fading their control; those arcs go grey too, so an idle
         // knob never looks live. Only the knob's own wrappers count, not the
         // page fading in.
+        // (Wrappers are small; a page, card or panel is wide, and its alpha
+        // is a transition, so the walk stops before reading one.)
         auto dimmed = false;
-        for (auto* c = slider.getParentComponent(); c != nullptr && c != slider.getTopLevelComponent() && ! dimmed; c = c->getParentComponent())
+        for (auto* c = slider.getParentComponent(); c != nullptr && ! dimmed; c = c->getParentComponent())
         {
+            if (c->getWidth() > 200 || dynamic_cast<juce::Viewport*> (c) != nullptr)
+                break;
             dimmed = c->getAlpha() < 0.99f;
-            if (c->getProperties().contains ("page"))
-                break;
-            if (dynamic_cast<juce::Viewport*> (c) != nullptr)
-                break;
-            if (c->getWidth() > 200)
-                break;
         }
 
         const auto accent = enabled && ! dimmed ? slider.findColour (juce::Slider::rotarySliderFillColourId)

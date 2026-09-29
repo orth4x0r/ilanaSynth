@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../PluginProcessor.h"
+#include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
@@ -52,7 +53,7 @@ public:
 
         IlanaTheme::paintWell (g, bounds, 6.0f);
 
-        const auto plot = bounds.reduced (8.0f, 10.0f);
+        auto plot = bounds.reduced (8.0f, 10.0f);
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.44f;
         const auto stepWidth = plot.getWidth() / 16.0f;
@@ -72,6 +73,19 @@ public:
 
             g.setColour (juce::Colours::white.withAlpha (0.25f));
             g.fillRect (juce::Rectangle<float> (x + stepWidth - 1.0f, plot.getY(), 1.0f, plot.getHeight()));
+        }
+
+        // Steps only play when the LFO's shape is Steps: say so, quietly.
+        if (const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (index + 1) + "_shape");
+            shape != nullptr && juce::roundToInt (shape->load()) != LfoShapes::Steps)
+        {
+            const auto note = plot.removeFromTop (18.0f).reduced (6.0f, 0.0f);
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.8f));
+            g.fillRoundedRectangle (note.withWidth (juce::jmin (note.getWidth(), 380.0f)), 4.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText ("LFO " + juce::String (index + 1) + " isn't playing these: set its SHAPE to Steps",
+                        note.reduced (6.0f, 0.0f), juce::Justification::centredLeft);
         }
     }
 

@@ -66,7 +66,7 @@ inline float decay (float value, float perTick, float ticks)
 
 // Lets a view skip repainting while nothing it shows has changed: check()
 // is true when the signature (usually the processor's getUiEpoch()) moved,
-// and twice a second regardless, for anything the signature misses.
+// and every two seconds regardless, for anything the signature misses.
 class ChangeGate
 {
 public:
@@ -74,7 +74,7 @@ public:
     {
         const auto now = juce::Time::getMillisecondCounterHiRes();
 
-        if (signature == last && now - lastPass < 500.0)
+        if (signature == last && now - lastPass < 2000.0)
             return false;
 
         last = signature;
@@ -129,8 +129,19 @@ public:
     // An open editor holds one of these; its display's refresh drives the clock.
     struct Source
     {
-        explicit Source (juce::Component& editor)
-            : vblank (&editor, [] { FrameClock::get().tick (true); }) {}
+        explicit Source (juce::Component& editorIn)
+            : editor (editorIn), vblank (&editorIn, [] { FrameClock::get().tick (true); })
+        {
+            FrameClock::get().sources.push_back (this);
+        }
+
+        ~Source()
+        {
+            if (auto* clock = FrameClock::getInstanceWithoutCreating())
+                clock->sources.erase (std::remove (clock->sources.begin(), clock->sources.end(), this), clock->sources.end());
+        }
+
+        juce::Component& editor;
         juce::VBlankAttachment vblank;
     };
 
@@ -168,7 +179,14 @@ private:
         const auto now = juce::Time::getMillisecondCounterHiRes();
         const auto starved = now - lastVBlank > 100.0;
 
-        if (starved)
+        // Stand in for vblank only where frames can be seen: an editor on
+        // screen, or editors with no window at all (snapshots and tests). A
+        // host that hides the editor's window without closing it gets no
+        // animation work.
+        const auto anyShowing = std::all_of (sources.begin(), sources.end(), [] (Source* s) { return s->editor.getPeer() == nullptr; })
+                             || std::any_of (sources.begin(), sources.end(), [] (Source* s) { return s->editor.isShowing(); });
+
+        if (starved && anyShowing)
         {
             if (getTimerInterval() > 20)
                 startTimerHz (60);
@@ -184,6 +202,7 @@ private:
     }
 
     std::vector<FrameTimer*> timers;
+    std::vector<Source*> sources;
     bool ticking = false;
     double lastFrame = 0.0, lastVBlank = 0.0;
     float dt = 1.0f / 60.0f;

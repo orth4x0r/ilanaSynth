@@ -37,6 +37,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // Smoothing and decay steps (tuned at 30 Hz) since the last paint,
+        // however long ago that was.
+        {
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            paintTicks = lastPaintMs > 0.0 ? (float) juce::jlimit (0.0, 300.0, (now - lastPaintMs) * 0.03) : 1.0f;
+            lastPaintMs = now;
+        }
+
         const auto bounds = getLocalBounds().toFloat();
 
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
@@ -74,11 +82,17 @@ public:
 private:
     void timerCallback() override
     {
-        paintTicks = frameTicks();
-        pulse += 0.09f * paintTicks;
-        appear = juce::jmin (1.0f, appear + 0.12f * paintTicks);
+        // The glow pulses only while notes sound.
+        if (processorRef.getActiveVoiceCount() > 0)
+            pulse += 0.09f * frameTicks();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        const auto falling = decaying() && juce::Time::getMillisecondCounterHiRes() - lastLiveMs < 4000.0;
+
+        if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
+            lastLiveMs = juce::Time::getMillisecondCounterHiRes();
+
+        if (isShowing() && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -311,7 +325,17 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     int draggingFilter = -1;
     float pulse = 0.0f;
-    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) the next paint stands for
+    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
+    double lastPaintMs = 0.0, lastLiveMs = 0.0;
+
+    // Something still falling (peaks, spectrum): keep painting until it rests.
+    bool decaying() const
+    {
+        auto level = 0.0f;
+        for (const auto v : spectrumSmoothed)
+            level = juce::jmax (level, v);
+        return level > 0.002f;
+    }
     IlanaAnim::ChangeGate changeGate;
     float appear = 1.0f;
 

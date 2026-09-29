@@ -22,14 +22,7 @@ public:
     TutorialOverlay()
     {
         closeButton.setButtonText ("GOT IT");
-        closeButton.onClick = [this]
-        {
-            const auto dontShow = dontShowAgain.getToggleState();
-            setVisible (false);
-
-            if (onDismiss != nullptr)
-                onDismiss (dontShow);
-        };
+        closeButton.onClick = [this] { dismiss(); };
 
         dontShowAgain.setButtonText ("Don't show this again");
         dontShowAgain.setToggleState (true, juce::dontSendNotification);
@@ -40,6 +33,16 @@ public:
     }
 
     std::function<void (bool dontShowAgain)> onDismiss;
+
+    // GOT IT, or Esc: close, honouring "Don't show this again".
+    void dismiss()
+    {
+        const auto dontShow = dontShowAgain.getToggleState();
+        setVisible (false);
+
+        if (onDismiss != nullptr)
+            onDismiss (dontShow);
+    }
 
     // How many factory presets there are, for the tips.
     void setPresetCount (int count) { presetCount = count; }

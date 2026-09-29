@@ -431,6 +431,7 @@ public:
         resized(); // a knob with a label lays out differently
     }
     juce::String getLabelText() const { return label.getText(); }
+    bool isCompact() const { return compact; }
     const juce::String& getParameterId() const { return parameterId; }
     int getNumRoutings() const { return (int) routings.size(); }
 
@@ -1086,13 +1087,75 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
 
+// The height a control needs at a given width (label, then dial and value,
+// or the box/button), or -1 when it takes whatever it's given.
+inline int preferredControlHeight (juce::Component* item, int width)
+{
+    if (auto* knob = dynamic_cast<KnobControl*> (item))
+    {
+        if (knob->isCompact())
+            return -1;
+
+        const auto labelHeight = knob->getLabelText().isNotEmpty() ? 13 : 0;
+        return labelHeight + juce::jlimit (28, 58, width) + 16;
+    }
+
+    if (dynamic_cast<ComboControl*> (item) != nullptr || dynamic_cast<ToggleControl*> (item) != nullptr)
+        return 13 + 24;
+
+    return -1;
+}
+
+// Controls side by side in equal columns. When the row is taller than its
+// controls need, they sit as one band centred in it (labels on one line)
+// rather than hugging the top with the spare space below.
 inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& items)
 {
     if (items.empty())
         return;
 
     const auto width = area.getWidth() / (int) items.size();
+    auto band = 0;
+
+    // (A null item is an empty column, so rows can share one grid.)
+    for (auto* item : items)
+    {
+        if (item == nullptr)
+            continue;
+
+        const auto height = preferredControlHeight (item, width - 6);
+
+        if (height < 0)
+        {
+            band = -1;
+            break;
+        }
+
+        band = juce::jmax (band, height);
+    }
+
+    if (band > 0 && band + 6 < area.getHeight())
+        area = area.withSizeKeepingCentre (area.getWidth(), band + 6);
+
+    // A plain on/off switch beside knobs sits level with the dials' centres
+    // (it has no label to line up with theirs).
+    auto hasKnob = false;
+    for (auto* item : items)
+        if (auto* knob = dynamic_cast<KnobControl*> (item))
+            hasKnob = hasKnob || (! knob->isCompact() && knob->getLabelText().isNotEmpty());
+
+    const auto dialDrop = hasKnob ? juce::jlimit (28, 58, width - 6) / 2 - 12 : 0;
 
     for (auto* item : items)
-        item->setBounds (area.removeFromLeft (width).reduced (3));
+    {
+        auto cell = area.removeFromLeft (width).reduced (3);
+
+        if (item == nullptr)
+            continue;
+
+        if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && toggle->isSwitch() && dialDrop > 0)
+            cell = cell.withTrimmedTop (dialDrop);
+
+        item->setBounds (cell);
+    }
 }

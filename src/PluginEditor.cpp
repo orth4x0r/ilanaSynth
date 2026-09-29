@@ -471,49 +471,52 @@ public:
             }
         }
 
+        // Every card on the page titled the same way: a tag, the title, and a
+        // quiet subtitle right after it.
+        const auto cardTitle = [&g] (juce::Rectangle<int> header, const juce::String& title, const juce::String& subtitle,
+                                     juce::Colour tag)
+        {
+            IlanaTheme::paintTag (g, { (float) header.getX() + 17.0f, (float) header.getCentreY() }, tag);
+            const auto titleFont = IlanaTheme::font (IlanaTheme::TextSize::body, true);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (titleFont);
+            auto area = header.withTrimmedLeft (28);
+            g.drawText (title, area, juce::Justification::centredLeft);
+
+            if (subtitle.isNotEmpty())
+            {
+                area.removeFromLeft (juce::GlyphArrangement::getStringWidthInt (juce::Font (titleFont), title) + 16);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText (subtitle, area.withTrimmedRight (90), juce::Justification::centredLeft);
+            }
+        };
+
         if (! subStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
-            IlanaTheme::paintTag (g, { (float) subStrip.getX() + 17.0f, (float) subStrip.getCentreY() }, juce::Colour (0xffb9bec6));
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("SUB", subStrip.withWidth (70).withTrimmedLeft (28), juce::Justification::centredLeft);
+            cardTitle (subStrip.withWidth (90), "SUB", {}, juce::Colour (0xffff9f43));
         }
 
         if (! voiceStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("VOICE", voiceStrip.withWidth (70).withTrimmedLeft (14), juce::Justification::centredLeft);
+            cardTitle (voiceStrip.withWidth (90), "VOICE", {}, IlanaTheme::Ui::text2);
         }
+
         if (! symCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, symCard.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("SYMPATHETIC STRINGS", symCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
-                        juce::Justification::centredLeft);
-
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("shared drone strings that ring with everything you play",
-                        symCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (90),
-                        juce::Justification::centredLeft);
+            cardTitle (symCard.withHeight (symHeaderHeight), "SYMPATHETIC STRINGS",
+                       "shared drone strings that ring with everything you play", IlanaTheme::Ui::text2);
         }
 
         if (! keysCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, keysCard.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("ACOUSTIC KEYS", keysCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
-                        juce::Justification::centredLeft);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer",
-                        keysCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (14),
-                        juce::Justification::centredLeft);
+            cardTitle (keysCard.withHeight (symHeaderHeight), "ACOUSTIC KEYS",
+                       "soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer",
+                       IlanaTheme::Ui::text2);
         }
     }
 
@@ -751,6 +754,15 @@ private:
         auto titleStrip = band.reduced (8).removeFromTop (18);
         removeButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (22).withSizeKeepingCentre (20, 15));
         titleStrip.removeFromRight (6);
+        // The on switch keeps one place, left of the remove button, whether
+        // the card is folded or open (it used to jump into the controls when
+        // switched on); the card's buttons come before it.
+        {
+            auto title = band.reduced (8).removeFromTop (22);
+            title.removeFromRight (28);
+            controls[(size_t) index]->on.setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (13 + 22));
+        }
+        titleStrip.removeFromRight (56 + 12);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
         titleStrip.removeFromRight (4);
         if (getMode (index) == 0)
@@ -765,9 +777,6 @@ private:
             // Just the switch on the title line; the rest opens when it's on.
             controlBay[(size_t) index] = {};
             chainLabel[(size_t) index] = {};
-            auto title = band.reduced (8).removeFromTop (22);
-            title.removeFromRight (28);
-            controls[(size_t) index]->on.setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (13 + 22));
             return;
         }
 
@@ -810,10 +819,10 @@ private:
         {
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
             if (IlanaSynthAudioProcessor::isEffectBuild)
-                layoutSlots (topRow, { &osc.on, &osc.mode, &osc.grainLive, &osc.sampleTuned, &osc.sampleReverse,
+                layoutSlots (topRow, { &osc.mode, &osc.grainLive, &osc.sampleTuned, &osc.sampleReverse,
                                        &osc.uniMode, &osc.chord, &osc.ampEnv });
             else
-                layoutSlots (topRow, { &osc.on, &osc.mode, &osc.sampleTuned, &osc.sampleReverse,
+                layoutSlots (topRow, { &osc.mode, &osc.sampleTuned, &osc.sampleReverse,
                                        &osc.uniMode, &osc.chord, &osc.ampEnv });
             layoutSlots (bottomRow, { &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                       &osc.grainSpray, &osc.grainPitch, &osc.grainSpread,
@@ -826,7 +835,7 @@ private:
         {
             // M7.5 Live: the input itself, so no pitch or shape controls.
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.ampEnv });
+            layoutSlots (topRow, { &osc.mode, &osc.ampEnv });
             layoutSlots (bottomRow, { &osc.level, &osc.pan, nullptr, nullptr, nullptr, nullptr });
             return;
         }
@@ -838,7 +847,7 @@ private:
             auto& physicalControls = *physical[(size_t) index];
             auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.excite, &osc.uniMode, &osc.chord, &osc.ampEnv });
+            layoutSlots (topRow, { &osc.mode, &osc.excite, &osc.uniMode, &osc.chord, &osc.ampEnv });
             layoutSlots (middleRow, { &osc.stringDecay, &osc.stringDamp, &physicalControls.epDistance,
                                       &physicalControls.epPosition, &physicalControls.hammer, &physicalControls.damper });
             layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
@@ -852,24 +861,39 @@ private:
             auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 3);
             auto extraRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.on, &osc.mode, &osc.excite, &physicalControls.slap,
+            layoutSlots (topRow, { &osc.mode, &osc.excite, &physicalControls.slap,
                                    &osc.uniMode, &osc.chord, &osc.ampEnv });
-            layoutSlots (middleRow, { &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
-                                      &physicalControls.stiffness, &physicalControls.pickup,
-                                      &physicalControls.excitePos, &physicalControls.hardness,
-                                      &physicalControls.pickPos });
+            // The string's controls that apply to this exciter flow left to
+            // right over two rows on the same eight columns as the row below,
+            // so no row starts with holes where hidden controls would be.
             const auto feedbackExcite = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_excite")->load() == 10.0f;
-            layoutSlots (extraRow, { &physicalControls.hammer,
-                                     feedbackExcite ? (juce::Component*) &physicalControls.fbGain : (juce::Component*) &physicalControls.bowPressure,
-                                     feedbackExcite ? (juce::Component*) &physicalControls.fbDistance : (juce::Component*) &physicalControls.bowSpeed,
-                                     &physicalControls.bridgeBuzz, &physicalControls.fretRattle,
-                                     &physicalControls.couple, &physicalControls.damper, &physicalControls.registerMap });
+            std::vector<juce::Component*> flow;
+
+            for (juce::Component* control : { (juce::Component*) &osc.stringDecay, (juce::Component*) &osc.stringDamp,
+                                              (juce::Component*) &osc.stringSustain, (juce::Component*) &physicalControls.stiffness,
+                                              (juce::Component*) &physicalControls.pickup, (juce::Component*) &physicalControls.excitePos,
+                                              (juce::Component*) &physicalControls.hardness, (juce::Component*) &physicalControls.pickPos,
+                                              (juce::Component*) &physicalControls.hammer,
+                                              feedbackExcite ? (juce::Component*) &physicalControls.fbGain : (juce::Component*) &physicalControls.bowPressure,
+                                              feedbackExcite ? (juce::Component*) &physicalControls.fbDistance : (juce::Component*) &physicalControls.bowSpeed,
+                                              (juce::Component*) &physicalControls.bridgeBuzz, (juce::Component*) &physicalControls.fretRattle,
+                                              (juce::Component*) &physicalControls.couple, (juce::Component*) &physicalControls.damper,
+                                              (juce::Component*) &physicalControls.registerMap })
+                if (control->isVisible())
+                    flow.push_back (control);
+
+            std::vector<juce::Component*> first (8, nullptr), second (8, nullptr);
+
+            for (size_t i = 0; i < flow.size() && i < 16; ++i)
+                (i < 8 ? first[i] : second[i - 8]) = flow[i];
+
+            layoutSlots (middleRow, first);
+            layoutSlots (extraRow, second);
             layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
                                       &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
             return;
         }
 
-        addTop (&osc.on);
         addTop (&osc.mode);
         addTop (isSample ? (juce::Component*) &osc.sampleTuned
                          : (isString ? (juce::Component*) &osc.excite : (juce::Component*) &osc.table));
@@ -1702,7 +1726,11 @@ public:
         inner.removeFromTop (30);
         inner.removeFromBottom (8);
         const auto side = juce::jmin (inner.getHeight(), inner.getWidth() / 2 + 40);
-        pad.setBounds (inner.removeFromLeft (side).withHeight (side)); // square, from the top
+
+        // The pad and its controls as one block, centred in the card.
+        const auto controlsHeight = 40 + 44 + 44 + 6 + 112 * 2 + 18;
+        inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), juce::jmax (side, controlsHeight)));
+        pad.setBounds (inner.removeFromLeft (side).withSizeKeepingCentre (side, side));
         inner.removeFromLeft (10);
         auto toggles = inner.removeFromTop (40);
         on.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
@@ -2093,10 +2121,11 @@ public:
 
         IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
         IlanaTheme::paintCardTitle (g, resonatorCard.reduced (12, 0).removeFromTop (26), "BODY", resonatorColour());
+        // The subtitle follows the title; the switch has the right of the header.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26),
-                    juce::Justification::centredRight);
+        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26).withTrimmedLeft (78),
+                    juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -2137,14 +2166,18 @@ public:
         bottom.removeFromLeft (10);
         resonatorCard = bottom;
         auto resArea = bottom.reduced (8, 0);
+        // The on switch at the right of the header, as on the oscillator cards.
+        resOn.setBounds (resArea.withHeight (26).removeFromRight (60).withTrimmedTop (-10).withHeight (34));
         resArea.removeFromTop (26);
         resArea.removeFromBottom (4);
-        // Switch and menus stacked on the left, then one row of full-size knobs.
+        // Menus stacked on the left, the first label on the knobs' label line.
         auto menus = resArea.removeFromLeft (juce::jmin (150, resArea.getWidth() / 5));
-        const auto menuHeight = menus.getHeight() / 3;
-        resOn.setBounds (menus.removeFromTop (menuHeight).reduced (3, 2));
-        bodyType.setBounds (menus.removeFromTop (menuHeight).reduced (3, 1));
-        bodyCouplingMode.setBounds (menus.reduced (3, 1));
+        constexpr int menuHeight = 13 + 24 + 6;
+        const auto knobBand = preferredControlHeight (&resAmount, resArea.getWidth() / 7 - 6) + 6;
+        menus = menus.withTop (resArea.withSizeKeepingCentre (resArea.getWidth(), juce::jmin (resArea.getHeight(), knobBand)).getY() + 3)
+                     .withHeight (menuHeight * 2);
+        bodyType.setBounds (menus.removeFromTop (menuHeight).reduced (3, 0).withTrimmedBottom (6));
+        bodyCouplingMode.setBounds (menus.reduced (3, 0).withTrimmedBottom (6));
         layoutRow (resArea, { &resAmount, &resDecay, &bodyMaterial, &bodySize, &resOffset, &resKeytrack, &bodyCoupling });
     }
 
@@ -2347,7 +2380,7 @@ public:
         area.removeFromTop (8);
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
-        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 55 / 100).reduced (2));
+        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 47 / 100 /* the LFO display above splits at the same place */).reduced (2));
         area.removeFromLeft (8);
 
         // Same panel shape as the LFOs: heading, then the stage knobs.
@@ -2359,12 +2392,22 @@ public:
         const auto& knobs = units[(size_t) unitIndex].knobs;
         const std::vector<juce::Component*> first (knobs.begin(), knobs.begin() + juce::jmin ((int) knobs.size(), 6));
         const std::vector<juce::Component*> second (knobs.begin() + (int) first.size(), knobs.end());
-        const auto rowHeight = juce::jmin (inner.getHeight() / 2, 96);
-        auto rows = inner.withSizeKeepingCentre (inner.getWidth(), rowHeight * 2);
-        layoutFixed (rows.removeFromTop (rowHeight), first);
+        // Two rows when both fit full-size knobs; otherwise one row of all
+        // of them, so the dials stay as big as the LFO's rather than
+        // shrinking to fit two short rows.
+        constexpr int fullRow = 13 + 58 + 16 + 6;
 
-        if (! second.empty())
-            layoutFixed (rows.withWidth (rows.getWidth() * (int) second.size() / 6), second);
+        if (second.empty() || inner.getHeight() < fullRow * 2)
+        {
+            std::vector<juce::Component*> all (first);
+            all.insert (all.end(), second.begin(), second.end());
+            layoutRow (inner, all);
+            return;
+        }
+
+        auto rows = inner.withSizeKeepingCentre (inner.getWidth(), fullRow * 2);
+        layoutRow (rows.removeFromTop (fullRow), first);
+        layoutRow (rows.withWidth (rows.getWidth() * (int) second.size() / 6), second);
     }
 
     void paint (juce::Graphics& g) override
@@ -2571,7 +2614,7 @@ public:
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
         const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
         const auto simulated = LfoSimShapes::isSim (shape);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * (simulated ? 38 : 55) / 100).reduced (2));
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * (simulated ? 38 : 47) / 100).reduced (2));
         area.removeFromLeft (8);
 
         // Control panel: options across the top, knobs underneath.
@@ -3912,31 +3955,36 @@ public:
     {
         // The Generative card (arp, Euclid, probability sequencer) above
         // generate, both full width.
-        arpCard = right.removeFromTop ((right.getHeight() - 8) * 60 / 100);
-        right.removeFromTop (8);
-        generateCard = right;
+        // Generate gets the height for two rows of full-size knobs (as big
+        // as the arp's), the pattern display above takes the rest.
+        constexpr int knobRowHeight = 13 + 58 + 16 + 6;
+        const auto generateHeight = juce::jlimit (160, (right.getHeight() - 8) / 2, 26 + knobRowHeight * 2 + 18 + 12);
+        generateCard = right.removeFromBottom (generateHeight);
+        right.removeFromBottom (8);
+        arpCard = right;
 
         auto arpArea = arpCard.reduced (10, 0);
         auto header = arpArea.removeFromTop (26);
         engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
         engineHint = arpArea.removeFromTop (14).withTrimmedLeft (4);
         arpArea.removeFromBottom (6);
-        const auto display = arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - 104)).reduced (0, 2);
+        const auto display = arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - knobRowHeight - 8)).reduced (0, 2);
+        arpArea.removeFromTop (8);
         arpDisplay.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
         layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance });
+        // Euclid and the probability sequencer on the arp's six columns (and
+        // so on Generate's below): Euclid's switch over TARGET in the first,
+        // RATE in the second, its four knobs in the rest.
         {
-            // The switch sits over TARGET so the two menus keep their width.
-            auto euclidRow = arpArea;
-            auto column = euclidRow.removeFromLeft (euclidRow.getWidth() * 27 / 100);
-            eucOn.setBounds (column.removeFromTop (column.getHeight() * 40 / 100).reduced (3, 3));
-            eucTarget.setBounds (column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), 48)).reduced (3, 1));
-            const auto rateWidth = euclidRow.getWidth() * 26 / 100;
-            eucDiv.setBounds (euclidRow.removeFromLeft (rateWidth).withSizeKeepingCentre (rateWidth, 48).reduced (3, 1));
-            layoutRow (euclidRow, { &eucSteps, &eucHits, &eucRotate, &eucGate });
+            const auto column = arpArea.getWidth() / 6;
+            layoutRow (arpArea.withTrimmedLeft (column), { &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
+            const auto top = eucDiv.getY();
+            eucOn.setBounds (arpArea.getX() + 3, top, column - 6, 13 + 24);
+            eucTarget.setBounds (arpArea.getX() + 3, top + 13 + 24 + 6, column - 6, 13 + 24);
         }
-        layoutRow (arpArea, { &pseqOn, &pseqDiv, &pseqLength, &pseqGate });
+        layoutRow (arpArea, { &pseqOn, &pseqDiv, nullptr, &pseqLength, &pseqGate, nullptr });
 
         // Generate card: scale row, then note spray (switch and direction,
         // with its amounts as one row of knobs).
@@ -3944,33 +3992,40 @@ public:
         generate.removeFromTop (26);
         generate.removeFromBottom (6);
 
-        // Wide card: the scale and spray settings on the left, the spray's
-        // amounts on the right; narrow: one under the other.
-        const auto wide = generate.getWidth() > 700;
-        auto settingsArea = wide ? generate.removeFromLeft (generate.getWidth() * 45 / 100) : generate;
-
-        auto scaleRow = settingsArea.removeFromTop (46);
-        genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 42 / 100).reduced (3, 1));
-        genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 40 / 100).reduced (3, 1));
-        genSnap.setBounds (scaleRow.reduced (3, 1));
-
-        sprayDivider = settingsArea.removeFromTop (22);
-
-        auto sprayRow = settingsArea.removeFromTop (46);
-        const auto third = sprayRow.getWidth() / 3;
-        sprayOn.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
-        sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
-        sprayStrum.setBounds (sprayRow.reduced (3, 1));
-
-        if (wide)
+        // Wide card: the same six columns as the arp row above, so every
+        // control lines up with the one over it: the scale and spray settings
+        // under ARP / MODE / RATE, the spray's amounts under OCTAVES / GATE /
+        // CHANCE. Two rows, centred in the card, labels on one line per row.
+        if (generate.getWidth() > 700)
         {
-            generate.removeFromLeft (16);
-            auto knobs = generate.withSizeKeepingCentre (generate.getWidth(), juce::jmin (generate.getHeight(), 180));
-            layoutRow (knobs.removeFromTop (knobs.getHeight() / 2), { sprayCount.get(), sprayRange.get(), spraySpread.get() });
-            layoutRow (knobs, { sprayChance.get(), sprayVelocity.get(), strumTime.get() });
+            const auto rowHeight = juce::jmin (knobRowHeight, (generate.getHeight() - 18) / 2);
+            auto block = generate.withSizeKeepingCentre (generate.getWidth(), rowHeight * 2 + 18);
+            const auto first = block.removeFromTop (rowHeight);
+            const auto gap = block.removeFromTop (18);
+            const auto second = block;
+
+            layoutRow (first, { &genScale, &genRoot, &genSnap, sprayCount.get(), sprayRange.get(), spraySpread.get() });
+            layoutRow (second, { &sprayOn, &sprayDirection, &sprayStrum, sprayChance.get(), sprayVelocity.get(), strumTime.get() });
+
+            // NOTE SPRAY heads the second row's settings.
+            sprayDivider = gap.withWidth (generate.getWidth() / 2).withTrimmedLeft (3).withTrimmedRight (6);
         }
         else
         {
+            auto settingsArea = generate;
+            auto scaleRow = settingsArea.removeFromTop (46);
+            genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 42 / 100).reduced (3, 1));
+            genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 40 / 100).reduced (3, 1));
+            genSnap.setBounds (scaleRow.reduced (3, 1));
+
+            sprayDivider = settingsArea.removeFromTop (22);
+
+            auto sprayRow = settingsArea.removeFromTop (46);
+            const auto third = sprayRow.getWidth() / 3;
+            sprayOn.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
+            sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
+            sprayStrum.setBounds (sprayRow.reduced (3, 1));
+
             settingsArea.removeFromTop (4);
             layoutRow (settingsArea, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(),
                                        strumTime.get() });
@@ -4235,8 +4290,22 @@ public:
             updateStrips();
         };
         oscColumn.addChildComponent (addOscButton);
+
+        // Sub and noise under the oscillators: the rest of the sources, laid
+        // out like the filter card (menus stacked left, knobs on the
+        // oscillators' knob grid).
+        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
+        subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "SHAPE");
+        subOctave = std::make_unique<ComboControl> (p.apvts, "sub_octave", "OCTAVE");
+        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", subColour(), false);
+        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
+        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel);
+
         oscColumn.onPaint = [this] (juce::Graphics& g)
         {
+            if (! subCard.isEmpty())
+                paintCard (g, subCard, "SUB + NOISE", subColour());
+
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 if (shownStrips[(size_t) osc])
                 {
@@ -4409,7 +4478,7 @@ public:
         // rows apart.
         const auto oscHeight = baseHeight;
         juce::ignoreUnused (spare);
-        auto columnHeight = anyHidden ? addButtonHeight : -8;
+        auto columnHeight = (anyHidden ? addButtonHeight : -8) + 8 + subCardHeight;
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
@@ -4434,7 +4503,10 @@ public:
         }
 
         addOscButton.setVisible (anyHidden);
-        addOscButton.setBounds (column.removeFromTop (addButtonHeight));
+        addOscButton.setBounds (column.removeFromTop (anyHidden ? addButtonHeight : 0));
+        column.removeFromTop (anyHidden ? 8 : 0);
+        subCard = column.removeFromTop (subCardHeight);
+        layoutSubCard();
         oscColumn.repaint();
 
         const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
@@ -4670,6 +4742,27 @@ private:
         layoutRow (inner, strip.modeKnobs[(size_t) mode]);
     }
 
+    static juce::Colour subColour() { return juce::Colour (0xffff9f43); }
+
+    void layoutSubCard()
+    {
+        auto inner = subCard.reduced (10, 8);
+        auto title = inner.removeFromTop (18);
+        title.removeFromRight (28); // where an oscillator card has its remove button
+        subOn->setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (30));
+        inner.removeFromTop (2);
+
+        // Same columns as an oscillator card: the menus where its display is,
+        // the knobs in its first two knob columns.
+        auto menus = inner.removeFromLeft (juce::jmin (170, inner.getWidth() / 3));
+        inner.removeFromLeft (8);
+        const auto menuHeight = 13 + 24 + 4;
+        menus = menus.withSizeKeepingCentre (menus.getWidth(), juce::jmin (menus.getHeight(), menuHeight * 2));
+        subShape->setBounds (menus.removeFromTop (menuHeight).withTrimmedBottom (4));
+        subOctave->setBounds (menus.withTrimmedBottom (4));
+        layoutRow (inner.withWidth (inner.getWidth() * 2 / 6), { subLevel.get(), noiseLevel.get() });
+    }
+
     // The oscillator cards scroll inside this column.
     struct Column : public juce::Component
     {
@@ -4685,6 +4778,11 @@ private:
     int lastRevealVersion = -1;
     static constexpr int addButtonHeight = 36;
     static constexpr int foldedHeight = 36;
+    static constexpr int subCardHeight = 130;
+    juce::Rectangle<int> subCard;
+    std::unique_ptr<ToggleControl> subOn;
+    std::unique_ptr<ComboControl> subShape, subOctave;
+    std::unique_ptr<KnobControl> subLevel, noiseLevel;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
     FilterDisplay filterDisplay;
     juce::Viewport lfoThumbView;
@@ -5635,6 +5733,14 @@ public:
         stackContent.painter = [this] (juce::Graphics& g) { paintStack (g); };
         stackContent.onClick = [this] (juce::Point<int> position)
         {
+            if (addEffectCard.contains (position))
+            {
+                if (const auto slot = firstEmptySlot(); slot >= 0)
+                    showTypeMenu (slot);
+
+                return;
+            }
+
             for (const auto& panel : stackPanels)
             {
                 if (panel.bounds.contains (position))
@@ -5698,7 +5804,7 @@ public:
 
         const auto type = getSlotType (selectedSlot);
 
-        paintSectionTitle (g, "CHAIN", { 14, 6, 200, 14 });
+        paintSectionTitle (g, "CHAIN", { 14, 17, 200, 14 }); // on the toolbar's centre line
 
         if (! outputStrip.isEmpty())
         {
@@ -5946,7 +6052,7 @@ public:
         area.removeFromTop (6);
 
         auto chainColumn = area.removeFromLeft (300);
-        rowsTop = chainColumn.getY() + 16;
+        rowsTop = chainColumn.getY() + 22; // level with the first effect card (under the hint line)
 
         area.removeFromLeft (22);
 
@@ -6356,7 +6462,13 @@ private:
             placed[(size_t) type] = true;
 
             const auto& group = slotGroups[(size_t) type];
-            const auto rows = group.size() > 8 ? 2 : 1;
+            // (The on switch goes in the header, so it doesn't count.)
+            const auto rowItems = std::count_if (group.begin(), group.end(), [] (juce::Component* item)
+            {
+                auto* toggle = dynamic_cast<ToggleControl*> (item);
+                return toggle == nullptr || ! toggle->isSwitch();
+            });
+            const auto rows = rowItems > 8 ? 2 : 1;
             auto height = 30 + (panel.duplicate ? 30 : rows * 112 + 8);
 
             if (! panel.duplicate && type == 29)
@@ -6376,16 +6488,34 @@ private:
                 auto body = panel.bounds.reduced (10, 0);
                 body.removeFromTop (30);
 
-                if (group.size() > 8)
+                // The module's on switch sits in its header (left of SLOT n),
+                // as on the oscillator and body cards; the rest fill the rows.
+                std::vector<juce::Component*> items;
+                ToggleControl* power = nullptr;
+
+                for (auto* item : group)
                 {
-                    const auto half = (int) (group.size() + 1) / 2;
-                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin(), group.begin() + half));
-                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (group.begin() + half, group.end()));
+                    auto* toggle = dynamic_cast<ToggleControl*> (item);
+
+                    if (toggle != nullptr && toggle->isSwitch() && power == nullptr)
+                        power = toggle;
+                    else
+                        items.push_back (item);
+                }
+
+                if (power != nullptr)
+                    power->setBounds (panel.bounds.getRight() - 12 - 66 - (type == 13 ? 110 : 0) - 56, panel.bounds.getY() - 9, 56, 34);
+
+                if (items.size() > 8)
+                {
+                    const auto half = (int) (items.size() + 1) / 2;
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (items.begin(), items.begin() + half));
+                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (items.begin() + half, items.end()));
                 }
                 else
                 {
-                    const auto maxWidth = juce::jmin (body.getWidth(), (int) group.size() * 120);
-                    layoutRow (body.removeFromTop (112).withWidth (maxWidth), group);
+                    const auto maxWidth = juce::jmin (body.getWidth(), (int) items.size() * 120);
+                    layoutRow (body.removeFromTop (112).withWidth (maxWidth), items);
                 }
 
                 if (type == 29)
@@ -6402,6 +6532,16 @@ private:
             }
 
             stackPanels.push_back (panel);
+        }
+
+        // Like PLAY's ADD OSCILLATOR: a quiet card after the last effect, while
+        // the rack has room.
+        addEffectCard = {};
+
+        if (! stackPanels.empty() && firstEmptySlot() >= 0)
+        {
+            addEffectCard = { 0, y, width, 44 };
+            y += 44 + 8;
         }
 
         stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
@@ -6509,8 +6649,29 @@ private:
         return picks;
     }
 
+    int firstEmptySlot() const
+    {
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            if (getSlotType (slot) == 0)
+                return slot;
+
+        return -1;
+    }
+
     void paintStack (juce::Graphics& g)
     {
+        if (! addEffectCard.isEmpty())
+        {
+            const auto card = addEffectCard.toFloat().reduced (0.5f);
+            g.setColour (IlanaTheme::Ui::panel.withAlpha (0.6f));
+            g.fillRoundedRectangle (card, 8.0f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (card, 8.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("+  ADD EFFECT", addEffectCard, juce::Justification::centred);
+        }
+
         if (stackPanels.empty())
         {
             g.setColour (IlanaTheme::Ui::text);
@@ -6535,17 +6696,6 @@ private:
                 IlanaTheme::paintGlow (g, bounds, 8.0f, colour, 1.0f);
 
             IlanaTheme::paintCard (g, bounds, 8.0f, colour);
-
-            // The module's name, large and faint, fills the panel's open right side.
-            if (! panel.duplicate && bounds.getHeight() > 80.0f)
-            {
-                juce::Graphics::ScopedSaveState save (g);
-                g.reduceClipRegion (panel.bounds.reduced (2));
-                g.setColour (colour.withAlpha (0.035f));
-                g.setFont (IlanaTheme::font (juce::jmin (64.0f, bounds.getHeight() * 0.42f), true));
-                g.drawText (getSlotName (panel.type).toUpperCase(), panel.bounds.reduced (18, 10).withTrimmedTop (20),
-                            juce::Justification::bottomRight);
-            }
 
             if (selected)
             {
@@ -6702,6 +6852,7 @@ private:
 
     juce::Viewport stackView;
     FxStackContent stackContent;
+    juce::Rectangle<int> addEffectCard;
     std::vector<StackPanel> stackPanels;
     int selectedSlot = 0;
     static constexpr int rowHeight = 39;

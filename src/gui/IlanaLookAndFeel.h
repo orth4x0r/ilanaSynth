@@ -197,6 +197,32 @@ inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, cons
     g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
 }
 
+// A card's header, the same everywhere: tag, title, then a quiet subtitle
+// right after the title (never pushed to the right edge, which belongs to the
+// card's tabs and its on switch).
+inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& title,
+                             const juce::String& subtitle, juce::Colour colour, int rightReserve = 100)
+{
+    paintCardTitle (g, header, title, colour);
+
+    if (subtitle.isEmpty())
+        return;
+
+    auto area = header.withTrimmedLeft (cardTitleWidth (title)).withTrimmedRight (rightReserve); // 16 px after the title
+    g.setColour (Ui::text3);
+    g.setFont (font (TextSize::label));
+    g.drawText (subtitle, area, juce::Justification::centredLeft, true);
+}
+
+// Where a card's on switch goes (a ToggleControl with its 13 px label
+// space): the same distance from every card's right edge, leaving room for a
+// remove button, centred on the title line.
+inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int titleCentreY)
+{
+    constexpr int width = 56, rightInset = 8 + 28;
+    return { card.getRight() - rightInset - width, titleCentreY - 13 - 10, width, 13 + 20 };
+}
+
 // An on/off switch: a pill with a sliding knob. `amount` runs 0 (off) to 1
 // (on) so callers can animate it; the on state glows in `colour`.
 inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float amount, juce::Colour colour, float hover = 0.0f)
@@ -516,7 +542,12 @@ public:
             const auto amount = button.getProperties().contains ("switchAmount")
                                     ? (float) button.getProperties()["switchAmount"]
                                     : (button.getToggleState() ? 1.0f : 0.0f);
-            paintSwitch (g, bounds, amount, accent(), hover);
+            // A named switch sits under its label, at the left like a
+            // menu's box; a bare one is centred in its space.
+            auto area = bounds;
+            if (button.getProperties().contains ("switchLeft"))
+                area = area.withWidth (juce::jmin (area.getWidth(), juce::jmin (area.getHeight(), 18.0f) * 1.8f + 2.0f));
+            paintSwitch (g, area, amount, accent(), hover);
             return;
         }
 

@@ -72,9 +72,10 @@ public:
         auto text = textArea();
         const auto title = macroIndex >= 0 ? processorRef.getMacroName (macroIndex) : defaultTitle;
 
-        if (macroIndex >= 0)
+        // Drag handle: a little grip, shown on hover, so the name reads as
+        // grabbable without crowding it the rest of the time.
+        if (macroIndex >= 0 && hover)
         {
-            // Drag handle: a little grip so the name reads as grabbable.
             const auto grip = text.removeFromRight (10).toFloat();
 
             for (int row = 0; row < 3; ++row)

@@ -71,10 +71,10 @@ public:
             return;
         }
 
-        // The one button here: solid in the current accent, with dark text,
+        // The one button here: solid in the current accent, with white text,
         // so it reads as the way on.
         closeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
-        closeButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::bg);
+        closeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
 
         appear = 0.0f;
         closeButton.setAlpha (0.0f);
@@ -154,40 +154,29 @@ public:
                     if (chip.getRight() > (float) newBand.getRight())
                         break;
 
-                    const auto hue = std::fmod (0.02f + (float) i * 0.11f, 1.0f);
-                    const auto colour = juce::Colour::fromHSV (hue, 0.6f, 1.0f, 1.0f);
-                    g.setColour (colour.withAlpha (0.14f));
+                    // Neutral chips with an accent edge (source colours
+                    // mean sources everywhere else).
+                    g.setColour (IlanaTheme::Ui::raised);
                     g.fillRoundedRectangle (chip, 13.0f);
-                    g.setColour (colour.withAlpha (0.7f));
+                    g.setColour (IlanaTheme::accent().withAlpha (0.6f));
                     g.drawRoundedRectangle (chip.reduced (0.5f), 13.0f, 1.0f);
-                    g.setColour (colour.brighter (0.3f));
+                    g.setColour (IlanaTheme::Ui::text);
                     g.setFont (font);
                     g.drawText (features[i], chip, juce::Justification::centred);
                     x = chip.getRight() + 8.0f;
                 }
             }
 
-            auto left = area.removeFromLeft (area.getWidth() / 2 - 12);
-            auto right = area.removeFromRight (area.getWidth() - 12);
-
-            const juce::StringArray playTips {
-                "Each oscillator is Wavetable, Physical, Sample, Granular or Live (ilanaSynth FX's input). Click TABLE for the visual browser; drop a wav on the display to sample it.",
-                "PLAY puts the oscillators, filter, amp envelope and LFOs on one screen; MOD holds every envelope and LFO, the step LFOs, the MSEG and the matrix.",
-                "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
-                "Try the simulated LFO shapes (Lorenz, Bounce, Pendulum...), the WEST card on FILTER, or OSC > PHYSICAL to watch a string move.",
-                "MOD > MATRIX has 64 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
+            // Five tips: the few things that aren't obvious from the screen.
+            const juce::StringArray tips {
+                "PLAY has the essentials on one screen; the other tabs hold the detail. Number keys switch tabs.",
+                "Drag a source chip (bottom row) onto any knob to modulate it, then drag its coloured dot to set the depth.",
+                "Each oscillator can be a wavetable, a physical string, a sample or grains: pick it in MODE. TABLE opens the browser.",
+                "The FX rack starts empty: click an effect to add it, drag slots to reorder, switch a module off in its header.",
+                "The dice rolls a fresh patch and " + commandKey() + "+Z undoes anything; " + juce::String (presetCount) + " factory presets are one click away in the name box."
             };
 
-            const juce::StringArray workflowTips {
-                "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
-                "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; PLAY > VECTOR mixes four oscillators and lets the macros EVOLVE.",
-                "The dice rolls a fresh patch and the ... menu starts from Init. " + commandKey() + "+Z undoes anything; the clock button lists your history.",
-                juce::String (presetCount) + " factory presets, all with named macros. Save stores your own with a category and tags; search finds tags too.",
-                "FM routes the oscillators into each other: 16 one-click algorithms and a noise operator. SEQ has the arp, Euclid, prob seq and GENERATE; SCOPE (top right) floats over any page."
-            };
-
-            drawTipColumn (g, left, "SOUND", playTips);
-            drawTipColumn (g, right, "WORKFLOW", workflowTips);
+            drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", tips);
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -207,9 +196,12 @@ private:
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
 
+        // The tips share the space evenly (no dead band under the last one).
+        const auto rowHeight = juce::jlimit (34, 64, area.getHeight() / juce::jmax (1, tips.size()));
+
         for (const auto& tip : tips)
         {
-            auto row = area.removeFromTop (52).reduced (0, 2);
+            auto row = area.removeFromTop (rowHeight).reduced (0, 2);
 
             g.setColour (IlanaTheme::accent().withAlpha (0.9f));
             g.fillEllipse ((float) row.getX(), (float) row.getY() + 5.0f, 5.0f, 5.0f);

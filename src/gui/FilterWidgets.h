@@ -357,9 +357,9 @@ public:
                        true, over && layout.osc[(size_t) row].contains (mouse));
         }
 
-        drawBlock (g, layout.f1, "F1", juce::Colour (0xffff4fd8), true, false);
-        drawBlock (g, layout.f2, "F2", juce::Colour (0xffb28aff), true, false);
-        drawBlock (g, layout.res, "BODY", juce::Colour (0xffb28aff), resOn, over && layout.res.contains (mouse));
+        drawBlock (g, layout.f1, "F1", juce::Colour (0xffc86bff), true, false);
+        drawBlock (g, layout.f2, "F2", juce::Colour (0xff8f9dff), true, false);
+        drawBlock (g, layout.res, "BODY", juce::Colour (0xff8f9dff), resOn, over && layout.res.contains (mouse));
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
         g.setColour (IlanaTheme::Ui::text3);

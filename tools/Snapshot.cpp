@@ -681,12 +681,12 @@ int runUiTests()
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
         for (auto* button : buttons)
-            if (button->getButtonText() == "OP 2" && visibleInTree (button))
+            if (button->getButtonText() == "OSC 2" && visibleInTree (button))
                 button->triggerClick();
         set ("osc2_tune", (float) OscTuning::Ratio);
         settle (400);
         expect (visibleKnob ("osc2_ratio") && ! visibleKnob ("osc1_ratio") && ! visibleKnob ("osc2_fixed_hz"),
-                "selecting OP 2 in Ratio tuning shows its RATIO knob");
+                "selecting OSC 2 in Ratio tuning shows its RATIO knob");
         set ("osc2_tune", (float) OscTuning::Fixed);
         settle (400);
         expect (visibleKnob ("osc2_fixed_hz") && ! visibleKnob ("osc2_ratio"), "Fixed tuning swaps RATIO for FIXED");

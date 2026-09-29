@@ -71,10 +71,10 @@ public:
         }
 
         drawSpectrum (g, plot);
-        drawCurve (g, plot, 1, juce::Colour (0xffb28aff));
-        drawCurve (g, plot, 0, juce::Colour (0xffff4fd8));
-        drawMarker (g, plot, 1, juce::Colour (0xffb28aff));
-        drawMarker (g, plot, 0, juce::Colour (0xffff4fd8));
+        drawCurve (g, plot, 1, juce::Colour (0xff8f9dff));
+        drawCurve (g, plot, 0, juce::Colour (0xffc86bff));
+        drawMarker (g, plot, 1, juce::Colour (0xff8f9dff));
+        drawMarker (g, plot, 0, juce::Colour (0xffc86bff));
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }

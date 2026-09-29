@@ -166,8 +166,8 @@ inline juce::Colour modSourceColour (int sourceIndex)
     switch ((Mod::Source) sourceIndex)
     {
         case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
-        case Mod::Source::FilterEnv:  return juce::Colour (0xffff4fd8);
-        case Mod::Source::FilterEnv2: return juce::Colour (0xffb28aff);
+        case Mod::Source::FilterEnv:  return juce::Colour (0xffc86bff);
+        case Mod::Source::FilterEnv2: return juce::Colour (0xff8f9dff);
         case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
         case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
         case Mod::Source::Velocity:
@@ -988,10 +988,31 @@ public:
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
 
+    // Any plain on/off drawn as a switch, its name as a label above it (a
+    // lit and a dark button read ambiguously). Buttons stay for modes and
+    // actions.
+    void showAsSwitch()
+    {
+        switchAmount = button.getToggleState() ? 1.0f : 0.0f;
+        button.getProperties().set ("switch", true);
+        button.getProperties().set ("switchAmount", switchAmount);
+        button.getProperties().set ("switchLeft", true);
+        repaint();
+    }
+
     // A button that lights up flares, breathes once or twice, then holds a
     // steady glow (a glow that never settles keeps the whole UI busy).
     void paint (juce::Graphics& g) override
     {
+        // A named switch shows its name where other controls show a label.
+        if (isSwitch() && button.getButtonText() != "ON")
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText (button.getButtonText(), getLocalBounds().withHeight (13), juce::Justification::centredLeft, true);
+            return;
+        }
+
         if (isSwitch() || ! button.getToggleState())
             return;
 
@@ -1014,8 +1035,23 @@ public:
 private:
     void timerCallback() override
     {
+        // Hidden: no animation, but a switch keeps its position, so it isn't
+        // shown in a stale state (or slides) when its page opens.
         if (! isShowing())
+        {
+            if (isSwitch())
+            {
+                const auto target = button.getToggleState() ? 1.0f : 0.0f;
+
+                if (switchAmount != target)
+                {
+                    switchAmount = target;
+                    button.getProperties().set ("switchAmount", switchAmount);
+                }
+            }
+
             return;
+        }
 
         hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f, frameTicks());
 

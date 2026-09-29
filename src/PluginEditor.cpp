@@ -124,10 +124,15 @@ void addAll (juce::Component& parent, Components&... components)
 // A page section's heading (a display, a pool, the rack): drawn like a card
 // title, with a neutral tag, so every section on every page is headed the
 // same way.
-void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area)
+void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                        const juce::String& subtitle = {})
 {
-    IlanaTheme::paintCardTitle (g, area, text, IlanaTheme::Ui::text2);
+    IlanaTheme::paintCardHeader (g, area, text, subtitle, IlanaTheme::Ui::text2, 0);
 }
+
+// Page headings sit where a card's title does: 12 px in from the card edge
+// (cards start 12 px in from the page), 26 px tall like a card's header.
+constexpr int headingX = 24, headingHeight = 26;
 
 class OscPage : public juce::Component,
                 private juce::AudioProcessorValueTreeState::Listener,
@@ -312,6 +317,7 @@ public:
         }
 
         addAll (*this, subShape, subOctave, noiseLevel);
+        sbOn.showAsSwitch();
 
         // The TABLE lists open the wavetable browser.
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -333,7 +339,7 @@ public:
         addAll (*this, *voiceSpread, *unisonRandom, *drift);
 
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", juce::Colour (0xffff9f43), false);
+        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", IlanaTheme::accent(), true);
         noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
         noiseLevel.setVisible (false);
@@ -498,7 +504,7 @@ public:
         if (! subStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
-            cardTitle (subStrip.withHeight (symHeaderHeight), "SUB", "an octave or two under the oscillators, and noise", juce::Colour (0xffff9f43));
+            cardTitle (subStrip.withHeight (symHeaderHeight), "SUB", "an octave or two under the oscillators, and noise", IlanaTheme::accent());
         }
 
         if (! voiceStrip.isEmpty())
@@ -564,7 +570,9 @@ public:
 
         // One strip: the sub and noise on the left, voice settings on the right.
         auto strip = area.removeFromTop (stripHeight);
-        subStrip = strip.removeFromLeft (strip.getWidth() * 58 / 100);
+        // Sub and voice share the page's eight-column grid (four each), as
+        // do the sympathetic strings below.
+        subStrip = strip.removeFromLeft (strip.getWidth() / 2 - 4);
         strip.removeFromLeft (8);
         voiceStrip = strip;
 
@@ -572,11 +580,11 @@ public:
         // then one row of labelled controls.
         {
             auto header = subStrip.withHeight (symHeaderHeight);
-            subOscOn->setBounds (header.getRight() - 84, header.getCentreY() - 13 - 10, 76, 13 + 20);
+            subOscOn->setBounds (IlanaTheme::cardSwitchBounds (subStrip, header.getCentreY()));
             layoutRow (subStrip.withTrimmedTop (symHeaderHeight).reduced (8, 0).withTrimmedBottom (4),
                        { &subShape, &subOctave, subOscLevel.get(), noiseStrip.get() });
             layoutRow (voiceStrip.withTrimmedTop (symHeaderHeight).reduced (8, 0).withTrimmedBottom (4),
-                       { voiceSpread.get(), unisonRandom.get(), drift.get() });
+                       { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr });
         }
 
         // The shared sympathetic strings: a one-line header with their switch,
@@ -587,12 +595,15 @@ public:
         auto header = symArea.removeFromTop (symHeaderHeight);
         // ToggleControl keeps 13 px above its button for a label; place it so
         // the button itself sits centred on the header line.
-        symOn.setBounds (header.getRight() - 84, header.getCentreY() - 13 - 10, 76, 13 + 20);
+        symOn.setBounds (IlanaTheme::cardSwitchBounds (symCard, header.getCentreY()));
 
         if (readBool ("sym_on"))
         {
             symArea.reduce (10, 0);
-            layoutSlots (symArea.removeFromTop (symRowHeight), { &symAmount, &symDecay, &symCount, &symManual });
+            // Exactly on the SUB card's four columns above.
+            layoutRow (symCard.withTrimmedTop (symHeaderHeight).withHeight (symRowHeight).withWidth (subStrip.getWidth()).reduced (8, 0),
+                       { &symAmount, &symDecay, &symCount, &symManual });
+            symArea.removeFromTop (symRowHeight);
 
             if (readBool ("sym_manual"))
                 layoutSlots (symArea.removeFromTop (symRowHeight),
@@ -621,7 +632,8 @@ private:
     }
 
     int numShown() const { return (int) std::count (shown.begin(), shown.end(), true); }
-    static constexpr int stripHeight = 28 + 13 + 58 + 16 + 12;
+    // Dials the size of the oscillator cards' above.
+    static constexpr int stripHeight = 28 + 13 + 42 + 16 + 12;
     // The oscillator cards are sized as when the sub and voice were a 50 px
     // strip; the taller cards just scroll a little further.
     static constexpr int bandFitStripHeight = 50;
@@ -759,7 +771,7 @@ private:
         {
             auto title = band.reduced (8).removeFromTop (22);
             title.removeFromRight (28);
-            controls[(size_t) index]->on.setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (13 + 22));
+            controls[(size_t) index]->on.setBounds (IlanaTheme::cardSwitchBounds (band, title.getCentreY()));
         }
         titleStrip.removeFromRight (56 + 12);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
@@ -1519,28 +1531,26 @@ public:
           position (p.apvts, "west_pos", "PLACE"),
           mode (p.apvts, "west_mode", "GATE"),
           source (p.apvts, "west_src", "STRIKE BY"),
-          fold (p.apvts, "west_fold", "FOLD", colour(), false),
-          symmetry (p.apvts, "west_sym", "SYMMETRY", colour(), false),
-          stages (p.apvts, "west_stages", "STAGES", colour(), false),
-          decay (p.apvts, "west_decay", "DECAY", colour(), false),
-          resonance (p.apvts, "west_res", "RESO", colour(), false),
-          strike (p.apvts, "west_strike", "STRIKE", colour(), false),
-          open (p.apvts, "west_open", "OPEN", colour(), false)
+          fold (p.apvts, "west_fold", "FOLD", colour(), true),
+          symmetry (p.apvts, "west_sym", "SYMMETRY", colour(), true),
+          stages (p.apvts, "west_stages", "STAGES", colour(), true),
+          decay (p.apvts, "west_decay", "DECAY", colour(), true),
+          resonance (p.apvts, "west_res", "RESO", colour(), true),
+          strike (p.apvts, "west_strike", "STRIKE", colour(), true),
+          open (p.apvts, "west_open", "OPEN", colour(), true)
     {
         addAll (*this, on, position, mode, source, fold, symmetry, stages, decay, resonance, strike, open);
         startTimerHz (30);
     }
 
-    static juce::Colour colour() { return juce::Colour (0xffffb347); }
+    // Not a modulation source: the accent, not a source's colour.
+    static juce::Colour colour() { return IlanaTheme::accent(); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardTitle (g, header, "WEST", colour());
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("WEST")), juce::Justification::centredLeft);
+        IlanaTheme::paintCardHeader (g, header, "WEST", "wavefolder into a low-pass gate", colour());
 
         // The fold's transfer curve and the gate's vactrol, lit by its level.
         const auto plot = picture.toFloat();
@@ -1588,7 +1598,8 @@ public:
         picture = top.reduced (4, 2);
         const auto optionHeight = options.getHeight() / 2;
         auto row1 = options.removeFromTop (optionHeight);
-        on.setBounds (row1.removeFromLeft (row1.getWidth() / 3).reduced (3, 1));
+        // Its on switch in the header, like every card's.
+        on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 14));
         position.setBounds (row1.reduced (3, 1));
         auto row2 = options;
         mode.setBounds (row2.removeFromLeft (row2.getWidth() / 2).reduced (3, 1));
@@ -1645,19 +1656,21 @@ public:
           cornerB (p.apvts, "vec_b", "TOP RIGHT"),
           cornerC (p.apvts, "vec_c", "BOTTOM LEFT"),
           cornerD (p.apvts, "vec_d", "BOTTOM RIGHT"),
-          x (p.apvts, "vec_x", "X", colour(), false),
-          y (p.apvts, "vec_y", "Y", colour(), false),
-          rate (p.apvts, "vec_rate", "PATH RATE", colour(), false),
-          drift (p.apvts, "vec_drift", "DRIFT", colour(), false),
-          driftRate (p.apvts, "vec_drift_rate", "DRIFT RATE", colour(), false)
+          x (p.apvts, "vec_x", "X", colour(), true),
+          y (p.apvts, "vec_y", "Y", colour(), true),
+          rate (p.apvts, "vec_rate", "PATH RATE", colour(), true),
+          drift (p.apvts, "vec_drift", "DRIFT", colour(), true),
+          driftRate (p.apvts, "vec_drift_rate", "DRIFT RATE", colour(), true)
     {
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
+        path.showAsSwitch();
+        // The EVOLVE and RATE names head their columns once, on the first row.
         for (int m = 0; m < 4; ++m)
         {
-            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", "EVOLVE",
-                                                                    evolveColour(), false));
-            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", "RATE",
-                                                                  evolveColour(), false));
+            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", m == 0 ? "EVOLVE" : "",
+                                                                    evolveColour(), true));
+            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", m == 0 ? "RATE" : "",
+                                                                  evolveColour(), true));
             addAndMakeVisible (*evolveAmount.back());
             addAndMakeVisible (*evolveRate.back());
         }
@@ -1668,8 +1681,9 @@ public:
         startTimerHz (20);
     }
 
-    static juce::Colour colour() { return juce::Colour (0xff5fd3ff); }
-    static juce::Colour evolveColour() { return juce::Colour (0xffc58bff); }
+    // Not modulation sources, so not in a source's colour: the accent.
+    static juce::Colour colour() { return IlanaTheme::accent(); }
+    static juce::Colour evolveColour() { return IlanaTheme::accent(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -1678,16 +1692,10 @@ public:
         IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardTitle (g, header, "VECTOR", colour());
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("VECTOR")), juce::Justification::centredLeft);
+        IlanaTheme::paintCardHeader (g, header, "VECTOR", "four oscillators at the corners; Vector X / Y are mod sources", colour());
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardTitle (g, header, "EVOLVE", evolveColour());
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("each macro drifts within its range", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("EVOLVE")), juce::Justification::centredLeft);
+        IlanaTheme::paintCardHeader (g, header, "EVOLVE", "each macro drifts within its range", evolveColour(), 110);
 
         // Each macro: its name, where it is set and where it has drifted to,
         // with a hairline between rows.
@@ -1731,9 +1739,10 @@ public:
         inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), juce::jmax (side, controlsHeight)));
         pad.setBounds (inner.removeFromLeft (side).withSizeKeepingCentre (side, side));
         inner.removeFromLeft (10);
+        // The vector's on switch in its header, like every card's.
+        on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
         auto toggles = inner.removeFromTop (40);
-        on.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
-        path.setBounds (toggles.reduced (3, 1));
+        path.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
         auto combos1 = inner.removeFromTop (44);
         cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
         cornerB.setBounds (combos1.reduced (3, 1));
@@ -1750,7 +1759,8 @@ public:
 
         auto rows = evolveCard.reduced (12, 0);
         rows.removeFromTop (30);
-        freeze.setBounds (rows.removeFromBottom (40).reduced (0, 6).withWidth (120));
+        // FREEZE is an action on the whole card: in its header, at the right.
+        freeze.setBounds (evolveCard.getRight() - 12 - 96, evolveCard.getY() + 4, 96, 20);
         const auto rowHeight = rows.getHeight() / 4;
         for (int m = 0; m < 4; ++m)
         {
@@ -1813,12 +1823,13 @@ public:
     explicit PhysicalPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           view (p),
-          resOn (p.apvts, "res_on", "BODY"),
+          resOn (p.apvts, "res_on", "ON"),
           bodyType (p.apvts, "body_type", "BODY TYPE"),
           sbOn (p.apvts, "sb_on", "SOUNDBOARD"),
           sbModel (p.apvts, "sb_model", "BOARD MODEL")
     {
         addAll (*this, view, resOn, bodyType, sbOn, sbModel);
+        sbOn.showAsSwitch();
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             auto& button = oscButtons[(size_t) i];
@@ -1839,48 +1850,71 @@ public:
         startTimerHz (5);
     }
 
-    static juce::Colour colour() { return juce::Colour (0xffffb35c); }
+    // The page belongs to the chosen oscillator: its identity colour.
+    juce::Colour colour() const { return IlanaTheme::oscColour (chosen); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
+        const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note, juce::Colour tag)
+        {
+            IlanaTheme::paintCardHeader (g, card.reduced (12, 0).removeFromTop (28), name, note, tag);
+        };
+
+        // Not a Physical oscillator: one centred card that says so and
+        // offers the switch, rather than an empty picture beside it.
+        if (! isPhysical (chosen))
+        {
+            IlanaTheme::paintCard (g, emptyCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+            title (emptyCard, "PHYSICAL", "a string, what excites it and its body", colour());
+            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
+            const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
+            auto message = makePhysical.getBounds().withHeight (44).translated (0, -58).withWidth (emptyCard.getWidth() - 28)
+                                                  .withX (emptyCard.getX() + 14);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ", so it has no string.",
+                        message.removeFromTop (22), juce::Justification::centred);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText ("Switch it to Physical to edit its string, exciter and body here.", message, juce::Justification::centred);
+            return;
+        }
+
         IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
-
-        const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note)
-        {
-            auto header = card.reduced (12, 0).removeFromTop (28);
-            IlanaTheme::paintCardTitle (g, header, name, colour());
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), name)) + 30),
-                        juce::Justification::centredLeft);
-        };
-        title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings");
-        title (stringCard, "OSC " + juce::String (chosen + 1) + " STRING", "");
-        title (bodyCard, "BODY", "shared by every string");
-
-        if (! isPhysical (chosen))
-        {
-            // Centred in the card, above the SWITCH button.
-            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
-            const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
-            auto message = makePhysical.getBounds().withHeight (40).translated (0, -48).withWidth (stringCard.getWidth() - 28)
-                                                  .withX (stringCard.getX() + 14);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ", so it has no string.",
-                        message.removeFromTop (20), juce::Justification::centred);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("Switch it to Physical to edit its string and exciter here.", message, juce::Justification::centred);
-        }
+        title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings", colour());
+        title (stringCard, "OSC " + juce::String (chosen + 1) + " STRING", "", colour());
+        title (bodyCard, "BODY", "shared by every string", colour());
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
+        const auto physical = isPhysical (chosen);
+
+        for (juce::Component* c : { (juce::Component*) &view, (juce::Component*) &resOn, (juce::Component*) &bodyType,
+                                    (juce::Component*) &sbOn, (juce::Component*) &sbModel })
+            c->setVisible (physical);
+
+        if (! physical)
+        {
+            emptyCard = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 560), juce::jmin (area.getHeight(), 240));
+            auto inner = emptyCard.reduced (14, 0);
+            inner.removeFromTop (38);
+            auto shownButtons = 0;
+            for (auto& button : oscButtons)
+                shownButtons += button.isVisible() ? 1 : 0;
+            auto picker = inner.removeFromTop (30).withSizeKeepingCentre (juce::jmax (1, shownButtons) * 96, 30);
+            for (auto& button : oscButtons)
+                if (button.isVisible())
+                    button.setBounds (picker.removeFromLeft (96).reduced (3, 3));
+            makePhysical.setBounds (juce::Rectangle<int> (240, 34).withCentre ({ emptyCard.getCentreX(), emptyCard.getBottom() - 40 }));
+            return;
+        }
+
+        emptyCard = {};
         viewCard = area.removeFromLeft (area.getWidth() * 60 / 100);
         area.removeFromLeft (10);
         bodyCard = area.removeFromBottom (juce::jmin (150, area.getHeight() / 3));
@@ -1923,14 +1957,11 @@ public:
             }
         }
 
-        auto body = bodyCard.reduced (10, 0);
-        body.removeFromTop (30);
-        auto top = body.removeFromTop (44);
-        resOn.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (3, 6));
-        bodyType.setBounds (top.reduced (3, 1));
-        auto bottom = body.removeFromTop (44);
-        sbOn.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2).reduced (3, 6));
-        sbModel.setBounds (bottom.reduced (3, 1));
+        // The body's switch in its header; its type, and the soundboard's
+        // switch and model, in one row under it.
+        resOn.setBounds (IlanaTheme::cardSwitchBounds (bodyCard, bodyCard.getY() + 14));
+        auto body = bodyCard.reduced (10, 0).withTrimmedTop (30).withTrimmedBottom (6);
+        layoutRow (body, { &bodyType, &sbOn, &sbModel });
     }
 
     int getChosenOscillator() const { return chosen; }
@@ -2029,6 +2060,7 @@ private:
         if (lastPhysical != isPhysical (chosen))
         {
             lastPhysical = isPhysical (chosen);
+            resized();
             repaint();
         }
         updateAvailability();
@@ -2047,7 +2079,7 @@ private:
     std::vector<std::unique_ptr<KnobControl>> knobs;
     int chosen = 0, shownExcite = -1;
     bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> viewCard, stringCard, bodyCard;
+    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyCard;
 };
 
 class FilterPage : public juce::Component,
@@ -2057,22 +2089,22 @@ public:
     explicit FilterPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           filterDisplay (p),
-          panel1 (p, 1, juce::Colour (0xffff4fd8)),
-          panel2 (p, 2, juce::Colour (0xffb28aff)),
+          panel1 (p, 1, juce::Colour (0xffc86bff)),
+          panel2 (p, 2, juce::Colour (0xff8f9dff)),
           westPanel (p),
-          secondTabs ({ "FILTER 2", "WEST" }, { juce::Colour (0xffb28aff), WestPanel::colour() }, false),
+          secondTabs ({ "FILTER 2", "WEST" }, { juce::Colour (0xff8f9dff), WestPanel::colour() }, false),
           flow (p),
           balance (p.apvts, "filter_balance", "", IlanaTheme::accent(), true),
           resOn (p.apvts, "res_on", "ON"),
-          resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), false),
-          resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), false),
-          resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), false),
-          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), false),
+          resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), true),
+          resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), true),
+          resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), true),
+          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), true),
           bodyType (p.apvts, "body_type", "BODY"),
-          bodyMaterial (p.apvts, "body_material", "MATERIAL", resonatorColour(), false),
-          bodySize (p.apvts, "body_size", "SIZE", resonatorColour(), false),
+          bodyMaterial (p.apvts, "body_material", "MATERIAL", resonatorColour(), true),
+          bodySize (p.apvts, "body_size", "SIZE", resonatorColour(), true),
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
-          bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), false)
+          bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), true)
     {
         addChildComponent (westPanel);
         addAndMakeVisible (secondTabs);
@@ -2090,17 +2122,15 @@ public:
         startTimerHz (8);
     }
 
-    static juce::Colour resonatorColour() { return juce::Colour (0xff6fe3c1); }
+    // Sections that aren't modulation sources take the accent, so a source's
+    // colour always means that source.
+    static juce::Colour resonatorColour() { return IlanaTheme::accent(); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintSectionTitle (g, "RESPONSE", { 14, 10, 200, 16 });
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("drag the markers to set cutoff and resonance", juce::Rectangle<int> (100, 10, 400, 16),
-                    juce::Justification::centredLeft);
+        paintSectionTitle (g, "RESPONSE", { headingX, 5, 700, headingHeight }, "drag the markers to set cutoff and resonance");
 
         paintSectionTitle (g, "SIGNAL FLOW", flowTitle);
 
@@ -2156,7 +2186,8 @@ public:
         auto bottom = area.removeFromTop (bottomHeight);
 
         auto flowArea = bottom.removeFromLeft (bottom.getWidth() / 2 - 5);
-        flowTitle = flowArea.removeFromTop (18);
+        // As tall as the BODY card's header beside it, so the titles line up.
+        flowTitle = flowArea.removeFromTop (headingHeight).withTrimmedLeft (12);
         balanceCard = flowArea.removeFromRight (104);
         balance.setBounds (balanceCard.reduced (8, 0).withTrimmedTop (24).withTrimmedBottom (18));
         flowArea.removeFromRight (8);
@@ -2166,7 +2197,7 @@ public:
         resonatorCard = bottom;
         auto resArea = bottom.reduced (8, 0);
         // The on switch at the right of the header, as on the oscillator cards.
-        resOn.setBounds (resArea.withHeight (26).removeFromRight (60).withTrimmedTop (-10).withHeight (34));
+        resOn.setBounds (IlanaTheme::cardSwitchBounds (resonatorCard, resonatorCard.getY() + 13));
         resArea.removeFromTop (26);
         resArea.removeFromBottom (4);
         // Menus stacked on the left, the first label on the knobs' label line.
@@ -2262,8 +2293,8 @@ public:
           thumbs (p, []
           {
               std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP ENV", "amp", Mod::Source::AmpEnv, modSourceColour ((int) Mod::Source::AmpEnv) },
-                       EnvThumbBar::Env { "FILT ENV", "fe", Mod::Source::FilterEnv, juce::Colour (0xffff4fd8) },
-                       EnvThumbBar::Env { "FILT 2 ENV", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xffb28aff) },
+                       EnvThumbBar::Env { "FILT ENV", "fe", Mod::Source::FilterEnv, juce::Colour (0xffc86bff) },
+                       EnvThumbBar::Env { "FILT 2 ENV", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xff8f9dff) },
                        EnvThumbBar::Env { "MOD ENV", "me", Mod::Source::ModEnv, juce::Colour (0xff8fff3b) },
                        EnvThumbBar::Env { "ENV 5", "e4", Mod::Source::Env4, juce::Colour (0xff5b8cff) } };
               for (int env = 6; env <= 16; ++env)
@@ -2272,8 +2303,8 @@ public:
               return envs;
           }()),
           ampDisplay (p, "amp", modSourceColour ((int) Mod::Source::AmpEnv), false),
-          feDisplay (p, "fe", juce::Colour (0xffff4fd8)),
-          f2eDisplay (p, "f2e", juce::Colour (0xffb28aff)),
+          feDisplay (p, "fe", juce::Colour (0xffc86bff)),
+          f2eDisplay (p, "f2e", juce::Colour (0xff8f9dff)),
           meDisplay (p, "me", juce::Colour (0xff8fff3b)),
           e4Display (p, "e4", juce::Colour (0xff5b8cff)),
           ampA (p.apvts, "amp_attack", "ATTACK", modSourceColour ((int) Mod::Source::AmpEnv), false), ampD (p.apvts, "amp_decay", "DECAY", modSourceColour ((int) Mod::Source::AmpEnv), false),
@@ -2281,11 +2312,11 @@ public:
           ampVel (p.apvts, "amp_velocity", "VEL", modSourceColour ((int) Mod::Source::AmpEnv), false), ampCurve (p.apvts, "amp_curve", "TENSION", modSourceColour ((int) Mod::Source::AmpEnv), false),
           feA (p.apvts, "fe_attack", "ATTACK"), feD (p.apvts, "fe_decay", "DECAY"),
           feS (p.apvts, "fe_sustain", "SUSTAIN"), feR (p.apvts, "fe_release", "RELEASE"),
-          feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", "TENSION", juce::Colour (0xffff4fd8), false),
+          feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", "TENSION", juce::Colour (0xffc86bff), false),
           f2A (p.apvts, "f2e_attack", "ATTACK"), f2D (p.apvts, "f2e_decay", "DECAY"),
           f2S (p.apvts, "f2e_sustain", "SUSTAIN"), f2R (p.apvts, "f2e_release", "RELEASE"),
-          f2Vel (p.apvts, "f2e_velocity", "VEL", juce::Colour (0xffb28aff), false),
-          f2Curve (p.apvts, "f2e_curve", "TENSION", juce::Colour (0xffb28aff), false),
+          f2Vel (p.apvts, "f2e_velocity", "VEL", juce::Colour (0xff8f9dff), false),
+          f2Curve (p.apvts, "f2e_curve", "TENSION", juce::Colour (0xff8f9dff), false),
           meA (p.apvts, "me_attack", "ATTACK"), meD (p.apvts, "me_decay", "DECAY"),
           meS (p.apvts, "me_sustain", "SUSTAIN"), meR (p.apvts, "me_release", "RELEASE"),
           meVel (p.apvts, "me_velocity", "VEL", juce::Colour (0xff8fff3b), false),
@@ -2317,7 +2348,7 @@ public:
         // M5 DAHDSR and rate key scaling: a second row on every envelope.
         {
             const char* const prefixes[] { "amp", "fe", "f2e", "me", "e4" };
-            const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+            const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffc86bff), juce::Colour (0xff8f9dff),
                                            juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
 
             for (int env = 0; env < 5; ++env)
@@ -2414,7 +2445,7 @@ public:
         if (panel.isEmpty())
             return;
 
-        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
+        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffc86bff), juce::Colour (0xff8f9dff),
                                        juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
         const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" };
         const auto index = juce::jlimit (0, 4, selected);
@@ -2422,10 +2453,8 @@ public:
 
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
-        IlanaTheme::paintCardTitle (g, header, selected < 5 ? titles[index] : "ENV " + juce::String (selected + 1), colour);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("drag the graph or the knobs", header, juce::Justification::centredRight);
+        IlanaTheme::paintCardHeader (g, header, selected < 5 ? titles[index] : "ENV " + juce::String (selected + 1),
+                                     "drag the graph or the knobs", colour);
     }
 
 private:
@@ -2610,7 +2639,7 @@ public:
         const auto displayIndex = juce::jlimit (0, (int) displays.size() - 1, selected);
         const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (displayIndex + 1) + "_shape")->load();
         const auto simulated = LfoSimShapes::isSim (shape);
-        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * (simulated ? 38 : 47) / 100).reduced (2));
+        displays[(size_t) displayIndex]->setBounds (area.removeFromLeft (area.getWidth() * 47 / 100).reduced (2)); // the same split for every shape (and as the envelopes below)
         area.removeFromLeft (8);
 
         // Control panel: options across the top, knobs underneath.
@@ -2665,16 +2694,13 @@ public:
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
 
         auto header = panel.reduced (12, 0).withHeight (26);
-        IlanaTheme::paintCardTitle (g, header, "LFO " + juce::String (selected + 1), colour);
-
         const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
         const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText (key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
-                    : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
-                                                                 : "free-running, shared by all voices",
-                    header, juce::Justification::centredRight);
+        IlanaTheme::paintCardHeader (g, header, "LFO " + juce::String (selected + 1),
+                                     key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
+                                     : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
+                                                                                  : "free-running, shared by all voices",
+                                     colour, 0);
     }
 
     static juce::Colour lfoColour (int index)
@@ -2845,15 +2871,17 @@ private:
             knobs.push_back (&c.stereo);
         if (info.usesSeed)
             knobs.push_back (&c.seed);
-        const auto perRow = juce::jmax (3, ((int) knobs.size() + 1) / 2);
-        const auto knobWidth = inner.getWidth() / perRow;
-        // A gap between the rows, so the second row's names don't read as
-        // the first row's values.
+        // Two rows on one grid (a gap between them, so the second row's
+        // names don't read as the first row's values).
+        const auto perRow = (size_t) juce::jmax (3, ((int) knobs.size() + 1) / 2);
         constexpr int rowGap = 8;
         const auto knobHeight = (inner.getHeight() - rowGap) / 2;
-        for (size_t k = 0; k < knobs.size(); ++k)
-            knobs[k]->setBounds (inner.getX() + (int) (k % (size_t) perRow) * knobWidth,
-                                 inner.getY() + (int) (k / (size_t) perRow) * (knobHeight + rowGap), knobWidth, knobHeight);
+        std::vector<juce::Component*> first (perRow, nullptr), second (perRow, nullptr);
+        for (size_t k = 0; k < knobs.size() && k < perRow * 2; ++k)
+            (k < perRow ? first[k] : second[k - perRow]) = knobs[k];
+        layoutRow (inner.removeFromTop (knobHeight), first);
+        inner.removeFromTop (rowGap);
+        layoutRow (inner.removeFromTop (knobHeight), second);
     }
 
     void updateVisibility()
@@ -2968,8 +2996,8 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintSectionTitle (g, "LFO", juce::Rectangle<int> (14, 2, 200, 14));
-        paintSectionTitle (g, "ENVELOPES", juce::Rectangle<int> (14, lfoBottom + 6, 200, 14));
+        paintSectionTitle (g, "LFO", juce::Rectangle<int> (headingX, 2, 200, 14));
+        paintSectionTitle (g, "ENVELOPES", juce::Rectangle<int> (headingX, lfoBottom + 6, 200, 14));
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -3038,6 +3066,7 @@ public:
           hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
     {
         addAll (*this, diagram, algorithms, mode, hardSync);
+        hardSync.showAsSwitch();
         ringMod = std::make_unique<KnobControl> (p.apvts, "ring_mod", "RING MOD", fmColour(), false);
         addAndMakeVisible (*ringMod);
 
@@ -3064,7 +3093,7 @@ public:
             for (auto* control : operators[(size_t) source]->all())
                 addChildComponent (control);
 
-            auto button = std::make_unique<juce::TextButton> ("OP " + juce::String (source + 1));
+            auto button = std::make_unique<juce::TextButton> ("OSC " + juce::String (source + 1));
             button->setClickingTogglesState (false);
             button->setColour (juce::TextButton::buttonOnColourId, FmDiagram::oscColour (source).withAlpha (0.55f));
             button->onClick = [this, source] { selectOperator (source); };
@@ -3104,7 +3133,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "ALGORITHMS", { 14, 10, 300, 16 });
+        paintSectionTitle (g, "ALGORITHMS", algorithmsTitle);
         paintSectionTitle (g, "OPERATORS", operatorsTitle);
         IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
 
@@ -3112,17 +3141,11 @@ public:
         {
             const auto colour = FmDiagram::oscColour (selectedOperator);
             IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-            IlanaTheme::paintCardTitle (g, operatorCard.reduced (12, 0).withHeight (26),
-                                        "OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR", colour);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (soundingText(), operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
+            IlanaTheme::paintCardHeader (g, operatorCard.reduced (12, 0).withHeight (26),
+                                         "OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR", soundingText(), colour, 0);
         }
 
-        IlanaTheme::paintCardTitle (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", fmColour());
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
+        IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", "rows modulate columns", fmColour(), 0);
 
         // Matrix cells: tinted by the source, brighter the deeper the route.
         const auto paintCell = [&g] (juce::Rectangle<float> cell, float amount, juce::Colour colour)
@@ -3309,15 +3332,16 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
-        area.removeFromTop (18);
 
         matrixCard = area.removeFromRight (area.getWidth() * 48 / 100);
         area.removeFromRight (10);
 
-        // Left column: algorithms, the diagram, the selected operator.
+        // Left column: algorithms, the diagram, the selected operator; its
+        // heading on the FM MATRIX card's header line.
+        algorithmsTitle = area.removeFromTop (headingHeight).withTrimmedLeft (12);
         algorithms.setBounds (area.removeFromTop (area.getWidth() >= 16 * 38 ? 48 : 80));
         area.removeFromTop (6);
-        operatorsTitle = area.removeFromTop (18).withX (14).withWidth (300);
+        operatorsTitle = area.removeFromTop (headingHeight).withTrimmedLeft (12);
         operatorCard = area.removeFromBottom (juce::jmin (176, area.getHeight() / 2));
         area.removeFromBottom (8);
         diagram.setBounds (area);
@@ -3517,7 +3541,7 @@ private:
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard, operatorCard, operatorsTitle, noiseHead;
+    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, operatorsTitle, noiseHead;
     std::vector<std::atomic<float>*> tuneValues;
     std::array<int, OscillatorIds::count> lastTune {};
     std::vector<int> shown;
@@ -3707,39 +3731,39 @@ public:
           clockDiv (p.apvts, "clock_div", "S&H CLOCK", msegColour(), false),
           processorRef (p),
           arpDisplay (p, arpColour()),
-          arpOn (p.apvts, "arp_on", "ARP"),
+          arpOn (p.apvts, "arp_on", "ON"),
           arpMode (p.apvts, "arp_mode", "MODE"),
           arpDiv (p.apvts, "arp_div", "RATE"),
-          arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), false),
-          arpGate (p.apvts, "arp_gate", "GATE", arpColour(), false),
-          arpChance (p.apvts, "arp_chance", "CHANCE", arpColour(), false),
+          arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), true),
+          arpGate (p.apvts, "arp_gate", "GATE", arpColour(), true),
+          arpChance (p.apvts, "arp_chance", "CHANCE", arpColour(), true),
           genScale (p.apvts, "gen_scale", "SCALE"),
           genRoot (p.apvts, "gen_root", "ROOT"),
           genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
-          sprayOn (p.apvts, "spray_on", "SPRAY"),
+          sprayOn (p.apvts, "spray_on", "ON"),
           sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
           sprayStrum (p.apvts, "spray_strum", "STRUM"),
           engineTabs ({ "ARP", "EUCLID", "PROB SEQ" }, { arpColour(), euclidColour(), pseqColour() }, false),
           euclidDisplay (p, euclidColour()),
-          eucOn (p.apvts, "euc_on", "EUCLID"),
+          eucOn (p.apvts, "euc_on", "ON"),
           eucTarget (p.apvts, "euc_target", "TARGET"),
           eucDiv (p.apvts, "euc_div", "RATE"),
-          eucSteps (p.apvts, "euc_steps", "STEPS", euclidColour(), false),
-          eucHits (p.apvts, "euc_hits", "HITS", euclidColour(), false),
-          eucRotate (p.apvts, "euc_rotate", "ROTATE", euclidColour(), false),
-          eucGate (p.apvts, "euc_gate", "GATE", euclidColour(), false),
+          eucSteps (p.apvts, "euc_steps", "STEPS", euclidColour(), true),
+          eucHits (p.apvts, "euc_hits", "HITS", euclidColour(), true),
+          eucRotate (p.apvts, "euc_rotate", "ROTATE", euclidColour(), true),
+          eucGate (p.apvts, "euc_gate", "GATE", euclidColour(), true),
           pseqEditor (p, pseqColour()),
-          pseqOn (p.apvts, "pseq_on", "SEQ"),
+          pseqOn (p.apvts, "pseq_on", "ON"),
           pseqDiv (p.apvts, "pseq_div", "RATE"),
-          pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), false),
-          pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), false)
+          pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), true),
+          pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), true)
     {
-        sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), false);
-        sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), false);
-        spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), false);
-        strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "STRUM TIME", generateColour(), false);
-        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), false);
-        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), false);
+        sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), true);
+        sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), true);
+        spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), true);
+        strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "STRUM TIME", generateColour(), true);
+        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), true);
+        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), true);
         addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
                 *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity, sprayStrum, *strumTime);
 
@@ -3774,6 +3798,7 @@ public:
         showLfo (0, 0);
         showLfo (1, 1);
 
+        msegLoop.showAsSwitch();
         addAll (*this, mseg, msegLoop, msegRate, clockDiv,
                 arpDisplay, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
 
@@ -3804,10 +3829,12 @@ public:
     }
 
     static juce::Colour msegColour() { return juce::Colour (0xffe0e6f0); }
-    static juce::Colour arpColour() { return juce::Colour (0xffff7ac6); }
-    static juce::Colour generateColour() { return juce::Colour (0xffffd447); }
-    static juce::Colour euclidColour() { return juce::Colour (0xff4fd1c5); }
-    static juce::Colour pseqColour() { return juce::Colour (0xffff9f4a); }
+    // Not modulation sources: the accent (a source's colour always means
+    // that source).
+    static juce::Colour arpColour() { return IlanaTheme::accent(); }
+    static juce::Colour generateColour() { return IlanaTheme::accent(); }
+    static juce::Colour euclidColour() { return IlanaTheme::accent(); }
+    static juce::Colour pseqColour() { return IlanaTheme::accent(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -3823,16 +3850,31 @@ public:
 
         if (part == Part::modulators)
         {
-            // Each row's tag in the colour of the LFO it edits (its buttons name it).
-            title (stepTitle1, "STEPS", IlanaSynthAudioProcessor::lfoColour (step1.getLfoIndex()));
-            title (stepTitle2, "STEPS", IlanaSynthAudioProcessor::lfoColour (step2.getLfoIndex()));
+            // Two step rows, A and B, each tagged in the colour of the LFO it
+            // edits; the subtitle says whether that LFO plays its steps.
+            const auto stepNote = [this] (int lfo)
+            {
+                const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+                return shape != nullptr && juce::roundToInt (shape->load()) == LfoShapes::Steps
+                           ? juce::String ("LFO ") + juce::String (lfo + 1)
+                           : juce::String ("LFO ") + juce::String (lfo + 1) + " isn't playing these: set its SHAPE to Steps";
+            };
+            const auto pillsWidth = [this] (int rowIndex)
+            {
+                auto left = 100000;
+                for (auto& button : lfoButtons[(size_t) rowIndex])
+                    if (button.isVisible())
+                        left = juce::jmin (left, button.getX());
+                return left < 100000 ? stepTitle1.getRight() - left + 12 : 0;
+            };
+            IlanaTheme::paintCardHeader (g, stepTitle1, "STEPS A", stepNote (step1.getLfoIndex()),
+                                         IlanaSynthAudioProcessor::lfoColour (step1.getLfoIndex()), pillsWidth (0));
+            IlanaTheme::paintCardHeader (g, stepTitle2, "STEPS B", stepNote (step2.getLfoIndex()),
+                                         IlanaSynthAudioProcessor::lfoColour (step2.getLfoIndex()), pillsWidth (1));
 
             IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
-            title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("drag points; drag the MSEG chip onto a knob to use it", msegCard.reduced (12, 0).removeFromTop (26),
-                        juce::Justification::centredRight);
+            IlanaTheme::paintCardHeader (g, msegCard.reduced (12, 0).removeFromTop (26), "MSEG",
+                                         "drag points; drag the MSEG chip onto a knob to use it", msegColour(), 0);
             return;
         }
 
@@ -3840,13 +3882,11 @@ public:
         const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : arpColour();
         IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, tabColour.withAlpha (0.35f));
         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
-        title (arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", tabColour);
-        title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
+        IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (26), "GENERATE",
+                                     "snap to a scale, spray and strum the notes", generateColour(), 0);
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         {
-            // A hint under the header: what the tab shown does right now.
+            // The subtitle says what the tab shown does right now.
             const auto arpOnNow = readOn ("arp_on"), seqOnNow = readOn ("pseq_on"), euclidOnNow = readOn ("euc_on");
             juce::String hint;
 
@@ -3860,47 +3900,50 @@ public:
                 hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
 
             if (tab == 1 && ! euclidOnNow)
-                hint = "switch EUCLID on to use it";
+                hint = "switch it on (top right) to use it";
 
-            g.drawText (hint, engineHint, juce::Justification::centredLeft);
+            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", hint, tabColour,
+                                         arpCard.getRight() - engineTabs.getX() + 80);
         }
-        // "NOTE SPRAY" divider: the label, then a hairline to the card edge.
-        if (! sprayDivider.isEmpty())
+        // Generate's group headings: the label, then a hairline to the end
+        // of the group.
+        for (const auto& [area, text] : { std::pair<juce::Rectangle<int>, const char*> { scaleDivider, "SCALE" },
+                                          std::pair<juce::Rectangle<int>, const char*> { sprayDivider, "NOTE SPRAY" } })
         {
+            if (area.isEmpty())
+                continue;
+
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            const juce::String text ("NOTE SPRAY");
             const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
-            g.setColour (generateColour().withAlpha (0.9f));
+            g.setColour (IlanaTheme::Ui::text2);
             g.setFont (font);
-            g.drawText (text, sprayDivider.withTrimmedLeft (3), juce::Justification::centredLeft);
+            g.drawText (text, area, juce::Justification::centredLeft);
             g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRect (sprayDivider.getX() + width + 12, sprayDivider.getCentreY(), sprayDivider.getWidth() - width - 15, 1);
+            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, area.getWidth() - width - 16), 1);
         }
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("scale snap, note spray and strum", generateCard.reduced (12, 0).removeFromTop (26),
-                    juce::Justification::centredRight);
+
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
 
+        // Each row's LFO buttons at the right of its header, like a card's tabs.
         const auto layoutPicker = [this] (int rowIndex, juce::Rectangle<int> header)
         {
-            header.removeFromLeft (80);
             auto& buttons = lfoButtons[(size_t) rowIndex];
             auto count = 0;
 
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
                 count += buttons[(size_t) lfo].isVisible() ? 1 : 0;
 
-            const auto width = juce::jmin (60, header.getWidth() / juce::jmax (1, count));
+            const auto width = juce::jmin (60, header.getWidth() / 2 / juce::jmax (1, count));
+            auto strip = header.removeFromRight (width * count).reduced (0, 3);
 
             for (auto& button : buttons)
                 if (button.isVisible())
-                    button.setBounds (header.removeFromLeft (width).reduced (2, 0));
+                    button.setBounds (strip.removeFromLeft (width).reduced (2, 0));
         };
 
         // MOD: the two step rows and the MSEG. SEQ: arp and generate side
@@ -3915,14 +3958,14 @@ public:
         const auto stepHeight = (area.getHeight() - msegHeight - 16) / 2;
 
         auto row = area.removeFromTop (stepHeight);
-        stepTitle1 = row.removeFromTop (22).withWidth (80);
-        layoutPicker (0, row.withHeight (22).translated (0, -22).withTrimmedBottom (2));
+        stepTitle1 = row.removeFromTop (26).withTrimmedLeft (12);
+        layoutPicker (0, stepTitle1);
         step1.setBounds (row);
 
         area.removeFromTop (8);
         row = area.removeFromTop (stepHeight);
-        stepTitle2 = row.removeFromTop (22).withWidth (80);
-        layoutPicker (1, row.withHeight (22).translated (0, -22).withTrimmedBottom (2));
+        stepTitle2 = row.removeFromTop (26).withTrimmedLeft (12);
+        layoutPicker (1, stepTitle2);
         step2.setBounds (row);
 
         area.removeFromTop (8);
@@ -3951,71 +3994,49 @@ public:
 
         auto arpArea = arpCard.reduced (10, 0);
         auto header = arpArea.removeFromTop (26);
+        // The shown engine's on switch in the header's switch place, its tabs
+        // just left of it.
+        const auto engineSwitch = IlanaTheme::cardSwitchBounds (arpCard, header.getCentreY());
+        for (auto* toggle : { &arpOn, &eucOn, &pseqOn })
+            toggle->setBounds (engineSwitch);
+        header.setRight (engineSwitch.getX() - 8);
         engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
-        engineHint = arpArea.removeFromTop (14).withTrimmedLeft (4);
+        engineHint = arpCard.reduced (12, 0).withHeight (26);
         arpArea.removeFromBottom (6);
         const auto display = arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - knobRowHeight - 8)).reduced (0, 2);
         arpArea.removeFromTop (8);
         arpDisplay.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
-        layoutRow (arpArea, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance });
-        // Euclid and the probability sequencer on the arp's six columns (and
-        // so on Generate's below): Euclid's switch over TARGET in the first,
-        // RATE in the second, its four knobs in the rest.
-        {
-            const auto column = arpArea.getWidth() / 6;
-            layoutRow (arpArea.withTrimmedLeft (column), { &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
-            const auto top = eucDiv.getY();
-            eucOn.setBounds (arpArea.getX() + 3, top, column - 6, 13 + 24);
-            eucTarget.setBounds (arpArea.getX() + 3, top + 13 + 24 + 6, column - 6, 13 + 24);
-        }
-        layoutRow (arpArea, { &pseqOn, &pseqDiv, nullptr, &pseqLength, &pseqGate, nullptr });
 
-        // Generate card: scale row, then note spray (switch and direction,
-        // with its amounts as one row of knobs).
+        // Every engine's row on one six-column grid, packed from the left,
+        // and the same grid runs through Generate below.
+        layoutRow (arpArea, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, nullptr });
+        layoutRow (arpArea, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
+        layoutRow (arpArea, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
+
+        // Generate: two groups side by side, each under its own heading:
+        // SCALE (two columns) and NOTE SPRAY (four, its switch on the
+        // heading's line), rows of full-size controls on the shared grid.
         auto generate = generateCard.reduced (10, 0);
         generate.removeFromTop (26);
         generate.removeFromBottom (6);
 
-        // Wide card: the same six columns as the arp row above, so every
-        // control lines up with the one over it: the scale and spray settings
-        // under ARP / MODE / RATE, the spray's amounts under OCTAVES / GATE /
-        // CHANCE. Two rows, centred in the card, labels on one line per row.
-        if (generate.getWidth() > 700)
-        {
-            const auto rowHeight = juce::jmin (knobRowHeight, (generate.getHeight() - 18) / 2);
-            auto block = generate.withSizeKeepingCentre (generate.getWidth(), rowHeight * 2 + 18);
-            const auto first = block.removeFromTop (rowHeight);
-            const auto gap = block.removeFromTop (18);
-            const auto second = block;
+        const auto column = generate.getWidth() / 6;
+        const auto rowHeight = juce::jmin (knobRowHeight, (generate.getHeight() - 22 - 6) / 2);
+        auto block = generate.withSizeKeepingCentre (generate.getWidth(), juce::jmin (generate.getHeight(), 22 + rowHeight * 2 + 6));
+        const auto headings = block.removeFromTop (22);
+        const auto first = block.removeFromTop (rowHeight);
+        block.removeFromTop (6);
+        const auto second = block.removeFromTop (rowHeight);
 
-            layoutRow (first, { &genScale, &genRoot, &genSnap, sprayCount.get(), sprayRange.get(), spraySpread.get() });
-            layoutRow (second, { &sprayOn, &sprayDirection, &sprayStrum, sprayChance.get(), sprayVelocity.get(), strumTime.get() });
+        scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
+        sprayDivider = headings.withTrimmedLeft (column * 2).reduced (3, 0);
+        sprayOn.setBounds (sprayDivider.getRight() - 56, sprayDivider.getCentreY() - 13 - 10, 56, 13 + 20);
+        sprayDivider.setRight (sprayOn.getX() - 6);
 
-            // NOTE SPRAY heads the second row's settings.
-            sprayDivider = gap.withWidth (generate.getWidth() / 2).withTrimmedLeft (3).withTrimmedRight (6);
-        }
-        else
-        {
-            auto settingsArea = generate;
-            auto scaleRow = settingsArea.removeFromTop (46);
-            genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 42 / 100).reduced (3, 1));
-            genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 40 / 100).reduced (3, 1));
-            genSnap.setBounds (scaleRow.reduced (3, 1));
-
-            sprayDivider = settingsArea.removeFromTop (22);
-
-            auto sprayRow = settingsArea.removeFromTop (46);
-            const auto third = sprayRow.getWidth() / 3;
-            sprayOn.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
-            sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
-            sprayStrum.setBounds (sprayRow.reduced (3, 1));
-
-            settingsArea.removeFromTop (4);
-            layoutRow (settingsArea, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(),
-                                       strumTime.get() });
-        }
+        layoutRow (first, { &genScale, &genRoot, &sprayDirection, &sprayStrum, sprayCount.get(), sprayRange.get() });
+        layoutRow (second, { &genSnap, nullptr, spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() });
     }
 
     void visibilityChanged() override
@@ -4110,6 +4131,8 @@ private:
         dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
         dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
         repaint (engineHint);
+        repaint (stepTitle1); // their notes follow the LFOs' shapes
+        repaint (stepTitle2);
 
         const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
         const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : 0.45f;
@@ -4175,7 +4198,7 @@ private:
     ComboControl pseqDiv;
     KnobControl pseqLength, pseqGate;
     juce::Rectangle<int> engineHint;
-    juce::Rectangle<int> sprayDivider;
+    juce::Rectangle<int> sprayDivider, scaleDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
 };
@@ -4194,7 +4217,7 @@ public:
           filterDisplay (p),
           lfoThumbs (p, [] (int index) { return lfoColour (index); }),
           filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
-          envTabs ({ "AMP", "FILT", "FILT 2", "MOD", "ENV 5" },
+          envTabs ({ "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" },
                    { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
           lfoTabs ({}, {}, true)
     {
@@ -4283,7 +4306,7 @@ public:
         subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
         subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "SHAPE");
         subOctave = std::make_unique<ComboControl> (p.apvts, "sub_octave", "OCTAVE");
-        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", subColour(), false);
+        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", subColour(), true);
         noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel);
 
@@ -4416,14 +4439,14 @@ public:
         return IlanaSynthAudioProcessor::lfoColour (index);
     }
 
-    static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffff4fd8) : juce::Colour (0xffb28aff); }
+    static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
 
     static juce::Colour envColour (int index)
     {
         switch (index)
         {
-            case 1: return juce::Colour (0xffff4fd8);
-            case 2: return juce::Colour (0xffb28aff);
+            case 1: return juce::Colour (0xffc86bff);
+            case 2: return juce::Colour (0xff8f9dff);
             case 3: return juce::Colour (0xff8fff3b);
             case 4: return juce::Colour (0xff5b8cff);
             default: return modSourceColour ((int) Mod::Source::AmpEnv);
@@ -4698,7 +4721,7 @@ private:
         auto title = inner.removeFromTop (18);
         strip.remove->setBounds (title.removeFromRight (22).withSizeKeepingCentre (20, 15));
         title.removeFromRight (6);
-        strip.on->setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (30));
+        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, title.getCentreY()));
         inner.removeFromTop (2);
 
         if (! strip.shownOn)
@@ -4725,25 +4748,19 @@ private:
         layoutRow (inner, strip.modeKnobs[(size_t) mode]);
     }
 
-    static juce::Colour subColour() { return juce::Colour (0xffff9f43); }
+    static juce::Colour subColour() { return IlanaTheme::accent(); }
 
     void layoutSubCard()
     {
         auto inner = subCard.reduced (10, 8);
         auto title = inner.removeFromTop (18);
         title.removeFromRight (28); // where an oscillator card has its remove button
-        subOn->setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (30));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, title.getCentreY()));
         inner.removeFromTop (2);
 
-        // Same columns as an oscillator card: the menus where its display is,
-        // the knobs in its first two knob columns.
-        auto menus = inner.removeFromLeft (juce::jmin (170, inner.getWidth() / 3));
-        inner.removeFromLeft (8);
-        const auto menuHeight = 13 + 24 + 4;
-        menus = menus.withSizeKeepingCentre (menus.getWidth(), juce::jmin (menus.getHeight(), menuHeight * 2));
-        subShape->setBounds (menus.removeFromTop (menuHeight).withTrimmedBottom (4));
-        subOctave->setBounds (menus.withTrimmedBottom (4));
-        layoutRow (inner.withWidth (inner.getWidth() * 2 / 6), { subLevel.get(), noiseLevel.get() });
+        // One row across the whole card: the sub's menus and level, and the
+        // noise.
+        layoutRow (inner, { subShape.get(), subOctave.get(), subLevel.get(), noiseLevel.get() });
     }
 
     // The oscillator cards scroll inside this column.
@@ -4761,7 +4778,7 @@ private:
     int lastRevealVersion = -1;
     static constexpr int addButtonHeight = 36;
     static constexpr int foldedHeight = 36;
-    static constexpr int subCardHeight = 130;
+    static constexpr int subCardHeight = 8 + 20 + 13 + 58 + 16 + 12;
     juce::Rectangle<int> subCard;
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
@@ -4824,13 +4841,9 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (14, 6, 200, 18));
-
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText (juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use.   "
-                        "Tip: drag a source onto any knob, then drag the coloured dot beside the knob to set the depth.",
-                    juce::Rectangle<int> (120, 6, 860, 18), juce::Justification::centredLeft);
+        paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 2, 1000, headingHeight),
+                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use.   "
+                           "Tip: drag a source onto any knob, then drag the coloured dot beside the knob to set the depth.");
 
         // Column headings, aligned with MatrixRow's layout.
         using C = MatrixRow::Columns;
@@ -5263,16 +5276,22 @@ private:
 // blue-violet, time and space green-cyan, dynamics teal, filters/EQ pink.
 inline juce::Colour fxColour (int type)
 {
+    // One colour per category, as the library groups them (it read as
+    // confetti when colours followed the individual effects).
     switch (type)
     {
-        case 1: case 2: case 3: case 25: case 26: case 28: return juce::Colour (0xffff7a45); // amp, drive, crush, ring, octaver, feedback
-        case 4: case 16: case 19: case 20: case 21:        return juce::Colour (0xff4fd8c8); // comp, gate, utility, OTT, limiter
-        case 6: case 7: case 8: case 14: case 15: case 22: case 23: case 24:
-                                                           return juce::Colour (0xff7d8cff); // phaser .. freq shift
-        case 9: case 10: case 17:                          return juce::Colour (0xff6fe38a); // delay, stutter, tape stop
-        case 11: case 12: case 13:                         return juce::Colour (0xff45c8ff); // smear, freeze, reverb
-        case 5: case 18: case 27: case 29:                 return juce::Colour (0xffff5fb0); // comb, tilt, vowel, EQ
-        default:                                           return IlanaTheme::Ui::text3;
+        case 13: case 9: case 15: case 11: case 12: case 8: case 22:
+            return juce::Colour (0xff5cc4e8); // space: reverb, delay, dimension, smear, freeze, haas, widener
+        case 2: case 1: case 3: case 26: case 28:
+            return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback
+        case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5:
+            return juce::Colour (0xff9a8cff); // motion: chorus .. comb
+        case 16: case 10: case 17:
+            return juce::Colour (0xff7ad98e); // rhythm: trance gate, stutter, tape stop
+        case 29: case 18: case 4: case 20: case 21: case 19:
+            return juce::Colour (0xffe0c35c); // tone & level: eq, tilt, comp, ott, limiter, utility
+        default:
+            return IlanaTheme::Ui::text3;
     }
 }
 
@@ -5442,6 +5461,57 @@ public:
         if (onClick != nullptr)
             onClick (event.getPosition());
     }
+};
+
+// An FX slot's on switch for modules without an on parameter of their own:
+// on means playing, off bypasses the slot. Drawn like a ToggleControl switch
+// (13 px of label space above the pill), so every module's header matches.
+class SlotSwitch : public juce::Component,
+                   public juce::SettableTooltipClient,
+                   private juce::Timer
+{
+public:
+    SlotSwitch (IlanaSynthAudioProcessor& p, int slotIndex)
+        : parameter (p.apvts.getParameter ("fx_slot" + juce::String (slotIndex + 1) + "_bypass"))
+    {
+        setTooltip ("On\nSwitch this effect off to bypass its slot.");
+        startTimerHz (10);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintSwitch (g, getLocalBounds().withTrimmedTop (13).toFloat(), isOn() ? 1.0f : 0.0f,
+                                 IlanaTheme::accent(), isMouseOver() ? 1.0f : 0.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        if (parameter == nullptr)
+            return;
+
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost (isOn() ? 1.0f : 0.0f);
+        parameter->endChangeGesture();
+        repaint();
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+private:
+    bool isOn() const { return parameter == nullptr || parameter->getValue() < 0.5f; }
+
+    void timerCallback() override
+    {
+        if (isShowing() && isOn() != shownOn)
+        {
+            shownOn = isOn();
+            repaint();
+        }
+    }
+
+    juce::RangedAudioParameter* parameter = nullptr;
+    bool shownOn = true;
 };
 
 class FxPage : public juce::Component,
@@ -5692,6 +5762,7 @@ public:
 
         // The final stage after the rack.
         softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "SOFT CLIP");
+        softClip->showAsSwitch();
         clipGain = std::make_unique<StripKnob> (p, "master_clip_gain", "Clip Gain");
         addAndMakeVisible (*softClip);
         addAndMakeVisible (*clipGain);
@@ -5733,6 +5804,12 @@ public:
                 }
             }
         };
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            slotSwitches[(size_t) slot] = std::make_unique<SlotSwitch> (p, slot);
+            stackContent.addChildComponent (*slotSwitches[(size_t) slot]);
+        }
 
         stackView.setViewedComponent (&stackContent, false);
         stackView.setScrollBarsShown (true, false);
@@ -5785,7 +5862,7 @@ public:
 
         const auto type = getSlotType (selectedSlot);
 
-        paintSectionTitle (g, "CHAIN", { 14, 17, 200, 14 }); // on the toolbar's centre line
+        paintSectionTitle (g, "CHAIN", { headingX, 17, 200, 14 }); // on the toolbar's centre line
 
         if (! outputStrip.isEmpty())
         {
@@ -5795,8 +5872,10 @@ public:
             IlanaTheme::paintCardTitle (g, outputStrip.withWidth (110).withTrimmedLeft (14), "OUTPUT", IlanaTheme::Ui::text2);
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("after the rack, before the master volume", outputStrip.reduced (14, 0),
-                        juce::Justification::centredRight);
+            // Read in order after its controls, like a card's subtitle.
+            g.drawText ("after the rack, before the master volume",
+                        outputStrip.withLeft (clipGain != nullptr ? clipGain->getRight() + 24 : outputStrip.getX()).withTrimmedRight (14),
+                        juce::Justification::centredLeft);
         }
 
         g.setColour (IlanaTheme::Ui::text2);
@@ -5813,7 +5892,7 @@ public:
             const auto selected = slot == selectedSlot;
             const auto slotType = getSlotType (slot);
             const auto prefix = "fx_slot" + juce::String (slot + 1);
-            const auto bypassed = processorRef.apvts.getParameter (prefix + "_bypass")->getValue() > 0.5f;
+            const auto bypassed = isModuleOff (slot);
             const auto soloed = processorRef.apvts.getParameter (prefix + "_solo")->getValue() > 0.5f;
             const auto dragSource = cardDragActive && slot == selectedSlot;
             const auto dim = bypassed ? 0.45f : 1.0f;
@@ -6425,6 +6504,9 @@ private:
     void layoutStack()
     {
         stackPanels.clear();
+
+        for (auto& slotSwitch : slotSwitches)
+            slotSwitch->setVisible (false);
         const auto width = juce::jmax (100, stackView.getWidth() - stackView.getScrollBarThickness() - 4);
         auto y = 0;
         std::array<bool, 64> placed {};
@@ -6464,6 +6546,13 @@ private:
             panel.bounds = { 0, y, width, height };
             y += height + 8;
 
+            // Duplicates share settings but bypass on their own.
+            if (panel.duplicate)
+            {
+                slotSwitches[(size_t) slot]->setVisible (true);
+                slotSwitches[(size_t) slot]->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
+            }
+
             if (! panel.duplicate)
             {
                 auto body = panel.bounds.reduced (10, 0);
@@ -6484,8 +6573,18 @@ private:
                         items.push_back (item);
                 }
 
-                if (power != nullptr)
-                    power->setBounds (panel.bounds.getRight() - 12 - 66 - (type == 13 ? 110 : 0) - 56, panel.bounds.getY() - 9, 56, 34);
+                // One on switch per module, always at the header's switch
+                // place: its own on parameter, or else the slot's bypass.
+                if (enableParamFor (type) != nullptr && power != nullptr)
+                    power->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
+                else
+                {
+                    if (power != nullptr)
+                        items.insert (items.begin(), power);
+
+                    slotSwitches[(size_t) slot]->setVisible (true);
+                    slotSwitches[(size_t) slot]->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
+                }
 
                 if (items.size() > 8)
                 {
@@ -6495,8 +6594,9 @@ private:
                 }
                 else
                 {
+                    // A short row is centred in the card, not pinned left.
                     const auto maxWidth = juce::jmin (body.getWidth(), (int) items.size() * 120);
-                    layoutRow (body.removeFromTop (112).withWidth (maxWidth), items);
+                    layoutRow (body.removeFromTop (112).withSizeKeepingCentre (maxWidth, 112), items);
                 }
 
                 if (type == 29)
@@ -6509,11 +6609,13 @@ private:
                     gateGrid->setBounds (body.removeFromTop (74).reduced (0, 2));
 
                 if (type == 13)
-                    loadIrButton.setBounds (panel.bounds.getRight() - 110, panel.bounds.getY() + 6, 96, 18);
+                    loadIrButton.setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, 0).getX() - 8 - 96, panel.bounds.getY() + 5, 96, 18);
             }
 
             stackPanels.push_back (panel);
         }
+
+        updateModuleDimming();
 
         // Like PLAY's ADD OSCILLATOR: a quiet card after the last effect, while
         // the rack has room.
@@ -6671,12 +6773,12 @@ private:
             const auto colour = fxColour (panel.type);
             const auto bounds = panel.bounds.toFloat();
             const auto selected = panel.slot == selectedSlot;
-            const auto bypassed = processorRef.apvts.getParameter ("fx_slot" + juce::String (panel.slot + 1) + "_bypass")->getValue() > 0.5f;
+            const auto off = isModuleOff (panel.slot);
 
-            if (selected)
+            if (selected && ! off)
                 IlanaTheme::paintGlow (g, bounds, 8.0f, colour, 1.0f);
 
-            IlanaTheme::paintCard (g, bounds, 8.0f, colour);
+            IlanaTheme::paintCard (g, bounds, 8.0f, off ? IlanaTheme::Ui::line : colour);
 
             if (selected)
             {
@@ -6685,17 +6787,9 @@ private:
             }
 
             auto header = panel.bounds.withHeight (28).reduced (12, 0);
-            g.setColour (colour.withAlpha (bypassed ? 0.4f : 1.0f));
-            g.fillRoundedRectangle (header.removeFromLeft (4).toFloat().reduced (0.0f, 7.0f), 2.0f);
-            header.removeFromLeft (8);
-            g.setColour (IlanaTheme::Ui::text.withAlpha (bypassed ? 0.5f : 1.0f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText (getSlotName (panel.type).toUpperCase(), header, juce::Justification::centredLeft);
-
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            const auto note = juce::String ("SLOT ") + juce::String (panel.slot + 1) + (bypassed ? "  -  BYPASSED" : "");
-            g.drawText (note, header.withTrimmedRight (panel.type == 13 ? 110 : 0), juce::Justification::centredRight);
+            IlanaTheme::paintCardHeader (g, header, getSlotName (panel.type).toUpperCase(),
+                                         juce::String ("slot ") + juce::String (panel.slot + 1) + (off ? "  -  off" : ""),
+                                         off ? IlanaTheme::Ui::text3 : colour, panel.type == 13 ? 220 : 110);
 
             if (panel.duplicate)
             {
@@ -6802,7 +6896,12 @@ private:
         if (cardDragActive)
             repaint();
         else if (animating || changeGate.check (processorRef.getUiEpoch()))
+        {
             repaint (juce::Rectangle<int> (0, rowsTop - 10, 336, numVisibleRows() * rowHeight + 20));
+            // A module switched on or off: its card and controls follow.
+            if (updateModuleDimming())
+                stackContent.repaint();
+        }
     }
 
     void mouseExit (const juce::MouseEvent&) override
@@ -6834,6 +6933,66 @@ private:
     juce::Viewport stackView;
     FxStackContent stackContent;
     juce::Rectangle<int> addEffectCard;
+    std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
+
+    // The module's own on parameter, where it has one.
+    static const char* enableParamFor (int type)
+    {
+        switch (type)
+        {
+            case 2:  return "fx_drive_on";
+            case 3:  return "fx_crush_on";
+            case 5:  return "fx_comb_on";
+            case 6:  return "fx_phaser_on";
+            case 7:  return "fx_chorus_on";
+            case 9:  return "fx_delay_on";
+            case 11: return "fx_smear_on";
+            case 13: return "fx_reverb_on";
+            default: return nullptr;
+        }
+    }
+
+    // Off: the slot is bypassed, or the module's own switch is off.
+    bool isModuleOff (int slot) const
+    {
+        const auto prefix = "fx_slot" + juce::String (slot + 1);
+        if (processorRef.apvts.getRawParameterValue (prefix + "_bypass")->load() > 0.5f)
+            return true;
+
+        if (const auto* id = enableParamFor (getSlotType (slot)))
+            if (const auto* value = processorRef.apvts.getRawParameterValue (id))
+                return value->load() < 0.5f;
+
+        return false;
+    }
+
+    // An effect that is off dims its controls (the arcs go grey).
+    bool updateModuleDimming()
+    {
+        auto changed = false;
+
+        for (const auto& panel : stackPanels)
+        {
+            if (panel.duplicate)
+                continue;
+
+            const auto alpha = isModuleOff (panel.slot) ? 0.45f : 1.0f;
+
+            for (auto* item : slotGroups[(size_t) panel.type])
+            {
+                auto* toggle = dynamic_cast<ToggleControl*> (item);
+                const auto isPower = toggle != nullptr && toggle->isSwitch() && item->getY() < panel.bounds.getY() + 20;
+
+                if (! isPower && item->getAlpha() != alpha)
+                {
+                    item->setAlpha (alpha);
+                    changed = true;
+                }
+            }
+        }
+
+        return changed;
+    }
     std::vector<StackPanel> stackPanels;
     int selectedSlot = 0;
     static constexpr int rowHeight = 39;
@@ -6968,6 +7127,13 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (4.0f);
+        // A floating layer: a soft dark shadow under it, so the cards it
+        // covers read as behind it rather than cut off.
+        for (int ring = 4; ring >= 1; --ring)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.12f));
+            g.fillRoundedRectangle (bounds.expanded ((float) ring).translated (0.0f, 2.0f), 8.0f + (float) ring);
+        }
         IlanaTheme::paintGlow (g, bounds, 8.0f, IlanaTheme::accent(), 0.9f);
         g.setColour (IlanaTheme::Ui::panel);
         g.fillRoundedRectangle (bounds, 8.0f);
@@ -7130,6 +7296,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
     legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
+    legatoToggle->showAsSwitch();
     legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
     content.addAndMakeVisible (*legatoToggle);
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
@@ -7634,10 +7801,13 @@ void IlanaSynthAudioProcessorEditor::resized()
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (4);
     voicesKnob->setBounds (strip.removeFromRight (88));
-    voiceModeBox->setBounds (strip.removeFromRight (96).withSizeKeepingCentre (92, 40));
+    // The bar's menu and switch put their name on the knobs' title line and
+    // their box or switch on the value line, like the knobs' text beside them.
+    const auto titleTop = strip.getCentreY() - 15;
+    voiceModeBox->setBounds (strip.removeFromRight (96).withTop (titleTop).withHeight (13 + 24).reduced (2, 0));
     strip.removeFromRight (6);
     bendKnob->setBounds (strip.removeFromRight (86));
-    legatoToggle->setBounds (strip.removeFromRight (80).withSizeKeepingCentre (76, 44));
+    legatoToggle->setBounds (strip.removeFromRight (80).withTop (titleTop).withHeight (13 + 20).reduced (2, 0));
     glideKnob->setBounds (strip.removeFromRight (92));
     strip.removeFromRight (6);
 
@@ -7685,7 +7855,7 @@ void IlanaSynthAudioProcessorEditor::resized()
         juce::Desktop::getInstance().getAnimator().cancelAnimation (scopePanel.get(), false);
         scopePanel->setAlpha (1.0f);
         scopePanel->setBounds (expanded ? pageArea
-                                        : pageArea.removeFromBottom (320).removeFromRight (476).translated (6, 4));
+                                        : pageArea.reduced (8).removeFromBottom (320).removeFromRight (476)); // inside the page's frame
     }
 }
 

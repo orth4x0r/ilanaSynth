@@ -220,6 +220,10 @@ inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, con
 // button on cards that have one.
 inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int titleCentreY, bool besideRemoveButton = false)
 {
+    // Level with the title's letters, which sit a touch below the line's
+    // centre.
+    titleCentreY += 1;
+
     if (besideRemoveButton)
     {
         constexpr int width = 56, rightInset = 8 + 28;

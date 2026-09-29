@@ -8429,9 +8429,79 @@ void runProfile (int unison)
 #include "PolishTests.inc"
 #include "DemoRender.inc"
 
+// ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
+// (default 4) of that preset at 44.1 kHz; print % of one core, then profile.
+void runPresetProfile (const juce::String& name)
+{
+   #if JUCE_WINDOWS
+    IlanaSynthAudioProcessor processor;
+    const auto index = processor.getFactoryPresetNames().indexOf (name);
+
+    if (index < 0)
+    {
+        std::cout << "no factory preset named " << name << std::endl;
+        return;
+    }
+
+    const auto blockSize = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_BLOCK", "512").getIntValue();
+    processor.prepareToPlay (44100.0, blockSize);
+    processor.loadFactoryPreset (index);
+
+    // ILANA_PROFILE_SET="osc1_mode=1,osc1_excite=9": parameter overrides.
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_SET", ""), ",", ""))
+        if (pair.contains ("="))
+            setParam (processor, pair.upToFirstOccurrenceOf ("=", false, false).trim(),
+                      pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+
+    processor.panic();
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer noteOns;
+    const auto notes = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_NOTES", "4").getIntValue();
+
+    for (int note = 0; note < notes; ++note)
+        noteOns.addEvent (juce::MidiMessage::noteOn (1, 60 + note * 4, (juce::uint8) 100), 0);
+
+    processor.processBlock (buffer, noteOns);
+    const auto seconds = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_SECONDS", "20").getIntValue();
+    const auto blocks = 44100 * seconds / blockSize;
+    // ILANA_PROFILE_RESTRIKE=<blocks>: strike the notes again that often.
+    const auto restrike = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_RESTRIKE", "0").getIntValue();
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    auto slowest = 0.0;
+    SamplingProfiler profiler;
+    profiler.start();
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        if (restrike > 0 && block % restrike == restrike - 1)
+            midi = noteOns;
+        const auto blockStart = juce::Time::getMillisecondCounterHiRes();
+        processor.processBlock (buffer, midi);
+        slowest = juce::jmax (slowest, juce::Time::getMillisecondCounterHiRes() - blockStart);
+    }
+
+    profiler.stop();
+    const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+    std::cout << "preset " << name << ", " << notes << " notes: "
+              << juce::String (100.0 * elapsed / (blocks * (double) blockSize / 44100.0), 1) << " % of one core, slowest block "
+              << juce::String (100.0 * slowest / 1000.0 / (blockSize / 44100.0), 0) << " %" << std::endl;
+    profiler.report();
+   #else
+    juce::ignoreUnused (name);
+   #endif
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_PROFILE", ""); preset.isNotEmpty())
+    {
+        runPresetProfile (preset);
+        return 0;
+    }
 
     if (const auto profile = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE", ""); profile.isNotEmpty())
     {

@@ -592,6 +592,35 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
     if (params.anyExtendedFmMods)
         fmCellMods.fill (0.0f);
 
+    if (modSlotsPrepared)
+    {
+        for (int s = 0; s < params.numModSlots; ++s)
+        {
+            const auto targetIndex = slotTargets[(size_t) s];
+            if (targetIndex == -1)
+                continue;
+            auto* target = targetIndex >= 0 ? &mods[targetIndex] : &fmCellMods[(size_t) (-2 - targetIndex)];
+
+            if (slotHeld[(size_t) s])
+            {
+                *target += slotAmounts[(size_t) s];
+                continue;
+            }
+
+            const auto& slot = params.modSlots[s];
+            auto value = Mod::shape (slot, sourceValue (slot.source, sampleIndex, ampValue, filterValue,
+                                                        filter2Value, modValue, env4Value));
+
+            if (slot.aux != Mod::Source::None)
+                value *= Mod::auxScale (slot.aux, sourceValue (slot.aux, sampleIndex, ampValue, filterValue,
+                                                                filter2Value, modValue, env4Value));
+
+            *target += slot.depth * value;
+        }
+
+        return;
+    }
+
     for (int s = 0; s < params.numModSlots; ++s)
     {
         const auto& slot = params.modSlots[s];
@@ -613,6 +642,58 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
 
         *target += slot.depth * value;
     }
+}
+
+void Voice::prepareModSlots()
+{
+    // Set only from MIDI and the block's parameters, never inside a render.
+    const auto held = [] (Mod::Source source)
+    {
+        switch (source)
+        {
+            case Mod::Source::None:
+            case Mod::Source::Velocity:
+            case Mod::Source::KeyTrack:
+            case Mod::Source::Random:
+            case Mod::Source::ModWheel:
+            case Mod::Source::Aftertouch:
+            case Mod::Source::Expression:
+            case Mod::Source::Macro1:
+            case Mod::Source::Macro2:
+            case Mod::Source::Macro3:
+            case Mod::Source::Macro4:
+            case Mod::Source::VectorX:
+            case Mod::Source::VectorY:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    for (int s = 0; s < params.numModSlots; ++s)
+    {
+        const auto& slot = params.modSlots[s];
+        auto targetIndex = Mod::isExplicitDestination (slot.destination) ? slot.destination : -1;
+
+        if (targetIndex == -1 && params.anyExtendedFmMods)
+            if (const auto cell = Mod::extendedFmCellFor (slot.destination); cell >= 0)
+                targetIndex = -2 - cell;
+
+        slotTargets[(size_t) s] = targetIndex;
+        slotHeld[(size_t) s] = held (slot.source) && held (slot.aux);
+
+        if (slotHeld[(size_t) s] && targetIndex != -1)
+        {
+            auto value = Mod::shape (slot, sourceValue (slot.source, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+
+            if (slot.aux != Mod::Source::None)
+                value *= Mod::auxScale (slot.aux, sourceValue (slot.aux, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+
+            slotAmounts[(size_t) s] = slot.depth * value;
+        }
+    }
+
+    modSlotsPrepared = true;
 }
 
 void Voice::updateUnisonLayout()
@@ -688,6 +769,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // leave its final value stuck on the target.
     std::fill (blockMods.begin(), blockMods.end(), 0.0f);
     std::fill (sampleMods.begin(), sampleMods.end(), 0.0f);
+
+    // (MIDI splits a render, so the held sources are fixed within this one.)
+    prepareModSlots();
 
     if (params.numModSlots > 0)
     {

@@ -33,7 +33,10 @@ public:
         params.delay = juce::jmax (0.0f, params.delay);
         params.hold = juce::jmax (0.0f, params.hold);
 
-        exponent = std::exp2 (-(double) params.curve * 2.0);
+        const auto newExponent = std::exp2 (-(double) params.curve * 2.0);
+        if (newExponent != exponent)
+            lineValid = false;
+        exponent = newExponent;
     }
 
     void reset()
@@ -122,7 +125,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress);
+                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress, 1.0 / length);
                 }
 
                 break;
@@ -142,7 +145,7 @@ public:
                 {
                     const auto progress = position / length;
                     currentValue = params.sustain
-                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress);
+                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress, -1.0 / length);
                 }
 
                 break;
@@ -165,7 +168,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = releaseStart * (float) shaped (1.0 - progress);
+                    currentValue = releaseStart * (float) shaped (1.0 - progress, -1.0 / length);
                 }
 
                 break;
@@ -182,8 +185,53 @@ public:
     }
 
 private:
-    // pow() is exact for an exponent of 1, so zero tension skips the call.
-    double shaped (double progress) const { return exponent == 1.0 ? progress : std::pow (progress, exponent); }
+    // progress^exponent. pow() is exact for an exponent of 1, so zero tension
+    // skips the call. Otherwise the curve is computed every spanSteps
+    // samples (step: the progress per sample, signed with the direction)
+    // and followed on a straight line in between, wherever the curve is
+    // gentle enough that the line stays within maxLineError of it (the
+    // error of a chord: |f''| span^2 / 8, f'' = e (e - 1) x^(e - 2)). Short
+    // stages and the steep end near zero are computed every sample.
+    double shaped (double progress, double step)
+    {
+        if (exponent == 1.0)
+            return progress;
+
+        if (lineValid && progress >= lineLow && progress <= lineHigh)
+            return lineLowValue + (progress - lineLow) * lineSlope;
+
+        const auto value = std::pow (progress, exponent);
+        const auto end = juce::jlimit (0.0, 1.0, progress + step * spanSteps);
+        const auto low = juce::jmin (progress, end), high = juce::jmax (progress, end);
+        lineValid = false;
+
+        if (low > 0.0 && high > low)
+        {
+            const auto endValue = std::pow (end, exponent);
+            const auto lowValue = progress < end ? value : endValue;
+            const auto highValue = progress < end ? endValue : value;
+            // x^(e - 2) = x^e / x^2, largest at one end of the span.
+            const auto bend = std::abs (exponent * (exponent - 1.0))
+                              * juce::jmax (lowValue / (low * low), highValue / (high * high));
+            const auto span = high - low;
+
+            if (bend * span * span * 0.125 <= maxLineError)
+            {
+                lineValid = true;
+                lineLow = low;
+                lineHigh = high;
+                lineLowValue = lowValue;
+                lineSlope = (highValue - lowValue) / span;
+            }
+        }
+
+        return value;
+    }
+
+    static constexpr double spanSteps = 16.0;
+    static constexpr double maxLineError = 1.0e-7;
+    bool lineValid = false;
+    double lineLow = 0.0, lineHigh = 0.0, lineLowValue = 0.0, lineSlope = 0.0;
 
     enum class Stage
     {

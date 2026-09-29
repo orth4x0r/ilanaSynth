@@ -28,6 +28,7 @@
 #include <array>
 #include <cmath>
 #include <complex>
+#include <limits>
 
 #include "PianoModelTuning.h"
 
@@ -73,10 +74,22 @@ public:
 
     // The sounding frequency (unison detune included) and the MIDI note it
     // belongs to (the register sets the hammer and string constants).
+    //
+    // Drift, vibrato and detune move the pitch a little every sub-block:
+    // within retuneRange of the designed pitch only the loop lengths follow
+    // (the filters barely change); further off, the whole string is redesigned.
     void setNote (double hz, int midiNote)
     {
         const auto lowest = sampleRate / ((double) size / 2.4);
-        frequency = juce::jlimit (lowest, sampleRate * 0.45, hz);
+        const auto newFrequency = juce::jlimit (lowest, sampleRate * 0.45, hz);
+        if (newFrequency == frequency)
+            return;
+        frequency = newFrequency;
+        if (designed && std::abs (frequency / designedFrequency - 1.0) < retuneRange)
+        {
+            retune();
+            return;
+        }
         note = midiNote;
         designed = false;
     }
@@ -99,10 +112,10 @@ public:
 
     void addBridgeInput (float value) { bridgeInput += value; }
 
+    // (The design waits for the first process(): a voice triggers all its
+    // buffered unison strings, and only the ones in use are ever played.)
     void trigger (float velocity, float randomUnit)
     {
-        if (! designed)
-            design();
         const auto& t = PianoModelTuning::get();
         const auto level = juce::jlimit (0.0f, 1.0f, velocity);
 
@@ -112,6 +125,7 @@ public:
         hammerV *= 1.0 + 0.04 * ((double) randomUnit - 0.5);
         hammerY = stringY = 0.0;
         previousCompression = 0.0;
+        lastHammerForce = 0.0;
         hammerActive = true;
         contactSamples = 0;
 
@@ -141,7 +155,9 @@ public:
         // impedance. With the force F over this sample,
         //   compression = predicted - F (dt^2 / m + dt / Z)
         //   F = K (s + a ds/dt),  s = (compression / 1 mm)^p
-        // and F falls as it grows, so bisection finds the one root.
+        // and F falls as it grows, so there is one root in [0, F(0)]. F - f
+        // is convex, so Newton's method (from the last sample's force, kept
+        // inside the bracket) gets there in a few steps.
         auto force = 0.0;
         if (hammerActive)
         {
@@ -150,25 +166,39 @@ public:
             const auto predicted = (hammerY + dt * hammerV) - (stringY + dt * incoming);
             const auto give = dt * dt / hammerMass + dt / impedance;
             const auto hysteresisRate = hammerHysteresis * sampleRate;
-            const auto feltForce = [&] (double f, double& shaped)
+            // F = K (s + h (s - s_prev)) = scale s - memory.
+            const auto scale = hammerStiffness * (1.0 + hysteresisRate);
+            const auto memory = hammerStiffness * hysteresisRate * previousCompression;
+            const auto shapedAt = [&] (double f)
             {
                 const auto compression = predicted - f * give;
-                shaped = compression > 0.0 ? std::pow (compression / 0.001, hammerExponent) : 0.0;
-                return hammerStiffness * (shaped + hysteresisRate * (shaped - previousCompression));
+                return compression > 0.0 ? std::pow (compression / 0.001, hammerExponent) : 0.0;
             };
-            auto shaped = 0.0;
-            const auto ceiling = feltForce (0.0, shaped);
+            auto shaped = shapedAt (0.0);
+            const auto ceiling = scale * shaped - memory;
             if (ceiling > 0.0)
             {
                 auto low = 0.0, high = ceiling;
-                for (int i = 0; i < 28; ++i)
+                auto f = juce::jlimit (0.0, ceiling, lastHammerForce);
+                for (int i = 0; i < 40; ++i)
                 {
-                    const auto middle = 0.5 * (low + high);
-                    (feltForce (middle, shaped) > middle ? low : high) = middle;
+                    const auto compression = predicted - f * give;
+                    shaped = shapedAt (f);
+                    const auto g = scale * shaped - memory - f;
+                    (g > 0.0 ? low : high) = f;
+                    const auto slope = (compression > 0.0 ? -scale * give * hammerExponent * shaped / compression : 0.0) - 1.0;
+                    auto next = f - g / slope;
+                    if (! (next > low && next < high))
+                        next = 0.5 * (low + high);
+                    const auto step = std::abs (next - f);
+                    f = next;
+                    if (step <= ceiling * 1.0e-10)
+                        break;
                 }
-                force = 0.5 * (low + high);
-                feltForce (force, shaped);
+                force = f;
+                shaped = shapedAt (force);
             }
+            lastHammerForce = force;
             previousCompression = shaped;
 
             const auto stringVelocity = incoming + force / impedance;
@@ -189,7 +219,8 @@ public:
         const auto aOut = bIn + push;
         const auto bOut = aIn + push;
         buffer[nutOffset + nutWrite] = aOut;
-        nutWrite = (nutWrite + 1) % nutSize;
+        if (++nutWrite >= nutSize)
+            nutWrite = 0;
         buffer[bridgeOffset + bridgeWrite] = bOut;
 
         // Tension modulation: a loud string is stretched, so it runs sharp.
@@ -204,8 +235,10 @@ public:
         }
 
         // The long loop: the fractional delay (Thiran), stiffness, loss.
-        auto wave = readThiran (bridgeOffset, bridgeWrite, bridgeSize, length, bridgeThiranIn, bridgeThiranOut);
-        bridgeWrite = (bridgeWrite + 1) % bridgeSize;
+        auto wave = tensionAmount > 0.0f ? readThiran (bridgeOffset, bridgeWrite, bridgeSize, length, bridgeThiranIn, bridgeThiranOut)
+                                         : readThiran (bridgeOffset, bridgeWrite, bridgeSize, bridgeTap, bridgeThiranIn, bridgeThiranOut);
+        if (++bridgeWrite >= bridgeSize)
+            bridgeWrite = 0;
         for (int stage = 0; stage < stages; ++stage)
         {
             const auto next = dispersion * wave + dispersionIn[stage] - dispersion * dispersionState[stage];
@@ -232,7 +265,7 @@ public:
             forceHistoryWrite = (forceHistoryWrite + 1) % forceHistorySize;
             const auto drive = (push - forceHistory[(size_t) combRead]) * aftersound;
 
-            auto h = readThiran (horizontalOffset, horizontalWrite, horizontalSize, horizontalLength, horizontalThiranIn, horizontalThiranOut);
+            auto h = readThiran (horizontalOffset, horizontalWrite, horizontalSize, horizontalTap, horizontalThiranIn, horizontalThiranOut);
             for (int stage = 0; stage < stages; ++stage)
             {
                 const auto next = dispersion * h + horizontalIn[stage] - dispersion * horizontalState[stage];
@@ -246,7 +279,8 @@ public:
                 loop *= 1.0f - damper * damperLoss;
             // One loop stands for both ends' reflections: no inversion.
             buffer[horizontalOffset + horizontalWrite] = loop + drive;
-            horizontalWrite = (horizontalWrite + 1) % horizontalSize;
+            if (++horizontalWrite >= horizontalSize)
+                horizontalWrite = 0;
             output += loop * horizontalMix;
 
             // Phantom partials: the longitudinal modes, driven by the square
@@ -279,8 +313,8 @@ public:
         // DC (the hammer leaves the string displaced for a moment).
         const auto blocked = output - dcIn + 0.9987f * dcOut;
         dcIn = output;
-        dcOut = std::isfinite (blocked) ? blocked : 0.0f;
-        if (! std::isfinite (lossState) || ! std::isfinite (horizontalLossState))
+        dcOut = isFinite (blocked) ? blocked : 0.0f;
+        if (! isFinite (lossState) || ! isFinite (horizontalLossState))
             reset();
         return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain);
     }
@@ -315,15 +349,36 @@ private:
         }
     };
 
-    float readThiran (int offset, int write, int lineSize, double length, float& thiranIn, float& thiranOut) const
+    // std::isfinite is a library call here; NaN and infinity both fail this.
+    static bool isFinite (float x) { return std::abs (x) <= std::numeric_limits<float>::max(); }
+
+    // A delay of `length` samples: `whole` from the line, the rest (0.5 ..
+    // 1.5) from a first-order Thiran allpass with coefficient `a`.
+    struct ThiranTap
+    {
+        int whole = 1;
+        float a = 0.0f;
+    };
+
+    static ThiranTap thiranTap (double length)
     {
         const auto whole = (int) std::floor (length - 0.5);
-        const auto part = length - (double) whole; // 0.5 .. 1.5
-        auto read = write - whole;
+        const auto part = length - (double) whole;
+        return { whole, (float) ((1.0 - part) / (1.0 + part)) };
+    }
+
+    float readThiran (int offset, int write, int lineSize, double length, float& thiranIn, float& thiranOut) const
+    {
+        return readThiran (offset, write, lineSize, thiranTap (length), thiranIn, thiranOut);
+    }
+
+    float readThiran (int offset, int write, int lineSize, ThiranTap tap, float& thiranIn, float& thiranOut) const
+    {
+        auto read = write - tap.whole;
         while (read < 0)
             read += lineSize;
-        const auto input = buffer[offset + read % lineSize];
-        const auto a = (float) ((1.0 - part) / (1.0 + part));
+        const auto input = buffer[offset + read]; // write - whole: within one line length
+        const auto a = tap.a;
         const auto out = a * input + thiranIn - a * thiranOut;
         thiranIn = input;
         thiranOut = out;
@@ -359,6 +414,18 @@ private:
         const auto pole = 0.5 * (low + high);
         coefficient = (float) (1.0 - pole);
         gain = (float) juce::jmin (0.99995, passGain (fundamentalT60) / magnitude (pole, w0));
+    }
+
+    // The loop lengths for the current pitch, with the filters' delays from
+    // the last design. (The wave back from the bridge meets the hammer on the
+    // next sample: one sample of the loop is already there.)
+    void retune()
+    {
+        period = sampleRate / frequency;
+        bridgeLength = juce::jlimit (1.5, (double) bridgeSize - 2.0, period - (double) nutDelay - bridgeFilterDelay - 1.0);
+        horizontalLength = juce::jlimit (1.5, (double) horizontalSize - 2.0, period * horizontalRatio - horizontalFilterDelay);
+        bridgeTap = thiranTap (bridgeLength);
+        horizontalTap = thiranTap (horizontalLength);
     }
 
     void design()
@@ -430,17 +497,16 @@ private:
         // Split the loop: the strike point's round trip to the agraffe is
         // the short line; the rest (minus the filters' delay) the long one.
         nutDelay = juce::jlimit (1, (int) (period * 0.45), (int) std::round (period * strikeFraction));
-        const auto filterDelay = dispersionDelay + lowpassPhaseDelay (w0, (double) lossCoefficient);
-        // (The wave back from the bridge meets the hammer on the next sample:
-        // one sample of the loop is already there.)
-        bridgeLength = juce::jmax (1.5, period - (double) nutDelay - filterDelay - 1.0);
-        horizontalLength = juce::jmax (1.5, period * std::exp2 ((double) t.horizontalCents / 1200.0)
-                                                - dispersionDelay - lowpassPhaseDelay (w0, (double) horizontalLossCoefficient));
+        bridgeFilterDelay = dispersionDelay + lowpassPhaseDelay (w0, (double) lossCoefficient);
+        horizontalFilterDelay = dispersionDelay + lowpassPhaseDelay (w0, (double) horizontalLossCoefficient);
+        horizontalRatio = std::exp2 ((double) t.horizontalCents / 1200.0);
 
-        // Buffer layout: agraffe line, bridge line, horizontal loop.
+        // Buffer layout: agraffe line, bridge line, horizontal loop (the long
+        // lines leave room for a retune downwards).
+        const auto retuneRoom = 1.0 + retuneRange;
         nutSize = juce::jmax (4, (int) (period * 0.5) + 4);
-        bridgeSize = juce::jmax (4, (int) period + 4);
-        horizontalSize = juce::jmax (4, (int) period + 4);
+        bridgeSize = juce::jmax (4, (int) (period * retuneRoom) + 4);
+        horizontalSize = juce::jmax (4, (int) (period * retuneRoom) + 4);
         nutOffset = 0;
         bridgeOffset = nutSize;
         horizontalOffset = nutSize + bridgeSize;
@@ -449,6 +515,8 @@ private:
         nutWrite %= nutSize;
         bridgeWrite %= bridgeSize;
         horizontalWrite %= horizontalSize;
+        designedFrequency = frequency;
+        retune();
 
         aftersound = t.aftersound;
         horizontalMix = t.horizontalMix;
@@ -473,7 +541,11 @@ private:
         outputGain = t.outputGain * (float) std::pow (2.0, octavesFromC4 * (double) t.balance);
     }
 
-    double sampleRate = 48000.0, frequency = 261.63, period = 183.0;
+    // A redesign every 3 %, half a semitone.
+    static constexpr double retuneRange = 0.03;
+
+    double sampleRate = 48000.0, frequency = 261.63, period = 183.0, designedFrequency = 261.63;
+    double bridgeFilterDelay = 0.0, horizontalFilterDelay = 0.0, horizontalRatio = 1.0;
     int note = 60;
     float* buffer = nullptr;
     int size = 0;
@@ -483,7 +555,7 @@ private:
     // Hammer.
     double hammerMass = 0.0087, hammerExponent = 2.5, hammerStiffness = 140.0, hammerHysteresis = 0.0;
     double impedance = 1.6, strikeFraction = 0.12, inharmonicity = 4.0e-4;
-    double hammerY = 0.0, stringY = 0.0, hammerV = 0.0, previousCompression = 0.0;
+    double hammerY = 0.0, stringY = 0.0, hammerV = 0.0, previousCompression = 0.0, lastHammerForce = 0.0;
     bool hammerActive = false;
     int contactSamples = 0;
 
@@ -492,6 +564,7 @@ private:
     int bridgeOffset = 4, bridgeSize = 4, bridgeWrite = 0;
     int horizontalOffset = 8, horizontalSize = 4, horizontalWrite = 0;
     double bridgeLength = 2.0, horizontalLength = 2.0;
+    ThiranTap bridgeTap, horizontalTap; // for the lengths above (retune)
     float bridgeThiranIn = 0.0f, bridgeThiranOut = 0.0f, horizontalThiranIn = 0.0f, horizontalThiranOut = 0.0f;
     int stages = maxStages;
     float dispersion = 0.0f;

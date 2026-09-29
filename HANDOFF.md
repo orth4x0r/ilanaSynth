@@ -13,7 +13,16 @@ Updated 2026-09-28. The source tree is the source of truth. Work on `main`; Clau
 - **CI:** GitHub Actions is manual-only (no minutes left on the account): run `tools/verify.sh` before pushing; run the CI workflow by hand for Windows and macOS.
 - **Release:** the version is 1.3.0 (v1.2 is tagged `v1.2.0`). `.github/workflows/release.yml` (macOS package, Windows installer, Linux archive, draft release) and `ci.yml` (Windows, macOS, Linux) run by hand from the Actions tab.
 - **Git:** M8 work is on branch `main-717xmh`, pushed after each sub-milestone. Tags `m8.1-done` onwards exist only in the cloud session (its git proxy refuses tag pushes): recreate them from the commit messages if wanted.
-- **Plugin:** the installed VST3s (2026-09-27) predate M8; build and install on the Windows PC (`build-and-install.cmd`).
+- **Plugin:** v1.3 installed on the Windows PC 2026-09-28 (plus fix 1 below). If Windows shows an old file version after a version bump, delete `build/ilanaSynth_artefacts/JuceLibraryCode` and `build/ilanaSynthFX_artefacts/JuceLibraryCode` and rebuild (JUCE writes the version resource once and never refreshes it).
+- **CPU pass (2026-09-28, committed, not pushed; only fix 1 is installed).** The user saw 48% plugin CPU in Ableton with 4 notes of Vibraphone switched to OSC 1 Physical/Piano; fix 1 brought it to 15%. Tests, FX tests and `--uitest` pass; fingerprints: 0 of 396 changed against c025a43.
+  1. `PianoString::setNote` redesigned the string every sub-block (drift moves the pitch): within 3% only `retune()` updates the loop lengths.
+  2. The hammer is solved by bracketed Newton from the last force (was 28 bisection steps of `pow`); the design waits for the first `process()` (a note-on triggers all 8 buffered unison strings).
+  3. `TensionAdsr`: the curve's `pow` is followed on a line over 16-sample spans where the chord error is under 1e-7 (exact elsewhere).
+  4. `Voice::prepareModSlots`: sources fixed within a render (velocity, key, wheels, macros, vector) are shaped once per render, summed in slot order.
+  5. PianoString: cached Thiran taps, no `%` in the wraps, inline `isFinite`.
+  Measured with `ILANA_PRESET_PROFILE=Vibraphone ILANA_PROFILE_SET=osc1_mode=1,osc1_excite=9 ILANA_PROFILE_BLOCK=128` (`ILANA_PROFILE_RESTRIKE=40` re-strikes; best of 5 alternating runs against fix 1 alone): held 6.4% → 5.3%, re-striking 25.9% → 19.1%.
+  Tried and dropped: ending an envelope released at zero. It frees the voice while in-voice tails (body, feedback) still ring; 6 presets changed.
+  **Next:** `build-and-install.cmd` (needs the user for the admin prompt), then ask for the Ableton CPU figure and buffer size. Ideas left: the voice loop's own overhead (~20%: filters run L and R on mono sources, per-sample setup for six oscillators); a held note at sustain 0 renders silence until released; per-block parameter reads (~1% at 32-sample buffers).
 - **Two plugins:** `ilanaSynth` (instrument) and `ilanaSynthFX` (`ILANA_FX=1`, an effect with audio input) build from the same sources and share parameters and presets. FX-only code is behind `IlanaSynthAudioProcessor::isEffectBuild`.
 - **Linux:** the tests and tools build headless with gcc and Ninja (see the M8.1 history notes for the packages). Compare fingerprints only against a baseline from the same platform.
 

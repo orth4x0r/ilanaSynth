@@ -449,6 +449,7 @@ private:
                        float filter2Value, float modValue, float env4Value) const;
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
+    void prepareModSlots();
     void advanceVoiceLfos();
 
     // Per block: the per-voice LFOs and the extra envelopes in use, so the
@@ -530,6 +531,15 @@ private:
     // doesn't need to move within a block (envelope times, pans, detune...).
     std::array<float, (size_t) Mod::Destination::Count> blockMods {};
     mutable std::array<float, 36> fmCellMods {};   // per-voice mods of the OSC 4-6 FM cells
+
+    // Per render (prepareModSlots): each slot's target (a mods index, or
+    // -2 - cell for an OSC 4-6 FM cell, or -1 for none) and, for sources that
+    // hold still through a render (velocity, key, wheels, macros, ...), its
+    // amount, so the per-sample pass only evaluates the moving sources.
+    std::array<int, Mod::maxSlots> slotTargets {};
+    std::array<float, Mod::maxSlots> slotAmounts {};
+    std::array<bool, Mod::maxSlots> slotHeld {};
+    bool modSlotsPrepared = false;
     std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};

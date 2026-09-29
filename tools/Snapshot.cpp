@@ -151,6 +151,60 @@ int runUiTests()
     pages->setScopeOpen (false);
     expect (! pages->isScopeOpen(), "the scope panel closes");
 
+    // KEYS opens the keyboard and gives the page less room; COMPARE flips
+    // to B and lights; the page switch changes the page.
+    {
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        juce::TextButton* keys = nullptr;
+        juce::TextButton* compare = nullptr;
+        for (auto* b : buttons)
+        {
+            keys = b->getButtonText() == "KEYS" ? b : keys;
+            compare = b->getButtonText().startsWith ("COMPARE") ? b : compare;
+        }
+
+        auto* tabsComponent = findChild<juce::TabbedComponent> (*editor);
+        auto* keyboard = findChild<KeyboardStrip> (*editor);
+        expect (keys != nullptr && keyboard != nullptr && ! visibleInTree (keyboard), "the keyboard starts hidden");
+
+        if (keys != nullptr && keyboard != nullptr && tabsComponent != nullptr)
+        {
+            const auto pageHeight = tabsComponent->getHeight();
+            keys->triggerClick();
+            settle (150);
+            expect (visibleInTree (keyboard) && tabsComponent->getHeight() < pageHeight, "KEYS shows the keyboard and the page shrinks");
+            keys->triggerClick();
+            settle (150);
+            expect (! visibleInTree (keyboard) && tabsComponent->getHeight() == pageHeight, "KEYS hides it again");
+        }
+
+        if (compare != nullptr)
+        {
+            compare->triggerClick();
+            settle (150);
+            expect (compare->getButtonText() == "COMPARE B" && compare->getToggleState(), "COMPARE flips to B and lights");
+            compare->triggerClick();
+            settle (150);
+            expect (compare->getButtonText() == "COMPARE A" && ! compare->getToggleState(), "COMPARE flips back to A");
+        }
+
+        pages->showPage ("ENV/LFO");
+        settle (150);
+        std::vector<SectionSwitcher*> switchers;
+        findAll<SectionSwitcher> (*editor, switchers);
+        SectionSwitcher* shown = nullptr;
+        for (auto* sw : switchers)
+            shown = visibleInTree (sw) ? sw : shown;
+        if (shown != nullptr && shown->onSelect != nullptr)
+        {
+            shown->setSelected (2, true);
+            shown->onSelect (2);
+            settle (200);
+        }
+        expect (shown != nullptr && pages->getCurrentPageId() == "MATRIX", "the MOD switch opens MATRIX");
+    }
+
     // Matrix shows the preset's routing with the right destination text.
     pages->showPage ("MATRIX");
     settle (300);
@@ -1136,7 +1190,9 @@ int main (int argc, char** argv)
         shape->setValueNotifyingHost (shape->convertTo0to1 (7.0f));
 
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
-    editor->setSize (1060, 720);
+    // ILANA_SNAPSHOT_WIDTH renders at another zoom (795 is 75%, 2120 is 200%).
+    const auto width = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_WIDTH", "1060").getIntValue();
+    editor->setSize (width, width * 720 / 1060);
     settle (400);
 
     // The intro only shows until it has been seen once; capture it anyway.

@@ -1069,7 +1069,7 @@ int runIdleCpu()
     processor.prepareToPlay (48000.0, 512);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1060, 720);
-    editor->addToDesktop (juce::ComponentPeer::windowHasTitleBar);
+    editor->addToDesktop (0);
     editor->setVisible (true);
     settle (800);
 

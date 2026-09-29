@@ -660,9 +660,14 @@ private:
         // Keyed by component address and never told when one is deleted:
         // drop entries not painted for a minute once there are many, so the
         // map doesn't grow with every editor opened.
-        if (states.size() > 2048)
+        static double lastSweep = 0.0;
+
+        if (states.size() > 2048 && now - lastSweep > 1000.0)
+        {
+            lastSweep = now;
             for (auto it = states.begin(); it != states.end();)
                 it = now - it->second.lastTime > 60000.0 ? states.erase (it) : std::next (it);
+        }
 
         auto& state = states[key];
         // Not painted for seconds (or a new component at a reused address):

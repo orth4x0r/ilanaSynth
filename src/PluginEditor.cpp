@@ -4249,10 +4249,10 @@ public:
 
                     if (! strips[(size_t) osc]->shownOn)
                     {
-                        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
+                        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
                         g.setColour (IlanaTheme::Ui::text3);
                         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                        g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 3, strips[(size_t) osc]->shownMode)],
+                        g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))],
                                     oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (28), juce::Justification::centredLeft);
                     }
                 }
@@ -5960,6 +5960,9 @@ public:
                 continue;
 
             selectedSlot = slot;
+            // A drag reorders among the loaded slots only (fixed for the
+            // drag, so it can't walk into the hidden rows).
+            dragLimit = juce::jmax (0, numVisibleRows() - 2);
             bindBlend();
             scrollToSlot (slot);
             stackContent.repaint();
@@ -6013,8 +6016,7 @@ public:
         if (! cardDragActive)
             return;
 
-        const auto target = juce::jlimit (0, juce::jmax (0, numVisibleRows() - 1),
-                                          (event.getPosition().y - rowsTop) / rowHeight);
+        const auto target = juce::jlimit (0, dragLimit, (event.getPosition().y - rowsTop) / rowHeight);
 
         if (target != selectedSlot)
             moveSelectedSlotTo (target);
@@ -6501,7 +6503,7 @@ private:
 
     void visibilityChanged() override
     {
-        if (! isVisible())
+        if (! isShowing())
         {
             cardDragActive = false;
             dragReady = false;
@@ -6563,12 +6565,21 @@ private:
         if (signature != lastSignature)
         {
             lastSignature = signature;
+
+            // The selection stays on a drawn row.
+            if (selectedSlot >= numVisibleRows())
+            {
+                selectedSlot = juce::jmax (0, numVisibleRows() - 1);
+                bindBlend();
+            }
+
             updateVisibility();
         }
 
         repaint();
     }
 
+    int dragLimit = 0;
     IlanaSynthAudioProcessor& processorRef;
     TapGrid tapGrid;
     std::unique_ptr<GateGrid> gateGrid;
@@ -7412,6 +7423,9 @@ void IlanaSynthAudioProcessorEditor::resized()
     {
         auto pageArea = tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth());
         const auto expanded = static_cast<ScopePanel*> (scopePanel.get())->isExpanded();
+        // A running fade-in would snap the panel back to its old bounds.
+        juce::Desktop::getInstance().getAnimator().cancelAnimation (scopePanel.get(), false);
+        scopePanel->setAlpha (1.0f);
         scopePanel->setBounds (expanded ? pageArea
                                         : pageArea.removeFromBottom (320).removeFromRight (560).translated (6, 4));
     }
@@ -8149,7 +8163,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
     if (code >= '0' && code <= '9')
     {
-        const auto index = code == '0' ? 9 : code - '1'; // 0 is the tenth tab
+        const auto index = code == '0' ? 9 : code - '1';
         if (index < tabs.getNumTabs())
         {
             tabs.setCurrentTabIndex (index);

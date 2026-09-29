@@ -223,9 +223,8 @@ public:
     // section's visibility, not theirs, so pass it on.
     void visibilityChanged() override
     {
-        if (isVisible())
-            if (auto* page = getCurrentPage())
-                page->visibilityChanged();
+        if (auto* page = getCurrentPage())
+            page->visibilityChanged();
     }
 
     void resized() override

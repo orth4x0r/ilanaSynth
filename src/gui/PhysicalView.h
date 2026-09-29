@@ -126,9 +126,10 @@ public:
 
         // The body: a plate with its nodal lines, glowing with the output.
         const auto glow = juce::jlimit (0.0f, 1.0f, bodyGlow);
-        g.setColour (accent.withAlpha (0.08f + 0.35f * glow));
+        IlanaTheme::paintGlow (g, bodyArea, 10.0f, accent, glow * 1.5f);
+        g.setColour (IlanaTheme::Ui::well.interpolatedWith (accent, 0.06f + 0.2f * glow));
         g.fillRoundedRectangle (bodyArea, 10.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.12f + 0.3f * glow));
+        g.setColour (IlanaTheme::Ui::line.interpolatedWith (accent, 0.6f * glow));
         g.drawRoundedRectangle (bodyArea, 10.0f, 1.2f);
         for (int line = 1; line < 5; ++line)
         {

@@ -181,7 +181,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("1-9, 0 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    ? reopens this tour",
+            g.drawText ("1-7 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    ? reopens this tour",
                         shortcuts, juce::Justification::centredLeft);
         }
     }

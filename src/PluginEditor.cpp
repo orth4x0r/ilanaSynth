@@ -474,9 +474,10 @@ public:
         if (! subStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
-            g.setColour (juce::Colour (0xffff9f43));
+            IlanaTheme::paintTag (g, { (float) subStrip.getX() + 17.0f, (float) subStrip.getCentreY() }, juce::Colour (0xffb9bec6));
+            g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("SUB", subStrip.withWidth (60).withTrimmedLeft (14), juce::Justification::centredLeft);
+            g.drawText ("SUB", subStrip.withWidth (70).withTrimmedLeft (28), juce::Justification::centredLeft);
         }
 
         if (! voiceStrip.isEmpty())
@@ -3917,10 +3918,10 @@ public:
 
     void layoutNotes (juce::Rectangle<int> right)
     {
-        // The Generative card (arp, Euclid, probability sequencer) on the
-        // left, generate on the right.
-        arpCard = right.removeFromLeft ((right.getWidth() - 10) * 56 / 100);
-        right.removeFromLeft (10);
+        // The Generative card (arp, Euclid, probability sequencer) above
+        // generate, both full width.
+        arpCard = right.removeFromTop ((right.getHeight() - 8) * 60 / 100);
+        right.removeFromTop (8);
         generateCard = right;
 
         auto arpArea = arpCard.reduced (10, 0);
@@ -3951,22 +3952,37 @@ public:
         generate.removeFromTop (26);
         generate.removeFromBottom (6);
 
-        auto scaleRow = generate.removeFromTop (46);
+        // Wide card: the scale and spray settings on the left, the spray's
+        // amounts on the right; narrow: one under the other.
+        const auto wide = generate.getWidth() > 700;
+        auto settingsArea = wide ? generate.removeFromLeft (generate.getWidth() * 45 / 100) : generate;
+
+        auto scaleRow = settingsArea.removeFromTop (46);
         genScale.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 42 / 100).reduced (3, 1));
         genRoot.setBounds (scaleRow.removeFromLeft (scaleRow.getWidth() * 40 / 100).reduced (3, 1));
         genSnap.setBounds (scaleRow.reduced (3, 1));
 
-        sprayDivider = generate.removeFromTop (22);
+        sprayDivider = settingsArea.removeFromTop (22);
 
-        auto sprayRow = generate.removeFromTop (46);
+        auto sprayRow = settingsArea.removeFromTop (46);
         const auto third = sprayRow.getWidth() / 3;
         sprayOn.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
         sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
         sprayStrum.setBounds (sprayRow.reduced (3, 1));
-        generate.removeFromTop (4);
-        auto knobs = generate.removeFromTop (juce::jmin (generate.getHeight(), 170));
-        layoutRow (knobs.removeFromTop (knobs.getHeight() / 2), { sprayCount.get(), sprayRange.get(), spraySpread.get() });
-        layoutRow (knobs, { sprayChance.get(), sprayVelocity.get(), strumTime.get() });
+
+        if (wide)
+        {
+            generate.removeFromLeft (16);
+            auto knobs = generate.withSizeKeepingCentre (generate.getWidth(), juce::jmin (generate.getHeight(), 180));
+            layoutRow (knobs.removeFromTop (knobs.getHeight() / 2), { sprayCount.get(), sprayRange.get(), spraySpread.get() });
+            layoutRow (knobs, { sprayChance.get(), sprayVelocity.get(), strumTime.get() });
+        }
+        else
+        {
+            settingsArea.removeFromTop (4);
+            layoutRow (settingsArea, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(),
+                                       strumTime.get() });
+        }
     }
 
     void visibilityChanged() override

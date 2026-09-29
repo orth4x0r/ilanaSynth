@@ -4069,11 +4069,8 @@ public:
         scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
         strumDivider = headings.withTrimmedLeft (column * 2).withWidth (column).reduced (3, 0);
         sprayDivider = headings.withTrimmedLeft (column * 3).reduced (3, 0);
-        // The spray's switch at the end of its own heading (in the card's
-        // header it read as switching all of GENERATE), at the right edge
-        // like the card switches above it.
-        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, sprayDivider.getCentreY()));
-        sprayDivider.setRight (sprayOn.getX() - 6);
+        // The spray's switch in the card's header, at the card switch place.
+        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, generateCard.getY() + 13));
 
         layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() });
         layoutRow (second, { nullptr, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });

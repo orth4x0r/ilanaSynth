@@ -226,7 +226,9 @@ inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int tit
         return { card.getRight() - rightInset - width, titleCentreY - 13 - 10, width, 13 + 20 };
     }
 
-    constexpr int width = 40, rightInset = 6; // a 32 px pill centred in 40
+    // A 32 px pill centred in 40, its right edge 12 px in from the card's:
+    // the same margin as the title's tag on the left.
+    constexpr int width = 40, rightInset = 12 - 4;
     return { card.getRight() - rightInset - width, titleCentreY - 13 - 10, width, 13 + 20 };
 }
 

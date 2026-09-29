@@ -101,7 +101,7 @@ inline juce::FontOptions font (float height, bool bold = false)
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto deviceHeight = height * scale;
-    const auto snapped = std::round (deviceHeight) / scale;
+    const auto snapped = juce::jmax (1.0f, std::round (deviceHeight)) / scale;
     const auto typeface = bold ? boldTypefaceRef()
                                : (deviceHeight < 15.0f ? mediumTypefaceRef() : regularTypefaceRef());
 
@@ -180,6 +180,12 @@ inline void paintTag (juce::Graphics& g, juce::Point<float> centre, juce::Colour
     g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre));
 }
 
+// Where a card title's subtitle can start: past the tag and the name.
+inline int cardTitleWidth (const juce::String& text)
+{
+    return juce::GlyphArrangement::getStringWidthInt (juce::Font (font (TextSize::body, true)), text) + 30;
+}
+
 // A card's title: its tag, then the name in the text colour.
 inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& text, juce::Colour colour)
 {
@@ -194,6 +200,10 @@ inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, cons
 inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float amount, juce::Colour colour, float hover = 0.0f)
 {
     const auto h = juce::jmin (area.getHeight(), 18.0f);
+
+    if (h < 6.0f)
+        return;
+
     const auto w = h * 1.8f;
     const auto pill = juce::Rectangle<float> (w, h).withCentre (area.getCentre());
 
@@ -484,7 +494,10 @@ public:
 
         if (button.getProperties().contains ("switch"))
         {
-            const auto amount = (float) button.getProperties()["switchAmount"];
+            // Switches without an animation driver just show their state.
+            const auto amount = button.getProperties().contains ("switchAmount")
+                                    ? (float) button.getProperties()["switchAmount"]
+                                    : (button.getToggleState() ? 1.0f : 0.0f);
             paintSwitch (g, bounds, amount, accent(), hover);
             return;
         }

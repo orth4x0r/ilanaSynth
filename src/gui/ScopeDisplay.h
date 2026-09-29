@@ -199,7 +199,8 @@ public:
 private:
     void timerCallback() override
     {
-        repaint();
+        if (isShowing())
+            repaint();
     }
 
     void drawScope (juce::Graphics& g, juce::Rectangle<float> area) const

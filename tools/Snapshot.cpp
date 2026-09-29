@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <iostream>
+#include <functional>
+#include <typeinfo>
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
@@ -1139,6 +1141,25 @@ int runIdleCpu()
 
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
     auto worst = 0.0;
+
+    // ILANA_IDLE_HIDE=LogoComponent,ModSourceChip,... hides every component
+    // of those classes (by their type name) to find what keeps repainting.
+    const auto hide = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_HIDE", ""), ",", "");
+    if (! hide.isEmpty())
+    {
+        std::function<void (juce::Component&)> walk = [&] (juce::Component& c)
+        {
+            for (auto* child : c.getChildren())
+            {
+                const juce::String type (typeid (*child).name());
+                for (const auto& h : hide)
+                    if (h.isNotEmpty() && type.contains (h))
+                        child->setVisible (false);
+                walk (*child);
+            }
+        };
+        walk (*editor);
+    }
 
     for (const auto& id : pages->getPageIds())
     {

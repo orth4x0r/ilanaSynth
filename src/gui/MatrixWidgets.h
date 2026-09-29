@@ -277,9 +277,10 @@ public:
         amount.setDoubleClickReturnValue (true, 0.0);
 
         bypass.setClickingTogglesState (true);
+        bypass.getProperties().set ("switch", true);
         bypass.setTooltip ("Switch this routing on or off without losing its settings.");
 
-        remove.setButtonText ("x");
+        remove.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
         remove.setTooltip ("Remove this routing");
         remove.onClick = [this] { processorRef.clearModSlot (slotIndex); };
 
@@ -319,10 +320,13 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.0f, 2.0f);
 
-        g.setColour (active ? lastColour.withAlpha (0.08f) : juce::Colours::white.withAlpha (0.025f));
+        // Flat row; the source's colour marks its left edge.
+        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active ? 0.04f : 0.0f));
         g.fillRoundedRectangle (bounds, 5.0f);
-        g.setColour (active ? lastColour.withAlpha (0.35f) : juce::Colours::white.withAlpha (0.06f));
+        g.setColour (IlanaTheme::Ui::line);
         g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
+        g.setColour (lastColour.withAlpha (active ? 0.9f : 0.3f));
+        g.fillRoundedRectangle (bounds.withWidth (3.0f).reduced (0.0f, 6.0f).translated (1.0f, 0.0f), 1.5f);
 
         g.setColour (active ? lastColour : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
@@ -351,7 +355,7 @@ public:
     // Column layout shared with the header labels.
     struct Columns
     {
-        static constexpr int number = 28, bypass = 24, meter = 12, source = 142, via = 116, amount = 214,
+        static constexpr int number = 28, bypass = 36, meter = 12, source = 142, via = 116, amount = 202,
                              curve = 54, polarity = 96, destination = 220, remove = 26, gap = 6;
     };
 
@@ -359,7 +363,7 @@ public:
     {
         auto area = getLocalBounds().reduced (0, 5);
         area.removeFromLeft (Columns::number);
-        bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (18, 18));
+        bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (34, 20));
         area.removeFromLeft (Columns::gap);
         meterX = (float) area.getX() + 2.0f;
         area.removeFromLeft (Columns::meter + Columns::gap);

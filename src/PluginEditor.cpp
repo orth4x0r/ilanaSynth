@@ -1517,7 +1517,7 @@ public:
         IlanaTheme::paintCardTitle (g, header, "WEST", colour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (52), juce::Justification::centredLeft);
+        g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("WEST")), juce::Justification::centredLeft);
 
         // The fold's transfer curve and the gate's vactrol, lit by its level.
         const auto plot = picture.toFloat();
@@ -1656,13 +1656,13 @@ public:
         IlanaTheme::paintCardTitle (g, header, "VECTOR", colour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+        g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("VECTOR")), juce::Justification::centredLeft);
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
         IlanaTheme::paintCardTitle (g, header, "EVOLVE", evolveColour());
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
+        g.drawText ("each macro drifts within its range", header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("EVOLVE")), juce::Justification::centredLeft);
 
         // Each macro: its name, where it is set and where it has drifted to,
         // with a hairline between rows.
@@ -4196,6 +4196,8 @@ public:
             strip->modeKnobs[3] = { knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE"),
                                     knob ("_grain_density", "DENSITY"), knob ("_grain_spray", "SPRAY"), knob ("_level", "LEVEL"),
                                     knob ("_semi", "SEMI") };
+            // M7.5 Live: the input has no pitch or shape to set.
+            strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN") };
 
             strip->remove = std::make_unique<juce::TextButton> (juce::String::fromUTF8 ("\xc3\x97"));
             strip->remove->setTooltip ("Remove this oscillator (switches it off and hides it)");
@@ -4506,7 +4508,7 @@ private:
         std::unique_ptr<ComboControl> mode, excite, table, warp;
         std::unique_ptr<juce::TextButton> remove;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
-        std::array<std::vector<juce::Component*>, 4> modeKnobs;
+        std::array<std::vector<juce::Component*>, 5> modeKnobs;
         int shownMode = -1;
         bool shownOn = true;
     };
@@ -4531,7 +4533,7 @@ private:
         {
             auto& strip = *strips[(size_t) index];
             const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
-            const auto mode = juce::jlimit (0, 3, readInt (prefix + "_mode"));
+            const auto mode = juce::jlimit (0, 4, readInt (prefix + "_mode"));
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
 
@@ -5650,6 +5652,7 @@ public:
                     {
                         processorRef.assignFxSlot (slot + 1, type);
                         selectedSlot = slot;
+                        updateVisibility();
                         return;
                     }
                 }
@@ -5998,7 +6001,16 @@ public:
         dragPosition = event.getPosition();
 
         if (! cardDragActive && event.getDistanceFromDragStart() > 4)
+        {
             cardDragActive = true;
+
+            // The picks would sit over the dragged row's ghost.
+            for (auto& button : quickAddButtons)
+                button->setVisible (false);
+
+            for (auto& label : quickAddLabels)
+                label->setVisible (false);
+        }
 
         if (! cardDragActive)
             return;
@@ -6021,8 +6033,13 @@ public:
             dropFlash = 1.0f;
         }
 
+        const auto wasDragging = cardDragActive;
         cardDragActive = false;
         dragImage = {};
+
+        if (wasDragging)
+            layoutStack();
+
         repaint();
     }
 
@@ -6613,7 +6630,21 @@ private:
             updateVisibility();
         }
 
-        repaint();
+        // The rows animate (meters, hover, flashes); the rest of the page is
+        // still, so only the rack column repaints unless a row is dragged.
+        if (cardDragActive)
+            repaint();
+        else
+            repaint (juce::Rectangle<int> (0, rowsTop - 10, 336, numVisibleRows() * rowHeight + 20));
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoveredRow != -1)
+        {
+            hoveredRow = -1;
+            repaint();
+        }
     }
 
     int dragLimit = 0;

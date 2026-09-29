@@ -573,6 +573,11 @@ private:
     bool liveGateOpen = false;
     int liveGateNote = -1;
     int liveInputSamples = 0;               // valid samples in liveDry this block
+    // DRY is delayed by the reported latency so it lines up with the
+    // oversampled wet path (a blend would comb-filter otherwise).
+    void delayLiveDry (int numSamples);
+    juce::AudioBuffer<float> dryDelayRing;
+    int dryDelayWrite = 0, dryDelaySamples = 0;
     std::atomic<bool> liveRetrigger { false }; // a patch loaded: restart the drone
     // A patch loaded: stop the old one's voices and effect tails at the next
     // block, easing from the last output sample to silence rather than

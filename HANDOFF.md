@@ -58,7 +58,7 @@ build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 
 ## Open issues
 - **EP fit gap:** tine 124, reed 135 (both from about 2000; listening round passed 2026-09-27); the rest is mostly the onset spectrum and between-partial noise (see the history file).
-- **ilanaSynth FX:** DRY is not delayed to match the oversamplers' latency; an input into a Classic body does nothing (material bodies only); live grains' randomness is unseeded, so their exact output varies run to run.
+- **ilanaSynth FX:** an input into a Classic body does nothing (material bodies only); live grains' randomness is unseeded, so their exact output varies run to run.
 - **Host automation** of the wavetable choice now also maps differently (the list grew by 12), like the other grown lists below.
 - **CPU tests on this machine:** it runs Windows' "Silent" power plan with background load, and the heavy-patch test swings 42–84% between identical runs (limit 50%). Compare builds by alternating runs (`ILANA_BENCH=1`) against a baseline build in a worktree (`git worktree add ../ilana-baseline <commit>`, then configure with `-DFETCHCONTENT_SOURCE_DIR_JUCE=<this build>/_deps/juce-src`). Measured that way, M5/M6 cost about +2% (heavy 42.4% against 41.6%).
 - **Flaky tests:** the Grain Choir tuning estimate and Glitch Gate's loudness. All pass on rerun. ("Eco is cheaper" now takes the best of three interleaved passes.)

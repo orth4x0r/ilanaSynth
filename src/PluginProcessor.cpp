@@ -1545,6 +1545,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     // M7.5: room for the input at up to 4x oversampling, and 3 s of history.
     liveDry.setSize (2, expectedBlockSize, false, true, false);
+    dryDelayRing.setSize (2, 1024, false, true, false);
+    dryDelayRing.clear();
+    dryDelayWrite = 0;
     liveVoice.assign ((size_t) expectedBlockSize * 4, 0.0f);
     liveEnvVoice.assign ((size_t) expectedBlockSize * 4, 0.0f);
     if (isEffectBuild)
@@ -1753,7 +1756,39 @@ void IlanaSynthAudioProcessor::cutPatchTails()
 void IlanaSynthAudioProcessor::updateLatency()
 {
     const auto factor = oversamplingFactor.load();
-    setLatencySamples (factor > 1 ? juce::roundToInt (activeOversampler().getLatencyInSamples()) : 0);
+    const auto latency = factor > 1 ? juce::roundToInt (activeOversampler().getLatencyInSamples()) : 0;
+    setLatencySamples (latency);
+
+    const auto delay = juce::jlimit (0, juce::jmax (0, dryDelayRing.getNumSamples() - 1), latency);
+    if (delay != dryDelaySamples)
+    {
+        dryDelaySamples = delay;
+        dryDelayRing.clear();
+        dryDelayWrite = 0;
+    }
+}
+
+void IlanaSynthAudioProcessor::delayLiveDry (int numSamples)
+{
+    const auto size = dryDelayRing.getNumSamples();
+    if (dryDelaySamples <= 0 || size == 0)
+        return;
+
+    auto write = dryDelayWrite;
+    for (int channel = 0; channel < juce::jmin (2, liveDry.getNumChannels()); ++channel)
+    {
+        auto* data = liveDry.getWritePointer (channel);
+        auto* ring = dryDelayRing.getWritePointer (channel);
+        write = dryDelayWrite;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto read = (write - dryDelaySamples + size) % size;
+            ring[write] = data[i];
+            data[i] = ring[read];
+            write = (write + 1) % size;
+        }
+    }
+    dryDelayWrite = write;
 }
 
 int IlanaSynthAudioProcessor::wantedOversamplingFactor() const
@@ -2646,8 +2681,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         lastOutput[channel] = numSamples > 0 ? data[numSamples - 1] : lastOutput[channel];
     }
 
-    // M7.5 DRY: the untouched input back in (without the oversamplers'
-    // latency, so keep it low when oversampling).
+    // M7.5 DRY: the untouched input back in, delayed by the oversamplers'
+    // latency so it lines up with the wet signal.
+    if (liveInputSamples > 0)
+        delayLiveDry (juce::jmin (liveInputSamples, buffer.getNumSamples()));
+
     if (liveInputSamples > 0)
         if (const auto dry = getParam (inDryRef); dry > 0.0f)
             for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)

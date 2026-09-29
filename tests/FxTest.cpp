@@ -225,6 +225,55 @@ int main()
         check (worst < 1.0e-5f, "DRY 100% is the input unchanged");
     }
 
+    // With oversampling on, DRY is delayed by the reported latency, so it
+    // lines up with the wet signal and a blend doesn't comb-filter.
+    {
+        const auto click = [] (int n) { return n == 12000 ? 0.8f : 0.0f; };
+        const auto peakIndex = [] (const std::vector<float>& x)
+        {
+            auto best = 0;
+            for (int i = 1; i < (int) x.size(); ++i)
+                if (std::abs (x[(size_t) i]) > std::abs (x[(size_t) best]))
+                    best = i;
+            return best;
+        };
+        const auto render = [&] (float dryAmount, float wetLevel, int& latency)
+        {
+            IlanaSynthAudioProcessor processor;
+            quiet (processor);
+            setParam (processor, "oversampling", 1.0f);
+            setParam (processor, "os_factor", 0.0f);
+            setParam (processor, "in_dry", dryAmount);
+            if (wetLevel > 0.0f)
+            {
+                setParam (processor, "osc1_on", 1.0f);
+                setParam (processor, "osc1_mode", 4.0f);
+                setParam (processor, "osc1_level", wetLevel);
+                setParam (processor, "osc1_route", 3.0f);
+                setParam (processor, "in_trigger", 2.0f);
+                setParam (processor, "master", 0.0f);
+            }
+            const auto out = run (processor, click, 24000);
+            latency = processor.getLatencySamples();
+            return out;
+        };
+
+        auto latency = 0;
+        const auto dryOnly = render (1.0f, 0.0f, latency);
+        auto worst = 0.0f;
+        for (int i = latency; i < 24000; ++i)
+            worst = juce::jmax (worst, std::abs (dryOnly[(size_t) i] - click (i - latency)));
+        check (latency > 0 && worst < 1.0e-5f, "with 2x oversampling DRY is the input delayed by the latency ("
+                                                  + juce::String (latency) + " samples)");
+
+        auto wetLatency = 0;
+        const auto wetOnly = render (0.0f, 1.0f, wetLatency);
+        const auto dryPeak = peakIndex (dryOnly), wetPeak = peakIndex (wetOnly);
+        check (std::abs (wetOnly[(size_t) wetPeak]) > 1.0e-3f && std::abs (dryPeak - wetPeak) <= 1,
+               "DRY lines up with the oversampled wet signal (dry peak " + juce::String (dryPeak)
+                   + ", wet peak " + juce::String (wetPeak) + ")");
+    }
+
     // A Live oscillator, held by DRONE, plays the input through the voice.
     {
         IlanaSynthAudioProcessor processor;

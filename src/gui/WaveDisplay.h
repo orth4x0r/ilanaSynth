@@ -328,7 +328,7 @@ private:
                     header.toNearestInt(), juce::Justification::centredRight);
 
         auto footer = area.removeFromBottom (16.0f);
-        g.drawText ("the PHYSICAL tab shows it moving", footer.toNearestInt(), juce::Justification::centredLeft);
+        g.drawText ("OSC > PHYSICAL shows it moving", footer.toNearestInt(), juce::Justification::centredLeft);
 
         const auto left = area.getX() + 8.0f, right = area.getRight() - 8.0f, mid = area.getCentreY() + area.getHeight() * 0.18f;
         g.setColour (juce::Colours::white.withAlpha (0.45f));
@@ -728,7 +728,7 @@ private:
     {
         // The 3D waterfall only applies to tables.
         modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput() && ! isPhysicalString());
-        setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). The PHYSICAL tab shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+        setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
                                         "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                     : isLiveInput() ? "The audio coming into ilanaSynth FX."
                     : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."

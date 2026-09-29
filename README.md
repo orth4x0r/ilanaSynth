@@ -103,7 +103,7 @@ It all sits in a hardware-inspired interface with 371 factory presets.
   - Smooth Random, Drunk (random walk) and Chaos (Lorenz attractor) shapes.
   - A **KEY** switch runs an LFO per voice at the note's own pitch, for audio-rate modulation.
 - **Trance gate** with up to 16 editable steps (level per step), swing, smoothing and host sync.
-- **Generative MIDI** (ARP/SEQ page):
+- **Generative MIDI** (SEQ tab):
   - snap played notes to one of 16 scales
   - **note spray** adds random scale notes around every note you play (count, range, direction, strum spread, chance, velocity randomness)
   - the arp gets a **Scale Random** mode and a **chance** control
@@ -207,8 +207,8 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - Click to add a point, drag to move it, drag a segment to bend it, and double-click a point to delete it.
   - Right-click for presets, grid, flip and reverse.
 
-### ARP/SEQ
-- **Step sequencers and MSEG**: two 16-step LFO editors, and a 4-stage looping MSEG with a clocked sample & hold.
+### SEQ, and MOD > STEPS & MSEG
+- **Step sequencers and MSEG** (MOD > STEPS & MSEG): two 16-step LFO editors, and a 4-stage looping MSEG with a clocked sample & hold.
 - **Arpeggiator**: 9 modes (Up, Down, UpDown, Random, DownUp, Converge, Walk, Chord, Scale Random), 1–4 octaves, host-synced rate, gate and step chance, with a live pattern display.
   - While the host plays, steps lock to its beat grid. Notes start and stop on the exact sample they arrive.
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
@@ -268,25 +268,26 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Voices**: 16-voice polyphony with a voice limit, and Poly, Mono and Legato modes.
 - **Glide and bend**: glide (optionally legato-only, with the LEGATO switch next to it) and pitch-bend range.
 - **MPE mode** in the settings menu.
-- **Oversampling**: 2x or 4x for the voice engine (SCOPE tab).
+- **Oversampling**: 2x or 4x for the voice engine (settings menu or the scope panel).
 - **Output**: master volume, and 4 macros with MIDI learn.
 
 ### Scope
+- A panel that floats over any page (SCOPE at the right of the tab row), or expands to fill it.
 - Waveform, spectrum or split view, with HOLD and PEAK hold.
 - Stereo meters with click-to-solo.
 
 ### Interface
-- **Design**: hardware-inspired, with 4 colour themes. Resize it from the corner (75–200%) or from the settings menu.
-- **Tabs**: MAIN, OSC, FILTER, ENV/LFO, FM, ARP/SEQ, MATRIX, VECTOR, PHYSICAL, FX and SCOPE. Number keys 1–9 and 0 switch to the first ten.
+- **Design**: calm flat graphite with one accent colour (4 themes), Manrope type with fixed-width digits, and glowing, animated controls: knob arcs flare as they move, switches slide, lit buttons breathe. Resize it from the corner (75–200%) or from the settings menu.
+- **Tabs**: PLAY (overview, vector), OSC (oscillators, physical view), FILTER, MOD (envelopes and LFOs, step LFOs and MSEG, matrix), FM, SEQ and FX; tabs with several pages switch them at the right of the tab row. Number keys 1–7 switch tabs. Switched-off oscillators fold to one line, and the FX rack lists only the slots in use plus one to add to.
 - **Header**:
   - preset name with category and an EDITED marker
   - previous / next and favourite
   - SAVE
   - undo / redo with history
-  - A/B compare
+  - COMPARE: flip between two versions of the patch (A and B)
   - DICE: randomise or mutate the patch, or one section of it
   - settings
-- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard can be hidden.
+- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard opens with KEYS.
   - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
 - **Presets**: 371 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.

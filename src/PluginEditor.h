@@ -16,6 +16,7 @@
 #include "gui/ModSourceChip.h"
 #include "gui/OutputMeter.h"
 #include "gui/PresetPanel.h"
+#include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
 
 class WavetableEditor;
@@ -38,6 +39,16 @@ public:
     void openWavetableEditor (int slot, juce::Colour colour);
     void closeWavetableEditor();
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
+
+    // Pages by id ("MAIN", "VECTOR", "OSC", "PHYSICAL", "FILTER", "ENV/LFO",
+    // "STEPS", "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
+    // the seven top-level tabs. "SCOPE" opens the scope panel.
+    void showPage (const juce::String& id);
+    juce::String getCurrentPageId() const;
+    juce::StringArray getPageIds() const;
+    juce::Component* getCurrentPage() const;
+    void setScopeOpen (bool shouldBeOpen);
+    bool isScopeOpen() const;
 
 private:
     struct Content : public juce::Component
@@ -74,13 +85,14 @@ private:
     juce::int64 parameterFingerprint() const;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
-    void startTabTransition();
+    void startTabTransition (juce::Component* page = nullptr);
+    void layoutTabRow();
+    SectionPage* currentSection() const;
     void applyDisplayScale();
     void applyUiZoom (float newZoom);
     float displayScale() const;
     float hostScaleFactor() const;
 
-    static constexpr int envLfoTabIndex = 3;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "1.3";
@@ -95,6 +107,9 @@ private:
     TutorialOverlay tutorial;
 
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+    std::vector<SectionPage*> sections; // owned by tabs
+    std::unique_ptr<juce::Component> scopePanel;
+    juce::TextButton scopeButton { "SCOPE" };
 
     PresetDisplay presetDisplay;
     IconButton prevButton { "prev", IlanaIcons::Icon::ChevronLeft, "Previous preset" };
@@ -122,7 +137,7 @@ private:
     std::unique_ptr<OutputMeter> outputMeter;
     std::unique_ptr<ComboControl> voiceModeBox;
     std::unique_ptr<ToggleControl> legatoToggle;
-    bool keyboardVisible = true;
+    bool keyboardVisible = false;
     juce::int64 loadedFingerprint = 0;
 
     juce::ValueTree slotA, slotB;

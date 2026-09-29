@@ -450,8 +450,9 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (modeNames[(size_t) mode],
-                        juce::Rectangle<int> (bounds.getX() + 72, bounds.getY() + 10, 150, 14),
+            g.drawText (isFolded (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch it on to edit"
+                                        : juce::String (modeNames[(size_t) mode]),
+                        juce::Rectangle<int> (bounds.getX() + 80, bounds.getY() + 10, 400, 14),
                         juce::Justification::centredLeft);
 
             if (! controlBay[(size_t) band].isEmpty())
@@ -653,8 +654,19 @@ private:
         return (warp != nullptr && warp->load() > 0.5f) || (warp2 != nullptr && warp2->load() > 0.5f);
     }
 
+    // A switched-off oscillator folds to its title line.
+    bool isFolded (int index) const
+    {
+        return ! readBool (juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)]) + "_on");
+    }
+
+    static constexpr int foldedHeight = 40;
+
     int heightOfBand (int index) const
     {
+        if (isFolded (index))
+            return foldedHeight;
+
         return bandHeight + (getMode (index) == 1 ? physicalExtra : 0) + (showsWarpChain (index) ? warpChainExtra : 0);
     }
 
@@ -746,6 +758,17 @@ private:
             titleStrip.removeFromRight (4);
         }
         bounceButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (bounceButtonWide == index ? 92 : 58).withSizeKeepingCentre (bounceButtonWide == index ? 92 : 58, 15));
+
+        if (isFolded (index))
+        {
+            // Just the switch on the title line; the rest opens when it's on.
+            controlBay[(size_t) index] = {};
+            chainLabel[(size_t) index] = {};
+            auto title = band.reduced (8).removeFromTop (22);
+            title.removeFromRight (28);
+            controls[(size_t) index]->on.setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (13 + 22));
+            return;
+        }
 
         auto content = band.reduced (8);
         content.removeFromTop (20);
@@ -985,6 +1008,15 @@ private:
 
             // Keep one oscillator on the page.
             removeButtons[(size_t) i]->setVisible (numShown() > 1);
+
+            if (isFolded (i))
+            {
+                for (auto* component : componentsOf (i))
+                    if (component != &controls[(size_t) i]->on && component != removeButtons[(size_t) i].get())
+                        component->setVisible (false);
+
+                continue;
+            }
 
             const auto mode = getMode (i);
             const auto stringVisible = mode == 1;
@@ -2916,7 +2948,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText ("Assign LFOs and envelopes in the MATRIX tab.  Sync uses host tempo.",
+        g.drawText ("Assign LFOs and envelopes in MATRIX.  Sync uses host tempo.",
                     juce::Rectangle<int> (14, getHeight() - 20, 700, 16), juce::Justification::centredLeft);
     }
 
@@ -3641,8 +3673,13 @@ class SeqPage : public juce::Component,
                 private juce::Timer
 {
 public:
-    explicit SeqPage (IlanaSynthAudioProcessor& p)
-        : step1 (p, 0, IlanaTheme::accent(), true),
+    // The page is shown in two places: its step LFOs and MSEG under MOD,
+    // its note generators (arp, Euclid, prob seq, generate) as SEQ.
+    enum class Part { modulators, notes };
+
+    SeqPage (IlanaSynthAudioProcessor& p, Part partIn)
+        : part (partIn),
+          step1 (p, 0, IlanaTheme::accent(), true),
           step2 (p, 1, juce::Colour (0xff35c8ff)),
           mseg (p),
           msegLoop (p.apvts, "mseg_loop", "LOOP"),
@@ -3722,6 +3759,26 @@ public:
         // Open on whichever part of the card is switched on.
         engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : 0, false);
         showEngineTab();
+
+        if (part == Part::notes)
+        {
+            for (auto* control : std::initializer_list<juce::Component*> { &step1, &step2, &mseg, &msegLoop, &msegRate, &clockDiv })
+                control->setVisible (false);
+
+            for (auto& row : lfoButtons)
+                for (auto& button : row)
+                    button.setVisible (false);
+        }
+        else
+        {
+            for (auto* control : std::initializer_list<juce::Component*> {
+                     &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
+                     &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &arpDisplay, &arpOn, &arpMode, &arpDiv,
+                     &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
+                     sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
+                control->setVisible (false);
+        }
+
         startTimerHz (8);
     }
 
@@ -3743,22 +3800,29 @@ public:
             g.drawText (text, area.withTrimmedLeft (14), juce::Justification::centredLeft);
         };
 
-        title (stepTitle1, "STEPS", IlanaTheme::accent());
-        title (stepTitle2, "STEPS", juce::Colour (0xff35c8ff));
+        if (part == Part::modulators)
+        {
+            title (stepTitle1, "STEPS", IlanaTheme::accent());
+            title (stepTitle2, "STEPS", juce::Colour (0xff35c8ff));
 
-        IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
+            IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
+            title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText ("drag points; assign it in MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
+                        juce::Justification::centredRight);
+            return;
+        }
+
         const auto tab = engineTabs.getSelected();
         const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : arpColour();
         IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, tabColour.withAlpha (0.35f));
         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
-        title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
         title (arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", tabColour);
         title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("drag points; assign it in the MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
-                    juce::Justification::centredRight);
         {
             // A hint under the header: what the tab shown does right now.
             const auto arpOnNow = readOn ("arp_on"), seqOnNow = readOn ("pseq_on"), euclidOnNow = readOn ("euc_on");
@@ -3817,9 +3881,13 @@ public:
                     button.setBounds (header.removeFromLeft (width).reduced (2, 0));
         };
 
-        // Left: the two step rows and the MSEG. Right: arp and generate.
-        auto right = area.removeFromRight (area.getWidth() * 43 / 100);
-        area.removeFromRight (10);
+        // MOD: the two step rows and the MSEG. SEQ: arp and generate side
+        // by side.
+        if (part == Part::notes)
+        {
+            layoutNotes (area);
+            return;
+        }
 
         const auto msegHeight = juce::jlimit (170, 260, area.getHeight() * 2 / 5);
         const auto stepHeight = (area.getHeight() - msegHeight - 16) / 2;
@@ -3845,10 +3913,14 @@ public:
         mseg.setBounds (msegArea.reduced (0, 2));
         msegLoop.setBounds (msegControls.removeFromTop (40).reduced (8, 4));
         layoutRow (msegControls, { &msegRate, &clockDiv });
+    }
 
-        // The Generative card (arp, Euclid, probability sequencer).
-        arpCard = right.removeFromTop ((right.getHeight() - 8) * 53 / 100);
-        right.removeFromTop (8);
+    void layoutNotes (juce::Rectangle<int> right)
+    {
+        // The Generative card (arp, Euclid, probability sequencer) on the
+        // left, generate on the right.
+        arpCard = right.removeFromLeft ((right.getWidth() - 10) * 56 / 100);
+        right.removeFromLeft (10);
         generateCard = right;
 
         auto arpArea = arpCard.reduced (10, 0);
@@ -3892,8 +3964,9 @@ public:
         sprayDirection.setBounds (sprayRow.removeFromLeft (third).reduced (3, 1));
         sprayStrum.setBounds (sprayRow.reduced (3, 1));
         generate.removeFromTop (4);
-        layoutRow (generate, { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(),
-                               strumTime.get() });
+        auto knobs = generate.removeFromTop (juce::jmin (generate.getHeight(), 170));
+        layoutRow (knobs.removeFromTop (knobs.getHeight() / 2), { sprayCount.get(), sprayRange.get(), spraySpread.get() });
+        layoutRow (knobs, { sprayChance.get(), sprayVelocity.get(), strumTime.get() });
     }
 
     void visibilityChanged() override
@@ -3953,7 +4026,7 @@ private:
         // The step-row pickers list the patch's LFOs (and whatever either row
         // shows), the same list in both rows.
         auto pickersChanged = false;
-        for (int row = 0; row < 2; ++row)
+        for (int row = 0; row < (part == Part::modulators ? 2 : 0); ++row)
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             {
                 auto& button = lfoButtons[(size_t) row][(size_t) lfo];
@@ -4008,6 +4081,9 @@ private:
 
     void showEngineTab()
     {
+        if (part == Part::modulators)
+            return;
+
         const auto tab = engineTabs.getSelected();
 
         for (auto* control : std::initializer_list<juce::Component*> { &arpDisplay, &arpOn, &arpMode, &arpDiv, &arpOctaves,
@@ -4024,6 +4100,7 @@ private:
         repaint();
     }
 
+    Part part;
     StepEditor step1, step2;
     MsegEditor mseg;
     ToggleControl msegLoop;
@@ -4151,7 +4228,18 @@ public:
         {
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 if (shownStrips[(size_t) osc])
+                {
                     paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), OscPage::oscColour (osc));
+
+                    if (! strips[(size_t) osc]->shownOn)
+                    {
+                        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR" };
+                        g.setColour (IlanaTheme::Ui::text3);
+                        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                        g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 3, strips[(size_t) osc]->shownMode)],
+                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (28), juce::Justification::centredLeft);
+                    }
+                }
         };
         oscView.setViewedComponent (&oscColumn, false);
         oscView.setScrollBarsShown (true, false);
@@ -4300,13 +4388,25 @@ public:
 
         // Cards keep the three-oscillator size; added ones scroll.
         oscView.setBounds (left);
-        const auto oscHeight = (left.getHeight() - 16) / 3;
         const auto anyHidden = std::find (shownStrips.begin(), shownStrips.end(), false) != shownStrips.end();
+
+        // Switched-off oscillators fold to a title line; open ones share the
+        // room (a little larger than the three-card size at most).
+        auto numOpen = 0, numFolded = 0;
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (shownStrips[(size_t) osc])
+                (strips[(size_t) osc]->shownOn ? numOpen : numFolded) += 1;
+
+        const auto baseHeight = (left.getHeight() - 16) / 3;
+        const auto spare = left.getHeight() - (numOpen + numFolded - 1) * 8 - numFolded * foldedHeight
+                           - (anyHidden ? addButtonHeight + 8 : 0);
+        const auto oscHeight = juce::jlimit (baseHeight, baseHeight * 5 / 4, spare / juce::jmax (1, numOpen));
         auto columnHeight = anyHidden ? addButtonHeight : -8;
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
-                columnHeight += oscHeight + 8;
+                columnHeight += (strips[(size_t) osc]->shownOn ? oscHeight : foldedHeight) + 8;
 
         const auto scrolls = columnHeight > left.getHeight();
         oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0),
@@ -4321,7 +4421,7 @@ public:
                 continue;
             }
 
-            oscCards[(size_t) osc] = column.removeFromTop (oscHeight);
+            oscCards[(size_t) osc] = column.removeFromTop (strips[(size_t) osc]->shownOn ? oscHeight : foldedHeight);
             column.removeFromTop (8);
             layoutStrip (osc, oscCards[(size_t) osc]);
         }
@@ -4432,38 +4532,28 @@ private:
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
 
-            if (mode != strip.shownMode || shown != shownStrips[(size_t) index])
+            if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn)
             {
                 strip.shownMode = mode;
+                strip.shownOn = on;
                 shownStrips[(size_t) index] = shown;
                 changed = true;
+
+                // A switched-off oscillator folds to its title and switch.
+                const auto open = shown && on;
 
                 for (auto& entry : strip.allKnobs)
                     entry.second->setVisible (false);
 
                 for (auto* item : strip.modeKnobs[(size_t) mode])
-                    item->setVisible (shown);
+                    item->setVisible (open);
 
-                strip.table->setVisible (shown && mode == 0);
-                strip.warp->setVisible (shown && mode == 0);
-                strip.excite->setVisible (shown && mode == 1);
+                strip.table->setVisible (open && mode == 0);
+                strip.warp->setVisible (open && mode == 0);
+                strip.excite->setVisible (open && mode == 1);
                 strip.on->setVisible (shown);
-                strip.mode->setVisible (shown);
-                wave (index).setVisible (shown);
-            }
-
-            if (on != strip.shownOn)
-            {
-                strip.shownOn = on;
-                const auto alpha = on ? 1.0f : 0.4f;
-
-                for (auto* item : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.excite.get(),
-                                    (juce::Component*) strip.table.get(), (juce::Component*) strip.warp.get(),
-                                    (juce::Component*) &wave (index) })
-                    item->setAlpha (alpha);
-
-                for (auto& entry : strip.allKnobs)
-                    entry.second->setAlpha (alpha);
+                strip.mode->setVisible (open);
+                wave (index).setVisible (open);
             }
         }
 
@@ -4551,6 +4641,9 @@ private:
         strip.on->setBounds (title.removeFromRight (56).withTrimmedTop (-13).withHeight (30));
         inner.removeFromTop (2);
 
+        if (! strip.shownOn)
+            return;
+
         wave (index).setBounds (inner.removeFromLeft (juce::jmin (170, inner.getWidth() / 3)));
         inner.removeFromLeft (8);
 
@@ -4586,6 +4679,7 @@ private:
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1;
     static constexpr int addButtonHeight = 36;
+    static constexpr int foldedHeight = 36;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
     FilterDisplay filterDisplay;
     juce::Viewport lfoThumbView;
@@ -5592,6 +5686,10 @@ public:
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
             const auto row = rowBounds (slot);
+
+            if (row.isEmpty())
+                continue;
+
             const auto selected = slot == selectedSlot;
             const auto slotType = getSlotType (slot);
             const auto prefix = "fx_slot" + juce::String (slot + 1);
@@ -5757,7 +5855,7 @@ public:
         if (chainSweep > 0.01f)
         {
             const auto top = (float) rowsTop;
-            const auto height = (float) (rowHeight * IlanaSynthAudioProcessor::numFxSlots);
+            const auto height = (float) (rowHeight * numVisibleRows());
             const auto y = top + (1.0f - chainSweep) * height;
             const auto alpha = chainSweep * 0.8f;
 
@@ -5899,7 +5997,7 @@ public:
         if (! cardDragActive)
             return;
 
-        const auto target = juce::jlimit (0, IlanaSynthAudioProcessor::numFxSlots - 1,
+        const auto target = juce::jlimit (0, juce::jmax (0, numVisibleRows() - 1),
                                           (event.getPosition().y - rowsTop) / rowHeight);
 
         if (target != selectedSlot)
@@ -5937,8 +6035,24 @@ public:
     }
 
 private:
+    // Rows up to the last loaded slot, plus one to add to: empty slots
+    // beyond that are not drawn.
+    int numVisibleRows() const
+    {
+        auto last = -1;
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            if (getSlotType (slot) != 0)
+                last = slot;
+
+        return juce::jmin (IlanaSynthAudioProcessor::numFxSlots, last + 2);
+    }
+
     juce::Rectangle<int> rowBounds (int slot) const
     {
+        if (slot >= numVisibleRows())
+            return {};
+
         return juce::Rectangle<int> (14, rowsTop + slot * rowHeight, 300, rowHeight - 4);
     }
 
@@ -6550,6 +6664,73 @@ private:
 };
 } // namespace
 
+// The scope as a panel floating over the current page (bottom right), or
+// expanded over the whole page area.
+class ScopePanel : public juce::Component
+{
+public:
+    explicit ScopePanel (IlanaSynthAudioProcessor& p)
+        : scope (p)
+    {
+        addAndMakeVisible (scope);
+
+        expandButton.setButtonText ("EXPAND");
+        expandButton.setClickingTogglesState (true);
+        expandButton.setTooltip ("Fill the page area with the scope");
+        expandButton.onClick = [this]
+        {
+            expandButton.setButtonText (expandButton.getToggleState() ? "SHRINK" : "EXPAND");
+
+            if (onExpand != nullptr)
+                onExpand();
+        };
+
+        closeButton.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
+        closeButton.setTooltip ("Close the scope");
+        closeButton.onClick = [this]
+        {
+            if (onClose != nullptr)
+                onClose();
+        };
+
+        addAndMakeVisible (expandButton);
+        addAndMakeVisible (closeButton);
+    }
+
+    std::function<void()> onClose, onExpand;
+
+    bool isExpanded() const { return expandButton.getToggleState(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (4.0f);
+        IlanaTheme::paintGlow (g, bounds, 8.0f, IlanaTheme::accent(), 0.9f);
+        g.setColour (IlanaTheme::Ui::panel);
+        g.fillRoundedRectangle (bounds, 8.0f);
+        g.setColour (IlanaTheme::Ui::line.interpolatedWith (IlanaTheme::accent(), 0.4f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+
+        IlanaTheme::paintTag (g, { bounds.getX() + 15.0f, bounds.getY() + 15.0f }, IlanaTheme::accent());
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        g.drawText ("SCOPE", bounds.withTrimmedLeft (26).withHeight (30), juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (4);
+        auto header = area.removeFromTop (30).reduced (8, 5);
+        closeButton.setBounds (header.removeFromRight (22));
+        header.removeFromRight (6);
+        expandButton.setBounds (header.removeFromRight (66));
+        scope.setBounds (area.reduced (6, 0).withTrimmedBottom (6));
+    }
+
+private:
+    ScopeDisplay scope;
+    juce::TextButton expandButton, closeButton;
+};
+
 IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioProcessor& p)
     : AudioProcessorEditor (&p),
       processorRef (p)
@@ -6607,43 +6788,72 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* mainPage = new MainPage (p);
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
-    tabs.addTab ("MAIN", IlanaTheme::Ui::panel, mainPage, true);
-    tabs.addTab ("OSC", IlanaTheme::Ui::panel, new OscPageViewport (p), true);
-    tabs.addTab ("FILTER", IlanaTheme::Ui::panel, new FilterPage (p), true);
-    tabs.addTab ("ENV/LFO", IlanaTheme::Ui::panel, envLfoPage, true);
+    // Seven tabs; the ones holding several pages switch them from the tab
+    // row (PLAY: overview and vector, OSC: oscillators and the physical
+    // view, MOD: envelopes and LFOs, step LFOs and MSEG, the matrix).
+    const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
+    {
+        auto* section = new SectionPage();
+
+        for (const auto& [id, label, page] : pages)
+            section->addPage (id, label, page);
+
+        section->onPageShown = [this] (juce::Component& page)
+        {
+            IlanaAnim::replayPageAppear (page);
+            startTabTransition (&page);
+        };
+        section->switcher.onSelect = [this, section] (int index)
+        {
+            section->show (index, true);
+        };
+        tabs.addTab (name, IlanaTheme::Ui::panel, section, true);
+        sections.push_back (section);
+    };
+
+    addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
+    addSection ("OSC", { { "OSC", "OSCILLATORS", new OscPageViewport (p) }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
+    addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
+    addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
+                         { "STEPS", "STEPS & MSEG", new SeqPage (p, SeqPage::Part::modulators) },
+                         { "MATRIX", "MATRIX", new MatrixPage (p) } });
+    addSection ("FM", { { "FM", "FM", new FmPage (p) } });
+    addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
+    addSection ("FX", { { "FX", "FX", new FxPage (p) } });
+    // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
+    if (IlanaSynthAudioProcessor::isEffectBuild)
+        addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });
 
     mainPage->onEditLfo = [this, envLfoPage] (int lfo)
     {
         envLfoPage->selectLfo (lfo);
-        tabs.setCurrentTabIndex (envLfoTabIndex);
+        showPage ("ENV/LFO");
     };
 
     mainPage->onEditEnvelope = [this, envLfoPage] (int envelope)
     {
         envLfoPage->selectEnvelope (envelope);
-        tabs.setCurrentTabIndex (envLfoTabIndex);
+        showPage ("ENV/LFO");
     };
 
-    mainPage->onOpenPage = [this] (const juce::String& name)
-    {
-        const auto index = tabs.getTabNames().indexOf (name);
+    mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
 
-        if (index >= 0)
-            tabs.setCurrentTabIndex (index);
-    };
-
-    tabs.addTab ("FM", IlanaTheme::Ui::panel, new FmPage (p), true);
-    tabs.addTab ("ARP/SEQ", IlanaTheme::Ui::panel, new SeqPage (p), true);
-    tabs.addTab ("MATRIX", IlanaTheme::Ui::panel, new MatrixPage (p), true);
-    tabs.addTab ("VECTOR", IlanaTheme::Ui::panel, new VectorPage (p), true);
-    tabs.addTab ("PHYSICAL", IlanaTheme::Ui::panel, new PhysicalPage (p), true);
-    tabs.addTab ("FX", IlanaTheme::Ui::panel, new FxPage (p), true);
-    tabs.addTab ("SCOPE", IlanaTheme::Ui::panel, new ScopeDisplay (p), true);
-    // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
-    if (IlanaSynthAudioProcessor::isEffectBuild)
-        tabs.addTab ("INPUT", IlanaTheme::Ui::panel, new InputPage (p), true);
+    // The scope floats over any page.
+    scopePanel = std::make_unique<ScopePanel> (p);
+    static_cast<ScopePanel*> (scopePanel.get())->onClose = [this] { setScopeOpen (false); };
+    static_cast<ScopePanel*> (scopePanel.get())->onExpand = [this] { resized(); };
+    scopeButton.setClickingTogglesState (true);
+    scopeButton.setTooltip ("Scope\nShow the oscilloscope and spectrum over any page.");
+    scopeButton.onClick = [this] { setScopeOpen (scopeButton.getToggleState()); };
 
     content.addAndMakeVisible (tabs);
+
+    // In front of the tab bar: the page switches, the scope button and panel.
+    for (auto* section : sections)
+        content.addChildComponent (section->switcher);
+
+    content.addAndMakeVisible (scopeButton);
+    content.addChildComponent (*scopePanel);
 
     // Bottom strip: macros, then performance controls, then master.
     for (int macro = 0; macro < 4; ++macro)
@@ -6695,9 +6905,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     undoButton.onClick = [this] { processorRef.getUndoManager().undo(); };
     redoButton.onClick = [this] { processorRef.getUndoManager().redo(); };
     historyButton.onClick = [this] { showHistoryMenu(); };
-    abButton.setTooltip ("A / B\nFlip between two versions of the patch to compare them.");
+    abButton.setButtonText ("COMPARE A");
+    abButton.setTooltip ("Compare\nFlip between two versions of the patch (A and B) to compare them.");
     abButton.onClick = [this] { toggleAB(); };
-    diceButton.setText ("DICE");
     diceButton.onClick = [this] { showDiceMenu(); };
     settingsButton.onClick = [this] { showSettingsMenu(); };
 
@@ -6763,7 +6973,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     if (tutorial.isVisible())
         tutorial.toFront (false);
 
-    keyboardVisible = settings->getBoolValue ("showKeyboard", true);
+    // The keyboard opens on request (KEYS), so the pages get the room.
+    keyboardVisible = settings->getBoolValue ("showKeyboard", false);
     keysButton.setToggleState (keyboardVisible, juce::dontSendNotification);
     keyboard->setVisible (keyboardVisible);
 
@@ -6815,6 +7026,8 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 
 void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    layoutTabRow();
+
     if (auto* page = tabs.getCurrentContentComponent())
     {
         IlanaAnim::replayPageAppear (*page);
@@ -6824,7 +7037,7 @@ void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadca
     startTabTransition();
 }
 
-void IlanaSynthAudioProcessorEditor::startTabTransition()
+void IlanaSynthAudioProcessorEditor::startTabTransition (juce::Component* pageToAnimate)
 {
     if (transitionPage != nullptr)
     {
@@ -6833,7 +7046,7 @@ void IlanaSynthAudioProcessorEditor::startTabTransition()
         transitionPage = nullptr;
     }
 
-    if (auto* page = tabs.getCurrentContentComponent())
+    if (auto* page = pageToAnimate != nullptr ? pageToAnimate : tabs.getCurrentContentComponent())
     {
         transitionPage = page;
         transitionStart = juce::Time::getMillisecondCounterHiRes();
@@ -7112,9 +7325,9 @@ void IlanaSynthAudioProcessorEditor::resized()
     constexpr int key = 30;
     settingsButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (6);
-    diceButton.setBounds (headerRow.removeFromRight (66));
+    diceButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (6);
-    abButton.setBounds (headerRow.removeFromRight (key));
+    abButton.setBounds (headerRow.removeFromRight (92));
     headerRow.removeFromRight (12);
     historyButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (3);
@@ -7145,10 +7358,10 @@ void IlanaSynthAudioProcessorEditor::resized()
             keyboard->setBounds (area.removeFromBottom (32).reduced (14, 2));
     }
 
-    infoStrip.setBounds (area.removeFromBottom (24).reduced (14, 2));
+    infoStrip.setBounds (area.removeFromBottom (22).reduced (14, 2));
     tutorial.setBounds (content.getLocalBounds());
 
-    auto strip = area.removeFromBottom (54).reduced (14, 2);
+    auto strip = area.removeFromBottom (52).reduced (14, 1);
     outputMeter->setBounds (strip.removeFromRight (12).withSizeKeepingCentre (12, 40));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
@@ -7166,7 +7379,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     for (auto& knob : macroKnobs)
         knob->setBounds (strip.removeFromLeft (macroWidth).withTrimmedRight (6));
 
-    auto chipsRow = area.removeFromBottom (28).reduced (14, 2);
+    auto chipsRow = area.removeFromBottom (26).reduced (14, 1);
 
     if (! chips.empty())
     {
@@ -7177,6 +7390,119 @@ void IlanaSynthAudioProcessorEditor::resized()
     }
 
     tabs.setBounds (area.reduced (14, 0).withTrimmedBottom (2));
+    layoutTabRow();
+
+    if (scopePanel != nullptr)
+    {
+        auto pageArea = tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth());
+        const auto expanded = static_cast<ScopePanel*> (scopePanel.get())->isExpanded();
+        scopePanel->setBounds (expanded ? pageArea
+                                        : pageArea.removeFromBottom (320).removeFromRight (560).translated (6, 4));
+    }
+}
+
+SectionPage* IlanaSynthAudioProcessorEditor::currentSection() const
+{
+    const auto index = tabs.getCurrentTabIndex();
+    return index >= 0 && index < (int) sections.size() ? sections[(size_t) index] : nullptr;
+}
+
+void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
+{
+    if (id == "SCOPE")
+    {
+        setScopeOpen (true);
+        return;
+    }
+
+    for (int index = 0; index < (int) sections.size(); ++index)
+    {
+        const auto page = sections[(size_t) index]->indexOf (id);
+
+        if (page < 0)
+            continue;
+
+        const auto sameTab = tabs.getCurrentTabIndex() == index;
+        sections[(size_t) index]->show (page, sameTab);
+
+        if (! sameTab)
+            tabs.setCurrentTabIndex (index);
+
+        layoutTabRow();
+        return;
+    }
+}
+
+juce::String IlanaSynthAudioProcessorEditor::getCurrentPageId() const
+{
+    if (auto* section = currentSection())
+        return section->getCurrentId();
+
+    return {};
+}
+
+juce::StringArray IlanaSynthAudioProcessorEditor::getPageIds() const
+{
+    juce::StringArray ids;
+
+    for (auto* section : sections)
+        for (int page = 0; page < section->getNumPages(); ++page)
+            ids.add (section->getPageId (page));
+
+    return ids;
+}
+
+juce::Component* IlanaSynthAudioProcessorEditor::getCurrentPage() const
+{
+    if (auto* section = currentSection())
+        return section->getCurrentPage();
+
+    return nullptr;
+}
+
+void IlanaSynthAudioProcessorEditor::setScopeOpen (bool shouldBeOpen)
+{
+    scopeButton.setToggleState (shouldBeOpen, juce::dontSendNotification);
+
+    if (shouldBeOpen == scopePanel->isVisible())
+        return;
+
+    if (shouldBeOpen)
+    {
+        resized();
+        scopePanel->setAlpha (0.0f);
+        scopePanel->setVisible (true);
+        scopePanel->toFront (false);
+        juce::Desktop::getInstance().getAnimator().fadeIn (scopePanel.get(), 180);
+    }
+    else
+    {
+        scopePanel->setVisible (false);
+    }
+}
+
+bool IlanaSynthAudioProcessorEditor::isScopeOpen() const
+{
+    return scopePanel != nullptr && scopePanel->isVisible();
+}
+
+// The current tab's page switch (and the scope button) sit at the right end
+// of the tab row.
+void IlanaSynthAudioProcessorEditor::layoutTabRow()
+{
+    const auto bar = tabs.getBounds().withHeight (tabs.getTabBarDepth());
+    auto row = bar.reduced (4, 5);
+    scopeButton.setBounds (row.removeFromRight (74));
+    row.removeFromRight (10);
+
+    for (auto* section : sections)
+    {
+        const auto current = section == currentSection() && section->getNumPages() > 1;
+        section->switcher.setVisible (current);
+
+        if (current)
+            section->switcher.setBounds (row.removeFromRight (section->switcher.getIdealWidth()));
+    }
 }
 
 void IlanaSynthAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
@@ -7369,7 +7695,8 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
     favButton.setToggleState (isFavourite (shownPresetName), juce::dontSendNotification);
     favButton.setIconColour (isFavourite (shownPresetName) ? std::optional<juce::Colour> (juce::Colour (0xffffd447))
                                                            : std::nullopt);
-    abButton.setButtonText (showingA ? "A" : "B");
+    abButton.setButtonText (showingA ? "COMPARE A" : "COMPARE B");
+    abButton.setToggleState (! showingA, juce::dontSendNotification);
 
     for (auto& knob : macroKnobs)
         knob->refreshName();
@@ -7421,7 +7748,8 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
     }
 
     showingA = ! showingA;
-    abButton.setButtonText (showingA ? "A" : "B");
+    abButton.setButtonText (showingA ? "COMPARE A" : "COMPARE B");
+    abButton.setToggleState (! showingA, juce::dontSendNotification);
 }
 
 void IlanaSynthAudioProcessorEditor::setTheme (int newThemeIndex)
@@ -7522,7 +7850,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
         sizes.addItem (200 + i, juce::String (juce::roundToInt (zoomChoices[i] * 100.0f)) + "%",
                        true, juce::approximatelyEqual (uiZoom, zoomChoices[i]));
 
-    // Engine quality and oversampling, also on the SCOPE tab (where they were
+    // Engine quality and oversampling, also on the scope panel (where they were
     // hard to find).
     const auto read = [this] (const char* id) { return processorRef.apvts.getRawParameterValue (id)->load(); };
     juce::PopupMenu quality;

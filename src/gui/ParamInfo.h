@@ -760,7 +760,7 @@ inline juce::String describeParameter (const juce::String& id)
         if (id.contains ("_step"))
             return "Step value when the shape is Steps.";
 
-        return "Low frequency modulator - assign it in the MATRIX tab.";
+        return "Low frequency modulator - assign it in MOD > MATRIX.";
     }
 
     // Mod matrix (patterned)
@@ -820,7 +820,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("mseg_"))
     {
         if (id.endsWith ("_level1") || id.endsWith ("_level2") || id.endsWith ("_level3") || id.endsWith ("_level4"))
-            return "MSEG point level. Drag the editor on the ARP/SEQ tab.";
+            return "MSEG point level. Drag the editor in MOD > STEPS & MSEG.";
 
         if (id.endsWith ("_time1") || id.endsWith ("_time2") || id.endsWith ("_time3") || id.endsWith ("_time4"))
             return "MSEG segment length (relative).";
@@ -839,7 +839,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Macros
     if (id.startsWith ("macro"))
-        return "Assign in the MATRIX tab, or drive it with MIDI CC 20-23.";
+        return "Assign in MOD > MATRIX, or drive it with MIDI CC 20-23.";
 
     // Arp
     if (id == "arp_on")

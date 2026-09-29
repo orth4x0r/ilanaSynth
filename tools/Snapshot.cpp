@@ -109,13 +109,49 @@ int runUiTests()
     if (auto* tutorial = findChild<TutorialOverlay> (*editor))
         tutorial->setVisible (false);
 
-    auto* tabs = findChild<juce::TabbedComponent> (*editor);
-    expect (tabs != nullptr && tabs->getTabNames()[0] == "MAIN", "MAIN is the first tab");
+    auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+    expect (pages != nullptr && pages->getPageIds()[0] == "MAIN", "MAIN is the first page");
+    expect (findChild<juce::TabbedComponent> (*editor) != nullptr
+                && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 8 : 7),
+            "seven tabs");
 
-    const auto tabIndex = [tabs] (const juce::String& name) { return tabs->getTabNames().indexOf (name); };
+    // Pages inside a tab: MATRIX is under MOD, and the scope opens over any page.
+    pages->showPage ("MATRIX");
+    settle (200);
+    expect (pages->getCurrentPageId() == "MATRIX" && pages->getCurrentPage() != nullptr && visibleInTree (pages->getCurrentPage()),
+            "MATRIX opens inside MOD");
+    pages->showPage ("STEPS");
+    settle (200);
+    expect (pages->getCurrentPageId() == "STEPS" && visibleInTree (pages->getCurrentPage()), "STEPS & MSEG opens inside MOD");
+    {
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        juce::TextButton* scopeButton = nullptr;
+        for (auto* b : buttons)
+            if (b->getButtonText() == "SCOPE" && b->getTooltip().startsWith ("Scope"))
+                scopeButton = scopeButton == nullptr ? b : scopeButton;
+        std::vector<SectionSwitcher*> switchers;
+        findAll<SectionSwitcher> (*editor, switchers);
+        auto shownSwitchers = 0;
+        for (auto* sw : switchers)
+            shownSwitchers += visibleInTree (sw) && sw->getWidth() > 40 ? 1 : 0;
+        expect (scopeButton != nullptr && visibleInTree (scopeButton) && scopeButton->getWidth() > 20,
+                "the SCOPE button is in the tab row (" + (scopeButton != nullptr ? scopeButton->getBounds().toString() : juce::String ("none")) + ")");
+        juce::String where;
+        for (auto* sw : switchers)
+            if (sw->isVisible())
+                where << sw->getBounds().toString() << " z" << sw->getParentComponent()->getIndexOfChildComponent (sw)
+                      << "/" << sw->getParentComponent()->getNumChildComponents() << " alpha " << sw->getAlpha();
+        expect (shownSwitchers == 1, "MOD shows its page switch (" + where + ")");
+    }
+    pages->setScopeOpen (true);
+    settle (250);
+    expect (pages->isScopeOpen(), "the scope panel opens");
+    pages->setScopeOpen (false);
+    expect (! pages->isScopeOpen(), "the scope panel closes");
 
     // Matrix shows the preset's routing with the right destination text.
-    tabs->setCurrentTabIndex (tabIndex ("MATRIX"));
+    pages->showPage ("MATRIX");
     settle (300);
 
     std::vector<MatrixRow*> rows;
@@ -153,7 +189,7 @@ int runUiTests()
     }
 
     // Dropping a source on a knob routes it, and the knob grows a dot.
-    tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+    pages->showPage ("FILTER");
     settle (300);
 
     std::vector<KnobControl*> knobs;
@@ -206,7 +242,7 @@ int runUiTests()
         }
 
         // An effect knob is a drop target too (plain-parameter destination).
-        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        pages->showPage ("FX");
         processor.assignFxSlot (1, 20); // OTT
         settle (400);
         knobs.clear();
@@ -221,10 +257,10 @@ int runUiTests()
     }
 
     // MAIN's cards: select in place, open the full page on request.
-    tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+    pages->showPage ("MAIN");
     settle (300);
 
-    if (auto* page = tabs->getCurrentContentComponent())
+    if (auto* page = pages->getCurrentPage())
     {
         if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
         {
@@ -243,7 +279,7 @@ int runUiTests()
             component.mouseDown (make (from, false));
             component.mouseUp (make (to, true));
             settle (50);
-            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
+            expect (pages->getCurrentPageId() == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
 
             // A click selects the LFO right on MAIN; the card's open button
             // jumps to the full page with that LFO.
@@ -258,18 +294,18 @@ int runUiTests()
                 if (candidate->getSelected() == 2)
                     lfoTabs = candidate;
 
-            expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "MAIN" && lfoTabs != nullptr,
+            expect (pages->getCurrentPageId() == "MAIN" && lfoTabs != nullptr,
                     "clicking an LFO card selects it on MAIN");
 
             if (lfoTabs != nullptr && lfoTabs->onOpen != nullptr)
             {
                 lfoTabs->onOpen();
                 settle (100);
-                expect (tabs->getTabNames()[tabs->getCurrentTabIndex()] == "ENV/LFO", "the LFO card's open button goes to ENV/LFO");
+                expect (pages->getCurrentPageId() == "ENV/LFO", "the LFO card's open button goes to ENV/LFO");
             }
 
             // The envelope tabs swap MAIN's envelope controls (AMP -> MOD).
-            tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+            pages->showPage ("MAIN");
             settle (100);
 
             for (auto* candidate : cardTabs)
@@ -315,10 +351,10 @@ int runUiTests()
     }
 
     // ENV/LFO: every envelope has a card, and picking one shows its controls.
-    tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+    pages->showPage ("ENV/LFO");
     settle (300);
 
-    if (auto* page = tabs->getCurrentContentComponent())
+    if (auto* page = pages->getCurrentPage())
     {
         if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
         {
@@ -345,10 +381,10 @@ int runUiTests()
     }
 
     // Envelope graph: a dragged handle lands where the mouse is.
-    tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+    pages->showPage ("ENV/LFO");
     settle (200);
 
-    if (auto* page = tabs->getCurrentContentComponent())
+    if (auto* page = pages->getCurrentPage())
     {
         std::vector<EnvelopeDisplay*> displays;
         findAll<EnvelopeDisplay> (*page, displays);
@@ -424,7 +460,7 @@ int runUiTests()
     // MAIN shows OSC 1-3 by default, and only those; added ones get the same
     // full card, with the mode's own knobs.
     {
-        tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+        pages->showPage ("MAIN");
         settle (300);
 
         const auto shownOnMain = [&] (const juce::String& id)
@@ -437,7 +473,18 @@ int runUiTests()
             return false;
         };
 
-        expect (shownOnMain ("sub_level") && ! shownOnMain ("osc4_level"),
+        // A switched-off oscillator folds to its title line.
+        const juce::String osc3 (OscillatorIds::prefixes[2]);
+        if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
+            on->setValueNotifyingHost (0.0f);
+        settle (300);
+        expect (! shownOnMain (osc3 + "_level"), "MAIN folds a switched-off OSC 3");
+
+        if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
+            on->setValueNotifyingHost (1.0f);
+        settle (300);
+
+        expect (shownOnMain (osc3 + "_level") && ! shownOnMain ("osc4_level"),
                 "MAIN shows OSC 3 and hides OSC 4 by default");
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)
@@ -448,6 +495,8 @@ int runUiTests()
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             if (auto* mode = processor.apvts.getParameter (prefix + "_mode"))
                 mode->setValueNotifyingHost (mode->convertTo0to1 (3.0f));
+            if (auto* on = processor.apvts.getParameter (prefix + "_on"))
+                on->setValueNotifyingHost (1.0f);
 
             settle (400);
             std::vector<KnobControl*> mainKnobs;
@@ -483,7 +532,7 @@ int runUiTests()
         for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
             processor.assignFxSlot (slot, 0);
 
-        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        pages->showPage ("FX");
         settle (500);
         std::vector<juce::TextButton*> textButtons;
         findAll<juce::TextButton> (*editor, textButtons);
@@ -523,7 +572,7 @@ int runUiTests()
         };
 
         // FM: clicking an algorithm routes the operators.
-        tabs->setCurrentTabIndex (tabIndex ("FM"));
+        pages->showPage ("FM");
         settle (300);
 
         if (auto* strip = findChild<FmAlgorithmStrip> (*editor))
@@ -577,7 +626,7 @@ int runUiTests()
         expect (visibleKnob ("osc2_fixed_hz") && ! visibleKnob ("osc2_ratio"), "Fixed tuning swaps RATIO for FIXED");
 
         // OSC: picking a warp opens the PD chain row.
-        tabs->setCurrentTabIndex (tabIndex ("OSC"));
+        pages->showPage ("OSC");
         settle (300);
         set ("osc1_mode", 0.0f);
         set ("osc1_warp", 0.0f);
@@ -660,7 +709,7 @@ int runUiTests()
         }
 
         // ENV: DAHDSR and key-rate knobs.
-        tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
+        pages->showPage ("ENV/LFO");
         settle (300);
         expect (visibleKnob ("amp_delay") && visibleKnob ("amp_hold") && visibleKnob ("amp_keyrate"),
                 "the amp envelope shows DELAY, HOLD and KEY RATE");
@@ -689,7 +738,7 @@ int runUiTests()
         set ("mod60_src", (float) Mod::Source::Lfo3);
         set ("mod60_dst", (float) Mod::Destination::Filter1Cutoff);
         set ("mod60_amt", 0.3f);
-        tabs->setCurrentTabIndex (tabIndex ("MATRIX"));
+        pages->showPage ("MATRIX");
         settle (400);
         std::vector<MatrixRow*> matrixRows;
         findAll<MatrixRow> (*editor, matrixRows);
@@ -735,9 +784,9 @@ int runUiTests()
     // fills the first slot.
     {
         processor.loadFactoryPreset (0);
-        tabs->setCurrentTabIndex (tabIndex ("MAIN"));
+        pages->showPage ("MAIN");
         settle (100);
-        tabs->setCurrentTabIndex (tabIndex ("MATRIX"));
+        pages->showPage ("MATRIX");
         settle (300);
 
         const auto findButton = [&editor] (const juce::String& text) -> juce::TextButton*
@@ -765,7 +814,7 @@ int runUiTests()
             expect (findButton ("WHEEL  >  VIBRATO") == nullptr, "the starters hide once something is routed");
         }
 
-        tabs->setCurrentTabIndex (tabIndex ("FX"));
+        pages->showPage ("FX");
         settle (300);
         auto* tapeStop = findButton ("TAPE STOP");
         expect (tapeStop != nullptr, "the empty rack offers every effect, grouped");
@@ -783,7 +832,7 @@ int runUiTests()
 
     // M7.1: the Generative card switches between ARP, EUCLID and PROB SEQ.
     {
-        tabs->setCurrentTabIndex (tabIndex ("ARP/SEQ"));
+        pages->showPage ("ARP/SEQ");
         settle (100);
         std::vector<CardTabs*> cardTabs;
         findAll<CardTabs> (*editor, cardTabs);
@@ -796,7 +845,7 @@ int runUiTests()
 
         if (engineTabs != nullptr)
         {
-            tabs->setCurrentTabIndex (tabIndex ("ARP/SEQ"));
+            pages->showPage ("ARP/SEQ");
             engineTabs->setSelected (1, true);
             settle (200);
 
@@ -836,8 +885,8 @@ int runUiTests()
             if (auto* parameter = processor.apvts.getParameter ("lfo1_shape"))
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
         };
-        tabs->setCurrentTabIndex (tabIndex ("ENV/LFO"));
-        if (auto* page = tabs->getCurrentContentComponent())
+        pages->showPage ("ENV/LFO");
+        if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
                 thumbs->onSelect (0);
         setShape (LfoSimShapes::Lorenz);
@@ -871,9 +920,9 @@ int runUiTests()
 
     // M8.5: the VECTOR page has the pad and EVOLVE.
     {
-        tabs->setCurrentTabIndex (tabIndex ("VECTOR"));
+        pages->showPage ("VECTOR");
         settle (200);
-        auto* page = tabs->getCurrentContentComponent();
+        auto* page = pages->getCurrentPage();
         expect (page != nullptr && findChild<VectorPadDisplay> (*page) != nullptr, "the VECTOR page shows the vector pad");
         std::vector<KnobControl*> knobs;
         if (page != nullptr)
@@ -895,14 +944,14 @@ int runUiTests()
     // M8.6: BOUNCE on every oscillator card; a bounce turns the card to
     // Sample mode.
     {
-        tabs->setCurrentTabIndex (tabIndex ("OSC"));
+        pages->showPage ("OSC");
         settle (200);
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
         auto bounces = 0;
         for (auto* button : buttons)
             bounces += button->getButtonText() == "BOUNCE" && visibleInTree (button) ? 1 : 0;
-        expect (bounces >= 2, "the oscillator cards have BOUNCE buttons (" + juce::String (bounces) + ")");
+        expect (bounces >= 1, "the switched-on oscillator cards have BOUNCE buttons (" + juce::String (bounces) + ")");
 
         IlanaSynthAudioProcessor::BounceRequest request;
         request.targetOsc = 1;
@@ -925,9 +974,9 @@ int runUiTests()
     // M8.7: the PHYSICAL page follows the patch's Physical oscillator.
     {
         processor.loadFactoryPreset (names.indexOf ("Grand Piano"));
-        tabs->setCurrentTabIndex (tabIndex ("PHYSICAL"));
+        pages->showPage ("PHYSICAL");
         settle (400);
-        auto* page = tabs->getCurrentContentComponent();
+        auto* page = pages->getCurrentPage();
         expect (page != nullptr && findChild<PhysicalView> (*page) != nullptr, "the PHYSICAL page shows the animated string");
         std::vector<KnobControl*> knobs;
         if (page != nullptr)
@@ -948,7 +997,7 @@ int runUiTests()
     {
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Steiner));
-        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        pages->showPage ("FILTER");
         settle (200);
         std::vector<FilterTypeGrid*> grids;
         findAll<FilterTypeGrid> (*editor, grids);
@@ -968,7 +1017,7 @@ int runUiTests()
 
     // M8.3: the FILTER page's WEST tab shows the west-coast card.
     {
-        tabs->setCurrentTabIndex (tabIndex ("FILTER"));
+        pages->showPage ("FILTER");
         settle (200);
         std::vector<CardTabs*> cardTabs;
         findAll<CardTabs> (*editor, cardTabs);
@@ -1056,19 +1105,21 @@ int main (int argc, char** argv)
         tutorial->setVisible (false);
     }
 
-    auto* tabs = findChild<juce::TabbedComponent> (*editor);
+    auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
 
-    if (tabs == nullptr)
+    if (pages == nullptr)
         return 1;
 
-    for (int i = 0; i < tabs->getNumTabs(); ++i)
+    const auto pageIds = pages->getPageIds();
+
+    for (int i = 0; i < pageIds.size(); ++i)
     {
-        tabs->setCurrentTabIndex (i);
+        pages->showPage (pageIds[i]);
         settle (450);
-        const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + tabs->getTabNames()[i].replaceCharacter ('/', '-');
+        const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
 
-        if (tabs->getTabNames()[i] == "OSC")
+        if (pageIds[i] == "OSC")
         {
             if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
             {
@@ -1083,7 +1134,7 @@ int main (int argc, char** argv)
                     rattle->setValueNotifyingHost (rattle->convertTo0to1 (0.4f));
                 settle (300);
                 save (*editor, outDir.getChildFile ("osc-bow-buzz.png"));
-                if (auto* viewport = dynamic_cast<juce::Viewport*> (tabs->getCurrentContentComponent()))
+                if (auto* viewport = dynamic_cast<juce::Viewport*> (pages->getCurrentPage()))
                 {
                     if (auto* on = processor.apvts.getParameter ("sym_on"))
                         on->setValueNotifyingHost (on->convertTo0to1 (1.0f));
@@ -1109,7 +1160,7 @@ int main (int argc, char** argv)
         // Every sub-tab past the first on this page.
         std::vector<SubTabBar*> bars;
 
-        if (auto* page = tabs->getCurrentContentComponent())
+        if (auto* page = pages->getCurrentPage())
             findAll<SubTabBar> (*page, bars);
 
         for (size_t b = 0; b < bars.size(); ++b)
@@ -1126,7 +1177,7 @@ int main (int argc, char** argv)
         }
 
         // Every envelope card on the ENV/LFO page.
-        if (auto* page = tabs->getCurrentContentComponent())
+        if (auto* page = pages->getCurrentPage())
         {
             if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
             {
@@ -1152,7 +1203,7 @@ int main (int argc, char** argv)
         }
 
         // Each FX module's editor, placed in slot 1.
-        if (tabs->getTabNames()[i] == "FX")
+        if (pageIds[i] == "FX")
         {
             for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
             {
@@ -1163,11 +1214,19 @@ int main (int argc, char** argv)
         }
     }
 
+    // The scope floats over a page, then fills it.
+    pages->showPage ("MAIN");
+    pages->setScopeOpen (true);
+    settle (500);
+    save (*editor, outDir.getChildFile ("scope-panel.png"));
+    pages->setScopeOpen (false);
+    settle (100);
+
     // The drawable Curve LFO editor.
     if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
     {
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
-        if (auto* page = tabs->getCurrentContentComponent())
+        pages->showPage ("ENV/LFO");
+        if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
                 thumbs->onSelect (0);
         for (const auto physicsShape : { LfoShapes::Bounce, LfoShapes::Pendulum, LfoShapes::Spring, LfoShapes::Friction })
@@ -1183,9 +1242,9 @@ int main (int argc, char** argv)
     {
         shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
         processor.setLfoCurve (0, LfoCurve::preset (9));
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        pages->showPage ("ENV/LFO");
 
-        if (auto* page = tabs->getCurrentContentComponent())
+        if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
                 thumbs->onSelect (0);
 
@@ -1197,13 +1256,13 @@ int main (int argc, char** argv)
     {
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
-        if (auto* page = tabs->getCurrentContentComponent())
+        pages->showPage ("ENV/LFO");
+        if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
                 thumbs->onSelect (13);
         settle (400);
         save (*editor, outDir.getChildFile ("lfo-pool-full.png"));
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("MAIN"));
+        pages->showPage ("MAIN");
         settle (300);
         save (*editor, outDir.getChildFile ("lfo-pool-main.png"));
         for (int lfo = 3; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
@@ -1212,8 +1271,8 @@ int main (int argc, char** argv)
 
     // M8.1: the simulated LFO shapes, each with its picture and named knobs.
     {
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
-        if (auto* page = tabs->getCurrentContentComponent())
+        pages->showPage ("ENV/LFO");
+        if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
                 thumbs->onSelect (0);
         const std::pair<int, const char*> shapes[] {
@@ -1244,9 +1303,9 @@ int main (int argc, char** argv)
     {
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (1.0f);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        pages->showPage ("FILTER");
         std::vector<CardTabs*> cardTabs;
-        if (auto* page = tabs->getCurrentContentComponent())
+        if (auto* page = pages->getCurrentPage())
             findAll<CardTabs> (*page, cardTabs);
         for (auto* bar : cardTabs)
             if (bar->getNames().contains ("WEST"))
@@ -1268,7 +1327,7 @@ int main (int argc, char** argv)
         processor.startBounce (request);
         for (int i = 0; i < 400 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
             settle (50);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        pages->showPage ("OSC");
         settle (600);
         save (*editor, outDir.getChildFile ("osc-bounce.png"));
         for (const auto* id : { "osc2_mode", "osc2_on", "osc2_semi" })
@@ -1291,7 +1350,7 @@ int main (int argc, char** argv)
                 if (auto* parameter = processor.apvts.getParameter (id))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         }
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("PHYSICAL"));
+        pages->showPage ("PHYSICAL");
         settle (300);
         juce::AudioBuffer<float> buffer (2, 512);
         for (int block = 0; block < 20; ++block)
@@ -1315,7 +1374,7 @@ int main (int argc, char** argv)
                                          { "osc4_on", 1.0f } })
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("VECTOR"));
+        pages->showPage ("VECTOR");
         settle (600);
         save (*editor, outDir.getChildFile ("vector-page.png"));
         for (const auto* id : { "vec_on", "vec_path", "vec_drift", "macro1_evolve", "macro3_evolve", "osc4_on" })
@@ -1329,7 +1388,7 @@ int main (int argc, char** argv)
             parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::VowelBank));
         if (auto* parameter = processor.apvts.getParameter ("f1_reso"))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.6f));
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        pages->showPage ("FILTER");
         settle (500);
         save (*editor, outDir.getChildFile ("filter-models-2.png"));
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
@@ -1342,10 +1401,10 @@ int main (int argc, char** argv)
     if (const auto program = processor.getFactoryPresetNames().indexOf ("Hammered Strings"); program >= 0)
     {
         processor.loadFactoryPreset (program);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        pages->showPage ("OSC");
         settle (500);
         save (*editor, outDir.getChildFile ("keys-grand-osc.png"));
-        if (auto* viewport = dynamic_cast<juce::Viewport*> (tabs->getCurrentContentComponent()))
+        if (auto* viewport = dynamic_cast<juce::Viewport*> (pages->getCurrentPage()))
         {
             viewport->setViewPosition (0, 10000);
             settle (200);
@@ -1361,11 +1420,11 @@ int main (int argc, char** argv)
         processor.addOscillator (4);
         for (const auto* page : { "MAIN", "OSC", "FM" })
         {
-            tabs->setCurrentTabIndex (tabs->getTabNames().indexOf (page));
+            pages->showPage (page);
             settle (400);
             save (*editor, outDir.getChildFile ("added-osc-" + juce::String (page) + ".png"));
 
-            if (auto* content = tabs->getCurrentContentComponent())
+            if (auto* content = pages->getCurrentPage())
             {
                 std::vector<juce::Viewport*> views;
                 if (auto* own = dynamic_cast<juce::Viewport*> (content))
@@ -1397,10 +1456,10 @@ int main (int argc, char** argv)
         processor.applyFmAlgorithm (10);
         set ("osc1_tune", 1.0f);
         set ("fm_noise3", 0.2f);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
+        pages->showPage ("FM");
         settle (400);
         save (*editor, outDir.getChildFile ("fm-dx-keys.png"));
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FILTER"));
+        pages->showPage ("FILTER");
         settle (300);
         save (*editor, outDir.getChildFile ("filter-six-osc.png"));
 
@@ -1411,13 +1470,13 @@ int main (int argc, char** argv)
         set ("osc1_warp2", 8.0f);
         set ("osc1_warp2_amt", 0.3f);
         set ("osc1_pd_env", 2.0f);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
+        pages->showPage ("OSC");
         settle (400);
         save (*editor, outDir.getChildFile ("osc-pd-chain.png"));
 
         set ("amp_delay", 0.15f);
         set ("amp_hold", 0.3f);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ENV/LFO"));
+        pages->showPage ("ENV/LFO");
         settle (400);
         save (*editor, outDir.getChildFile ("env-dahdsr.png"));
 
@@ -1439,11 +1498,11 @@ int main (int argc, char** argv)
         set ("osc2_mode", 2.0f);
         set ("sub_mode", 1.0f);
         set ("fm_1to2", 0.4f);
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("FM"));
+        pages->showPage ("FM");
         settle (400);
         save (*editor, outDir.getChildFile ("fm-no-input.png"));
         processor.loadFactoryPreset (0);
-        tabs->setCurrentTabIndex (0);
+        pages->showPage ("MAIN");
         settle (300);
     }
 
@@ -1455,7 +1514,7 @@ int main (int argc, char** argv)
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         };
 
-        tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("ARP/SEQ"));
+        pages->showPage ("ARP/SEQ");
         settle (100);
         std::vector<CardTabs*> cardTabs;
         findAll<CardTabs> (*editor, cardTabs);
@@ -1490,7 +1549,7 @@ int main (int argc, char** argv)
         }
 
         processor.loadFactoryPreset (0);
-        tabs->setCurrentTabIndex (0);
+        pages->showPage ("MAIN");
         settle (300);
     }
 

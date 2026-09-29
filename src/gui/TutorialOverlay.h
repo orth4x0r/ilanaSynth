@@ -162,18 +162,18 @@ public:
 
             const juce::StringArray playTips {
                 "Each oscillator is Wavetable, Physical, Sample, Granular or Live (ilanaSynth FX's input). Click TABLE for the visual browser; drop a wav on the display to sample it.",
-                "MAIN puts the oscillators, filter, amp envelope and LFOs on one screen; ENV/LFO shows every envelope and LFO as a card.",
+                "PLAY puts the oscillators, filter, amp envelope and LFOs on one screen; MOD holds every envelope and LFO, the step LFOs, the MSEG and the matrix.",
                 "Drag a source chip or an LFO/envelope card onto any knob to modulate it, then drag its dot to set the depth.",
-                "Try the simulated LFO shapes (Lorenz, Bounce, Pendulum...), the WEST card on FILTER, or PHYSICAL to watch a string move.",
-                "MATRIX has 64 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
+                "Try the simulated LFO shapes (Lorenz, Bounce, Pendulum...), the WEST card on FILTER, or OSC > PHYSICAL to watch a string move.",
+                "MOD > MATRIX has 64 slots, each with a curve, polarity and a Via source that scales it (e.g. mod wheel fading in an LFO)."
             };
 
             const juce::StringArray workflowTips {
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
-                "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; VECTOR mixes four oscillators and lets the macros EVOLVE.",
+                "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; PLAY > VECTOR mixes four oscillators and lets the macros EVOLVE.",
                 "DICE rolls a fresh patch, INIT resets, " + commandKey() + "+Z undoes everything - HIST lists your history.",
                 "371 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
-                "FM has six operators, 16 one-click algorithms and a noise operator. ARP/SEQ has the arp, step LFOs and GENERATE: scale snap and note spray."
+                "FM has six operators, 16 one-click algorithms and a noise operator. SEQ has the arp, Euclid, prob seq and GENERATE; SCOPE (top right) floats over any page."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);

@@ -121,11 +121,12 @@ void addAll (juce::Component& parent, Components&... components)
     (parent.addAndMakeVisible (components), ...);
 }
 
+// A page section's heading (a display, a pool, the rack): drawn like a card
+// title, with a neutral tag, so every section on every page is headed the
+// same way.
 void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area)
 {
-    g.setColour (IlanaTheme::Ui::text);
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-    g.drawText (text, area, juce::Justification::centredLeft);
+    IlanaTheme::paintCardTitle (g, area, text, IlanaTheme::Ui::text2);
 }
 
 class OscPage : public juce::Component,
@@ -324,14 +325,16 @@ public:
             });
         }
 
-        voiceSpread = std::make_unique<StripKnob> (p, "voice_spread", "Spread");
-        unisonRandom = std::make_unique<StripKnob> (p, "unison_random", "Uni Phase");
-        drift = std::make_unique<StripKnob> (p, "drift", "Drift");
+        // Sub and voice are cards like the rest of the page: title, switch on
+        // the right, labelled knobs underneath.
+        voiceSpread = std::make_unique<KnobControl> (p.apvts, "voice_spread", "SPREAD");
+        unisonRandom = std::make_unique<KnobControl> (p.apvts, "unison_random", "UNI PHASE");
+        drift = std::make_unique<KnobControl> (p.apvts, "drift", "DRIFT");
         addAll (*this, *voiceSpread, *unisonRandom, *drift);
 
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subOscLevel = std::make_unique<StripKnob> (p, "subosc_level", "Sub Level", -1, juce::Colour (0xffff9f43), false);
-        noiseStrip = std::make_unique<StripKnob> (p, "noise_level", "Noise", -1, IlanaTheme::Ui::text2, false);
+        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", juce::Colour (0xffff9f43), false);
+        noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
         noiseLevel.setVisible (false);
 
@@ -495,13 +498,13 @@ public:
         if (! subStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
-            cardTitle (subStrip.withWidth (90), "SUB", {}, juce::Colour (0xffff9f43));
+            cardTitle (subStrip.withHeight (symHeaderHeight), "SUB", "an octave or two under the oscillators, and noise", juce::Colour (0xffff9f43));
         }
 
         if (! voiceStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
-            cardTitle (voiceStrip.withWidth (90), "VOICE", {}, IlanaTheme::Ui::text2);
+            cardTitle (voiceStrip.withHeight (symHeaderHeight), "VOICE", "how the unison voices spread and drift", IlanaTheme::Ui::text2);
         }
 
         if (! symCard.isEmpty())
@@ -540,7 +543,7 @@ public:
         // Size cards as the three-oscillator page did; extra ones scroll.
         const auto fitHeight = availableHeight > 0 ? availableHeight : getHeight();
         bandHeight = juce::jlimit (minBandHeight, 176,
-                                   (fitHeight - pageMargin * 2 - bandGap * 4 - stripHeight - symCardHeight()) / 3);
+                                   (fitHeight - pageMargin * 2 - bandGap * 4 - bandFitStripHeight - symCardHeight()) / 3);
         auto area = getLocalBounds().reduced (12, pageMargin);
 
         for (int band = 0; band < OscillatorIds::count; ++band)
@@ -565,23 +568,16 @@ public:
         strip.removeFromLeft (8);
         voiceStrip = strip;
 
-        auto row = subStrip.reduced (6, 2);
-        row.removeFromLeft (54);
-        subOscOn->setBounds (row.removeFromLeft (70).reduced (2, 2));
-        row.removeFromLeft (6);
-        subShape.setBounds (row.removeFromLeft (row.getWidth() * 22 / 100).reduced (3, 0));
-        subOctave.setBounds (row.removeFromLeft (row.getWidth() * 22 / 100).reduced (3, 0));
-        row.removeFromLeft (10);
-        const auto knobWidth = row.getWidth() / 2;
-        subOscLevel->setBounds (row.removeFromLeft (knobWidth));
-        noiseStrip->setBounds (row);
-
-        row = voiceStrip.reduced (6, 3);
-        row.removeFromLeft (64);
-        const auto third = row.getWidth() / 3;
-        voiceSpread->setBounds (row.removeFromLeft (third));
-        unisonRandom->setBounds (row.removeFromLeft (third));
-        drift->setBounds (row);
+        // Header (title, and the sub's switch on the right like every card's),
+        // then one row of labelled controls.
+        {
+            auto header = subStrip.withHeight (symHeaderHeight);
+            subOscOn->setBounds (header.getRight() - 84, header.getCentreY() - 13 - 10, 76, 13 + 20);
+            layoutRow (subStrip.withTrimmedTop (symHeaderHeight).reduced (8, 0).withTrimmedBottom (4),
+                       { &subShape, &subOctave, subOscLevel.get(), noiseStrip.get() });
+            layoutRow (voiceStrip.withTrimmedTop (symHeaderHeight).reduced (8, 0).withTrimmedBottom (4),
+                       { voiceSpread.get(), unisonRandom.get(), drift.get() });
+        }
 
         // The shared sympathetic strings: a one-line header with their switch,
         // which opens into their settings (and the notes, in MANUAL).
@@ -625,7 +621,10 @@ private:
     }
 
     int numShown() const { return (int) std::count (shown.begin(), shown.end(), true); }
-    static constexpr int stripHeight = 50;
+    static constexpr int stripHeight = 28 + 13 + 58 + 16 + 12;
+    // The oscillator cards are sized as when the sub and voice were a 50 px
+    // strip; the taller cards just scroll a little further.
+    static constexpr int bandFitStripHeight = 50;
     static constexpr int pageMargin = 6;
     static constexpr int symHeaderHeight = 28;
     static constexpr int symRowHeight = 64;
@@ -1368,7 +1367,7 @@ private:
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
-    std::unique_ptr<StripKnob> voiceSpread, unisonRandom, drift;
+    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift;
     juce::Rectangle<int> voiceStrip;
     juce::Rectangle<int> symCard;
     ToggleControl symOn, symManual;
@@ -1384,7 +1383,7 @@ private:
 
     // The dedicated sub and the noise.
     std::unique_ptr<ToggleControl> subOscOn;
-    std::unique_ptr<StripKnob> subOscLevel, noiseStrip;
+    std::unique_ptr<KnobControl> subOscLevel, noiseStrip;
     juce::Rectangle<int> subStrip;
 
     std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
@@ -2423,10 +2422,7 @@ public:
 
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText (selected < 5 ? titles[index] : "ENV " + juce::String (selected + 1),
-                    header, juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, header, selected < 5 ? titles[index] : "ENV " + juce::String (selected + 1), colour);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("drag the graph or the knobs", header, juce::Justification::centredRight);
@@ -2669,9 +2665,7 @@ public:
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
 
         auto header = panel.reduced (12, 0).withHeight (26);
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("LFO " + juce::String (selected + 1), header, juce::Justification::centredLeft);
+        IlanaTheme::paintCardTitle (g, header, "LFO " + juce::String (selected + 1), colour);
 
         const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
         const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
@@ -2974,11 +2968,8 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("LFO", juce::Rectangle<int> (14, 2, 200, 14), juce::Justification::centredLeft);
-        g.drawText ("ENVELOPES", juce::Rectangle<int> (14, lfoBottom + 6, 200, 14),
-                    juce::Justification::centredLeft);
+        paintSectionTitle (g, "LFO", juce::Rectangle<int> (14, 2, 200, 14));
+        paintSectionTitle (g, "ENVELOPES", juce::Rectangle<int> (14, lfoBottom + 6, 200, 14));
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -3047,7 +3038,7 @@ public:
           hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
     {
         addAll (*this, diagram, algorithms, mode, hardSync);
-        ringMod = std::make_unique<StripKnob> (p, "ring_mod", "Ring Mod", -1, fmColour(), false);
+        ringMod = std::make_unique<KnobControl> (p.apvts, "ring_mod", "RING MOD", fmColour(), false);
         addAndMakeVisible (*ringMod);
 
         for (int source = 0; source < OscillatorIds::count; ++source)
@@ -3081,7 +3072,7 @@ public:
             operatorButtons[(size_t) source] = std::move (button);
         }
 
-        noiseColourKnob = std::make_unique<StripKnob> (p, "fm_noise_color", "Noise Colour", -1, noiseColour(), false);
+        noiseColourKnob = std::make_unique<KnobControl> (p.apvts, "fm_noise_color", "NOISE COLOUR", noiseColour(), false);
         addAndMakeVisible (*noiseColourKnob);
 
         for (const auto* prefix : OscillatorIds::prefixes)
@@ -3121,10 +3112,8 @@ public:
         {
             const auto colour = FmDiagram::oscColour (selectedOperator);
             IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR",
-                        operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
+            IlanaTheme::paintCardTitle (g, operatorCard.reduced (12, 0).withHeight (26),
+                                        "OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR", colour);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText (soundingText(), operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
@@ -3404,10 +3393,6 @@ private:
         top.push_back (&controls.feedbackType);
         top.push_back (&controls.ampEnv);
 
-        const auto topWidth = topRow.getWidth() / (int) top.size();
-        for (auto* item : top)
-            item->setBounds (topRow.removeFromLeft (topWidth).reduced (3, 1));
-
         inner.removeFromTop (4);
         std::vector<juce::Component*> bottom;
         if (tune == OscTuning::Ratio)
@@ -3417,9 +3402,13 @@ private:
         for (auto* item : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel })
             bottom.push_back (item);
 
-        const auto knobWidth = juce::jmin (90, inner.getWidth() / (int) bottom.size());
-        for (auto* item : bottom)
-            item->setBounds (inner.removeFromLeft (knobWidth).reduced (3, 0));
+        // Menus and knobs on one grid (as many columns as the longer row), so
+        // each menu sits over a knob.
+        const auto columns = juce::jmax (top.size(), bottom.size());
+        top.resize (columns, nullptr);
+        bottom.resize (columns, nullptr);
+        layoutRow (topRow, top);
+        layoutRow (inner, bottom);
     }
 
     void layoutMatrix()
@@ -3428,13 +3417,10 @@ private:
         inner.removeFromTop (26);
         inner.removeFromBottom (8);
 
-        // Mode, ring mod, the noise colour and sync across the top.
-        auto top = inner.removeFromTop (48);
-        const auto topWidth = top.getWidth();
-        mode.setBounds (top.removeFromLeft (topWidth * 21 / 100).reduced (3, 1));
-        ringMod->setBounds (top.removeFromLeft (topWidth * 25 / 100).reduced (3, 1));
-        noiseColourKnob->setBounds (top.removeFromLeft (topWidth * 30 / 100).reduced (3, 1));
-        hardSync.setBounds (top.reduced (3, 1));
+        // Mode, ring mod, the noise colour and sync across the top, labels
+        // above like every card's controls (smaller dials: the cells below
+        // need the height).
+        layoutRow (inner.removeFromTop (72), { &mode, ringMod.get(), noiseColourKnob.get(), &hardSync });
         inner.removeFromTop (6);
 
         for (int source = 0; source < OscillatorIds::count; ++source)
@@ -3521,12 +3507,12 @@ private:
     FmAlgorithmStrip algorithms;
     ComboControl mode;
     ToggleControl hardSync;
-    std::unique_ptr<StripKnob> ringMod;
+    std::unique_ptr<KnobControl> ringMod;
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
     std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
     bool compactCells = false;
-    std::unique_ptr<StripKnob> noiseColourKnob;
+    std::unique_ptr<KnobControl> noiseColourKnob;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
@@ -4374,7 +4360,7 @@ public:
             const auto prefix = "lfo" + juce::String (lfo + 1);
             auto set = std::make_unique<ControlSet>();
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
-            set->items.push_back (std::make_unique<StripKnob> (p, prefix + "_rate", "Rate", -1, lfoColour (lfo), false));
+            set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_rate", "RATE", lfoColour (lfo), false));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
@@ -4556,7 +4542,10 @@ public:
 
         {
             auto inner = lfoCard.reduced (10).withTrimmedTop (18);
-            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - 52));
+            // The selected LFO's controls: one row, labels above like the
+            // filter's and envelope's (a small dial fits the card).
+            constexpr int controlRow = 13 + 30 + 16 + 6;
+            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - controlRow));
             lfoThumbs.setViewWidth (cards.getWidth());
             const auto thumbWidth = lfoThumbs.getPreferredWidth();
             lfoThumbView.setBounds (cards);
@@ -4564,14 +4553,8 @@ public:
             inner.removeFromTop (4);
 
             for (auto& set : lfoSets)
-            {
-                auto row = inner;
-                set->items[0]->setBounds (row.removeFromLeft (row.getWidth() * 24 / 100).reduced (2, 0));
-                set->items[1]->setBounds (row.removeFromLeft (row.getWidth() * 34 / 100).reduced (2, 0));
-                set->items[2]->setBounds (row.removeFromLeft (row.getWidth() / 3).reduced (2, 0));
-                set->items[3]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
-                set->items[4]->setBounds (row.reduced (2, 0));
-            }
+                layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(),
+                                    set->items[3].get(), set->items[4].get() });
         }
     }
 
@@ -4841,9 +4824,7 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("MODULATION", juce::Rectangle<int> (14, 6, 200, 18), juce::Justification::centredLeft);
+        paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (14, 6, 200, 18));
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -5811,7 +5792,7 @@ public:
             IlanaTheme::paintRecessedPanel (g, outputStrip.toFloat(), 6.0f);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OUTPUT", outputStrip.withWidth (80).withTrimmedLeft (14), juce::Justification::centredLeft);
+            IlanaTheme::paintCardTitle (g, outputStrip.withWidth (110).withTrimmedLeft (14), "OUTPUT", IlanaTheme::Ui::text2);
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("after the rack, before the master volume", outputStrip.reduced (14, 0),
@@ -6061,7 +6042,7 @@ public:
         panel.removeFromBottom (6);
         {
             auto strip = outputStrip.reduced (6, 3);
-            strip.removeFromLeft (80);
+            strip.removeFromLeft (104); // the tagged OUTPUT title
             softClip->setBounds (strip.removeFromLeft (120));
             strip.removeFromLeft (10);
             clipGain->setBounds (strip.removeFromLeft (160));

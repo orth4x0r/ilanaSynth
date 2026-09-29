@@ -137,22 +137,22 @@ public:
             g.drawLine (bodyArea.getX() + bodyArea.getWidth() * t + wobble, bodyArea.getY() + 6.0f,
                         bodyArea.getX() + bodyArea.getWidth() * t - wobble, bodyArea.getBottom() - 6.0f, 0.8f);
         }
-        g.setFont (IlanaTheme::font (11.0f, true));
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.setColour (IlanaTheme::Ui::text2);
         g.drawText (bodyName(), bodyArea.reduced (12.0f, 6.0f), juce::Justification::bottomLeft);
         g.drawText (exciteName (excite), area.withHeight (16.0f), juce::Justification::topRight);
 
         // Not a Physical oscillator: the picture is only what it would be.
         if (juce::roundToInt (read ("_mode")) != 1)
         {
-            g.setColour (juce::Colour (0xff111114).withAlpha (0.72f));
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.72f));
             g.fillRoundedRectangle (bounds, 8.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (13.0f, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("NO STRING", bounds.withSizeKeepingCentre (bounds.getWidth(), 20.0f).translated (0.0f, -12.0f),
                         juce::Justification::centred);
-            g.setColour (juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("this oscillator isn't in Physical mode", bounds.withSizeKeepingCentre (bounds.getWidth(), 18.0f).translated (0.0f, 10.0f),
                         juce::Justification::centred);
         }

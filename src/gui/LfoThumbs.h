@@ -77,8 +77,8 @@ public:
         {
             const auto card = cardBounds ((int) visible.size());
             IlanaTheme::paintWell (g, card, 6.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (21.0f, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
             g.drawText ("+", card, juce::Justification::centred);
         }
     }
@@ -351,8 +351,8 @@ private:
         auto inner = card.reduced (8.0f, 5.0f);
         auto titleRow = inner.removeFromTop (14.0f);
 
-        g.setColour (active ? colour : juce::Colours::white.withAlpha (0.7f));
-        g.setFont (IlanaTheme::font (12.0f, true));
+        g.setColour (active ? colour : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("LFO " + juce::String (lfo + 1), titleRow, juce::Justification::centredLeft);
 
         const auto synced = readParam (lfo, "_sync") > 0.5f;
@@ -360,13 +360,13 @@ private:
         const auto rateText = synced ? divisions[juce::jlimit (0, divisions.size() - 1, (int) readParam (lfo, "_div"))]
                                      : describeValue ("lfo" + juce::String (lfo + 1) + "_rate", readParam (lfo, "_rate")); // as the RATE knob shows it
 
-        g.setColour (juce::Colours::white.withAlpha (0.5f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText (rateText, titleRow, juce::Justification::centredRight);
 
         if (isRouted (lfo))
         {
-            const auto titleWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (12.0f, true)),
+            const auto titleWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)),
                                                                             "LFO " + juce::String (lfo + 1));
             g.setColour (colour);
             g.fillEllipse (titleRow.getX() + titleWidth + 6.0f, titleRow.getCentreY() - 2.5f, 5.0f, 5.0f);

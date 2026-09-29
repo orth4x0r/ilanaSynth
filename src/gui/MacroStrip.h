@@ -35,10 +35,10 @@ public:
         if (macroIndex >= 0)
         {
             nameEditor.setJustificationType (juce::Justification::centredLeft);
-            nameEditor.setFont (IlanaTheme::font (12.0f, true));
-            nameEditor.setColour (juce::Label::textColourId, juce::Colour (0xffffd447));
+            nameEditor.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            nameEditor.setColour (juce::Label::textColourId, IlanaTheme::Ui::text);
             nameEditor.setColour (juce::Label::textWhenEditingColourId, juce::Colours::white);
-            nameEditor.setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff101014));
+            nameEditor.setColour (juce::Label::backgroundWhenEditingColourId, IlanaTheme::Ui::well);
             nameEditor.setColour (juce::Label::outlineWhenEditingColourId, IlanaTheme::accent());
             nameEditor.setEditable (false, true, false);
             nameEditor.setInterceptsMouseClicks (false, false);
@@ -87,9 +87,8 @@ public:
 
         if (! nameEditor.isBeingEdited())
         {
-            g.setColour (macroIndex >= 0 ? juce::Colour (0xffffd447).withAlpha (hover ? 1.0f : 0.85f)
-                                         : juce::Colours::white.withAlpha (0.6f));
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (title.toUpperCase(), text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft, true);
         }
         else
@@ -97,8 +96,8 @@ public:
             text.removeFromTop (text.getHeight() / 2);
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (IlanaTheme::font (13.0f));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.drawText (valueText(), text, juce::Justification::topLeft, true);
     }
 

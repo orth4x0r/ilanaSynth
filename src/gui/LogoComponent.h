@@ -22,9 +22,7 @@ public:
         g.setColour (IlanaTheme::accent().withAlpha (0.08f + 0.12f * glow));
         g.fillRoundedRectangle (badge.expanded (4.0f + 2.0f * glow), badge.getWidth() * 0.33f);
 
-        juce::ColourGradient badgeGradient (IlanaTheme::accent().brighter (0.25f), badge.getTopLeft(),
-                                            IlanaTheme::accent().darker (0.7f), badge.getBottomRight(), false);
-        g.setGradientFill (badgeGradient);
+        g.setColour (IlanaTheme::accent());
         g.fillRoundedRectangle (badge, badge.getWidth() * 0.28f);
 
         juce::Path clip;
@@ -54,17 +52,15 @@ public:
                         wave.lineTo (badge.getX() + (float) x, y);
                 }
 
-                g.setColour (juce::Colours::white.withAlpha (0.22f + 0.16f * (float) line));
+                g.setColour (juce::Colours::white.withAlpha (0.35f + 0.25f * (float) line));
                 g.strokePath (wave, juce::PathStrokeType (1.5f));
             }
         }
 
         const auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
 
-        juce::ColourGradient textGradient (juce::Colours::white, textArea.getTopLeft(),
-                                           IlanaTheme::accent(), textArea.getBottomRight(), false);
-        g.setGradientFill (textGradient);
-        g.setFont (IlanaTheme::font (27.0f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
         g.drawText ("ilanaSynth", textArea, juce::Justification::centredLeft);
     }
 

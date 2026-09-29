@@ -324,8 +324,8 @@ public:
         g.setColour (active ? lastColour.withAlpha (0.35f) : juce::Colours::white.withAlpha (0.06f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
 
-        g.setColour (active ? lastColour : juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (11.5f, true));
+        g.setColour (active ? lastColour : IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (juce::String (slotIndex + 1), juce::Rectangle<int> (4, 0, 22, getHeight()), juce::Justification::centred);
 
         // Live source meter, bipolar around the middle.

@@ -63,7 +63,7 @@ public:
         const auto path = curvePath (geo);
 
         // DAHDSR: the delay and hold stretches get a faint band and a label.
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         for (const auto& [from, to, name] : { std::tuple<float, float, const char*> { geo.x0, geo.xStart, "DELAY" },
                                               std::tuple<float, float, const char*> { geo.xA, geo.xH, "HOLD" } })
         {
@@ -139,7 +139,7 @@ public:
             g.setColour (juce::Colours::black.withAlpha (0.55f));
             g.fillRoundedRectangle (readoutBounds, 4.0f);
             g.setColour (curveColour.withAlpha (0.95f));
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (readout, readoutBounds.toNearestInt(), juce::Justification::centredLeft);
         }
     }

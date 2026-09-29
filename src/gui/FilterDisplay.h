@@ -254,7 +254,7 @@ private:
         g.setColour (colour);
         g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }));
         g.setColour (juce::Colours::black.withAlpha (0.7f));
-        g.setFont (IlanaTheme::font (9.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (juce::String (filterIndex + 1), juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }),
                     juce::Justification::centred);
     }

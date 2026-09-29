@@ -35,34 +35,31 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
         const auto colour = modSourceColour (index);
-        const auto radius = bounds.getHeight() * 0.5f;
+        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
         const auto glow = juce::jlimit (0.0f, 1.0f, activity);
+        const auto lit = juce::jmax (hover, glow);
 
-        if (hover > 0.01f || glow > 0.02f)
-        {
-            g.setColour (colour.withAlpha (0.22f * hover + 0.16f * glow));
-            g.fillRoundedRectangle (bounds.expanded (2.0f), radius + 2.0f);
-        }
+        // Grey chips; the source's colour is only a dot, which glows while
+        // the source is moving something.
+        if (lit > 0.02f)
+            IlanaTheme::paintGlow (g, bounds, radius, colour, 0.9f * hover + 0.8f * glow);
 
-        g.setColour (juce::Colour (0xff17171c));
+        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f * hover + 0.1f * glow));
         g.fillRoundedRectangle (bounds, radius);
-        g.setColour (colour.withAlpha (0.10f + 0.10f * hover + 0.22f * glow));
-        g.fillRoundedRectangle (bounds, radius);
-        g.setColour (colour.withAlpha (0.5f + 0.45f * juce::jmax (hover, glow)));
-        g.drawRoundedRectangle (bounds, radius, 1.0f + hover);
+        g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 
-        // Grip dots: this chip is dragged, not clicked.
-        g.setColour (colour.withAlpha (0.55f + 0.4f * hover));
-        const auto gripX = bounds.getX() + radius * 0.9f;
+        const auto gripX = bounds.getX() + 1.0f;
+        const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ gripX + 14.0f, bounds.getCentreY() });
+        g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
+        g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        g.setColour (colour);
+        g.fillEllipse (dot);
 
-        for (int row = -1; row <= 1; ++row)
-            for (int column = 0; column < 2; ++column)
-                g.fillEllipse (gripX + (float) column * 3.6f, bounds.getCentreY() + (float) row * 3.6f - 1.0f, 2.0f, 2.0f);
-
-        g.setColour (juce::Colours::white.withAlpha (0.78f + 0.22f * juce::jmax (hover, glow)));
-        g.setFont (IlanaTheme::font (11.5f, true));
-        g.drawText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (radius * 0.9f + 6.0f)),
-                    juce::Justification::centred);
+        g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
+                          juce::Justification::centred, 1, 0.85f);
     }
 
     void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = index; }

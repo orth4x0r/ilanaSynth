@@ -78,8 +78,8 @@ public:
         };
         addAndMakeVisible (smoothing);
         smoothLabel.setText ("SMOOTH", juce::dontSendNotification);
-        smoothLabel.setFont (IlanaTheme::font (12.0f, true));
-        smoothLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+        smoothLabel.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        smoothLabel.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         smoothLabel.setJustificationType (juce::Justification::centredRight);
         addAndMakeVisible (smoothLabel);
 
@@ -96,8 +96,8 @@ public:
         formulaEditor.onReturnKey = [this] { applyFormula (false); };
         addAndMakeVisible (formulaEditor);
         addAndMakeVisible (formulaMessage);
-        formulaMessage.setFont (IlanaTheme::font (12.0f));
-        formulaMessage.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+        formulaMessage.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        formulaMessage.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
 
         frameStrip.owner = this;
         frameView.setViewedComponent (&frameStrip, false);
@@ -174,10 +174,10 @@ public:
         IlanaTheme::paintCard (g, bounds.reduced (2.0f), 8.0f, colour);
 
         g.setColour (colour);
-        g.setFont (IlanaTheme::font (15.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, true));
         g.drawText ("WAVETABLE EDITOR", titleArea, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
-        g.setFont (IlanaTheme::font (12.0f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         auto status = "User " + juce::String (slot + 1) + "  |  " + juce::String (doc.getNumFrames())
                       + (doc.getNumFrames() == 1 ? " frame" : " frames") + "  |  frame " + juce::String (selected + 1);
         if (doc.getNumFrames() >= WavetableDoc::largeTableFrames)
@@ -290,8 +290,8 @@ private:
                     g.setColour (owner->colour);
                     g.drawRoundedRectangle (row.reduced (0.5f), 4.0f, 1.2f);
                 }
-                g.setColour (juce::Colours::white.withAlpha (0.5f));
-                g.setFont (IlanaTheme::font (10.5f));
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
                 g.drawText (juce::String (i + 1), row.removeFromLeft (22.0f).toNearestInt(), juce::Justification::centred);
                 owner->paintWave (g, frames[(size_t) i], row.reduced (2.0f, 4.0f),
                                   isSelected ? owner->colour : owner->colour.withAlpha (0.7f), 1.2f, 64);
@@ -370,8 +370,8 @@ private:
 
         if (mode == Mode::Draw)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("Drag to draw the cycle", area.removeFromBottom (18.0f).toNearestInt(), juce::Justification::centredRight);
         }
     }
@@ -413,8 +413,8 @@ private:
             g.setColour (colour.withAlpha (level > 1.0e-4f ? 0.7f : 0.2f));
             g.fillRect (phaseBar.withY (phaseBar.getBottom() - phaseBar.getHeight() * wrapped).withHeight (2.0f));
         }
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("Harmonics 1-64: drag the bars for level (dB), the strip below for phase",
                     area.removeFromTop (16.0f).toNearestInt(), juce::Justification::centredRight);
     }

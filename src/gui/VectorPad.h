@@ -53,8 +53,8 @@ public:
                                        accent.withAlpha (0.0f), corners[c].translated (radius, 0.0f), true);
             g.setGradientFill (glow);
             g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (corners[c]));
-            g.setColour (juce::Colours::white.withAlpha (0.8f));
-            g.setFont (IlanaTheme::font (11.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             const auto label = "OSC " + juce::String (processorRef.getVectorCorner (c) + 1)
                                + "  " + juce::String (juce::roundToInt (weights[(size_t) c] * weights[(size_t) c] * 100.0f)) + "%";
             auto box = juce::Rectangle<float> (area.getWidth() * 0.5f - 8.0f, 16.0f);
@@ -81,7 +81,7 @@ public:
                 g.setColour (i == dragPoint ? juce::Colours::white : accent);
                 g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (p));
                 g.setColour (juce::Colours::black.withAlpha (0.8f));
-                g.setFont (IlanaTheme::font (8.5f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (juce::String (i + 1), juce::Rectangle<float> (9.0f, 9.0f).withCentre (p), juce::Justification::centred);
             }
         }

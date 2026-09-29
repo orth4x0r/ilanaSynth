@@ -84,12 +84,7 @@ public:
         return {};
     }
 
-    static juce::Colour oscColour (int osc)
-    {
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
-                                       juce::Colour (0xff6fe3c1), juce::Colour (0xffff7f9e), juce::Colour (0xffb28aff) };
-        return colours[juce::jlimit (0, OscillatorIds::count - 1, osc)];
-    }
+    static juce::Colour oscColour (int osc) { return IlanaTheme::oscColour (osc); }
 
     void paint (juce::Graphics& g) override
     {
@@ -160,7 +155,7 @@ public:
                 }
 
                 g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
-                g.setFont (IlanaTheme::font (10.0f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%",
                             juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
                             juce::Justification::centred);
@@ -186,15 +181,15 @@ public:
                 juce::Path arrow;
                 arrow.addArrow ({ node.getCentre() + direction * node.getWidth() * 0.5f, to - direction * (radius + 6.0f) },
                                 1.2f + amount * 4.0f, 8.0f + amount * 4.0f, 10.0f);
-                g.setColour (juce::Colour (0xffc8c8d0).withAlpha (0.3f + 0.5f * amount));
+                g.setColour (IlanaTheme::Ui::text2.withAlpha (0.3f + 0.5f * amount));
                 g.fillPath (arrow);
             }
 
             if (anyNoise)
             {
-                g.setColour (juce::Colour (0xff17171b));
+                g.setColour (IlanaTheme::Ui::panel);
                 g.fillEllipse (node);
-                g.setColour (juce::Colour (0xffc8c8d0));
+                g.setColour (IlanaTheme::Ui::text2);
                 g.drawEllipse (node.reduced (1.0f), 1.6f);
 
                 // A few speckles for noise.
@@ -203,7 +198,7 @@ public:
                     g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (
                         node.getCentre() + juce::Point<float> (speckle.nextFloat() - 0.5f, speckle.nextFloat() - 0.5f) * node.getWidth() * 0.55f));
 
-                g.setFont (IlanaTheme::font (9.5f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText ("NOISE", node.translated (0.0f, node.getHeight() * 0.62f).toNearestInt(), juce::Justification::centred);
             }
         }
@@ -216,8 +211,8 @@ public:
 
         if (! anyRoute)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("Drag from one oscillator to another to add FM, or pick an algorithm above",
                         getLocalBounds().removeFromBottom ((int) hintHeight + 4), juce::Justification::centred);
         }
@@ -249,19 +244,19 @@ public:
                 g.fillEllipse (circle.expanded (6.0f + 4.0f * breath));
             }
 
-            g.setColour (juce::Colour (0xff17171b));
+            g.setColour (IlanaTheme::Ui::panel);
             g.fillEllipse (circle);
             g.setColour (colour.withAlpha (on ? 0.25f : 0.08f));
             g.fillEllipse (circle.reduced (3.0f));
             g.setColour (colour.withAlpha (on ? 1.0f : 0.35f));
             g.drawEllipse (circle.reduced (1.0f), hoverOsc == osc ? 2.6f : 1.8f);
 
-            g.setColour (on ? juce::Colours::white : juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (13.0f, true));
+            g.setColour (on ? juce::Colours::white : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("OSC " + juce::String (osc + 1), circle.withTrimmedBottom (radius * 0.4f), juce::Justification::centred);
 
-            g.setColour (out ? colour : juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (9.5f, true));
+            g.setColour (out ? colour : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (out ? "OUT" : "MOD ONLY", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
 
             // Oscillators that ignore FM: a dashed ring and a tag under them.
@@ -275,8 +270,8 @@ public:
                 g.setColour (juce::Colours::white.withAlpha (0.28f));
                 g.fillPath (dashed);
 
-                g.setColour (juce::Colours::white.withAlpha (0.45f));
-                g.setFont (IlanaTheme::font (9.0f, true));
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText ("NO FM IN", juce::Rectangle<float> (radius * 3.0f, 12.0f)
                                            .withCentre ({ centre.x, circle.getBottom() + 13.0f }),
                             juce::Justification::centred);

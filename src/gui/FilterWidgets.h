@@ -65,8 +65,8 @@ public:
             const auto block = groupBounds (group);
             const auto& types = groups[(size_t) group].types;
             const auto holdsCurrent = std::find (types.begin(), types.end(), current) != types.end();
-            g.setColour (holdsCurrent ? colour.withAlpha (0.9f) : juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (9.5f, true));
+            g.setColour (holdsCurrent ? colour.withAlpha (0.9f) : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             auto label = block.withHeight (labelHeight).reduced (3.0f, 0.0f);
             label.setRight (juce::jmin (label.getRight(), pageBounds().getX() - 4.0f));
             g.drawText (groups[(size_t) group].name, label.toNearestInt(), juce::Justification::centredLeft);
@@ -86,7 +86,7 @@ public:
             g.setColour (colour.withAlpha (hovered ? 0.35f : 0.18f));
             g.fillRoundedRectangle (pill, 5.0f);
             g.setColour (colour);
-            g.setFont (IlanaTheme::font (9.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (page == 0 ? "MORE  >" : "<  CLASSIC", pill, juce::Justification::centred);
         }
 
@@ -109,8 +109,8 @@ public:
                 inner.removeFromLeft (4.0f);
                 paintCurve (g, type, curveArea, active);
 
-                g.setColour (active ? colour : juce::Colours::white.withAlpha (0.6f));
-                g.setFont (IlanaTheme::font (10.5f, active));
+                g.setColour (active ? colour : IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, active));
                 g.drawFittedText (names[type], inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
             }
         }
@@ -262,8 +262,8 @@ public:
                 g.fillRoundedRectangle (half.reduced (2.0f), 3.0f);
             }
 
-            g.setColour (option == current ? colour : juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (11.0f, option == current));
+            g.setColour (option == current ? colour : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, option == current));
             g.drawText (option == 0 ? "12 dB" : "24 dB", half, juce::Justification::centred);
         }
     }
@@ -362,8 +362,8 @@ public:
         drawBlock (g, layout.res, "BODY", juce::Colour (0xffb28aff), resOn, over && layout.res.contains (mouse));
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (9.5f, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("BYPASS", layout.bypass, juce::Justification::centred);
 
         // Serial / parallel badge.
@@ -371,7 +371,7 @@ public:
         g.setColour (IlanaTheme::accent().withAlpha (badgeHover ? 0.35f : 0.2f));
         g.fillRoundedRectangle (layout.badge, 8.0f);
         g.setColour (IlanaTheme::accent());
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (parallel ? "PARALLEL" : "SERIAL", layout.badge, juce::Justification::centred);
     }
 
@@ -472,11 +472,8 @@ private:
 
     static juce::Colour oscColour (int osc)
     {
-        // OSC 1-6 match the FM page; the sub + noise keeps its orange.
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
-                                       juce::Colour (0xff6fe3c1), juce::Colour (0xffff7f9e), juce::Colour (0xffb28aff),
-                                       juce::Colour (0xffff9f43) };
-        return colours[juce::jlimit (0, subNoise, osc)];
+        // OSC 1-6 match the FM page; the sub + noise is neutral.
+        return osc >= subNoise ? IlanaTheme::Ui::text2 : IlanaTheme::oscColour (osc);
     }
 
     static juce::String routeId (int osc)
@@ -545,12 +542,12 @@ private:
     static void drawBlock (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, juce::Colour colour,
                            bool lit, bool hovered)
     {
-        g.setColour (juce::Colour (0xff17171b));
+        g.setColour (IlanaTheme::Ui::panel);
         g.fillRoundedRectangle (box, 5.0f);
         g.setColour (colour.withAlpha (lit ? (hovered ? 1.0f : 0.8f) : 0.25f));
         g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, hovered ? 1.8f : 1.2f);
-        g.setColour (lit ? colour : juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (lit ? colour : IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (text, box, juce::Justification::centred);
     }
 

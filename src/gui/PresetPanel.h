@@ -30,9 +30,9 @@ public:
         search.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         search.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         search.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-        search.setColour (juce::TextEditor::textColourId, juce::Colours::white.withAlpha (0.9f));
+        search.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
         search.setColour (juce::TextEditor::highlightColourId, IlanaTheme::accent().withAlpha (0.35f));
-        search.setFont (juce::Font (IlanaTheme::font (14.0f)));
+        search.setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title)));
         search.setIndents (26, 5);
         search.onTextChange = [this] { rebuild(); };
         search.onReturnKey = [this] { loadRow (juce::jmax (0, list.getSelectedRow()), true); };
@@ -135,12 +135,12 @@ public:
         auto header = getLocalBounds().reduced (14, 0).removeFromTop (34);
         g.setColour (IlanaTheme::accent());
         g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 3.0f, 6.0f, 6.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.92f));
-        g.setFont (IlanaTheme::font (13.5f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("PRESETS", header.withTrimmedLeft (14), juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.38f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close")),
                     header, juce::Justification::centred);
         g.drawText (juce::String (filtered.size()) + " of " + juce::String (names.size()),
@@ -162,8 +162,8 @@ public:
 
         if (filtered.isEmpty())
         {
-            g.setColour (juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (13.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText (filterKey == favouritesKey && search.isEmpty()
                             ? "No favourites yet. Click the star on a preset to add it."
                             : "No presets match.",
@@ -278,11 +278,11 @@ private:
 
                 text.removeFromLeft (14.0f);
                 g.setColour (juce::Colours::white.withAlpha (isSelected ? 0.95f : 0.72f));
-                g.setFont (IlanaTheme::font (12.5f, isSelected));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, isSelected));
                 g.drawText (entry.label, text, juce::Justification::centredLeft);
 
-                g.setColour (juce::Colours::white.withAlpha (0.35f));
-                g.setFont (IlanaTheme::font (11.0f));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
                 g.drawText (juce::String (entry.count), text, juce::Justification::centredRight);
             }
         }
@@ -358,7 +358,7 @@ private:
         if (category == "Arp") return juce::Colour (0xffff7ac6);
         if (category == "Drums") return juce::Colour (0xffff4f6d);
         if (category == "Generative") return juce::Colour (0xff4fc3ff);
-        return juce::Colour (0xffa0a0b0);
+        return IlanaTheme::Ui::text2;
     }
 
     static bool isFavouriteName (juce::PropertiesFile* settingsFile, const juce::String& name)
@@ -490,7 +490,7 @@ private:
             drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f, juce::Colours::white.withAlpha (0.35f), false);
 
         g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.8f));
-        g.setFont (IlanaTheme::font (14.0f, isCurrent));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
         g.drawText (name, juce::Rectangle<int> (32, 0, width - 170, height), juce::Justification::centredLeft);
 
         const auto isUser = isUserPreset (presetIndex);
@@ -511,7 +511,7 @@ private:
         g.setColour (colour.withAlpha (selected ? 0.30f : 0.16f));
         g.fillRoundedRectangle (tagBounds, 8.0f);
         g.setColour (colour.withAlpha (selected ? 1.0f : 0.85f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (tagText, tagBounds.toNearestInt(), juce::Justification::centred);
     }
 

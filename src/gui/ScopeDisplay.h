@@ -165,12 +165,12 @@ public:
 
         drawMeter (g, meterArea);
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (hold ? "HOLD" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
         // The engine quality box beside it has no label of its own.
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("QUALITY", qualityBox.getBounds().withX (qualityBox.getX() - 62).withWidth (56),
                     juce::Justification::centredRight);
 
@@ -217,8 +217,8 @@ private:
             g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre ({ area.getCentreX(), y }));
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.25f));
-        g.setFont (IlanaTheme::font (10.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         // Labels sit just inside their grid lines, clear of the title above.
         const auto label = [&] (const juce::String& text, float y)
         {
@@ -393,8 +393,8 @@ private:
         g.strokePath (outline, juce::PathStrokeType (1.4f));
 
         // Frequency ruler.
-        g.setColour (juce::Colours::white.withAlpha (0.2f));
-        g.setFont (IlanaTheme::font (10.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
 
         const std::pair<double, const char*> marks[] { { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } };
 
@@ -406,7 +406,7 @@ private:
             g.setColour (juce::Colours::white.withAlpha (0.07f));
             g.fillRect (juce::Rectangle<float> (x, area.getY(), 1.0f, area.getHeight()));
 
-            g.setColour (juce::Colours::white.withAlpha (0.25f));
+            g.setColour (IlanaTheme::Ui::text3);
             g.drawText (mark.second, juce::Rectangle<float> (x + 3.0f, area.getBottom() - 12.0f, 40.0f, 12.0f)
                                           .toNearestInt(),
                         juce::Justification::centredLeft);
@@ -442,7 +442,7 @@ private:
             const juce::Rectangle<float> bar (area.getX() + (float) channel * (barWidth + gap),
                                               area.getY(), barWidth, area.getHeight());
 
-            g.setColour (juce::Colour (0xff1b1b20));
+            g.setColour (IlanaTheme::Ui::raised);
             g.fillRoundedRectangle (bar, 3.0f);
 
             const auto soloedOut = channelSolo != 0 && channelSolo != channel + 1;
@@ -468,7 +468,7 @@ private:
 
             g.setColour (channel == 0 ? IlanaTheme::accent().withAlpha (0.7f)
                                       : juce::Colour (0xff5b8cff).withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (10.5f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.drawText (channel == 0 ? "L" : "R",
                         juce::Rectangle<float> (bar.getX(), bar.getBottom() - 12.0f, bar.getWidth(), 12.0f),
                         juce::Justification::centred);

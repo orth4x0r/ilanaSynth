@@ -115,10 +115,10 @@ private:
     void paintScope (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, const LfoSimInfo::Shape& info) const
     {
         const auto labels = area.removeFromTop (14.0f);
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (colour);
         g.drawText ("A  " + juce::String (info.outA), labels, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
+        g.setColour (IlanaTheme::Ui::text2);
         g.drawText ("B  " + juce::String (info.outB), labels, juce::Justification::centredRight);
 
         const auto centre = area.getCentreY();

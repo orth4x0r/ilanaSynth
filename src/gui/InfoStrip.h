@@ -11,7 +11,7 @@ public:
     InfoStrip()
     {
         helpButton.setButtonText ("?");
-        helpButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff232329));
+        helpButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
         helpButton.onClick = [this]
         {
             if (onHelp != nullptr)
@@ -47,17 +47,17 @@ public:
         if (title.isNotEmpty())
         {
             g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (12.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText (title, textArea.removeFromLeft (230), juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.55f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText (description, textArea, juce::Justification::centredLeft);
         }
         else
         {
-            g.setColour (juce::Colours::white.withAlpha (0.28f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("Hover any control for details.  Drag source chips onto knobs to modulate.  "
                         "Right-click knobs for quick modulation.",
                         textArea, juce::Justification::centredLeft);
@@ -69,8 +69,8 @@ public:
 
         if (fadeWidth > 4.0f)
         {
-            juce::ColourGradient fade (juce::Colour (0xff101016).withAlpha (0.0f), fadeX, 0.0f,
-                                       juce::Colour (0xff101016), (float) textArea.getRight(), 0.0f, false);
+            juce::ColourGradient fade (IlanaTheme::Ui::well.withAlpha (0.0f), fadeX, 0.0f,
+                                       IlanaTheme::Ui::well, (float) textArea.getRight(), 0.0f, false);
             g.setGradientFill (fade);
             g.fillRect (juce::Rectangle<float> (fadeX, 0.0f, fadeWidth, (float) getHeight()));
         }

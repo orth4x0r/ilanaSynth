@@ -77,8 +77,8 @@ public:
             g.setColour (juce::Colours::white);
             g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (handle));
 
-            g.setColour (juce::Colours::white.withAlpha (0.5f));
-            g.setFont (IlanaTheme::font (9.5f, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (labels[band], juce::Rectangle<float> (40.0f, 12.0f).withCentre (handle.translated (0.0f, -15.0f)),
                         juce::Justification::centred);
         }

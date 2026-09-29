@@ -79,8 +79,8 @@ public:
         {
             const auto card = cardBounds (count - 1);
             IlanaTheme::paintWell (g, card, 6.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (21.0f, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
             g.drawText ("+", card, juce::Justification::centred);
         }
     }
@@ -301,12 +301,12 @@ private:
         auto titleRow = inner.removeFromTop (14.0f);
 
         g.setColour (active ? colour : juce::Colours::white.withAlpha (inUse ? 0.75f : 0.45f));
-        g.setFont (IlanaTheme::font (12.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText (info.title, titleRow, juce::Justification::centredLeft);
 
         if (inUse)
         {
-            const auto titleWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (12.0f, true)),
+            const auto titleWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)),
                                                                             info.title);
             g.setColour (colour);
             g.fillEllipse (titleRow.getX() + titleWidth + 6.0f, titleRow.getCentreY() - 2.5f, 5.0f, 5.0f);

@@ -34,7 +34,7 @@ public:
 
         dontShowAgain.setButtonText ("Don't show this again");
         dontShowAgain.setToggleState (true, juce::dontSendNotification);
-        dontShowAgain.setColour (juce::ToggleButton::textColourId, juce::Colours::white.withAlpha (0.6f));
+        dontShowAgain.setColour (juce::ToggleButton::textColourId, IlanaTheme::Ui::text2);
 
         addAndMakeVisible (closeButton);
         addAndMakeVisible (dontShowAgain);
@@ -101,7 +101,7 @@ public:
                                          panel.getCentreX(), panel.getCentreY()));
             g.setOpacity (juce::jlimit (0.0f, 1.0f, appear * 1.4f));
 
-            g.setColour (juce::Colour (0xff18181c));
+            g.setColour (IlanaTheme::Ui::panel);
             g.fillRoundedRectangle (panel, 10.0f);
             g.setColour (IlanaTheme::accent().withAlpha (0.5f + 0.3f * (1.0f - appear)));
             g.drawRoundedRectangle (panel.reduced (0.5f), 10.0f, 1.5f);
@@ -109,11 +109,11 @@ public:
             auto area = panel.toNearestInt().reduced (28);
 
             g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (26.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::hero, true));
             g.drawText ("Welcome to ilanaSynth", area.removeFromTop (34), juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (13.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("A one-minute tour.  Reopen it any time with the ? button at the bottom.",
                         area.removeFromTop (18), juce::Justification::centredLeft);
 
@@ -128,12 +128,12 @@ public:
 
             {
                 g.setColour (IlanaTheme::accent());
-                g.setFont (IlanaTheme::font (13.5f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
                 g.drawText ("NEW SINCE 1.2", newBand.removeFromTop (22), juce::Justification::centredLeft);
 
                 const juce::StringArray features { "PHYSICAL PAGE", "GRAND PIANO", "CHAOS LFOs", "WEST COAST", "25 FILTERS",
                                                    "FEEDBACK GUITAR", "VECTOR + EVOLVE", "BOUNCE", "WAVETABLE EDITOR" };
-                const auto font = IlanaTheme::font (11.5f, true);
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
                 auto x = (float) newBand.getX();
 
                 for (int i = 0; i < features.size(); ++i)
@@ -179,8 +179,8 @@ public:
             drawTipColumn (g, left, "PLAY", playTips);
             drawTipColumn (g, right, "WORKFLOW", workflowTips);
 
-            g.setColour (juce::Colours::white.withAlpha (0.3f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("1-9, 0 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    ? reopens this tour",
                         shortcuts, juce::Justification::centredLeft);
         }
@@ -191,11 +191,11 @@ private:
                                const juce::StringArray& tips)
     {
         g.setColour (IlanaTheme::accent());
-        g.setFont (IlanaTheme::font (13.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText (heading, area.removeFromTop (20), juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.setFont (IlanaTheme::font (13.5f));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
 
         for (const auto& tip : tips)
         {
@@ -204,7 +204,7 @@ private:
             g.setColour (IlanaTheme::accent().withAlpha (0.9f));
             g.fillEllipse ((float) row.getX(), (float) row.getY() + 5.0f, 5.0f, 5.0f);
 
-            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.setColour (IlanaTheme::Ui::text);
             g.drawFittedText (tip, row.withTrimmedLeft (14), juce::Justification::topLeft, 3, 1.0f);
         }
     }

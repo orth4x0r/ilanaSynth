@@ -12,7 +12,7 @@ public:
     {
         addButton.setButtonText ("+");
         addButton.setTooltip ("Reveal the next unit");
-        addButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff232329));
+        addButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
         addButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.75f));
         addButton.onClick = [this]
         {
@@ -105,13 +105,13 @@ public:
             else if (i == hoverIndex)
                 g.setColour (juce::Colours::white.withAlpha (0.08f));
             else
-                g.setColour (juce::Colour (0xff18181c));
+                g.setColour (IlanaTheme::Ui::panel);
 
             g.fillRoundedRectangle (pill, 4.0f);
 
-            g.setColour (active ? IlanaTheme::accent() : juce::Colours::white.withAlpha (0.5f));
-            g.setFont (active ? IlanaTheme::font (13.0f, true)
-                              : IlanaTheme::font (13.0f));
+            g.setColour (active ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
+            g.setFont (active ? IlanaTheme::font (IlanaTheme::TextSize::body, true)
+                              : IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText (items[i], pill, juce::Justification::centred);
 
             if (active)
@@ -126,7 +126,7 @@ public:
             const auto alpha = 0.2f + 0.15f * (0.5f + 0.5f * std::sin (hintPulse));
 
             g.setColour (IlanaTheme::accent().withAlpha (alpha));
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText ("PRESS + TO ADD", juce::Rectangle<int> (getWidth() - 150, 6, 114, 14),
                         juce::Justification::centredRight);
         }

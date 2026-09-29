@@ -133,8 +133,8 @@ public:
 
         if (rotate != 0)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (10.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.drawText ("+" + juce::String (rotate), juce::Rectangle<float> (radius, 14.0f).withCentre (centre.translated (0.0f, 11.0f)),
                         juce::Justification::centred);
         }
@@ -158,8 +158,8 @@ public:
 
         if (! on)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (10.0f, true));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText ("EUCLID OFF", bounds.reduced (8.0f, 5.0f), juce::Justification::topRight);
         }
     }
@@ -230,8 +230,8 @@ public:
 
         for (int lane = 0; lane < 3; ++lane)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (9.0f, true));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (names[lane], labelArea (lanes[(size_t) lane]), juce::Justification::centredLeft);
         }
 
@@ -270,7 +270,7 @@ public:
                     g.setColour (colour.withMultipliedSaturation (0.6f).withAlpha (0.55f * alpha));
                     g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - (float) range / 24.0f)), 2.0f);
                     g.setColour (juce::Colours::white.withAlpha (0.8f * alpha));
-                    g.setFont (IlanaTheme::font (8.5f, true));
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                     g.drawText (juce::String (range), cell.toNearestInt(), juce::Justification::centredTop);
                 }
             }
@@ -292,8 +292,8 @@ public:
 
         if (! on)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (10.0f, true));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText ("SEQ OFF", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
         }
     }

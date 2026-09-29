@@ -75,12 +75,12 @@ public:
             const auto header = laneArea.removeFromTop (14.0f);
 
             g.setColour (laneColours[lane].withAlpha (0.55f));
-            g.setFont (IlanaTheme::font (11.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText ("OSC " + juce::String (lane + 1), header.toNearestInt(),
                         juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (10.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.drawText (juce::String (unison) + (unison == 1 ? " VOICE   -   " : " VOICES   -   ") + juce::String (juce::roundToInt (detune)) + " ct   -   "
                             + juce::String (juce::roundToInt (spread * 100.0f)) + "% WIDTH",
                         header.toNearestInt(), juce::Justification::centredRight);
@@ -117,8 +117,8 @@ public:
         g.setColour (IlanaTheme::accent().withAlpha (0.8f));
         g.fillRoundedRectangle (widthBar.withWidth (widthBar.getWidth() * juce::jlimit (0.0f, 1.0f, voiceSpread)), 3.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("VOICE SPREAD   -   " + juce::String (processorRef.getActiveVoiceCount()) + " / 16 VOICES",
                     widthBar.withY (globalY - 18.0f).withWidth (220.0f).toNearestInt(),
                     juce::Justification::centredLeft);
@@ -181,7 +181,7 @@ public:
         const auto smallReadout = [&g] (const juce::String& text, juce::Rectangle<float> area, juce::Colour colour)
         {
             g.setColour (colour.withAlpha (0.5f));
-            g.setFont (IlanaTheme::font (10.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (text, area.toNearestInt(), juce::Justification::centred);
         };
 
@@ -260,8 +260,8 @@ public:
         g.setColour (unitColour.withAlpha (0.4f + 0.5f * juce::jmin (1.0f, drift * 2.0f)));
         g.strokePath (driftPath, juce::PathStrokeType (1.4f));
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("DRIFT " + juce::String (juce::roundToInt (drift * 100.0f)) + "%",
                     driftArea.withX (driftArea.getX() + 6.0f).toNearestInt(), juce::Justification::centredLeft);
     }
@@ -294,8 +294,8 @@ private:
             g.drawEllipse (juce::Rectangle<float> (size, size).withCentre (centre).expanded (phase * 14.0f), 1.5f);
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (IlanaTheme::font (11.5f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (label, juce::Rectangle<float> (size, size).withCentre (centre).toNearestInt(),
                     juce::Justification::centred);
     }
@@ -348,8 +348,8 @@ public:
             g.setColour (juce::Colours::white.withAlpha (oct == 0 ? 0.08f : 0.05f));
             g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withX (plot.getX()).withCentre ({ plot.getCentreX(), y }));
 
-            g.setColour (juce::Colours::white.withAlpha (0.28f));
-            g.setFont (IlanaTheme::font (9.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.drawText ("OCT " + juce::String (oct + 1),
                         juce::Rectangle<float> (plot.getRight() - 40.0f, y - 11.0f, 40.0f, 10.0f).toNearestInt(),
                         juce::Justification::centredRight);
@@ -429,8 +429,8 @@ public:
             g.fillRect (juce::Rectangle<float> (stepWidth, plot.getHeight()).withX (x));
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (9.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
 
         for (int step = 0; step < steps; step += 4)
             g.drawText (juce::String (step + 1),
@@ -438,8 +438,8 @@ public:
                                                 plot.getBottom() - 11.0f, stepWidth, 10.0f).toNearestInt(),
                         juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText (on ? "RUNNING   -   GATE " + juce::String (juce::roundToInt (gate * 100.0f)) + "%"
                        : "ARP OFF",
                     plot.withHeight (14.0f).toNearestInt(),
@@ -525,8 +525,8 @@ public:
                             .withBottom (plot.getBottom()));
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.42f));
-        g.setFont (IlanaTheme::font (10.5f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawText ("AMOUNT " + juce::String (juce::roundToInt (amount * 100.0f)) + "%   DECAY "
                         + juce::String (juce::roundToInt (decay * 100.0f)) + "%   OFFSET "
                         + juce::String (juce::roundToInt (offset)) + " st",
@@ -583,8 +583,8 @@ public:
         g.setColour (unitColour.withAlpha (on ? 0.95f : 0.2f));
         g.strokePath (response, juce::PathStrokeType (1.6f));
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText (on ? ("TUNED " + juce::String (f0, 1) + " Hz") : "RESONATOR OFF",
                     plot.withHeight (14.0f).toNearestInt(), juce::Justification::topRight);
     }

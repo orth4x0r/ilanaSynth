@@ -141,13 +141,13 @@ private:
 
     void paintContent (juce::Graphics& g)
     {
-        g.fillAll (juce::Colour (0xff16161a));
+        g.fillAll (IlanaTheme::Ui::panel);
         const auto selected = current();
 
         for (const auto& heading : headings)
         {
             g.setColour (colour);
-            g.setFont (IlanaTheme::font (13.0f * scale, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body * scale, true));
             g.drawText (heading.text, heading.bounds, juce::Justification::centredLeft);
         }
 
@@ -166,8 +166,8 @@ private:
             const auto label = area.removeFromBottom (17.0f * scale);
             paintWave (g, item.choice, area, isSelected || isHovered);
 
-            g.setColour (isSelected ? colour : juce::Colours::white.withAlpha (0.75f));
-            g.setFont (IlanaTheme::font (12.5f * scale, isSelected));
+            g.setColour (isSelected ? colour : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body * scale, isSelected));
             g.drawFittedText (item.name, label.toNearestInt(), juce::Justification::centred, 1, 0.8f);
         }
     }
@@ -178,8 +178,8 @@ private:
 
         if (table == nullptr || table->getNumFrames() == 0)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.25f));
-            g.setFont (IlanaTheme::font (11.0f * scale));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label * scale));
             g.drawText ("empty", area, juce::Justification::centred);
             return;
         }

@@ -69,7 +69,7 @@ public:
             }
 
             g.setColour (active ? colour : juce::Colours::white.withAlpha (hovered ? 0.8f : 0.5f));
-            g.setFont (IlanaTheme::font (10.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (names[i], pill, juce::Justification::centred);
         }
 
@@ -120,7 +120,7 @@ private:
 
     int pillWidth (int index) const
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (10.5f, true)), names[index]) + 16;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), names[index]) + 16;
     }
 
     juce::Rectangle<float> pillBounds (int index) const

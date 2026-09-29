@@ -133,11 +133,11 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     if (text.isEmpty())
         return;
 
-    const auto font = juce::Font (IlanaTheme::font (9.5f, true));
+    const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
     const auto width = juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidth (font, text) + 12.0f);
     const auto tag = juce::Rectangle<float> (area.getX(), area.getBottom() - 13.0f, width, 13.0f);
 
-    g.setColour (juce::Colour (0xff111115).withAlpha (0.85f));
+    g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
     g.fillRoundedRectangle (tag, 6.5f);
     g.setColour (colour.withAlpha (0.9f));
     g.setFont (font);
@@ -166,7 +166,7 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case 5:  return juce::Colour (0xff5b8cff);
         case 6:
         case 7:
-        case 8:  return juce::Colour (0xffbbbbbb);
+        case 8:  return IlanaTheme::Ui::text2;
         case 9:
         case 10:
         case 11: return juce::Colour (0xffb28aff);
@@ -174,7 +174,7 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case 13:
         case 14:
         case 15: return juce::Colour (0xffffd447);
-        case 16: return juce::Colour (0xffbbbbbb);
+        case 16: return IlanaTheme::Ui::text2;
         case 17: return juce::Colour (0xff6fe3c1);
         case 18: return juce::Colour (0xffffd447);
         case 19: return juce::Colour (0xffb28aff);
@@ -236,7 +236,7 @@ public:
 
             // Fill shows the depth: a pie from 12 o'clock, clockwise for
             // positive and anticlockwise for negative.
-            g.setColour (juce::Colour (0xff141418));
+            g.setColour (IlanaTheme::Ui::bg);
             g.fillEllipse (area);
 
             juce::Path pie;
@@ -364,8 +364,8 @@ public:
 
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
-        label.setFont (IlanaTheme::font (12.0f));
-        label.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.65f));
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         addAndMakeVisible (label);
 
         dotStrip.onDepthChange = [this] (int slot, float depth)
@@ -837,8 +837,8 @@ public:
     {
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
-        label.setFont (IlanaTheme::font (12.0f));
-        label.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.65f));
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         addAndMakeVisible (label);
 
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (state.getParameter (parameterID)))
@@ -949,6 +949,15 @@ public:
 
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (state, parameterID, button);
 
+        // A plain on/off is drawn as a sliding switch: a lit "ON" and a dark
+        // "ON" were easy to misread.
+        if (labelText == "ON")
+        {
+            switchAmount = button.getToggleState() ? 1.0f : 0.0f;
+            button.getProperties().set ("switch", true);
+            button.getProperties().set ("switchAmount", switchAmount);
+        }
+
         if (auto* parameter = state.getParameter (parameterID))
         {
             const auto description = describeParameter (parameterID);
@@ -962,25 +971,17 @@ public:
 
     juce::TextButton& getButton() { return button; }
 
+    bool isSwitch() const { return button.getProperties().contains ("switch"); }
+
+    // A lit button breathes: its glow swells and fades slowly.
     void paint (juce::Graphics& g) override
     {
-        if (hover > 0.01f)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.18f * hover));
-            g.fillRoundedRectangle (button.getBounds().toFloat().expanded (2.0f), 5.0f);
-        }
-    }
-
-    // On/off reads from the button itself (lit accent when on); a soft
-    // pulse under a lit button keeps it alive.
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        if (! button.getToggleState())
+        if (isSwitch() || ! button.getToggleState())
             return;
 
         const auto pulse = 0.5f + 0.5f * std::sin (pulsePhase);
-        g.setColour (juce::Colours::white.withAlpha (0.05f + 0.05f * pulse));
-        g.fillRoundedRectangle (button.getBounds().toFloat().reduced (2.0f).withTrimmedTop ((float) button.getHeight() * 0.55f), 3.0f);
+        IlanaTheme::paintGlow (g, button.getBounds().toFloat().reduced (0.5f), 5.0f,
+                               button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f), 0.4f + 0.6f * pulse);
     }
 
     void resized() override
@@ -1001,7 +1002,7 @@ public:
 private:
     void timerCallback() override
     {
-        pulsePhase += 0.16f;
+        pulsePhase += 0.09f;
         hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f);
         appear = juce::jmin (1.0f, appear + 0.12f);
 
@@ -1012,8 +1013,20 @@ private:
         button.setAlpha (appear);
 
         const auto on = button.getToggleState();
+        auto switchMoving = false;
 
-        if (on || on != lastOn || hover > 0.01f || appear < 0.999f || isMouseOver())
+        if (isSwitch())
+        {
+            const auto target = on ? 1.0f : 0.0f;
+            switchMoving = std::abs (switchAmount - target) > 0.001f;
+            switchAmount = switchMoving ? IlanaAnim::approach (switchAmount, target, 0.3f) : target;
+            button.getProperties().set ("switchAmount", switchAmount);
+
+            if (switchMoving)
+                button.repaint();
+        }
+
+        if ((on && ! isSwitch()) || on != lastOn || switchMoving || (hover > 0.01f && hover < 0.99f) || appear < 0.999f)
             repaint();
 
         lastOn = on;
@@ -1024,6 +1037,7 @@ private:
     float pulsePhase = 0.0f;
     float appear = 1.0f;
     float hover = 0.0f;
+    float switchAmount = 0.0f;
     bool lastOn = false;
 };
 

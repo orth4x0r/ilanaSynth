@@ -56,7 +56,7 @@ public:
         setTooltip ("Drag to scrub the frame, click 3D to toggle the waterfall view");
 
         modeButton.setClickingTogglesState (true);
-        modeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1d1d22));
+        modeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
         modeButton.setColour (juce::TextButton::buttonOnColourId,
                               (followsTheme ? IlanaTheme::accent() : traceColour).withAlpha (0.8f));
         modeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.6f));
@@ -78,7 +78,7 @@ public:
 
         IlanaTheme::paintWell (g, bounds, 6.0f);
 
-        const auto borderColour = sampleDragHover ? traceColour : juce::Colour (0xff2a2a31);
+        const auto borderColour = sampleDragHover ? traceColour : IlanaTheme::Ui::line;
         const auto borderThickness = sampleDragHover ? 2.0f : 1.0f;
 
         if (isLiveInput())
@@ -88,11 +88,11 @@ public:
             const auto level = processorRef.getInputLevel();
             auto plot = bounds.reduced (14.0f, 12.0f);
             g.setColour (traceColour);
-            g.setFont (IlanaTheme::font (15.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, true));
             g.drawText (readChoice (modeId) == 4 ? "LIVE INPUT" : "LIVE GRAINS", plot.removeFromTop (22.0f).toNearestInt(),
                         juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText (IlanaSynthAudioProcessor::isEffectBuild ? "the audio coming into ilanaSynth FX"
                                                                 : "needs ilanaSynth FX (the effect plugin)",
                         plot.removeFromTop (18.0f).toNearestInt(), juce::Justification::centredLeft);
@@ -319,11 +319,11 @@ private:
         const auto strike = position > 0.005f ? juce::jlimit (0.02f, 0.5f, position) : 0.125f;
 
         g.setColour (traceColour);
-        g.setFont (IlanaTheme::font (12.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         auto header = area.removeFromTop (18.0f);
         g.drawText ("STRING", header.toNearestInt(), juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (10.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawText (juce::String (excites[excite]).toLowerCase() + " at " + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + " %" : juce::String ("auto")),
                     header.toNearestInt(), juce::Justification::centredRight);
 
@@ -392,11 +392,11 @@ private:
         const auto range = swing * 1.6f;
 
         g.setColour (traceColour);
-        g.setFont (IlanaTheme::font (12.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         auto header = area.removeFromTop (18.0f);
         g.drawText (tine ? "TINE PICKUP" : "REED PICKUP", header.toNearestInt(), juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (10.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawText (tine ? "flux vs tine position" : "charge vs reed position", header.toNearestInt(),
                     juce::Justification::centredRight);
         area.removeFromTop (4.0f);
@@ -433,7 +433,7 @@ private:
         }
         g.setColour (traceColour);
         g.strokePath (path, juce::PathStrokeType (1.8f));
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setColour (IlanaTheme::Ui::text3);
         g.drawText ("rest", juce::Rectangle<float> (toX (0.0f) + 4.0f, area.getBottom() - 14.0f, 40.0f, 14.0f).toNearestInt(),
                     juce::Justification::centredLeft);
     }
@@ -518,8 +518,8 @@ private:
 
         if (sample == nullptr || sample->getNumSamples() < 2)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawFittedText ("DROP A SAMPLE HERE", getLocalBounds().reduced (12), juce::Justification::centred, 2);
             return;
         }
@@ -593,8 +593,8 @@ private:
         if (isGranularMode())
         {
             drawGrainCloud (g, plot, centreY, halfHeight);
-            g.setColour (juce::Colours::white.withAlpha (0.55f));
-            g.setFont (IlanaTheme::font (10.5f, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             const auto wide = getWidth() > 240;
             g.drawText ((reverse ? "REV " : "") + juce::String (wide ? "GRAINS - drag to move" : "GRAINS"),
                         getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
@@ -653,8 +653,8 @@ private:
             g.fillEllipse (juce::Rectangle<float> (5.5f, 5.5f).withCentre ({ cursorX, cursorY }));
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ((reverse ? "REV " : "") + juce::String (loop ? "LOOP" : "1-SHOT"),
                     getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
         g.drawText (sample->name, getLocalBounds().reduced (8, 6), juce::Justification::bottomRight);

@@ -533,8 +533,8 @@ private:
             g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre));
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.setFont (IlanaTheme::font (10.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawText ("click: add   drag: move   dot on a line: bend   double-click: delete   right-click: shapes / grid",
                     getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
     }

@@ -46,9 +46,9 @@ juce_add_plugin(ilanaSynth
 )
 
 juce_add_binary_data(ilanaFonts SOURCES
-    resources/fonts/Jost-400-Book.ttf
-    resources/fonts/Jost-500-Medium.ttf
-    resources/fonts/Jost-700-Bold.ttf
+    resources/fonts/Manrope-400-Regular.ttf
+    resources/fonts/Manrope-500-Medium.ttf
+    resources/fonts/Manrope-700-Bold.ttf
 )
 
 target_sources(ilanaSynth PRIVATE

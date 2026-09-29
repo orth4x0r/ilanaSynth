@@ -123,8 +123,8 @@ void addAll (juce::Component& parent, Components&... components)
 
 void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area)
 {
-    g.setColour (IlanaTheme::accent());
-    g.setFont (IlanaTheme::font (13.0f, true));
+    g.setColour (IlanaTheme::Ui::text);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
     g.drawText (text, area, juce::Justification::centredLeft);
 }
 
@@ -331,7 +331,7 @@ public:
 
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
         subOscLevel = std::make_unique<StripKnob> (p, "subosc_level", "Sub Level", -1, juce::Colour (0xffff9f43), false);
-        noiseStrip = std::make_unique<StripKnob> (p, "noise_level", "Noise", -1, juce::Colour (0xffc8c8d0), false);
+        noiseStrip = std::make_unique<StripKnob> (p, "noise_level", "Noise", -1, IlanaTheme::Ui::text2, false);
         addAll (*this, *subOscOn, *subOscLevel, *noiseStrip);
         noiseLevel.setVisible (false);
 
@@ -433,11 +433,6 @@ public:
 
             IlanaTheme::paintCard (g, bounds.toFloat(), 6.0f, tint);
 
-            // Hardware screws live in the bottom corners so they never crowd
-            // the oscillator title or the LOAD button.
-            IlanaTheme::paintScrew (g, { (float) bounds.getX() + 12.0f, (float) bounds.getBottom() - 12.0f }, 9.0f);
-            IlanaTheme::paintScrew (g, { (float) bounds.getRight() - 12.0f, (float) bounds.getBottom() - 12.0f }, 9.0f);
-
             const auto strip = juce::Rectangle<float> ((float) bounds.getX() + 2.0f, (float) bounds.getY() + 6.0f,
                                                        3.0f, (float) bounds.getHeight() - 12.0f);
             g.setColour (tint.withAlpha (0.85f));
@@ -446,15 +441,15 @@ public:
             const std::array<const char*, 5> modeNames { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
             const auto mode = juce::jlimit (0, 4, getMode (band));
 
-            g.setColour (tint);
-            g.setFont (IlanaTheme::font (13.0f, true));
-            g.fillEllipse ((float) bounds.getX() + 14.0f, (float) bounds.getY() + 14.0f, 6.0f, 6.0f);
+            IlanaTheme::paintTag (g, { (float) bounds.getX() + 17.0f, (float) bounds.getY() + 17.0f }, tint);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("OSC " + juce::String (band + 1),
                         juce::Rectangle<int> (bounds.getX() + 28, bounds.getY() + 9, 60, 16),
                         juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.0f, true));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (modeNames[(size_t) mode],
                         juce::Rectangle<int> (bounds.getX() + 72, bounds.getY() + 10, 150, 14),
                         juce::Justification::centredLeft);
@@ -467,10 +462,10 @@ public:
                 IlanaTheme::paintRecessedPanel (g, chainBay[(size_t) band].toFloat(), 6.0f);
                 const auto label = chainLabel[(size_t) band];
                 g.setColour (tint.withAlpha (0.8f));
-                g.setFont (IlanaTheme::font (11.0f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
                 g.drawText ("WARP CHAIN", label.withHeight (18), juce::Justification::centredLeft);
-                g.setColour (juce::Colours::white.withAlpha (0.35f));
-                g.setFont (IlanaTheme::font (10.0f));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
                 g.drawFittedText ("second stage and\nthe DCW envelope", label.withTrimmedTop (18), juce::Justification::topLeft, 2);
             }
         }
@@ -479,27 +474,27 @@ public:
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
             g.setColour (juce::Colour (0xffff9f43));
-            g.setFont (IlanaTheme::font (12.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("SUB", subStrip.withWidth (60).withTrimmedLeft (14), juce::Justification::centredLeft);
         }
 
         if (! voiceStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (12.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("VOICE", voiceStrip.withWidth (70).withTrimmedLeft (14), juce::Justification::centredLeft);
         }
         if (! symCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, symCard.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (12.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("SYMPATHETIC STRINGS", symCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
                         juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("shared drone strings that ring with everything you play",
                         symCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (90),
                         juce::Justification::centredLeft);
@@ -508,30 +503,19 @@ public:
         if (! keysCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, keysCard.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (12.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("ACOUSTIC KEYS", keysCard.withHeight (symHeaderHeight).withTrimmedLeft (14),
                         juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer",
                         keysCard.withHeight (symHeaderHeight).withTrimmedLeft (180).withTrimmedRight (14),
                         juce::Justification::centredLeft);
         }
     }
 
-    static juce::Colour oscColour (int index)
-    {
-        switch (index)
-        {
-            case 1: return juce::Colour (0xff5b8cff);
-            case 2: return juce::Colour (0xffffd447);
-            case 3: return juce::Colour (0xff6fe3c1);
-            case 4: return juce::Colour (0xffff7f9e);
-            case 5: return juce::Colour (0xffb28aff);
-            default: return IlanaTheme::accent();
-        }
-    }
+    static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
 
     // Height the page needs so every card keeps its minimum size; a Physical
     // card has an extra row of knobs, so it gets extra height.
@@ -1411,12 +1395,12 @@ public:
         g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 3.0f, 6.0f, 6.0f);
         header.removeFromLeft (14);
 
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText (title, header, juce::Justification::centredLeft);
 
-        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.0f, true)), title);
-        g.setColour (juce::Colours::white.withAlpha (0.45f));
-        g.setFont (IlanaTheme::font (12.0f));
+        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), title);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.drawText (FilterType::getNames()[type], header.withTrimmedLeft (titleWidth + 10), juce::Justification::centredLeft);
     }
 
@@ -1501,10 +1485,10 @@ public:
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
         g.setColour (colour());
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("WEST", header, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("wavefolder into a low-pass gate", header.withTrimmedLeft (52), juce::Justification::centredLeft);
 
         // The fold's transfer curve and the gate's vactrol, lit by its level.
@@ -1539,8 +1523,8 @@ public:
         g.fillEllipse (led.expanded (6.0f * glow));
         g.setColour (juce::Colours::white.withAlpha (0.3f + 0.6f * glow));
         g.fillEllipse (led.reduced (5.0f));
-        g.setColour (juce::Colours::white.withAlpha (0.5f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("LPG", cell.withTrimmedLeft (30.0f), juce::Justification::centredLeft);
     }
 
@@ -1642,18 +1626,18 @@ public:
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
         g.setColour (colour());
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("VECTOR", header, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("four oscillators at the corners; Vector X / Y are mod sources", header.withTrimmedLeft (70), juce::Justification::centredLeft);
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
         g.setColour (evolveColour());
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("EVOLVE", header, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("each macro drifts within its range", header.withTrimmedLeft (70), juce::Justification::centredLeft);
 
         // Each macro: its name, where it is set and where it has drifted to,
@@ -1666,8 +1650,8 @@ public:
                 g.setColour (juce::Colours::white.withAlpha (0.07f));
                 g.fillRect (evolveCard.getX() + 12, row.getY() - 10, evolveCard.getWidth() - 24, 1);
             }
-            g.setColour (juce::Colours::white.withAlpha (0.8f));
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (processorRef.getMacroName (m).toUpperCase(), row.withWidth (110).withHeight (18), juce::Justification::centredLeft);
             const auto bar = juce::Rectangle<float> ((float) row.getX(), (float) row.getY() + 24.0f, 100.0f, 6.0f);
             g.setColour (juce::Colours::white.withAlpha (0.1f));
@@ -1810,11 +1794,11 @@ public:
         {
             auto header = card.reduced (12, 0).removeFromTop (28);
             g.setColour (colour());
-            g.setFont (IlanaTheme::font (13.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText (name, header, juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.0f));
-            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (13.0f, true)), name)) + 14),
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (note, header.withTrimmedLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), name)) + 14),
                         juce::Justification::centredLeft);
         };
         title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings");
@@ -1828,12 +1812,12 @@ public:
             const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
             auto message = makePhysical.getBounds().withHeight (40).translated (0, -48).withWidth (stringCard.getWidth() - 28)
                                                   .withX (stringCard.getX() + 14);
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ", so it has no string.",
                         message.removeFromTop (20), juce::Justification::centred);
-            g.setColour (juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("Switch it to Physical to edit its string and exciter here.", message, juce::Justification::centred);
         }
     }
@@ -2057,8 +2041,8 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintSectionTitle (g, "RESPONSE", { 14, 10, 200, 16 });
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("drag the markers to set cutoff and resonance", juce::Rectangle<int> (100, 10, 400, 16),
                     juce::Justification::centredLeft);
 
@@ -2069,21 +2053,21 @@ public:
             const auto* parallel = processorRef.apvts.getRawParameterValue ("filters_parallel");
             const auto active = parallel != nullptr && parallel->load() > 0.5f;
             IlanaTheme::paintCard (g, balanceCard.toFloat(), 7.0f, IlanaTheme::accent().withAlpha (active ? 0.35f : 0.12f));
-            g.setColour (active ? IlanaTheme::accent() : juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (11.5f, true));
+            g.setColour (active ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText ("BALANCE", balanceCard.withHeight (24), juce::Justification::centred);
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (10.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.drawText (active ? "parallel mix" : "parallel only", balanceCard.withTrimmedTop (balanceCard.getHeight() - 18),
                         juce::Justification::centred);
         }
 
         IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
         g.setColour (resonatorColour());
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("BODY", resonatorCard.reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
     }
@@ -2369,12 +2353,12 @@ public:
 
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
-        g.setColour (colour);
-        g.setFont (IlanaTheme::font (12.5f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText (selected < 5 ? titles[index] : "ENVELOPE " + juce::String (selected + 1),
                     header, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("drag the graph or the knobs", header, juce::Justification::centredRight);
     }
 
@@ -2615,14 +2599,14 @@ public:
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
 
         auto header = panel.reduced (12, 0).withHeight (26);
-        g.setColour (colour);
-        g.setFont (IlanaTheme::font (12.5f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("LFO " + juce::String (selected + 1), header, juce::Justification::centredLeft);
 
         const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
         const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText (key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
                     : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
                                                                  : "free-running, shared by all voices",
@@ -2924,14 +2908,14 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("LFO", juce::Rectangle<int> (14, 2, 200, 14), juce::Justification::centredLeft);
         g.drawText ("ENVELOPES", juce::Rectangle<int> (14, lfoBottom + 6, 200, 14),
                     juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (12.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.drawText ("Assign LFOs and envelopes in the MATRIX tab.  Sync uses host tempo.",
                     juce::Rectangle<int> (14, getHeight() - 20, 700, 16), juce::Justification::centredLeft);
     }
@@ -3044,7 +3028,7 @@ public:
     }
 
     static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }
-    static juce::Colour noiseColour() { return juce::Colour (0xffc8c8d0); }
+    static juce::Colour noiseColour() { return IlanaTheme::Ui::text2; }
 
     int getSelectedOperator() const { return selectedOperator; }
 
@@ -3071,20 +3055,20 @@ public:
         {
             const auto colour = FmDiagram::oscColour (selectedOperator);
             IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-            g.setColour (colour);
-            g.setFont (IlanaTheme::font (12.5f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR",
                         operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.55f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText (soundingText(), operatorCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
         }
 
         g.setColour (fmColour());
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("FM MATRIX", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("rows modulate columns", matrixCard.reduced (12, 0).withHeight (26), juce::Justification::centredRight);
 
         // Matrix cells: tinted by the source, brighter the deeper the route.
@@ -3120,7 +3104,7 @@ public:
                 if (source == target)
                 {
                     g.setColour (colour.withAlpha (0.6f));
-                    g.setFont (IlanaTheme::font (9.5f, true));
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                     const auto type = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type"));
                     g.drawText (type == FmFeedback::Filtered ? "FB~" : type == FmFeedback::Cross ? "FB<>" : "FB",
                                 cell.reduced (6.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
@@ -3134,7 +3118,7 @@ public:
         // Compact cells: each amount under its knob.
         if (compactCells)
         {
-            g.setFont (IlanaTheme::font (10.5f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             const auto value = [&g, this] (juce::Rectangle<int> cell, const juce::String& id)
             {
                 const auto amount = read (id);
@@ -3152,7 +3136,7 @@ public:
         }
 
         // Column and row headings.
-        g.setFont (IlanaTheme::font (11.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
 
         for (const auto i : shown)
         {
@@ -3536,9 +3520,9 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
         const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
         {
-            g.setColour (colour);
-            g.setFont (IlanaTheme::font (13.0f, true));
-            g.fillEllipse ((float) area.getX(), (float) area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            IlanaTheme::paintTag (g, { (float) area.getX() + 3.0f, (float) area.getCentreY() }, colour);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText (text, area.withTrimmedLeft (14), juce::Justification::centredLeft);
         };
         IlanaTheme::paintCard (g, inputCard.toFloat(), 7.0f, inputColour().withAlpha (0.35f));
@@ -3557,8 +3541,8 @@ public:
             g.fillRoundedRectangle (area, 3.0f);
             g.setColour (colour);
             g.fillRoundedRectangle (area.withWidth (area.getWidth() * db), 3.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.6f));
-            g.setFont (IlanaTheme::font (11.0f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText (label, area.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
             juce::ignoreUnused (this);
         };
@@ -3576,8 +3560,8 @@ public:
             g.fillRect (x - 1.0f, levelRow.getY(), 2.0f, area.getBottom() - levelRow.getY());
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.5f));
-        g.setFont (IlanaTheme::font (12.0f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         const juce::String help[] {
             "TRIGGER: Off plays only on MIDI notes; Gate plays NOTE while the input is over THRESHOLD; Drone holds NOTE down.",
             "OSC: set an oscillator's MODE to Live to play the input through the filters, FM and effects,",
@@ -3753,9 +3737,9 @@ public:
 
         const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
         {
-            g.setColour (colour);
-            g.setFont (IlanaTheme::font (13.0f, true));
-            g.fillEllipse ((float) area.getX(), (float) area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            IlanaTheme::paintTag (g, { (float) area.getX() + 3.0f, (float) area.getCentreY() }, colour);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText (text, area.withTrimmedLeft (14), juce::Justification::centredLeft);
         };
 
@@ -3771,8 +3755,8 @@ public:
         title (arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", tabColour);
         title (generateCard.reduced (12, 0).removeFromTop (26), "GENERATE", generateColour());
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("drag points; assign it in the MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
         {
@@ -3797,7 +3781,7 @@ public:
         // "NOTE SPRAY" divider: the label, then a hairline to the card edge.
         if (! sprayDivider.isEmpty())
         {
-            const auto font = IlanaTheme::font (10.5f, true);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
             const juce::String text ("NOTE SPRAY");
             const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
             g.setColour (generateColour().withAlpha (0.9f));
@@ -3807,8 +3791,8 @@ public:
             g.fillRect (sprayDivider.getX() + width + 12, sprayDivider.getCentreY(), sprayDivider.getWidth() - width - 15, 1);
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("scale snap, note spray and strum", generateCard.reduced (12, 0).removeFromTop (26),
                     juce::Justification::centredRight);
     }
@@ -4087,18 +4071,17 @@ public:
                    { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
           lfoTabs ({}, {}, true)
     {
-        const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xff5b8cff), juce::Colour (0xffffd447),
-                                       juce::Colour (0xff6fe3c1), juce::Colour (0xffff7f9e), juce::Colour (0xffb28aff) };
+        const auto colours = [] (int osc) { return IlanaTheme::oscColour (osc); };
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             waves[(size_t) osc] = std::make_unique<WaveDisplay> (
                 p, prefix + "_table", prefix + "_frame", prefix + "_unison", prefix + "_spread",
-                prefix + "_detune", false, juce::String {}, prefix + "_mode", osc, colours[osc], osc == 0);
+                prefix + "_detune", false, juce::String {}, prefix + "_mode", osc, colours (osc), osc == 0);
             oscColumn.addAndMakeVisible (*waves[(size_t) osc]);
             auto strip = std::make_unique<OscStrip>();
-            const auto colour = colours[osc];
+            const auto colour = colours (osc);
             const auto themed = osc == 0;
 
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
@@ -4550,9 +4533,9 @@ private:
             return;
 
         IlanaTheme::paintCard (g, card.toFloat(), 6.0f, tint);
-        g.setColour (tint);
-        g.fillEllipse ((float) card.getX() + 12.0f, (float) card.getY() + 11.0f, 6.0f, 6.0f);
-        g.setFont (IlanaTheme::font (12.0f, true));
+        IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) card.getY() + 14.0f }, tint);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText (title, juce::Rectangle<int> (card.getX() + 24, card.getY() + 6, 200, 16), juce::Justification::centredLeft);
     }
 
@@ -4638,8 +4621,8 @@ public:
         {
             const auto& starter = starterRoutings()[i];
             auto button = std::make_unique<juce::TextButton> (starter.label);
-            button->setColour (juce::TextButton::buttonColourId, modSourceColour ((int) starter.source).withAlpha (0.18f));
-            button->setColour (juce::TextButton::textColourOffId, modSourceColour ((int) starter.source).brighter (0.4f));
+            button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised.interpolatedWith (modSourceColour ((int) starter.source), 0.08f));
+            button->setColour (juce::TextButton::textColourOffId, modSourceColour ((int) starter.source).interpolatedWith (juce::Colours::white, 0.4f));
             button->setTooltip (juce::String (starter.tip) + "\nAdds the routing; change it in its row afterwards.");
             button->onClick = [this, i] { addStarter (starterRoutings()[i]); };
             addChildComponent (*button);
@@ -4661,12 +4644,12 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (IlanaTheme::font (13.0f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         g.drawText ("MODULATION", juce::Rectangle<int> (14, 6, 200, 18), juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (12.0f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.drawText (juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use.   "
                         "Tip: drag a source onto any knob, then drag the coloured dot beside the knob to set the depth.",
                     juce::Rectangle<int> (120, 6, 860, 18), juce::Justification::centredLeft);
@@ -4681,8 +4664,8 @@ public:
             x += width + gapAfter;
         };
 
-        g.setColour (juce::Colours::white.withAlpha (0.45f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         heading ("ON", C::bypass, C::gap + C::meter + C::gap);
         heading ("SOURCE", C::source, C::gap);
         heading ("VIA", C::via, C::gap * 2);
@@ -4721,11 +4704,11 @@ public:
         g.setColour (juce::Colour (0xff35c8ff));
         g.fillRoundedRectangle (juce::Rectangle<float> (58.0f, 24.0f).withCentre (sourceCentre), 5.0f);
         g.setColour (juce::Colours::black.withAlpha (0.75f));
-        g.setFont (IlanaTheme::font (11.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText ("LFO 1", juce::Rectangle<float> (58.0f, 24.0f).withCentre (sourceCentre), juce::Justification::centred);
 
         const auto knob = juce::Rectangle<float> (34.0f, 34.0f).withCentre (knobCentre);
-        g.setColour (juce::Colour (0xff202026));
+        g.setColour (IlanaTheme::Ui::raised);
         g.fillEllipse (knob);
         const auto sweep = 0.6f + 0.35f * std::sin (now * 2.0f);
         juce::Path arc;
@@ -4733,12 +4716,12 @@ public:
         g.setColour (IlanaTheme::accent());
         g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.setFont (IlanaTheme::font (16.0f, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
         g.drawText ("Nothing is modulated yet", card.withTrimmedTop (104.0f).withHeight (24.0f), juce::Justification::centred);
 
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
-        g.setFont (IlanaTheme::font (12.5f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         const char* const tips[] {
             "Drag a source chip from the bar below onto any knob",
             "or right-click a knob for quick modulation",
@@ -4748,8 +4731,8 @@ public:
         for (int i = 0; i < 3; ++i)
             g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
 
-        g.setColour (juce::Colours::white.withAlpha (0.45f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("OR START FROM ONE OF THESE", starterArea().withHeight (16).translated (0, -22), juce::Justification::centred);
 
         // A chevron bobbing towards the source chips, under the starters
@@ -4979,8 +4962,8 @@ public:
         auto area = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, area, 6.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("CUSTOM TAP GRID", getLocalBounds().removeFromTop (14).reduced (9, 0),
                     juce::Justification::centredLeft);
 
@@ -5086,7 +5069,7 @@ inline juce::Colour fxColour (int type)
         case 9: case 10: case 17:                          return juce::Colour (0xff6fe38a); // delay, stutter, tape stop
         case 11: case 12: case 13:                         return juce::Colour (0xff45c8ff); // smear, freeze, reverb
         case 5: case 18: case 27: case 29:                 return juce::Colour (0xffff5fb0); // comb, tilt, vowel, EQ
-        default:                                           return juce::Colour (0xff5a5a66);
+        default:                                           return IlanaTheme::Ui::text3;
     }
 }
 
@@ -5112,8 +5095,8 @@ public:
         auto bars = getBarBounds().toFloat();
         const auto columnWidth = bars.getWidth() / 16.0f;
 
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (IlanaTheme::font (10.5f, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("STEPS", getLocalBounds().removeFromTop (14).reduced (9, 0), juce::Justification::centredLeft);
 
         for (int step = 0; step < 16; ++step)
@@ -5548,8 +5531,8 @@ public:
         for (const auto& group : quickAddGroups())
         {
             auto label = std::make_unique<juce::Label> ("", group.title);
-            label->setFont (juce::Font (IlanaTheme::font (10.5f, true)));
-            label->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.5f));
+            label->setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)));
+            label->setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
             label->setJustificationType (juce::Justification::centredRight);
             addChildComponent (*label);
             quickAddLabels.push_back (std::move (label));
@@ -5559,8 +5542,8 @@ public:
         {
             auto button = std::make_unique<juce::TextButton> (pick.second);
             const auto type = pick.first;
-            button->setColour (juce::TextButton::buttonColourId, fxColour (type).withAlpha (0.18f));
-            button->setColour (juce::TextButton::textColourOffId, fxColour (type).brighter (0.3f));
+            button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised.interpolatedWith (fxColour (type), 0.08f));
+            button->setColour (juce::TextButton::textColourOffId, fxColour (type).interpolatedWith (juce::Colours::white, 0.35f));
             button->setTooltip ("Add " + juce::String (pick.second).toLowerCase() + " to the first empty slot");
             button->onClick = [this, type]
             {
@@ -5593,17 +5576,17 @@ public:
         if (! outputStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, outputStrip.toFloat(), 6.0f);
-            g.setColour (IlanaTheme::accent());
-            g.setFont (IlanaTheme::font (12.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("OUTPUT", outputStrip.withWidth (80).withTrimmedLeft (14), juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.setFont (IlanaTheme::font (11.5f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("after the rack, before the master volume", outputStrip.reduced (14, 0),
                         juce::Justification::centredRight);
         }
 
-        g.setColour (juce::Colours::white.withAlpha (0.45f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("BLEND", juce::Rectangle<int> (236, 15, 40, 18), juce::Justification::centredRight);
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
@@ -5620,18 +5603,18 @@ public:
             const auto typeColour = fxColour (slotType);
 
             if (dragSource)
-                g.setColour (juce::Colour (0xff141416).withAlpha (0.5f));
+                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.5f));
             else if (slotType != 0)
             {
                 // Loaded modules wear their family colour.
-                juce::ColourGradient rowGradient (typeColour.withAlpha ((selected ? 0.34f : 0.18f) * dim), 0.0f, (float) row.getY(),
-                                                  typeColour.withAlpha ((selected ? 0.16f : 0.06f) * dim), 0.0f, (float) row.getBottom(), false);
+                juce::ColourGradient rowGradient (IlanaTheme::Ui::raised.interpolatedWith (typeColour, selected ? 0.2f : 0.1f).withMultipliedAlpha (dim), 0.0f, (float) row.getY(),
+                                                  IlanaTheme::Ui::raised.interpolatedWith (typeColour, selected ? 0.1f : 0.04f).withMultipliedAlpha (dim), 0.0f, (float) row.getBottom(), false);
                 g.setGradientFill (rowGradient);
             }
             else
             {
-                juce::ColourGradient rowGradient (juce::Colour (0xff20202a).withMultipliedAlpha (dim), 0.0f, (float) row.getY(),
-                                                  juce::Colour (0xff16161a).withMultipliedAlpha (dim), 0.0f, (float) row.getBottom(), false);
+                juce::ColourGradient rowGradient (IlanaTheme::Ui::raised.withMultipliedAlpha (dim), 0.0f, (float) row.getY(),
+                                                  IlanaTheme::Ui::panel.withMultipliedAlpha (dim), 0.0f, (float) row.getBottom(), false);
                 g.setGradientFill (rowGradient);
             }
 
@@ -5648,14 +5631,14 @@ public:
                 g.setColour (juce::Colours::white.withAlpha (0.07f * rowHover[(size_t) slot]));
                 g.fillRoundedRectangle (row.toFloat(), 6.0f);
             }
-            g.setColour ((selected ? (slotType != 0 ? typeColour : IlanaTheme::accent()) : juce::Colour (0xff33333a)).withMultipliedAlpha (dim));
+            g.setColour ((selected ? (slotType != 0 ? typeColour : IlanaTheme::accent()) : IlanaTheme::Ui::track).withMultipliedAlpha (dim));
             g.drawRoundedRectangle (row.toFloat().reduced (0.5f), 6.0f, selected ? 1.6f : 1.0f);
 
             if (dragSource)
                 continue;
 
             g.setColour (juce::Colours::white.withAlpha (0.35f * dim));
-            g.setFont (IlanaTheme::font (11.0f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (juce::String (slot + 1), row.reduced (8, 0).removeFromLeft (18), juce::Justification::centredLeft);
 
             const juce::Rectangle<float> led ((float) row.getRight() - 20.0f, (float) row.getCentreY() - 3.0f, 7.0f, 7.0f);
@@ -5671,11 +5654,11 @@ public:
                 g.drawEllipse (led, 1.0f);
             }
 
-            g.setColour ((slotType != 0 ? juce::Colours::white.withAlpha (0.92f)
+            g.setColour ((slotType != 0 ? IlanaTheme::Ui::text
                                         : IlanaTheme::accent().interpolatedWith (juce::Colours::white, 0.55f)
                                               .withAlpha (0.42f + 0.45f * rowHover[(size_t) slot]))
                              .withMultipliedAlpha (dim));
-            g.setFont (IlanaTheme::font (13.0f, slotType != 0));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, slotType != 0));
             g.drawFittedText (slotType != 0 ? getSlotName (slotType) : juce::String ("+  add effect"),
                               row.reduced (30, 6).withTrimmedRight (18), 1, juce::Justification::centredLeft);
 
@@ -5685,8 +5668,8 @@ public:
 
                 if (cpu > 0.0005f)
                 {
-                    g.setColour (juce::Colours::white.withAlpha (0.35f));
-                    g.setFont (IlanaTheme::font (10.0f));
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
                     g.drawText (juce::String (cpu * 100.0f, 1) + "%",
                                 juce::Rectangle<int> (row.getRight() - 78, row.getY() + 6, 26, 10),
                                 juce::Justification::centredRight);
@@ -5699,7 +5682,7 @@ public:
                 g.setColour (IlanaTheme::accent().withAlpha (0.9f));
                 g.fillRoundedRectangle (badge, 2.5f);
                 g.setColour (juce::Colours::black.withAlpha (0.85f));
-                g.setFont (IlanaTheme::font (9.5f, true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText ("S", badge, juce::Justification::centred);
             }
 
@@ -5802,8 +5785,8 @@ public:
         }
 
         juce::ignoreUnused (type);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.setFont (IlanaTheme::font (11.5f));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("Click a slot to add or jump to it, drag to reorder, right-click to change it.",
                     juce::Rectangle<int> (stackView.getX(), stackView.getY() - 20, 600, 16), juce::Justification::centredLeft);
     }
@@ -6317,12 +6300,12 @@ private:
     {
         if (stackPanels.empty())
         {
-            g.setColour (juce::Colours::white.withAlpha (0.85f));
-            g.setFont (IlanaTheme::font (16.0f, true));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
             g.drawText ("The rack is empty", stackContent.getLocalBounds().withTrimmedTop (40).withHeight (24),
                         juce::Justification::centred);
-            g.setColour (juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (12.5f));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("Click an effect to add it, or click any slot on the left.",
                         stackContent.getLocalBounds().withTrimmedTop (68).withHeight (20), juce::Justification::centred);
             return;
@@ -6335,40 +6318,44 @@ private:
             const auto selected = panel.slot == selectedSlot;
             const auto bypassed = processorRef.apvts.getParameter ("fx_slot" + juce::String (panel.slot + 1) + "_bypass")->getValue() > 0.5f;
 
-            juce::ColourGradient body (colour.withAlpha (selected ? 0.16f : 0.1f), 0.0f, bounds.getY(),
-                                       juce::Colour (0xff141418).withAlpha (0.9f), 0.0f, bounds.getBottom(), false);
-            g.setGradientFill (body);
-            g.fillRoundedRectangle (bounds, 8.0f);
+            if (selected)
+                IlanaTheme::paintGlow (g, bounds, 8.0f, colour, 1.0f);
+
+            IlanaTheme::paintCard (g, bounds, 8.0f, colour);
 
             // The module's name, large and faint, fills the panel's open right side.
             if (! panel.duplicate && bounds.getHeight() > 80.0f)
             {
                 juce::Graphics::ScopedSaveState save (g);
                 g.reduceClipRegion (panel.bounds.reduced (2));
-                g.setColour (colour.withAlpha (0.06f));
+                g.setColour (colour.withAlpha (0.035f));
                 g.setFont (IlanaTheme::font (juce::jmin (64.0f, bounds.getHeight() * 0.42f), true));
                 g.drawText (getSlotName (panel.type).toUpperCase(), panel.bounds.reduced (18, 10).withTrimmedTop (20),
                             juce::Justification::bottomRight);
             }
 
-            g.setColour (colour.withAlpha (selected ? 0.9f : 0.35f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, selected ? 1.6f : 1.0f);
+            if (selected)
+            {
+                g.setColour (colour.withAlpha (0.7f));
+                g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.2f);
+            }
 
             auto header = panel.bounds.withHeight (28).reduced (12, 0);
             g.setColour (colour.withAlpha (bypassed ? 0.4f : 1.0f));
             g.fillRoundedRectangle (header.removeFromLeft (4).toFloat().reduced (0.0f, 7.0f), 2.0f);
             header.removeFromLeft (8);
-            g.setFont (IlanaTheme::font (13.0f, true));
+            g.setColour (IlanaTheme::Ui::text.withAlpha (bypassed ? 0.5f : 1.0f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText (getSlotName (panel.type).toUpperCase(), header, juce::Justification::centredLeft);
 
-            g.setColour (juce::Colours::white.withAlpha (0.4f));
-            g.setFont (IlanaTheme::font (11.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             const auto note = juce::String ("SLOT ") + juce::String (panel.slot + 1) + (bypassed ? "  -  BYPASSED" : "");
             g.drawText (note, header.withTrimmedRight (panel.type == 13 ? 110 : 0), juce::Justification::centredRight);
 
             if (panel.duplicate)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.4f));
+                g.setColour (IlanaTheme::Ui::text3);
                 g.drawText ("Shares its settings with the first " + getSlotName (panel.type) + " above.",
                             panel.bounds.withTrimmedTop (28).reduced (16, 0).withHeight (26), juce::Justification::centredLeft);
             }
@@ -6620,10 +6607,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* mainPage = new MainPage (p);
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
-    tabs.addTab ("MAIN", juce::Colour (0xff18181c), mainPage, true);
-    tabs.addTab ("OSC", juce::Colour (0xff18181c), new OscPageViewport (p), true);
-    tabs.addTab ("FILTER", juce::Colour (0xff18181c), new FilterPage (p), true);
-    tabs.addTab ("ENV/LFO", juce::Colour (0xff18181c), envLfoPage, true);
+    tabs.addTab ("MAIN", IlanaTheme::Ui::panel, mainPage, true);
+    tabs.addTab ("OSC", IlanaTheme::Ui::panel, new OscPageViewport (p), true);
+    tabs.addTab ("FILTER", IlanaTheme::Ui::panel, new FilterPage (p), true);
+    tabs.addTab ("ENV/LFO", IlanaTheme::Ui::panel, envLfoPage, true);
 
     mainPage->onEditLfo = [this, envLfoPage] (int lfo)
     {
@@ -6645,16 +6632,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             tabs.setCurrentTabIndex (index);
     };
 
-    tabs.addTab ("FM", juce::Colour (0xff18181c), new FmPage (p), true);
-    tabs.addTab ("ARP/SEQ", juce::Colour (0xff18181c), new SeqPage (p), true);
-    tabs.addTab ("MATRIX", juce::Colour (0xff18181c), new MatrixPage (p), true);
-    tabs.addTab ("VECTOR", juce::Colour (0xff18181c), new VectorPage (p), true);
-    tabs.addTab ("PHYSICAL", juce::Colour (0xff18181c), new PhysicalPage (p), true);
-    tabs.addTab ("FX", juce::Colour (0xff18181c), new FxPage (p), true);
-    tabs.addTab ("SCOPE", juce::Colour (0xff18181c), new ScopeDisplay (p), true);
+    tabs.addTab ("FM", IlanaTheme::Ui::panel, new FmPage (p), true);
+    tabs.addTab ("ARP/SEQ", IlanaTheme::Ui::panel, new SeqPage (p), true);
+    tabs.addTab ("MATRIX", IlanaTheme::Ui::panel, new MatrixPage (p), true);
+    tabs.addTab ("VECTOR", IlanaTheme::Ui::panel, new VectorPage (p), true);
+    tabs.addTab ("PHYSICAL", IlanaTheme::Ui::panel, new PhysicalPage (p), true);
+    tabs.addTab ("FX", IlanaTheme::Ui::panel, new FxPage (p), true);
+    tabs.addTab ("SCOPE", IlanaTheme::Ui::panel, new ScopeDisplay (p), true);
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
     if (IlanaSynthAudioProcessor::isEffectBuild)
-        tabs.addTab ("INPUT", juce::Colour (0xff18181c), new InputPage (p), true);
+        tabs.addTab ("INPUT", IlanaTheme::Ui::panel, new InputPage (p), true);
 
     content.addAndMakeVisible (tabs);
 
@@ -7045,51 +7032,35 @@ void IlanaSynthAudioProcessorEditor::paint (juce::Graphics& g)
 
 void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 {
-    // Brushed metal faceplate.
-    juce::ColourGradient headerGradient (juce::Colour (0xff33333d), 0.0f, 0.0f,
-                                         juce::Colour (0xff1a1a1f), 0.0f, 56.0f, false);
-    headerGradient.addColour (0.12, juce::Colour (0xff3a3a45));
-    headerGradient.addColour (0.6, juce::Colour (0xff24242b));
-    g.setGradientFill (headerGradient);
+    g.setColour (IlanaTheme::Ui::header);
     g.fillRect (juce::Rectangle<int> (0, 0, designWidth, 56));
 
-    {
-        juce::Graphics::ScopedSaveState save (g);
-        g.reduceClipRegion (juce::Rectangle<int> (0, 0, designWidth, 56));
-        g.setTiledImageFill (IlanaTheme::metalTexture(), 137, 61, 0.4f);
-        g.fillAll();
-    }
+    g.setColour (IlanaTheme::Ui::line);
+    g.fillRect (juce::Rectangle<int> (0, 55, designWidth, 1));
 
-    g.setColour (juce::Colours::white.withAlpha (0.1f));
-    g.fillRect (juce::Rectangle<int> (0, 1, designWidth, 1));
-
-    g.setColour (juce::Colours::white.withAlpha (0.3f));
-    g.setFont (IlanaTheme::font (10.5f));
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
     g.drawText (juce::String ("v") + appVersion, juce::Rectangle<int> (236, 40, 50, 14), juce::Justification::centredLeft);
 
-    juce::ColourGradient headerLine (IlanaTheme::accent().withAlpha (0.5f), 16.0f, 0.0f,
-                                     IlanaTheme::accent().withAlpha (0.0f), (float) designWidth - 16.0f, 0.0f, false);
-    g.setGradientFill (headerLine);
-    g.fillRect (juce::Rectangle<int> (16, 54, designWidth - 32, 2));
 
     const auto cpu = processorRef.getCpuUsage() * 100.0f;
 
     const auto cpuColour = cpu < 30.0f
-                               ? juce::Colours::white.withAlpha (0.4f)
+                               ? IlanaTheme::Ui::text3
                                : (cpu < 60.0f
-                                      ? juce::Colours::white.withAlpha (0.4f)
+                                      ? IlanaTheme::Ui::text3
                                             .interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
                                       : IlanaTheme::accent().interpolatedWith (juce::Colours::red,
                                                                                juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
 
     // Status line along the bottom edge of the header: tempo, voices, CPU.
     const auto statusY = 43;
-    g.setFont (IlanaTheme::font (10.5f));
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
     g.setColour (cpuColour);
     g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
                 juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);
 
-    g.setColour (juce::Colours::white.withAlpha (0.4f));
+    g.setColour (IlanaTheme::Ui::text3);
     g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
                 juce::Rectangle<int> (designWidth - 316, statusY, 70, 11), juce::Justification::centredRight);
 
@@ -7098,9 +7069,17 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     for (int i = 0; i < 16; ++i)
     {
         const auto lit = i < activeVoices;
-        g.setColour (lit ? IlanaTheme::accent().withAlpha (0.9f)
-                         : juce::Colours::white.withAlpha (0.12f));
-        g.fillEllipse ((float) (designWidth - 232 + i * 8), (float) statusY + 3.0f, 5.0f, 5.0f);
+        const auto dot = juce::Rectangle<float> ((float) (designWidth - 232 + i * 8), (float) statusY + 3.0f, 5.0f, 5.0f);
+
+        // Playing voices light up with a halo.
+        if (lit)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.25f));
+            g.fillEllipse (dot.expanded (2.5f));
+        }
+
+        g.setColour (lit ? IlanaTheme::accent() : IlanaTheme::Ui::track);
+        g.fillEllipse (dot);
     }
 }
 

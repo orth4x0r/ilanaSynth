@@ -40,8 +40,8 @@ public:
             g.setColour (lit ? accent() : juce::Colours::white.withAlpha (hovered ? 0.35f : 0.12f));
             g.drawRoundedRectangle (cell.reduced (0.5f), 5.0f, lit ? 1.6f : 1.0f);
 
-            g.setColour (lit ? accent() : juce::Colours::white.withAlpha (0.45f));
-            g.setFont (IlanaTheme::font (9.5f, true));
+            g.setColour (lit ? accent() : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (juce::String (index + 1), cell.reduced (4.0f, 2.0f).toNearestInt(), juce::Justification::topLeft);
 
             paintAlgorithm (g, FmAlgorithms::all()[(size_t) index], cell.withTrimmedTop (10.0f).reduced (4.0f, 3.0f), lit);
@@ -118,7 +118,7 @@ public:
             }
             else
             {
-                g.setColour (juce::Colour (0xff17171b));
+                g.setColour (IlanaTheme::Ui::panel);
                 g.fillEllipse (node);
                 g.setColour (colour);
                 g.drawEllipse (node, 1.0f);

@@ -37,7 +37,7 @@ public:
                 const auto pressed = noteNumber == pressedNote;
 
                 g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.45f + 0.5f * pressedVelocity)
-                                     : juce::Colour (0xffe6e6e9));
+                                     : IlanaTheme::Ui::text);
                 g.fillRect (juce::Rectangle<float> (x + 1.0f, area.getY() + 2.0f,
                                                     whiteWidth - 2.0f, area.getHeight() - 4.0f));
 
@@ -68,7 +68,7 @@ public:
                     const auto pressed = noteNumber == pressedNote;
 
                     g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.55f + 0.45f * pressedVelocity)
-                                         : juce::Colour (0xff141418));
+                                         : IlanaTheme::Ui::bg);
                     g.fillRect (juce::Rectangle<float> (x, area.getY() + 2.0f,
                                                         whiteWidth * 0.6f, area.getHeight() * 0.62f));
                 }

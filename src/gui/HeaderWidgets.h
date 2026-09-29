@@ -188,12 +188,12 @@ public:
 
         auto area = getLocalBounds().toFloat().reduced (3.0f);
         const auto enabled = isEnabled();
-        auto colour = iconColour.value_or (on ? juce::Colours::white : juce::Colours::white.withAlpha (0.72f));
+        auto colour = iconColour.value_or (on ? juce::Colours::white : IlanaTheme::Ui::text2);
 
         if (! enabled)
             colour = colour.withAlpha (0.22f);
         else if (isHighlighted)
-            colour = colour.brighter (0.3f);
+            colour = colour.interpolatedWith (juce::Colours::white, 0.6f);
 
         g.setColour (colour);
 
@@ -201,7 +201,7 @@ public:
         {
             const auto iconArea = area.removeFromLeft (area.getHeight());
             g.fillPath (IlanaIcons::make (icon, iconArea));
-            g.setFont (IlanaTheme::font (12.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (text, area.withTrimmedRight (2.0f), juce::Justification::centred);
         }
         else
@@ -252,20 +252,19 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        g.setColour (IlanaTheme::Ui::panel);
+        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (hover ? IlanaTheme::accent().withAlpha (0.6f) : IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
 
-        if (hover)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.35f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
-        }
-
+        // A preset load flashes the field with a glow that fades out.
         if (flash > 0.01f)
         {
-            g.setColour (IlanaTheme::accent().withAlpha (0.22f * flash));
+            IlanaTheme::paintGlow (g, bounds.reduced (1.0f), 6.0f, IlanaTheme::accent(), 2.0f * flash);
+            g.setColour (IlanaTheme::accent().withAlpha (0.12f * flash));
             g.fillRoundedRectangle (bounds, 6.0f);
-            g.setColour (IlanaTheme::accent().withAlpha (0.6f * flash));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.4f);
+            g.setColour (IlanaTheme::accent().withAlpha (0.7f * flash));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.2f);
         }
 
         auto text = getLocalBounds().reduced (12, 3);
@@ -276,25 +275,36 @@ public:
         chevron.startNewSubPath (chevronArea.getCentreX() - 4.0f, chevronArea.getCentreY() - 2.0f);
         chevron.lineTo (chevronArea.getCentreX(), chevronArea.getCentreY() + 2.0f);
         chevron.lineTo (chevronArea.getCentreX() + 4.0f, chevronArea.getCentreY() - 2.0f);
-        g.setColour (IlanaTheme::accent().withAlpha (hover ? 1.0f : 0.7f));
+        g.setColour (hover ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
         g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         // Init's category is its own name: show it as the start-up label does.
         const auto categoryText = category.isNotEmpty() && ! category.equalsIgnoreCase ("Init") ? category.toUpperCase()
                                                                                                 : juce::String ("PRESET");
-        g.setColour (IlanaTheme::accent().withAlpha (0.8f));
-        g.setFont (IlanaTheme::font (9.5f, true));
-        g.drawText (categoryText + (isModified ? "   -   EDITED" : ""), text.removeFromTop (11),
-                    juce::Justification::centredLeft);
+        auto categoryRow = text.removeFromTop (12);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText (categoryText, categoryRow, juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.95f));
-        g.setFont (IlanaTheme::font (16.5f, true));
+        if (isModified)
+        {
+            const auto width = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), categoryText);
+            const auto dot = juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) categoryRow.getX() + width + 9.0f, (float) categoryRow.getCentreY() });
+            g.setColour (IlanaTheme::accent().withAlpha (0.3f));
+            g.fillEllipse (dot.expanded (2.5f));
+            g.setColour (IlanaTheme::accent());
+            g.fillEllipse (dot);
+            g.drawText ("EDITED", categoryRow.withTrimmedLeft ((int) (width + 16.0f)), juce::Justification::centredLeft);
+        }
+
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
         const auto nameText = name.isNotEmpty() ? name : juce::String ("Init");
         g.drawText (nameText, text, juce::Justification::centredLeft, true);
 
         if (isFavourite)
         {
-            const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (16.5f, true)), nameText);
+            const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::large, true)), nameText);
             const auto starX = juce::jmin ((float) text.getRight() - 10.0f, (float) text.getX() + nameWidth + 12.0f);
             g.setColour (juce::Colour (0xffffd447));
             g.fillPath (IlanaIcons::make (IlanaIcons::Icon::Star,

@@ -76,8 +76,8 @@ public:
 
         for (int i = 0; i < items.size(); ++i)
         {
-            const auto near = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (pill - (float) i));
-            auto colour = Ui::text2.interpolatedWith (juce::Colours::white, near);
+            const auto closeness = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (pill - (float) i));
+            auto colour = Ui::text2.interpolatedWith (juce::Colours::white, closeness);
 
             if (i == hover && i != selected)
                 colour = colour.interpolatedWith (Ui::text, 0.6f);

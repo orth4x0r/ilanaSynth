@@ -2,6 +2,7 @@
 // so the UI can be reviewed without a DAW or a display session.
 //   ilanaSnapshot <output dir> [factory preset index]
 //   ilanaSnapshot --uitest     (drives the editor and checks the wiring)
+//   ilanaSnapshot --idlecpu    (UI cost of each page while nothing moves)
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -1059,6 +1060,46 @@ int runUiTests()
 }
 } // namespace
 
+// The editor on screen, idle, on every page: how much of a core the UI
+// spends repainting when nothing moves (animations must settle).
+#include <ctime>
+int runIdleCpu()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+    editor->addToDesktop (juce::ComponentPeer::windowHasTitleBar);
+    editor->setVisible (true);
+    settle (800);
+
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+
+    auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+    auto worst = 0.0;
+
+    for (const auto& id : pages->getPageIds())
+    {
+        pages->showPage (id);
+        settle (1200); // let entrance animations finish
+        const auto start = std::clock();
+        settle (3000);
+        const auto percent = 100.0 * (double) (std::clock() - start) / CLOCKS_PER_SEC / 3.0;
+        worst = juce::jmax (worst, percent);
+        std::cout << "idle " << id << ": " << juce::String (percent, 1) << "% of a core" << std::endl;
+    }
+
+    pages->setScopeOpen (true);
+    settle (1200);
+    const auto start = std::clock();
+    settle (3000);
+    std::cout << "idle SCOPE panel: " << juce::String (100.0 * (double) (std::clock() - start) / CLOCKS_PER_SEC / 3.0, 1) << "% of a core" << std::endl;
+    std::cout << "worst page: " << juce::String (worst, 1) << "%" << std::endl;
+    editor->removeFromDesktop();
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -1072,6 +1113,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--uitest")
         return runUiTests();
+
+    if (juce::String (argv[1]) == "--idlecpu")
+        return runIdleCpu();
 
     const juce::File outDir (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
     outDir.createDirectory();

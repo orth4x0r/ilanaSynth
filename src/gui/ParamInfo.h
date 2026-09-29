@@ -53,7 +53,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::roundToInt (value) == 0 ? juce::String ("Free") : "#" + juce::String (juce::roundToInt (value));
     // Amounts from -1 to 1 as signed percent (mod depths, step values).
     if ((id.startsWith ("mod") && id.endsWith ("_amt")) || (id.startsWith ("lfo") && id.contains ("_step")))
-        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + "%";
     // Plain 0..1 (or 0..2) amounts as percent.
     if (id == "fx_feedback_tone" || id == "fx_flanger_depth" || id == "fx_dim_depth" || id == "fx_gate_smooth"
         || id == "fx_trem_depth" || id == "fx_delay_duck" || id == "fx_chorus_depth" || id == "fx_delay_wow"
@@ -61,7 +61,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "fx_amp_bass" || id == "fx_amp_mid" || id == "fx_amp_treble"
         || id.endsWith ("_fb_gain") || id.endsWith ("_fb_distance")
         || id == "vec_x" || id == "vec_y" || id.startsWith ("vec_px") || id.startsWith ("vec_py"))
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
     // Stereo position: C, or how far left or right.
     if (id.endsWith ("_pan"))
@@ -77,23 +77,23 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     // The filters' knobs in their own units.
     if (id == "f1_reso" || id == "f2_reso" || id == "arp_gate")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id == "f1_drive" || id == "f2_drive")
         return describeNumber (value, 1) + "x";
     if (id == "f1_env" || id == "f2_env")
         return (std::round (value * 10.0f) > 0.0f ? "+" : "") + describeFixed (value, 1) + " oct";
     if (id == "f1_keytrack" || id == "f2_keytrack" || id == "f1_fm" || id == "f2_fm")
-        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
     // M8.3: the WEST card.
     if (id == "west_decay")
         return describeFixed (value, 2) + "x";
     if (id == "west_strike" || id == "west_open" || id == "west_fold" || id == "west_res")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id == "west_sym")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
-    const auto asPercent = [value] { return juce::String (juce::roundToInt (value * 100.0f)) + " %"; };
+    const auto asPercent = [value] { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
     const auto asMilliseconds = [value] { return juce::String (juce::roundToInt (value)) + " ms"; };
     const auto asSeconds = [value]
     {
@@ -115,7 +115,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return asPercent();
 
     if (id == "fx_gate_swing" || (id.startsWith ("fx_gate_step") && id != "fx_gate_steps"))
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
     if (id == "fx_gate_steps")
         return juce::String (juce::roundToInt (value)) + " steps";
@@ -150,7 +150,7 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "in_gain" || id == "in_threshold")
         return describeFixed (value, 1) + " dB";
     if (id == "in_dry" || id == "in_body" || id == "in_strings")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id.startsWith ("sym_note") || id == "in_note")
     {
         // Note name with C3 = MIDI 60, as on the keyboard strip.
@@ -175,7 +175,7 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (isOscParameter (id, "_warp2_amt"))
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
-        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
         return value <= 0.0005f ? juce::String ("Off") : asSeconds();
     if (id.endsWith ("_hold"))
@@ -187,18 +187,18 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::String (juce::roundToInt (value)) + " ms";
 
     if (id.startsWith ("fm_") && id != "fm_mode")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
     if (id == "spray_chance" || id == "spray_velocity" || id == "arp_chance")
-        return juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
 
     if (id == "filter_balance")
     {
         if (juce::roundToInt (value * 100.0f) == 0)
             return "F1 = F2";
 
-        return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + " %"
-                            : "F2 +" + juce::String (juce::roundToInt (value * 100.0f)) + " %";
+        return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + "%"
+                            : "F2 +" + juce::String (juce::roundToInt (value * 100.0f)) + "%";
     }
 
     if (id.endsWith ("_cutoff") || id.endsWith ("_freq") || id.endsWith ("_rate")

@@ -325,7 +325,7 @@ private:
         g.drawText ("STRING", header.toNearestInt(), juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText (juce::String (excites[excite]).toLowerCase() + " at " + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + " %" : juce::String ("auto")),
+        g.drawText (juce::String (excites[excite]).toLowerCase() + " at " + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + "%" : juce::String ("auto")),
                     header.toNearestInt(), juce::Justification::centredRight);
 
         auto footer = area.removeFromBottom (16.0f);

@@ -96,8 +96,10 @@ inline float& uiScaleRef()
 // All UI text should be created through this: a Font constructed from plain
 // FontOptions resolves its typeface through the process default LookAndFeel,
 // not the one set on our editor, which is why it fell back to Segoe UI.
-// Digits are tabular, so a value doesn't shift sideways while it changes.
-inline juce::FontOptions font (float height, bool bold = false)
+// Pass tabular for numbers that change while you watch (knob values, BPM,
+// CPU), so they don't shift sideways; everywhere else digits are
+// proportional, or a "1" sits in a wide gap ("LFO 1", "1/8").
+inline juce::FontOptions font (float height, bool bold = false, bool tabular = false)
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto deviceHeight = height * scale;
@@ -105,10 +107,10 @@ inline juce::FontOptions font (float height, bool bold = false)
     const auto typeface = bold ? boldTypefaceRef()
                                : (deviceHeight < 15.0f ? mediumTypefaceRef() : regularTypefaceRef());
 
-    return juce::FontOptions().withHeight (snapped)
-                              .withStyle (bold ? "Bold" : "Regular")
-                              .withTypeface (typeface)
-                              .withFeatureEnabled ("tnum");
+    const auto options = juce::FontOptions().withHeight (snapped)
+                                            .withStyle (bold ? "Bold" : "Regular")
+                                            .withTypeface (typeface);
+    return tabular ? options.withFeatureEnabled ("tnum") : options;
 }
 
 inline void paintPageBackground (juce::Graphics& g, juce::Rectangle<int> bounds)
@@ -315,7 +317,8 @@ public:
         // Labels are built once, but painted at every zoom level, so re-run the
         // size through IlanaTheme::font to keep device pixels whole.
         const auto& current = label.getFont();
-        return juce::Font (IlanaTheme::font (current.getHeight(), current.isBold()));
+        return juce::Font (IlanaTheme::font (current.getHeight(), current.isBold(),
+                                             label.getProperties().contains ("tabular")));
     }
 
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
@@ -326,7 +329,8 @@ public:
     juce::Label* createSliderTextBox (juce::Slider& slider) override
     {
         auto* label = LookAndFeel_V4::createSliderTextBox (slider);
-        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label->getProperties().set ("tabular", true); // a live value
+        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
         return label;
     }
 

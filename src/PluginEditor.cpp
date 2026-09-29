@@ -7400,7 +7400,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
     // Status line along the bottom edge of the header: tempo, voices, CPU.
     const auto statusY = 43;
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true)); // live numbers
     g.setColour (cpuColour);
     g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
                 juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);

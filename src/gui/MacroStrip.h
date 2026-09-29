@@ -98,7 +98,7 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)); // a live value
         g.drawText (valueText(), text, juce::Justification::topLeft, true);
     }
 

@@ -425,7 +425,11 @@ public:
     }
 
     juce::Slider& getSlider() { return slider; }
-    void setLabelText (const juce::String& text) { label.setText (text, juce::dontSendNotification); }
+    void setLabelText (const juce::String& text)
+    {
+        label.setText (text, juce::dontSendNotification);
+        resized(); // a knob with a label lays out differently
+    }
     juce::String getLabelText() const { return label.getText(); }
     const juce::String& getParameterId() const { return parameterId; }
     int getNumRoutings() const { return (int) routings.size(); }
@@ -523,11 +527,29 @@ public:
     {
         auto area = getLocalBounds();
 
-        if (! compact)
-            label.setBounds (area.removeFromTop (13));
+        if (compact)
+        {
+            knobBounds = area;
+            slider.setBounds (area);
+            layoutDots();
+            return;
+        }
 
-        knobBounds = area;
-        slider.setBounds (area);
+        // Label, dial and value as one tight group, so the gaps between them
+        // are the same whatever size cell a page gives the knob (a tall cell
+        // used to push the label up and the value down). The group sits at
+        // the top, where combo and toggle labels in the same row sit; a knob
+        // without a label (a matrix cell) is centred instead.
+        constexpr int labelHeight = 13, valueHeight = 16, minDial = 28, maxDial = 58;
+        const auto hasLabel = label.getText().isNotEmpty();
+        const auto dial = juce::jlimit (minDial, maxDial,
+                                        juce::jmin (area.getWidth(), area.getHeight() - (hasLabel ? labelHeight : 0) - valueHeight));
+        const auto groupHeight = juce::jmin (area.getHeight(), (hasLabel ? labelHeight : 0) + dial + valueHeight);
+        auto group = hasLabel ? area.removeFromTop (groupHeight) : area.withSizeKeepingCentre (area.getWidth(), groupHeight);
+
+        label.setBounds (hasLabel ? group.removeFromTop (labelHeight) : juce::Rectangle<int>());
+        knobBounds = group;
+        slider.setBounds (group);
         layoutDots();
     }
 

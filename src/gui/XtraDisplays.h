@@ -30,7 +30,7 @@ inline float readParam (IlanaSynthAudioProcessor& processor, const char* id)
 
 class VoiceDisplay : public juce::Component,
                      public IlanaAnim::PageAnimated,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     explicit VoiceDisplay (IlanaSynthAudioProcessor& processor)
@@ -127,9 +127,13 @@ public:
 private:
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     float appear = 1.0f;
@@ -137,7 +141,7 @@ private:
 
 class CrossModDisplay : public juce::Component,
                         public IlanaAnim::PageAnimated,
-                        private juce::Timer
+                        private IlanaAnim::FrameTimer
 {
 public:
     CrossModDisplay (IlanaSynthAudioProcessor& processor, juce::Colour unitColourIn)
@@ -199,7 +203,7 @@ public:
         // Dashed energy flow along the FM line.
         if (fm > 0.01f)
         {
-            const auto phase = std::fmod ((float) juce::Time::getMillisecondCounterHiRes() * 0.0006f, 1.0f);
+            const auto phase = std::fmod (liveSeconds * 0.6f, 1.0f);
 
             for (int dash = 0; dash < 6; ++dash)
             {
@@ -243,7 +247,7 @@ public:
         g.fillRoundedRectangle (driftArea, 4.0f);
 
         juce::Path driftPath;
-        const auto time = (float) juce::Time::getMillisecondCounterHiRes() * 0.001f;
+        const auto time = liveSeconds;
 
         for (int x = 0; x <= (int) driftArea.getWidth(); ++x)
         {
@@ -269,11 +273,19 @@ public:
 private:
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        if (processorRef.getActiveVoiceCount() > 0)
+            liveSeconds += frameSeconds();
+
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
 
-    static void drawNode (juce::Graphics& g, juce::Point<float> centre, float size, juce::Colour colour,
+    IlanaAnim::ChangeGate changeGate;
+    float liveSeconds = 0.0f; // moves only while notes sound
+
+    void drawNode (juce::Graphics& g, juce::Point<float> centre, float size, juce::Colour colour,
                           const juce::String& label, bool syncPulse)
     {
         juce::ColourGradient nodeFill (colour.withAlpha (0.35f), centre.x - size * 0.3f, centre.y - size * 0.3f,
@@ -289,7 +301,7 @@ private:
 
         if (syncPulse)
         {
-            const auto phase = std::fmod ((float) juce::Time::getMillisecondCounterHiRes() * 0.001f, 1.0f);
+            const auto phase = std::fmod (liveSeconds, 1.0f);
             g.setColour (colour.withAlpha (1.0f - phase));
             g.drawEllipse (juce::Rectangle<float> (size, size).withCentre (centre).expanded (phase * 14.0f), 1.5f);
         }
@@ -307,7 +319,7 @@ private:
 
 class ArpDisplay : public juce::Component,
                    public IlanaAnim::PageAnimated,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     ArpDisplay (IlanaSynthAudioProcessor& processor, juce::Colour unitColourIn)
@@ -453,12 +465,16 @@ private:
         const auto rate = on ? processorRef.getArpStepRateHz() : 0.0f;
 
         // One bar per arp step.
-        arpPhase += rate / (30.0f * (float) numSteps);
+        arpPhase += rate * frameSeconds() / (float) numSteps;
         arpPhase -= std::floor (arpPhase);
 
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     static constexpr int numSteps = 16;
 
@@ -470,7 +486,7 @@ private:
 
 class ResonatorDisplay : public juce::Component,
                          public IlanaAnim::PageAnimated,
-                         private juce::Timer
+                         private IlanaAnim::FrameTimer
 {
 public:
     ResonatorDisplay (IlanaSynthAudioProcessor& processor, juce::Colour unitColourIn)
@@ -592,9 +608,13 @@ public:
 private:
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::Colour unitColour;

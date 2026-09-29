@@ -4,12 +4,13 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 // Response curve for the EQ module. Each band has a handle: drag
 // sideways for frequency and up/down for gain.
 class EqCurve : public juce::Component,
                 public juce::SettableTooltipClient,
-                private juce::Timer
+                private IlanaAnim::FrameTimer
 {
 public:
     explicit EqCurve (IlanaSynthAudioProcessor& p) : processorRef (p)

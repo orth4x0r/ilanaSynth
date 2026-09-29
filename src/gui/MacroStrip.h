@@ -5,12 +5,13 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
+#include "AnimationUtils.h"
 
 // A compact knob with its name and value beside it, for the bottom strip.
 // Macro units also carry an editable name and act as drag sources.
 class StripKnob : public juce::Component,
                   public juce::SettableTooltipClient,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     // A card rebuilt under the mouse never gets its mouseExit; don't leave

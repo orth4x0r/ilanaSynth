@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/Generative.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 // M7.1: the Generative card's displays.
 
@@ -40,7 +41,7 @@ inline void write (IlanaSynthAudioProcessor& processor, const juce::String& id, 
 // the ring to change the hits; drag sideways to rotate.
 class EuclidDisplay : public juce::Component,
                       public juce::SettableTooltipClient,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
     EuclidDisplay (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
@@ -189,9 +190,11 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::Colour colour;
@@ -203,7 +206,7 @@ private:
 // Drag in a lane to draw values across steps; double-click resets a step.
 class ProbSeqEditor : public juce::Component,
                       public juce::SettableTooltipClient,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
     ProbSeqEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
@@ -398,9 +401,11 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::Colour colour;

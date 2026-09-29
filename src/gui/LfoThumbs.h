@@ -11,6 +11,7 @@
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
+#include "AnimationUtils.h"
 
 // The patch's LFOs at a glance, Phase Plant style: the added and the routed
 // ones, then a "+" card for the next. Cards keep one size (four fit the view)
@@ -19,7 +20,7 @@
 // selects that LFO for editing; dragging a card onto a knob routes it there;
 // right-click removes it.
 class LfoThumbBar : public juce::Component,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     // A card rebuilt under the mouse never gets its mouseExit; don't leave
@@ -415,9 +416,12 @@ private:
             // Routing an LFO elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            repaint();
+            if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+                repaint();
         }
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     std::function<juce::Colour (int)> colourFor;

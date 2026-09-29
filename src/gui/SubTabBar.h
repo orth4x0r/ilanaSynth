@@ -3,9 +3,10 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class SubTabBar : public juce::Component,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     SubTabBar()
@@ -123,7 +124,7 @@ public:
 
         if (revealed < items.size())
         {
-            const auto alpha = 0.2f + 0.15f * (0.5f + 0.5f * std::sin (hintPulse));
+            const auto alpha = 0.3f;
 
             g.setColour (IlanaTheme::accent().withAlpha (alpha));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
@@ -135,13 +136,9 @@ public:
 private:
     void timerCallback() override
     {
-        revealFlash *= 0.9f;
-        hintPulse += 0.08f;
+        revealFlash = IlanaAnim::decay (revealFlash, 0.9f, frameTicks());
 
-        if (hintPulse > 1000.0f)
-            hintPulse -= 1000.0f;
-
-        if (revealFlash > 0.01f || revealed < items.size())
+        if (revealFlash > 0.01f)
             repaint();
     }
 
@@ -168,6 +165,5 @@ private:
     bool initialised = false;
     float revealFlash = 0.0f;
     int flashIndex = -1;
-    float hintPulse = 0.0f;
     juce::TextButton addButton;
 };

@@ -12,10 +12,11 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class VectorPadDisplay : public juce::Component,
                          public juce::SettableTooltipClient,
-                         private juce::Timer
+                         private IlanaAnim::FrameTimer
 {
 public:
     explicit VectorPadDisplay (IlanaSynthAudioProcessor& p)
@@ -186,9 +187,11 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     int dragPoint = -1;

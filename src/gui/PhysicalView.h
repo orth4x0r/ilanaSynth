@@ -14,10 +14,11 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class PhysicalView : public juce::Component,
                      public juce::SettableTooltipClient,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     explicit PhysicalView (IlanaSynthAudioProcessor& p, juce::String oscPrefix = "osc1")
@@ -148,14 +149,11 @@ public:
         {
             g.setColour (IlanaTheme::Ui::well.withAlpha (0.72f));
             g.fillRoundedRectangle (bounds, 8.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("NO STRING", bounds.withSizeKeepingCentre (bounds.getWidth(), 20.0f).translated (0.0f, -12.0f),
-                        juce::Justification::centred);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("this oscillator isn't in Physical mode", bounds.withSizeKeepingCentre (bounds.getWidth(), 18.0f).translated (0.0f, 10.0f),
-                        juce::Justification::centred);
+            // The card beside it says why and offers the switch; here only
+            // a quiet label, so the page doesn't say it twice.
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText ("PREVIEW", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
         }
     }
 
@@ -220,7 +218,7 @@ private:
 
     void timerCallback() override
     {
-        const auto dt = 1.0 / 40.0;
+        const auto dt = (double) frameSeconds();
         clock += dt;
         sinceNote += dt;
 
@@ -251,11 +249,21 @@ private:
             for (int n = 1; n <= numModes; ++n)
                 modeLevel[(size_t) n - 1] = juce::jmax (modeLevel[(size_t) n - 1],
                                                         0.5 * level * std::abs (std::sin (juce::MathConstants<double>::pi * n * excitePosition())) / (n * n));
-        bodyGlow = bodyGlow * 0.85f + 0.15f * juce::jmin (1.0f, processorRef.getOutputPeak() * 2.0f);
+        bodyGlow = IlanaAnim::approach (bodyGlow, juce::jmin (1.0f, processorRef.getOutputPeak() * 2.0f), 0.15f, frameTicks());
 
-        if (isShowing())
+        // The string rests once its motion is under a tenth of a pixel.
+        auto total = 0.0;
+        for (const auto level : modeLevel)
+            total += std::abs (level);
+        const auto moving = bodyGlow > 0.005f || total * (double) getHeight() * 0.3 > 0.1;
+        if (! moving && total > 0.0)
+            modeLevel.fill (0.0);
+
+        if (isShowing() && (moving || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix;

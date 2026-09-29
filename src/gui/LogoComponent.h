@@ -3,11 +3,15 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class LogoComponent : public juce::Component,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
+    // The waves in the badge scroll while this says the synth is sounding.
+    std::function<bool()> isSounding;
+
     LogoComponent()
     {
         startTimerHz (30);
@@ -18,7 +22,7 @@ public:
         const auto bounds = getLocalBounds().toFloat();
         const auto badge = bounds.withWidth (bounds.getHeight()).reduced (2.0f);
 
-        const auto glow = 0.55f + 0.45f * std::sin (phaseOffset * 2.4f);
+        constexpr auto glow = 0.6f;
         g.setColour (IlanaTheme::accent().withAlpha (0.08f + 0.12f * glow));
         g.fillRoundedRectangle (badge.expanded (4.0f + 2.0f * glow), badge.getWidth() * 0.33f);
 
@@ -67,8 +71,11 @@ public:
 private:
     void timerCallback() override
     {
-        phaseOffset += 0.006f;
-        repaint();
+        if (isSounding != nullptr && isSounding() && isShowing())
+        {
+            phaseOffset += 0.006f * frameTicks();
+            repaint();
+        }
     }
 
     float phaseOffset = 0.0f;

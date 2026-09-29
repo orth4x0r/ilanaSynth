@@ -9,11 +9,12 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamInfo.h"
+#include "AnimationUtils.h"
 
 class EnvelopeDisplay : public juce::Component,
                         public juce::SettableTooltipClient,
                         public IlanaAnim::PageAnimated,
-                        private juce::Timer
+                        private IlanaAnim::FrameTimer
 {
 public:
     EnvelopeDisplay (IlanaSynthAudioProcessor& processor, juce::String prefix,
@@ -272,9 +273,13 @@ private:
 
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     float readSeconds (const char* suffix) const
     {

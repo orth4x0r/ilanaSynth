@@ -9,10 +9,11 @@
 #include "../PluginProcessor.h"
 #include "../dsp/FilterUnit.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class FilterDisplay : public juce::Component,
                       public IlanaAnim::PageAnimated,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
     explicit FilterDisplay (IlanaSynthAudioProcessor& processor) : processorRef (processor)
@@ -73,9 +74,12 @@ public:
 private:
     void timerCallback() override
     {
-        pulse += 0.09f;
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        paintTicks = frameTicks();
+        pulse += 0.09f * paintTicks;
+        appear = juce::jmin (1.0f, appear + 0.12f * paintTicks);
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
 
     static double frequencyToX (double frequency)
@@ -224,7 +228,7 @@ private:
         if (peakNormalized > 0.01f)
         {
             const auto targetGain = juce::jlimit (0.25f, 8.0f, 0.9f / peakNormalized);
-            spectrumGain += (targetGain - spectrumGain) * 0.12f;
+            spectrumGain = IlanaAnim::approach (spectrumGain, targetGain, 0.12f, paintTicks);
         }
 
         for (int x = 0; x < width; ++x)
@@ -232,7 +236,7 @@ private:
             const auto db = juce::Decibels::gainToDecibels (buckets[(size_t) x] * spectrumGain, -80.0f);
             const auto target = juce::jlimit (0.0f, 0.42f, (db + 80.0f) / 84.0f * 0.42f);
 
-            spectrumSmoothed[(size_t) x] += (target - spectrumSmoothed[(size_t) x]) * 0.4f;
+            spectrumSmoothed[(size_t) x] = IlanaAnim::approach (spectrumSmoothed[(size_t) x], target, 0.4f, paintTicks);
             path.lineTo (plot.getX() + (float) x, plot.getBottom() - spectrumSmoothed[(size_t) x] * plot.getHeight());
         }
 
@@ -307,6 +311,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     int draggingFilter = -1;
     float pulse = 0.0f;
+    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) the next paint stands for
+    IlanaAnim::ChangeGate changeGate;
     float appear = 1.0f;
 
     static constexpr int fftSize = 2048;

@@ -195,6 +195,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         pseqRatchetIds[(size_t) step] = "pseq_ratchet" + n;
     }
 
+    for (auto* parameter : getParameters())
+        parameter->addListener (&paramEpochListener);
+
     arpHeldNotes.ensureStorageAllocated (128);
     arpChordActive.ensureStorageAllocated (128);
     arpChordNotes.ensureStorageAllocated (128);
@@ -2678,6 +2681,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             held.store (peak);
     }
     outputLevelDisplay.store (buffer.getMagnitude (0, buffer.getNumSamples()));
+
+    if (activeVoiceCount.load() > 0 || outputLevelDisplay.load() > 1.0e-5f || inputLevelDisplay.load() > 1.0e-5f)
+        ++liveEpoch;
 
     const auto elapsedSeconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startTicks);
     const auto availableSeconds = (double) buffer.getNumSamples() / juce::jmax (1.0, currentSampleRate);
@@ -6467,7 +6473,7 @@ juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
         case 0: return juce::Colour (0xffff8a3b);
         case 1: return juce::Colour (0xff35c8ff);
         case 2: return juce::Colour (0xff6fe3c1);
-        case 3: return juce::Colour (0xffe3a56f);
+        case 3: return juce::Colour (0xffff6b8b);
         default: return juce::Colour::fromHSV ((float) (index - 4) / 12.0f + 0.04f, 0.5f, 0.95f, 1.0f);
     }
 }
@@ -7037,6 +7043,9 @@ private:
 
 IlanaSynthAudioProcessor::~IlanaSynthAudioProcessor()
 {
+    for (auto* parameter : getParameters())
+        parameter->removeListener (&paramEpochListener);
+
     if (bounceThread != nullptr)
     {
         bounceThread->cancel = true;

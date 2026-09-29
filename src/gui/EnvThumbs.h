@@ -9,6 +9,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
+#include "AnimationUtils.h"
 
 // The patch's envelopes at a glance, Phase Plant style: the added and the
 // assigned ones, then a "+" card for the next. Cards keep one size (five fit
@@ -16,7 +17,7 @@
 // its ADSR shape and marks whether the envelope is doing anything in the patch.
 // Click to edit; drag a card onto a knob to route it there; right-click to remove.
 class EnvThumbBar : public juce::Component,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     // A card rebuilt under the mouse never gets its mouseExit; don't leave
@@ -400,9 +401,12 @@ private:
             // Assigning an envelope elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            repaint();
+            if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+                repaint();
         }
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     std::vector<Env> envs;

@@ -147,6 +147,16 @@ private:
     int themeIndex = 0;
     juce::String shownCategory;
 
+    // Display-rate animation: the page transition and the preset flash.
+    struct Animator : IlanaAnim::FrameTimer
+    {
+        std::function<void()> onFrame;
+        void timerCallback() override { onFrame(); }
+    };
+    Animator animator;
+    std::unique_ptr<IlanaAnim::FrameClock::Source> frameSource;
+    void animate();
+
     juce::Component* transitionPage = nullptr;
     double transitionStart = 0.0;
     float presetLoadFlash = 0.0f;

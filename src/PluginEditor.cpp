@@ -191,7 +191,7 @@ class OscPage : public juce::Component,
               chord (state, prefix + "_chord", "CHORD"),
               ampEnv (state, prefix + "_amp_env", "AMP ENV"),
               warp (state, prefix + "_warp", "WARP"),
-              uniMode (state, prefix + "_uni_mode", "UNISON"),
+              uniMode (state, prefix + "_uni_mode", "UNI MODE"),
               warpAmt (state, prefix + "_warp_amt", "WARP AMT"),
               uniBlend (state, prefix + "_uni_blend", "BLEND"),
               spectral (state, prefix + "_spectral", "SPECTRAL"),
@@ -1487,7 +1487,7 @@ private:
 // Filter 2's card is (the FILTER 2 / WEST tabs), and runs after the filters
 // or in Filter 2's place.
 class WestPanel : public juce::Component,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     explicit WestPanel (IlanaSynthAudioProcessor& p)
@@ -1581,6 +1581,8 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
         const auto active = read ("west_on") > 0.5f;
@@ -1593,7 +1595,7 @@ private:
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint (picture);
     }
 
@@ -1608,7 +1610,7 @@ private:
 // moved by hand, by a path or by drift) and EVOLVE (each macro drifting
 // within a range; FREEZE keeps where they are).
 class VectorPage : public juce::Component,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     explicit VectorPage (IlanaSynthAudioProcessor& p)
@@ -1740,6 +1742,8 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
         const auto active = readParam ("vec_on") > 0.5f;
@@ -1753,7 +1757,7 @@ private:
                 c->setAlpha (alpha);
         }
         rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : 0.45f);
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint (evolveCard);
     }
 
@@ -2222,11 +2226,11 @@ public:
         : settings (settingsRef),
           thumbs (p, []
           {
-              std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP", "amp", Mod::Source::AmpEnv, IlanaTheme::accent() },
-                       EnvThumbBar::Env { "FILTER 1", "fe", Mod::Source::FilterEnv, juce::Colour (0xffff4fd8) },
-                       EnvThumbBar::Env { "FILTER 2", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xffb28aff) },
-                       EnvThumbBar::Env { "MOD", "me", Mod::Source::ModEnv, juce::Colour (0xff8fff3b) },
-                       EnvThumbBar::Env { "ENV 5", "e4", Mod::Source::Env4, juce::Colour (0xffffd447) } };
+              std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP ENV", "amp", Mod::Source::AmpEnv, IlanaTheme::accent() },
+                       EnvThumbBar::Env { "FILT ENV", "fe", Mod::Source::FilterEnv, juce::Colour (0xffff4fd8) },
+                       EnvThumbBar::Env { "FILT 2 ENV", "f2e", Mod::Source::FilterEnv2, juce::Colour (0xffb28aff) },
+                       EnvThumbBar::Env { "MOD ENV", "me", Mod::Source::ModEnv, juce::Colour (0xff8fff3b) },
+                       EnvThumbBar::Env { "ENV 5", "e4", Mod::Source::Env4, juce::Colour (0xff5b8cff) } };
               for (int env = 6; env <= 16; ++env)
                   envs.push_back ({ "ENV " + juce::String (env), "env" + juce::String (env),
                                     (Mod::Source) ((int) Mod::Source::Env6 + env - 6), extraColour (env) });
@@ -2236,7 +2240,7 @@ public:
           feDisplay (p, "fe", juce::Colour (0xffff4fd8)),
           f2eDisplay (p, "f2e", juce::Colour (0xffb28aff)),
           meDisplay (p, "me", juce::Colour (0xff8fff3b)),
-          e4Display (p, "e4", juce::Colour (0xffffd447)),
+          e4Display (p, "e4", juce::Colour (0xff5b8cff)),
           ampA (p.apvts, "amp_attack", "ATTACK"), ampD (p.apvts, "amp_decay", "DECAY"),
           ampS (p.apvts, "amp_sustain", "SUSTAIN"), ampR (p.apvts, "amp_release", "RELEASE"),
           ampVel (p.apvts, "amp_velocity", "VEL"), ampCurve (p.apvts, "amp_curve", "TENSION"),
@@ -2253,8 +2257,8 @@ public:
           meCurve (p.apvts, "me_curve", "TENSION", juce::Colour (0xff8fff3b), false),
           e4A (p.apvts, "e4_attack", "ATTACK"), e4D (p.apvts, "e4_decay", "DECAY"),
           e4S (p.apvts, "e4_sustain", "SUSTAIN"), e4R (p.apvts, "e4_release", "RELEASE"),
-          e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xffffd447), false),
-          e4Curve (p.apvts, "e4_curve", "TENSION", juce::Colour (0xffffd447), false)
+          e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xff5b8cff), false),
+          e4Curve (p.apvts, "e4_curve", "TENSION", juce::Colour (0xff5b8cff), false)
     {
         // The cards keep one size and scroll sideways once there are more than five.
         thumbView.setViewedComponent (&thumbs, false);
@@ -2279,7 +2283,7 @@ public:
         {
             const char* const prefixes[] { "amp", "fe", "f2e", "me", "e4" };
             const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
-                                           juce::Colour (0xff8fff3b), juce::Colour (0xffffd447) };
+                                           juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
 
             for (int env = 0; env < 5; ++env)
                 addStageTwoKnobs (p, prefixes[env], colours[env], units[(size_t) env], env == 0);
@@ -2366,8 +2370,8 @@ public:
             return;
 
         const juce::Colour colours[] { IlanaTheme::accent(), juce::Colour (0xffff4fd8), juce::Colour (0xffb28aff),
-                                       juce::Colour (0xff8fff3b), juce::Colour (0xffffd447) };
-        const juce::StringArray titles { "AMP ENVELOPE", "FILTER 1 ENVELOPE", "FILTER 2 ENVELOPE", "MOD ENVELOPE", "ENVELOPE 5" };
+                                       juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
+        const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" };
         const auto index = juce::jlimit (0, 4, selected);
         const auto colour = selected < 5 ? colours[index] : extraColour (selected + 1);
 
@@ -2469,7 +2473,7 @@ private:
 class LfoSection : public juce::Component,
                    private juce::AudioProcessorValueTreeState::Listener,
                    private juce::AsyncUpdater,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     LfoSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
@@ -2635,14 +2639,7 @@ public:
 
     static juce::Colour lfoColour (int index)
     {
-        switch (index)
-        {
-            case 1: return juce::Colour (0xff35c8ff);
-            case 2: return juce::Colour (0xff6fe3c1);
-            case 3: return juce::Colour (0xffe3a56f);
-            case 0: return IlanaTheme::accent();
-            default: return IlanaSynthAudioProcessor::lfoColour (index);
-        }
+        return IlanaSynthAudioProcessor::lfoColour (index);
     }
 
     void select (int index)
@@ -2868,6 +2865,8 @@ private:
 
     // RATE only matters free-running and DIVISION only when synced, so the
     // unused one steps back.
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
         auto& c = *controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, selected)];
@@ -2895,7 +2894,8 @@ private:
         if (c.div.getAlpha() != divAlpha)
             c.div.setAlpha (divAlpha);
 
-        repaint (panel);
+        if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+            repaint (panel);
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -2936,7 +2936,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText ("Assign LFOs and envelopes in MATRIX.  Sync uses host tempo.",
+        g.drawText ("Drag a source chip onto any knob, or route it in MATRIX.  Sync uses host tempo.",
                     juce::Rectangle<int> (14, getHeight() - 20, 700, 16), juce::Justification::centredLeft);
     }
 
@@ -2965,7 +2965,7 @@ private:
 // right (rows = from, columns = to, plus the noise operator), with the FM
 // style, each oscillator's output switch, ring mod and hard sync.
 class FmPage : public juce::Component,
-               private juce::Timer
+               private IlanaAnim::FrameTimer
 {
     // One operator's M5 settings (tuning, key scaling, feedback style) and
     // the oscillator controls that matter most when it is an operator.
@@ -3176,6 +3176,8 @@ public:
     }
 
     // The matrix follows the oscillators added to the patch.
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
         const auto tuneChanged = [this]
@@ -3202,7 +3204,7 @@ public:
             resized();
             repaint();
         }
-        else if (isShowing())
+        else if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
         {
             repaint (matrixCard);
             repaint (operatorCard.withHeight (26));
@@ -3493,7 +3495,7 @@ private:
 // M7.5: ilanaSynth FX's INPUT page: the input's level and envelope, its
 // gain and trigger, where it goes, and quick starts.
 class InputPage : public juce::Component,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     explicit InputPage (IlanaSynthAudioProcessor& p)
@@ -3795,7 +3797,7 @@ public:
             title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("drag points; assign it in MATRIX", msegCard.reduced (12, 0).removeFromTop (26),
+            g.drawText ("drag points; drag the MSEG chip onto a knob to use it", msegCard.reduced (12, 0).removeFromTop (26),
                         juce::Justification::centredRight);
             return;
         }
@@ -4145,7 +4147,7 @@ public:
           filterDisplay (p),
           lfoThumbs (p, [] (int index) { return lfoColour (index); }),
           filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
-          envTabs ({ "AMP", "FLT 1", "FLT 2", "MOD", "ENV 5" },
+          envTabs ({ "AMP", "FILT", "FILT 2", "MOD", "ENV 5" },
                    { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
           lfoTabs ({}, {}, true)
     {
@@ -4349,14 +4351,7 @@ public:
 
     static juce::Colour lfoColour (int index)
     {
-        switch (index)
-        {
-            case 1: return juce::Colour (0xff35c8ff);
-            case 2: return juce::Colour (0xff6fe3c1);
-            case 3: return juce::Colour (0xffe3a56f);
-            case 0: return IlanaTheme::accent();
-            default: return IlanaSynthAudioProcessor::lfoColour (index);
-        }
+        return IlanaSynthAudioProcessor::lfoColour (index);
     }
 
     static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffff4fd8) : juce::Colour (0xffb28aff); }
@@ -4368,7 +4363,7 @@ public:
             case 1: return juce::Colour (0xffff4fd8);
             case 2: return juce::Colour (0xffb28aff);
             case 3: return juce::Colour (0xff8fff3b);
-            case 4: return juce::Colour (0xffffd447);
+            case 4: return juce::Colour (0xff5b8cff);
             default: return IlanaTheme::accent();
         }
     }
@@ -4697,7 +4692,7 @@ private:
 };
 
 class MatrixPage : public juce::Component,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     explicit MatrixPage (IlanaSynthAudioProcessor& p)
@@ -4777,13 +4772,19 @@ public:
             paintEmptyState (g);
     }
 
+    juce::Rectangle<float> emptyStateCard() const
+    {
+        const auto area = viewport.getBounds().withTrimmedTop (56);
+        return juce::Rectangle<float> (560.0f, 250.0f).withCentre (area.toFloat().getCentre()).withY ((float) area.getY() + 20.0f);
+    }
+
     // An empty matrix explains the three ways in, with a little animated
     // routing and an arrow down to the source chips.
     void paintEmptyState (juce::Graphics& g)
     {
-        const auto now = (float) juce::Time::getMillisecondCounterHiRes() * 0.001f;
+        const auto now = emptyClock;
         const auto area = viewport.getBounds().withTrimmedTop (56);
-        const auto card = juce::Rectangle<float> (560.0f, 250.0f).withCentre (area.toFloat().getCentre()).withY ((float) area.getY() + 20.0f);
+        const auto card = emptyStateCard();
         IlanaTheme::paintCard (g, card, 10.0f, IlanaTheme::accent().withAlpha (0.3f));
 
         // Source dot -> animated cable -> knob.
@@ -5010,13 +5011,26 @@ private:
     void timerCallback() override
     {
         if (! isShowing())
+        {
+            emptyShownSeconds = 0.0f;
             return;
+        }
 
-        updateRows();
+        if (changeGate.check (processorRef.getUiEpoch()))
+            updateRows();
 
-        if (visibleRows.empty())
-            repaint();
+        // The empty state's cable plays for a few seconds after the page
+        // opens, and while the mouse is over it, then rests.
+        if (visibleRows.empty() && (emptyShownSeconds < 6.0f || isMouseOver (true)))
+        {
+            emptyShownSeconds += frameSeconds();
+            emptyClock += frameSeconds();
+            repaint (emptyStateCard().expanded (4.0f).getSmallestIntegerContainer());
+        }
     }
+
+    float emptyShownSeconds = 0.0f, emptyClock = 0.0f;
+    IlanaAnim::ChangeGate changeGate;
 
     // Shows the patch's macro names in the source lists.
     void refreshMacroNames()
@@ -5047,7 +5061,7 @@ private:
 };
 
 class TapGrid : public juce::Component,
-                private juce::Timer
+                private IlanaAnim::FrameTimer
 {
 public:
     explicit TapGrid (IlanaSynthAudioProcessor& p)
@@ -5149,7 +5163,13 @@ private:
         repaint();
     }
 
-    void timerCallback() override { repaint(); }
+    void timerCallback() override
+    {
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
+    }
+
+    IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
     int hoverStep = -1;
@@ -5176,7 +5196,7 @@ inline juce::Colour fxColour (int type)
 // lights up. Editing a built-in pattern copies it into Custom first.
 class GateGrid : public juce::Component,
                  public juce::SettableTooltipClient,
-                 private juce::Timer
+                 private IlanaAnim::FrameTimer
 {
 public:
     explicit GateGrid (IlanaSynthAudioProcessor& p) : processorRef (p)
@@ -5307,9 +5327,11 @@ private:
         setLevel (hoverStep, value);
     }
 
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
-        if (isShowing())
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
 
@@ -5339,7 +5361,7 @@ public:
 };
 
 class FxPage : public juce::Component,
-               private juce::Timer
+               private IlanaAnim::FrameTimer
 {
 public:
     explicit FxPage (IlanaSynthAudioProcessor& p)
@@ -6581,12 +6603,18 @@ private:
         }
     }
 
+    IlanaAnim::ChangeGate changeGate;
+
     void timerCallback() override
     {
-        meterPhase += 0.12f;
-        dropFlash *= 0.85f;
-        chainSweep *= 0.9f;
-        paramsAppear = juce::jmin (1.0f, paramsAppear + 0.1f);
+        const auto ticks = frameTicks();
+        // The modulation effects' swinging dots move while there is sound.
+        if (processorRef.getOutputPeak() > 1.0e-4f)
+            meterPhase += 0.12f * ticks;
+        dropFlash = IlanaAnim::decay (dropFlash, 0.85f, ticks);
+        chainSweep = IlanaAnim::decay (chainSweep, 0.9f, ticks);
+        paramsAppear = juce::jmin (1.0f, paramsAppear + 0.1f * ticks);
+        auto hoverMoving = false;
 
         const auto showingA = processorRef.isShowingChainA();
 
@@ -6599,7 +6627,8 @@ private:
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
             const auto target = slot == hoveredRow ? 1.0f : 0.0f;
-            rowHover[(size_t) slot] += (target - rowHover[(size_t) slot]) * 0.25f;
+            hoverMoving = hoverMoving || std::abs (rowHover[(size_t) slot] - target) > 0.005f;
+            rowHover[(size_t) slot] = IlanaAnim::approach (rowHover[(size_t) slot], target, 0.25f, ticks);
 
             const auto type = getSlotType (slot);
 
@@ -6632,9 +6661,11 @@ private:
 
         // The rows animate (meters, hover, flashes); the rest of the page is
         // still, so only the rack column repaints unless a row is dragged.
+        const auto animating = hoverMoving || dropFlash > 0.01f || chainSweep > 0.01f || paramsAppear < 1.0f;
+
         if (cardDragActive)
             repaint();
-        else
+        else if (animating || changeGate.check (processorRef.getUiEpoch()))
             repaint (juce::Rectangle<int> (0, rowsTop - 10, 336, numVisibleRows() * rowHeight + 20));
     }
 
@@ -6859,6 +6890,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.onPaint = [this] (juce::Graphics& g) { paintHeader (g); };
 
     content.addAndMakeVisible (logo);
+    logo.isSounding = [this] { return processorRef.getActiveVoiceCount() > 0; };
     content.addAndMakeVisible (infoStrip);
 
     keysButton.setClickingTogglesState (true);
@@ -7026,7 +7058,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     } chipSpecs[] = {
         { "LFO 1", Mod::Source::Lfo1 }, { "LFO 2", Mod::Source::Lfo2 }, { "LFO 3", Mod::Source::Lfo3 },
         { "LFO 4", Mod::Source::Lfo4 }, { "MOD ENV", Mod::Source::ModEnv }, { "FILT ENV", Mod::Source::FilterEnv },
-        { "F2 ENV", Mod::Source::FilterEnv2 }, { "ENV 5", Mod::Source::Env4 }, { "MSEG", Mod::Source::Mseg },
+        { "FILT 2 ENV", Mod::Source::FilterEnv2 }, { "ENV 5", Mod::Source::Env4 }, { "MSEG", Mod::Source::Mseg },
         { "VELOCITY", Mod::Source::Velocity }, { "KEY", Mod::Source::KeyTrack }, { "RANDOM", Mod::Source::Random },
         { "WHEEL", Mod::Source::ModWheel }, { "PRESSURE", Mod::Source::Aftertouch },
         { "INPUT", Mod::Source::InputEnv }
@@ -7061,6 +7093,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         chips.push_back (std::move (chip));
     }
 
+    tutorial.setPresetCount (processorRef.getFactoryPresetNames().size());
     content.addAndMakeVisible (tutorial);
 
     // Applied after adding: addAndMakeVisible forces the component visible.
@@ -7083,6 +7116,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     setResizable (true, true);
 
     startTimer (250);
+    frameSource = std::make_unique<IlanaAnim::FrameClock::Source> (*this);
+    animator.onFrame = [this] { animate(); };
 
     applyUiZoom ((float) settings->getDoubleValue ("uiZoom", 1.0));
     displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
@@ -7147,11 +7182,8 @@ void IlanaSynthAudioProcessorEditor::startTabTransition (juce::Component* pageTo
         transitionPage = page;
         transitionStart = juce::Time::getMillisecondCounterHiRes();
         page->setAlpha (0.0f);
-
-        const auto centre = page->getLocalBounds().toFloat().getCentre();
-        page->setTransform (juce::AffineTransform::scale (0.985f, 0.985f, centre.x, centre.y)
-                                .translated (0.0f, 12.0f));
-        startTimerHz (60);
+        page->setTransform (juce::AffineTransform::translation (0.0f, 8.0f));
+        animator.startTimerHz (60);
     }
 }
 
@@ -7269,16 +7301,6 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     if (processorRef.getCurrentPresetName() != shownPresetName)
         updateHeaderButtons();
 
-    if (presetLoadFlash > 0.01f)
-    {
-        presetLoadFlash *= 0.86f;
-
-        if (presetLoadFlash <= 0.01f)
-            presetLoadFlash = 0.0f;
-    }
-
-    presetDisplay.setFlash (presetLoadFlash);
-
     // "Edited" marker: cheap checksum of every parameter against the one
     // taken when the preset was loaded.
     if (presetLoadFlash <= 0.01f)
@@ -7305,33 +7327,45 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     {
         updateUndoButtons();
         content.repaint (0, 0, designWidth, 56);
-
-        const auto interval = presetLoadFlash > 0.01f ? 60 : 250;
-
-        if (getTimerInterval() != interval)
-            startTimer (interval);
-
-        return;
     }
+}
 
-    constexpr double duration = 220.0;
-    const auto elapsed = juce::Time::getMillisecondCounterHiRes() - transitionStart;
-    const auto progress = juce::jlimit (0.0, 1.0, elapsed / duration);
-    const auto eased = (float) IlanaAnim::easeOutCubic ((float) progress);
-    const auto center = transitionPage->getLocalBounds().toFloat().getCentre();
-    const auto scale = 0.985f + 0.015f * eased;
-
-    transitionPage->setAlpha (eased);
-    transitionPage->setTransform (juce::AffineTransform::scale (scale, scale, center.x, center.y)
-                                      .translated (0.0f, (1.0f - eased) * 12.0f));
-
-    if (progress >= 1.0)
+// Runs on every display frame while the page slides in or the preset
+// display flashes, then stops.
+void IlanaSynthAudioProcessorEditor::animate()
+{
+    if (presetLoadFlash > 0.0f)
     {
-        transitionPage->setTransform ({});
-        transitionPage->setAlpha (1.0f);
-        transitionPage = nullptr;
-        startTimer (presetLoadFlash > 0.01f ? 60 : 250);
+        // Tuned at one 0.86 step per 60 ms.
+        presetLoadFlash = IlanaAnim::decay (presetLoadFlash, 0.86f, animator.frameSeconds() * 1000.0f / 60.0f);
+
+        if (presetLoadFlash <= 0.01f)
+            presetLoadFlash = 0.0f;
+
+        presetDisplay.setFlash (presetLoadFlash);
     }
+
+    if (transitionPage != nullptr)
+    {
+        // A short slide up with a fade: no scaling, which would soften text.
+        constexpr double duration = 160.0;
+        const auto elapsed = juce::Time::getMillisecondCounterHiRes() - transitionStart;
+        const auto progress = juce::jlimit (0.0, 1.0, elapsed / duration);
+        const auto eased = IlanaAnim::easeOutCubic ((float) progress);
+
+        transitionPage->setAlpha (eased);
+        transitionPage->setTransform (juce::AffineTransform::translation (0.0f, std::round ((1.0f - eased) * 8.0f)));
+
+        if (progress >= 1.0)
+        {
+            transitionPage->setTransform ({});
+            transitionPage->setAlpha (1.0f);
+            transitionPage = nullptr;
+        }
+    }
+
+    if (transitionPage == nullptr && presetLoadFlash <= 0.0f)
+        animator.stopTimer();
 }
 
 void IlanaSynthAudioProcessorEditor::paint (juce::Graphics& g)
@@ -7479,10 +7513,28 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     if (! chips.empty())
     {
-        const auto chipWidth = chipsRow.getWidth() / (int) chips.size();
+        // Each chip as wide as its name needs, the spare width shared out.
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        std::vector<float> widths;
+        auto total = 0.0f;
 
         for (auto& chip : chips)
-            chip->setBounds (chipsRow.removeFromLeft (chipWidth).reduced (2, 1));
+        {
+            widths.push_back ((float) juce::GlyphArrangement::getStringWidthInt (font, chip->getSourceName()) + 34.0f);
+            total += widths.back();
+        }
+
+        const auto spare = ((float) chipsRow.getWidth() - total) / (float) chips.size();
+        const auto squeeze = juce::jmin (1.0f, (float) chipsRow.getWidth() / total);
+        auto x = (float) chipsRow.getX();
+
+        for (size_t i = 0; i < chips.size(); ++i)
+        {
+            const auto width = spare > 0.0f ? widths[i] + spare : widths[i] * squeeze;
+            chips[i]->setBounds (juce::Rectangle<float> (x, (float) chipsRow.getY(), width, (float) chipsRow.getHeight())
+                                     .toNearestInt().reduced (2, 1));
+            x += width;
+        }
     }
 
     tabs.setBounds (area.reduced (14, 0).withTrimmedBottom (2));
@@ -7705,9 +7757,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
     processorRef.getUndoManager().beginNewTransaction ("Load " + names[index]);
     processorRef.loadPresetByIndex (index);
     presetLoadFlash = 1.0f;
-
-    if (getTimerInterval() != 60)
-        startTimer (60);
+    animator.startTimerHz (60);
 
     updateHeaderButtons();
     loadedFingerprint = parameterFingerprint();
@@ -8049,6 +8099,7 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
         const auto width = 640;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
         presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 500);
+        presetPanel->setScrimArea (content.getLocalBounds().withTrimmedTop (56));
     }
 
     if (presetPanel->isOpen())

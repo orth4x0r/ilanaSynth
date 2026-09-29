@@ -9,10 +9,11 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class ScopeDisplay : public juce::Component,
                      public juce::SettableTooltipClient,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     explicit ScopeDisplay (IlanaSynthAudioProcessor& processor)
@@ -132,8 +133,8 @@ public:
         }
         else if (! hold)
         {
-            peakHoldL = juce::jmax (peakL, peakHoldL * 0.985f);
-            peakHoldR = juce::jmax (peakR, peakHoldR * 0.985f);
+            peakHoldL = juce::jmax (peakL, IlanaAnim::decay (peakHoldL, 0.985f, paintTicks));
+            peakHoldR = juce::jmax (peakR, IlanaAnim::decay (peakHoldR, 0.985f, paintTicks));
         }
 
         const auto peak = juce::jmax (peakL, peakR);
@@ -141,7 +142,7 @@ public:
         if (peak > 0.004f && ! hold)
         {
             const auto targetGain = juce::jlimit (0.5f, 10.0f, 0.9f / peak);
-            scopeGain += (targetGain - scopeGain) * 0.15f;
+            scopeGain = IlanaAnim::approach (scopeGain, targetGain, 0.15f, paintTicks);
         }
 
         area.removeFromTop (18.0f);
@@ -199,7 +200,9 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing())
+        paintTicks = frameTicks();
+
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
 
@@ -332,14 +335,14 @@ private:
         if (peakNormalized > 0.01f)
         {
             const auto targetGain = juce::jlimit (0.25f, 8.0f, 0.9f / peakNormalized);
-            spectrumGain += (targetGain - spectrumGain) * 0.12f;
+            spectrumGain = IlanaAnim::approach (spectrumGain, targetGain, 0.12f, paintTicks);
         }
 
         for (int x = 1; x < width; ++x)
         {
             const auto db = juce::Decibels::gainToDecibels (buckets[(size_t) x] * spectrumGain, -80.0f);
             const auto target = juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 84.0f);
-            spectrumSmoothed[(size_t) x] += (target - spectrumSmoothed[(size_t) x]) * 0.35f;
+            spectrumSmoothed[(size_t) x] = IlanaAnim::approach (spectrumSmoothed[(size_t) x], target, 0.35f, paintTicks);
         }
 
         juce::Path path;
@@ -364,7 +367,7 @@ private:
 
         if (! hold)
             for (int x = 1; x < width; ++x)
-                spectrumPeak[(size_t) x] = juce::jmax (spectrumSmoothed[(size_t) x], spectrumPeak[(size_t) x] * 0.985f);
+                spectrumPeak[(size_t) x] = juce::jmax (spectrumSmoothed[(size_t) x], IlanaAnim::decay (spectrumPeak[(size_t) x], 0.985f, paintTicks));
 
         juce::Path peakPath;
         peakPath.startNewSubPath (area.getX(), area.getBottom() - spectrumPeak[0] * area.getHeight());
@@ -500,6 +503,8 @@ private:
     std::vector<float> spectrumSmoothed;
     std::vector<float> spectrumPeak;
     float scopeGain = 1.0f;
+    float paintTicks = 1.0f; // smoothing steps (at 30 Hz) the next paint stands for
+    IlanaAnim::ChangeGate changeGate;
     float spectrumGain = 1.0f;
     float peakHoldL = 0.0f;
     float peakHoldR = 0.0f;

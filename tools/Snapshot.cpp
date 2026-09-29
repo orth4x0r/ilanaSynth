@@ -11,6 +11,8 @@
 #include <iostream>
 #include <functional>
 #include <typeinfo>
+#include <map>
+#include <thread>
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
@@ -1126,18 +1128,77 @@ int runUiTests()
 // The editor on screen, idle, on every page: how much of a core the UI
 // spends repainting when nothing moves (animations must settle).
 #include <ctime>
+#if JUCE_WINDOWS
+ #define NOMINMAX
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+#endif
+
+// Process CPU time in seconds (std::clock is wall time on Windows).
+double cpuSeconds()
+{
+   #if JUCE_WINDOWS
+    FILETIME created, exited, kernel, user;
+    GetProcessTimes (GetCurrentProcess(), &created, &exited, &kernel, &user);
+    const auto toSeconds = [] (const FILETIME& t) { return (double) (((unsigned long long) t.dwHighDateTime << 32) | t.dwLowDateTime) * 1.0e-7; };
+    return toSeconds (kernel) + toSeconds (user);
+   #else
+    return (double) std::clock() / CLOCKS_PER_SEC;
+   #endif
+}
+
+// An opaque window holding the editor, as hosts do: a non-opaque editor put
+// on the desktop directly gets a layered window that redraws in full.
+struct HostWindow : juce::Component
+{
+    explicit HostWindow (juce::Component& editor)
+    {
+        setOpaque (true);
+        addAndMakeVisible (editor);
+        setSize (editor.getWidth(), editor.getHeight());
+        addToDesktop (juce::ComponentPeer::windowHasTitleBar);
+        setVisible (true);
+        toFront (true); // a background window may get fewer vblanks
+    }
+    ~HostWindow() override { removeFromDesktop(); }
+    void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black); }
+};
+
+// Records what gets repainted: a transparent component over the editor
+// sees the clip of every paint.
+struct RegionProbe : juce::Component
+{
+    RegionProbe() { setInterceptsMouseClicks (false, false); }
+    void paint (juce::Graphics& g) override
+    {
+        ++frames;
+        // Which 40-px cells the clip region touches (the clip's bounds
+        // alone can be the whole window).
+        for (int y = 0; y < getHeight(); y += 40)
+            for (int x = 0; x < getWidth(); x += 40)
+                if (g.clipRegionIntersects ({ x, y, 40, 40 }))
+                    ++counts[juce::Rectangle<int> (x, y, 40, 40).toString()];
+    }
+    int frames = 0;
+    std::map<juce::String, int> counts;
+};
+
 int runIdleCpu()
 {
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1060, 720);
-    editor->addToDesktop (0);
-    editor->setVisible (true);
+    HostWindow window (*editor);
     settle (800);
 
     if (auto* tutorial = findChild<TutorialOverlay> (*editor))
         tutorial->setVisible (false);
+
+    // Listing regions needs exact clips: Direct2D's clip tests are coarse.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_REGIONS", "").isNotEmpty())
+        if (auto* peer = window.getPeer())
+            peer->setCurrentRenderingEngine (0);
 
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
     auto worst = 0.0;
@@ -1161,24 +1222,172 @@ int runIdleCpu()
         walk (*editor);
     }
 
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_PAGES", ""), ",", "");
+
     for (const auto& id : pages->getPageIds())
     {
+        if (! only.isEmpty() && ! only.contains (id))
+            continue;
         pages->showPage (id);
         settle (1200); // let entrance animations finish
-        const auto start = std::clock();
+        RegionProbe regions;
+        const auto listRegions = juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_REGIONS", "").isNotEmpty();
+        if (listRegions)
+        {
+            editor->addAndMakeVisible (regions);
+            regions.setBounds (editor->getLocalBounds());
+        }
+        const auto start = cpuSeconds();
         settle (3000);
-        const auto percent = 100.0 * (double) (std::clock() - start) / CLOCKS_PER_SEC / 3.0;
+        const auto percent = 100.0 * (cpuSeconds() - start) / 3.0;
         worst = juce::jmax (worst, percent);
         std::cout << "idle " << id << ": " << juce::String (percent, 1) << "% of a core" << std::endl;
+        if (listRegions)
+        {
+            editor->removeChildComponent (&regions);
+            std::vector<std::pair<int, juce::String>> sorted;
+            for (auto& [rect, n] : regions.counts)
+                sorted.push_back ({ n, rect });
+            std::sort (sorted.rbegin(), sorted.rend());
+            std::cout << "  " << regions.frames << " paints in 3 s" << std::endl;
+            for (auto* top : editor->getChildren())
+                for (auto* child : top->getChildren())
+                    if (child->isVisible())
+                        std::cout << "    child " << typeid (*child).name() << " " << child->getBounds().toString() << std::endl;
+            for (size_t i = 0; i < juce::jmin<size_t> (40, sorted.size()); ++i)
+            {
+                const auto r = juce::Rectangle<int>::fromString (sorted[i].second);
+                auto* at = editor->getComponentAt (r.getCentre());
+                juce::String path;
+                for (auto* c = at; c != nullptr && c != editor.get(); c = c->getParentComponent())
+                    path = juce::String (typeid (*c).name()).fromLastOccurrenceOf (" ", false, false) + (path.isEmpty() ? "" : " > " + path);
+                std::cout << "  " << sorted[i].first << "x " << sorted[i].second << "  " << path.substring (juce::jmax (0, path.length() - 160)) << std::endl;
+            }
+        }
     }
 
     pages->setScopeOpen (true);
     settle (1200);
-    const auto start = std::clock();
+    const auto start = cpuSeconds();
     settle (3000);
-    std::cout << "idle SCOPE panel: " << juce::String (100.0 * (double) (std::clock() - start) / CLOCKS_PER_SEC / 3.0, 1) << "% of a core" << std::endl;
+    std::cout << "idle SCOPE panel: " << juce::String (100.0 * (cpuSeconds() - start) / 3.0, 1) << "% of a core" << std::endl;
     std::cout << "worst page: " << juce::String (worst, 1) << "%" << std::endl;
-    editor->removeFromDesktop();
+    window.removeChildComponent (editor.get());
+    return 0;
+}
+
+// Frames the editor actually paints while it animates: a page switch, then a
+// held note (scopes, meters and modulation move). A transparent component
+// over the whole editor is painted whenever anything under it is, so its
+// paints are the frames drawn. 60 fps means gaps of at most ~17 ms.
+struct FrameProbe : juce::Component
+{
+    FrameProbe() { setInterceptsMouseClicks (false, false); }
+    void paint (juce::Graphics&) override { times.push_back (juce::Time::getMillisecondCounterHiRes()); }
+    std::vector<double> times;
+};
+
+juce::String frameStats (const std::vector<double>& times, double windowMs)
+{
+    if (times.size() < 2)
+        return juce::String ((int) times.size()) + " frames";
+    std::vector<double> gaps;
+    for (size_t i = 1; i < times.size(); ++i)
+        gaps.push_back (times[i] - times[i - 1]);
+    std::sort (gaps.begin(), gaps.end());
+    const auto p95 = gaps[(size_t) ((double) (gaps.size() - 1) * 0.95)];
+    return juce::String (1000.0 * (double) times.size() / windowMs, 0) + " fps, median gap "
+         + juce::String (gaps[gaps.size() / 2], 1) + " ms, p95 " + juce::String (p95, 1) + " ms, worst " + juce::String (gaps.back(), 1) + " ms";
+}
+
+int runFps()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+    HostWindow window (*editor);
+    settle (800);
+
+    if (auto* peer = window.getPeer())
+    {
+        const auto engines = peer->getAvailableRenderingEngines();
+        std::cout << "renderer: " << engines[peer->getCurrentRenderingEngine()] << " (of " << engines.joinIntoString (", ") << ")" << std::endl;
+    }
+
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+
+    // The display's refresh rate.
+    {
+        int vblanks = 0;
+        juce::VBlankAttachment counter (editor.get(), [&vblanks] { ++vblanks; });
+        settle (1000);
+        std::cout << "display: " << vblanks << " vblanks per second" << std::endl;
+    }
+
+    FrameProbe probe;
+    editor->addAndMakeVisible (probe);
+    int vblanks = 0;
+    juce::VBlankAttachment vblankCounter (editor.get(), [&vblanks] { ++vblanks; });
+    probe.setBounds (editor->getLocalBounds());
+
+    // Audio in real time on another thread, a chord held while "playing".
+    std::atomic<bool> running { true }, playing { false };
+    std::thread audio ([&]
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto wasPlaying = false;
+        auto next = juce::Time::getMillisecondCounterHiRes();
+        while (running)
+        {
+            juce::MidiBuffer midi;
+            const auto now = playing.load();
+            if (now != wasPlaying)
+                for (auto note : { 48, 55, 60, 64 })
+                    midi.addEvent (now ? juce::MidiMessage::noteOn (1, note, 0.8f) : juce::MidiMessage::noteOff (1, note), 0);
+            wasPlaying = now;
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            next += 256.0 / 48.0;
+            const auto wait = next - juce::Time::getMillisecondCounterHiRes();
+            if (wait > 0.0)
+                std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
+        }
+    });
+
+    auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+    const auto filter = juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_PAGES", "");
+
+    for (const auto& id : pages->getPageIds())
+    {
+        if (filter.isNotEmpty() && ! juce::StringArray::fromTokens (filter, ",", "").contains (id))
+            continue;
+        playing = false;
+        settle (400);
+        probe.times.clear();
+        const auto cpuStart = cpuSeconds();
+        pages->showPage (id);
+        probe.toFront (false);
+        settle (400);
+        const auto switchCpu = 100.0 * (cpuSeconds() - cpuStart) / 0.4;
+        const auto switchStats = frameStats (probe.times, 400.0);
+
+        playing = true;
+        settle (300);
+        probe.times.clear();
+        vblanks = 0;
+        const auto playStart = cpuSeconds();
+        settle (1500);
+        std::cout << id << "\n  switch:  " << switchStats << " (" << juce::String (switchCpu, 0) << "% cpu)"
+                  << "\n  playing: " << frameStats (probe.times, 1500.0) << " (" << juce::String (100.0 * (cpuSeconds() - playStart) / 1.5, 0) << "% cpu, "
+                  << juce::String (vblanks / 1.5, 0) << " vblanks/s)" << std::endl;
+    }
+
+    running = false;
+    audio.join();
+    editor->removeChildComponent (&probe);
+    window.removeChildComponent (editor.get());
     return 0;
 }
 
@@ -1198,6 +1407,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--idlecpu")
         return runIdleCpu();
+
+    if (juce::String (argv[1]) == "--fps")
+        return runFps();
 
     const juce::File outDir (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
     outDir.createDirectory();

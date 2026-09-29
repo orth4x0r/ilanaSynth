@@ -248,6 +248,17 @@ public:
     float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
 
+    // Changes whenever something the editor draws may have changed: any
+    // parameter, a table or reveal change, a new note, or a block rendered
+    // while something sounds (voices, output or input). Views compare it to
+    // skip repainting while nothing moves.
+    juce::uint64 getUiEpoch() const
+    {
+        return (juce::uint64) paramEpoch.load() + ((juce::uint64) liveEpoch.load() << 32)
+             + (juce::uint64) revealVersion.load() * 7919u + (juce::uint64) tableNoticeVersion.load() * 104729u
+             + (juce::uint64) noteOnCount.load() * 1299709u;
+    }
+
     // LFO phase of every sounding voice (for tests and diagnostics).
     std::vector<float> getVoiceLfoPhasesForTest (int lfo)
     {
@@ -759,6 +770,16 @@ private:
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
+
+    struct ParamEpoch : juce::AudioProcessorParameter::Listener
+    {
+        explicit ParamEpoch (std::atomic<unsigned>& e) : epoch (e) {}
+        void parameterValueChanged (int, float) override { ++epoch; }
+        void parameterGestureChanged (int, bool) override {}
+        std::atomic<unsigned>& epoch;
+    };
+    std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 };
+    ParamEpoch paramEpochListener { paramEpoch };
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;

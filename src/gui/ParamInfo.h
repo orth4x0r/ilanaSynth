@@ -372,7 +372,7 @@ inline juce::String describeParameter (const juce::String& id)
     {
         if (id.endsWith ("_velocity")) return "How strongly note velocity scales this envelope when used as a source.";
         if (id.endsWith ("_curve")) return "Envelope tension: positive reaches the target early, negative reaches it late.";
-        return "ADSR stage for this per-voice envelope. Assign it in the matrix or as an oscillator amp envelope.";
+        return "ADSR stage for this per-voice envelope. Drag its chip onto a knob, route it in MATRIX, or pick it as an oscillator amp envelope.";
     }
     if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";

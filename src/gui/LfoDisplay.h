@@ -10,11 +10,12 @@
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
 #include "LfoSimView.h"
+#include "AnimationUtils.h"
 
 class LfoDisplay : public juce::Component,
                    public juce::SettableTooltipClient,
                    public IlanaAnim::PageAnimated,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     LfoDisplay (IlanaSynthAudioProcessor& processor, int lfoIndex, juce::Colour traceColourIn = IlanaTheme::accent(),
@@ -643,17 +644,20 @@ private:
 
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         const auto now = juce::Time::getMillisecondCounterHiRes();
         const auto elapsed = juce::jlimit (0.0, 0.2, (now - lastTimerMs) / 1000.0);
         lastTimerMs = now;
-        if (isVisible() && LfoSimShapes::isSim ((int) readParam ("_shape")))
+        const auto simulating = isVisible() && LfoSimShapes::isSim ((int) readParam ("_shape"));
+        if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing())
+        if (isShowing() && (simulating || appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     // RATE in Hz, following SYNC at the host tempo.
     double currentRate() const

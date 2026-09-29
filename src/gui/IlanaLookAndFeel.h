@@ -33,7 +33,7 @@ namespace Ui
     inline const juce::Colour header  { 0xff15171a }; // header strip
     inline const juce::Colour panel   { 0xff181a1e }; // cards
     inline const juce::Colour raised  { 0xff22252a }; // buttons, menus
-    inline const juce::Colour hover   { 0xff2a2e34 };
+    inline const juce::Colour hover   { 0xff31363e }; // lighter than line, so hovers show
     inline const juce::Colour well    { 0xff0e0f12 }; // displays
     inline const juce::Colour line    { 0xff2a2e34 }; // borders
     inline const juce::Colour track   { 0xff30343b }; // knob and slider tracks
@@ -54,7 +54,7 @@ inline juce::Colour oscColour (int index)
 // UI uses one of these, so sizes stay consistent from page to page.
 namespace TextSize
 {
-    inline constexpr float tiny    = 10.5f; // axis ticks, badges, hints
+    inline constexpr float tiny    = 11.0f; // axis ticks, badges, hints
     inline constexpr float label   = 11.5f; // knob and field labels
     inline constexpr float body    = 13.0f; // values, menus, buttons
     inline constexpr float title   = 14.5f; // tabs, section titles
@@ -415,7 +415,7 @@ public:
         const auto enabled = slider.isEnabled();
 
         // Recent movement makes the arc flare, then settle.
-        const auto flare = valueFlare (&slider, sliderPos);
+        const auto flare = valueFlare (&slider, sliderPos, slider.isMouseOverOrDragging());
 
         juce::Path backgroundArc;
         backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
@@ -705,22 +705,30 @@ private:
         return state.value;
     }
 
-    // 1 just after a knob's value moves, easing back to 0 over about half a
-    // second; keyed like animatedHover.
-    static float valueFlare (const void* key, float position)
+    // 1 just after the user moves a knob, easing back to 0 over about half a
+    // second; keyed like animatedHover. Preset loads, undo and automation
+    // move knobs too but don't flare.
+    static float valueFlare (const void* key, float position, bool byUser)
     {
         struct Flare { float last = -1.0f; float value = 0.0f; double time = 0.0; };
         static std::unordered_map<const void*, Flare> flares;
+        const auto now = juce::Time::getMillisecondCounterHiRes();
 
-        if (flares.size() > 2048)
-            flares.clear();
+        // Drop entries not painted for a minute once there are many.
+        static double lastSweep = 0.0;
+
+        if (flares.size() > 2048 && now - lastSweep > 1000.0)
+        {
+            lastSweep = now;
+            for (auto it = flares.begin(); it != flares.end();)
+                it = now - it->second.time > 60000.0 ? flares.erase (it) : std::next (it);
+        }
 
         auto& flare = flares[key];
-        const auto now = juce::Time::getMillisecondCounterHiRes();
         const auto dt = flare.time > 0.0 ? juce::jlimit (0.0, 0.1, (now - flare.time) * 0.001) : 0.0;
         flare.time = now;
 
-        if (flare.last >= 0.0f && std::abs (position - flare.last) > 0.0005f)
+        if (byUser && flare.last >= 0.0f && std::abs (position - flare.last) > 0.0005f)
             flare.value = 1.0f;
         else
             flare.value = juce::jmax (0.0f, flare.value - (float) dt * 2.2f);

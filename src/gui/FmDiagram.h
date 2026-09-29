@@ -6,6 +6,7 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 // The FM matrix as operators: the patch's oscillators, with an arrow for every
 // route (thicker = deeper) and a loop for feedback. Drag from one oscillator
@@ -14,7 +15,7 @@
 // output on or off (off = a silent modulator).
 class FmDiagram : public juce::Component,
                   public juce::SettableTooltipClient,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     explicit FmDiagram (IlanaSynthAudioProcessor& p) : processorRef (p)
@@ -141,7 +142,7 @@ public:
                 if (live)
                 {
                     const auto playing = processorRef.getActiveVoiceCount() > 0;
-                    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+                    const auto now = liveSeconds;
                     const auto speed = (playing ? 0.9 : 0.3) * (0.5 + amount);
 
                     for (int dot = 0; dot < 3; ++dot)
@@ -239,7 +240,7 @@ public:
             // A soft halo that breathes while this operator sounds.
             if (on && processorRef.getActiveVoiceCount() > 0)
             {
-                const auto breath = 0.5f + 0.5f * std::sin ((float) juce::Time::getMillisecondCounterHiRes() * 0.004f + (float) osc);
+                const auto breath = 0.5f + 0.5f * std::sin ((float) liveSeconds * 4.0f + (float) osc);
                 g.setColour (colour.withAlpha (0.10f + 0.12f * breath));
                 g.fillEllipse (circle.expanded (6.0f + 4.0f * breath));
             }
@@ -442,9 +443,16 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        // The flow along the routes moves only while notes sound.
+        if (processorRef.getActiveVoiceCount() > 0)
+            liveSeconds += (double) frameSeconds();
+
+        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
             repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
+    double liveSeconds = 0.0;
 
     IlanaSynthAudioProcessor& processorRef;
     int dragSource = -1;

@@ -11,11 +11,12 @@
 #include "../dsp/SampleFactory.h"
 #include "../dsp/Voice.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
                     public juce::FileDragAndDropTarget,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     WaveDisplay (IlanaSynthAudioProcessor& processor,
@@ -483,7 +484,7 @@ private:
 
         // Grains drifting through it: each lives for a moment, then respawns.
         const auto sounding = processorRef.getActiveVoiceCount() > 0;
-        const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const auto now = liveSeconds;
         const auto count = 6 + (int) (density * 22.0f);
         const auto grainWidth = juce::jlimit (3.0f, 26.0f, size / 500.0f * plot.getWidth() * 0.25f + 3.0f);
 
@@ -645,7 +646,7 @@ private:
             g.setColour (juce::Colours::white.withAlpha (0.3f));
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withCentre ({ cursorX, centreY }));
 
-            const auto pulse = 0.6f + 0.4f * std::sin ((float) juce::Time::getMillisecondCounterHiRes() * 0.006f);
+            const auto pulse = 0.6f + 0.4f * std::sin ((float) liveSeconds * 6.0f);
             g.setColour (traceColour.withAlpha (0.22f * pulse));
             g.fillEllipse (juce::Rectangle<float> (13.0f, 13.0f).withCentre ({ cursorX, cursorY }));
 
@@ -726,14 +727,19 @@ private:
 
     void timerCallback() override
     {
-        // The 3D waterfall only applies to tables.
-        modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput() && ! isPhysicalString());
-        setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
-                                        "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
-                    : isLiveInput() ? "The audio coming into ilanaSynth FX."
-                    : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
-                    : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
-                                   : "Drag to scrub the frame, click 3D to toggle the waterfall view. Drop a wav to switch this oscillator to Sample.");
+        // The 3D waterfall only applies to tables. The mode is re-read only
+        // when a parameter changes.
+        if (const auto epoch = processorRef.getUiEpoch(); epoch != modeEpoch)
+        {
+            modeEpoch = epoch;
+            modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput() && ! isPhysicalString());
+            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+                                            "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
+                        : isLiveInput() ? "The audio coming into ilanaSynth FX."
+                        : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
+                        : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
+                                       : "Drag to scrub the frame, click 3D to toggle the waterfall view. Drop a wav to switch this oscillator to Sample.");
+        }
 
         const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
 
@@ -743,16 +749,23 @@ private:
             loadFlash = sample != nullptr ? 1.0f : 0.0f;
         }
 
-        loadFlash *= 0.93f;
+        loadFlash = IlanaAnim::decay (loadFlash, 0.93f, frameTicks());
 
         // Follow the frame parameter including any modulation (LFO, envelope,
         // macros), smoothed so morphs glide rather than jump.
-        displayedFrame += (resolvedFrame() - displayedFrame) * 0.25f;
+        const auto frame = resolvedFrame();
+        const auto gliding = std::abs (frame - displayedFrame) > 1.0e-4f;
+        displayedFrame = gliding ? IlanaAnim::approach (displayedFrame, frame, 0.25f, frameTicks()) : frame;
+
+        // Grains drift and the play cursor pulses only while notes sound.
+        if (processorRef.getActiveVoiceCount() > 0)
+            liveSeconds += (double) frameSeconds();
 
         if (! isShowing())
             return;
 
-        repaint();
+        if (gliding || loadFlash > 0.01f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+            repaint();
     }
 
     float resolvedFrame() const
@@ -960,6 +973,9 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    IlanaAnim::ChangeGate changeGate;
+    juce::uint64 modeEpoch = ~(juce::uint64) 0;
+    double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
     juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId;

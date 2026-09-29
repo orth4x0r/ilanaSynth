@@ -3,9 +3,10 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class InfoStrip : public juce::Component,
-                  private juce::Timer
+                  private IlanaAnim::FrameTimer
 {
 public:
     InfoStrip()
@@ -124,7 +125,7 @@ private:
         }
 
         const auto wasFading = textAppear < 1.0f;
-        textAppear = juce::jmin (1.0f, textAppear + 0.16f);
+        textAppear = juce::jmin (1.0f, textAppear + 0.16f * frameTicks());
 
         if (wasFading)
             repaint();

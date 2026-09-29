@@ -152,36 +152,44 @@ inline int& highlightedModSource()
     return source;
 }
 
+// One colour per modulation source, used by its chip, its card (LFO and
+// envelope pages), its tabs, the matrix and the rings on knobs it moves.
 inline juce::Colour modSourceColour (int sourceIndex)
 {
-    if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 4)
+    // Every LFO (A and B outputs) in the LFO palette.
+    if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 0)
         return IlanaSynthAudioProcessor::lfoColour (lfo);
 
-    switch (sourceIndex)
+    if (sourceIndex >= (int) Mod::Source::Lfo1B && sourceIndex <= (int) Mod::Source::Lfo16B)
+        return IlanaSynthAudioProcessor::lfoColour (sourceIndex - (int) Mod::Source::Lfo1B);
+
+    switch ((Mod::Source) sourceIndex)
     {
-        case 1:  return juce::Colour (0xffff8a3b);
-        case 2:  return juce::Colour (0xff35c8ff);
-        case 3:  return juce::Colour (0xff8fff3b);
-        case 4:  return juce::Colour (0xffff4fd8);
-        case 5:  return juce::Colour (0xff5b8cff);
-        case 6:
-        case 7:
-        case 8:  return IlanaTheme::Ui::text2;
-        case 9:
-        case 10:
-        case 11: return juce::Colour (0xffb28aff);
-        case 12:
-        case 13:
-        case 14:
-        case 15: return juce::Colour (0xffffd447);
-        case 16: return IlanaTheme::Ui::text2;
-        case 17: return juce::Colour (0xff6fe3c1);
-        case 18: return juce::Colour (0xffffd447);
-        case 19: return juce::Colour (0xffb28aff);
-        case 20: return juce::Colour (0xff6fe3c1);
-        case 21: return juce::Colour (0xffe3a56f);
-        default: return IlanaTheme::accent();
+        case Mod::Source::AmpEnv:     return IlanaTheme::accent();
+        case Mod::Source::FilterEnv:  return juce::Colour (0xffff4fd8);
+        case Mod::Source::FilterEnv2: return juce::Colour (0xffb28aff);
+        case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
+        case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
+        case Mod::Source::Velocity:
+        case Mod::Source::KeyTrack:
+        case Mod::Source::Random:
+        case Mod::Source::ClockSh:    return IlanaTheme::Ui::text2;
+        case Mod::Source::ModWheel:
+        case Mod::Source::Aftertouch:
+        case Mod::Source::Expression: return juce::Colour (0xff9fb3c8);
+        case Mod::Source::Macro1:
+        case Mod::Source::Macro2:
+        case Mod::Source::Macro3:
+        case Mod::Source::Macro4:     return juce::Colour (0xffffd447);
+        case Mod::Source::Mseg:       return juce::Colour (0xffe0e6f0);
+        default: break;
     }
+
+    // ENV 6-16 as their cards draw them.
+    if (sourceIndex >= (int) Mod::Source::Env6 && sourceIndex <= (int) Mod::Source::Env16)
+        return juce::Colour::fromHSV ((float) (sourceIndex - (int) Mod::Source::Env6) / 11.0f, 0.55f, 0.95f, 1.0f);
+
+    return IlanaTheme::accent();
 }
 
 inline juce::String& knobClipboard()
@@ -341,8 +349,7 @@ private:
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
-                    public IlanaAnim::PageAnimated,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     KnobControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
@@ -445,13 +452,7 @@ public:
         repaint();
     }
 
-    void visibilityChanged() override
-    {
-        if (isVisible())
-            appear = 0.0f;
-    }
 
-    void replayAppear() override { appear = 0.0f; }
 
     void paint (juce::Graphics& g) override
     {
@@ -754,34 +755,38 @@ private:
 
     void timerCallback() override
     {
+        // Knobs on hidden pages skip the frame (hundreds of them).
+        if (! isShowing())
+            return;
+
         const auto targetGlow = hover ? 1.0f : 0.0f;
-        glow += (targetGlow - glow) * 0.22f;
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        slider.setAlpha (appear);
-        label.setAlpha (appear);
-        dotStrip.setAlpha (appear);
+        glow = IlanaAnim::approach (glow, targetGlow, 0.22f, frameTicks());
 
         const auto value = slider.getValue();
 
+        // Only the user's own moves light the knob up, not a preset load,
+        // undo or automation.
         if (std::abs (value - lastSliderValue) > 1.0e-6)
         {
             lastSliderValue = value;
-            activity = 1.0f;
+
+            if (slider.isMouseOverOrDragging())
+                activity = 1.0f;
         }
 
-        activity *= 0.88f;
+        activity = IlanaAnim::decay (activity, 0.88f, frameTicks());
 
         if (processorRef == nullptr || ringConfig.destination == 0)
         {
-            if (glow > 0.01f || activity > 0.01f || appear < 0.999f || isMouseOver())
+            if ((glow > 0.01f && glow < 0.99f) || activity > 0.01f)
                 repaint();
 
             return;
         }
 
-        if (++routingCheck >= 6)
+        if ((routingCheck += frameSeconds()) >= 0.2f)
         {
-            routingCheck = 0;
+            routingCheck = 0.0f;
             refreshRoutings();
         }
 
@@ -794,7 +799,7 @@ private:
             lastHighlighted = highlighted;
             repaint();
         }
-        else if (glow > 0.01f || activity > 0.01f || appear < 0.999f || isMouseOver())
+        else if ((glow > 0.01f && glow < 0.99f) || activity > 0.01f)
         {
             repaint();
         }
@@ -814,7 +819,7 @@ private:
     juce::Rectangle<int> knobBounds;
     std::vector<ModDotStrip::Dot> routings;
     int dominantSource = 0;
-    int routingCheck = 0;
+    float routingCheck = 0.0f;
     int lastHighlighted = 0;
     float lastModValue = 0.0f;
     float glow = 0.0f;
@@ -823,13 +828,11 @@ private:
     bool dragHover = false;
     bool hover = false;
     bool compact = false;
-    float appear = 1.0f;
 };
 
 class ComboControl : public juce::Component,
                      public juce::SettableTooltipClient,
-                     public IlanaAnim::PageAnimated,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     ComboControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
@@ -880,30 +883,18 @@ public:
         }
     }
 
-    void visibilityChanged() override
-    {
-        if (isVisible())
-            appear = 0.0f;
-    }
 
-    void replayAppear() override { appear = 0.0f; }
 
 private:
     void timerCallback() override
     {
-        hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f);
-        appear = juce::jmin (1.0f, appear + 0.12f);
+        const auto target = isMouseOver() ? 1.0f : 0.0f;
 
-        combo.setAlpha (appear);
-        label.setAlpha (appear);
+        if (std::abs (hover - target) < 0.005f)
+            return;
 
-        const auto scale = 1.0f + 0.05f * hover;
-        combo.setTransform (juce::AffineTransform::scale (scale, scale,
-                                                          (float) combo.getX() + (float) combo.getWidth() * 0.5f,
-                                                          (float) combo.getY() + (float) combo.getHeight() * 0.5f));
-
-        if (hover > 0.01f || appear < 0.999f)
-            repaint();
+        hover = std::abs (hover - target) < 0.01f ? target : IlanaAnim::approach (hover, target, 0.22f, frameTicks());
+        repaint();
     }
 
     // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
@@ -929,14 +920,12 @@ private:
     PopupCombo combo;
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
-    float appear = 1.0f;
     float hover = 0.0f;
 };
 
 class ToggleControl : public juce::Component,
                       public juce::SettableTooltipClient,
-                      public IlanaAnim::PageAnimated,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
     ToggleControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
@@ -973,13 +962,16 @@ public:
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
 
-    // A lit button breathes: its glow swells and fades slowly.
+    // A button that lights up flares, breathes once or twice, then holds a
+    // steady glow (a glow that never settles keeps the whole UI busy).
     void paint (juce::Graphics& g) override
     {
         if (isSwitch() || ! button.getToggleState())
             return;
 
-        const auto pulse = 0.5f + 0.5f * std::sin (pulsePhase);
+        const auto settle = juce::jlimit (0.0f, 1.0f, litSeconds / breathSeconds);
+        const auto breath = 0.5f + 0.5f * std::cos (litSeconds * 4.2f);
+        const auto pulse = juce::jmap (settle, breath, 0.6f);
         IlanaTheme::paintGlow (g, button.getBounds().toFloat().reduced (0.5f), 5.0f,
                                button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f), 0.4f + 0.6f * pulse);
     }
@@ -991,54 +983,49 @@ public:
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
 
-    void visibilityChanged() override
-    {
-        if (isVisible())
-            appear = 0.0f;
-    }
 
-    void replayAppear() override { appear = 0.0f; }
 
 private:
     void timerCallback() override
     {
-        pulsePhase += 0.09f;
-        hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f);
-        appear = juce::jmin (1.0f, appear + 0.12f);
-
-        const auto scale = 1.0f + 0.05f * hover;
-        button.setTransform (juce::AffineTransform::scale (scale, scale,
-                                                           (float) button.getX() + (float) button.getWidth() * 0.5f,
-                                                           (float) button.getY() + (float) button.getHeight() * 0.5f));
-        button.setAlpha (appear);
+        hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f, frameTicks());
 
         const auto on = button.getToggleState();
         auto switchMoving = false;
+        const auto breathing = on && ! isSwitch() && litSeconds < breathSeconds;
+
+        // Only a button switched on while shown breathes, not one that
+        // starts out lit.
+        if (on && ! lastOn && ticked)
+            litSeconds = 0.0f;
+        else if (breathing)
+            litSeconds += frameSeconds();
 
         if (isSwitch())
         {
             const auto target = on ? 1.0f : 0.0f;
             switchMoving = std::abs (switchAmount - target) > 0.001f;
-            switchAmount = switchMoving ? IlanaAnim::approach (switchAmount, target, 0.3f) : target;
+            switchAmount = switchMoving ? IlanaAnim::approach (switchAmount, target, 0.3f, frameTicks()) : target;
             button.getProperties().set ("switchAmount", switchAmount);
 
             if (switchMoving)
                 button.repaint();
         }
 
-        if ((on && ! isSwitch()) || on != lastOn || switchMoving || (hover > 0.01f && hover < 0.99f) || appear < 0.999f)
+        if (breathing || on != lastOn || switchMoving || (hover > 0.01f && hover < 0.99f))
             repaint();
 
         lastOn = on;
+        ticked = true;
     }
 
     juce::TextButton button;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> attachment;
-    float pulsePhase = 0.0f;
-    float appear = 1.0f;
+    static constexpr float breathSeconds = 2.2f;
+    float litSeconds = breathSeconds;
     float hover = 0.0f;
     float switchAmount = 0.0f;
-    bool lastOn = false;
+    bool lastOn = false, ticked = false;
 };
 
 class ValueSliderControl : public juce::Component

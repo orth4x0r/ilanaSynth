@@ -4,11 +4,12 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 class StepEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    public IlanaAnim::PageAnimated,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     StepEditor (IlanaSynthAudioProcessor& processor, int lfoIndex, juce::Colour stepColourIn = IlanaTheme::accent(),
@@ -79,9 +80,13 @@ public:
 private:
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     float readStep (int step) const
     {
@@ -123,7 +128,7 @@ private:
 class MsegEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    public IlanaAnim::PageAnimated,
-                   private juce::Timer
+                   private IlanaAnim::FrameTimer
 {
 public:
     explicit MsegEditor (IlanaSynthAudioProcessor& processor)
@@ -211,9 +216,13 @@ public:
 private:
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.12f);
-        repaint();
+        appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+
+        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+            repaint();
     }
+
+    IlanaAnim::ChangeGate changeGate;
 
     bool isLooping() const
     {

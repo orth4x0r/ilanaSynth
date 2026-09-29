@@ -7,12 +7,13 @@
 #include <vector>
 
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 // The pages inside one top-level tab (MOD holds ENV / LFO, STEPS and
 // MATRIX, for example), picked with a segmented switch whose lit pill
 // slides to the chosen page.
 class SectionSwitcher : public juce::Component,
-                        private juce::Timer
+                        private IlanaAnim::FrameTimer
 {
 public:
     std::function<void (int)> onSelect;
@@ -145,7 +146,7 @@ private:
     void timerCallback() override
     {
         const auto target = (float) selected;
-        pill += (target - pill) * 0.25f;
+        pill = IlanaAnim::approach (pill, target, 0.25f, frameTicks());
 
         if (std::abs (target - pill) < 0.005f)
         {

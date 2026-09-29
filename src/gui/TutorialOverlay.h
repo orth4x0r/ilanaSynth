@@ -6,7 +6,7 @@
 #include "IlanaLookAndFeel.h"
 
 class TutorialOverlay : public juce::Component,
-                        private juce::Timer
+                        private IlanaAnim::FrameTimer
 {
 public:
     // The shortcut modifier as the platform names it.
@@ -22,7 +22,6 @@ public:
     TutorialOverlay()
     {
         closeButton.setButtonText ("GOT IT");
-        closeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.85f));
         closeButton.onClick = [this]
         {
             const auto dontShow = dontShowAgain.getToggleState();
@@ -41,6 +40,9 @@ public:
     }
 
     std::function<void (bool dontShowAgain)> onDismiss;
+
+    // How many factory presets there are, for the tips.
+    void setPresetCount (int count) { presetCount = count; }
 
     void captureBackdrop()
     {
@@ -65,6 +67,11 @@ public:
             backdrop = {};
             return;
         }
+
+        // The one button here: solid in the current accent, with dark text,
+        // so it reads as the way on.
+        closeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
+        closeButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::bg);
 
         appear = 0.0f;
         closeButton.setAlpha (0.0f);
@@ -171,9 +178,9 @@ public:
             const juce::StringArray workflowTips {
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; PLAY > VECTOR mixes four oscillators and lets the macros EVOLVE.",
-                "DICE rolls a fresh patch, INIT resets, " + commandKey() + "+Z undoes everything - HIST lists your history.",
-                "371 presets, all with named macros. SAVE stores your own with a category and tags; search finds tags too.",
-                "FM has six operators, 16 one-click algorithms and a noise operator. SEQ has the arp, Euclid, prob seq and GENERATE; SCOPE (top right) floats over any page."
+                "The dice rolls a fresh patch and the ... menu starts from Init. " + commandKey() + "+Z undoes anything; the clock button lists your history.",
+                juce::String (presetCount) + " presets, all with named macros. Save stores your own with a category and tags; search finds tags too.",
+                "FM routes the oscillators into each other: 16 one-click algorithms and a noise operator. SEQ has the arp, Euclid, prob seq and GENERATE; SCOPE (top right) floats over any page."
             };
 
             drawTipColumn (g, left, "PLAY", playTips);
@@ -211,7 +218,7 @@ private:
 
     void timerCallback() override
     {
-        appear = juce::jmin (1.0f, appear + 0.07f);
+        appear = juce::jmin (1.0f, appear + 0.07f * frameTicks());
         const auto controlAlpha = juce::jlimit (0.0f, 1.0f, (appear - 0.5f) * 2.0f);
         closeButton.setAlpha (controlAlpha);
         dontShowAgain.setAlpha (controlAlpha);
@@ -228,6 +235,7 @@ private:
     juce::TextButton closeButton;
     juce::ToggleButton dontShowAgain;
     float appear = 0.0f;
+    int presetCount = 0;
     bool captureAttempted = false;
     juce::Image backdrop;
 };

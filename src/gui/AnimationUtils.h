@@ -2,7 +2,9 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace IlanaAnim
 {
@@ -47,6 +49,186 @@ inline float easeOutBack (float t)
 inline float approach (float current, float target, float rate)
 {
     return current + (target - current) * juce::jlimit (0.0f, 1.0f, rate);
+}
+
+// The same easing over `ticks` steps of the rate it was tuned at, so it
+// runs at the same speed whatever the frame rate (see FrameTimer).
+inline float approach (float current, float target, float rate, float ticks)
+{
+    return current + (target - current) * (1.0f - std::pow (1.0f - juce::jlimit (0.0f, 1.0f, rate), ticks));
+}
+
+// value * perTick, `ticks` times.
+inline float decay (float value, float perTick, float ticks)
+{
+    return value * std::pow (perTick, ticks);
+}
+
+// Lets a view skip repainting while nothing it shows has changed: check()
+// is true when the signature (usually the processor's getUiEpoch()) moved,
+// and twice a second regardless, for anything the signature misses.
+class ChangeGate
+{
+public:
+    bool check (juce::uint64 signature)
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (signature == last && now - lastPass < 500.0)
+            return false;
+
+        last = signature;
+        lastPass = now;
+        return true;
+    }
+
+private:
+    juce::uint64 last = ~(juce::uint64) 0;
+    double lastPass = 0.0;
+};
+
+class FrameTimer;
+
+// Every animation runs off one clock ticked by the display's refresh
+// (vblank) of any open editor: 60 fps or more, in step with what is drawn
+// (the idea Vital's renderer is built on). With no editor on screen
+// (snapshots, tests) or a host that sends no vblank, a 60 Hz timer stands in.
+class FrameClock : private juce::Timer,
+                   private juce::DeletedAtShutdown
+{
+public:
+    FrameClock() = default;
+    static FrameClock& get() { return *getInstance(); }
+
+    ~FrameClock() override { clearSingletonInstance(); }
+
+    JUCE_DECLARE_SINGLETON_SINGLETHREADED_INLINE (FrameClock, false)
+
+    // An open editor holds one of these; its display's refresh drives the clock.
+    struct Source
+    {
+        explicit Source (juce::Component& editor)
+            : vblank (&editor, [] { FrameClock::get().tick (true); }) {}
+        juce::VBlankAttachment vblank;
+    };
+
+    void add (FrameTimer* timer)
+    {
+        if (std::find (timers.begin(), timers.end(), timer) == timers.end())
+            timers.push_back (timer);
+
+        if (! isTimerRunning())
+            startTimerHz (10);
+    }
+
+    void remove (FrameTimer* timer)
+    {
+        const auto it = std::find (timers.begin(), timers.end(), timer);
+
+        if (it == timers.end())
+            return;
+
+        // Removed during a tick: blank the slot, compact afterwards.
+        if (ticking)
+            *it = nullptr;
+        else
+            timers.erase (it);
+    }
+
+    // Seconds since the previous frame.
+    float frameSeconds() const { return dt; }
+
+private:
+    void tick (bool fromVBlank);
+
+    void timerCallback() override
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto starved = now - lastVBlank > 100.0;
+
+        if (starved)
+        {
+            if (getTimerInterval() > 20)
+                startTimerHz (60);
+            tick (false);
+        }
+        else if (getTimerInterval() < 100)
+        {
+            startTimerHz (10);
+        }
+
+        if (timers.empty())
+            stopTimer();
+    }
+
+    std::vector<FrameTimer*> timers;
+    bool ticking = false;
+    double lastFrame = 0.0, lastVBlank = 0.0;
+    float dt = 1.0f / 60.0f;
+};
+
+// Like juce::Timer but called on each frame of the FrameClock. The rate
+// given to startTimerHz is only the reference that per-tick constants were
+// tuned at: frameTicks() is how many of those ticks this frame stands for.
+class FrameTimer
+{
+public:
+    virtual ~FrameTimer() { stopTimer(); }
+    virtual void timerCallback() = 0;
+
+    void startTimerHz (int referenceHz)
+    {
+        reference = (float) juce::jmax (1, referenceHz);
+        running = true;
+        FrameClock::get().add (this);
+    }
+
+    void startTimer (int milliseconds) { startTimerHz (juce::jmax (1, 1000 / juce::jmax (1, milliseconds))); }
+
+    void stopTimer()
+    {
+        if (running)
+        {
+            running = false;
+
+            if (auto* clock = FrameClock::getInstanceWithoutCreating())
+                clock->remove (this);
+        }
+    }
+
+    bool isTimerRunning() const { return running; }
+    int getTimerInterval() const { return running ? juce::roundToInt (1000.0f / reference) : 0; }
+    float frameSeconds() const { return FrameClock::get().frameSeconds(); }
+    float frameTicks() const { return FrameClock::get().frameSeconds() * reference; }
+
+private:
+    float reference = 60.0f;
+    bool running = false;
+};
+
+inline void FrameClock::tick (bool fromVBlank)
+{
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+
+    if (fromVBlank)
+        lastVBlank = now;
+
+    // Two editors (or a 240 Hz display) share the clock: at most ~200 frames a second.
+    if (ticking || (lastFrame > 0.0 && now - lastFrame < 5.0))
+        return;
+
+    dt = lastFrame > 0.0 ? (float) juce::jlimit (0.0, 0.1, (now - lastFrame) * 0.001) : 1.0f / 60.0f;
+    lastFrame = now;
+
+    ticking = true;
+    const auto count = timers.size();
+
+    for (size_t i = 0; i < count && i < timers.size(); ++i)
+        if (auto* timer = timers[i])
+            timer->timerCallback();
+
+    ticking = false;
+    timers.erase (std::remove (timers.begin(), timers.end(), nullptr), timers.end());
 }
 
 // Downscale + separable box blur + upscale, used for frosted-glass overlays.

@@ -4,13 +4,14 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 // A slim stereo peak meter for the master output: bars fall smoothly, a
 // peak line holds for a moment, and the top lights red after a clip until
 // clicked.
 class OutputMeter : public juce::Component,
                     public juce::SettableTooltipClient,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     explicit OutputMeter (IlanaSynthAudioProcessor& processor) : processorRef (processor)
@@ -81,11 +82,11 @@ private:
             const auto peak = processorRef.takeOutputPeak (channel);
             auto& level = levels[(size_t) channel];
             auto& hold = holds[(size_t) channel];
-            auto& holdTicks = holdTimes[(size_t) channel];
+            auto& holdSeconds = holdTimes[(size_t) channel];
             const auto before = level;
 
             // Rise at once, fall about 20 dB per second.
-            level = juce::jmax (peak, level * 0.85f);
+            level = juce::jmax (peak, IlanaAnim::decay (level, 0.85f, frameTicks()));
 
             if (level < 0.0005f)
                 level = 0.0f;
@@ -93,11 +94,11 @@ private:
             if (peak >= hold)
             {
                 hold = peak;
-                holdTicks = 36;
+                holdSeconds = 1.2f;
             }
-            else if (--holdTicks <= 0)
+            else if ((holdSeconds -= frameSeconds()) <= 0.0f)
             {
-                hold *= 0.8f;
+                hold = IlanaAnim::decay (hold, 0.8f, frameTicks());
             }
 
             clipped = clipped || peak > 1.0f;
@@ -110,6 +111,6 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<float, 2> levels {}, holds {};
-    std::array<int, 2> holdTimes {};
+    std::array<float, 2> holdTimes {};
     bool clipped = false;
 };

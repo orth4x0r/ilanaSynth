@@ -17,7 +17,7 @@
 class PresetPanel : public juce::Component,
                     private juce::ListBoxModel,
                     private juce::KeyListener,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     explicit PresetPanel (IlanaSynthAudioProcessor& processor, juce::PropertiesFile* settingsIn)
@@ -70,7 +70,14 @@ public:
     ~PresetPanel() override
     {
         stopWatchingClicks();
+
+        if (auto* parent = scrim.getParentComponent())
+            parent->removeChildComponent (&scrim);
     }
+
+    // The area dimmed behind the open browser (in the parent's coordinates),
+    // so it reads as on top; a click there closes it.
+    void setScrimArea (juce::Rectangle<int> area) { scrimArea = area; }
 
     // Called with the preset index, and whether the browser should close.
     std::function<void (int, bool)> onLoad;
@@ -96,6 +103,21 @@ public:
         {
             appear = 0.0f;
             setAlpha (0.0f);
+
+            if (auto* parent = getParentComponent(); parent != nullptr && ! scrimArea.isEmpty())
+            {
+                if (scrim.getParentComponent() != parent)
+                {
+                    parent->addChildComponent (scrim);
+                    scrim.onClick = [this] { close(); };
+                }
+
+                scrim.setBounds (scrimArea);
+                scrim.setLevel (0.0f);
+                scrim.setVisible (true);
+                scrim.toFront (false);
+            }
+
             setVisible (true);
             toFront (false);
         }
@@ -784,22 +806,25 @@ private:
 
         if (std::abs (appear - target) > 0.005f)
         {
-            appear = IlanaAnim::approach (appear, target, 0.2f);
+            appear = IlanaAnim::approach (appear, target, 0.2f, frameTicks());
             const auto eased = IlanaAnim::easeOutCubic (appear);
 
             setAlpha (eased);
-            setTransform (juce::AffineTransform::translation (0.0f, (1.0f - eased) * -10.0f));
+            setTransform (juce::AffineTransform::translation (0.0f, std::round ((1.0f - eased) * -10.0f)));
+            scrim.setLevel (eased);
         }
         else if (appear != target)
         {
             appear = target;
             setAlpha (appear);
             setTransform ({});
+            scrim.setLevel (appear);
 
             if (closing)
             {
                 closing = false;
                 setVisible (false);
+                scrim.setVisible (false);
                 stopTimer();
                 return;
             }
@@ -957,6 +982,27 @@ private:
     int hoveredRow = -1;
     float appear = 0.0f;
     bool closing = false;
+
+    struct Scrim : juce::Component
+    {
+        std::function<void()> onClick;
+        float level = 0.0f;
+
+        void setLevel (float newLevel)
+        {
+            if (std::abs (newLevel - level) > 0.001f)
+            {
+                level = newLevel;
+                repaint();
+            }
+        }
+
+        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.4f * level)); }
+        void mouseDown (const juce::MouseEvent&) override { if (onClick != nullptr) onClick(); }
+    };
+
+    Scrim scrim;
+    juce::Rectangle<int> scrimArea;
     bool suppressLoad = false;
     bool loadedBySelection = false;
 };

@@ -8,7 +8,7 @@
 
 class ModSourceChip : public juce::Component,
                       public juce::SettableTooltipClient,
-                      private juce::Timer
+                      private IlanaAnim::FrameTimer
 {
 public:
     // A card rebuilt under the mouse never gets its mouseExit; don't leave
@@ -26,6 +26,8 @@ public:
         setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover.");
         startTimerHz (30);
     }
+
+    const juce::String& getSourceName() const { return name; }
 
     // The source's live value (LFO position, envelope level, wheel...); the
     // chip glows with it. Optional.
@@ -95,14 +97,14 @@ private:
 
         if (std::abs (hover - target) >= 0.005f)
         {
-            hover = IlanaAnim::approach (hover, target, 0.22f);
+            hover = IlanaAnim::approach (hover, target, 0.22f, frameTicks());
             changed = true;
         }
 
         if (valueProvider != nullptr)
         {
             const auto value = std::abs (valueProvider());
-            const auto next = IlanaAnim::approach (activity, juce::jlimit (0.0f, 1.0f, value), 0.35f);
+            const auto next = IlanaAnim::approach (activity, juce::jlimit (0.0f, 1.0f, value), 0.35f, frameTicks());
 
             if (std::abs (next - activity) > 0.01f)
             {

@@ -89,9 +89,21 @@ public:
 private:
     void timerCallback() override
     {
+        // Only a moved mouse can change what it points at; skip the walk
+        // (and the string work) otherwise, unless the text is still fading.
+        auto mouse = juce::Desktop::getInstance().getMainMouseSource();
+        const auto position = mouse.getScreenPosition();
+        const auto* under = mouse.getComponentUnderMouse();
+
+        if (position == lastMouse && under == lastUnder && textAppear >= 1.0f)
+            return;
+
+        lastMouse = position;
+        lastUnder = under;
+
         juce::String newTitle, newDescription;
 
-        if (auto* component = juce::Desktop::getInstance().getMainMouseSource().getComponentUnderMouse())
+        if (auto* component = mouse.getComponentUnderMouse())
         {
             auto* current = component;
 
@@ -133,6 +145,8 @@ private:
 
     juce::String title, description;
     float textAppear = 1.0f;
+    juce::Point<float> lastMouse;
+    const juce::Component* lastUnder = nullptr;
     juce::TextButton helpButton;
     juce::Component* toolbarButton = nullptr;
 };

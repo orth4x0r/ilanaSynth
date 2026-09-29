@@ -450,7 +450,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (isFolded (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch it on to edit"
+            g.drawText (isFolded (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch on to edit"
                                         : juce::String (modeNames[(size_t) mode]),
                         juce::Rectangle<int> (bounds.getX() + 80, bounds.getY() + 10, 400, 14),
                         juce::Justification::centredLeft);
@@ -1595,7 +1595,7 @@ private:
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint (picture);
     }
 
@@ -1702,7 +1702,7 @@ public:
         inner.removeFromTop (30);
         inner.removeFromBottom (8);
         const auto side = juce::jmin (inner.getHeight(), inner.getWidth() / 2 + 40);
-        pad.setBounds (inner.removeFromLeft (side));
+        pad.setBounds (inner.removeFromLeft (side).withHeight (side)); // square, from the top
         inner.removeFromLeft (10);
         auto toggles = inner.removeFromTop (40);
         on.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
@@ -1713,10 +1713,13 @@ public:
         auto combos2 = inner.removeFromTop (44);
         cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
         cornerD.setBounds (combos2.reduced (3, 1));
+        // Knob rows sized to the knobs, with a gap between, so each label
+        // sits with its own knob rather than under the row above's values.
         inner.removeFromTop (6);
-        auto knobs1 = inner.removeFromTop (inner.getHeight() / 2);
-        layoutRow (knobs1, { &x, &y, &rate });
-        layoutRow (inner, { &drift, &driftRate });
+        const auto knobHeight = juce::jmin (112, inner.getHeight() / 2 - 8);
+        layoutRow (inner.removeFromTop (knobHeight), { &x, &y, &rate });
+        inner.removeFromTop (18);
+        layoutRow (inner.removeFromTop (knobHeight), { &drift, &driftRate });
 
         auto rows = evolveCard.reduced (12, 0);
         rows.removeFromTop (30);
@@ -1757,7 +1760,7 @@ private:
                 c->setAlpha (alpha);
         }
         rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : 0.45f);
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint (evolveCard);
     }
 
@@ -2379,7 +2382,7 @@ public:
         auto header = panel.reduced (12, 0).withHeight (26);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText (selected < 5 ? titles[index] : "ENVELOPE " + juce::String (selected + 1),
+        g.drawText (selected < 5 ? titles[index] : "ENV " + juce::String (selected + 1),
                     header, juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
@@ -2490,11 +2493,11 @@ public:
 
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         {
-            auto display = std::make_unique<LfoDisplay> (p, lfo, lfoColour (lfo), lfo == 0);
+            auto display = std::make_unique<LfoDisplay> (p, lfo, lfoColour (lfo), false);
             addAndMakeVisible (*display);
             displays.push_back (std::move (display));
 
-            auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), lfo == 0);
+            auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), false);
             addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
                     controls->phase, controls->physA, controls->physB, controls->kick);
             addAll (*this, controls->smooth, controls->stereo, controls->seed, controls->trigger, controls->axis, controls->loop);
@@ -2894,7 +2897,7 @@ private:
         if (c.div.getAlpha() != divAlpha)
             c.div.setAlpha (divAlpha);
 
-        if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+        if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
             repaint (panel);
     }
 
@@ -3204,7 +3207,7 @@ public:
             resized();
             repaint();
         }
-        else if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        else if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
         {
             repaint (matrixCard);
             repaint (operatorCard.withHeight (26));
@@ -3770,7 +3773,7 @@ public:
         startTimerHz (8);
     }
 
-    static juce::Colour msegColour() { return juce::Colour (0xff6fe3c1); }
+    static juce::Colour msegColour() { return juce::Colour (0xffe0e6f0); }
     static juce::Colour arpColour() { return juce::Colour (0xffff7ac6); }
     static juce::Colour generateColour() { return juce::Colour (0xffffd447); }
     static juce::Colour euclidColour() { return juce::Colour (0xff4fd1c5); }
@@ -3790,8 +3793,9 @@ public:
 
         if (part == Part::modulators)
         {
-            title (stepTitle1, "STEPS", IlanaTheme::accent());
-            title (stepTitle2, "STEPS", juce::Colour (0xff35c8ff));
+            // Each row's tag in the colour of the LFO it edits (its buttons name it).
+            title (stepTitle1, "STEPS", IlanaSynthAudioProcessor::lfoColour (step1.getLfoIndex()));
+            title (stepTitle2, "STEPS", IlanaSynthAudioProcessor::lfoColour (step2.getLfoIndex()));
 
             IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
             title (msegCard.reduced (12, 0).removeFromTop (26), "MSEG", msegColour());
@@ -4021,6 +4025,7 @@ private:
 
         editor.setLfoIndex (lfo);
         lfoButtons[(size_t) row][(size_t) lfo].setToggleState (true, juce::dontSendNotification);
+        repaint (stepTitle1.getUnion (stepTitle2)); // the titles name the LFOs
     }
 
     // Arp controls step back while the arp is off.
@@ -4241,7 +4246,8 @@ public:
                         static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
                         g.setColour (IlanaTheme::Ui::text3);
                         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                        g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))],
+                        g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))]
+                                        + "  -  switch on to edit",
                                     oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (28), juce::Justification::centredLeft);
                     }
                 }
@@ -4298,7 +4304,7 @@ public:
             const auto prefix = "lfo" + juce::String (lfo + 1);
             auto set = std::make_unique<ControlSet>();
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
-            set->items.push_back (std::make_unique<StripKnob> (p, prefix + "_rate", "Rate", -1, lfoColour (lfo), lfo == 0));
+            set->items.push_back (std::make_unique<StripKnob> (p, prefix + "_rate", "Rate", -1, lfoColour (lfo), false));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
@@ -5165,7 +5171,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -5331,7 +5337,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -5415,14 +5421,14 @@ public:
           tapsOn (p.apvts, "fx_taps_on", "TAPS"),
           tapsPattern (p.apvts, "fx_taps_pattern", "PATTERN"),
           tapsMix (p.apvts, "fx_taps_mix", "TAPS MIX"),
-          stutterOn (p.apvts, "fx_stutter_on", "ON"),
+          stutterOn (p.apvts, "fx_stutter_on", "ENGAGE"),
           stutterDiv (p.apvts, "fx_stutter_div", "DIV"),
           stutterMix (p.apvts, "fx_stutter_mix", "MIX"),
           smearOn (p.apvts, "fx_smear_on", "ON"),
           smearSize (p.apvts, "fx_smear_size", "GRAIN MS"),
           smearDensity (p.apvts, "fx_smear_density", "DENSITY"),
           smearMix (p.apvts, "fx_smear_mix", "MIX"),
-          freezeOn (p.apvts, "fx_freeze_on", "ON"),
+          freezeOn (p.apvts, "fx_freeze_on", "HOLD"),
           freezeMix (p.apvts, "fx_freeze_mix", "MIX"),
           reverbOn (p.apvts, "fx_reverb_on", "ON"),
           reverbType (p.apvts, "fx_reverb_type", "ALGORITHM"),
@@ -6926,11 +6932,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         for (const auto& [id, label, page] : pages)
             section->addPage (id, label, page);
 
-        section->onPageShown = [this] (juce::Component& page)
-        {
-            IlanaAnim::replayPageAppear (page);
-            startTabTransition (&page);
-        };
+        // The page slides in as a whole; its displays don't replay their
+        // own entrances on top.
+        section->onPageShown = [this] (juce::Component& page) { startTabTransition (&page); };
         section->switcher.onSelect = [this, section] (int index)
         {
             section->show (index, true);
@@ -6998,8 +7002,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
     content.addAndMakeVisible (*legatoToggle);
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
-    voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices");
-    masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, juce::Colour (0xffffd447), false);
+    // Settings rather than sound controls: neutral, so they don't outshine
+    // the page (and yellow stays the macros' colour).
+    voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices", -1, IlanaTheme::Ui::text2, false);
+    masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
     outputMeter = std::make_unique<OutputMeter> (p);
     content.addAndMakeVisible (*outputMeter);
     voiceModeBox = std::make_unique<ComboControl> (p.apvts, "voice_mode", "VOICE MODE");
@@ -7033,7 +7039,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     undoButton.onClick = [this] { processorRef.getUndoManager().undo(); };
     redoButton.onClick = [this] { processorRef.getUndoManager().redo(); };
     historyButton.onClick = [this] { showHistoryMenu(); };
-    abButton.setButtonText ("COMPARE A");
+    abButton.setButtonText ("A/B:  A");
     abButton.setTooltip ("Compare\nFlip between two versions of the patch (A and B) to compare them.");
     abButton.onClick = [this] { toggleAB(); };
     diceButton.onClick = [this] { showDiceMenu(); };
@@ -7160,10 +7166,7 @@ void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadca
     layoutTabRow();
 
     if (auto* page = tabs.getCurrentContentComponent())
-    {
-        IlanaAnim::replayPageAppear (*page);
         page->repaint();
-    }
 
     startTabTransition();
 }
@@ -7405,11 +7408,14 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
     g.setColour (IlanaTheme::Ui::text3);
     g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
-                juce::Rectangle<int> (designWidth - 316, statusY, 70, 11), juce::Justification::centredRight);
+                juce::Rectangle<int> (designWidth - 356, statusY, 70, 11), juce::Justification::centredRight);
+    g.drawText ("VOICES", juce::Rectangle<int> (designWidth - 280, statusY, 44, 11), juce::Justification::centredRight);
 
     const auto activeVoices = processorRef.getActiveVoiceCount();
+    const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
+    const auto maxVoices = juce::jlimit (1, 16, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 16);
 
-    for (int i = 0; i < 16; ++i)
+    for (int i = 0; i < maxVoices; ++i)
     {
         const auto lit = i < activeVoices;
         const auto dot = juce::Rectangle<float> ((float) (designWidth - 232 + i * 8), (float) statusY + 3.0f, 5.0f, 5.0f);
@@ -7548,7 +7554,7 @@ void IlanaSynthAudioProcessorEditor::resized()
         juce::Desktop::getInstance().getAnimator().cancelAnimation (scopePanel.get(), false);
         scopePanel->setAlpha (1.0f);
         scopePanel->setBounds (expanded ? pageArea
-                                        : pageArea.removeFromBottom (320).removeFromRight (560).translated (6, 4));
+                                        : pageArea.removeFromBottom (320).removeFromRight (476).translated (6, 4));
     }
 }
 
@@ -7844,7 +7850,7 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
     favButton.setToggleState (isFavourite (shownPresetName), juce::dontSendNotification);
     favButton.setIconColour (isFavourite (shownPresetName) ? std::optional<juce::Colour> (juce::Colour (0xffffd447))
                                                            : std::nullopt);
-    abButton.setButtonText (showingA ? "COMPARE A" : "COMPARE B");
+    abButton.setButtonText (showingA ? "A/B:  A" : "A/B:  B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);
 
     for (auto& knob : macroKnobs)
@@ -7897,7 +7903,7 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
     }
 
     showingA = ! showingA;
-    abButton.setButtonText (showingA ? "COMPARE A" : "COMPARE B");
+    abButton.setButtonText (showingA ? "A/B:  A" : "A/B:  B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);
 }
 
@@ -8099,7 +8105,7 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
         const auto width = 640;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
         presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 500);
-        presetPanel->setScrimArea (content.getLocalBounds().withTrimmedTop (56));
+        presetPanel->setScrimArea (content.getLocalBounds());
     }
 
     if (presetPanel->isOpen())

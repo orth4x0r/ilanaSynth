@@ -422,8 +422,24 @@ public:
         g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.04f * hover));
         g.strokePath (backgroundArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        const auto accent = enabled ? slider.findColour (juce::Slider::rotarySliderFillColourId)
-                                    : Ui::text3;
+        // Pages dim controls that do nothing right now (a section switched
+        // off) by fading their control; those arcs go grey too, so an idle
+        // knob never looks live. Only the knob's own wrappers count, not the
+        // page fading in.
+        auto dimmed = false;
+        for (auto* c = slider.getParentComponent(); c != nullptr && c != slider.getTopLevelComponent() && ! dimmed; c = c->getParentComponent())
+        {
+            dimmed = c->getAlpha() < 0.99f;
+            if (c->getProperties().contains ("page"))
+                break;
+            if (dynamic_cast<juce::Viewport*> (c) != nullptr)
+                break;
+            if (c->getWidth() > 200)
+                break;
+        }
+
+        const auto accent = enabled && ! dimmed ? slider.findColour (juce::Slider::rotarySliderFillColourId)
+                                                : Ui::text3;
 
         // Bipolar parameters (pan, fine, bend...) fill from the centre.
         auto originPos = 0.0f;

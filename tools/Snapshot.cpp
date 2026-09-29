@@ -165,7 +165,7 @@ int runUiTests()
         for (auto* b : buttons)
         {
             keys = b->getButtonText() == "KEYS" ? b : keys;
-            compare = b->getButtonText().startsWith ("COMPARE") ? b : compare;
+            compare = b->getButtonText().startsWith ("A/B") ? b : compare;
         }
 
         auto* tabsComponent = findChild<juce::TabbedComponent> (*editor);
@@ -187,10 +187,10 @@ int runUiTests()
         {
             compare->triggerClick();
             settle (150);
-            expect (compare->getButtonText() == "COMPARE B" && compare->getToggleState(), "COMPARE flips to B and lights");
+            expect (compare->getButtonText() == "A/B:  B" && compare->getToggleState(), "COMPARE flips to B and lights");
             compare->triggerClick();
             settle (150);
-            expect (compare->getButtonText() == "COMPARE A" && ! compare->getToggleState(), "COMPARE flips back to A");
+            expect (compare->getButtonText() == "A/B:  A" && ! compare->getToggleState(), "COMPARE flips back to A");
         }
 
         pages->showPage ("ENV/LFO");

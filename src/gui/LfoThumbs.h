@@ -416,12 +416,21 @@ private:
             // Routing an LFO elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+            if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ lfoPhases()))
                 repaint();
         }
     }
 
     IlanaAnim::ChangeGate changeGate;
+
+    // Free-running LFOs move with nothing sounding: their dots follow.
+    juce::uint64 lfoPhases() const
+    {
+        juce::uint64 signature = 0;
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            signature ^= IlanaAnim::phaseSignature (processorRef.getLfoPhase (lfo), lfo);
+        return signature;
+    }
 
     IlanaSynthAudioProcessor& processorRef;
     std::function<juce::Colour (int)> colourFor;

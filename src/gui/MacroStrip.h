@@ -56,7 +56,7 @@ public:
             setMouseCursor (juce::MouseCursor::DraggingHandCursor);
         }
 
-        startTimerHz (15);
+        startPollingHz (60); // follows its value, no animation of its own
     }
 
     void refreshName()

@@ -16,17 +16,14 @@ public:
                 bool followsThemeIn = false)
         : processorRef (processor),
           index (lfoIndex),
-          stepColour (stepColourIn),
+          stepColour (IlanaSynthAudioProcessor::lfoColour (lfoIndex)),
           followsTheme (followsThemeIn)
     {
+        // Drawn in its LFO's colour (as on its chip and card), whatever
+        // colour the page asked for.
+        juce::ignoreUnused (stepColourIn);
         setTooltip ("Drag to draw the 16 step values");
         startTimerHz (24);
-    }
-
-    void lookAndFeelChanged() override
-    {
-        if (followsTheme)
-            stepColour = IlanaTheme::accent();
     }
 
     void visibilityChanged() override
@@ -42,6 +39,7 @@ public:
     void setLfoIndex (int lfoIndex)
     {
         index = juce::jlimit (0, IlanaSynthAudioProcessor::numLfos - 1, lfoIndex);
+        stepColour = IlanaSynthAudioProcessor::lfoColour (index);
         repaint();
     }
 
@@ -82,7 +80,7 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -196,7 +194,7 @@ public:
         else
             path.lineTo (endX, centreY - readLevel (3) * halfHeight);
 
-        g.setColour (juce::Colour (0xff6fe3c1));
+        g.setColour (juce::Colour (0xffe0e6f0)); // the MSEG's source colour
         g.strokePath (path, juce::PathStrokeType (1.8f));
 
         cumulative = 0.0f;
@@ -218,7 +216,7 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

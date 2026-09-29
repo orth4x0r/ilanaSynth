@@ -764,7 +764,7 @@ private:
         if (! isShowing())
             return;
 
-        if (gliding || loadFlash > 0.01f || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
             repaint();
     }
 

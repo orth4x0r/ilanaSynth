@@ -43,7 +43,7 @@ public:
         addAndMakeVisible (peakButton);
 
         // View: waveform, spectrum, or both stacked.
-        const char* const viewNames[] { "SCOPE", "SPECTRUM", "SPLIT" };
+        const char* const viewNames[] { "WAVE", "SPEC", "BOTH" };
 
         for (int i = 0; i < 3; ++i)
         {
@@ -94,14 +94,23 @@ public:
 
     void resized() override
     {
-        qualityBox.setBounds (getWidth() - 314, 7, 86, 18);
-        oversamplingButton.setBounds (getWidth() - 222, 7, 60, 18);
-        factorBox.setBounds (getWidth() - 158, 7, 50, 18);
-        holdButton.setBounds (getWidth() - 106, 7, 48, 18);
-        peakButton.setBounds (getWidth() - 54, 7, 46, 18);
+        // The view on the left, the options packed from the right; neither
+        // runs into the other at the panel's size.
+        auto row = juce::Rectangle<int> (52, 7, getWidth() - 60, 18);
 
         for (int i = 0; i < 3; ++i)
-            viewButtons[(size_t) i].setBounds (110 + i * 76, 7, 76, 18);
+            viewButtons[(size_t) i].setBounds (row.removeFromLeft (52));
+
+        row.removeFromLeft (8);
+        peakButton.setBounds (row.removeFromRight (42));
+        row.removeFromRight (4);
+        holdButton.setBounds (row.removeFromRight (42));
+        row.removeFromRight (4);
+        factorBox.setBounds (row.removeFromRight (42));
+        row.removeFromRight (4);
+        oversamplingButton.setBounds (row.removeFromRight (32));
+        row.removeFromRight (4);
+        qualityBox.setBounds (row.removeFromRight (juce::jmin (86, row.getWidth())));
     }
 
     void paint (juce::Graphics& g) override
@@ -170,10 +179,6 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (hold ? "HOLD" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
-        // The engine quality box beside it has no label of its own.
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("QUALITY", qualityBox.getBounds().withX (qualityBox.getX() - 62).withWidth (56),
-                    juce::Justification::centredRight);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
@@ -202,7 +207,7 @@ private:
     {
         paintTicks = frameTicks();
 
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -491,7 +496,7 @@ private:
     juce::dsp::FFT fft;
     juce::TextButton holdButton { "HOLD" };
     juce::TextButton peakButton { "PEAK" };
-    juce::TextButton oversamplingButton { "OVERSAMPLE" };
+    juce::TextButton oversamplingButton { "OS" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> oversamplingAttachment;
     juce::ComboBox factorBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> factorAttachment;

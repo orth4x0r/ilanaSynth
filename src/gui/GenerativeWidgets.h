@@ -190,7 +190,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -401,7 +401,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

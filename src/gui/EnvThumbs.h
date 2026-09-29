@@ -401,7 +401,7 @@ private:
             // Assigning an envelope elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            if (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch()))
+            if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
                 repaint();
         }
     }

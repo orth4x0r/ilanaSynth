@@ -888,6 +888,9 @@ public:
 private:
     void timerCallback() override
     {
+        if (! isShowing())
+            return;
+
         const auto target = isMouseOver() ? 1.0f : 0.0f;
 
         if (std::abs (hover - target) < 0.005f)
@@ -988,15 +991,18 @@ public:
 private:
     void timerCallback() override
     {
+        if (! isShowing())
+            return;
+
         hover = IlanaAnim::approach (hover, isMouseOver() ? 1.0f : 0.0f, 0.22f, frameTicks());
 
         const auto on = button.getToggleState();
         auto switchMoving = false;
         const auto breathing = on && ! isSwitch() && litSeconds < breathSeconds;
 
-        // Only a button switched on while shown breathes, not one that
-        // starts out lit.
-        if (on && ! lastOn && ticked)
+        // Only a button the user switches on breathes, not one lit by a
+        // preset load, undo or automation.
+        if (on && ! lastOn && ticked && button.isMouseOverOrDragging())
             litSeconds = 0.0f;
         else if (breathing)
             litSeconds += frameSeconds();

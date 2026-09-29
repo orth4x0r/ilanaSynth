@@ -997,7 +997,7 @@ private:
             }
         }
 
-        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.4f * level)); }
+        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.6f * level)); }
         void mouseDown (const juce::MouseEvent&) override { if (onClick != nullptr) onClick(); }
     };
 

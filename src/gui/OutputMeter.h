@@ -86,7 +86,7 @@ private:
             const auto before = level;
 
             // Rise at once, fall about 20 dB per second.
-            level = juce::jmax (peak, IlanaAnim::decay (level, 0.85f, frameTicks()));
+            level = juce::jmax (peak, IlanaAnim::decay (level, 0.925f, frameTicks()));
 
             if (level < 0.0005f)
                 level = 0.0f;

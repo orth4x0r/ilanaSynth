@@ -87,6 +87,28 @@ private:
     double lastPass = 0.0;
 };
 
+// The mouse as far as a view can draw it (hover, drags): changes when the
+// pointer moves over the view, a button goes down or up, or it leaves; 0
+// while it's elsewhere. Mixed into a ChangeGate signature, a resting
+// pointer costs nothing.
+inline juce::uint64 mouseSignature (const juce::Component& component)
+{
+    if (! component.isMouseOver (true))
+        return 0;
+
+    const auto position = component.getMouseXYRelative();
+    const auto down = juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
+    return 0x9e3779b97f4a7c15ull ^ ((juce::uint64) (juce::uint32) position.x << 21)
+         ^ ((juce::uint64) (juce::uint32) position.y << 1) ^ (down ? 1ull : 0ull);
+}
+
+// A phase (0..1) as a signature term that changes every 1/512 of a cycle,
+// about the smallest move a dot on a display can show.
+inline juce::uint64 phaseSignature (float phase, int salt)
+{
+    return (juce::uint64) (juce::uint32) juce::roundToInt (phase * 512.0f) * (0x100000001b3ull + (juce::uint64) salt * 2654435761ull);
+}
+
 class FrameTimer;
 
 // Every animation runs off one clock ticked by the display's refresh
@@ -179,8 +201,17 @@ public:
     void startTimerHz (int referenceHz)
     {
         reference = (float) juce::jmax (1, referenceHz);
+        polling = false;
         running = true;
         FrameClock::get().add (this);
+    }
+
+    // For timers that only watch for changes: called at most `hz` times a
+    // second, still in step with the frames.
+    void startPollingHz (int hz)
+    {
+        startTimerHz (hz);
+        polling = true;
     }
 
     void startTimer (int milliseconds) { startTimerHz (juce::jmax (1, 1000 / juce::jmax (1, milliseconds))); }
@@ -198,12 +229,35 @@ public:
 
     bool isTimerRunning() const { return running; }
     int getTimerInterval() const { return running ? juce::roundToInt (1000.0f / reference) : 0; }
-    float frameSeconds() const { return FrameClock::get().frameSeconds(); }
-    float frameTicks() const { return FrameClock::get().frameSeconds() * reference; }
+    // Seconds since this timer's last call, and that in ticks of its reference rate.
+    float frameSeconds() const { return seconds; }
+    float frameTicks() const { return seconds * reference; }
 
 private:
-    float reference = 60.0f;
-    bool running = false;
+    friend class FrameClock;
+
+    void frame (float dt)
+    {
+        if (polling)
+        {
+            waited += dt;
+
+            if (waited < 1.0f / reference)
+                return;
+
+            seconds = juce::jmin (waited, 0.25f);
+            waited = 0.0f;
+        }
+        else
+        {
+            seconds = dt;
+        }
+
+        timerCallback();
+    }
+
+    float reference = 60.0f, seconds = 1.0f / 60.0f, waited = 0.0f;
+    bool running = false, polling = false;
 };
 
 inline void FrameClock::tick (bool fromVBlank)
@@ -225,7 +279,7 @@ inline void FrameClock::tick (bool fromVBlank)
 
     for (size_t i = 0; i < count && i < timers.size(); ++i)
         if (auto* timer = timers[i])
-            timer->timerCallback();
+            timer->frame (dt);
 
     ticking = false;
     timers.erase (std::remove (timers.begin(), timers.end(), nullptr), timers.end());

@@ -147,13 +147,13 @@ public:
         // Not a Physical oscillator: the picture is only what it would be.
         if (juce::roundToInt (read ("_mode")) != 1)
         {
-            g.setColour (IlanaTheme::Ui::well.withAlpha (0.72f));
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.86f));
             g.fillRoundedRectangle (bounds, 8.0f);
             // The card beside it says why and offers the switch; here only
             // a quiet label, so the page doesn't say it twice.
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("PREVIEW", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
+            g.drawText ("PREVIEW  -  Physical oscillators only", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
         }
     }
 
@@ -251,6 +251,11 @@ private:
                                                         0.5 * level * std::abs (std::sin (juce::MathConstants<double>::pi * n * excitePosition())) / (n * n));
         bodyGlow = IlanaAnim::approach (bodyGlow, juce::jmin (1.0f, processorRef.getOutputPeak() * 2.0f), 0.15f, frameTicks());
 
+        // Only a Physical oscillator's string moves; the preview of another
+        // mode stays at rest.
+        if (juce::roundToInt (read ("_mode")) != 1)
+            modeLevel.fill (0.0);
+
         // The string rests once its motion is under a tenth of a pixel.
         auto total = 0.0;
         for (const auto level : modeLevel)
@@ -259,7 +264,7 @@ private:
         if (! moving && total > 0.0)
             modeLevel.fill (0.0);
 
-        if (isShowing() && (moving || isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (moving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

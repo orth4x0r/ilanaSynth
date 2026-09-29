@@ -16,7 +16,7 @@ public:
     explicit EqCurve (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
         setTooltip ("EQ\nDrag a point sideways for frequency, up or down for gain.  Double-click a point to flatten it.");
-        startTimerHz (20);
+        startPollingHz (60); // redraws when the EQ changes
     }
 
     void paint (juce::Graphics& g) override

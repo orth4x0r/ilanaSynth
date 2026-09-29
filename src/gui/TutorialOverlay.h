@@ -179,11 +179,11 @@ public:
                 "The FX rack starts empty - use the quick-add buttons or click a slot, then drag rows to reorder.",
                 "BOUNCE on an oscillator card renders the patch into it as a sample or a wavetable; PLAY > VECTOR mixes four oscillators and lets the macros EVOLVE.",
                 "The dice rolls a fresh patch and the ... menu starts from Init. " + commandKey() + "+Z undoes anything; the clock button lists your history.",
-                juce::String (presetCount) + " presets, all with named macros. Save stores your own with a category and tags; search finds tags too.",
+                juce::String (presetCount) + " factory presets, all with named macros. Save stores your own with a category and tags; search finds tags too.",
                 "FM routes the oscillators into each other: 16 one-click algorithms and a noise operator. SEQ has the arp, Euclid, prob seq and GENERATE; SCOPE (top right) floats over any page."
             };
 
-            drawTipColumn (g, left, "PLAY", playTips);
+            drawTipColumn (g, left, "SOUND", playTips);
             drawTipColumn (g, right, "WORKFLOW", workflowTips);
 
             g.setColour (IlanaTheme::Ui::text3);

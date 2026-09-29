@@ -447,7 +447,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0)
             liveSeconds += (double) frameSeconds();
 
-        if (isShowing() && (isMouseOver (true) || changeGate.check (processorRef.getUiEpoch())))
+        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

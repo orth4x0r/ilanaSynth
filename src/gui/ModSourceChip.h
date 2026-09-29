@@ -28,6 +28,20 @@ public:
     }
 
     const juce::String& getSourceName() const { return name; }
+    int getSourceIndex() const { return index; }
+
+    // A short name ("E6") for when the row is crowded; the tooltip keeps the
+    // full one.
+    void setShortName (const juce::String& text) { shortName = text; }
+    const juce::String& getShortName() const { return shortName.isNotEmpty() ? shortName : name; }
+    void setCompact (bool shouldBeCompact)
+    {
+        if (compact != shouldBeCompact)
+        {
+            compact = shouldBeCompact;
+            repaint();
+        }
+    }
 
     // The source's live value (LFO position, envelope level, wheel...); the
     // chip glows with it. Optional.
@@ -60,7 +74,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
+        g.drawFittedText (compact ? getShortName() : name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
                           juce::Justification::centred, 1, 0.85f);
     }
 
@@ -117,8 +131,9 @@ private:
             repaint();
     }
 
-    juce::String name;
+    juce::String name, shortName;
     int index = 0;
+    bool compact = false;
     float hover = 0.0f;
     float activity = 0.0f;
 };

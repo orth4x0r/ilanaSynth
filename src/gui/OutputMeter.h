@@ -22,7 +22,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat();
+        // The meter, named underneath like the footer's other controls.
+        auto whole = getLocalBounds().toFloat();
+        const auto caption = whole.removeFromBottom (12.0f);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText ("OUT", caption, juce::Justification::centredBottom);
+        whole.removeFromBottom (2.0f);
+        const auto bounds = whole.withSizeKeepingCentre (12.0f, whole.getHeight());
         IlanaTheme::paintWell (g, bounds, 3.0f);
 
         auto inner = bounds.reduced (2.0f, 3.0f);

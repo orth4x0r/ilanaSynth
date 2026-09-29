@@ -31,12 +31,14 @@ public:
     }
 
     void setOscillator (const juce::String& newPrefix) { prefix = newPrefix; restart(); }
+    // Drawn in the oscillator's identity colour, like the rest of its page.
+    void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
 
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, bounds, 8.0f);
-        const auto accent = IlanaTheme::accent();
+        const auto accent = colour;
         auto area = bounds.reduced (18.0f, 14.0f);
         const auto bodyArea = area.removeFromBottom (area.getHeight() * 0.38f);
         area.removeFromBottom (8.0f);
@@ -272,6 +274,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix;
+    juce::Colour colour { IlanaTheme::oscColour (0) };
     std::array<double, numModes> modeLevel {}, modePhase {};
     double clock = 0.0, sinceNote = 10.0;
     unsigned lastNotes = 0;

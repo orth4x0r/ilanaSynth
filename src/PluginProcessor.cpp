@@ -6486,7 +6486,7 @@ juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
         case 0: return juce::Colour (0xffff8a3b);
         case 1: return juce::Colour (0xff35c8ff);
         case 2: return juce::Colour (0xff6fe3c1);
-        case 3: return juce::Colour (0xffff6b8b);
+        case 3: return juce::Colour (0xffdde35a);
         default: return juce::Colour::fromHSV ((float) (index - 4) / 12.0f + 0.04f, 0.5f, 0.95f, 1.0f);
     }
 }

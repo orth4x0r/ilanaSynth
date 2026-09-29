@@ -131,6 +131,14 @@ private:
     std::unique_ptr<PresetPanel> presetPanel;
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
+    // LFO 5-16 and ENV 6-16: a chip each, shown while that module is added
+    // (or the matrix uses it). Parallel to chips; kind -1 for fixed chips.
+    std::vector<std::pair<int, int>> chipReveal;
+    std::vector<bool> chipWanted;
+    // "+N" when the added LFOs and envelopes don't all fit in the row.
+    juce::TextButton moreChipsButton;
+    void updateChipVisibility();
+    void layoutChips (juce::Rectangle<int> row);
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;

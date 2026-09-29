@@ -62,6 +62,16 @@ public:
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (x));
         }
 
+        // The frequency axis, named as on the scope.
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (const auto& [frequency, name] : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+        {
+            const auto x = plot.getX() + (float) frequencyToX (frequency) * plot.getWidth();
+            g.drawText (name, juce::Rectangle<float> (x + 3.0f, bounds.getBottom() - 13.0f, 30.0f, 11.0f), juce::Justification::centredLeft);
+        }
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+
         g.setColour (juce::Colours::white.withAlpha (0.05f));
 
         for (const auto db : { -36.0, -24.0, -12.0, 0.0, 12.0 })
@@ -268,6 +278,11 @@ private:
 
         const auto x = plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth();
         const auto y = resoToY (plot, reso);
+
+        // A faint line at the cutoff ties the marker (its height is the
+        // resonance) to the curve's corner.
+        g.setColour (colour.withAlpha (0.25f));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (x - 0.5f).withY (plot.getY()));
 
         g.setColour (colour);
         g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }));

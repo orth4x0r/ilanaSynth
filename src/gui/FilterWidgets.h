@@ -249,22 +249,13 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // Two choice pills, like every other selector.
         const auto bounds = getLocalBounds().toFloat();
-        IlanaTheme::paintWell (g, bounds, 4.0f);
 
         for (int option = 0; option < 2; ++option)
         {
             const auto half = bounds.withWidth (bounds.getWidth() * 0.5f).withX (bounds.getX() + bounds.getWidth() * 0.5f * (float) option);
-
-            if (option == current)
-            {
-                g.setColour (colour.withAlpha (0.25f));
-                g.fillRoundedRectangle (half.reduced (2.0f), 3.0f);
-            }
-
-            g.setColour (option == current ? colour : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, option == current));
-            g.drawText (option == 0 ? "12 dB" : "24 dB", half, juce::Justification::centred);
+            IlanaTheme::paintPill (g, half.reduced (2.0f, 1.0f), option == 0 ? "12 dB" : "24 dB", colour, option == current);
         }
     }
 

@@ -378,7 +378,7 @@ private:
         if (category == "Keys") return juce::Colour (0xff8fd14f);
         if (category == "Chords") return juce::Colour (0xff4fd1a5);
         if (category == "Arp") return juce::Colour (0xffff7ac6);
-        if (category == "Drums") return juce::Colour (0xffff4f6d);
+        if (category == "Drums") return juce::Colour (0xffc9ced6);
         if (category == "Generative") return juce::Colour (0xff4fc3ff);
         return IlanaTheme::Ui::text2;
     }

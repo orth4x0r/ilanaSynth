@@ -59,18 +59,7 @@ public:
             const auto colour = colourFor (i);
             const auto hovered = isMouseOver() && pill.contains (mouse);
 
-            g.setColour (active ? colour.withAlpha (0.22f) : juce::Colours::white.withAlpha (hovered ? 0.08f : 0.03f));
-            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-
-            if (active)
-            {
-                g.setColour (colour.withAlpha (0.8f));
-                g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
-            }
-
-            g.setColour (active ? colour : juce::Colours::white.withAlpha (hovered ? 0.8f : 0.5f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (names[i], pill, juce::Justification::centred);
+            IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
         }
 
         if (hasOpen)

@@ -396,7 +396,14 @@ private:
         const auto targets = cachedTargets (lfo);
         g.setColour (colour.withAlpha (active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f)));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        paintTargetTag (g, inner, targets, colour);
+        // What it drives, on the title line between the name and the rate
+        // (in the lower corner it sat on the curve).
+        {
+            const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)),
+                                                                           "LFO " + juce::String (lfo + 1));
+            const auto rateWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), rateText);
+            paintTargetTag (g, titleRow.withTrimmedLeft (nameWidth + 16.0f).withTrimmedRight (rateWidth + 8.0f), targets, colour);
+        }
 
         const auto phase = (double) processorRef.getLfoPhase (lfo);
         const auto dotValue = shapeValue (lfo, shape, phase);

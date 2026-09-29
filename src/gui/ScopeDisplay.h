@@ -51,7 +51,7 @@ public:
             button.setButtonText (viewNames[i]);
             button.setClickingTogglesState (true);
             button.setRadioGroupId (4711);
-            button.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0) | (i < 2 ? juce::Button::ConnectedOnRight : 0));
+            IlanaTheme::makePill (button, IlanaTheme::accent());
             button.onClick = [this, i]
             {
                 if (viewButtons[(size_t) i].getToggleState())
@@ -99,7 +99,7 @@ public:
         auto row = juce::Rectangle<int> (52, 7, getWidth() - 60, 18);
 
         for (int i = 0; i < 3; ++i)
-            viewButtons[(size_t) i].setBounds (row.removeFromLeft (52));
+            viewButtons[(size_t) i].setBounds (row.removeFromLeft (52).withTrimmedRight (i < 2 ? 4 : 0));
 
         row.removeFromLeft (8);
         peakButton.setBounds (row.removeFromRight (42));

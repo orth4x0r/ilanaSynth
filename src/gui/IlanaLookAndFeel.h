@@ -46,7 +46,7 @@ namespace Ui
 // waveform, never as the accent.
 inline juce::Colour oscColour (int index)
 {
-    static const juce::uint32 colours[] { 0xfff5c542, 0xff5b8cff, 0xff4fd1a5, 0xffb28aff, 0xffff7fb0, 0xff48d4e8 };
+    static const juce::uint32 colours[] { 0xfff5c542, 0xff5b8cff, 0xff4fd1a5, 0xffb28aff, 0xffd9a070, 0xff48d4e8 };
     return juce::Colour (colours[(size_t) juce::jlimit (0, 5, index)]);
 }
 
@@ -246,6 +246,33 @@ inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float a
     g.setColour (juce::Colour (0xffc9ccd1).interpolatedWith (juce::Colours::white, amount));
     g.fillEllipse (x, pill.getY() + 2.0f, knob, knob);
 }
+
+// A choice pill: the one style for every small selector (F1 / F2, 12 / 24
+// dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
+// in its colour with a bright edge; the others are quiet.
+inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juce::String& text, juce::Colour colour,
+                       bool active, float hover = 0.0f, bool enabled = true)
+{
+    const auto radius = pill.getHeight() * 0.5f;
+    g.setColour (active ? colour.withAlpha (0.22f) : juce::Colours::white.withAlpha (0.03f + 0.05f * hover));
+    g.fillRoundedRectangle (pill, radius);
+
+    g.setColour (active ? colour.withAlpha (0.8f) : juce::Colours::white.withAlpha (0.06f + 0.08f * hover));
+    g.drawRoundedRectangle (pill.reduced (0.5f), radius, 1.0f);
+
+    g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f)
+                        : juce::Colours::white.withAlpha ((enabled ? 0.55f : 0.3f) + 0.3f * hover));
+    g.setFont (font (pill.getHeight() >= 26.0f ? TextSize::label : TextSize::tiny, true));
+    g.drawText (text, pill, juce::Justification::centred);
+}
+// Draws a TextButton as a choice pill in `colour` when chosen.
+inline void makePill (juce::Button& button, juce::Colour colour)
+{
+    button.getProperties().set ("pill", true);
+    button.setColour (juce::TextButton::buttonOnColourId, colour);
+    button.repaint();
+}
+
 } // namespace IlanaTheme
 
 class IlanaLookAndFeel : public juce::LookAndFeel_V4
@@ -536,6 +563,13 @@ public:
         if (hover > 0.01f && hover < 0.99f)
             button.repaint();
 
+        if (button.getProperties().contains ("pill"))
+        {
+            paintPill (g, bounds, button.getButtonText(), button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f),
+                       button.getToggleState(), hover, button.isEnabled());
+            return;
+        }
+
         if (button.getProperties().contains ("switch"))
         {
             // Switches without an animation driver just show their state.
@@ -575,7 +609,7 @@ public:
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& button, bool highlighted, bool down) override
     {
-        if (button.getProperties().contains ("switch"))
+        if (button.getProperties().contains ("switch") || button.getProperties().contains ("pill"))
             return;
 
         if (button.getToggleState() && button.isEnabled())

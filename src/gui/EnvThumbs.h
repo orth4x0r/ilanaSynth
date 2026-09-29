@@ -184,8 +184,10 @@ private:
 
     float cardWidth() const
     {
+        // Four to a view, like the LFO cards above, so the two rows share
+        // their columns; more scroll.
         const auto width = viewWidth > 0 ? viewWidth : getWidth();
-        return ((float) width - gap * 4.0f) / 5.0f;
+        return ((float) width - gap * 3.0f) / 4.0f;
     }
 
     juce::Rectangle<float> cardBounds (int position) const
@@ -346,7 +348,10 @@ private:
         g.setColour (colour.withAlpha (active ? 0.95f : (inUse ? 0.6f : 0.35f)));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        paintTargetTag (g, inner, cachedTargets (env), colour);
+        // What it drives, on the title line (in the lower corner it sat on
+        // the curve).
+        const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), info.title);
+        paintTargetTag (g, titleRow.withTrimmedLeft (nameWidth + 16.0f), cachedTargets (env), colour);
     }
 
     // The cards repaint often; what they drive is re-read four times a second.

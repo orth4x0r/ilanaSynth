@@ -127,10 +127,10 @@ inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processo
     return targets[0] + (targets.size() > 1 ? "  +" + juce::String (targets.size() - 1) : juce::String());
 }
 
-// A small tag in a card's lower-left corner naming what it drives.
+// A small tag naming what a card drives, at the left of `area`'s bottom.
 inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text, juce::Colour colour)
 {
-    if (text.isEmpty())
+    if (text.isEmpty() || area.getWidth() < 28.0f)
         return;
 
     const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
@@ -185,9 +185,10 @@ inline juce::Colour modSourceColour (int sourceIndex)
         default: break;
     }
 
-    // ENV 6-16 as their cards draw them.
+    // ENV 6-16 spread from red to violet, short of the pinks the accent and
+    // AMP ENV use.
     if (sourceIndex >= (int) Mod::Source::Env6 && sourceIndex <= (int) Mod::Source::Env16)
-        return juce::Colour::fromHSV ((float) (sourceIndex - (int) Mod::Source::Env6) / 11.0f, 0.55f, 0.95f, 1.0f);
+        return juce::Colour::fromHSV (0.04f + 0.7f * (float) (sourceIndex - (int) Mod::Source::Env6) / 10.0f, 0.55f, 0.95f, 1.0f);
 
     return IlanaTheme::accent();
 }
@@ -416,6 +417,16 @@ public:
     {
         if (followsTheme)
             slider.setColour (juce::Slider::rotarySliderFillColourId, IlanaTheme::accent());
+    }
+
+    // Gives the knob a fixed identity colour (an oscillator's, say) in place
+    // of the theme accent.
+    void setIdentityColour (juce::Colour colour)
+    {
+        knobAccent = colour;
+        followsTheme = false;
+        slider.setColour (juce::Slider::rotarySliderFillColourId, colour);
+        repaint();
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -964,14 +975,15 @@ public:
 
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (state, parameterID, button);
 
-        // A plain on/off is drawn as a sliding switch: a lit "ON" and a dark
-        // "ON" were easy to misread.
-        if (labelText == "ON")
-        {
-            switchAmount = button.getToggleState() ? 1.0f : 0.0f;
-            button.getProperties().set ("switch", true);
-            button.getProperties().set ("switchAmount", switchAmount);
-        }
+        // Every on/off is drawn as a sliding switch (a lit and a dark button
+        // were easy to misread): a card's bare "ON" switch, or a named one
+        // with its name as a label above it, like a knob's or a menu's.
+        switchAmount = button.getToggleState() ? 1.0f : 0.0f;
+        button.getProperties().set ("switch", true);
+        button.getProperties().set ("switchAmount", switchAmount);
+
+        if (labelText != "ON")
+            button.getProperties().set ("switchLeft", true);
 
         if (auto* parameter = state.getParameter (parameterID))
         {
@@ -987,10 +999,10 @@ public:
     juce::TextButton& getButton() { return button; }
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
+    // A switch with its name above it, rather than a card's bare ON.
+    bool isNamedSwitch() const { return isSwitch() && button.getButtonText() != "ON"; }
 
-    // Any plain on/off drawn as a switch, its name as a label above it (a
-    // lit and a dark button read ambiguously). Buttons stay for modes and
-    // actions.
+    // (Every toggle is a switch now; kept for the call sites that ask.)
     void showAsSwitch()
     {
         switchAmount = button.getToggleState() ? 1.0f : 0.0f;
@@ -1173,8 +1185,9 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     if (band > 0 && band + 6 < area.getHeight())
         area = area.withSizeKeepingCentre (area.getWidth(), band + 6);
 
-    // A plain on/off switch beside knobs sits level with the dials' centres
-    // (it has no label to line up with theirs).
+    // A bare on/off switch beside knobs sits level with the dials' centres
+    // (it has no label to line up with theirs); a named one keeps its name
+    // on the labels' line, like a menu.
     auto hasKnob = false;
     for (auto* item : items)
         if (auto* knob = dynamic_cast<KnobControl*> (item))
@@ -1189,7 +1202,7 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
         if (item == nullptr)
             continue;
 
-        if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && toggle->isSwitch() && dialDrop > 0)
+        if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && toggle->isSwitch() && ! toggle->isNamedSwitch() && dialDrop > 0)
             cell = cell.withTrimmedTop (dialDrop);
 
         item->setBounds (cell);

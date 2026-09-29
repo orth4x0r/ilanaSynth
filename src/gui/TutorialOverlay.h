@@ -55,9 +55,17 @@ public:
             backdrop = IlanaAnim::blurredSnapshot (*parent, 2.0f);
     }
 
+    // The panel is as tall as its content (one line per tip), centred.
+    juce::Rectangle<int> panelBounds() const
+    {
+        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 5 * 36 + 10 + 58 + 12 + 18 + 44 + 28;
+        const auto area = getLocalBounds().reduced (70);
+        return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
+    }
+
     void resized() override
     {
-        auto area = getLocalBounds().reduced (70).reduced (28);
+        auto area = panelBounds().reduced (28);
         auto bottom = area.removeFromBottom (40);
         dontShowAgain.setBounds (bottom.removeFromLeft (220).reduced (0, 8));
         closeButton.setBounds (bottom.removeFromRight (140).reduced (0, 2));
@@ -96,7 +104,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto eased = IlanaAnim::easeOutBack (appear);
-        const auto panel = getLocalBounds().reduced (70).toFloat();
+        const auto panel = panelBounds().toFloat();
 
         if (backdrop.isValid())
             g.drawImage (backdrop, getLocalBounds().toFloat(), juce::RectanglePlacement::stretchToFit);
@@ -141,7 +149,7 @@ public:
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
                 g.drawText ("NEW SINCE 1.2", newBand.removeFromTop (22), juce::Justification::centredLeft);
 
-                const juce::StringArray features { "PHYSICAL PAGE", "GRAND PIANO", "CHAOS LFOs", "WEST COAST", "25 FILTERS",
+                const juce::StringArray features { "PHYSICAL PAGE", "GRAND PIANO", "CHAOS LFO SHAPES", "WEST COAST", "25 FILTERS",
                                                    "FEEDBACK GUITAR", "VECTOR + EVOLVE", "BOUNCE", "WAVETABLE EDITOR" };
                 const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
                 auto x = (float) newBand.getX();
@@ -169,7 +177,7 @@ public:
 
             // Five tips: the few things that aren't obvious from the screen.
             const juce::StringArray tips {
-                "PLAY has the essentials on one screen; the other tabs hold the detail. Number keys switch tabs.",
+                "PLAY has the essentials on one screen; the other tabs hold the detail.",
                 "Drag a source chip (bottom row) onto any knob to modulate it, then drag its coloured dot to set the depth.",
                 "Each oscillator can be a wavetable, a physical string, a sample or grains: pick it in MODE. TABLE opens the browser.",
                 "The FX rack starts empty: click an effect to add it, drag slots to reorder, switch a module off in its header.",

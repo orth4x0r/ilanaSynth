@@ -470,18 +470,19 @@ public:
             const std::array<const char*, 5> modeNames { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
             const auto mode = juce::jlimit (0, 4, getMode (band));
 
-            IlanaTheme::paintTag (g, { (float) bounds.getX() + 17.0f, (float) bounds.getY() + 17.0f }, tint);
+            const auto headerY = headerCentreY (band, bounds);
+            IlanaTheme::paintTag (g, { (float) bounds.getX() + 17.0f, (float) headerY }, tint);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             g.drawText ("OSC " + juce::String (band + 1),
-                        juce::Rectangle<int> (bounds.getX() + 28, bounds.getY() + 9, 60, 16),
+                        juce::Rectangle<int> (bounds.getX() + 28, headerY - 8, 60, 16),
                         juce::Justification::centredLeft);
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (isFolded (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch on to edit"
                                         : juce::String (modeNames[(size_t) mode]),
-                        juce::Rectangle<int> (bounds.getX() + 80, bounds.getY() + 10, 400, 14),
+                        juce::Rectangle<int> (bounds.getX() + 80, headerY - 7, 400, 14),
                         juce::Justification::centredLeft);
 
             if (! controlBay[(size_t) band].isEmpty())
@@ -780,19 +781,21 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
+    // The header line's centre: a folded card is just that line, centred.
+    int headerCentreY (int index, juce::Rectangle<int> band) const
+    {
+        return isFolded (index) ? band.getCentreY() : band.getY() + 17;
+    }
+
     void layoutBand (juce::Rectangle<int> band, int index)
     {
-        auto titleStrip = band.reduced (8).removeFromTop (18);
+        auto titleStrip = band.reduced (8, 0).withHeight (18).withY (headerCentreY (index, band) - 9);
         removeButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (22).withSizeKeepingCentre (20, 15));
         titleStrip.removeFromRight (6);
         // The on switch keeps one place, left of the remove button, whether
         // the card is folded or open (it used to jump into the controls when
         // switched on); the card's buttons come before it.
-        {
-            auto title = band.reduced (8).removeFromTop (22);
-            title.removeFromRight (28);
-            controls[(size_t) index]->on.setBounds (IlanaTheme::cardSwitchBounds (band, title.getCentreY()));
-        }
+        controls[(size_t) index]->on.setBounds (IlanaTheme::cardSwitchBounds (band, headerCentreY (index, band), true));
         titleStrip.removeFromRight (56 + 12);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
         titleStrip.removeFromRight (4);
@@ -4066,11 +4069,17 @@ public:
         scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
         strumDivider = headings.withTrimmedLeft (column * 2).withWidth (column).reduced (3, 0);
         sprayDivider = headings.withTrimmedLeft (column * 3).reduced (3, 0);
-        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, sprayDivider.getCentreY()));
-        sprayDivider.setRight (sprayOn.getX() - 6);
+        // The spray's switch in the card's header, at the card switch place.
+        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, generateCard.getY() + 13));
 
         layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() });
-        layoutRow (second, { &genSnap, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
+        layoutRow (second, { nullptr, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
+        // SNAP PLAYED centred under the SCALE group, level with the dials.
+        {
+            const auto dialDrop = juce::jlimit (28, 58, column - 6) / 2 - 12;
+            const auto rowBand = second.withSizeKeepingCentre (second.getWidth(), juce::jmin (second.getHeight(), preferredControlHeight (strumTime.get(), column - 6) + 6));
+            genSnap.setBounds (rowBand.withWidth (column * 2).withSizeKeepingCentre (column, rowBand.getHeight()).reduced (3).withTrimmedTop (dialDrop));
+        }
     }
 
     void visibilityChanged() override
@@ -4351,16 +4360,18 @@ public:
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 if (shownStrips[(size_t) osc])
                 {
-                    paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), OscPage::oscColour (osc));
+                    const auto folded = ! strips[(size_t) osc]->shownOn;
+                    paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), OscPage::oscColour (osc), folded);
 
-                    if (! strips[(size_t) osc]->shownOn)
+                    if (folded)
                     {
                         static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
                         g.setColour (IlanaTheme::Ui::text3);
                         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
                         g.drawText (juce::String ("OFF  -  ") + modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))]
                                         + "  -  switch on to edit",
-                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (28), juce::Justification::centredLeft);
+                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (16).withY (titleCentreY (oscCards[(size_t) osc], true) - 8),
+                                    juce::Justification::centredLeft);
                     }
                 }
         };
@@ -4605,12 +4616,14 @@ public:
             // The selected LFO's controls: one row, labels above like the
             // filter's and envelope's (a small dial fits the card).
             constexpr int controlRow = 13 + 30 + 16 + 6;
-            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - controlRow));
+            // (12 px between the cards and the row, so the row's labels
+            // don't crowd the cards.)
+            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - controlRow - 8));
             lfoThumbs.setViewWidth (cards.getWidth());
             const auto thumbWidth = lfoThumbs.getPreferredWidth();
             lfoThumbView.setBounds (cards);
             lfoThumbs.setSize (thumbWidth, cards.getHeight() - (thumbWidth > cards.getWidth() ? lfoThumbView.getScrollBarThickness() + 1 : 0));
-            inner.removeFromTop (4);
+            inner.removeFromTop (12);
 
             for (auto& set : lfoSets)
                 layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(),
@@ -4747,16 +4760,24 @@ private:
         }
     }
 
-    static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint)
+    // The title line's centre: a folded card is just that line, centred;
+    // the switch and remove button share it.
+    static int titleCentreY (juce::Rectangle<int> card, bool folded = false)
+    {
+        return folded ? card.getCentreY() : card.getY() + 14;
+    }
+
+    static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool folded = false)
     {
         if (card.isEmpty())
             return;
 
+        const auto centreY = titleCentreY (card, folded);
         IlanaTheme::paintCard (g, card.toFloat(), 6.0f, tint);
-        IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) card.getY() + 14.0f }, tint);
+        IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) centreY }, tint);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText (title, juce::Rectangle<int> (card.getX() + 24, card.getY() + 6, 200, 16), juce::Justification::centredLeft);
+        g.drawText (title, juce::Rectangle<int> (card.getX() + 24, centreY - 8, 200, 16), juce::Justification::centredLeft);
     }
 
     WaveDisplay& wave (int index) { return *waves[(size_t) index]; }
@@ -4765,10 +4786,10 @@ private:
     {
         auto& strip = *strips[(size_t) index];
         auto inner = card.reduced (10, 8);
-        auto title = inner.removeFromTop (18);
+        auto title = inner.removeFromTop (18).withY (titleCentreY (card, ! strip.shownOn) - 9);
         strip.remove->setBounds (title.removeFromRight (22).withSizeKeepingCentre (20, 15));
         title.removeFromRight (6);
-        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, title.getCentreY()));
+        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, title.getCentreY(), true));
         inner.removeFromTop (2);
 
         if (! strip.shownOn)
@@ -4800,9 +4821,8 @@ private:
     void layoutSubCard()
     {
         auto inner = subCard.reduced (10, 8);
-        auto title = inner.removeFromTop (18);
-        title.removeFromRight (28); // where an oscillator card has its remove button
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, title.getCentreY()));
+        inner.removeFromTop (18);
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard)));
         inner.removeFromTop (2);
 
         // One row across the whole card: the sub's menus and level, and the
@@ -7837,12 +7857,9 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     g.setColour (IlanaTheme::Ui::line);
     g.fillRect (juce::Rectangle<int> (0, 55, designWidth, 1));
 
-    // Status line along the bottom edge of the header (the version, then
-    // tempo, voices and CPU at the right), clear of the buttons above.
+    // Status line along the bottom edge of the header (tempo, voices and
+    // CPU at the right), clear of the buttons above.
     const auto statusY = 41;
-    g.setColour (IlanaTheme::Ui::text3);
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-    g.drawText (juce::String ("v") + appVersion, juce::Rectangle<int> (236, statusY, 50, 11), juce::Justification::centredLeft);
 
 
     const auto cpu = processorRef.getCpuUsage() * 100.0f;
@@ -7904,7 +7921,9 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     auto area = content.getLocalBounds();
 
-    logo.setBounds (16, 5, 216, 46);
+    logo.setBounds (16, 5, 250, 46);
+    logo.version = juce::String ("v") + appVersion;
+    logo.nameCentreY = 19.0f - 5.0f; // the header buttons' centre line (they span 4 to 34)
 
     // Header: preset display in the middle with its browse / save controls,
     // editing tools on the right. Buttons sit in the top 36 px; the status

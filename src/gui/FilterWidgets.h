@@ -166,7 +166,8 @@ private:
 
     static int columnsOf (const Group& group) { return ((int) group.types.size() + 1) / 2; }
 
-    juce::Rectangle<float> pageBounds() const { return { (float) getWidth() - 70.0f, 0.0f, 70.0f, (float) labelHeight }; }
+    // Right edge level with the cells' (they're inset 2 px).
+    juce::Rectangle<float> pageBounds() const { return { (float) getWidth() - 72.0f, 0.0f, 70.0f, (float) labelHeight }; }
 
     juce::Rectangle<float> groupBounds (int group) const
     {

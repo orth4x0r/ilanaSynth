@@ -215,11 +215,18 @@ inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, con
 }
 
 // Where a card's on switch goes (a ToggleControl with its 13 px label
-// space): the same distance from every card's right edge, leaving room for a
-// remove button, centred on the title line.
-inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int titleCentreY)
+// space), centred on the title line: at the card's right edge (its pill
+// level with the right of the card's content), or left of the remove
+// button on cards that have one.
+inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int titleCentreY, bool besideRemoveButton = false)
 {
-    constexpr int width = 56, rightInset = 8 + 28;
+    if (besideRemoveButton)
+    {
+        constexpr int width = 56, rightInset = 8 + 28;
+        return { card.getRight() - rightInset - width, titleCentreY - 13 - 10, width, 13 + 20 };
+    }
+
+    constexpr int width = 40, rightInset = 6; // a 32 px pill centred in 40
     return { card.getRight() - rightInset - width, titleCentreY - 13 - 10, width, 13 + 20 };
 }
 
@@ -576,12 +583,8 @@ public:
             const auto amount = button.getProperties().contains ("switchAmount")
                                     ? (float) button.getProperties()["switchAmount"]
                                     : (button.getToggleState() ? 1.0f : 0.0f);
-            // A named switch sits under its label, at the left like a
-            // menu's box; a bare one is centred in its space.
-            auto area = bounds;
-            if (button.getProperties().contains ("switchLeft"))
-                area = area.withWidth (juce::jmin (area.getWidth(), juce::jmin (area.getHeight(), 18.0f) * 1.8f + 2.0f));
-            paintSwitch (g, area, amount, accent(), hover);
+            // Centred in its space, under its name when it has one.
+            paintSwitch (g, bounds, amount, accent(), hover);
             return;
         }
 

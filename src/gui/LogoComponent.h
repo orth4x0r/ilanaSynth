@@ -11,6 +11,11 @@ class LogoComponent : public juce::Component,
 public:
     // The waves in the badge scroll while this says the synth is sounding.
     std::function<bool()> isSounding;
+    // Shown small right after the name.
+    juce::String version;
+    // The name's centre line, in this component's coordinates (level with
+    // the header buttons').
+    float nameCentreY = 0.0f;
 
     LogoComponent()
     {
@@ -61,11 +66,24 @@ public:
             }
         }
 
-        const auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
+        auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
+        if (nameCentreY > 0.0f)
+            textArea = textArea.withSizeKeepingCentre (textArea.getWidth(), 28.0f).withCentre ({ textArea.getCentreX(), nameCentreY });
 
+        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::display, true));
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
+        g.setFont (nameFont);
         g.drawText ("ilanaSynth", textArea, juce::Justification::centredLeft);
+
+        if (version.isNotEmpty())
+        {
+            // The version beside the name, on its upper half.
+            const auto nameWidth = juce::GlyphArrangement::getStringWidth (nameFont, "ilanaSynth");
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText (version, textArea.withTrimmedLeft (nameWidth + 5.0f).withHeight (textArea.getHeight() * 0.55f),
+                        juce::Justification::centredLeft);
+        }
     }
 
 private:

@@ -977,13 +977,10 @@ public:
 
         // Every on/off is drawn as a sliding switch (a lit and a dark button
         // were easy to misread): a card's bare "ON" switch, or a named one
-        // with its name as a label above it, like a knob's or a menu's.
+        // with its name centred above it, like a knob's.
         switchAmount = button.getToggleState() ? 1.0f : 0.0f;
         button.getProperties().set ("switch", true);
         button.getProperties().set ("switchAmount", switchAmount);
-
-        if (labelText != "ON")
-            button.getProperties().set ("switchLeft", true);
 
         if (auto* parameter = state.getParameter (parameterID))
         {
@@ -999,8 +996,6 @@ public:
     juce::TextButton& getButton() { return button; }
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
-    // A switch with its name above it, rather than a card's bare ON.
-    bool isNamedSwitch() const { return isSwitch() && button.getButtonText() != "ON"; }
 
     // (Every toggle is a switch now; kept for the call sites that ask.)
     void showAsSwitch()
@@ -1008,7 +1003,6 @@ public:
         switchAmount = button.getToggleState() ? 1.0f : 0.0f;
         button.getProperties().set ("switch", true);
         button.getProperties().set ("switchAmount", switchAmount);
-        button.getProperties().set ("switchLeft", true);
         repaint();
     }
 
@@ -1021,7 +1015,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (button.getButtonText(), getLocalBounds().withHeight (13), juce::Justification::centredLeft, true);
+            g.drawText (button.getButtonText(), getLocalBounds().withHeight (13), juce::Justification::centred, true);
             return;
         }
 
@@ -1185,15 +1179,17 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     if (band > 0 && band + 6 < area.getHeight())
         area = area.withSizeKeepingCentre (area.getWidth(), band + 6);
 
-    // A bare on/off switch beside knobs sits level with the dials' centres
-    // (it has no label to line up with theirs); a named one keeps its name
-    // on the labels' line, like a menu.
+    // Menus and switches beside full-size knobs sit with their box level
+    // with the dials' centres (their names drop with them).
     auto hasKnob = false;
     for (auto* item : items)
         if (auto* knob = dynamic_cast<KnobControl*> (item))
             hasKnob = hasKnob || (! knob->isCompact() && knob->getLabelText().isNotEmpty());
 
-    const auto dialDrop = hasKnob ? juce::jlimit (28, 58, width - 6) / 2 - 12 : 0;
+    // (The dial is sized as KnobControl sizes it: by the cell's width or
+    // height, whichever is tighter; a small dial barely drops anything.)
+    const auto dialSize = juce::jlimit (28, 58, juce::jmin (width - 6, area.getHeight() - 6 - 13 - 16));
+    const auto dialDrop = hasKnob ? juce::jmax (0, dialSize / 2 - 12) : 0;
 
     for (auto* item : items)
     {
@@ -1202,7 +1198,7 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
         if (item == nullptr)
             continue;
 
-        if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && toggle->isSwitch() && ! toggle->isNamedSwitch() && dialDrop > 0)
+        if (dialDrop > 0 && (dynamic_cast<ToggleControl*> (item) != nullptr || dynamic_cast<ComboControl*> (item) != nullptr))
             cell = cell.withTrimmedTop (dialDrop);
 
         item->setBounds (cell);

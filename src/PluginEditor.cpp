@@ -8471,11 +8471,24 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     oversampling.addItem (701, "2x", true, oversampled && factor == 0);
     oversampling.addItem (702, "4x", true, oversampled && factor == 1);
 
+    // Scala microtuning: the tick shows it is on, with the scale's name.
+    juce::PopupMenu tuning;
+    const auto& tuningState = processorRef.getTuningState();
+    const auto hasScale = tuningState.hasScale();
+    const auto tuningOn = hasScale && read ("tuning_on") > 0.5f;
+    tuning.addItem (800, hasScale ? "Tuning on: " + tuningState.getDescription() : juce::String ("Tuning on (no scale loaded)"),
+                    hasScale, tuningOn);
+    tuning.addSeparator();
+    tuning.addItem (801, "Load Scala tuning (.scl)...");
+    tuning.addItem (802, "Load keyboard mapping (.kbm)...");
+    tuning.addItem (803, "Reset to 12-TET", hasScale || read ("tuning_on") > 0.5f);
+
     juce::PopupMenu menu;
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
     menu.addSubMenu ("Engine quality", quality);
     menu.addSubMenu ("Oversampling", oversampling);
+    menu.addSubMenu (tuningOn ? "Tuning: " + tuningState.getDescription() : juce::String ("Tuning"), tuning, true, nullptr, tuningOn);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
@@ -8530,6 +8543,40 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                 safeThis->tutorial.setVisible (true);
                                 safeThis->tutorial.toFront (false);
                             }
+                            else if (result == 800)
+                            {
+                                if (auto* on = safeThis->processorRef.apvts.getParameter ("tuning_on"))
+                                {
+                                    on->beginChangeGesture();
+                                    on->setValueNotifyingHost (on->getValue() > 0.5f ? 0.0f : 1.0f);
+                                    on->endChangeGesture();
+                                }
+                            }
+                            else if (result == 801 || result == 802)
+                            {
+                                const auto mapping = result == 802;
+                                safeThis->fileChooser = std::make_unique<juce::FileChooser> (
+                                    mapping ? "Load keyboard mapping" : "Load Scala tuning",
+                                    juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+                                    mapping ? "*.kbm" : "*.scl");
+                                safeThis->fileChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                                                        | juce::FileBrowserComponent::canSelectFiles,
+                                                                    [safeThis, mapping] (const juce::FileChooser& chooser)
+                                                                    {
+                                                                        const auto file = chooser.getResult();
+                                                                        if (safeThis == nullptr || ! file.existsAsFile())
+                                                                            return;
+                                                                        juce::String error;
+                                                                        const auto text = file.loadFileAsString();
+                                                                        const auto loaded = mapping ? safeThis->processorRef.loadTuningMapping (text, error)
+                                                                                                    : safeThis->processorRef.loadTuningScale (text, error);
+                                                                        if (! loaded)
+                                                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                                                                                    "Could not load " + file.getFileName(), error);
+                                                                    });
+                            }
+                            else if (result == 803)
+                                safeThis->processorRef.resetTuning();
                         });
 }
 

@@ -40,6 +40,9 @@ public:
 
     Mode getVoiceMode() const { return mode; }
 
+    // The Scala tuning of this block (nullptr: 12-TET, every key plays).
+    void setTuning (const Tuning* newTuning) noexcept { tuning = newTuning; }
+
     // A private SysEx (non-commercial ID 0x7D, then "IL") asking every held
     // voice to re-strike its Physical strings: Euclid's Exciter target.
     static constexpr juce::uint8 exciterMarker[3] { 0x7d, 0x49, 0x4c };
@@ -65,6 +68,10 @@ public:
 
     void noteOn (int midiChannel, int midiNoteNumber, float velocity) override
     {
+        // A Scala keyboard mapping can leave keys unmapped ('x'): they are silent.
+        if (tuning != nullptr && ! tuning->isMapped (midiNoteNumber))
+            return;
+
         if (mode == Mode::Poly)
         {
             Synthesiser::noteOn (midiChannel, midiNoteNumber, velocity);
@@ -181,6 +188,7 @@ private:
     Mode mode = Mode::Poly;
     int polyLimit = 16;
     bool glideOnlyLegato = false;
+    const Tuning* tuning = nullptr;
     float lastVelocity = 0.8f;
     juce::Array<int> heldNotes;
 };

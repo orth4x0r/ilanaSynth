@@ -409,6 +409,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_register"))
         return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
+    if (id == "tuning_on") return "Plays the Scala scale (and keyboard mapping) loaded from the settings menu instead of 12-TET. STRETCH still applies on top.";
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
     if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
     if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";

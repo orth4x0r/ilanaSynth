@@ -18,6 +18,7 @@
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
 #include "SamplePlayer.h"
+#include "Tuning.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
 #include "UnisonBank.h"
@@ -262,6 +263,7 @@ struct VoiceParams
 
     float voiceSpread = 0.0f;
     float stretch = 0.0f; // M4: piano stretch tuning, 0 = equal temperament
+    const Tuning* tuning = nullptr; // Scala tuning; nullptr = 12-TET (the old path)
     float unisonRandom = 0.0f;
 
     float filter1Fm = 0.0f;

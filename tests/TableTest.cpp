@@ -8593,6 +8593,9 @@ int main()
     {
         runAirwindowsTests();
         std::cout << (failures == 0 ? "AIRWINDOWS TESTS PASSED" : "AIRWINDOWS TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_FILTER_TEST", "").isNotEmpty())
     {
         runFilterOverhaulTests();

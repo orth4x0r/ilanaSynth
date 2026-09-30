@@ -1,0 +1,1596 @@
+{
+"Bass": [
+{
+"index": 1,
+"name": "Rip Bass",
+"start": 0.0,
+"length": 2.4
+},
+{
+"index": 5,
+"name": "Sub Destroyer",
+"start": 2.45,
+"length": 2.4
+},
+{
+"index": 7,
+"name": "Neuro Wobble",
+"start": 4.9,
+"length": 2.4
+},
+{
+"index": 12,
+"name": "Reese Ripper",
+"start": 7.35,
+"length": 2.4
+},
+{
+"index": 13,
+"name": "Acid Stab",
+"start": 9.8,
+"length": 2.4
+},
+{
+"index": 19,
+"name": "Tape Reese",
+"start": 12.25,
+"length": 2.4
+},
+{
+"index": 20,
+"name": "Resonator Bass",
+"start": 14.7,
+"length": 2.4
+},
+{
+"index": 21,
+"name": "FM Growl",
+"start": 17.15,
+"length": 2.4
+},
+{
+"index": 38,
+"name": "Neon Bass",
+"start": 19.6,
+"length": 2.4
+},
+{
+"index": 46,
+"name": "Rust Bass",
+"start": 22.05,
+"length": 2.4
+},
+{
+"index": 54,
+"name": "Sub Tone 808",
+"start": 24.5,
+"length": 2.4
+},
+{
+"index": 65,
+"name": "Clocked Bass",
+"start": 26.95,
+"length": 2.4
+},
+{
+"index": 67,
+"name": "Crushed Trap",
+"start": 29.4,
+"length": 2.4
+},
+{
+"index": 74,
+"name": "LFO 3 Wobble",
+"start": 31.85,
+"length": 2.4
+},
+{
+"index": 77,
+"name": "Sub 808 Arp",
+"start": 34.3,
+"length": 2.4
+},
+{
+"index": 80,
+"name": "Ladder Sub",
+"start": 36.75,
+"length": 2.4
+},
+{
+"index": 81,
+"name": "Diode Acid",
+"start": 39.2,
+"length": 2.4
+},
+{
+"index": 82,
+"name": "MS-20 Growl",
+"start": 41.65,
+"length": 2.4
+},
+{
+"index": 83,
+"name": "Hyper Reese",
+"start": 44.1,
+"length": 2.4
+},
+{
+"index": 84,
+"name": "Comb Bass",
+"start": 46.55,
+"length": 2.4
+},
+{
+"index": 85,
+"name": "Wavefold Sub",
+"start": 49.0,
+"length": 2.4
+},
+{
+"index": 86,
+"name": "FM Donk",
+"start": 51.45,
+"length": 2.4
+},
+{
+"index": 87,
+"name": "Sync Stab Bass",
+"start": 53.9,
+"length": 2.4
+},
+{
+"index": 88,
+"name": "Neuro Formant",
+"start": 56.35,
+"length": 2.4
+},
+{
+"index": 89,
+"name": "Pluck Sub Bass",
+"start": 58.8,
+"length": 2.4
+},
+{
+"index": 90,
+"name": "Octave Hyper Bass",
+"start": 61.25,
+"length": 2.4
+},
+{
+"index": 91,
+"name": "Rubber Mono",
+"start": 63.7,
+"length": 2.4
+},
+{
+"index": 92,
+"name": "Ring Bass",
+"start": 66.15,
+"length": 2.4
+},
+{
+"index": 93,
+"name": "Deep House Bass",
+"start": 68.6,
+"length": 2.4
+},
+{
+"index": 94,
+"name": "Warp Wobble",
+"start": 71.05,
+"length": 2.4
+},
+{
+"index": 95,
+"name": "Morph Filter Bass",
+"start": 73.5,
+"length": 2.4
+},
+{
+"index": 96,
+"name": "Tape Sub",
+"start": 75.95,
+"length": 2.4
+},
+{
+"index": 97,
+"name": "Distorted 808",
+"start": 78.4,
+"length": 2.4
+},
+{
+"index": 98,
+"name": "Dark Ladder Pluck Bass",
+"start": 80.85,
+"length": 2.4
+},
+{
+"index": 99,
+"name": "Per-Voice Wobble",
+"start": 83.3,
+"length": 2.4
+},
+{
+"index": 207,
+"name": "Through-Zero Growl",
+"start": 85.75,
+"length": 2.4
+},
+{
+"index": 214,
+"name": "Shift Bass",
+"start": 88.2,
+"length": 2.4
+},
+{
+"index": 219,
+"name": "Lorenz Bass",
+"start": 90.65,
+"length": 2.4
+},
+{
+"index": 265,
+"name": "Contrabass Growl",
+"start": 93.1,
+"length": 2.4
+},
+{
+"index": 273,
+"name": "Modulated Route Bass",
+"start": 95.55,
+"length": 2.4
+},
+{
+"index": 277,
+"name": "Spring Bounce Bass",
+"start": 98.0,
+"length": 2.4
+},
+{
+"index": 281,
+"name": "Stick-Slip Growl",
+"start": 100.45,
+"length": 2.4
+},
+{
+"index": 297,
+"name": "DX Stack Bass",
+"start": 102.9,
+"length": 2.4
+},
+{
+"index": 299,
+"name": "Diamond Growl",
+"start": 105.35,
+"length": 2.4
+},
+{
+"index": 306,
+"name": "Feedback Chain Bass",
+"start": 107.8,
+"length": 2.4
+},
+{
+"index": 310,
+"name": "Warp Stack Bass",
+"start": 110.25,
+"length": 2.4
+},
+{
+"index": 316,
+"name": "PD Growl Bass",
+"start": 112.7,
+"length": 2.4
+},
+{
+"index": 337,
+"name": "West Folded Bass",
+"start": 115.15,
+"length": 2.4
+},
+{
+"index": 339,
+"name": "Steiner Growl",
+"start": 117.6,
+"length": 2.4
+},
+{
+"index": 343,
+"name": "OTA Squelch",
+"start": 120.05,
+"length": 2.4
+},
+{
+"index": 352,
+"name": "Feedback Distance Growl",
+"start": 122.5,
+"length": 2.4
+}
+],
+"Pad": [
+{
+"index": 9,
+"name": "Metal Pad",
+"start": 0.0,
+"length": 3.0
+},
+{
+"index": 17,
+"name": "Virus Pad",
+"start": 3.05,
+"length": 3.0
+},
+{
+"index": 27,
+"name": "Freeze Pad",
+"start": 6.1,
+"length": 3.0
+},
+{
+"index": 28,
+"name": "Chord Pad",
+"start": 9.15,
+"length": 3.0
+},
+{
+"index": 29,
+"name": "MSEG Sweep",
+"start": 12.2,
+"length": 3.0
+},
+{
+"index": 41,
+"name": "Tape Choir",
+"start": 15.25,
+"length": 3.0
+},
+{
+"index": 45,
+"name": "Morph Pad",
+"start": 18.3,
+"length": 3.0
+},
+{
+"index": 51,
+"name": "Shimmer Pad",
+"start": 21.35,
+"length": 3.0
+},
+{
+"index": 53,
+"name": "Vocal Pad",
+"start": 24.4,
+"length": 3.0
+},
+{
+"index": 59,
+"name": "Granular Pad",
+"start": 27.45,
+"length": 3.0
+},
+{
+"index": 61,
+"name": "Wide Chord Pad",
+"start": 30.5,
+"length": 3.0
+},
+{
+"index": 66,
+"name": "MPE Glass",
+"start": 33.55,
+"length": 3.0
+},
+{
+"index": 72,
+"name": "LFO 4 Sweep",
+"start": 36.6,
+"length": 3.0
+},
+{
+"index": 133,
+"name": "Warm Analog Pad",
+"start": 39.65,
+"length": 3.0
+},
+{
+"index": 134,
+"name": "Vowel Pad",
+"start": 42.7,
+"length": 3.0
+},
+{
+"index": 135,
+"name": "Hypersaw Pad",
+"start": 45.75,
+"length": 3.0
+},
+{
+"index": 136,
+"name": "Comb Choir",
+"start": 48.8,
+"length": 3.0
+},
+{
+"index": 137,
+"name": "Curve Motion Pad",
+"start": 51.85,
+"length": 3.0
+},
+{
+"index": 138,
+"name": "Morphing Strings",
+"start": 54.9,
+"length": 3.0
+},
+{
+"index": 139,
+"name": "Dark Matter",
+"start": 57.95,
+"length": 3.0
+},
+{
+"index": 140,
+"name": "Per-Voice Drift Pad",
+"start": 61.0,
+"length": 3.0
+},
+{
+"index": 141,
+"name": "Shimmer Glass Pad",
+"start": 64.05,
+"length": 3.0
+},
+{
+"index": 142,
+"name": "Sweep Pad",
+"start": 67.1,
+"length": 3.0
+},
+{
+"index": 143,
+"name": "Octave Stack Pad",
+"start": 70.15,
+"length": 3.0
+},
+{
+"index": 144,
+"name": "Pulse Width Pad",
+"start": 73.2,
+"length": 3.0
+},
+{
+"index": 145,
+"name": "Breathing Pad",
+"start": 76.25,
+"length": 3.0
+},
+{
+"index": 146,
+"name": "Routed Duo Pad",
+"start": 79.3,
+"length": 3.0
+},
+{
+"index": 147,
+"name": "Tape Strings",
+"start": 82.35,
+"length": 3.0
+},
+{
+"index": 196,
+"name": "Ladder Swell Pad",
+"start": 85.4,
+"length": 3.0
+},
+{
+"index": 197,
+"name": "EQ Sculpted Pad",
+"start": 88.45,
+"length": 3.0
+},
+{
+"index": 208,
+"name": "Feedback Choir",
+"start": 91.5,
+"length": 3.0
+},
+{
+"index": 212,
+"name": "Harmonic Cut Pad",
+"start": 94.55,
+"length": 3.0
+},
+{
+"index": 215,
+"name": "Grain Choir",
+"start": 97.6,
+"length": 3.0
+},
+{
+"index": 221,
+"name": "Chaos Filter Pad",
+"start": 100.65,
+"length": 3.0
+},
+{
+"index": 223,
+"name": "Swing Gate Pad",
+"start": 103.7,
+"length": 3.0
+},
+{
+"index": 258,
+"name": "Cello Section",
+"start": 106.75,
+"length": 3.0
+},
+{
+"index": 266,
+"name": "String Ensemble Wide",
+"start": 109.8,
+"length": 3.0
+},
+{
+"index": 269,
+"name": "Route Split Pad",
+"start": 112.85,
+"length": 3.0
+},
+{
+"index": 271,
+"name": "Layered Sync Choir",
+"start": 115.9,
+"length": 3.0
+},
+{
+"index": 272,
+"name": "Panned Engine Sweep",
+"start": 118.95,
+"length": 3.0
+},
+{
+"index": 274,
+"name": "Six-Voice Drift",
+"start": 122.0,
+"length": 3.0
+},
+{
+"index": 275,
+"name": "Lorenz Wash",
+"start": 125.05,
+"length": 3.0
+},
+{
+"index": 276,
+"name": "Pendulum Swing Pad",
+"start": 128.1,
+"length": 3.0
+},
+{
+"index": 298,
+"name": "DX Bell Pad",
+"start": 131.15,
+"length": 3.0
+},
+{
+"index": 301,
+"name": "Three Carrier Choir",
+"start": 134.2,
+"length": 3.0
+},
+{
+"index": 315,
+"name": "Warp Envelope Pad",
+"start": 137.25,
+"length": 3.0
+},
+{
+"index": 333,
+"name": "Deep FM Bell Body",
+"start": 140.3,
+"length": 3.0
+},
+{
+"index": 334,
+"name": "Struck Board Pad",
+"start": 143.35,
+"length": 3.0
+},
+{
+"index": 342,
+"name": "Twin Peak Pad",
+"start": 146.4,
+"length": 3.0
+},
+{
+"index": 345,
+"name": "Phaser Notch Sweep",
+"start": 149.45,
+"length": 3.0
+},
+{
+"index": 349,
+"name": "Evolve Macro Pad",
+"start": 152.5,
+"length": 3.0
+},
+{
+"index": 350,
+"name": "Vector Corner Morph",
+"start": 155.55,
+"length": 3.0
+},
+{
+"index": 351,
+"name": "Vector Path Drift",
+"start": 158.6,
+"length": 3.0
+},
+{
+"index": 355,
+"name": "Bounced Bell Grains",
+"start": 161.65,
+"length": 3.0
+},
+{
+"index": 356,
+"name": "Resampled FM Texture",
+"start": 164.7,
+"length": 3.0
+},
+{
+"index": 358,
+"name": "Reversed Piano Wash",
+"start": 167.75,
+"length": 3.0
+},
+{
+"index": 360,
+"name": "Tabled Cello",
+"start": 170.8,
+"length": 3.0
+}
+],
+"Lead": [
+{
+"index": 2,
+"name": "Scream Lead",
+"start": 0.0,
+"length": 2.4
+},
+{
+"index": 3,
+"name": "FM Monster",
+"start": 2.45,
+"length": 2.4
+},
+{
+"index": 4,
+"name": "Hard Sync Stab",
+"start": 4.9,
+"length": 2.4
+},
+{
+"index": 8,
+"name": "Scream Wobble",
+"start": 7.35,
+"length": 2.4
+},
+{
+"index": 14,
+"name": "Virus Hypersaw",
+"start": 9.8,
+"length": 2.4
+},
+{
+"index": 22,
+"name": "Resonant Scream",
+"start": 12.25,
+"length": 2.4
+},
+{
+"index": 23,
+"name": "Tape Lead",
+"start": 14.7,
+"length": 2.4
+},
+{
+"index": 24,
+"name": "Glitch Lead",
+"start": 17.15,
+"length": 2.4
+},
+{
+"index": 32,
+"name": "Clock Weirdo",
+"start": 19.6,
+"length": 2.4
+},
+{
+"index": 34,
+"name": "Step Sequence",
+"start": 22.05,
+"length": 2.4
+},
+{
+"index": 36,
+"name": "MPE Lead",
+"start": 24.5,
+"length": 2.4
+},
+{
+"index": 44,
+"name": "S&H Techno",
+"start": 26.95,
+"length": 2.4
+},
+{
+"index": 48,
+"name": "Warp Stab",
+"start": 29.4,
+"length": 2.4
+},
+{
+"index": 50,
+"name": "Rig Lead",
+"start": 31.85,
+"length": 2.4
+},
+{
+"index": 56,
+"name": "Frequency Shift",
+"start": 34.3,
+"length": 2.4
+},
+{
+"index": 57,
+"name": "Vowel Lead",
+"start": 36.75,
+"length": 2.4
+},
+{
+"index": 60,
+"name": "Odd Octaver",
+"start": 39.2,
+"length": 2.4
+},
+{
+"index": 68,
+"name": "Formant Scream II",
+"start": 41.65,
+"length": 2.4
+},
+{
+"index": 100,
+"name": "Supersaw Anthem",
+"start": 44.1,
+"length": 2.4
+},
+{
+"index": 101,
+"name": "Ladder Lead",
+"start": 46.55,
+"length": 2.4
+},
+{
+"index": 102,
+"name": "Self-Osc Whistle",
+"start": 49.0,
+"length": 2.4
+},
+{
+"index": 103,
+"name": "Sync Scream",
+"start": 51.45,
+"length": 2.4
+},
+{
+"index": 104,
+"name": "FM Brass Lead",
+"start": 53.9,
+"length": 2.4
+},
+{
+"index": 105,
+"name": "Hollow Pulse Lead",
+"start": 56.35,
+"length": 2.4
+},
+{
+"index": 106,
+"name": "Talkbox Lead",
+"start": 58.8,
+"length": 2.4
+},
+{
+"index": 107,
+"name": "Chip Lead",
+"start": 61.25,
+"length": 2.4
+},
+{
+"index": 108,
+"name": "Diode Screamer",
+"start": 63.7,
+"length": 2.4
+},
+{
+"index": 109,
+"name": "Glass Lead",
+"start": 66.15,
+"length": 2.4
+},
+{
+"index": 110,
+"name": "Soft Saw Lead",
+"start": 68.6,
+"length": 2.4
+},
+{
+"index": 111,
+"name": "Ring Lead",
+"start": 71.05,
+"length": 2.4
+},
+{
+"index": 112,
+"name": "Fifth Stack Lead",
+"start": 73.5,
+"length": 2.4
+},
+{
+"index": 113,
+"name": "Theremin",
+"start": 75.95,
+"length": 2.4
+},
+{
+"index": 114,
+"name": "Acid Squelch Lead",
+"start": 78.4,
+"length": 2.4
+},
+{
+"index": 115,
+"name": "Stereo Bend Lead",
+"start": 80.85,
+"length": 2.4
+},
+{
+"index": 116,
+"name": "Vintage Mono Lead",
+"start": 83.3,
+"length": 2.4
+},
+{
+"index": 117,
+"name": "Octave Screamer",
+"start": 85.75,
+"length": 2.4
+},
+{
+"index": 118,
+"name": "Pan Flute",
+"start": 88.2,
+"length": 2.4
+},
+{
+"index": 199,
+"name": "Legato Glide Lead",
+"start": 90.65,
+"length": 2.4
+},
+{
+"index": 209,
+"name": "Key FM Scream",
+"start": 93.1,
+"length": 2.4
+},
+{
+"index": 211,
+"name": "Formant Shifter",
+"start": 95.55,
+"length": 2.4
+},
+{
+"index": 218,
+"name": "Frozen Grain Lead",
+"start": 98.0,
+"length": 2.4
+},
+{
+"index": 249,
+"name": "Supersaw Bell Body",
+"start": 100.45,
+"length": 2.4
+},
+{
+"index": 262,
+"name": "Slide Fiddle",
+"start": 102.9,
+"length": 2.4
+},
+{
+"index": 267,
+"name": "Six-Layer Stack",
+"start": 105.35,
+"length": 2.4
+},
+{
+"index": 268,
+"name": "Fifth Engine",
+"start": 107.8,
+"length": 2.4
+},
+{
+"index": 302,
+"name": "One Drives Three",
+"start": 110.25,
+"length": 2.4
+},
+{
+"index": 309,
+"name": "PD Casio Lead",
+"start": 112.7,
+"length": 2.4
+},
+{
+"index": 312,
+"name": "PD Formant Voice",
+"start": 115.15,
+"length": 2.4
+},
+{
+"index": 313,
+"name": "Dual Stage Warp Lead",
+"start": 117.6,
+"length": 2.4
+},
+{
+"index": 331,
+"name": "Feedback Body Growl",
+"start": 120.05,
+"length": 2.4
+},
+{
+"index": 340,
+"name": "Vowel Bank Voice",
+"start": 122.5,
+"length": 2.4
+},
+{
+"index": 341,
+"name": "Talking Filter Lead",
+"start": 124.95,
+"length": 2.4
+},
+{
+"index": 346,
+"name": "SEM Classic Lead",
+"start": 127.4,
+"length": 2.4
+},
+{
+"index": 348,
+"name": "Screaming Feedback Lead",
+"start": 129.85,
+"length": 2.4
+},
+{
+"index": 359,
+"name": "Frozen Feedback Table",
+"start": 132.3,
+"length": 2.4
+}
+],
+"Keys": [
+{
+"index": 148,
+"name": "FM E-Piano",
+"start": 0.0,
+"length": 3.0
+},
+{
+"index": 149,
+"name": "Ladder Organ",
+"start": 3.05,
+"length": 3.0
+},
+{
+"index": 150,
+"name": "Warm Clav",
+"start": 6.1,
+"length": 3.0
+},
+{
+"index": 151,
+"name": "Toy Piano",
+"start": 9.15,
+"length": 3.0
+},
+{
+"index": 152,
+"name": "Mellow Rhodes",
+"start": 12.2,
+"length": 3.0
+},
+{
+"index": 153,
+"name": "Digital Bell Keys",
+"start": 15.25,
+"length": 3.0
+},
+{
+"index": 154,
+"name": "Harpsichord",
+"start": 18.3,
+"length": 3.0
+},
+{
+"index": 155,
+"name": "Vibraphone",
+"start": 21.35,
+"length": 3.0
+},
+{
+"index": 187,
+"name": "Wurli Drive",
+"start": 24.4,
+"length": 3.0
+},
+{
+"index": 188,
+"name": "Celeste",
+"start": 27.45,
+"length": 3.0
+},
+{
+"index": 189,
+"name": "Soft Synth Piano",
+"start": 30.5,
+"length": 3.0
+},
+{
+"index": 206,
+"name": "Operator Bell",
+"start": 33.55,
+"length": 3.0
+},
+{
+"index": 210,
+"name": "Stretched Glass Keys",
+"start": 36.6,
+"length": 3.0
+},
+{
+"index": 213,
+"name": "Smeared Organ",
+"start": 39.65,
+"length": 3.0
+},
+{
+"index": 217,
+"name": "Vinyl Dust Keys",
+"start": 42.7,
+"length": 3.0
+},
+{
+"index": 220,
+"name": "Drunk Tape Keys",
+"start": 45.75,
+"length": 3.0
+},
+{
+"index": 235,
+"name": "Hammered Strings",
+"start": 48.8,
+"length": 3.0
+},
+{
+"index": 236,
+"name": "Pedal Bloom",
+"start": 51.85,
+"length": 3.0
+},
+{
+"index": 237,
+"name": "Honky Hammers",
+"start": 54.9,
+"length": 3.0
+},
+{
+"index": 238,
+"name": "Bolted Strings",
+"start": 57.95,
+"length": 3.0
+},
+{
+"index": 239,
+"name": "Bowed Board",
+"start": 61.0,
+"length": 3.0
+},
+{
+"index": 240,
+"name": "Osc-Struck Strings",
+"start": 64.05,
+"length": 3.0
+},
+{
+"index": 250,
+"name": "Tine Keys",
+"start": 67.1,
+"length": 3.0
+},
+{
+"index": 251,
+"name": "Reed Keys",
+"start": 70.15,
+"length": 3.0
+},
+{
+"index": 256,
+"name": "Grand Piano",
+"start": 73.2,
+"length": 3.0
+},
+{
+"index": 283,
+"name": "Upright Piano",
+"start": 76.25,
+"length": 3.0
+},
+{
+"index": 284,
+"name": "Bright Concert Grand",
+"start": 79.3,
+"length": 3.0
+},
+{
+"index": 285,
+"name": "Pedal Sustain Bloom",
+"start": 82.35,
+"length": 3.0
+},
+{
+"index": 286,
+"name": "Detuned Saloon",
+"start": 85.4,
+"length": 3.0
+},
+{
+"index": 287,
+"name": "Prepared Piano Bells",
+"start": 88.45,
+"length": 3.0
+},
+{
+"index": 288,
+"name": "Soft Felt Piano",
+"start": 91.5,
+"length": 3.0
+},
+{
+"index": 289,
+"name": "Toy Grand",
+"start": 94.55,
+"length": 3.0
+},
+{
+"index": 290,
+"name": "Dense Board Piano",
+"start": 97.6,
+"length": 3.0
+},
+{
+"index": 291,
+"name": "Vintage Tine",
+"start": 100.65,
+"length": 3.0
+},
+{
+"index": 292,
+"name": "Bark Rhodes",
+"start": 103.7,
+"length": 3.0
+},
+{
+"index": 293,
+"name": "Growl Reed",
+"start": 106.75,
+"length": 3.0
+},
+{
+"index": 294,
+"name": "Chorused Tine",
+"start": 109.8,
+"length": 3.0
+},
+{
+"index": 295,
+"name": "Distorted Tine Rock",
+"start": 112.85,
+"length": 3.0
+},
+{
+"index": 296,
+"name": "Mellow Reed Bell",
+"start": 115.9,
+"length": 3.0
+},
+{
+"index": 300,
+"name": "Two Pairs Keys",
+"start": 118.95,
+"length": 3.0
+},
+{
+"index": 303,
+"name": "DX Keys Classic",
+"start": 122.0,
+"length": 3.0
+},
+{
+"index": 307,
+"name": "Six-Op Organ",
+"start": 125.05,
+"length": 3.0
+},
+{
+"index": 326,
+"name": "Vibraphone Plate",
+"start": 128.1,
+"length": 3.0
+},
+{
+"index": 330,
+"name": "FM Struck Body",
+"start": 131.15,
+"length": 3.0
+},
+{
+"index": 336,
+"name": "Dual Body Coupling",
+"start": 134.2,
+"length": 3.0
+},
+{
+"index": 354,
+"name": "Vector Strike Pad",
+"start": 137.25,
+"length": 3.0
+}
+],
+"Pluck": [
+{
+"index": 6,
+"name": "Comb Pluck",
+"start": 0.0,
+"length": 2.4
+},
+{
+"index": 10,
+"name": "PWM Pulse",
+"start": 2.45,
+"length": 2.4
+},
+{
+"index": 15,
+"name": "Virus Pluck",
+"start": 4.9,
+"length": 2.4
+},
+{
+"index": 16,
+"name": "KS Bell",
+"start": 7.35,
+"length": 2.4
+},
+{
+"index": 25,
+"name": "Smear Pluck",
+"start": 9.8,
+"length": 2.4
+},
+{
+"index": 26,
+"name": "Tap Pluck",
+"start": 12.25,
+"length": 2.4
+},
+{
+"index": 33,
+"name": "KS Marimba",
+"start": 14.7,
+"length": 2.4
+},
+{
+"index": 35,
+"name": "Chord Stab",
+"start": 17.15,
+"length": 2.4
+},
+{
+"index": 39,
+"name": "Glass Keys",
+"start": 19.6,
+"length": 2.4
+},
+{
+"index": 40,
+"name": "Vocal Chop",
+"start": 22.05,
+"length": 2.4
+},
+{
+"index": 43,
+"name": "Hyper Pluck",
+"start": 24.5,
+"length": 2.4
+},
+{
+"index": 47,
+"name": "Glass Bell",
+"start": 26.95,
+"length": 2.4
+},
+{
+"index": 52,
+"name": "Metal Keys",
+"start": 29.4,
+"length": 2.4
+},
+{
+"index": 62,
+"name": "Minor Chord Stab",
+"start": 31.85,
+"length": 2.4
+},
+{
+"index": 63,
+"name": "Ring Bell",
+"start": 34.3,
+"length": 2.4
+},
+{
+"index": 70,
+"name": "Tremolo Keys",
+"start": 36.75,
+"length": 2.4
+},
+{
+"index": 71,
+"name": "Resonator Bell",
+"start": 39.2,
+"length": 2.4
+},
+{
+"index": 73,
+"name": "Quad Mod Pluck",
+"start": 41.65,
+"length": 2.4
+},
+{
+"index": 75,
+"name": "Arp Glass",
+"start": 44.1,
+"length": 2.4
+},
+{
+"index": 76,
+"name": "Resonator Pluck",
+"start": 46.55,
+"length": 2.4
+},
+{
+"index": 119,
+"name": "Ladder Pluck",
+"start": 49.0,
+"length": 2.4
+},
+{
+"index": 120,
+"name": "Hypersaw Pluck",
+"start": 51.45,
+"length": 2.4
+},
+{
+"index": 121,
+"name": "Comb Harp",
+"start": 53.9,
+"length": 2.4
+},
+{
+"index": 122,
+"name": "Nylon String",
+"start": 56.35,
+"length": 2.4
+},
+{
+"index": 123,
+"name": "Pizzicato",
+"start": 58.8,
+"length": 2.4
+},
+{
+"index": 124,
+"name": "Diode Blip",
+"start": 61.25,
+"length": 2.4
+},
+{
+"index": 125,
+"name": "FM Pluck",
+"start": 63.7,
+"length": 2.4
+},
+{
+"index": 126,
+"name": "Kalimba",
+"start": 66.15,
+"length": 2.4
+},
+{
+"index": 127,
+"name": "Warp Pluck",
+"start": 68.6,
+"length": 2.4
+},
+{
+"index": 128,
+"name": "Formant Pluck",
+"start": 71.05,
+"length": 2.4
+},
+{
+"index": 129,
+"name": "Muted Guitar",
+"start": 73.5,
+"length": 2.4
+},
+{
+"index": 130,
+"name": "Glass Mallet",
+"start": 75.95,
+"length": 2.4
+},
+{
+"index": 131,
+"name": "Resonant Drop",
+"start": 78.4,
+"length": 2.4
+},
+{
+"index": 132,
+"name": "Plucked Bell Stack",
+"start": 80.85,
+"length": 2.4
+},
+{
+"index": 198,
+"name": "Sitar Pluck",
+"start": 83.3,
+"length": 2.4
+},
+{
+"index": 232,
+"name": "FM Kalimba",
+"start": 85.75,
+"length": 2.4
+},
+{
+"index": 245,
+"name": "Wood Bar Hybrid",
+"start": 88.2,
+"length": 2.4
+},
+{
+"index": 246,
+"name": "Metal Plate Hybrid",
+"start": 90.65,
+"length": 2.4
+},
+{
+"index": 247,
+"name": "Bell Shell Hybrid",
+"start": 93.1,
+"length": 2.4
+},
+{
+"index": 248,
+"name": "Glass Shell Hybrid",
+"start": 95.55,
+"length": 2.4
+},
+{
+"index": 257,
+"name": "Nylon Twelve",
+"start": 98.0,
+"length": 2.4
+},
+{
+"index": 259,
+"name": "Harp Cascade",
+"start": 100.45,
+"length": 2.4
+},
+{
+"index": 261,
+"name": "Detuned Zither",
+"start": 102.9,
+"length": 2.4
+},
+{
+"index": 263,
+"name": "Muted Cello Pizz",
+"start": 105.35,
+"length": 2.4
+},
+{
+"index": 264,
+"name": "Baroque Lute",
+"start": 107.8,
+"length": 2.4
+},
+{
+"index": 304,
+"name": "Ratio Snap Bell",
+"start": 110.25,
+"length": 2.4
+},
+{
+"index": 308,
+"name": "Inharmonic Pluck",
+"start": 112.7,
+"length": 2.4
+},
+{
+"index": 311,
+"name": "Envelope Warp Pluck",
+"start": 115.15,
+"length": 2.4
+},
+{
+"index": 314,
+"name": "PD Metallic Bell",
+"start": 117.6,
+"length": 2.4
+},
+{
+"index": 325,
+"name": "Marimba Bar Body",
+"start": 120.05,
+"length": 2.4
+},
+{
+"index": 328,
+"name": "Glass Chime Body",
+"start": 122.5,
+"length": 2.4
+},
+{
+"index": 329,
+"name": "Coupled String Body",
+"start": 124.95,
+"length": 2.4
+},
+{
+"index": 332,
+"name": "West Body Pluck",
+"start": 127.4,
+"length": 2.4
+},
+{
+"index": 338,
+"name": "Buchla Bongo Melody",
+"start": 129.85,
+"length": 2.4
+},
+{
+"index": 344,
+"name": "Comb Morph Pluck",
+"start": 132.3,
+"length": 2.4
+}
+]
+}

@@ -1,6 +1,6 @@
 # Current handoff
 
-Updated 2026-09-29. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit at the same time.
+Updated 2026-09-30. The source tree is the source of truth. Work on `main`; Claude and Codex take turns and should not edit at the same time.
 
 **Keep this file short** (under about 60 lines): current state, next step, open issues and the rules below. When a milestone is done, move its detailed notes to the end of [docs/HANDOFF-HISTORY.md](docs/HANDOFF-HISTORY.md).
 
@@ -33,7 +33,7 @@ Updated 2026-09-29. The source tree is the source of truth. Work on `main`; Clau
 - **Two plugins:** `ilanaSynth` (instrument) and `ilanaSynthFX` (`ILANA_FX=1`, an effect with audio input) build from the same sources and share parameters and presets. FX-only code is behind `IlanaSynthAudioProcessor::isEffectBuild`.
 - **Linux:** the tests and tools build headless with gcc and Ninja (see the M8.1 history notes for the packages). Compare fingerprints only against a baseline from the same platform.
 
-- **Review plan (2026-09-29, Claude; claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS, decisions in the user's memory).** Personal use only, commercial work parked; run everything locally, at most 2 agents. Done: FX DRY delayed by the oversampling latency; the input rings the Classic body; live grains seeded (own generator), string seeds restart per instance (every instance renders alike); Init opens the filter and uses Filtered FM feedback, and algorithm buttons create Filtered feedback. `ILANA_PLAN_TEST=1` runs these tests. Fingerprints: only Frozen Feedback Table moved (-2.5 dB; its bounce's strings get repeatable seeds; it was already 7 dB under the median, for the triage). Choice parameters are not host-automatable (460 of them: a grown list can no longer move recorded lanes; saved states keep indices). Next: the CPU rewrite, then the preset triage with `ilanaPresetRender` + `tools/preset_critic.py` (Vital references via `ilanaRefHost --presets`).
+- **Review plan (2026-09-29/30, Claude): the current work.** State, the user's decisions, content in the repo and the ordered next steps are in [docs/REVIEW-PLAN.md](docs/REVIEW-PLAN.md). Moved to cloud sessions 2026-09-30; the gate was not clean at the move (see that file).
 
 ## Demos
 `ILANA_RENDER_DEMO=build/demo ilanaTableTest` writes the keys demos, `build/demo/fm-pd/` and one folder per M8 milestone (`m81/`...); `ILANA_DEMO_ONLY=m81` renders one milestone's. `ILANA_RENDER_DEMO=build/demo/fx ilanaFxTest` writes the FX presets over drums, plucks and a voice. The EP references are in `build/reference/ep/` and the fitted notes in `build/fit-ep/<model>/base/`.

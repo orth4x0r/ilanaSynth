@@ -1,0 +1,229 @@
+<title>ilanaSynth Blind A/B</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one centred listening card; the pair, the four verdicts, progress. Tuned for keyboard use. */
+:root{
+  --bg:#f3f2f7; --card:#ffffff; --ink:#18171f; --muted:#646175; --rule:#dcd9e6;
+  --accent:#c2186b; --accent-soft:#f8e1ee; --a:#b8860b; --b:#3a6ea5; --good:#1f7a4d; --bad:#b3261e;
+  --sans:"Manrope","Segoe UI",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#131218; --card:#1c1b23; --ink:#ecebf2; --muted:#a09db2; --rule:#2e2c3a;
+  --accent:#f0559f; --accent-soft:#3a1a2c; --a:#e3b341; --b:#79a7de; --good:#6fd3a0; --bad:#ff8a80; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#131218; --card:#1c1b23; --ink:#ecebf2; --muted:#a09db2; --rule:#2e2c3a;
+  --accent:#f0559f; --accent-soft:#3a1a2c; --a:#e3b341; --b:#79a7de; --good:#6fd3a0; --bad:#ff8a80; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0; padding-inline:16px; padding-block:32px 60px; line-height:1.5}
+.wrap{max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:20px}
+header{display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap}
+h1{font-size:1.5rem; font-weight:800; margin:0; letter-spacing:-.01em}
+h1 span{color:var(--accent)}
+.label{font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+.tabs{display:flex; gap:6px; flex-wrap:wrap}
+.tab{font:inherit; font-size:.9rem; font-weight:500; padding:6px 12px; border-radius:999px; border:1px solid var(--rule); background:var(--card); color:var(--ink); cursor:pointer}
+.tab[aria-pressed="true"]{background:var(--accent-soft); color:var(--accent); border-color:var(--accent)}
+.card{background:var(--card); border:1px solid var(--rule); border-radius:14px; padding:24px; display:flex; flex-direction:column; gap:20px}
+.pair{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+.play{font:inherit; border:2px solid var(--rule); background:var(--bg); color:var(--ink); border-radius:12px; padding:22px 12px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px; transition:border-color .15s, transform .1s}
+.play:hover{border-color:var(--muted)} .play:active{transform:scale(.98)}
+.play .letter{font-size:2.4rem; font-weight:800; line-height:1}
+.play.a .letter{color:var(--a)} .play.b .letter{color:var(--b)}
+.play.playing.a{border-color:var(--a)} .play.playing.b{border-color:var(--b)}
+.play .name{font-size:.85rem; color:var(--muted); min-height:1.3em; text-align:center}
+.play .key{font-family:var(--mono); font-size:.72rem; color:var(--muted)}
+.verdicts{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+.verdict{font:inherit; font-weight:700; font-size:.92rem; padding:12px 8px; border-radius:10px; border:1px solid var(--rule); background:var(--card); color:var(--ink); cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px}
+.verdict small{font-family:var(--mono); font-weight:400; font-size:.7rem; color:var(--muted)}
+.verdict.va{color:var(--a)} .verdict.vb{color:var(--b)} .verdict.good{color:var(--good)} .verdict.bad{color:var(--bad)}
+.verdict:disabled,.play:disabled{opacity:.45; cursor:default}
+button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.progress{display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap}
+.bar{flex:1 1 200px; height:8px; background:var(--rule); border-radius:999px; overflow:hidden}
+.bar i{display:block; height:100%; width:0; background:var(--accent); transition:width .3s}
+.stat{font-variant-numeric:tabular-nums; font-size:.92rem}
+.reveal{font-size:.92rem; color:var(--muted); min-height:1.5em}
+.reveal b{color:var(--ink); font-weight:600}
+.note{font-size:.85rem; color:var(--muted)}
+.status{font-size:.85rem; color:var(--bad)}
+@media (max-width:520px){ .verdicts{grid-template-columns:1fr 1fr} .card{padding:16px} }
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>ilanaSynth <span>blind A/B</span></h1>
+    <span class="label" id="saveState">connecting…</span>
+  </header>
+
+  <div class="tabs" role="group" aria-label="Category" id="tabs"></div>
+
+  <section class="card" aria-live="polite">
+    <div class="pair">
+      <button class="play a" id="playA" type="button"><span class="letter">A</span><span class="name" id="nameA"></span><span class="key">press 1</span></button>
+      <button class="play b" id="playB" type="button"><span class="letter">B</span><span class="name" id="nameB"></span><span class="key">press 2</span></button>
+    </div>
+    <div class="verdicts">
+      <button class="verdict va" id="vA" type="button">A is better<small>← or A</small></button>
+      <button class="verdict vb" id="vB" type="button">B is better<small>→ or B</small></button>
+      <button class="verdict good" id="vGood" type="button">Both good<small>↑ or G</small></button>
+      <button class="verdict bad" id="vBad" type="button">Both bad<small>↓ or X</small></button>
+    </div>
+    <div class="reveal" id="reveal">Listen to both, then choose. Names show after you vote.</div>
+    <div class="progress">
+      <span class="stat" id="today">0 of 40 today</span>
+      <div class="bar" aria-hidden="true"><i id="barFill"></i></div>
+      <span class="stat" id="total">0 votes in all</span>
+    </div>
+    <div class="status" id="status" hidden></div>
+  </section>
+
+  <p class="note">Clips are level-matched, so judge the sound, not the loudness. Basses, leads and plucks play an eight-note line; pads and keys a held chord. Space skips a pair. Your votes train the preset critic.</p>
+</div>
+
+<script>
+(() => {
+  const CATEGORIES = ["Bass", "Pad", "Lead", "Keys", "Pluck"];
+  const GOAL = 40;
+  const $ = (id) => document.getElementById(id);
+  let manifest = null, db = null, votesRef = null;
+  let votes = [];           // {a, b, cat, result, at}
+  let category = null, pair = null, voted = false, playing = null;
+  const buffers = {};
+  let ctx = null;
+  let rememberedCat = null;
+  try { rememberedCat = localStorage.getItem("ab.category"); } catch (e) {}
+
+  function showStatus (text) { const s = $("status"); s.textContent = text; s.hidden = ! text; }
+
+  function counts () {
+    const c = {};
+    for (const v of votes) { c[v.cat + ":" + v.a] = (c[v.cat + ":" + v.a] || 0) + 1; c[v.cat + ":" + v.b] = (c[v.cat + ":" + v.b] || 0) + 1; }
+    return c;
+  }
+
+  function pickPair () {
+    const list = manifest[category] || [];
+    if (list.length < 2) { pair = null; return; }
+    const c = counts();
+    const sorted = list.slice().sort((x, y) => ((c[category + ":" + x.index] || 0) - (c[category + ":" + y.index] || 0)) || (Math.random() - 0.5));
+    const first = sorted[Math.floor(Math.random() * Math.min(6, sorted.length))];
+    let second = first;
+    while (second === first) second = sorted[Math.floor(Math.random() * Math.min(12, sorted.length))];
+    pair = Math.random() < 0.5 ? [first, second] : [second, first];
+    voted = false;
+    $("nameA").textContent = ""; $("nameB").textContent = "";
+    $("reveal").textContent = "Listen to both, then choose. Names show after you vote.";
+    setEnabled (true);
+  }
+
+  function setEnabled (on) {
+    for (const id of ["vA", "vB", "vGood", "vBad"]) $(id).disabled = ! on || ! db;
+    $("playA").disabled = $("playB").disabled = ! pair;
+  }
+
+  async function loadCategory (cat) {
+    if (buffers[cat] || ! ctx) return;
+    const response = await fetch(cat + ".wav");
+    buffers[cat] = await ctx.decodeAudioData(await response.arrayBuffer());
+  }
+
+  let source = null;
+  async function play (which) {
+    if (! pair) return;
+    if (! ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") await ctx.resume();
+    try { await loadCategory(category); } catch (e) { showStatus("The audio could not load. Reload the page to try again."); return; }
+    if (source) { try { source.stop(); } catch (e) {} }
+    const clip = pair[which];
+    source = ctx.createBufferSource();
+    source.buffer = buffers[category];
+    source.connect(ctx.destination);
+    source.start(0, clip.start, clip.length);
+    playing = which;
+    $("playA").classList.toggle("playing", which === 0);
+    $("playB").classList.toggle("playing", which === 1);
+    source.onended = () => { if (playing === which) { $("playA").classList.remove("playing"); $("playB").classList.remove("playing"); } };
+  }
+
+  async function vote (result) {
+    if (! pair || voted || ! votesRef) return;
+    voted = true;
+    setEnabled(false);
+    const [a, b] = pair;
+    $("nameA").textContent = a.name; $("nameB").textContent = b.name;
+    $("reveal").innerHTML = "";
+    const words = { a: "A was better", b: "B was better", good: "both good", bad: "both bad" }[result];
+    const line = document.createElement("span");
+    line.append("You said ", Object.assign(document.createElement("b"), { textContent: words }), ": A was ",
+                Object.assign(document.createElement("b"), { textContent: a.name }), ", B was ",
+                Object.assign(document.createElement("b"), { textContent: b.name }), ".");
+    $("reveal").append(line);
+    try {
+      await votesRef.add({ a: a.index, b: b.index, cat: category, result, at: new Date().toISOString() });
+      showStatus("");
+    } catch (e) {
+      showStatus(e && e.code === "quota_exceeded" ? "The vote store is full; tell Claude so it can archive old votes."
+                                                  : "That vote didn't save. Try the next pair; if it keeps failing, reload.");
+    }
+    setTimeout(() => { pickPair(); play(0); }, 1400);
+  }
+
+  function renderProgress () {
+    const today = new Date().toISOString().slice(0, 10);
+    const n = votes.filter(v => (v.at || "").slice(0, 10) === today).length;
+    $("today").textContent = n + " of " + GOAL + " today";
+    $("barFill").style.width = Math.min(100, 100 * n / GOAL) + "%";
+    $("total").textContent = votes.length + " vote" + (votes.length === 1 ? "" : "s") + " in all";
+  }
+
+  function renderTabs () {
+    const tabs = $("tabs");
+    tabs.innerHTML = "";
+    for (const cat of CATEGORIES) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "tab"; b.textContent = cat + " (" + ((manifest && manifest[cat]) || []).length + ")";
+      b.setAttribute("aria-pressed", String(cat === category));
+      b.onclick = () => { category = cat; try { localStorage.setItem("ab.category", cat); } catch (e) {} renderTabs(); pickPair(); };
+      tabs.append(b);
+    }
+  }
+
+  $("playA").onclick = () => play(0);
+  $("playB").onclick = () => play(1);
+  $("vA").onclick = () => vote("a");
+  $("vB").onclick = () => vote("b");
+  $("vGood").onclick = () => vote("good");
+  $("vBad").onclick = () => vote("bad");
+  document.addEventListener("keydown", (e) => {
+    if (e.target && e.target.tagName === "INPUT") return;
+    const k = e.key.toLowerCase();
+    if (k === "1") play(0); else if (k === "2") play(1);
+    else if (k === "arrowleft" || k === "a") vote("a");
+    else if (k === "arrowright" || k === "b") vote("b");
+    else if (k === "arrowup" || k === "g") vote("good");
+    else if (k === "arrowdown" || k === "x") vote("bad");
+    else if (k === " ") { e.preventDefault(); pickPair(); play(0); }
+    else return;
+    e.preventDefault();
+  });
+
+  (async () => {
+    try { manifest = await (await fetch("manifest.json")).json(); }
+    catch (e) { showStatus("The clip list could not load. Reload the page."); return; }
+    category = CATEGORIES.includes(rememberedCat) ? rememberedCat : CATEGORIES[0];
+    renderTabs();
+    pickPair();
+    setEnabled(true);
+    db = await claude.use("db");
+    if (! db) { $("saveState").textContent = "votes can't be saved in this view"; setEnabled(true); return; }
+    votesRef = db.collection("votes");
+    $("saveState").textContent = "saving votes";
+    setEnabled(true);
+    votesRef.onSnapshot((snap) => { votes = snap.docs.map(d => d.data()); renderProgress(); },
+                        () => { $("saveState").textContent = "not connected: reload to save votes"; });
+  })();
+})();
+</script>

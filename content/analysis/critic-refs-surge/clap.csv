@@ -1,0 +1,201 @@
+index,name,category,category_score,heard_as,name_score
+0,808er Than 808,Bass,1.0000,Bass,0.4947
+1,Ancient FM,Bass,1.0000,Bass,0.1402
+2,Rampage,Bass,0.9890,Bass,0.5110
+3,Bass 15,Bass,1.0000,Bass,0.5666
+4,Bass 9,Bass,0.9922,Bass,0.4370
+5,Moogish,Bass,1.0000,Bass,0.3375
+6,Disto Bass,Bass,1.0000,Bass,0.5584
+7,Satu Bass,Bass,0.0101,Pluck,0.4593
+8,Moognt,Bass,0.0033,Pluck,0.3684
+9,Deep Jungler,Bass,1.0000,Bass,0.3569
+10,Shaped Tri-Saw,Bass,0.9993,Bass,0.3757
+11,Wobbler,Bass,1.0000,Bass,0.5852
+12,Cat Bass,Bass,0.0002,Pluck,0.3104
+13,Undulation,Bass,1.0000,Bass,0.1775
+14,Pulse,Bass,1.0000,Bass,0.5415
+15,"Everybody Needs A 303, Really",Bass,0.9956,Bass,0.1700
+16,Bass Guitar,Bass,1.0000,Bass,0.4286
+17,FM Donk,Bass,0.5682,Bass,0.4112
+18,Waveshaper Bass,Bass,1.0000,Bass,0.4793
+19,Basted Lead,Bass,1.0000,Bass,0.2526
+20,Electro Shock,Bass,1.0000,Bass,0.4974
+21,Odionis,Bass,1.0000,Bass,0.1681
+22,Strange Frog,Bass,1.0000,Bass,0.0667
+23,Distort,Bass,1.0000,Bass,0.3998
+24,POP,Bass,0.0000,Pluck,0.3008
+25,Evil From The Deep,Bass,1.0000,Bass,0.3089
+26,Useful Bass,Bass,1.0000,Bass,0.4947
+27,Bass Guitar 6,Bass,1.0000,Bass,0.3479
+28,Happy Bass 1,Bass,0.0272,Pluck,0.5110
+29,Sub Talk,Bass,1.0000,Bass,0.2982
+30,Rude Individual,Bass,0.9992,Bass,0.1918
+31,808 Builder A,Bass,1.0000,Bass,0.3978
+32,RETRO HAKKOO,Bass,1.0000,Bass,0.1477
+33,Fizzy,Bass,0.0299,Pluck,0.2299
+34,Shuttle 1,Bass,1.0000,Bass,0.3108
+35,Deep End,Bass,1.0000,Bass,0.2200
+36,Evilous,Bass,1.0000,Bass,0.2023
+37,Helmeto,Bass,0.0000,Pluck,0.1423
+38,Saw Lo-Fi,Bass,1.0000,Bass,0.3802
+39,Sub 1,Bass,1.0000,Bass,0.3314
+40, Grant Me...,Keys,0.0000,Lead,0.4481
+41,Gumdrops,Keys,0.3244,Pluck,0.1816
+42,Rotary Blue,Keys,0.0011,Lead,0.3273
+43,Moonman,Keys,0.8888,Keys,0.3528
+44,Detuned Vibes,Keys,0.0000,Pluck,0.3658
+45,Forte Piano,Keys,0.0000,Pluck,0.4165
+46,Light EP,Keys,0.0000,Pluck,0.4870
+47,Funny Dub,Keys,0.0000,Lead,0.4931
+48,Ring Piano,Keys,0.0001,Lead,0.2656
+49,Blade 2,Keys,0.4061,Lead,0.1070
+50,Fizzer 5,Keys,0.0000,Lead,0.2601
+51,Harpsick,Keys,0.0000,Lead,0.3526
+52,Piano 6,Keys,0.0000,Pluck,0.4233
+53,Thoughts 6,Keys,0.9998,Keys,0.2405
+54,Arpsychord,Keys,0.0000,Pluck,0.2463
+55,Brass Nostalgia,Keys,0.0000,Lead,0.5221
+56,FM Swirlscapes,Keys,0.0000,Lead,0.1115
+57,Lighter Still,Keys,0.0000,Lead,0.1976
+58,Pluckstring,Keys,0.0000,Lead,0.4020
+59,Through Open Windows,Keys,0.0000,Pluck,0.3985
+60,FM Square Glassy Boops,Keys,0.0002,Lead,0.2178
+61,Bread & Butter Synth Brass,Keys,0.0000,Lead,0.4266
+62,Japanese Suitcase,Keys,0.0000,Lead,0.3587
+63,The Housewives of Lofi,Keys,0.0000,Lead,0.3963
+64,Intrication 3,Keys,0.0000,Lead,0.1497
+65,Acoustic Grand,Keys,0.0000,Pluck,0.3305
+66,Rhody EP,Keys,0.0049,Pluck,0.3334
+67,Alias Piano Pad,Keys,0.0004,Lead,0.4759
+68,Purple Castle,Keys,0.0000,Lead,0.3878
+69,Tango 1,Keys,0.9702,Keys,0.2315
+70,Caspian Sea,Keys,0.0000,Pluck,0.0730
+71,Modern FM Bells,Keys,0.0000,Pluck,0.3065
+72,Destructive Piano,Keys,0.0000,Pluck,0.3753
+73,Sunday Organist,Keys,0.0002,Lead,0.5086
+74,Understated,Keys,0.0000,Lead,0.1684
+75,Half Broken Air Piano,Keys,0.0000,Lead,0.4331
+76,Found In A Closet,Keys,0.9998,Keys,0.1668
+77,Clavish,Keys,0.9754,Keys,0.2739
+78,Circus 1,Keys,0.9996,Keys,0.1233
+79,EP 2,Keys,0.0015,Pluck,0.3611
+80,Hurdy Pardner!,Lead,0.5564,Lead,0.4236
+81,Trance Lead 2,Lead,0.1031,Pluck,0.4347
+82,Lead 2,Lead,0.9995,Lead,0.5059
+83,Destroyed 808,Lead,0.0000,Pluck,0.3588
+84,Golden Chord,Lead,1.0000,Lead,0.3967
+85,Soft Sync,Lead,1.0000,Lead,0.2439
+86,Crisp Cross,Lead,1.0000,Lead,0.4474
+87,Squary Sync,Lead,0.3894,Bass,0.3977
+88,Bellish Lead,Lead,0.0000,Keys,0.4652
+89,Crackles,Lead,0.0000,Keys,0.2086
+90,Fizzer 1,Lead,0.0000,Bass,0.2009
+91,Melodic Line 4,Lead,0.9589,Lead,0.4389
+92,Subtle Lead,Lead,0.8145,Lead,0.4113
+93,Lovely Lead,Lead,0.9989,Lead,0.4488
+94,Stories In One Voice,Lead,0.6294,Lead,0.3439
+95,Raving In The Tropics,Lead,0.0867,Pluck,0.2257
+96,Unstable,Lead,1.0000,Lead,0.2313
+97,Screaming Octaves,Lead,0.9999,Lead,0.1252
+98,Gameboy,Lead,0.0000,Pluck,0.5696
+99,Ghost,Lead,0.8960,Lead,0.1855
+100,Back To Tyrell,Lead,0.9990,Lead,0.2987
+101,Delicious Square,Lead,0.4196,Bass,0.2993
+102,Machining,Lead,0.0118,Bass,0.1942
+103,Granular Saw,Lead,0.0000,Pluck,0.1448
+104,Current,Lead,0.0000,Pluck,0.3647
+105,Meltdown,Lead,0.0123,Bass,0.3339
+106,Spacious,Lead,0.0000,Bass,0.3538
+107,Acidofil,Lead,0.0001,Pluck,0.3868
+108,Butter,Lead,0.1825,Pluck,0.1203
+109,Cray,Lead,0.0017,Pluck,0.0725
+110,Fairy,Lead,0.9849,Lead,0.2366
+111,Generic,Lead,0.0237,Pluck,0.3163
+112,Kurasu,Lead,0.9921,Lead,0.1620
+113,Mosquito,Lead,1.0000,Lead,0.2709
+114,Pet,Lead,1.0000,Lead,0.1945
+115,Resofest 1,Lead,0.7675,Lead,0.3677
+116,Screamer,Lead,1.0000,Lead,0.4234
+117,Sine-Saw Acidish,Lead,0.0000,Pluck,0.5027
+118,Sync Lead,Lead,0.0666,Pluck,0.3494
+119,Turbo Solo,Lead,0.9999,Lead,0.2766
+120,Alone,Pad,0.4562,Pad,0.4414
+121,Stars,Pad,0.0001,Lead,0.3652
+122,Broken,Pad,0.0000,Lead,0.3471
+123,Film,Pad,0.0000,Lead,0.1512
+124,King,Pad,0.0000,Lead,0.3924
+125,Skum Bolero 110 BPM,Pad,0.0000,Lead,0.2356
+126,Space Station,Pad,0.0000,Lead,0.1696
+127,Funky Gate,Pad,0.0000,Lead,0.4598
+128,Ice Cream Sundae,Pad,0.0000,Lead,0.4455
+129,Wave Complex,Pad,0.0000,Lead,0.3879
+130,Grains Of Filth,Pad,0.0000,Lead,0.2242
+131,Slewing Glass,Pad,0.3182,Keys,0.4577
+132,Fez Pad,Pad,0.0000,Lead,0.3240
+133,Dark Whisper,Pad,0.0000,Lead,0.0400
+134,Sci-Fi Church,Pad,0.0000,Lead,0.2906
+135,Hangars 5,Pad,0.0001,Keys,0.4392
+136,Thoughts 7,Pad,0.0000,Lead,0.1767
+137,Bright Drone,Pad,0.0000,Lead,0.4390
+138,Other X-Fades 1,Pad,0.0025,Lead,0.4553
+139,String Machine 10,Pad,0.0000,Lead,0.3226
+140,70s Fizzy String,Pad,0.0000,Lead,0.4639
+141,Jarre On Cassette,Pad,0.0000,Lead,0.2192
+142,Smeared Bell Engine,Pad,0.0000,Lead,0.3713
+143,Jammer AT,Pad,0.0003,Keys,0.3863
+144,Modulation Galore,Pad,0.0031,Bass,0.2391
+145,Wandering Digits 3,Pad,0.0008,Bass,0.1784
+146,Starfall,Pad,0.0000,Lead,0.2526
+147,Favor,Pad,0.0000,Lead,0.3033
+148,Super Swell,Pad,0.0000,Lead,0.3770
+149,Digital Domain,Pad,0.0000,Lead,0.1267
+150,Bouncing Octaves,Pad,0.0000,Keys,0.2942
+151,Orion Strings,Pad,0.0000,Pluck,0.4479
+152,Biosphere,Pad,0.2336,Keys,0.1982
+153,Oncoming,Pad,0.0000,Lead,0.3516
+154,Chowning,Pad,0.0000,Lead,0.1927
+155,Formants MW,Pad,0.0000,Bass,0.2975
+156,MKS-70 Warm Pad,Pad,0.0001,Lead,0.3486
+157,Pad 5,Pad,0.0000,Keys,0.3276
+158,Sawteeth,Pad,0.0000,Lead,0.3545
+159,Sunday,Pad,0.0000,Lead,0.2125
+160,Cute 1,Pluck,1.0000,Pluck,0.2369
+161,Brass Pluck 1,Pluck,1.0000,Pluck,0.6783
+162,Disto,Pluck,1.0000,Pluck,0.1841
+163,Like Piano,Pluck,1.0000,Pluck,0.3321
+164,Bowed Plucked Pipe,Pluck,1.0000,Pluck,0.3522
+165,Power Chord,Pluck,0.0000,Lead,0.5580
+166,Banjo Like,Pluck,1.0000,Pluck,0.2242
+167,Bass Sawari,Pluck,0.9923,Pluck,0.2341
+168,Bright String Glide,Pluck,1.0000,Pluck,0.3892
+169,Resonant Body Pizz,Pluck,1.0000,Pluck,0.3112
+170,Harpie,Pluck,0.9976,Pluck,0.1838
+171,Heavenly Abstractness,Pluck,0.8954,Pluck,0.2958
+172,Nanowave 1,Pluck,1.0000,Pluck,0.3579
+173,Feedback Plonk,Pluck,1.0000,Pluck,0.4385
+174,JP80x0 Pluck,Pluck,1.0000,Pluck,0.3768
+175,Trance Pluck,Pluck,0.0076,Bass,0.3854
+176,Millennium,Pluck,0.9951,Pluck,0.2603
+177,Wooden Glass,Pluck,0.9323,Pluck,0.3496
+178,Boing 1,Pluck,1.0000,Pluck,0.4869
+179,Wall Eye,Pluck,0.9993,Pluck,0.4096
+180,Asymmetry,Pluck,0.0011,Lead,0.3227
+181,Bite,Pluck,0.0566,Lead,0.2429
+182,Comb Pluck,Pluck,0.3872,Lead,0.4191
+183,Delay Pops 2,Pluck,1.0000,Pluck,0.5244
+184,East,Pluck,0.9495,Pluck,0.2441
+185,FM Pluck,Pluck,1.0000,Pluck,0.6681
+186,Friendly,Pluck,1.0000,Pluck,0.4385
+187,Half FM,Pluck,0.0023,Keys,0.3367
+188,Hybrid 1,Pluck,0.0000,Keys,0.2817
+189,Light 2,Pluck,0.0000,Lead,0.4387
+190,Man Machine,Pluck,1.0000,Pluck,0.0681
+191,Mr. Sparkle,Pluck,0.0000,Lead,0.3631
+192,Nice Pluck 3,Pluck,0.0796,Lead,0.5695
+193,Piano Remains 1,Pluck,0.0000,Keys,0.2951
+194,Pulsii,Pluck,0.9909,Pluck,0.2713
+195,Saw Pluck,Pluck,0.8282,Pluck,0.4825
+196,Sinus Verby Pops,Pluck,1.0000,Pluck,0.5181
+197,Square Blinks,Pluck,0.9808,Pluck,0.4424
+198,That Comb Magic,Pluck,0.0000,Lead,0.4109
+199,Ultra Violet,Pluck,0.0000,Lead,0.2376

@@ -1,0 +1,372 @@
+index,name,category,category_score,heard_as,name_score
+0,Init,Init,nan,Pluck,0.3809
+1,Rip Bass,Bass,1.0000,Bass,0.4955
+2,Scream Lead,Lead,1.0000,Lead,0.5190
+3,FM Monster,Lead,0.9998,Lead,0.3884
+4,Hard Sync Stab,Lead,0.0000,Pluck,0.6452
+5,Sub Destroyer,Bass,1.0000,Bass,0.3895
+6,Comb Pluck,Pluck,1.0000,Pluck,0.4925
+7,Neuro Wobble,Bass,1.0000,Bass,0.5872
+8,Scream Wobble,Lead,0.9998,Lead,0.5542
+9,Metal Pad,Pad,0.0000,Lead,0.2323
+10,PWM Pulse,Pluck,0.0000,Lead,0.3304
+11,Doom Drone,Drone,nan,Bass,0.4018
+12,Reese Ripper,Bass,1.0000,Bass,0.4271
+13,Acid Stab,Bass,0.9990,Bass,0.4078
+14,Virus Hypersaw,Lead,0.9980,Lead,0.2708
+15,Virus Pluck,Pluck,1.0000,Pluck,0.4399
+16,KS Bell,Pluck,1.0000,Pluck,0.1834
+17,Virus Pad,Pad,0.0000,Lead,0.3377
+18,String Drone,Drone,nan,Lead,0.2439
+19,Tape Reese,Bass,1.0000,Bass,0.1574
+20,Resonator Bass,Bass,0.9998,Bass,0.1453
+21,FM Growl,Bass,1.0000,Bass,0.5535
+22,Resonant Scream,Lead,1.0000,Lead,0.3031
+23,Tape Lead,Lead,1.0000,Lead,0.4178
+24,Glitch Lead,Lead,1.0000,Lead,0.3869
+25,Smear Pluck,Pluck,0.7701,Pluck,0.4459
+26,Tap Pluck,Pluck,1.0000,Pluck,0.4716
+27,Freeze Pad,Pad,0.0000,Lead,0.3088
+28,Chord Pad,Pad,0.0000,Lead,0.4660
+29,MSEG Sweep,Pad,0.0000,Lead,0.2863
+30,Spectral Drone,Drone,nan,Bass,0.3059
+31,Granular Cloud,Drone,nan,Lead,0.2096
+32,Clock Weirdo,Lead,1.0000,Lead,0.3085
+33,KS Marimba,Pluck,1.0000,Pluck,0.2528
+34,Step Sequence,Lead,0.9999,Lead,0.0447
+35,Chord Stab,Pluck,0.9942,Pluck,0.6293
+36,MPE Lead,Lead,0.9446,Lead,0.4448
+37,Tape Drone,Drone,nan,Lead,0.1814
+38,Neon Bass,Bass,1.0000,Bass,0.5193
+39,Glass Keys,Pluck,0.9697,Pluck,0.2600
+40,Vocal Chop,Pluck,0.0069,Lead,0.2324
+41,Tape Choir,Pad,0.0000,Lead,0.4123
+42,Metal Drip,Drone,nan,Pluck,0.3057
+43,Hyper Pluck,Pluck,1.0000,Pluck,0.4680
+44,S&H Techno,Lead,1.0000,Lead,0.2650
+45,Morph Pad,Pad,0.0000,Lead,0.3100
+46,Rust Bass,Bass,1.0000,Bass,0.4753
+47,Glass Bell,Pluck,1.0000,Pluck,0.2683
+48,Warp Stab,Lead,0.9415,Lead,0.5029
+49,Sub Ritual,Drone,nan,Bass,0.2498
+50,Rig Lead,Lead,0.9995,Lead,0.3716
+51,Shimmer Pad,Pad,0.0000,Lead,0.2936
+52,Metal Keys,Pluck,1.0000,Pluck,0.2307
+53,Vocal Pad,Pad,0.0000,Lead,0.2735
+54,Sub Tone 808,Bass,0.9985,Bass,0.6060
+55,Feedback Drone,Drone,nan,Bass,0.3641
+56,Frequency Shift,Lead,0.9999,Lead,0.2884
+57,Vowel Lead,Lead,0.0011,Bass,0.3926
+58,Reverse Stutter,FX,nan,Lead,0.0810
+59,Granular Pad,Pad,0.0000,Lead,0.2199
+60,Odd Octaver,Lead,0.0001,Pluck,0.2254
+61,Wide Chord Pad,Pad,0.0000,Lead,0.4052
+62,Minor Chord Stab,Pluck,1.0000,Pluck,0.4827
+63,Ring Bell,Pluck,0.9983,Pluck,0.2020
+64,Tape Wow Dub,Drone,nan,Lead,0.3854
+65,Clocked Bass,Bass,1.0000,Bass,0.4783
+66,MPE Glass,Pad,0.0000,Lead,0.1117
+67,Crushed Trap,Bass,1.0000,Bass,0.2519
+68,Formant Scream II,Lead,0.0734,Bass,0.4353
+69,Self Osc Drone,Drone,nan,Lead,0.3123
+70,Tremolo Keys,Pluck,0.9989,Pluck,0.1744
+71,Resonator Bell,Pluck,0.9998,Pluck,0.1107
+72,LFO 4 Sweep,Pad,0.0000,Lead,0.3223
+73,Quad Mod Pluck,Pluck,0.0480,Lead,0.4476
+74,LFO 3 Wobble,Bass,1.0000,Bass,0.4300
+75,Arp Glass,Pluck,0.0001,Lead,0.2359
+76,Resonator Pluck,Pluck,1.0000,Pluck,0.2889
+77,Sub 808 Arp,Bass,0.9955,Bass,0.3732
+78,Vocal Chops,FX,nan,Pluck,0.2036
+79,Tape LFO Drift,Drone,nan,Pad,0.1271
+80,Ladder Sub,Bass,1.0000,Bass,0.3423
+81,Diode Acid,Bass,0.9999,Bass,0.3202
+82,MS-20 Growl,Bass,0.9975,Bass,0.2826
+83,Hyper Reese,Bass,1.0000,Bass,0.4486
+84,Comb Bass,Bass,0.0289,Pluck,0.3383
+85,Wavefold Sub,Bass,0.0441,Pluck,0.4163
+86,FM Donk,Bass,0.1467,Pluck,0.4848
+87,Sync Stab Bass,Bass,0.1697,Pluck,0.4337
+88,Neuro Formant,Bass,0.9488,Bass,0.3524
+89,Pluck Sub Bass,Bass,0.9983,Bass,0.5166
+90,Octave Hyper Bass,Bass,0.8283,Bass,0.3746
+91,Rubber Mono,Bass,0.9924,Bass,0.0610
+92,Ring Bass,Bass,1.0000,Bass,0.2680
+93,Deep House Bass,Bass,0.9999,Bass,0.6102
+94,Warp Wobble,Bass,0.9996,Bass,0.4137
+95,Morph Filter Bass,Bass,0.9999,Bass,0.4582
+96,Tape Sub,Bass,1.0000,Bass,0.1830
+97,Distorted 808,Bass,0.0000,Pluck,0.4334
+98,Dark Ladder Pluck Bass,Bass,1.0000,Bass,0.4494
+99,Per-Voice Wobble,Bass,1.0000,Bass,0.3992
+100,Supersaw Anthem,Lead,1.0000,Lead,0.4969
+101,Ladder Lead,Lead,0.0008,Pluck,0.4113
+102,Self-Osc Whistle,Lead,0.0000,Pluck,0.6608
+103,Sync Scream,Lead,1.0000,Lead,0.5370
+104,FM Brass Lead,Lead,0.9381,Lead,0.6628
+105,Hollow Pulse Lead,Lead,0.9835,Lead,0.4507
+106,Talkbox Lead,Lead,0.9624,Lead,0.4867
+107,Chip Lead,Lead,0.0139,Pluck,0.4842
+108,Diode Screamer,Lead,0.0087,Pluck,0.3652
+109,Glass Lead,Lead,0.9997,Lead,0.3196
+110,Soft Saw Lead,Lead,0.0080,Pluck,0.5410
+111,Ring Lead,Lead,0.0027,Pluck,0.4535
+112,Fifth Stack Lead,Lead,0.9950,Lead,0.5156
+113,Theremin,Lead,0.6709,Lead,0.2752
+114,Acid Squelch Lead,Lead,0.0003,Pluck,0.3823
+115,Stereo Bend Lead,Lead,0.0289,Pluck,0.3656
+116,Vintage Mono Lead,Lead,0.0000,Pluck,0.3301
+117,Octave Screamer,Lead,1.0000,Lead,0.5340
+118,Pan Flute,Lead,0.0163,Pluck,0.5080
+119,Ladder Pluck,Pluck,0.9999,Pluck,0.5185
+120,Hypersaw Pluck,Pluck,0.6521,Pluck,0.5630
+121,Comb Harp,Pluck,0.9997,Pluck,0.1941
+122,Nylon String,Pluck,1.0000,Pluck,0.3312
+123,Pizzicato,Pluck,1.0000,Pluck,0.3939
+124,Diode Blip,Pluck,1.0000,Pluck,0.3509
+125,FM Pluck,Pluck,1.0000,Pluck,0.6858
+126,Kalimba,Pluck,1.0000,Pluck,0.4354
+127,Warp Pluck,Pluck,1.0000,Pluck,0.6077
+128,Formant Pluck,Pluck,1.0000,Pluck,0.5918
+129,Muted Guitar,Pluck,1.0000,Pluck,0.2269
+130,Glass Mallet,Pluck,1.0000,Pluck,0.3328
+131,Resonant Drop,Pluck,0.8027,Pluck,0.4757
+132,Plucked Bell Stack,Pluck,1.0000,Pluck,0.5409
+133,Warm Analog Pad,Pad,0.0000,Lead,0.3315
+134,Vowel Pad,Pad,0.0000,Lead,0.4316
+135,Hypersaw Pad,Pad,0.0000,Lead,0.3755
+136,Comb Choir,Pad,0.0000,Lead,0.4040
+137,Curve Motion Pad,Pad,0.0000,Lead,0.2008
+138,Morphing Strings,Pad,0.0000,Lead,0.3025
+139,Dark Matter,Pad,0.0001,Keys,0.2544
+140,Per-Voice Drift Pad,Pad,0.0000,Lead,0.2473
+141,Shimmer Glass Pad,Pad,0.0000,Lead,0.2989
+142,Sweep Pad,Pad,0.7550,Pad,0.4956
+143,Octave Stack Pad,Pad,0.0015,Keys,0.4475
+144,Pulse Width Pad,Pad,0.0000,Lead,0.4941
+145,Breathing Pad,Pad,0.0000,Lead,0.3657
+146,Routed Duo Pad,Pad,0.0000,Lead,0.3356
+147,Tape Strings,Pad,0.0000,Lead,0.2352
+148,FM E-Piano,Keys,0.0000,Pluck,0.5495
+149,Ladder Organ,Keys,0.3897,Lead,0.4515
+150,Warm Clav,Keys,0.0000,Pluck,0.2818
+151,Toy Piano,Keys,0.0000,Pluck,0.1634
+152,Mellow Rhodes,Keys,0.0493,Lead,0.2436
+153,Digital Bell Keys,Keys,0.0028,Pluck,0.4170
+154,Harpsichord,Keys,0.0000,Pluck,0.2981
+155,Vibraphone,Keys,0.0044,Pluck,0.5586
+156,House Organ Chord,Chords,nan,Pluck,0.2917
+157,Stab Ladder Chord,Chords,nan,Pluck,0.4800
+158,Dub Chord,Chords,nan,Pluck,0.3722
+159,Hypersaw Stab,Chords,nan,Lead,0.4136
+160,Lo-Fi Chord,Chords,nan,Keys,0.3806
+161,Sus Pad Chord,Chords,nan,Lead,0.4282
+162,Power Chord,Chords,nan,Lead,0.4604
+163,Minor Glass Chord,Chords,nan,Pluck,0.2979
+164,Ladder Arp,Arp,nan,Lead,0.3888
+165,Random Glass Arp,Arp,nan,Lead,0.4528
+166,Acid Arp,Arp,nan,Pluck,0.4141
+167,FM Sequence,Arp,nan,Pluck,0.4203
+168,Pluck Walker,Arp,nan,Lead,0.5201
+169,Trance Gate Arp,Arp,nan,Lead,0.5589
+170,Bouncing Ball Arp,Arp,nan,Lead,0.3326
+171,Chord Arp,Arp,nan,Pluck,0.3235
+172,Comb Cathedral,Drone,nan,Lead,0.3716
+173,Self-Osc Choir,Drone,nan,Pad,0.5116
+174,Ring Drone,Drone,nan,Keys,0.2680
+175,Diode Rumble,Drone,nan,Keys,0.3253
+176,Stairway Drone,Drone,nan,Lead,0.1304
+177,Tidal Drone,Drone,nan,Lead,0.1306
+178,Bowed Metal,Drone,nan,Lead,0.3497
+179,Riser Sweep,FX,nan,Pluck,0.3587
+180,Laser Zap,FX,nan,Pluck,0.5525
+181,Noise Sweep,FX,nan,Lead,0.6066
+182,Alarm Siren,FX,nan,Lead,0.5273
+183,Metallic Hit,FX,nan,Pluck,0.5784
+184,Glitch Gate,FX,nan,Lead,0.2071
+185,Down Lifter,FX,nan,Lead,0.3871
+186,Freq Shift Wash,FX,nan,Lead,0.4848
+187,Wurli Drive,Keys,0.0005,Pluck,0.3843
+188,Celeste,Keys,0.0000,Pluck,0.2535
+189,Soft Synth Piano,Keys,0.0000,Pluck,0.3080
+190,Pulse Arp Down,Arp,nan,Lead,0.2976
+191,Converge Bells,Arp,nan,Lead,0.4273
+192,Deep Space Drone,Drone,nan,Lead,0.1993
+193,Oversampled Grind,Drone,nan,Keys,0.3350
+194,Stutter Hit,FX,nan,Lead,0.3520
+195,Radio Tuning,FX,nan,Lead,0.4115
+196,Ladder Swell Pad,Pad,0.0000,Lead,0.3168
+197,EQ Sculpted Pad,Pad,0.0000,Lead,0.0800
+198,Sitar Pluck,Pluck,1.0000,Pluck,0.4957
+199,Legato Glide Lead,Lead,0.0001,Pluck,0.3282
+200,Chaos Kick,Drums,nan,Pluck,0.5535
+201,FM Snare,Drums,nan,Pluck,0.5691
+202,Metal Hat,Drums,nan,Pluck,0.5356
+203,Granular Clap,Drums,nan,Lead,0.4723
+204,Drunk Tom,Drums,nan,Pluck,0.4313
+205,Spectral Rim,Drums,nan,Pluck,0.5005
+206,Operator Bell,Keys,0.9999,Keys,0.5272
+207,Through-Zero Growl,Bass,0.9961,Bass,0.4114
+208,Feedback Choir,Pad,0.0000,Lead,0.6264
+209,Key FM Scream,Lead,0.4649,Pluck,0.5355
+210,Stretched Glass Keys,Keys,0.0000,Lead,0.2078
+211,Formant Shifter,Lead,1.0000,Lead,0.2224
+212,Harmonic Cut Pad,Pad,0.0000,Lead,0.3441
+213,Smeared Organ,Keys,0.0000,Lead,0.2528
+214,Shift Bass,Bass,1.0000,Bass,0.5171
+215,Grain Choir,Pad,0.0513,Bass,0.5810
+216,Swarm,Drone,nan,Lead,0.3760
+217,Vinyl Dust Keys,Keys,0.0000,Lead,0.1665
+218,Frozen Grain Lead,Lead,0.9287,Lead,0.2941
+219,Lorenz Bass,Bass,1.0000,Bass,0.4277
+220,Drunk Tape Keys,Keys,0.0000,Lead,0.0310
+221,Chaos Filter Pad,Pad,0.2342,Lead,0.3272
+222,Gated Supersaw,Chords,nan,Lead,0.1950
+223,Swing Gate Pad,Pad,0.0000,Lead,0.2150
+224,Stutter Stab,Chords,nan,Lead,0.4118
+225,Pentatonic Rain,Generative,nan,Lead,0.2781
+226,Scale Walker,Generative,nan,Pluck,0.3244
+227,Hirajoshi Spray,Generative,nan,Pluck,0.1997
+228,Blues Machine,Generative,nan,Lead,0.2037
+229,Granular Riser,FX,nan,Lead,0.3914
+230,Lorenz Radio,FX,nan,Lead,0.1709
+231,Audio Rate Siren,FX,nan,Pluck,0.6078
+232,FM Kalimba,Pluck,1.0000,Pluck,0.4710
+233,Bitwise Arp,Arp,nan,Lead,0.3521
+234,Throat Drone,Drone,nan,Keys,0.2314
+235,Hammered Strings,Keys,0.0000,Pluck,0.1821
+236,Pedal Bloom,Keys,0.0003,Pluck,0.1860
+237,Honky Hammers,Keys,0.0000,Pluck,0.4492
+238,Bolted Strings,Keys,0.0000,Pluck,0.2968
+239,Bowed Board,Keys,0.0000,Lead,0.3981
+240,Osc-Struck Strings,Keys,0.0000,Pluck,0.4063
+241,Euclid Pluck Machine,Generative,nan,Lead,0.4195
+242,Probability Bells,Generative,nan,Lead,0.6394
+243,Strummed Harp,Generative,nan,Pluck,0.3394
+244,Euclid Kalimba,Generative,nan,Lead,0.2153
+245,Wood Bar Hybrid,Pluck,1.0000,Pluck,0.2729
+246,Metal Plate Hybrid,Pluck,1.0000,Pluck,0.3382
+247,Bell Shell Hybrid,Pluck,1.0000,Pluck,0.5420
+248,Glass Shell Hybrid,Pluck,1.0000,Pluck,0.3865
+249,Supersaw Bell Body,Lead,0.9984,Lead,0.1992
+250,Tine Keys,Keys,0.0912,Pluck,0.4531
+251,Reed Keys,Keys,0.0001,Pluck,0.3656
+252,Live Body,FX Input,nan,Keys,0.3267
+253,Live Wah,FX Input,nan,Keys,0.2817
+254,Live Grains,FX Input,nan,Bass,0.1455
+255,Live Strings,FX Input,nan,Pluck,0.3491
+256,Grand Piano,Keys,0.0000,Pluck,0.2705
+257,Nylon Twelve,Pluck,1.0000,Pluck,0.2834
+258,Cello Section,Pad,0.0000,Lead,0.3885
+259,Harp Cascade,Pluck,0.9028,Pluck,0.3939
+260,Viola Drone,Drone,nan,Lead,0.2614
+261,Detuned Zither,Pluck,0.9982,Pluck,0.2512
+262,Slide Fiddle,Lead,0.9680,Lead,0.4478
+263,Muted Cello Pizz,Pluck,1.0000,Pluck,0.2782
+264,Baroque Lute,Pluck,1.0000,Pluck,0.2175
+265,Contrabass Growl,Bass,0.0000,Pluck,0.2447
+266,String Ensemble Wide,Pad,0.0000,Lead,0.3665
+267,Six-Layer Stack,Lead,0.9933,Lead,0.2991
+268,Fifth Engine,Lead,0.8935,Lead,0.4062
+269,Route Split Pad,Pad,0.0000,Lead,0.2442
+270,Chorded Sixpack,Chords,nan,Lead,0.2686
+271,Layered Sync Choir,Pad,0.0000,Lead,0.4280
+272,Panned Engine Sweep,Pad,0.0000,Lead,0.0491
+273,Modulated Route Bass,Bass,1.0000,Bass,0.4033
+274,Six-Voice Drift,Pad,0.0001,Lead,0.1495
+275,Lorenz Wash,Pad,0.0000,Lead,0.3695
+276,Pendulum Swing Pad,Pad,0.0000,Lead,0.2230
+277,Spring Bounce Bass,Bass,1.0000,Bass,0.3748
+278,Double Pendulum Chaos,Drone,nan,Lead,0.2357
+279,Henon Glitch,FX,nan,Lead,0.1854
+280,Rossler Tide,Drone,nan,Lead,0.2630
+281,Stick-Slip Growl,Bass,0.9934,Bass,0.3684
+282,Bouncing Ball FX,FX,nan,Pluck,0.5125
+283,Upright Piano,Keys,0.0000,Pluck,0.2667
+284,Bright Concert Grand,Keys,0.0000,Pluck,0.3255
+285,Pedal Sustain Bloom,Keys,0.0033,Pluck,0.2352
+286,Detuned Saloon,Keys,0.0000,Pluck,0.1690
+287,Prepared Piano Bells,Keys,0.0000,Pluck,0.2073
+288,Soft Felt Piano,Keys,0.0004,Pluck,0.4826
+289,Toy Grand,Keys,0.0000,Pluck,-0.0035
+290,Dense Board Piano,Keys,0.0000,Pluck,0.2624
+291,Vintage Tine,Keys,0.9993,Keys,0.3407
+292,Bark Rhodes,Keys,0.0145,Pluck,0.3152
+293,Growl Reed,Keys,0.0000,Pluck,0.1542
+294,Chorused Tine,Keys,0.1945,Lead,0.3234
+295,Distorted Tine Rock,Keys,0.0050,Pluck,0.3089
+296,Mellow Reed Bell,Keys,0.5770,Keys,0.4111
+297,DX Stack Bass,Bass,0.9395,Bass,0.5634
+298,DX Bell Pad,Pad,0.0000,Keys,0.4725
+299,Diamond Growl,Bass,0.9993,Bass,0.0874
+300,Two Pairs Keys,Keys,0.1593,Lead,0.5063
+301,Three Carrier Choir,Pad,0.2656,Keys,0.3855
+302,One Drives Three,Lead,0.0213,Pluck,0.3503
+303,DX Keys Classic,Keys,0.0002,Pluck,0.4553
+304,Ratio Snap Bell,Pluck,0.0000,Keys,0.3907
+305,Fixed Freq Clang,FX,nan,Pluck,0.7111
+306,Feedback Chain Bass,Bass,0.9860,Bass,0.2459
+307,Six-Op Organ,Keys,0.2398,Lead,0.3073
+308,Inharmonic Pluck,Pluck,1.0000,Pluck,0.5132
+309,PD Casio Lead,Lead,0.1526,Pluck,0.4419
+310,Warp Stack Bass,Bass,1.0000,Bass,0.5890
+311,Envelope Warp Pluck,Pluck,0.2710,Lead,0.3994
+312,PD Formant Voice,Lead,1.0000,Lead,0.3223
+313,Dual Stage Warp Lead,Lead,1.0000,Lead,0.4736
+314,PD Metallic Bell,Pluck,0.0923,Lead,0.4213
+315,Warp Envelope Pad,Pad,0.0000,Lead,0.4042
+316,PD Growl Bass,Bass,1.0000,Bass,0.5630
+317,Euclid Bass Sequence,Generative,nan,Pluck,0.3224
+318,Prob Seq Bells,Generative,nan,Keys,0.6450
+319,Strummed Pad,Generative,nan,Pluck,0.0841
+320,Ratchet Arp Machine,Generative,nan,Lead,0.2539
+321,Euclid Trance Gate,Generative,nan,Lead,0.0682
+322,Scale Spray Keys,Generative,nan,Keys,0.4007
+323,Prob Seq Drone,Generative,nan,Keys,0.2005
+324,Euclid Exciter Pluck,Generative,nan,Pluck,0.3046
+325,Marimba Bar Body,Pluck,1.0000,Pluck,0.1597
+326,Vibraphone Plate,Keys,1.0000,Keys,0.4915
+327,Church Bell Shell,FX,nan,Pluck,0.4247
+328,Glass Chime Body,Pluck,0.9107,Pluck,0.3323
+329,Coupled String Body,Pluck,1.0000,Pluck,0.2031
+330,FM Struck Body,Keys,0.0005,Pluck,0.3963
+331,Feedback Body Growl,Lead,0.0029,Pluck,0.1434
+332,West Body Pluck,Pluck,0.9960,Pluck,0.6003
+333,Deep FM Bell Body,Pad,0.0018,Keys,0.4656
+334,Struck Board Pad,Pad,0.0000,Lead,0.1536
+335,Sympathetic Body Drone,Drone,nan,Lead,0.1725
+336,Dual Body Coupling,Keys,0.0000,Pluck,0.0790
+337,West Folded Bass,Bass,0.9947,Bass,0.3345
+338,Buchla Bongo Melody,Pluck,0.9991,Pluck,0.3467
+339,Steiner Growl,Bass,1.0000,Bass,0.3199
+340,Vowel Bank Voice,Lead,1.0000,Lead,0.3183
+341,Talking Filter Lead,Lead,0.1608,Pluck,0.3291
+342,Twin Peak Pad,Pad,0.0000,Lead,0.4049
+343,OTA Squelch,Bass,0.9714,Bass,0.3394
+344,Comb Morph Pluck,Pluck,0.9996,Pluck,0.1938
+345,Phaser Notch Sweep,Pad,0.0000,Lead,0.4114
+346,SEM Classic Lead,Lead,0.0051,Pluck,0.5106
+347,Feedback Guitar Drone,Drone,nan,Pluck,0.2330
+348,Screaming Feedback Lead,Lead,0.2580,Pluck,0.3471
+349,Evolve Macro Pad,Pad,0.0000,Lead,0.2951
+350,Vector Corner Morph,Pad,0.0001,Lead,0.3928
+351,Vector Path Drift,Pad,0.0000,Lead,0.2563
+352,Feedback Distance Growl,Bass,0.0006,Pluck,0.1911
+353,Evolving Vector Drone,Drone,nan,Keys,0.0665
+354,Vector Strike Pad,Keys,0.0236,Pluck,0.2149
+355,Bounced Bell Grains,Pad,0.0000,Lead,0.2610
+356,Resampled FM Texture,Pad,0.0425,Lead,0.2979
+357,Baked Chaos Loop,Drone,nan,Lead,0.0929
+358,Reversed Piano Wash,Pad,0.0000,Keys,0.6039
+359,Frozen Feedback Table,Lead,1.0000,Lead,0.1955
+360,Tabled Cello,Pad,0.0000,Lead,0.2616
+361,Live Comb Wash,FX Input,nan,Keys,0.2651
+362,Live Feedback Loop,FX Input,nan,Keys,0.2826
+363,Live Struck Bells,FX Input,nan,Keys,0.3433
+364,Live West Fold,FX Input,nan,Keys,0.3126
+365,Live Vector Morph,FX Input,nan,Keys,0.1985
+366,Live Ring FM,FX Input,nan,Keys,0.2626
+367,Live Granular Delay,FX Input,nan,Lead,0.1935
+368,Live Formant Filter,FX Input,nan,Keys,0.1470
+369,Live Feedback Strings,FX Input,nan,Pluck,0.3884
+370,Live Twin Peak Wah,FX Input,nan,Keys,0.2683

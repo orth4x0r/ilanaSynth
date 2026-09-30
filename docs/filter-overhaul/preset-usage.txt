@@ -1,0 +1,312 @@
+USAGE Low Pass | Init | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Rip Bass | F1 reso 0.5 drive 3 slope 1
+USAGE Band Pass | Scream Lead | F1 reso 0.6 drive 4 slope 0
+USAGE Low Pass | FM Monster | F1 reso 0.4 drive 5 slope 0
+USAGE Low Pass | Hard Sync Stab | F1 reso 0.3 drive 3 slope 0
+USAGE Low Pass | Sub Destroyer | F1 reso 0.2 drive 6 slope 1
+USAGE Low Pass | Comb Pluck | F1 reso 0.4 drive 1.5 slope 0
+USAGE Low Pass | Neuro Wobble | F1 reso 0.65 drive 4 slope 1
+USAGE Band Pass | Scream Wobble | F1 reso 0.5 drive 3 slope 0
+USAGE Low Pass | Metal Pad | F1 reso 0.25 drive 2 slope 0
+USAGE Low Pass | PWM Pulse | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Doom Drone | F1 reso 0.3 drive 8 slope 1
+USAGE Low Pass | Reese Ripper | F1 reso 0.4 drive 5 slope 1
+USAGE Low Pass | Acid Stab | F1 reso 0.75 drive 5 slope 1
+USAGE Low Pass | Virus Hypersaw | F1 reso 0.2 drive 2 slope 0
+USAGE Low Pass | Virus Pluck | F1 reso 0.2 drive 2 slope 0
+USAGE Low Pass | KS Bell | F1 reso 0.1 drive 1.5 slope 0
+USAGE Low Pass | Virus Pad | F1 reso 0.15 drive 1.5 slope 0
+USAGE Low Pass | String Drone | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Tape Reese | F1 reso 0.4 drive 5 slope 1
+USAGE Low Pass | Resonator Bass | F1 reso 0.3 drive 4 slope 0
+USAGE Low Pass | FM Growl | F1 reso 0.45 drive 4 slope 0
+USAGE Band Pass | Resonant Scream | F1 reso 0.55 drive 3 slope 0
+USAGE Low Pass | Tape Lead | F1 reso 0.2 drive 2.5 slope 0
+USAGE Low Pass | Glitch Lead | F1 reso 0.3 drive 3.5 slope 0
+USAGE Low Pass | Smear Pluck | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | Tap Pluck | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Freeze Pad | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Chord Pad | F1 reso 0.15 drive 1.5 slope 0
+USAGE Low Pass | MSEG Sweep | F1 reso 0.5 drive 3 slope 0
+USAGE Low Pass | Spectral Drone | F1 reso 0.2 drive 2 slope 0
+USAGE Low Pass | Granular Cloud | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Clock Weirdo | F1 reso 0.6 drive 3 slope 0
+USAGE Low Pass | KS Marimba | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Step Sequence | F1 reso 0.5 drive 3.5 slope 0
+USAGE Low Pass | Chord Stab | F1 reso 0.2 drive 2.5 slope 0
+USAGE Low Pass | MPE Lead | F1 reso 0.25 drive 2 slope 0
+USAGE Low Pass | Tape Drone | F1 reso 0.35 drive 3 slope 0
+USAGE Low Pass | Neon Bass | F1 reso 0.5 drive 5 slope 1
+USAGE Low Pass | Glass Keys | F1 reso 0.15 drive 1.5 slope 0
+USAGE Band Pass | Vocal Chop | F1 reso 0.35 drive 3 slope 0
+USAGE Low Pass | Tape Choir | F1 reso 0.15 drive 1.5 slope 0
+USAGE Low Pass | Metal Drip | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Hyper Pluck | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | S&H Techno | F1 reso 0.55 drive 4 slope 0
+USAGE Low Pass | Morph Pad | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Rust Bass | F1 reso 0.6 drive 8 slope 1
+USAGE Low Pass | Glass Bell | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Warp Stab | F1 reso 0.25 drive 3.5 slope 0
+USAGE Low Pass | Sub Ritual | F1 reso 0.2 drive 3 slope 0
+USAGE Low Pass | Rig Lead | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Shimmer Pad | F1 reso 0.15 drive 1.5 slope 0
+USAGE Low Pass | Metal Keys | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Vocal Pad | F1 reso 0.12 drive 1.5 slope 0
+USAGE Low Pass | Sub Tone 808 | F1 reso 0.1 drive 1.5 slope 0
+USAGE Low Pass | Feedback Drone | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Frequency Shift | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | Vowel Lead | F1 reso 0.25 drive 2.5 slope 0
+USAGE Low Pass | Reverse Stutter | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Granular Pad | F1 reso 0.15 drive 1.5 slope 0
+USAGE Low Pass | Odd Octaver | F1 reso 0.25 drive 3 slope 0
+USAGE Low Pass | Wide Chord Pad | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Minor Chord Stab | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | Ring Bell | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Tape Wow Dub | F1 reso 0.35 drive 1.5 slope 1
+USAGE Low Pass | Clocked Bass | F1 reso 0.45 drive 1.5 slope 0
+USAGE Low Pass | MPE Glass | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Crushed Trap | F1 reso 0.25 drive 2.5 slope 0
+USAGE Low Pass | Formant Scream II | F1 reso 0.5 drive 4 slope 0
+USAGE Low Pass | Self Osc Drone | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Tremolo Keys | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Resonator Bell | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | LFO 4 Sweep | F1 reso 0.55 drive 1.5 slope 1
+USAGE Low Pass | Quad Mod Pluck | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | LFO 3 Wobble | F1 reso 0.6 drive 3 slope 1
+USAGE Low Pass | Arp Glass | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Resonator Pluck | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Sub 808 Arp | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Vocal Chops | F1 reso 0.25 drive 1.5 slope 0
+USAGE Low Pass | Tape LFO Drift | F1 reso 0.25 drive 1.5 slope 0
+USAGE Ladder LP | Ladder Sub | F1 reso 0.35 drive 1.8 slope 1
+USAGE Diode LP | Diode Acid | F1 reso 0.72 drive 2.5 slope 0
+USAGE MS-20 LP | MS-20 Growl | F1 reso 0.6 drive 4 slope 1
+USAGE Ladder LP | Hyper Reese | F1 reso 0.3 drive 2 slope 1
+USAGE Comb + | Comb Bass | F1 reso 0.78 drive 1 slope 0
+USAGE Low Pass | Comb Bass | F2 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Wavefold Sub | F1 reso 0.1 drive 1 slope 1
+USAGE Low Pass | FM Donk | F1 reso 0 drive 1 slope 0
+USAGE Ladder LP | Sync Stab Bass | F1 reso 0.3 drive 2 slope 0
+USAGE Formant | Neuro Formant | F1 reso 0.55 drive 2 slope 0
+USAGE Ladder LP | Pluck Sub Bass | F1 reso 0.2 drive 1.5 slope 1
+USAGE Low Pass | Octave Hyper Bass | F1 reso 0.3 drive 2 slope 1
+USAGE Ladder LP | Rubber Mono | F1 reso 0.45 drive 1.8 slope 1
+USAGE Low Pass | Ring Bass | F1 reso 0.2 drive 1.5 slope 0
+USAGE Ladder LP | Deep House Bass | F1 reso 0.25 drive 1.5 slope 1
+USAGE MS-20 LP | Warp Wobble | F1 reso 0.4 drive 3 slope 1
+USAGE Morph | Morph Filter Bass | F1 reso 0.5 drive 2 slope 0
+USAGE Low Pass | Tape Sub | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Distorted 808 | F1 reso 0 drive 1 slope 0
+USAGE Ladder LP | Dark Ladder Pluck Bass | F1 reso 0.55 drive 2 slope 1
+USAGE Ladder LP | Per-Voice Wobble | F1 reso 0.5 drive 2.5 slope 1
+USAGE Low Pass | Supersaw Anthem | F1 reso 0.15 drive 1 slope 0
+USAGE Ladder LP | Ladder Lead | F1 reso 0.45 drive 2 slope 1
+USAGE Low Pass | Self-Osc Whistle | F1 reso 0.995 drive 1 slope 0
+USAGE Low Pass | Sync Scream | F1 reso 0.2 drive 2 slope 0
+USAGE Low Pass | FM Brass Lead | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Hollow Pulse Lead | F1 reso 0.2 drive 1.2 slope 0
+USAGE Formant | Talkbox Lead | F1 reso 0.5 drive 1.5 slope 0
+USAGE Low Pass | Chip Lead | F1 reso 0 drive 1 slope 0
+USAGE Diode LP | Diode Screamer | F1 reso 0.65 drive 4 slope 0
+USAGE Low Pass | Glass Lead | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Soft Saw Lead | F1 reso 0.15 drive 1 slope 1
+USAGE Ladder LP | Ring Lead | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | Fifth Stack Lead | F1 reso 0.2 drive 1.5 slope 0
+USAGE Low Pass | Theremin | F1 reso 0 drive 1 slope 0
+USAGE MS-20 LP | Acid Squelch Lead | F1 reso 0.75 drive 3 slope 1
+USAGE Low Pass | Stereo Bend Lead | F1 reso 0.15 drive 1.2 slope 0
+USAGE Ladder LP | Vintage Mono Lead | F1 reso 0.4 drive 2.2 slope 1
+USAGE Low Pass | Octave Screamer | F1 reso 0.25 drive 2.5 slope 0
+USAGE Band Pass | Pan Flute | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Pan Flute | F2 reso 0 drive 1 slope 0
+USAGE Ladder LP | Ladder Pluck | F1 reso 0.35 drive 1.5 slope 1
+USAGE Low Pass | Hypersaw Pluck | F1 reso 0.2 drive 1.2 slope 1
+USAGE Comb + | Comb Harp | F1 reso 0.95 drive 1 slope 0
+USAGE Low Pass | Comb Harp | F2 reso 0 drive 1 slope 0
+USAGE Low Pass | Nylon String | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Pizzicato | F1 reso 0 drive 1 slope 0
+USAGE Diode LP | Diode Blip | F1 reso 0.6 drive 2 slope 0
+USAGE Low Pass | FM Pluck | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Kalimba | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Warp Pluck | F1 reso 0.2 drive 1 slope 0
+USAGE Formant | Formant Pluck | F1 reso 0.5 drive 1.2 slope 0
+USAGE Low Pass | Muted Guitar | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Glass Mallet | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Resonant Drop | F1 reso 0.85 drive 1.5 slope 1
+USAGE Low Pass | Plucked Bell Stack | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Warm Analog Pad | F1 reso 0.2 drive 1.2 slope 1
+USAGE Formant | Vowel Pad | F1 reso 0.4 drive 1 slope 0
+USAGE Low Pass | Hypersaw Pad | F1 reso 0.1 drive 1 slope 0
+USAGE Comb - | Comb Choir | F1 reso 0.8 drive 1 slope 0
+USAGE Low Pass | Comb Choir | F2 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Curve Motion Pad | F1 reso 0.25 drive 1 slope 1
+USAGE Morph | Morphing Strings | F1 reso 0.3 drive 1 slope 0
+USAGE Ladder LP | Dark Matter | F1 reso 0.4 drive 1.8 slope 1
+USAGE Low Pass | Per-Voice Drift Pad | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Shimmer Glass Pad | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Sweep Pad | F1 reso 0.5 drive 1.2 slope 1
+USAGE Low Pass | Octave Stack Pad | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Pulse Width Pad | F1 reso 0.15 drive 1 slope 0
+USAGE Low Pass | Breathing Pad | F1 reso 0.2 drive 1 slope 0
+USAGE Ladder LP | Routed Duo Pad | F1 reso 0.3 drive 1.2 slope 1
+USAGE High Pass | Routed Duo Pad | F2 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Tape Strings | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | FM E-Piano | F1 reso 0 drive 1 slope 0
+USAGE Ladder LP | Ladder Organ | F1 reso 0.1 drive 1 slope 0
+USAGE Band Pass | Warm Clav | F1 reso 0.4 drive 1.5 slope 0
+USAGE Low Pass | Toy Piano | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Mellow Rhodes | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Digital Bell Keys | F1 reso 0 drive 1 slope 0
+USAGE High Pass | Harpsichord | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Vibraphone | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | House Organ Chord | F1 reso 0.2 drive 1.2 slope 0
+USAGE Ladder LP | Stab Ladder Chord | F1 reso 0.4 drive 1.5 slope 1
+USAGE Low Pass | Dub Chord | F1 reso 0.3 drive 1.2 slope 0
+USAGE Low Pass | Hypersaw Stab | F1 reso 0.2 drive 1.2 slope 0
+USAGE Low Pass | Lo-Fi Chord | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Sus Pad Chord | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Power Chord | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Minor Glass Chord | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Ladder Arp | F1 reso 0.4 drive 1.5 slope 1
+USAGE Low Pass | Random Glass Arp | F1 reso 0.1 drive 1 slope 0
+USAGE Diode LP | Acid Arp | F1 reso 0.7 drive 2.5 slope 0
+USAGE Low Pass | FM Sequence | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Pluck Walker | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Trance Gate Arp | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Bouncing Ball Arp | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Chord Arp | F1 reso 0.3 drive 1.5 slope 1
+USAGE Comb + | Comb Cathedral | F1 reso 0.9 drive 1 slope 0
+USAGE Low Pass | Comb Cathedral | F2 reso 0.1 drive 1 slope 0
+USAGE Formant | Self-Osc Choir | F1 reso 0.6 drive 1 slope 0
+USAGE Band Pass | Self-Osc Choir | F2 reso 0.99 drive 1 slope 0
+USAGE Ladder LP | Ring Drone | F1 reso 0.4 drive 1.5 slope 0
+USAGE Diode LP | Diode Rumble | F1 reso 0.55 drive 3 slope 0
+USAGE Low Pass | Stairway Drone | F1 reso 0.2 drive 1 slope 0
+USAGE Morph | Tidal Drone | F1 reso 0.4 drive 1 slope 0
+USAGE Low Pass | Bowed Metal | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Riser Sweep | F1 reso 0.4 drive 1 slope 0
+USAGE Low Pass | Laser Zap | F1 reso 0.3 drive 1 slope 0
+USAGE Band Pass | Noise Sweep | F1 reso 0.6 drive 1 slope 0
+USAGE Low Pass | Alarm Siren | F1 reso 0.2 drive 1 slope 0
+USAGE Comb - | Metallic Hit | F1 reso 0.7 drive 1 slope 0
+USAGE Low Pass | Glitch Gate | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Down Lifter | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Freq Shift Wash | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Wurli Drive | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Celeste | F1 reso 0 drive 1 slope 0
+USAGE Ladder LP | Soft Synth Piano | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Pulse Arp Down | F1 reso 0.3 drive 1.2 slope 0
+USAGE Low Pass | Converge Bells | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Deep Space Drone | F1 reso 0.2 drive 1 slope 0
+USAGE Diode LP | Oversampled Grind | F1 reso 0.6 drive 5 slope 0
+USAGE Low Pass | Stutter Hit | F1 reso 0.2 drive 1 slope 0
+USAGE Band Pass | Radio Tuning | F1 reso 0.5 drive 1 slope 0
+USAGE Ladder LP | Ladder Swell Pad | F1 reso 0.5 drive 1.3 slope 1
+USAGE Low Pass | EQ Sculpted Pad | F1 reso 0.1 drive 1 slope 0
+USAGE Band Pass | Sitar Pluck | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Sitar Pluck | F2 reso 0 drive 1 slope 0
+USAGE Ladder LP | Legato Glide Lead | F1 reso 0.35 drive 2 slope 1
+USAGE Low Pass | Chaos Kick | F1 reso 0 drive 1 slope 0
+USAGE Band Pass | FM Snare | F1 reso 0.25 drive 1.2 slope 0
+USAGE High Pass | Metal Hat | F1 reso 0.2 drive 1 slope 0
+USAGE Band Pass | Granular Clap | F1 reso 0.3 drive 1.3 slope 0
+USAGE Low Pass | Drunk Tom | F1 reso 0.1 drive 1 slope 0
+USAGE High Pass | Spectral Rim | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Through-Zero Growl | F1 reso 0.3 drive 2.2 slope 1
+USAGE Low Pass | Feedback Choir | F1 reso 0.2 drive 1 slope 0
+USAGE Ladder LP | Key FM Scream | F1 reso 0.35 drive 2.5 slope 1
+USAGE Low Pass | Stretched Glass Keys | F1 reso 0.15 drive 1 slope 0
+USAGE Low Pass | Formant Shifter | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Harmonic Cut Pad | F1 reso 0.15 drive 1 slope 0
+USAGE Low Pass | Smeared Organ | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Shift Bass | F1 reso 0.35 drive 2 slope 1
+USAGE Low Pass | Grain Choir | F1 reso 0.1 drive 1 slope 0
+USAGE Band Pass | Swarm | F1 reso 0.3 drive 1.2 slope 0
+USAGE Low Pass | Vinyl Dust Keys | F1 reso 0.15 drive 1.2 slope 0
+USAGE Low Pass | Frozen Grain Lead | F1 reso 0.2 drive 1 slope 0
+USAGE Ladder LP | Lorenz Bass | F1 reso 0.4 drive 2.2 slope 1
+USAGE Low Pass | Drunk Tape Keys | F1 reso 0.15 drive 1.2 slope 0
+USAGE Low Pass | Chaos Filter Pad | F1 reso 0.4 drive 1.3 slope 0
+USAGE Low Pass | Gated Supersaw | F1 reso 0.2 drive 1 slope 0
+USAGE Low Pass | Swing Gate Pad | F1 reso 0.2 drive 1 slope 0
+USAGE Ladder LP | Stutter Stab | F1 reso 0.3 drive 1.8 slope 0
+USAGE Low Pass | Pentatonic Rain | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Scale Walker | F1 reso 0.3 drive 1.5 slope 0
+USAGE Low Pass | Hirajoshi Spray | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Blues Machine | F1 reso 0.2 drive 1.3 slope 0
+USAGE High Pass | Granular Riser | F1 reso 0.3 drive 1 slope 0
+USAGE Band Pass | Lorenz Radio | F1 reso 0.5 drive 1.5 slope 0
+USAGE Low Pass | Audio Rate Siren | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Bitwise Arp | F1 reso 0.3 drive 1.3 slope 0
+USAGE Low Pass | Throat Drone | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Hammered Strings | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Pedal Bloom | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Honky Hammers | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Bolted Strings | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Bowed Board | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Osc-Struck Strings | F1 reso 0 drive 1 slope 0
+USAGE Ladder LP | Euclid Pluck Machine | F1 reso 0.3 drive 1.2 slope 0
+USAGE Low Pass | Probability Bells | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Strummed Harp | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Euclid Kalimba | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Wood Bar Hybrid | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Metal Plate Hybrid | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Bell Shell Hybrid | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Glass Shell Hybrid | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Supersaw Bell Body | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Live Wah | F1 reso 0.55 drive 1 slope 0
+USAGE Low Pass | Live Grains | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Live Strings | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Nylon Twelve | F1 reso 0 drive 1 slope 0
+USAGE Low Pass | Cello Section | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Viola Drone | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Slide Fiddle | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | Contrabass Growl | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | String Ensemble Wide | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Six-Layer Stack | F1 reso 0.3 drive 1.5 slope 1
+USAGE OTA LP | Fifth Engine | F1 reso 0.35 drive 1.3 slope 0
+USAGE SEM | Route Split Pad | F1 reso 0.25 drive 1 slope 0
+USAGE High Pass | Route Split Pad | F2 reso 0.2 drive 1 slope 0
+USAGE Ladder LP | Chorded Sixpack | F1 reso 0.2 drive 1.2 slope 1
+USAGE Vowel | Layered Sync Choir | F1 reso 0.4 drive 1 slope 0
+USAGE Low Pass | Panned Engine Sweep | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder Drive | Modulated Route Bass | F1 reso 0.4 drive 2 slope 0
+USAGE Steiner | Modulated Route Bass | F2 reso 0.4 drive 1 slope 0
+USAGE Ladder LP | Six-Voice Drift | F1 reso 0.2 drive 1.2 slope 1
+USAGE SEM | Lorenz Wash | F1 reso 0.3 drive 1 slope 0
+USAGE Ladder LP | Pendulum Swing Pad | F1 reso 0.25 drive 1.2 slope 1
+USAGE Ladder LP | Spring Bounce Bass | F1 reso 0.4 drive 1.5 slope 1
+USAGE Twin Peak | Double Pendulum Chaos | F1 reso 0.5 drive 1 slope 0
+USAGE MS-20 LP | Henon Glitch | F1 reso 0.5 drive 2 slope 0
+USAGE Phaser Notch | Rossler Tide | F1 reso 0.4 drive 1 slope 0
+USAGE OTA LP | Stick-Slip Growl | F1 reso 0.4 drive 2 slope 0
+USAGE Low Pass | Bouncing Ball FX | F1 reso 0.1 drive 1 slope 0
+USAGE Low Pass | DX Stack Bass | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder Drive | Diamond Growl | F1 reso 0.3 drive 2.5 slope 0
+USAGE Vowel | Three Carrier Choir | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | One Drives Three | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Feedback Chain Bass | F1 reso 0.2 drive 1.5 slope 1
+USAGE Low Pass | Inharmonic Pluck | F1 reso 0.1 drive 1 slope 0
+USAGE Vowel | PD Formant Voice | F1 reso 0.3 drive 1 slope 0
+USAGE Diode LP | Euclid Bass Sequence | F1 reso 0.55 drive 2 slope 0
+USAGE OTA LP | Ratchet Arp Machine | F1 reso 0.4 drive 1 slope 0
+USAGE Ladder LP | Euclid Trance Gate | F1 reso 0.2 drive 1 slope 0
+USAGE Twin Peak | Prob Seq Drone | F1 reso 0.5 drive 1 slope 0
+USAGE Steiner | Steiner Growl | F1 reso 0.55 drive 2 slope 0
+USAGE Vowel | Vowel Bank Voice | F1 reso 0.45 drive 1 slope 0
+USAGE Talking | Talking Filter Lead | F1 reso 0.5 drive 1 slope 0
+USAGE Twin Peak | Twin Peak Pad | F1 reso 0.55 drive 1 slope 0
+USAGE OTA LP | OTA Squelch | F1 reso 0.7 drive 2 slope 0
+USAGE Comb Morph | Comb Morph Pluck | F1 reso 0.8 drive 1 slope 0
+USAGE Phaser Notch | Phaser Notch Sweep | F1 reso 0.5 drive 1 slope 0
+USAGE SEM | SEM Classic Lead | F1 reso 0.3 drive 1.3 slope 0
+USAGE Ladder LP | Evolve Macro Pad | F1 reso 0.3 drive 1 slope 0
+USAGE Twin Peak | Evolving Vector Drone | F1 reso 0.5 drive 1 slope 0
+USAGE SEM | Baked Chaos Loop | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Reversed Piano Wash | F1 reso 0.1 drive 1 slope 0
+USAGE Ladder LP | Frozen Feedback Table | F1 reso 0.3 drive 1 slope 0
+USAGE Low Pass | Tabled Cello | F1 reso 0.1 drive 1 slope 0
+USAGE Comb Morph | Live Comb Wash | F1 reso 0.7 drive 1 slope 0
+USAGE Vowel | Live Vector Morph | F1 reso 0.4 drive 1 slope 0
+USAGE Talking | Live Formant Filter | F1 reso 0.5 drive 1 slope 0
+USAGE Twin Peak | Live Twin Peak Wah | F1 reso 0.6 drive 1 slope 0

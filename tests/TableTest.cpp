@@ -8427,6 +8427,7 @@ void runProfile (int unison)
 #include "M86Tests.inc"
 #include "M10Tests.inc"
 #include "PolishTests.inc"
+#include "FilterTests.inc"
 #include "DemoRender.inc"
 
 // ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
@@ -8570,6 +8571,13 @@ int main()
     {
         Polish::probeLevels (list);
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_FILTER_TEST", "").isNotEmpty())
+    {
+        runFilterOverhaulTests();
+        std::cout << (failures == 0 ? "FILTER TESTS PASSED" : "FILTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_POLISH_TEST", "").isNotEmpty())
@@ -8928,6 +8936,7 @@ int main()
     runM86Tests();
     runM10Tests();
     runPolishTests();
+    runFilterOverhaulTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

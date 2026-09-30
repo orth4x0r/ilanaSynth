@@ -1,0 +1,27 @@
+CPU 0 Low Pass: 17.4 ns/sample
+CPU 1 Band Pass: 17.3 ns/sample
+CPU 2 High Pass: 19.1 ns/sample
+CPU 3 Notch: 18.6 ns/sample
+CPU 4 Ladder LP: 53.3 ns/sample
+CPU 5 Ladder HP: 51.5 ns/sample
+CPU 6 Diode LP: 163.3 ns/sample
+CPU 7 MS-20 LP: 54.2 ns/sample
+CPU 8 Comb +: 24.8 ns/sample
+CPU 9 Comb -: 22.9 ns/sample
+CPU 10 Formant: 18.1 ns/sample
+CPU 11 Morph: 18.3 ns/sample
+CPU 12 Ladder BP: 250.9 ns/sample
+CPU 13 Ladder Drive: 197.7 ns/sample
+CPU 14 SEM: 15.7 ns/sample
+CPU 15 OTA LP: 116.9 ns/sample
+CPU 16 OTA BP: 133.9 ns/sample
+CPU 17 MS-20 HP: 48.8 ns/sample
+CPU 18 Steiner: 42.4 ns/sample
+CPU 19 Phaser Notch: 55.5 ns/sample
+CPU 20 Comb Damped: 24.4 ns/sample
+CPU 21 Comb Morph: 20.1 ns/sample
+CPU 22 Vowel: 37.0 ns/sample
+CPU 23 Talking: 35.5 ns/sample
+CPU 24 Twin Peak: 17.5 ns/sample
+CPU average: 59.0 ns/sample
+FILTER TESTS PASSED (0 failures)

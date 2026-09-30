@@ -211,6 +211,34 @@ Smear Pluck | fx=11,30 fx_reverb_on=0 fx_aw_algo=26 fx_aw_p1=0.8 fx_aw_p2=0.8 fx
 # Registers.
 Resonant Drop | osc1_semi+=-12 osc2_semi+=-12 sub_semi+=-12 fx_reverb_on=0 fx=9 |
 Nylon Twelve | fx=7,30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.3 fx_aw_p2=0.3 fx_aw_p3=0.5 fx_aw_p4=0.2 fx_aw_p5=0.3 |
+# ---- Keys: archetypes (diversity pass 1; the fitted pianos keep their sound) ----
+# Dry, mono organs and harpsichord.
+Ladder Organ | fx=1,19 fx_reverb_on=0 fx_util_mono=1 |
+Six-Op Organ | fx=1,7 fx_reverb_on=0 |
+Harpsichord | fx=30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.2 fx_aw_p2=0.2 fx_aw_p3=0.6 fx_aw_p4=0.2 fx_aw_p5=0.2 | m4=ROOM: fx_slot1_mix 0.5
+Detuned Saloon | fx=29 fx_reverb_on=0 |
+# Wide and echoing.
+DX Keys Classic | fx=7,30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=0.9 fx_aw_p2=0.4 fx_aw_p3=1 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay_feedback=0.35 fx_delay_mix=0.2 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
+Two Pairs Keys | fx=15,13 fx_dim_mix=0.7 fx_reverb_type=2 |
+Operator Bell | fx=30 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.6 fx_aw_p2=0.7 fx_aw_p3=0.5 fx_aw_p4=1 fx_aw_p5=0.4 | m4=GALAXY: fx_slot1_mix 0.5
+Digital Bell Keys | fx=7,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=10 fx_delay_feedback=0.4 fx_delay_mix=0.25 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
+# Lo-fi.
+Vinyl Dust Keys | fx=7,30 fx_crush_on=0 fx_reverb_on=0 fx_aw_algo=31 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.25 fx_aw_p4=0.6 |
+Drunk Tape Keys | fx=30,7 fx_crush_on=0 fx_reverb_on=0 fx_aw_algo=37 fx_aw_p1=0.8 | m1=WARBLE: fx_slot1_mix 0.5
+Toy Piano | fx=30 fx_reverb_on=0 fx_aw_algo=32 fx_aw_p1=0.4 fx_aw_p2=0.6 fx_aw_p3=0.6 fx_aw_p4=0.7 |
+# Airwindows drive.
+Wurli Drive | fx=30,23 fx_amp_on=0 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.7 fx_aw_p2=0.7 fx_slot1_mix=0.5 | m2=DRIVE: fx_slot1_mix 0.5
+Distorted Tine Rock | fx=30,13 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.6 fx_aw_p3=1 fx_slot1_mix=0.5 | m1=DRIVE: fx_slot1_mix 0.5
+Growl Reed | fx=30 fx_reverb_on=0 fx_aw_algo=8 fx_aw_p1=0.75 |
+# Other rooms.
+Honky Hammers | fx=21,30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.3 fx_aw_p2=0.3 fx_aw_p3=0.4 fx_aw_p4=0.4 fx_aw_p5=0.3 |
+Toy Grand | fx=30 fx_reverb_on=0 fx_aw_algo=26 fx_aw_p1=0.3 fx_aw_p2=0.4 fx_aw_p3=0.6 fx_aw_p4=0.3 |
+Dense Board Piano | fx=30 fx_reverb_on=0 fx_aw_algo=28 fx_aw_p1=0.7 fx_aw_p2=0.3 fx_aw_p3=0.7 fx_aw_p4=0.6 fx_aw_p5=0.3 |
+# Motion and slow attacks.
+Chorused Tine | fx=6,13 fx_phaser_on=1 fx_phaser_rate=0.35 fx_phaser_depth=0.7 fx_phaser_mix=0.5 | m1=PHASE: fx_phaser_mix 0.5
+Vintage Tine | fx=23,8 fx_reverb_on=0 fx_haas_delay=15 fx_haas_mix=0.6 |
+Stretched Glass Keys | amp_attack=0.16 fx=7,30 fx_reverb_on=0 fx_aw_algo=25 fx_aw_p1=0.35 | m4=CATHEDRAL: fx_slot2_mix 0.5
+Vector Strike Pad | amp_attack=0.4 fx=9,30 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.6 fx_aw_p2=0.5 fx_aw_p3=0.6 fx_aw_p4=1 fx_aw_p5=0.4 | m4=GALAXY: fx_slot2_mix 0.5
 )VOICING";
 }
 } // namespace Presets

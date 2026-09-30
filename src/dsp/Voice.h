@@ -508,6 +508,37 @@ private:
     // state is stale). The first different input copies the left state over
     // and the pair runs apart until the next reset.
     bool filter1Linked = true, filter2Linked = true;
+    // Filter 2 while wide open (updateFilterCoefficients): a linear copy.
+    bool filter2Open = false, bothRouteActive = false;
+    static constexpr double openFilterHz = 19000.0;
+    Airwindows::OpenLowPass openFilter2L, openFilter2R;
+    double openCutoff2 = -1.0;
+    float openReso2 = -1.0f;
+
+    // Like processFilterPair: one filter while both sides are equal. The
+    // linear filters from equal states stay equal, so the right one follows
+    // by copy until the sides first differ.
+    void processOpenPair (float inLeft, float inRight, float& outLeft, float& outRight)
+    {
+        if (filter2Linked)
+        {
+            if (inLeft == inRight)
+            {
+                outLeft = outRight = openFilter2L.process (inLeft);
+                return;
+            }
+
+            openFilter2R = openFilter2L;
+            filter2Linked = false;
+        }
+
+        outLeft = openFilter2L.process (inLeft);
+        outRight = openFilter2R.process (inRight);
+    }
+public:
+    // Tests: run Filter 2 even when it is wide open.
+    inline static bool disableOpenFilterBypass = false;
+private:
 
     static void processFilterPair (FilterUnit& left, FilterUnit& right, bool& linked,
                                    float inLeft, float inRight, float& outLeft, float& outRight)

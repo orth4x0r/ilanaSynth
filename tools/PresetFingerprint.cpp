@@ -14,6 +14,7 @@
 
 #include "PluginProcessor.h"
 #include "dsp/FilterUnit.h"
+#include "dsp/Voice.h"
 
 namespace
 {
@@ -155,6 +156,10 @@ int main (int argc, char** argv)
 
     std::ofstream out (argv[1]);
     out << "index,name,rms_db,peak,centroid_hz,side_ratio\n";
+
+    // ILANA_NO_OPEN_BYPASS=1: run Filter 2 in full even when it is wide open
+    // (to compare against builds from before the bypass).
+    Voice::disableOpenFilterBypass = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_OPEN_BYPASS", "").isNotEmpty();
 
     IlanaSynthAudioProcessor processor;
     processor.setNonRealtime (true);

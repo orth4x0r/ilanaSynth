@@ -1,4 +1,5 @@
 #include "Voice.h"
+#include "FastMath.h"
 
 #include <array>
 #include <cmath>
@@ -391,6 +392,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
     filter1Linked = filter2Linked = true;
+    filter2Open = false;
+    openFilter2L.reset();
+    openFilter2R.reset();
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -424,6 +428,9 @@ void Voice::resetForNewPatch()
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
     filter1Linked = filter2Linked = true;
+    filter2Open = false;
+    openFilter2L.reset();
+    openFilter2R.reset();
     westGateL.reset();
     westGateR.reset();
     westFolderL.reset();
@@ -1131,6 +1138,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     bool bothActive = routeSubOsc == FilterRoute::Both;
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         bothActive = bothActive || (active[osc] && routes[osc] == FilterRoute::Both);
+    bothRouteActive = bothActive;
     const auto subOscActive = params.subOscEnabled && params.subOscTable != nullptr;
     const auto subOscFrames = WavetableOscillator::frameReadFor (params.subOscTable, 0.0f);
 
@@ -1178,7 +1186,197 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         return amount + sampleMods[(int) legacy[source][target]];
     };
 
-    for (int i = 0; i < numSamples; ++i)
+    // Each 16-sample chunk (the sub-block the coefficients follow) runs in
+    // two passes: the sources (envelopes, modulation, oscillators, FM,
+    // strings) for every sample, then the post chain (drive, filters, west
+    // coast, body, amp) for every sample. Nothing in the post chain feeds the
+    // sources within a chunk, so the result is the same as one pass per
+    // sample, and the post chain runs as tight loops (Vital works in blocks
+    // the same way). Two cases do feed back, and run one sample per chunk:
+    // the body ringing the strings (coupling mode 2) and audio-rate filter FM
+    // (the coefficients move every sample).
+    constexpr int maxChunk = 16;
+    const auto sampleFeedback = (params.resonatorOn && params.bodyType != 0 && params.bodyCouplingMode == 2
+                                 && params.bodyCoupling > 0.0f)
+                                || params.filter1Fm != 0.0f || params.filter2Fm != 0.0f
+                                || [this]
+                                   {
+                                       for (int s = 0; s < params.numModSlots; ++s)
+                                           if (params.modSlots[s].isActive()
+                                               && (params.modSlots[s].destination == (int) D::Filter1Fm
+                                                   || params.modSlots[s].destination == (int) D::Filter2Fm))
+                                               return true;
+                                       return false;
+                                   }();
+    float chunkBusL[maxChunk][FilterRoute::Count], chunkBusR[maxChunk][FilterRoute::Count];
+    float chunkBodyL[maxChunk], chunkBodyR[maxChunk], chunkLive[maxChunk], chunkAmp[maxChunk];
+    float chunkAmpLevel[maxChunk], chunkWest[maxChunk];
+
+    const auto postSample = [&] (int i, const float* busL, const float* busR, float bodyExciteL, float bodyExciteR,
+                                 float liveSample, float ampValue, float ampLevelMod, float westSource)
+    {
+            const auto drive = [] (float value, float amount) { return amount > 1.0f ? FastMath::tanh (value * amount) : value; };
+
+            // Filter 1 hears the Default and Filter-1 buses.
+            // A mono source feeds both sides alike: drive it once (the same result).
+            const auto drivePair = [&drive] (float l, float r, float amount, float& outL, float& outR)
+            {
+                outL = drive (l, amount);
+                outR = r == l ? outL : drive (r, amount);
+            };
+            float defaultL, defaultR;
+            drivePair (busL[FilterRoute::Default], busR[FilterRoute::Default], drive1, defaultL, defaultR);
+            const auto hasF1Bus = busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f;
+            auto inL = defaultL, inR = defaultR;
+            if (hasF1Bus)
+                drivePair (busL[FilterRoute::Default] + busL[FilterRoute::Filter1],
+                           busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL, inR);
+
+            float f1L, f1R;
+            processFilterPair (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R);
+
+            float outL, outR;
+
+            // M8.3: the west-coast voice's control (the LED's drive): a strike
+            // on each note, or any mod source, on top of OPEN.
+            const auto westProcess = [&] (float& l, float& r)
+            {
+                const auto& w = params.west;
+                auto control = w.open;
+                if (w.source == 0)
+                {
+                    if (westStrikeRemaining > 0)
+                    {
+                        control += 2.0f * w.strike * velocityLevel; // the LED overdriven
+                        --westStrikeRemaining;
+                    }
+                }
+                else
+                {
+                    control += 2.0f * w.strike * westSource;
+                }
+                const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
+                westGateL.setParams (gateMode, w.decay, w.resonance);
+                westGateR.setParams (gateMode, w.decay, w.resonance);
+                l = westGateL.process (westFolderL.process (l), control);
+                r = westGateR.process (westFolderR.process (r), control);
+            };
+            const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
+
+            if (params.filtersParallel)
+            {
+                // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
+                float in2L, in2R;
+                drivePair (defaultL + busL[FilterRoute::Filter2], defaultR + busR[FilterRoute::Filter2], drive2, in2L, in2R);
+
+                // Balance fades one filter out; at the centre both are at full.
+                const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
+                const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
+
+                auto f2L = in2L, f2R = in2R;
+                if (westReplacesFilter2)
+                    westProcess (f2L, f2R);
+                else if (filter2Open)
+                {
+                    processOpenPair (in2L, in2R, f2L, f2R);
+                }
+                else
+                {
+                    processFilterPair (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R);
+                }
+                outL = (f1L * gain1 + f2L * gain2) * 0.7071f;
+                outR = (f1R * gain1 + f2R * gain2) * 0.7071f;
+            }
+            else
+            {
+                float f2inL, f2inR;
+                drivePair (f1L + busL[FilterRoute::Filter2], f1R + busR[FilterRoute::Filter2], drive2, f2inL, f2inR);
+
+                if (westReplacesFilter2)
+                {
+                    outL = f2inL;
+                    outR = f2inR;
+                    westProcess (outL, outR);
+                }
+                else if (filter2Open)
+                {
+                    processOpenPair (f2inL, f2inR, outL, outR);
+                }
+                else
+                {
+                    processFilterPair (filter2L, filter2R, filter2Linked, f2inL, f2inR, outL, outR);
+                }
+            }
+
+            outL += busL[FilterRoute::Direct];
+            outR += busR[FilterRoute::Direct];
+
+            if (params.west.on && params.west.position == 0)
+                westProcess (outL, outR);
+
+            // A separate parallel pair keeps the existing serial/parallel paths
+            // bit-identical whenever no oscillator selects Both.
+            if (bothActive)
+            {
+                const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1));
+                const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1));
+                const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2));
+                const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2));
+                outL += (both1L + both2L) * 0.7071f;
+                outR += (both1R + both2R) * 0.7071f;
+            }
+
+            float bodyWetL = 0.0f, bodyWetR = 0.0f;
+            if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
+            {
+                // M7.5: the live input rings the Classic body too.
+                const auto excite = liveSample * params.inputToBody;
+                outL = resonatorL.process (outL, excite);
+                outR = resonatorR.process (outR, excite);
+            }
+            else if (params.resonatorOn && resonatorAmount > 0.001f)
+            {
+                const auto exciteEnvelope = alternateAmpRouting ? 1.0f : ampValue;
+                bodyWetL = materialBodyL.process (bodyExciteL * exciteEnvelope);
+                bodyWetR = materialBodyR.process (bodyExciteR * exciteEnvelope);
+                outL *= 1.0f - resonatorAmount;
+                outR *= 1.0f - resonatorAmount;
+                if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
+                    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                        if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
+                            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                                stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (bodyWetL + bodyWetR));
+            }
+
+            const auto ampGain = (alternateAmpRouting ? 1.0f : ampValue) * ampVelScale
+                                 * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod);
+
+            if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
+            {
+                const auto wetGain = resonatorAmount * ampVelScale
+                                     * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod);
+                left[startSample + i] += outL * ampGain + bodyWetL * wetGain;
+                if (right != nullptr)
+                    right[startSample + i] += outR * ampGain + bodyWetR * wetGain;
+                else
+                    left[startSample + i] += outR * ampGain + bodyWetR * wetGain;
+            }
+            else
+            {
+                left[startSample + i] += outL * ampGain;
+                if (right != nullptr)
+                    right[startSample + i] += outR * ampGain;
+                else
+                    left[startSample + i] += outR * ampGain;
+            }
+
+    };
+
+    for (int chunkStart = 0; chunkStart < numSamples;)
+    {
+        const auto chunkEnd = sampleFeedback ? chunkStart + 1 : juce::jmin (numSamples, (chunkStart | (maxChunk - 1)) + 1);
+
+    for (int i = chunkStart; i < chunkEnd; ++i)
     {
         const auto liveSample = params.liveInput != nullptr ? params.liveInput[startSample + i] : 0.0f;
         const auto ampValue = ampEnv.getNextSample();
@@ -1523,153 +1721,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
         }
 
-        const auto drive = [] (float value, float amount) { return amount > 1.0f ? std::tanh (value * amount) : value; };
-
-        // Filter 1 hears the Default and Filter-1 buses.
-        // A mono source feeds both sides alike: drive it once (the same result).
-        const auto drivePair = [&drive] (float l, float r, float amount, float& outL, float& outR)
-        {
-            outL = drive (l, amount);
-            outR = r == l ? outL : drive (r, amount);
-        };
-        float defaultL, defaultR;
-        drivePair (busL[FilterRoute::Default], busR[FilterRoute::Default], drive1, defaultL, defaultR);
-        const auto hasF1Bus = busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f;
-        auto inL = defaultL, inR = defaultR;
-        if (hasF1Bus)
-            drivePair (busL[FilterRoute::Default] + busL[FilterRoute::Filter1],
-                       busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL, inR);
-
-        float f1L, f1R;
-        processFilterPair (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R);
-
-        float outL, outR;
-
-        // M8.3: the west-coast voice's control (the LED's drive): a strike
-        // on each note, or any mod source, on top of OPEN.
-        const auto westProcess = [&] (float& l, float& r)
-        {
-            const auto& w = params.west;
-            auto control = w.open;
-            if (w.source == 0)
-            {
-                if (westStrikeRemaining > 0)
-                {
-                    control += 2.0f * w.strike * velocityLevel; // the LED overdriven
-                    --westStrikeRemaining;
-                }
-            }
-            else
-            {
-                control += 2.0f * w.strike * juce::jlimit (0.0f, 1.0f, sourceValue ((Mod::Source) w.source, i, ampValue, filterValue,
-                                                                             filter2Value, modValue, env4Value));
-            }
-            const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
-            westGateL.setParams (gateMode, w.decay, w.resonance);
-            westGateR.setParams (gateMode, w.decay, w.resonance);
-            l = westGateL.process (westFolderL.process (l), control);
-            r = westGateR.process (westFolderR.process (r), control);
-        };
-        const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
-
-        if (params.filtersParallel)
-        {
-            // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
-            float in2L, in2R;
-            drivePair (defaultL + busL[FilterRoute::Filter2], defaultR + busR[FilterRoute::Filter2], drive2, in2L, in2R);
-
-            // Balance fades one filter out; at the centre both are at full.
-            const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
-            const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
-
-            auto f2L = in2L, f2R = in2R;
-            if (westReplacesFilter2)
-                westProcess (f2L, f2R);
-            else
-            {
-                processFilterPair (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R);
-            }
-            outL = (f1L * gain1 + f2L * gain2) * 0.7071f;
-            outR = (f1R * gain1 + f2R * gain2) * 0.7071f;
-        }
-        else
-        {
-            float f2inL, f2inR;
-            drivePair (f1L + busL[FilterRoute::Filter2], f1R + busR[FilterRoute::Filter2], drive2, f2inL, f2inR);
-
-            if (westReplacesFilter2)
-            {
-                outL = f2inL;
-                outR = f2inR;
-                westProcess (outL, outR);
-            }
-            else
-            {
-                processFilterPair (filter2L, filter2R, filter2Linked, f2inL, f2inR, outL, outR);
-            }
-        }
-
-        outL += busL[FilterRoute::Direct];
-        outR += busR[FilterRoute::Direct];
-
-        if (params.west.on && params.west.position == 0)
-            westProcess (outL, outR);
-
-        // A separate parallel pair keeps the existing serial/parallel paths
-        // bit-identical whenever no oscillator selects Both.
-        if (bothActive)
-        {
-            const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1));
-            const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1));
-            const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2));
-            const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2));
-            outL += (both1L + both2L) * 0.7071f;
-            outR += (both1R + both2R) * 0.7071f;
-        }
-
-        float bodyWetL = 0.0f, bodyWetR = 0.0f;
-        if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
-        {
-            // M7.5: the live input rings the Classic body too.
-            const auto excite = liveSample * params.inputToBody;
-            outL = resonatorL.process (outL, excite);
-            outR = resonatorR.process (outR, excite);
-        }
-        else if (params.resonatorOn && resonatorAmount > 0.001f)
-        {
-            const auto exciteEnvelope = alternateAmpRouting ? 1.0f : ampValue;
-            bodyWetL = materialBodyL.process (bodyExciteL * exciteEnvelope);
-            bodyWetR = materialBodyR.process (bodyExciteR * exciteEnvelope);
-            outL *= 1.0f - resonatorAmount;
-            outR *= 1.0f - resonatorAmount;
-            if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
-                for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
-                    if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
-                        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
-                            stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (bodyWetL + bodyWetR));
-        }
-
-        const auto ampGain = (alternateAmpRouting ? 1.0f : ampValue) * ampVelScale
-                             * juce::jlimit (0.0f, 2.0f, 1.0f + mods[(int) D::AmpLevel]);
-
-        if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
-        {
-            const auto wetGain = resonatorAmount * ampVelScale
-                                 * juce::jlimit (0.0f, 2.0f, 1.0f + mods[(int) D::AmpLevel]);
-            left[startSample + i] += outL * ampGain + bodyWetL * wetGain;
-            if (right != nullptr)
-                right[startSample + i] += outR * ampGain + bodyWetR * wetGain;
-            else
-                left[startSample + i] += outR * ampGain + bodyWetR * wetGain;
-        }
-        else
-        {
-            left[startSample + i] += outL * ampGain;
-            if (right != nullptr)
-                right[startSample + i] += outR * ampGain;
-            else
-                left[startSample + i] += outR * ampGain;
-        }
+        const auto slot = i - chunkStart;
+        std::copy (busL, busL + FilterRoute::Count, chunkBusL[slot]);
+        std::copy (busR, busR + FilterRoute::Count, chunkBusR[slot]);
+        chunkBodyL[slot] = bodyExciteL;
+        chunkBodyR[slot] = bodyExciteR;
+        chunkLive[slot] = liveSample;
+        chunkAmp[slot] = ampValue;
+        chunkAmpLevel[slot] = mods[(int) D::AmpLevel];
+        chunkWest[slot] = params.west.on && params.west.source != 0
+                              ? juce::jlimit (0.0f, 1.0f, sourceValue ((Mod::Source) params.west.source, i, ampValue, filterValue,
+                                                                       filter2Value, modValue, env4Value))
+                              : 0.0f;
 
         lastAmpValue = ampValue;
         lastLifetimeValue = ampValue;
@@ -1682,6 +1745,16 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         lastFilter2Value = filter2Value;
         lastModValue = modValue;
         lastEnv4Value = env4Value;
+    }
+
+    for (int i = chunkStart; i < chunkEnd; ++i)
+    {
+        const auto slot = i - chunkStart;
+        postSample (i, chunkBusL[slot], chunkBusR[slot], chunkBodyL[slot], chunkBodyR[slot], chunkLive[slot],
+                    chunkAmp[slot], chunkAmpLevel[slot], chunkWest[slot]);
+    }
+
+        chunkStart = chunkEnd;
     }
 
     const auto samplePositionOf = [] (const SamplePlayer& player, const SampleData* data)
@@ -1935,6 +2008,39 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
                                            * std::exp2 (keyOctaves2 + envOctaves2 + fmOctaves2
                                                         + (double) mods[(int) D::Filter2Cutoff] * 6.0));
     const auto reso2 = juce::jlimit (0.0f, 1.0f, params.filter2.resonance + mods[(int) D::Filter2Reso]);
+
+    // Filter 2 is a Low Pass left wide open on 361 of the 371 factory
+    // presets. While it stays there (above 19 kHz, resonance up to 0.3, no
+    // audio-rate FM) a linear copy of it runs instead (OpenLowPass: the same
+    // response, a third of the cost; Vital likewise skips work a stage can't
+    // be heard doing). Moving between the two starts the new one from rest.
+    const auto open2 = ! disableOpenFilterBypass && params.filter2.type == FilterType::LowPass
+                       && ! params.filter2.slope24 && cutoff2 >= openFilterHz && reso2 <= 0.3f && fmOctaves2 == 0.0;
+
+    if (open2 != filter2Open)
+    {
+        filter2Open = open2;
+        openFilter2L.reset();
+        openFilter2R.reset();
+        filter2L.reset();
+        filter2R.reset();
+        filter2Linked = true;
+        openCutoff2 = -1.0;
+    }
+
+    if (open2)
+    {
+        if (cutoff2 != openCutoff2 || reso2 != openReso2)
+        {
+            openCutoff2 = cutoff2;
+            openReso2 = reso2;
+            openFilter2L.set (sampleRate, cutoff2, reso2);
+            openFilter2R = openFilter2L;
+        }
+
+        if (! bothRouteActive)
+            return;
+    }
 
     for (auto* filter : { &filter2L, &filter2R, &bothFilter2L, &bothFilter2R })
         filter->setType (params.filter2.type, params.filter2.slope24);

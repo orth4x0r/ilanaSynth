@@ -786,7 +786,13 @@ public:
         for (auto& band : formantBands)
             band.reset();
 
-        std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+        // The comb line is only cleared once a comb has written to it (a
+        // note-on resets eight filters; most never use the line).
+        if (combUsed)
+        {
+            std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+            combUsed = false;
+        }
         combWrite = 0;
         combDamp = 0.0f;
     }
@@ -916,6 +922,7 @@ private:
 
         combDamp += combDampCoefficient * (delayed - combDamp);
         const auto fed = input + (float) combFeedback * combDamp;
+        combUsed = true;
         combBuffer[(size_t) combWrite] = std::tanh (fed * 0.5f) * 2.0f;
         combWrite = (combWrite + 1) & combMask;
 
@@ -959,6 +966,7 @@ private:
     float combDampCoefficient = 0.7f;
 
     std::vector<float> combBuffer;
+    bool combUsed = false;
     int combMask = 0;
     int combWrite = 0;
     double combDelay = 1.0;

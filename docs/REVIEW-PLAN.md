@@ -35,6 +35,7 @@ Review: claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS. Projected "potential" review
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | **Filter overhaul models** (step 4): all 25 rebuilt on solved zero-delay cores, in tune at self-oscillation, every preset's level held; 303 Acid, Moog Drive, Vowel Morph, Comb Body; filter tests; SPECTRAL AMOUNT is a modulation destination. See `docs/filter-overhaul-status.md` |
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | **Weak macros** (step 5): 106 macros on 85 presets rewired in `src/PresetVoicing.h`; `applyDefaultMacros` skips macros the voicing wires; presets re-levelled (`tune_presets.py`, two passes) |
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | **Interface** (step 6): PATCH card on PLAY, VECTOR pad fills its card, PHYSICAL preview, mod-ring UI test, physical-hybrid positioning |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Features** (step 7): SF2/SFZ multisamples, FX splitters, vocoder, clip sequencer |
 
 Diversity pass (step 3, 2026-09-30): `src/PresetVoicing.h` lays parameter changes and macro
 rewiring over 172 factory recipes (Airwindows saturation and spaces instead of Hall, dry and mono,
@@ -95,6 +96,12 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    the plugin description say "physical hybrid synthesizer". Left for the user: a new logo, colours or type, and an
    Init patch that opens on a hybrid sound (it would change Init's sound).
 7. **Features:** SoundFont (SF2/SFZ) in the Sample oscillator; FX splitters (multiband/LR/MS); vocoder; clip sequencer.
+   **Done** 2026-09-30: SF2 (first preset) and SFZ load as key/velocity zones in the Sample oscillator (drop or right-click the display);
+   any FX slot can work on one band (Low / Mid / High with two LR4 crossovers, or Mid / Side), the rest passing untouched;
+   the vocoder is FX type 31 (audio input or a built-in Talk modulator, 8-24 bands); the clip sequencer plays 8 clips
+   saved in the patch (Key transpose from C3 or Host play), with a CLIP tab piano roll and .mid import. Each has its
+   test suite (`ILANA_MULTISAMPLE_TEST`, `ILANA_SPLITTER_TEST`, `ILANA_VOCODER_TEST`, `ILANA_CLIP_TEST`); old presets unchanged.
+   Left for the user: listening to all four. Not done: mod-matrix destinations for the vocoder parameters.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
    trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)
 9. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

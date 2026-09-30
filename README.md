@@ -15,7 +15,7 @@ IlanaSynth is a complete sound design machine:
 - **Filters and envelopes:** 29 filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
 - **Effects:** a 10-slot rack with 31 modules, including a trance gate, a channel vocoder (audio input or built-in Talk modulator) and 39 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side: right-click it, Band), so a run of slots is a chain per band.
-- **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
+- **Generative tools:** an arpeggiator with scale-random mode, a clip sequencer (8 clips of notes saved in the patch, a piano roll, MIDI import; a held key transposes the clip, or it follows the host's play), plus note spray and scale snapping.
 - **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
 - **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
 
@@ -215,6 +215,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
 - **The Generative card** has three tabs:
   - **ARP**: the arpeggiator above.
+  - **CLIP**: the clip sequencer: choose a clip (1–8), draw notes in the piano roll (click to add, drag to move or resize, right-click to delete) or import a .mid file. KEY TRANSPOSE plays it while a key is held, transposed from C3; HOST PLAY runs it with the host's transport.
   - **EUCLID**: a Euclidean rhythm. STEPS (2–32), HITS spread as evenly as possible over them, ROTATE, RATE and GATE. The ring shows the pattern and the step playing; drag on it to change the hits (up/down) or rotate (sideways). TARGET picks what it drives:
     - **Notes**: rests the arp's steps between hits. With the arp off, it plays the held chord on each hit.
     - **Exciter**: re-strikes the Physical strings of the notes held, on each hit, sample-accurately.

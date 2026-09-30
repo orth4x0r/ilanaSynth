@@ -89,6 +89,12 @@ Fingerprint render (IlanaSynthAudioProcessor& processor, int presetIndex,
     Fingerprint result;
     double sum = 0.0, sideSum = 0.0;
 
+    // ILANA_FINGERPRINT_DUMP=dir: also write each render's mid signal
+    // (raw float32, 48 kHz) as dir/<index>.f32, for looking at one closely.
+    const auto dump = juce::SystemStats::getEnvironmentVariable ("ILANA_FINGERPRINT_DUMP", "");
+    if (dump.isNotEmpty())
+        juce::File (dump).getChildFile (juce::String (presetIndex) + ".f32").replaceWithData (mid.data(), mid.size() * sizeof (float));
+
     for (size_t i = 0; i < mid.size(); ++i)
     {
         sum += (double) mid[i] * mid[i];
@@ -156,8 +162,23 @@ int main (int argc, char** argv)
 
     const auto names = processor.getFactoryPresetNames();
 
+    // ILANA_FINGERPRINT_ONLY=a,b: only presets whose names contain one of
+    // these (for quick iteration; the filter model rows are always written).
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_FINGERPRINT_ONLY", ""), ",", "");
+    const auto wanted = [&only] (const juce::String& name)
+    {
+        if (only.isEmpty())
+            return true;
+        for (const auto& part : only)
+            if (part.isNotEmpty() && name.contains (part))
+                return true;
+        return false;
+    };
+
     for (int i = 0; i < names.size(); ++i)
     {
+        if (! wanted (names[i]))
+            continue;
         const auto print = render (processor, i);
         out << i << ",\"" << names[i].toStdString() << "\"," << print.rmsDb << "," << print.peak << ","
             << print.centroid << "," << print.side << "\n";

@@ -7,6 +7,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "FilterCore.h"
+
 #include <array>
 #include <cmath>
 #include <complex>
@@ -160,39 +162,34 @@ private:
     bool bandPass = false;
 };
 
-// Korg-35 high-pass (the MS-20's HPF): the Sallen-Key dual of its low-pass,
-// resonance through a saturating loop.
+// Korg-35 high-pass (the MS-20's HPF, FilterCore::Korg35Core): the dual of
+// its low-pass, the resonance fed back through a low-pass and the diode
+// limiter, at twice the sample rate; self-oscillates at the cutoff.
 class Ms20HighPass
 {
 public:
     void set (double sampleRate, double cutoff, double resonance)
     {
-        const auto g = prewarp (sampleRate, cutoff);
-        bigG = g / (1.0 + g);
-        k = 0.01 + juce::jlimit (0.0, 1.0, resonance) * 1.98;
-        alpha0 = 1.0 / (1.0 - k * bigG + k * bigG * bigG);
-        hpf2Beta = -bigG / (1.0 + g);
-        lpf1Beta = 1.0 / (1.0 + g);
-        g1 = g;
+        const auto g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
+        core.set (g, 0.01 + juce::jlimit (0.0, 1.0, resonance) * 2.05, true, limit);
     }
-    void reset() { hpf1.reset(); hpf2.reset(); lpf1.reset(); }
+    void reset() { core.reset(); oversampler.reset(); }
     float process (float input)
     {
-        const auto y1 = (double) input - hpf1.lowPass ((double) input, bigG); // first HP
-        const auto s35 = hpf2Beta * hpf2.s + lpf1Beta * lpf1.s;
-        auto u = alpha0 * (y1 + s35);
-        u = std::tanh (u * 1.2) / 1.2;
-        const auto y = k * (u - hpf2.lowPass (u, bigG));
-        lpf1.lowPass (y, bigG);
-        const auto out = y / k;
-        juce::ignoreUnused (g1);
-        if (! std::isfinite (out)) { reset(); return 0.0f; }
-        return (float) out;
+        double first, second;
+        oversampler.upsample ((double) input, first, second);
+        const auto a = core.process (first);
+        const auto b = core.process (second);
+        return (float) (oversampler.downsample (a, b) * outputGain);
     }
 
+    // Limiter level and output gain: the old model's level table within 1 dB
+    // (1.5 dB at 3 kHz and resonance 0.9).
+    static constexpr double limit = 0.6, outputGain = 0.68;
+
 private:
-    OnePole hpf1, hpf2, lpf1;
-    double bigG = 0.1, k = 0.01, alpha0 = 1.0, hpf2Beta = 0.0, lpf1Beta = 0.0, g1 = 0.1;
+    FilterCore::Korg35Core core;
+    FilterCore::Halfband2x oversampler;
 };
 
 // Steiner-Parker: one 2-pole loop with three inputs. Feeding the source

@@ -6222,7 +6222,7 @@ const VoicingLine* findVoicing (const char* presetName)
 void IlanaSynthAudioProcessor::applyPresetVoicing (const char* presetName, std::vector<std::pair<juce::String, float>>& values,
                                                    std::array<juce::String, 4>& macroNames)
 {
-    if (presetName == nullptr)
+    if (presetName == nullptr || ! presetVoicingEnabled)
         return;
     const auto* line = findVoicing (presetName);
     if (line == nullptr)

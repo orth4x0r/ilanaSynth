@@ -2417,6 +2417,9 @@ void runLegacyPresetFxTest()
         return -1;
     };
 
+    // What the recipes themselves load (the voicing layer re-lays some FX).
+    IlanaSynthAudioProcessor::presetVoicingEnabled = false;
+
     processor.loadFactoryPreset (findPreset ("Rip Bass"));
     check (slotType (1) == 2, "legacy preset restores its Drive module (slot1 " + juce::String (slotType (1)) + ")");
 
@@ -2429,6 +2432,7 @@ void runLegacyPresetFxTest()
     check (slotType (7) == 9 && slotType (10) == 13,
            "modern preset keeps its explicit slot layout");
 
+    IlanaSynthAudioProcessor::presetVoicingEnabled = true;
     processor.panic();
 }
 

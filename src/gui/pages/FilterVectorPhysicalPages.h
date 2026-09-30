@@ -207,7 +207,7 @@ private:
                                      (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
                                      (juce::Component*) &position })
         {
-            const auto alpha = active ? 1.0f : 0.4f;
+            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
@@ -375,11 +375,11 @@ private:
                                      (juce::Component*) &y, (juce::Component*) &rate, (juce::Component*) &drift,
                                      (juce::Component*) &driftRate, (juce::Component*) &pad })
         {
-            const auto alpha = active ? 1.0f : 0.45f;
+            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
-        rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : 0.45f);
+        rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
         if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint (evolveCard);
     }
@@ -639,8 +639,8 @@ private:
             button.setAlpha (isPhysical (i) ? 1.0f : 0.5f);
         }
         const auto resonator = readParam ("res_on") > 0.5f;
-        bodyType.setAlpha (resonator ? 1.0f : 0.45f);
-        sbModel.setAlpha (readParam ("sb_on") > 0.5f ? 1.0f : 0.45f);
+        bodyType.setAlpha (resonator ? 1.0f : IlanaTheme::dimmedAlpha);
+        sbModel.setAlpha (readParam ("sb_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
     }
 
     void timerCallback() override

@@ -182,6 +182,10 @@ public:
     juce::StringArray getFactoryPresetNames() const;
     juce::StringArray getFactoryPresetCategories() const;
     juce::Array<juce::File> getUserPresetFiles() const;
+    // The four macro names a factory preset loads with (its own, the
+    // voicing's, then the automatic ones), worked out without loading it;
+    // an empty string is a macro with no name.
+    juce::StringArray getFactoryMacroNames (int factoryIndex) const;
     juce::StringArray getAllPresetNames() const;
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;

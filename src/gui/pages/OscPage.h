@@ -1072,7 +1072,7 @@ private:
         for (auto* control : controls)
         {
             control->setEnabled (enabled);
-            control->setAlpha (enabled ? 1.0f : 0.3f);
+            control->setAlpha (enabled ? 1.0f : IlanaTheme::dimmedAlpha);
         }
     }
 
@@ -1082,17 +1082,17 @@ private:
         const auto subIsOn = readBool ("subosc_on");
         for (auto* control : { static_cast<juce::Component*> (&subShape), static_cast<juce::Component*> (&subOctave),
                                static_cast<juce::Component*> (subOscLevel.get()) })
-            if (control != nullptr && control->getAlpha() != (subIsOn ? 1.0f : 0.4f))
-                control->setAlpha (subIsOn ? 1.0f : 0.4f);
+            if (control != nullptr && control->getAlpha() != (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha))
+                control->setAlpha (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha);
 
         const auto boardOn = readBool ("sb_on");
         for (auto* control : { &sbMix, &sbTone, &sbSize })
-            control->setAlpha (boardOn ? 1.0f : 0.4f);
+            control->setAlpha (boardOn ? 1.0f : IlanaTheme::dimmedAlpha);
 
         // Manual notes past STRINGS are not sounding.
         const auto stringCount = juce::roundToInt (processorRef.apvts.getRawParameterValue ("sym_count")->load());
         for (int i = 0; i < (int) symNotes.size(); ++i)
-            symNotes[(size_t) i]->setAlpha (i < stringCount ? 1.0f : 0.4f);
+            symNotes[(size_t) i]->setAlpha (i < stringCount ? 1.0f : IlanaTheme::dimmedAlpha);
 
         for (int index = 0; index < OscillatorIds::count; ++index)
         {
@@ -1123,8 +1123,8 @@ private:
             // An amount whose stage or envelope is Off does nothing: dim it.
             if (enabled)
             {
-                osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : 0.4f);
-                osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : 0.4f);
+                osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
+                osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
             }
 
             const auto alpha = enabled ? 1.0f : 0.3f;

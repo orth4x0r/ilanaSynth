@@ -173,6 +173,14 @@ public:
         repaint();
     }
 
+    // The one key that should read as the header's main action (SAVE): a
+    // tinted accent fill and edge, white icon and text.
+    void setEmphasis (bool shouldEmphasise)
+    {
+        emphasis = shouldEmphasise;
+        repaint();
+    }
+
     void setIconColour (std::optional<juce::Colour> colour)
     {
         iconColour = colour;
@@ -186,9 +194,18 @@ public:
 
         getLookAndFeel().drawButtonBackground (g, *this, background, isHighlighted, isDown);
 
+        if (emphasis && isEnabled())
+        {
+            const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (IlanaTheme::accent().withAlpha (isDown ? 0.5f : (isHighlighted ? 0.42f : 0.32f)));
+            g.fillRoundedRectangle (bounds, juce::jmin (5.0f, bounds.getHeight() * 0.3f));
+            g.setColour (IlanaTheme::accent().withAlpha (0.85f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), juce::jmin (5.0f, bounds.getHeight() * 0.3f), 1.2f);
+        }
+
         auto area = getLocalBounds().toFloat().reduced (3.0f);
         const auto enabled = isEnabled();
-        auto colour = iconColour.value_or (on ? juce::Colours::white : IlanaTheme::Ui::text2);
+        auto colour = iconColour.value_or (on || emphasis ? juce::Colours::white : IlanaTheme::Ui::text2);
 
         if (! enabled)
             colour = colour.withAlpha (0.22f);
@@ -214,6 +231,7 @@ public:
 private:
     IlanaIcons::Icon icon;
     juce::String text;
+    bool emphasis = false;
     std::optional<juce::Colour> iconColour;
 };
 
@@ -298,13 +316,13 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
+        g.setFont (IlanaTheme::font (nameSize, true));
         const auto nameText = name.isNotEmpty() ? name : juce::String ("Init");
         g.drawText (nameText, text, juce::Justification::centredLeft, true);
 
         if (isFavourite)
         {
-            const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::large, true)), nameText);
+            const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (nameSize, true)), nameText);
             const auto starX = juce::jmin ((float) text.getRight() - 10.0f, (float) text.getX() + nameWidth + 12.0f);
             g.setColour (juce::Colour (0xffffd447));
             g.fillPath (IlanaIcons::make (IlanaIcons::Icon::Star,
@@ -322,6 +340,9 @@ public:
     }
 
 private:
+    // The preset name is the header's centrepiece: a size up from the type
+    // scale's "large".
+    static constexpr float nameSize = 19.0f;
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;

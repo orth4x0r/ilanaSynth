@@ -1529,7 +1529,7 @@ private:
             if (panel.duplicate)
                 continue;
 
-            const auto alpha = isModuleOff (panel.slot) ? 0.45f : 1.0f;
+            const auto alpha = isModuleOff (panel.slot) ? IlanaTheme::dimmedAlpha : 1.0f;
 
             for (auto* item : slotGroups[(size_t) panel.type])
             {

@@ -17,13 +17,16 @@ public:
     {
         if (isMouseOver (true))
             highlightedModSource() = 0;
+
+        if (pinnedModSource() == index)
+            pinnedModSource() = 0;
     }
 
     ModSourceChip (const juce::String& sourceName, int sourceIndex)
         : name (sourceName),
           index (sourceIndex)
     {
-        setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover.");
+        setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover; click to keep them lit, click again to clear.");
         startTimerHz (30);
     }
 
@@ -53,7 +56,8 @@ public:
         const auto colour = modSourceColour (index);
         const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
         const auto glow = juce::jlimit (0.0f, 1.0f, activity);
-        const auto lit = juce::jmax (hover, glow);
+        const auto pinned = isPinned();
+        const auto lit = juce::jmax (hover, glow, pinned ? 1.0f : 0.0f);
 
         // Grey chips; the source's colour is only a dot, which glows while
         // the source is moving something.
@@ -63,7 +67,7 @@ public:
         g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f * hover + 0.1f * glow));
         g.fillRoundedRectangle (bounds, radius);
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, pinned ? 2.0f : 1.0f);
 
         const auto gripX = bounds.getX() + 1.0f;
         const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ gripX + 14.0f, bounds.getCentreY() });
@@ -84,6 +88,21 @@ public:
     {
         if (highlightedModSource() == index)
             highlightedModSource() = 0;
+    }
+
+    // A click (not a drag) pins the source: every knob it drives stays lit
+    // until the chip is clicked again.
+    void togglePinned()
+    {
+        pinnedModSource() = pinnedModSource() == index ? 0 : index;
+    }
+
+    bool isPinned() const { return pinnedModSource() == index; }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (! event.mouseWasDraggedSinceMouseDown() && ! event.mods.isPopupMenu() && getLocalBounds().contains (event.getPosition()))
+            togglePinned();
     }
 
     void mouseDrag (const juce::MouseEvent&) override
@@ -108,6 +127,13 @@ private:
 
         auto changed = false;
         const auto target = isMouseOver() ? 1.0f : 0.0f;
+        const auto pinnedNow = isPinned();
+
+        if (pinnedNow != wasPinned)
+        {
+            wasPinned = pinnedNow;
+            changed = true;
+        }
 
         if (std::abs (hover - target) >= 0.005f)
         {
@@ -134,6 +160,7 @@ private:
     juce::String name, shortName;
     int index = 0;
     bool compact = false;
+    bool wasPinned = false;
     float hover = 0.0f;
     float activity = 0.0f;
 };

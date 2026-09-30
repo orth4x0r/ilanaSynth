@@ -33,6 +33,7 @@
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
+#include "gui/OutputView.h"
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
 #include "gui/SubTabBar.h"
@@ -270,18 +271,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     legatoToggle->showAsSwitch();
     legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
     content.addAndMakeVisible (*legatoToggle);
-    bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend");
-    // Settings rather than sound controls: neutral, so they don't outshine
-    // the page (and yellow stays the macros' colour).
-    voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices", -1, IlanaTheme::Ui::text2, false);
+    // Master is a setting rather than a sound control: neutral, so it doesn't
+    // outshine the page (and yellow stays the macros' colour).
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
     outputMeter = std::make_unique<OutputMeter> (p);
     content.addAndMakeVisible (*outputMeter);
-    voiceModeBox = std::make_unique<ComboControl> (p.apvts, "voice_mode", "VOICE MODE");
 
-    for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (bendKnob.get()),
-                             static_cast<juce::Component*> (voicesKnob.get()), static_cast<juce::Component*> (masterKnob.get()),
-                             static_cast<juce::Component*> (voiceModeBox.get()) })
+    for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (masterKnob.get()) })
         content.addAndMakeVisible (*component);
 
     presetDisplay.onClick = [this] { togglePresetPanel(); };
@@ -303,6 +299,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     favButton.setClickingTogglesState (true);
     favButton.onClick = [this] { toggleFavourite(); updateHeaderButtons(); };
     saveButton.setText ("SAVE");
+    saveButton.setEmphasis (true);
     saveButton.onClick = [this] { savePreset(); };
     moreButton.onClick = [this] { showPresetMenu(); };
     undoButton.onClick = [this] { processorRef.getUndoManager().undo(); };
@@ -769,6 +766,12 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     // CPU at the right), clear of the buttons above.
     const auto statusY = 41;
 
+    // The rules between the action groups.
+    g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
+    for (const auto x : headerSeparatorX)
+        if (x > 0)
+            g.fillRect (juce::Rectangle<int> (x, 9, 1, 20));
+
 
     const auto cpu = processorRef.getCpuUsage() * 100.0f;
 
@@ -843,26 +846,31 @@ void IlanaSynthAudioProcessorEditor::resized()
     auto headerRow = area.removeFromTop (56).withTrimmedTop (4).withHeight (30).withTrimmedRight (14);
     headerRow.removeFromLeft (292);
 
-    constexpr int key = 30;
+    // Three groups, right to left: tools (dice, settings), edit (undo, redo,
+    // history, A/B) and file (star, save, menu), each pair of groups parted by
+    // a gap with a thin rule in it.
+    constexpr int key = 30, groupGap = 24;
     settingsButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (6);
+    headerRow.removeFromRight (4);
     diceButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (6);
+    headerRow.removeFromRight (groupGap);
+    headerSeparatorX[1] = headerRow.getRight() + groupGap / 2;
     abButton.setBounds (headerRow.removeFromRight (92));
-    headerRow.removeFromRight (12);
+    headerRow.removeFromRight (6);
     historyButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (3);
     redoButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (3);
     undoButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (16);
+    headerRow.removeFromRight (groupGap);
+    headerSeparatorX[0] = headerRow.getRight() + groupGap / 2;
 
     moreButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (3);
-    saveButton.setBounds (headerRow.removeFromRight (70));
-    headerRow.removeFromRight (8);
+    headerRow.removeFromRight (4);
+    saveButton.setBounds (headerRow.removeFromRight (82));
+    headerRow.removeFromRight (4);
     favButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (3);
+    headerRow.removeFromRight (10);
     nextButton.setBounds (headerRow.removeFromRight (26));
     prevButton.setBounds (headerRow.removeFromLeft (26));
     headerRow.removeFromLeft (3);
@@ -887,13 +895,9 @@ void IlanaSynthAudioProcessorEditor::resized()
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (4);
-    voicesKnob->setBounds (strip.removeFromRight (88));
-    // The bar's menu and switch put their name on the knobs' title line and
-    // their box or switch on the value line, like the knobs' text beside them.
+    // The bar's switch puts its name on the knobs' title line and the switch
+    // on the value line, like the knobs' text beside them.
     const auto titleTop = strip.getCentreY() - 15;
-    voiceModeBox->setBounds (strip.removeFromRight (96).withTop (titleTop).withHeight (13 + 24).reduced (2, 0));
-    strip.removeFromRight (6);
-    bendKnob->setBounds (strip.removeFromRight (86));
     legatoToggle->setBounds (strip.removeFromRight (80).withTop (titleTop).withHeight (13 + 20).reduced (2, 0));
     glideKnob->setBounds (strip.removeFromRight (92));
     strip.removeFromRight (6);
@@ -1413,7 +1417,28 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                                           : juce::String ("MTS-ESP: no master in this session"),
                     false, processorRef.isMtsEspConnected());
 
+    // The voice settings that used to sit in the bottom bar: how notes are
+    // shared out, how many can sound at once and the pitch-bend range.
+    static constexpr int voiceCounts[] { 1, 2, 3, 4, 6, 8, 12, 16, 24, 32 };
+    static constexpr int bendRanges[] { 0, 1, 2, 3, 4, 5, 7, 12, 24 };
+    const auto currentVoices = juce::roundToInt (read ("poly_voices"));
+    const auto currentBend = juce::roundToInt (read ("bend_range"));
+    const auto currentMode = juce::roundToInt (read ("voice_mode"));
+    juce::PopupMenu voiceModes, voiceLimits, bendMenu;
+    const char* const modeNames[] { "Poly", "Mono", "Legato" };
+    for (int i = 0; i < 3; ++i)
+        voiceModes.addItem (900 + i, modeNames[i], true, currentMode == i);
+    for (int i = 0; i < (int) std::size (voiceCounts); ++i)
+        voiceLimits.addItem (910 + i, juce::String (voiceCounts[i]), true, currentVoices == voiceCounts[i]);
+    for (int i = 0; i < (int) std::size (bendRanges); ++i)
+        bendMenu.addItem (930 + i, juce::String (bendRanges[i]) + (bendRanges[i] == 1 ? " semitone" : " semitones"),
+                          true, currentBend == bendRanges[i]);
+
     juce::PopupMenu menu;
+    menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
+    menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
+    menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
+    menu.addSeparator();
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
     menu.addSubMenu ("Engine quality", quality);
@@ -1467,6 +1492,25 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                                     if (result > 700)
                                         set ("os_factor", (float) (result - 701));
                                 }
+                            }
+                            else if (result >= 900 && result < 950)
+                            {
+                                const auto set = [&safeThis] (const char* id, float value)
+                                {
+                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (id))
+                                    {
+                                        parameter->beginChangeGesture();
+                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                                        parameter->endChangeGesture();
+                                    }
+                                };
+
+                                if (result < 910)
+                                    set ("voice_mode", (float) (result - 900));
+                                else if (result < 930)
+                                    set ("poly_voices", (float) voiceCounts[juce::jlimit (0, (int) std::size (voiceCounts) - 1, result - 910)]);
+                                else
+                                    set ("bend_range", (float) bendRanges[juce::jlimit (0, (int) std::size (bendRanges) - 1, result - 930)]);
                             }
                             else if (result == 400)
                             {

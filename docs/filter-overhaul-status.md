@@ -53,9 +53,10 @@ resonant two-pole, the decode curve, a fixed 20 kHz Butterworth out; the voice s
 (`headroom`). Two changes from the plugins: the resonant stage is computed as a zero-delay SVF with the biquad's
 response (a direct-form biquad overshot up to +3.7 dB when a filter envelope moved the cutoff every 16 samples), and
 the band-pass peaks at Q like the old one (YBandpass holds its peak at unity, which lost up to 29 dB). Resonance keeps
-the old damping (Q = 1 / (2 - 2 r)), topped at Q 40: they ring at the cutoff (tests) but no longer self-oscillate.
+the old damping (Q = 1 / (2 - 2 r)), topped at Q 40 up to 0.98; above that they self-oscillate at the cutoff (the old
+SVF's nonlinear damping, inside the curves; the plugins stop short of it), in tune within 0.25 % (tests).
 24 dB puts both stages inside one curve pair. Presets: 389 changed tone, every one within the level rule; four needed
-a trim change of 0.1-0.4 dB (Clock Weirdo, Rust Bass, Resonant Drop, Self-Osc Choir). Morph, Formant and the other
+a trim change of 0.2-0.4 dB (Clock Weirdo, Rust Bass, Resonant Drop). Morph, Formant and the other
 models are unchanged. Airwindows character filters are appended types 29-37 (`src/dsp/AirwindowsCharacter.h`, tests
 `ILANA_AWFILTER_TEST`): AW Z LP / HP / BP (MORPH = poles, RESO = drive into the op-amp stage), AW Acid (ZAcidLowpass,
 MORPH = meltdown), AW X LP (RESO = nuke), AW YNot LP (MORPH = resedge), AW Holt (MORPH = poles), AW Angle (MORPH =

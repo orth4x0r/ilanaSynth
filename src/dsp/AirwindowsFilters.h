@@ -7,6 +7,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "FilterCore.h"
+
 #include <array>
 #include <cmath>
 
@@ -92,7 +94,7 @@ struct GlideBiquad
 // overshoots under that (up to +3.7 dB peaks on the presets). Resonance 0..1
 // sets the damping as the old SVF models did (Q = 1 / (2 - 2 r), so their
 // linear response and every preset's tone balance carry over), topped at
-// Q 40: the Y filters ring hard but never oscillate on their own.
+// Q 40 up to resonance 0.98; above it they self-oscillate (see makeCoefficients).
 class YFilter
 {
 public:
@@ -101,6 +103,7 @@ public:
     struct Coefficients
     {
         double g = 0.0, k = 2.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        bool selfOscillating = false;
         std::array<double, 5> fixed {};
     };
 
@@ -111,6 +114,8 @@ public:
     // level (and the gain comes back after).
     static constexpr double headroom = 0.5;
 
+    static constexpr double oscillationStart = 0.98, oscDamping = 0.5, oscScale = 3.4;
+
     static double exponent() { return std::pow (resEdge + 0.9, 4.0); }
 
     static Coefficients makeCoefficients (double sampleRate, double cutoff, double resonance)
@@ -119,7 +124,12 @@ public:
         const auto f = juce::jlimit (15.0, sampleRate * 0.45, cutoff) / sampleRate;
         const auto r = juce::jlimit (0.0, 1.0, resonance);
         c.g = std::tan (juce::MathConstants<double>::pi * f);
-        c.k = juce::jmax (2.0 - 2.0 * r, 1.0 / 40.0);
+        // Above 0.98 the damping goes negative and the filter sings at the
+        // cutoff, held at a steady level by nonlinear damping (as the old SVF
+        // models did; the Airwindows plugins stop short of this).
+        c.selfOscillating = r > oscillationStart;
+        c.k = c.selfOscillating ? 2.0 - 2.0 * oscillationStart - (r - oscillationStart) * 3.0
+                                : juce::jmax (2.0 - 2.0 * r, 1.0 / 40.0);
         c.a1 = 1.0 / (1.0 + c.g * (c.g + c.k));
         c.a2 = c.g * c.a1;
         c.a3 = c.g * c.a2;
@@ -143,6 +153,7 @@ public:
     void reset()
     {
         ic1 = ic2 = ic3 = ic4 = 0.0;
+        band1 = band2 = 0.0;
         fixedIn.reset();
         fixedOut.reset();
     }
@@ -151,28 +162,41 @@ public:
     float process (float input, bool slope24 = false)
     {
         auto x = encode (fixedIn.process ((double) input) * headroom);
-        x = stage (x, ic1, ic2);
+        x = stage (x, ic1, ic2, band1);
         if (slope24)
-            x = stage (x, ic3, ic4);
+            x = stage (x, ic3, ic4, band2);
         return (float) fixedOut.process (decode (x) / headroom);
     }
 
 private:
-    double stage (double x, double& s1, double& s2) const
+    double stage (double x, double& s1, double& s2, double& lastBand) const
     {
         const auto& c = coefficients;
+        auto k = c.k, a1 = c.a1, a2 = c.a2, a3 = c.a3;
+
+        if (c.selfOscillating)
+        {
+            // The damping rises with the band-pass level (from the last
+            // sample): kappa = k + c (1 - tanh (a bp) / (a bp)).
+            k += oscDamping * (1.0 - FilterCore::tanhOverX (oscScale * lastBand));
+            a1 = 1.0 / (1.0 + c.g * (c.g + k));
+            a2 = c.g * a1;
+            a3 = c.g * a2;
+        }
+
         const auto v3 = x - s2;
-        const auto v1 = c.a1 * s1 + c.a2 * v3;
-        const auto v2 = s2 + c.a2 * s1 + c.a3 * v3;
+        const auto v1 = a1 * s1 + a2 * v3;
+        const auto v2 = s2 + a2 * s1 + a3 * v3;
         s1 = 2.0 * v1 - s1;
         s2 = 2.0 * v2 - s2;
+        lastBand = v1;
 
         switch (mode)
         {
             case Mode::LowPass:  return v2;
             case Mode::BandPass: return v1; // peak gain Q, as the old band-pass
-            case Mode::HighPass: return x - c.k * v1 - v2;
-            case Mode::Notch:    return x - c.k * v1;
+            case Mode::HighPass: return x - k * v1 - v2;
+            case Mode::Notch:    return x - k * v1;
         }
         return x;
     }
@@ -182,7 +206,7 @@ private:
 
     Mode mode = Mode::LowPass;
     Coefficients coefficients;
-    double ic1 = 0.0, ic2 = 0.0, ic3 = 0.0, ic4 = 0.0;
+    double ic1 = 0.0, ic2 = 0.0, ic3 = 0.0, ic4 = 0.0, band1 = 0.0, band2 = 0.0;
     GlideBiquad fixedIn, fixedOut;
 };
 } // namespace Airwindows

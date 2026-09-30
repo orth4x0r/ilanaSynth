@@ -28,6 +28,8 @@
 #include "gui/FmWidgets.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
+#include "gui/FilterDisplay.h"
+#include "gui/OutputView.h"
 #include "gui/ParamControls.h"
 #include "gui/SubTabBar.h"
 #include "gui/TutorialOverlay.h"
@@ -66,8 +68,19 @@ void settle (int milliseconds)
     juce::MessageManager::getInstance()->runDispatchLoopUntil (milliseconds);
 }
 
+// Snapshot mode plays a held note so the live views (scope, modulation
+// markers) have something to show; this runs the audio before each capture.
+std::function<void()>& beforeSave()
+{
+    static std::function<void()> callback;
+    return callback;
+}
+
 void save (juce::Component& editor, const juce::File& file)
 {
+    if (beforeSave() != nullptr)
+        beforeSave()();
+
     const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
     file.deleteFile();
     juce::FileOutputStream stream (file);
@@ -1119,6 +1132,211 @@ int runUiTests()
         }
     }
 
+    // Knobs, chips, the filter graph, the browser and SUB + NOISE (UI review 1 fixes).
+    {
+        const auto makeEvent = [] (juce::Component& component, juce::Point<float> position, bool dragged)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(),
+                                     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                     position, juce::Time::getCurrentTime(), 1, dragged);
+        };
+
+        // A click on a source chip keeps every knob it drives lit; another click clears it.
+        processor.loadFactoryPreset (neuroWobble);
+        pages->showPage ("MAIN");
+        settle (400);
+        std::vector<ModSourceChip*> chipsFound;
+        std::vector<KnobControl*> knobsFound;
+        findAll<ModSourceChip> (*editor, chipsFound);
+        findAll<KnobControl> (*editor, knobsFound);
+        ModSourceChip* chosen = nullptr;
+        auto drivenKnobs = 0;
+
+        for (auto* chip : chipsFound)
+        {
+            if (! visibleInTree (chip))
+                continue;
+
+            auto count = 0;
+
+            for (auto* knob : knobsFound)
+                if (visibleInTree (knob) && knob->isDrivenBy (chip->getSourceIndex()))
+                    ++count;
+
+            if (count > 0)
+            {
+                chosen = chip;
+                drivenKnobs = count;
+                break;
+            }
+        }
+
+        expect (chosen != nullptr, "Neuro Wobble has a source chip that drives a visible knob");
+
+        if (chosen != nullptr)
+        {
+            auto lit = [&]
+            {
+                auto count = 0, wrong = 0;
+                for (auto* knob : knobsFound)
+                    if (visibleInTree (knob))
+                    {
+                        count += knob->isLitByPinnedSource() ? 1 : 0;
+                        wrong += knob->isLitByPinnedSource() != knob->isDrivenBy (chosen->getSourceIndex()) ? 1 : 0;
+                    }
+                return std::pair<int, int> { count, wrong };
+            };
+
+            expect (pinnedModSource() == 0 && lit().first == 0, "no source is pinned to start with");
+            chosen->mouseUp (makeEvent (*chosen, { 8.0f, 8.0f }, false));
+            settle (100);
+            expect (pinnedModSource() == chosen->getSourceIndex() && chosen->isPinned(), "clicking a chip pins its source");
+            expect (lit().first == drivenKnobs && lit().second == 0,
+                    "the pinned chip lights exactly the knobs it drives (" + juce::String (drivenKnobs) + ")");
+            chosen->mouseUp (makeEvent (*chosen, { 8.0f, 8.0f }, true)); // a drag is not a click
+            expect (pinnedModSource() == chosen->getSourceIndex(), "dragging a chip does not unpin it");
+            chosen->mouseUp (makeEvent (*chosen, { 8.0f, 8.0f }, false));
+            expect (pinnedModSource() == 0 && lit().first == 0, "clicking the chip again clears the highlight");
+        }
+
+        // The macro names the browser lists match what the preset loads with.
+        {
+            const auto listed = processor.getFactoryMacroNames (neuroWobble);
+            auto matches = true;
+            for (const auto& name : listed)
+            {
+                auto found = false;
+                for (int macro = 0; macro < 4; ++macro)
+                    found = found || processor.getMacroName (macro) == name;
+                matches = matches && found;
+            }
+            expect (! listed.isEmpty() && matches, "the browser's macro names for Neuro Wobble are the ones it loads ("
+                                                       + listed.joinIntoString (", ") + ")");
+        }
+
+        // Worked out without loading, the list's macro names equal what every factory preset loads with.
+        {
+            juce::StringArray mismatches;
+            for (int index = 0; index < names.size(); ++index)
+            {
+                processor.loadFactoryPreset (index);
+                const auto listed = processor.getFactoryMacroNames (index);
+                for (int macro = 0; macro < 4; ++macro)
+                {
+                    const auto loaded = processor.apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString();
+                    if (loaded != listed[macro])
+                        mismatches.add (names[index] + " #" + juce::String (macro + 1) + " listed '" + listed[macro] + "' loads '" + loaded + "'");
+                }
+            }
+            expect (mismatches.isEmpty(), "the browser lists every factory preset's macro names as loaded ("
+                                              + juce::String (names.size()) + " presets"
+                                              + (mismatches.isEmpty() ? juce::String() : "; " + juce::String (mismatches.size()) + " differ, e.g. " + mismatches[0]) + ")");
+            for (const auto& line : mismatches)
+                std::cout << "  " << line << std::endl;
+            processor.loadFactoryPreset (neuroWobble);
+        }
+
+        // Up / down in the open browser load the next / previous preset and leave it open.
+        if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+        {
+            display->onClick();
+            settle (500);
+            auto* panel = findChild<PresetPanel> (*editor);
+            expect (panel != nullptr && panel->isOpen(), "the preset browser opens");
+
+            if (panel != nullptr)
+            {
+                const auto start = processor.getCurrentPresetName();
+                panel->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                settle (150);
+                const auto next = processor.getCurrentPresetName();
+                expect (next.isNotEmpty() && next != start && panel->isOpen(), "Down loads the next preset and keeps the browser open");
+                panel->keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+                settle (150);
+                expect (processor.getCurrentPresetName() == start && panel->isOpen(), "Up steps back to the preset before");
+            }
+
+            display->onClick();
+            settle (500);
+        }
+
+        // SUB + NOISE folds to one line while both are off, and opens for either.
+        {
+            pages->showPage ("MAIN");
+            const auto set = [&] (const char* id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            const auto noiseShown = [&]
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (visibleInTree (knob) && knob->getParameterId() == "noise_level")
+                        return true;
+                return false;
+            };
+
+            processor.loadFactoryPreset (0);
+            set ("subosc_on", 0.0f);
+            set ("noise_level", 0.0f);
+            settle (600);
+            expect (! noiseShown(), "PLAY folds SUB + NOISE to one line while both are off");
+            auto* output = findChild<OutputView> (*editor);
+            expect (output != nullptr && visibleInTree (output) && output->getHeight() >= 44,
+                    "the freed space shows the live output view");
+            set ("noise_level", 0.3f);
+            settle (600);
+            expect (noiseShown(), "turning the noise up opens SUB + NOISE");
+            set ("noise_level", 0.0f);
+            set ("subosc_on", 1.0f);
+            settle (600);
+            expect (noiseShown(), "switching the sub on opens SUB + NOISE");
+            set ("subosc_on", 0.0f);
+            settle (600);
+            expect (! noiseShown(), "SUB + NOISE folds again when both are off");
+        }
+
+        // Dragging the filter graph: across for cutoff, up and down for resonance, one gesture each.
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr)
+        {
+            struct GestureCounter : juce::AudioProcessorParameter::Listener
+            {
+                int begins = 0, ends = 0;
+                void parameterValueChanged (int, float) override {}
+                void parameterGestureChanged (int, bool starting) override { (starting ? begins : ends)++; }
+            } cutoffGestures, resoGestures;
+
+            processor.loadFactoryPreset (0);
+            pages->showPage ("MAIN");
+            settle (400);
+            auto* cutoff = processor.apvts.getParameter ("f1_cutoff");
+            auto* reso = processor.apvts.getParameter ("f1_reso");
+            cutoff->addListener (&cutoffGestures);
+            reso->addListener (&resoGestures);
+            const auto before = processor.apvts.getRawParameterValue ("f1_cutoff")->load();
+            const auto resoBefore = processor.apvts.getRawParameterValue ("f1_reso")->load();
+            const auto w = (float) display->getWidth();
+            const auto h = (float) display->getHeight();
+            auto* component = static_cast<juce::Component*> (display);
+            component->mouseDown (makeEvent (*component, { 10.0f + 0.5f * (w - 20.0f), 0.5f * h }, false));
+            component->mouseDrag (makeEvent (*component, { 10.0f + 0.3f * (w - 20.0f), 0.2f * h }, true));
+            component->mouseUp (makeEvent (*component, { 10.0f + 0.3f * (w - 20.0f), 0.2f * h }, true));
+            const auto after = processor.apvts.getRawParameterValue ("f1_cutoff")->load();
+            const auto resoAfter = processor.apvts.getRawParameterValue ("f1_reso")->load();
+            expect (before > 5000.0f && std::abs (after / 159.0f - 1.0f) < 0.15f,
+                    "dragging across the filter graph sets the cutoff (" + juce::String (before, 0) + " -> " + juce::String (after, 0) + " Hz)");
+            expect (resoAfter > resoBefore + 0.1f, "dragging up on the filter graph raises the resonance");
+            expect (cutoffGestures.begins == 1 && cutoffGestures.ends == 1 && resoGestures.begins == 1 && resoGestures.ends == 1,
+                    "the filter drag is one gesture per parameter");
+            cutoff->removeListener (&cutoffGestures);
+            reso->removeListener (&resoGestures);
+            processor.loadFactoryPreset (0);
+            settle (200);
+        }
+    }
+
     // Modulation rings: every knob on every page that drives a destination
     // shows that destination's live depth. Each destination is routed from a
     // macro at full travel, a note is played, and the depth the ring reads
@@ -1478,6 +1696,27 @@ int main (int argc, char** argv)
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))
         shape->setValueNotifyingHost (shape->convertTo0to1 (7.0f));
+
+    // A held note (unless ILANA_SNAPSHOT_SILENT is set), so the scope and the
+    // modulation markers are live in the pictures.
+    juce::AudioBuffer<float> audio (2, 512);
+    bool noteSent = false;
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SILENT", "").isEmpty())
+        beforeSave() = [&]
+        {
+            for (int block = 0; block < 24; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (! noteSent)
+                {
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 48, 0.8f), 0);
+                    noteSent = true;
+                }
+                audio.clear();
+                processor.processBlock (audio, midi);
+            }
+            settle (60);
+        };
 
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     // ILANA_SNAPSHOT_WIDTH renders at another zoom (795 is 75%, 2120 is 200%).
@@ -1959,6 +2198,32 @@ int main (int argc, char** argv)
         processor.loadFactoryPreset (0);
         pages->showPage ("MAIN");
         settle (300);
+    }
+
+    // A source chip clicked: the knobs it drives stay lit (the first chip that drives a visible knob).
+    {
+        pages->showPage ("MAIN");
+        settle (300);
+        std::vector<ModSourceChip*> chipsFound;
+        std::vector<KnobControl*> knobsFound;
+        findAll<ModSourceChip> (*editor, chipsFound);
+        findAll<KnobControl> (*editor, knobsFound);
+
+        for (auto* chip : chipsFound)
+        {
+            auto drives = false;
+            for (auto* knob : knobsFound)
+                drives = drives || (visibleInTree (knob) && knob->isDrivenBy (chip->getSourceIndex()));
+
+            if (! visibleInTree (chip) || ! drives)
+                continue;
+
+            chip->togglePinned();
+            settle (150);
+            save (*editor, outDir.getChildFile ("mod-pinned-chip.png"));
+            chip->togglePinned();
+            break;
+        }
     }
 
     // The preset browser, opened from the preset name.

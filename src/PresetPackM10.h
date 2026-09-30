@@ -616,17 +616,24 @@ inline void addM10Presets (const std::function<void (const FactoryPreset&)>& add
                  .fx ({ FxDrive }).driveFx (1.5f, 0.25f));
     }
     {
+        // Rebuilt 2026-09-30 (content/analysis/rebuild-8.md): drawbars as six
+        // sine operators at the Hammond ratios, a percussion operator on the
+        // mod envelope, a little FM reed, a Leslie of tremolo and chorus.
         auto b = B ("Six-Op Organ", "Keys");
-        op (b, 1, 1.0f, 0.4f); op (b, 2, 2.0f, 0.35f); op (b, 3, 3.0f, 0.3f); op (b, 4, 4.0f, 0.25f);
-        op (b, 5, 6.0f, 0.2f); op (b, 6, 0.5f, 0.35f);
-        fmCell (b, 1, 1, 0.1f);
-        add (b.set ("sub_on", 0).amp (0.005f, 0.2f, 1.0f, 0.08f)
-                 .lfo (1, Sine, 6.5f).mod (Lfo1, D::Osc1Pitch, 0.004f)
-                 .macro (1, "UPPER", { { D::Osc4Level, 0.3f }, { D::Osc5Level, 0.3f } })
-                 .macro (2, "SUB", { { D::Osc6Level, 0.3f } })
-                 .macro (3, "VIBRATO", { { param ("fx_chorus_mix"), 0.4f } })
-                 .macro (4, "DRIVE", { { D::FxDriveAmount, 0.5f } })
-                 .fx ({ FxAmp, FxChorus, FxReverb }).ampSim (0, 0.3f, 0.5f, 0.55f, 0.5f, 0.6f).chorus (6.0f, 0.3f, 0.3f).reverb (Room, 0.4f, 0.15f));
+        op (b, 1, 1.0f, 0.42f); op (b, 2, 2.0f, 0.3f); op (b, 3, 0.5f, 0.3f); op (b, 4, 4.0f, 0.14f);
+        op (b, 5, 3.0f, 0.2f); op (b, 6, 1.5f, 0.18f);
+        fmCell (b, 1, 1, 0.12f); fmCell (b, 2, 1, 0.05f); fmCell (b, 6, 4, 0.08f);
+        add (b.set ("osc5_amp_env", 3)
+                 .menv (0.001f, 0.22f, 0.0f, 0.1f)
+                 .amp (0.004f, 0.2f, 1.0f, 0.06f)
+                 .filter1 (AwZLP, 4500.0f, 0.15f, 0.0f, 1.2f, 0.5f).filterVelocity (0.6f).filter2 (AwZHP, 40.0f, 0.0f)
+                 .velocity (0.35f)
+                 .macro (1, "DRAWBARS", { { D::Osc4Level, 0.3f }, { D::Osc6Level, 0.35f }, { D::Osc2Level, 0.2f } })
+                 .macro (2, "PERC", { { D::Osc5Level, 0.45f }, { D::MeDecay, 0.4f } })
+                 .macro (3, "LESLIE", { { param ("fx_trem_depth"), 0.5f }, { param ("fx_chorus_mix"), 0.3f } })
+                 .macro (4, "DIRT", { { param ("fx_amp_drive"), 0.5f }, { D::FmFeedback, 0.3f } })
+                 .fx ({ FxAmp, FxChorus, FxTremolo, FxReverb, FxLimiter }).ampSim (0, 1.6f, 0.9f, 1.0f, 1.0f, 0.8f)
+                 .chorus (6.6f, 0.3f, 0.3f).tremolo (6.3f, 0.18f).reverb (Spring, 0.4f, 0.12f).limiter (-3.0f));
     }
     {
         auto b = B ("Inharmonic Pluck", "Pluck");

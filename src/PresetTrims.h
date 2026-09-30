@@ -258,7 +258,7 @@ inline const std::vector<Trim>& getTrims()
         { "Scream Wobble", -5.76f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Screaming Feedback Lead", 1.59f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Self Osc Drone", -2.32f, { 1.000f, 1.000f, 1.000f, 1.000f } },
-        { "Self-Osc Choir", 4.92f, { 1.000f, 1.000f, 1.000f, 1.000f } },
+        { "Self-Osc Choir", 4.82f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Self-Osc Whistle", 10.50f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Shift Bass", 3.62f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Shimmer Glass Pad", 4.28f, { 1.000f, 1.000f, 1.000f, 1.000f } },

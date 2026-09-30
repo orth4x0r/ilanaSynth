@@ -2632,11 +2632,10 @@ void runFilterModelTests()
 {
     constexpr double sampleRate = 48000.0;
 
-    // Self-oscillation: silence in, a sustained bounded tone out, for both
-    // the SVF (Morph; Low Pass is now Airwindows' Y filter, which rings but
-    // doesn't oscillate) above its old resonance cap and the ladder at full
+    // Self-oscillation: silence in, a sustained bounded tone out, for the
+    // SVF (Morph), Airwindows' Y low-pass above 0.98 and the ladder at full
     // feedback.
-    for (const auto type : { (int) FilterType::Morph, (int) FilterType::LadderLow })
+    for (const auto type : { (int) FilterType::Morph, (int) FilterType::LowPass, (int) FilterType::LadderLow })
     {
         FilterUnit filter;
         filter.setType (type, false);

@@ -205,12 +205,14 @@ public:
         oversampler.upsample ((double) input, first, second);
         const auto a = core.process (first);
         const auto b = core.process (second);
-        return (float) (oversampler.downsample (a, b) * outputGain);
+        const auto y = oversampler.downsample (a, b);
+        return (float) (clip * FilterCore::tanhApprox (y / clip));
     }
 
-    // Limiter level and output gain: the old model's level table within 1 dB
-    // (1.5 dB at 3 kHz and resonance 0.9).
-    static constexpr double limit = 0.6, outputGain = 0.68;
+    // Limiter level and the output's soft ceiling (the old model clipped its
+    // loop's input, taming a high-passed saw's spikes): its level table
+    // within 1 dB, the passband at unity for small signals.
+    static constexpr double limit = 0.63, clip = 0.566;
 
 private:
     FilterCore::Korg35Core core;

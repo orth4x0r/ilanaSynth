@@ -32,6 +32,7 @@ Review: claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS. Projected "potential" review
 | 1cc7c25 | Airwindows FX (39 algorithms); Lead glide divided by 3 at load; `tools/preset_diversity.py` |
 | c911267 | Filter overhaul groundwork (see below) |
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | Gate clean on Linux (a merge leftover broke the test build); new Linux fingerprint baseline; Lead A/B clips re-rendered with the reduced glide; docs/ARCHITECTURE.md, docs/DECISIONS.md; **preset diversity pass** (below) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Filter overhaul models** (step 4 except the spectral warps): all 25 rebuilt on solved zero-delay cores, in tune at self-oscillation, every preset's level held; 303 Acid, Moog Drive, Vowel Morph, Comb Body; filter tests. See `docs/filter-overhaul-status.md` |
 
 Diversity pass (step 3, 2026-09-30): `src/PresetVoicing.h` lays parameter changes and macro
 rewiring over 172 factory recipes (Airwindows saturation and spaces instead of Hall, dry and mono,
@@ -79,11 +80,8 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    `content/analysis/critic-v4/diversity.md`; use the sample library and the physical engine.
    Target: spread at least ~80 % of the references', no crowd bigger than ~4, levels at the category target.
    Loop: `ilanaPresetRender` -> `preset_critic.py` -> `clap_score.py` -> `preset_diversity.py`, plus the user's A/B votes.
-4. **Filter overhaul:** groundwork on main, status and design in `docs/filter-overhaul-status.md`
-   (baselines in `docs/filter-overhaul/`, cores in `src/dsp/FilterCore.h`, tests `ILANA_FILTER_TEST=1`).
-   Remaining: rebuild the 25 models, add 303 Acid, Moog Drive, Vowel Morph, Comb Body; modulatable spectral warps;
-   levels within +-1 dB. Make a Linux level baseline from c911267 before changing any model.
-   Check Airwindows' filters for pieces worth reusing.
+4. **Filter overhaul:** models done (status in `docs/filter-overhaul-status.md`: 25 rebuilt, 4 added, levels held,
+   Airwindows' filters checked and not reused). Remaining: modulatable spectral warps.
 5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand.
 6. **Interface:** a live patch view instead of PLAY's empty ADD OSCILLATOR box; the VECTOR pad fills its card
    and the evolve rows fit 8; a PHYSICAL page preview when no oscillator is physical; verify mod rings; identity pass.

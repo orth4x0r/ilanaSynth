@@ -376,9 +376,10 @@ public:
         diff[3] = y[2] - y[3];
     }
 
-    // The linear core's response at s (normalised to the stage frequency):
-    // from the same tridiagonal model the processor runs.
-    static std::complex<double> coreResponse (std::complex<double> s, bool halfTopCap)
+    // The linear core's response at s (normalised to the stage frequency) at
+    // one node (3 is the output): from the same tridiagonal model the
+    // processor runs.
+    static std::complex<double> coreResponse (std::complex<double> s, bool halfTopCap, int node = 3)
     {
         // Node equations: C_i s v_i = sum of neighbour conductances.
         const double caps[4] { 1.0, 1.0, 1.0, halfTopCap ? 0.5 : 1.0 };
@@ -394,7 +395,11 @@ public:
             d[i] -= m * up[i - 1];
             r[i] -= m * r[i - 1];
         }
-        return r[3] / d[3];
+        // Back-substitute down to the node asked for (3 is the output).
+        auto v = r[3] / d[3];
+        for (int i = 2; i >= node; --i)
+            v = (r[i] - up[i] * v) / d[i];
+        return v;
     }
 
 private:

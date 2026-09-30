@@ -1639,6 +1639,24 @@ int main (int argc, char** argv)
         settle (200);
     }
 
+    // The filter overhaul: the grid's second page with the new models
+    // (303 Acid on Filter 1, Vowel Morph on Filter 2).
+    {
+        const auto setType = [&processor] (const char* id, int type)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) type));
+        };
+        setType ("f1_type", FilterType::Acid303);
+        setType ("f2_type", FilterType::VowelMorph);
+        pages->showPage ("FILTER");
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-new-models.png"));
+        setType ("f1_type", 0);
+        setType ("f2_type", 0);
+        settle (200);
+    }
+
     // M8.3: the WEST card (FILTER page, FILTER 2 / WEST tabs).
     {
         if (auto* parameter = processor.apvts.getParameter ("west_on"))

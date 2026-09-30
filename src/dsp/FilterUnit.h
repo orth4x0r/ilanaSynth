@@ -8,6 +8,17 @@
 #include <complex>
 #include <vector>
 
+// Diode LP's tuning (DiodeFilter), shared with its response display.
+namespace DiodeTuning
+{
+constexpr double oscillationRatio = 1.1952286093343936; // sqrt (10 / 7)
+constexpr double threshold = 18.392857142857142;         // 1 / |H (j w0)|
+// Fitted to the old model's level table and its seven presets' levels and
+// peaks (every one within 1 dB).
+constexpr double lift0 = 4.034, liftPower = 1.475;
+constexpr double compensationBase = 1.0, compensationPerK = 0.653;
+} // namespace DiodeTuning
+
 // One channel of one voice filter. Wraps every filter model behind a single
 // type index so the voice, the response display and the tests share it.
 namespace FilterType
@@ -249,14 +260,24 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
         }
     }
 
-    if (isLadder (type) || type == DiodeLow)
+    if (type == DiodeLow)
     {
-        const auto k = type == DiodeLow ? juce::jmin (3.6, resonance * 3.8) : juce::jmin (3.95, resonance * 4.15);
+        // The diode-ladder core as DiodeFilter tunes it (at 48 kHz).
+        const auto lift = std::pow (DiodeTuning::lift0, 1.0 - std::pow (resonance, DiodeTuning::liftPower));
+        const auto k = juce::jmin (0.97, resonance) * DiodeTuning::threshold * 1.02;
+        const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff * lift, 21000.0) / 48000.0);
+        const auto warped = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff, 21000.0) / 48000.0);
+        const auto sc = s * (warped / g) * DiodeTuning::oscillationRatio;
+        const auto out = FilterCore::DiodeLadderCore::coreResponse (sc, false);
+        const auto tap = FilterCore::DiodeLadderCore::coreResponse (sc, false, slope24 ? 3 : 2);
+        return tap / (1.0 + k * out) * DiodeTuning::compensationBase * (1.0 + DiodeTuning::compensationPerK * k);
+    }
+
+    if (isLadder (type))
+    {
+        const auto k = juce::jmin (3.95, resonance * 4.15);
         const auto onePole = 1.0 + s;
         const auto loop = std::pow (onePole, 4) + k;
-
-        if (type == DiodeLow)
-            return (1.0 + 0.4 * k) * (slope24 ? 1.0 / loop : onePole / loop);
 
         if (type == LadderLow)
             h = (1.0 + 0.5 * k) * (slope24 ? 1.0 / loop : onePole * onePole / loop);
@@ -414,12 +435,9 @@ public:
         double post = 1.0;    // and after it
     };
 
-    static constexpr double oscillationRatio = 1.1952286093343936; // sqrt (10 / 7)
-    static constexpr double threshold = 18.392857142857142;         // 1 / |H (j w0)|
-    // Fitted to the old model's level table and its seven presets' levels
-    // and peaks (every one within 1 dB).
-    static constexpr double lift0 = 4.034, liftPower = 1.475;
-    static constexpr double compensationBase = 1.0, compensationPerK = 0.653;
+    static constexpr double oscillationRatio = DiodeTuning::oscillationRatio, threshold = DiodeTuning::threshold;
+    static constexpr double lift0 = DiodeTuning::lift0, liftPower = DiodeTuning::liftPower;
+    static constexpr double compensationBase = DiodeTuning::compensationBase, compensationPerK = DiodeTuning::compensationPerK;
     // Share of the make-up gain applied after the core (the rest drives it).
     static constexpr double outputShare = 0.2;
     static constexpr double diodeDrive = 0.5;

@@ -12,7 +12,7 @@ IlanaSynth is a complete sound design machine:
 - **Oscillators:** six full oscillators, each with wavetable, physical modelling (strings, and Rhodes- and Wurlitzer-style electric pianos), sample, granular and live-input modes, plus a dedicated sub. OSC 4–6 start off.
 - **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
 - **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
-- **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
+- **Filters and envelopes:** 29 filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
 - **Effects:** a 10-slot rack with 30 modules, including a trance gate and 39 Airwindows algorithms.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
@@ -42,6 +42,7 @@ It all sits in a hardware-inspired interface with 371 factory presets.
 - **Grand Piano** (M8.2): a new **Piano** exciter (a nonlinear felt hammer on a stiff, two-polarisation string with tension modulation) and a **Dense** soundboard, fitted note by note to the Salamander Grand (a Yamaha C5) across the keyboard at three dynamics. Preset: Grand Piano.
 - **WEST** (M8.3): a west-coast card on the FILTER page, after the filters or in place of Filter 2: a wavefolder (FOLD, SYMMETRY, 1–4 stages) into a vactrol **low-pass gate** struck by each note or by any mod source (try LFO B with the Bounce shape).
 - **13 more filter models** (M8.4), on a second page of the type grid: Ladder BP and Drive, SEM, OTA LP and BP, MS-20 HP, Steiner-Parker, Phaser Notch, damped and morphing combs, Vowel, Talking and Twin Peak.
+- **Filter overhaul**: the analog models are rebuilt as zero-delay circuits solved every sample (the ladders, the MS-20 pair and Steiner-Parker at twice the sample rate), so full resonance self-oscillates exactly at the cutoff and plays in tune with key tracking; the Diode LP is a real diode ladder, the combs ring at their pitch. Old presets keep their level. Four new models: **303 Acid** (the TB-303's diode ladder with its feedback high-pass: resonance keeps the bass), **Moog Drive** (the ladder driven from inside), **Vowel Morph** (a five-formant vocal tract, A-E-I-O-U on MORPH, male to female voice with the cutoff) and **Comb Body** (a comb ringing a chime's modes). DRIVE goes inside the loop on 303 Acid and Moog Drive.
 - **Feedback** exciter (M8.5): an amp and speaker in the string's loop, so a held note blooms into a harmonic; AMP GAIN and DISTANCE pick how and which.
 - **VECTOR** page (M8.5): an XY pad mixing any four oscillators, moved by hand, by a drawn path, by drift or by modulation (Vector X / Y are mod sources), and **EVOLVE**: each macro drifts within a range, with FREEZE.
 - **BOUNCE** (M8.6) on every oscillator card: renders the patch (one note, with or without its effects) in the background and puts it on that oscillator as a tuned sample or cut into a wavetable. The bounce is saved inside the patch; from there granulate it, warp it, or drive a string with it (Osc In).
@@ -177,7 +178,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - Every route is a modulation destination.
 
 ### Filters (2)
-- 25 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to thirteen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
+- 29 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to seventeen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
   - Low pass, Band pass, High pass and Notch (12 or 24 dB)
   - Ladder LP and Ladder HP
   - Diode LP and MS-20 LP

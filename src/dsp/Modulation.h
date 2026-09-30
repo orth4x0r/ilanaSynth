@@ -463,6 +463,12 @@ inline const std::vector<ParamDestination>& getParamDestinations()
             add (juce::String (prefixes[osc]) + "_fb_gain", "Osc" + juce::String (osc + 1) + " Feedback Gain");
         add ("vec_x", "Vector X");
         add ("vec_y", "Vector Y");
+
+        // Filter overhaul (append only): the spectral warps' amount. Moved at
+        // block rate like the other parameter destinations; the warped table
+        // is rebuilt on the spectral worker (SpectralCache, 64 steps).
+        for (int osc = 0; osc < 6; ++osc)
+            add (juce::String (prefixes[osc]) + "_spectral_amt", "Osc" + juce::String (osc + 1) + " Spectral Amount");
         return true;
     }();
     juce::ignoreUnused (extended);

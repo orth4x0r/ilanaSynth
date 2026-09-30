@@ -93,6 +93,51 @@ Route Split Pad | fx=7,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_d
 Vocal Pad | fx=15,9 fx_reverb_on=0 amp_attack=0.3 amp_release=1.0 | m4=ECHO: Delay Mix 0.4
 Feedback Choir | amp_attack=2.8 fx_reverb_type=4 osc1_table=25 osc2_table=25 |
 MPE Glass | fx=30 fx_reverb_on=0 fx_aw_algo=25 fx_aw_p1=0.35 amp_attack=0.01 amp_decay=2.0 amp_sustain=0.25 | m4=CATHEDRAL: fx_slot1_mix 0.5
+# ---- Basses: archetypes (diversity pass 1) ----
+# Airwindows saturation instead of the one Drive.
+Neuro Wobble | fx=30 fx_drive_on=0 fx_aw_algo=35 fx_aw_p1=0.6 fx_aw_p2=0.8 fx_aw_p3=1 fx_slot1_mix=0.5 | m3=SLAM: fx_slot1_mix 0.5
+Rust Bass | fx=3,30 fx_drive_on=0 fx_aw_algo=33 fx_aw_p1=0.5 fx_slot2_mix=0.5 | m3=WRECK: fx_slot2_mix 0.5
+Warp Wobble | fx=30,20,21 fx_drive_on=0 fx_aw_algo=5 fx_aw_p1=0.7 fx_aw_p2=0.1 fx_aw_p3=0.6 fx_aw_p4=0.8 fx_aw_p5=1 fx_slot1_mix=0.5 | m4=DIRT: fx_slot1_mix 0.5
+Neon Bass | fx=30,22 fx_drive_on=0 fx_aw_algo=7 fx_aw_p1=0.6 fx_aw_p2=0.7 fx_width=1.8 fx_width_mix=0.7 | m4=WIDTH: fx_width 0.4
+FM Growl | fx=30 fx_drive_on=0 fx_aw_algo=3 fx_aw_p1=0.6 fx_aw_p2=0.05 fx_aw_p3=0.8 fx_aw_p4=1 fx_slot1_mix=0.5 | m3=DENSITY: fx_slot1_mix 0.5
+# Clean and pure: no drive at all.
+Sub Destroyer | fx=4 fx_drive_on=0 amp_attack=0.005 amp_decay=0.35 amp_sustain=0 amp_release=0.2 osc1_table=8 | m4=LENGTH: Amp Decay 0.5
+# Wide stereo basses.
+Reese Ripper | fx=2,30 fx_aw_algo=29 fx_aw_p1=0.9 fx_aw_p2=0.6 fx_aw_p3=1 fx_slot2_mix=0.5 | m4=WIDTH: fx_slot2_mix 0.5
+Tape Reese | fx=30,7 fx_drive_on=0 fx_delay_on=0 fx_aw_algo=1 fx_aw_p1=0.7 fx_aw_p2=0.4 fx_aw_p3=0.6 fx_aw_p4=0.7 fx_aw_p5=0.5 fx_chorus_on=1 fx_chorus_mix=0.4 | m4=CHORUS: fx_chorus_mix 0.5
+# Slow and swelling.
+LFO 3 Wobble | amp_attack=0.09 fx=2,14,21 fx_flanger_rate=0.2 fx_flanger_depth=0.6 fx_flanger_feedback=0.5 fx_flanger_mix=0.4 | m4=JET: fx_flanger_mix 0.5
+Morph Filter Bass | amp_attack=0.45 fx=6,2 fx_phaser_on=1 fx_phaser_rate=0.3 fx_phaser_depth=0.8 fx_phaser_feedback=0.5 fx_phaser_mix=0.5 voice_mode=0 | m4=PHASE: fx_phaser_mix 0.5
+Resonator Bass | amp_attack=0.04 amp_decay=0.9 amp_sustain=0.3 fx=2,13 fx_reverb_on=1 fx_reverb_type=0 fx_reverb_size=0.3 fx_reverb_mix=0.15 | m4=ROOM: Reverb Mix 0.4
+# Bright, spaced and decaying.
+Sync Stab Bass | f1_cutoff=5000 fx=2,9 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay_feedback=0.3 fx_delay_mix=0.2 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
+Spring Bounce Bass | fx=2,13 fx_reverb_on=1 fx_reverb_type=4 fx_reverb_size=0.4 fx_reverb_mix=0.2 | m4=SPRING: Reverb Mix 0.4
+Crushed Trap | fx_crush_bits=5 fx_crush_down=6 |
+Acid Stab | amp_decay=0.25 amp_sustain=0 fx_delay_mix=0.3 |
+Hyper Reese | fx=20,15 fx_dim_rate=0.3 fx_dim_depth=0.7 fx_dim_mix=0.6 amp_attack=0.03 | m4=WIDTH: fx_dim_mix 0.4
+Through-Zero Growl | fx=30,21 fx_ott_mix=0 fx_aw_algo=23 fx_aw_p1=0.7 fx_aw_p2=0.4 fx_aw_p3=0.4 fx_aw_p4=0.6 fx_aw_p5=1 |
+
+Shift Bass | fx=7,29 fx_drive_on=0 fx_chorus_on=1 fx_chorus_rate=0.5 fx_chorus_depth=0.5 fx_chorus_mix=0.5 f1_cutoff=3000 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=CHORUS: fx_chorus_mix 0.5
+Modulated Route Bass | fx=8,7,29 fx_drive_on=0 fx_haas_delay=12 fx_haas_mix=0.6 fx_chorus_on=1 fx_chorus_mix=0.4 amp_attack=0.15 | m4=WIDTH: fx_haas_mix 0.4
+MS-20 Growl | fx_reverb_mix=0.35 fx_reverb_type=2 amp_attack=0.03 |
+Wavefold Sub | fx=21 fx_ott_mix=0 amp_decay=0.18 amp_sustain=0 amp_release=0.1 | m4=LENGTH: Amp Decay 0.5
+West Folded Bass | fx=30 fx_drive_on=0 fx_aw_algo=7 fx_aw_p1=0.65 fx_aw_p2=0.7 amp_velocity=0 |
+Tape Sub | fx=30 fx_amp_on=0 fx_aw_algo=32 fx_aw_p1=0.45 fx_aw_p2=0.6 fx_aw_p3=0.7 fx_aw_p4=0.8 |
+Diode Acid | f1_reso=0.8 amp_decay=0.3 amp_sustain=0.1 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 |
+Clocked Bass | fx=30,16 fx_drive_on=0 fx_aw_algo=9 fx_aw_p1=0.6 fx_aw_p2=0.4 fx_aw_p3=1 fx_slot1_mix=0.5 fx_gate_div=4 fx_gate_mix=0.8 | m3=COILS: fx_slot1_mix 0.5; m4=CHOP: fx_gate_mix 0.2
+Pluck Sub Bass | fx=29,4,9 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay_feedback=0.25 fx_delay_mix=0.18 f1_env=0.6 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=ECHO: Delay Mix 0.4
+Ladder Sub | fx=29 fx_drive_on=0 amp_velocity=0 amp_attack=0.06 |
+Deep House Bass | fx=4,7 fx_reverb_on=0 fx_chorus_on=1 fx_chorus_mix=0.35 osc1_table=19 amp_velocity=0.7 | m4=BODY: Amp Sustain 0.4
+DX Stack Bass | fx=29,30,7,9 fx_drive_on=0 fx_aw_algo=2 fx_aw_p1=0.7 fx_aw_p2=0.6 fx_chorus_on=1 fx_chorus_mix=0.4 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=3 fx_delay_feedback=0.3 fx_delay_mix=0.15 | m4=ECHO: Delay Mix 0.4
+Diamond Growl | fx=30,6 fx_drive_on=0 fx_aw_algo=6 fx_aw_p1=0.8 fx_slot1_mix=0.5 fx_phaser_on=1 fx_phaser_rate=0.25 fx_phaser_depth=0.7 fx_phaser_mix=0.5 amp_attack=0.06 f1_cutoff=2500 | m4=DRIVE: fx_slot1_mix 0.5
+Feedback Chain Bass | fx=25,2,30 fx_ring_freq=110 fx_ring_mix=0.3 fx_aw_algo=24 fx_aw_p1=0.5 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.7 fx_aw_p5=0.35 amp_attack=0.34 amp_release=1.2 | m4=RING: fx_ring_mix 0.5
+Warp Stack Bass | fx=30 fx_drive_on=0 fx_aw_algo=32 fx_aw_p1=0.3 fx_aw_p2=0.6 fx_aw_p3=0.7 fx_aw_p4=0.7 |
+Rip Bass | fx=30,23 fx_drive_on=0 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.7 fx_aw_p3=1 fx_slot1_mix=0.5 fx_trem_rate=8 fx_trem_depth=0.6 fx_trem_shape=4 | m3=HEAT: fx_slot1_mix 0.5; m4=CHOP: fx_trem_depth 0.4
+Rubber Mono | fx=30 fx_drive_on=0 fx_aw_algo=22 fx_aw_p1=0.7 fx_aw_p2=0.5 fx_aw_p3=0.5 amp_attack=0.02 glide=0.12 | m4=PWM: Osc1 Warp 0.4
+Lorenz Bass | fx=2,30 fx_aw_algo=28 fx_aw_p1=0.6 fx_aw_p2=0.4 fx_aw_p3=0.3 fx_aw_p4=0.5 fx_aw_p5=0.25 amp_attack=0.12 amp_release=0.8 | m4=SPACE: fx_slot2_mix 0.5
+Steiner Growl | fx=2,27 fx_vowel_morph=0.3 fx_vowel_mix=0.6 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=VOWEL: fx_vowel_morph 0.5
+Stick-Slip Growl | fx=30,24 fx_drive_on=0 fx_aw_algo=8 fx_aw_p1=0.75 fx_slot1_mix=0.5 fx_shifter_shift=3 fx_shifter_mix=0.3 | m4=SHIFT: fx_shifter_mix 0.5
+Octave Hyper Bass | fx=20,22 fx_width=1.8 fx_width_mix=0.8 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 amp_attack=0.05 amp_velocity=0 f1_cutoff=2500 | m4=WIDTH: fx_width 0.4
 )VOICING";
 }
 } // namespace Presets

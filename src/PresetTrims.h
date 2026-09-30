@@ -151,6 +151,7 @@ inline const std::vector<Trim>& getTrims()
         { "Hypersaw Pluck", 12.00f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Hypersaw Stab", 3.41f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Inharmonic Pluck", -4.67f, { 1.000f, 1.000f, 1.000f, 1.000f } },
+        { "Init", 0.90f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "KS Bell", -0.07f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "KS Marimba", 8.27f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Kalimba", -2.76f, { 1.000f, 1.000f, 3.948f, 1.000f } },

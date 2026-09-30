@@ -44,6 +44,10 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
         // amounts; Plain splits into a buzz). The parameter defaults stay as
         // they were, so other presets are unchanged.
         { "Init", {
+            // Basic table halfway from saw to square (round, not harsh), filter open:
+            // a neutral, good-sounding start. A new plugin instance opens on it.
+            { "osc1_table", 0 }, { "osc1_frame", 0.5f }, { "osc1_level", 1.0f },
+            { "amp_attack", 0.003f }, { "amp_release", 0.3f },
             { "f1_cutoff", 20000.0f },
             { "osc1_fb_type", 1 }, { "osc2_fb_type", 1 }, { "sub_fb_type", 1 },
             { "osc4_fb_type", 1 }, { "osc5_fb_type", 1 }, { "osc6_fb_type", 1 },

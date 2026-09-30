@@ -1518,7 +1518,7 @@ public:
     }
 
 private:
-    // Comb and formant have no slope; only Formant and Morph use MORPH.
+    // Only the classic models have a slope; FilterType::usesMorph says which use MORPH.
     void refreshType()
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))

@@ -1070,8 +1070,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     resonatorL.setParams (params.resonatorOn ? resonatorAmount : 0.0f, resonatorDecay, 0.35f);
     resonatorR.setParams (params.resonatorOn ? resonatorAmount : 0.0f, resonatorDecay, 0.35f);
 
-    const auto drive1 = juce::jlimit (1.0f, 10.0f, params.filter1.drive + blockMod (D::Filter1Drive) * driveRange);
-    const auto drive2 = juce::jlimit (1.0f, 10.0f, params.filter2.drive + blockMod (D::Filter2Drive) * driveRange);
+    const auto driveAmount1 = juce::jlimit (1.0f, 10.0f, params.filter1.drive + blockMod (D::Filter1Drive) * driveRange);
+    const auto driveAmount2 = juce::jlimit (1.0f, 10.0f, params.filter2.drive + blockMod (D::Filter2Drive) * driveRange);
+    // 303 Acid and Moog Drive take the drive inside (into their feedback
+    // loop's input); every other model is driven by a tanh in front.
+    const auto inside1 = FilterType::drivesInside (params.filter1.type);
+    const auto inside2 = FilterType::drivesInside (params.filter2.type);
+    for (auto* filter : { &filter1L, &filter1R, &bothFilter1L, &bothFilter1R })
+        filter->setDrive (inside1 ? driveAmount1 : 1.0f);
+    for (auto* filter : { &filter2L, &filter2R, &bothFilter2L, &bothFilter2R })
+        filter->setDrive (inside2 ? driveAmount2 : 1.0f);
+    const auto drive1 = inside1 ? 1.0f : driveAmount1;
+    const auto drive2 = inside2 ? 1.0f : driveAmount2;
 
     auto* left = outputBuffer.getWritePointer (0);
     auto* right = outputBuffer.getNumChannels() > 1 ? outputBuffer.getWritePointer (1) : nullptr;

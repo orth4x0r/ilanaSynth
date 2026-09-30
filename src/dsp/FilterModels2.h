@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <complex>
+#include <vector>
 
 namespace Filters2
 {
@@ -435,6 +436,282 @@ public:
 private:
     Svf2 first, second;
     double damping = 1.0;
+};
+
+// ---- Appended by the filter overhaul (FilterType 25..28) ----
+
+// 303 Acid: the TB-303's diode ladder (FilterCore::DiodeLadderCore with the
+// top capacitor halved, Stinchcombe's model) with the one-pole high-pass
+// (150 Hz, Open303's value) in its feedback, the coupling capacitor that
+// keeps the resonance from swallowing the bass. The high-pass leads the
+// loop's phase, so the core's frequency is solved from its response so the
+// loop still oscillates exactly at the cutoff, and the threshold follows.
+// The drive goes into the loop's input sum (the 303's squelch).
+class Acid303
+{
+public:
+    // Shared with Diode LP: the core slides up as resonance falls.
+    static constexpr double lift0 = 4.034, liftPower = 1.475;
+    static constexpr double feedbackHpHz = 150.0;
+
+    void set (double sampleRate, double cutoff, double resonance)
+    {
+        const auto r = juce::jlimit (0.0, 1.0, resonance);
+        const auto lift = std::pow (lift0, 1.0 - std::pow (r, liftPower));
+        const auto g = FilterCore::prewarp (sampleRate, cutoff * lift);
+        const auto gHp = FilterCore::prewarp (sampleRate, feedbackHpHz);
+        const auto tuning = tuningFor (gHp / g);
+        const auto hpGain = g / std::sqrt (g * g + gHp * gHp);
+        FilterCore::DiodeLadderCore::Settings settings;
+        settings.h = g / tuning.ratio;
+        settings.k = r * 1.03 / (tuning.gain * hpGain);
+        // Make up the level the feedback takes (as Diode LP), part into the
+        // core (it drives the loop), part after it.
+        const auto makeUp = 1.0 + makeUpPerK * settings.k;
+        post = std::pow (makeUp, 0.2) * outputGain;
+        pre = makeUp / std::pow (makeUp, 0.2) * inputGain;
+        settings.halfTopCap = true;
+        settings.feedbackHpG = gHp / (1.0 + gHp);
+        settings.diodeDrive = 0.5;
+        core.set (settings);
+    }
+    void setDrive (float amount) { drive = (double) amount; }
+    void reset() { core.reset(); }
+    float process (float input)
+    {
+        std::array<double, 4> y;
+        core.process ((double) input * drive * pre, y);
+        return (float) (y[3] * post);
+    }
+
+    // Make-up per unit of feedback: the level stays within about 3 dB of
+    // -10 dB on the level table's saw, except that full resonance keeps the
+    // bass under the high-pass corner (the 303's trait) and gets louder there.
+    static constexpr double inputGain = 1.0, outputGain = 1.0, makeUpPerK = 0.45;
+
+    // Where the core's loop phase reaches -180 degrees less the high-pass's
+    // lead atan (rho) (rho = high-pass corner / oscillation frequency, both
+    // prewarped): that frequency in core units, and the core's gain there.
+    struct Tuning { double ratio, gain; };
+    static Tuning tuningFor (double rho)
+    {
+        struct Point { double x, phase, gain; };
+        static const std::vector<Point> grid = []
+        {
+            std::vector<Point> points;
+            auto unwrapped = 0.0, previous = 0.0;
+            for (int i = 0; i <= 4000; ++i)
+            {
+                const auto x = 0.05 * std::pow (400.0, (double) i / 4000.0);
+                const auto h = FilterCore::DiodeLadderCore::coreResponse ({ 0.0, x }, true);
+                const auto phase = std::arg (h);
+                if (i > 0)
+                {
+                    auto step = phase - previous;
+                    while (step > juce::MathConstants<double>::pi) step -= juce::MathConstants<double>::twoPi;
+                    while (step < -juce::MathConstants<double>::pi) step += juce::MathConstants<double>::twoPi;
+                    unwrapped += step;
+                }
+                else
+                {
+                    unwrapped = phase;
+                }
+                previous = phase;
+                points.push_back ({ x, unwrapped, std::abs (h) });
+            }
+            return points;
+        }();
+
+        const auto target = -juce::MathConstants<double>::pi - std::atan (juce::jmax (0.0, rho));
+        // Phase falls monotonically: binary search for the crossing.
+        size_t lo = 0, hi = grid.size() - 1;
+        if (grid[hi].phase > target)
+            return { grid[hi].x, grid[hi].gain };
+        while (hi - lo > 1)
+        {
+            const auto mid = (lo + hi) / 2;
+            (grid[mid].phase > target ? lo : hi) = mid;
+        }
+        const auto t = (target - grid[lo].phase) / (grid[hi].phase - grid[lo].phase);
+        return { grid[lo].x + (grid[hi].x - grid[lo].x) * t, grid[lo].gain + (grid[hi].gain - grid[lo].gain) * t };
+    }
+
+private:
+    FilterCore::DiodeLadderCore core;
+    double drive = 1.0, pre = 1.0, post = 1.0;
+};
+
+// Moog Drive: the ladder driven hard from inside: the drive goes into the
+// loop's input pair, every stage saturates (FilterCore::StageCascade at 2x),
+// and the passband loss as resonance rises is only partly made up, so the
+// bass thins like the Minimoog's. 24 dB; self-oscillates at the cutoff.
+class MoogDrive
+{
+public:
+    void set (double sampleRate, double cutoff, double resonance)
+    {
+        FilterCore::StageCascade::Settings settings;
+        settings.g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
+        settings.k = 4.15 * juce::jlimit (0.0, 1.0, resonance);
+        settings.stageDrive = 0.5;
+        cascade.set (settings);
+        k = settings.k;
+    }
+    void setDrive (float amount) { drive = (double) amount; }
+    void reset() { cascade.reset(); oversampler.reset(); }
+    float process (float input)
+    {
+        double first, second;
+        oversampler.upsample ((double) input * drive * (1.0 + 0.25 * k) * inputGain, first, second);
+        std::array<double, 4> y;
+        double u;
+        cascade.process (first, y, u);
+        const auto a = y[3];
+        cascade.process (second, y, u);
+        return (float) (oversampler.downsample (a, y[3]) * outputGain);
+    }
+
+    static constexpr double inputGain = 1.0, outputGain = 1.0;
+
+private:
+    FilterCore::StageCascade cascade;
+    FilterCore::Halfband2x oversampler;
+    double k = 0.0, drive = 1.0;
+};
+
+// Vowel Morph: a Klatt-style cascade of five formant resonators (each a
+// unity-gain two-pole low-pass, so the formants' relative levels come out of
+// the cascade as in a real vocal tract). MORPH walks A E I O U; the cutoff
+// moves from a male voice (1 kHz, Csound's tenor table) to a female one
+// (2 kHz, the soprano table), and scales the formants beyond those; the
+// resonance narrows the bandwidths.
+class VowelMorph
+{
+public:
+    struct Formants { double hz[5], bandwidth[5]; };
+
+    static const std::array<Formants, 5>& male()
+    {
+        static const std::array<Formants, 5> table {
+            Formants { { 650, 1080, 2650, 2900, 3250 }, { 80, 90, 120, 130, 140 } },
+            Formants { { 400, 1700, 2600, 3200, 3580 }, { 70, 80, 100, 120, 120 } },
+            Formants { { 290, 1870, 2800, 3250, 3540 }, { 40, 90, 100, 120, 120 } },
+            Formants { { 400, 800, 2600, 2800, 3000 }, { 40, 80, 100, 120, 120 } },
+            Formants { { 350, 600, 2700, 2900, 3300 }, { 40, 60, 100, 120, 120 } },
+        };
+        return table;
+    }
+
+    static const std::array<Formants, 5>& female()
+    {
+        static const std::array<Formants, 5> table {
+            Formants { { 800, 1150, 2900, 3900, 4950 }, { 80, 90, 120, 130, 140 } },
+            Formants { { 350, 2000, 2800, 3600, 4950 }, { 60, 100, 120, 150, 200 } },
+            Formants { { 270, 2140, 2950, 3900, 4950 }, { 60, 90, 100, 120, 120 } },
+            Formants { { 450, 800, 2830, 3800, 4950 }, { 40, 80, 100, 120, 120 } },
+            Formants { { 325, 700, 2700, 3800, 4950 }, { 50, 60, 170, 180, 200 } },
+        };
+        return table;
+    }
+
+    // The formants (Hz) and bandwidths for a morph, cutoff and resonance.
+    static Formants formantsFor (double cutoff, double resonance, double morph)
+    {
+        const auto position = juce::jlimit (0.0, 1.0, morph) * 4.0;
+        const auto index = juce::jmin (3, (int) position);
+        const auto frac = position - (double) index;
+        const auto voice = juce::jlimit (0.0, 1.0, std::log2 (juce::jmax (1.0, cutoff) / 1000.0));
+        const auto scale = cutoff < 1000.0 ? std::sqrt (juce::jmax (0.1, cutoff / 1000.0))
+                                           : cutoff > 2000.0 ? std::sqrt (cutoff / 2000.0) : 1.0;
+        const auto narrow = 1.6 - 1.3 * juce::jlimit (0.0, 1.0, resonance);
+        Formants out;
+        for (int f = 0; f < 5; ++f)
+        {
+            const auto at = [&] (const std::array<Formants, 5>& table, bool bandwidth)
+            {
+                const auto a = bandwidth ? table[(size_t) index].bandwidth[f] : table[(size_t) index].hz[f];
+                const auto b = bandwidth ? table[(size_t) index + 1].bandwidth[f] : table[(size_t) index + 1].hz[f];
+                return bandwidth ? a + (b - a) * frac : std::exp (std::log (a) + (std::log (b) - std::log (a)) * frac);
+            };
+            const auto hz = std::exp (std::log (at (male(), false)) + (std::log (at (female(), false)) - std::log (at (male(), false))) * voice);
+            const auto bandwidth = at (male(), true) + (at (female(), true) - at (male(), true)) * voice;
+            out.hz[f] = hz * scale;
+            out.bandwidth[f] = bandwidth * scale * narrow;
+        }
+        return out;
+    }
+
+    void set (double sampleRate, double cutoff, double resonance, float morph)
+    {
+        const auto formants = formantsFor (cutoff, resonance, (double) morph);
+        for (int f = 0; f < 5; ++f)
+        {
+            const auto hz = juce::jmin (formants.hz[f], sampleRate * 0.45);
+            resonators[(size_t) f].set (sampleRate, hz, formants.bandwidth[f] / hz);
+        }
+    }
+    void reset() { for (auto& r : resonators) r.reset(); }
+    float process (float input)
+    {
+        auto x = (double) input;
+        for (auto& r : resonators)
+        {
+            double lp, bp, hp;
+            r.process (x, lp, bp, hp);
+            x = lp;
+        }
+        if (! std::isfinite (x)) { reset(); return 0.0f; }
+        return (float) (x * outputGain);
+    }
+
+    static constexpr double outputGain = 0.4;
+
+private:
+    std::array<Svf2, 5> resonators;
+};
+
+// Comb Body's body: five modes at a free-free tube's (a chime's) partial
+// ratios, each a band-pass whose ring shortens with the mode number; fed by
+// the comb at the cutoff (FilterUnit), MORPH blends comb and body.
+class ModalBody
+{
+public:
+    static constexpr double ratios[5] { 1.0, 2.756, 5.404, 8.933, 13.34 };
+
+    void set (double sampleRate, double cutoff, double resonance)
+    {
+        const auto q = 8.0 + 120.0 * juce::jlimit (0.0, 1.0, resonance);
+        for (int m = 0; m < 5; ++m)
+        {
+            const auto hz = cutoff * ratios[m];
+            active[(size_t) m] = hz < sampleRate * 0.45;
+            if (! active[(size_t) m])
+                continue;
+            // Higher modes decay faster (Q falls with the mode number).
+            const auto modeQ = q / std::sqrt (ratios[m]);
+            modes[(size_t) m].set (sampleRate, hz, 1.0 / modeQ);
+            gains[(size_t) m] = 1.0 / std::sqrt (ratios[m]);
+        }
+    }
+    void reset() { for (auto& m : modes) m.reset(); }
+    double process (double x)
+    {
+        auto sum = 0.0;
+        for (size_t m = 0; m < 5; ++m)
+        {
+            if (! active[m])
+                continue;
+            double lp, bp, hp;
+            modes[m].process (x, lp, bp, hp);
+            sum += bp * modes[m].k * gains[m];
+        }
+        return sum;
+    }
+
+private:
+    std::array<Svf2, 5> modes;
+    std::array<double, 5> gains {};
+    std::array<bool, 5> active {};
 };
 
 } // namespace Filters2

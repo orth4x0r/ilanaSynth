@@ -30,6 +30,8 @@ enum
     // M8.4 (appended; patches store the index)
     LadderBand, LadderDrive, Sem, OtaLow, OtaBand, Ms20High, Steiner, PhaserNotch,
     CombDamped, CombMorph, VowelBank, Talking, TwinPeak,
+    // The filter overhaul (appended)
+    Acid303, MoogDrive, VowelMorph, CombBody,
     Count
 };
 
@@ -38,7 +40,8 @@ inline juce::StringArray getNames()
     return { "Low Pass", "Band Pass", "High Pass", "Notch", "Ladder LP", "Ladder HP",
              "Diode LP", "MS-20 LP", "Comb +", "Comb -", "Formant", "Morph",
              "Ladder BP", "Ladder Drive", "SEM", "OTA LP", "OTA BP", "MS-20 HP", "Steiner", "Phaser Notch",
-             "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak" };
+             "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak",
+             "303 Acid", "Moog Drive", "Vowel Morph", "Comb Body" };
 }
 
 inline bool isSvf (int type) { return type >= LowPass && type <= Notch; }
@@ -47,8 +50,12 @@ inline bool isComb (int type) { return type == CombPlus || type == CombMinus || 
 inline bool usesMorph (int type)
 {
     return type == Formant || type == Morph || type == Sem || type == Steiner || type == PhaserNotch
-           || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak;
+           || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak
+           || type == VowelMorph || type == CombBody;
 }
+// These take the DRIVE knob inside, into their feedback loop's input; the
+// others are driven by a tanh in front (Voice).
+inline bool drivesInside (int type) { return type == Acid303 || type == MoogDrive; }
 // The M8.4 models ignore the 12/24 dB switch (each has its own order).
 inline bool usesSlope (int type) { return type < LadderBand; }
 inline bool isModel2 (int type) { return type >= LadderBand && type < Count && ! isComb (type); }
@@ -161,6 +168,56 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
                 const auto s2 = s / second;
                 const auto d2 = svfBank (s2, k, unused);
                 return 0.3 / d1 + (s / d1 + s2 / d2) * k * 0.8;
+            }
+            case Acid303:
+            {
+                // The core's response with the feedback high-pass, as the
+                // model tunes it (at 48 kHz).
+                const auto r = resonance;
+                const auto lift = std::pow (Filters2::Acid303::lift0, 1.0 - std::pow (r, Filters2::Acid303::liftPower));
+                const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff * lift, 21000.0) / 48000.0);
+                const auto gHp = std::tan (juce::MathConstants<double>::pi * Filters2::Acid303::feedbackHpHz / 48000.0);
+                const auto tuning = Filters2::Acid303::tuningFor (gHp / g);
+                const auto hpGain = g / std::sqrt (g * g + gHp * gHp);
+                const auto k = r * 1.03 / (tuning.gain * hpGain);
+                // s is in cutoff units; the core runs at cutoff * lift / ratio.
+                const auto sc = s * tuning.ratio / lift;
+                const auto core = FilterCore::DiodeLadderCore::coreResponse (sc, true);
+                const auto sh = s / lift;
+                const auto hp = sh / (sh + gHp / g);
+                return core / (1.0 + k * core * hp);
+            }
+            case MoogDrive:
+            {
+                const auto k = 4.15 * juce::jmin (0.96, resonance);
+                return std::pow (onePole, 4) / (1.0 + k * std::pow (onePole, 4)) * (1.0 + 0.25 * k);
+            }
+            case VowelMorph:
+            {
+                const auto f = Filters2::VowelMorph::formantsFor (cutoff, resonance, morph);
+                std::complex<double> product (1.0, 0.0);
+                for (int i = 0; i < 5; ++i)
+                {
+                    const auto ss = s * cutoff / f.hz[i];
+                    product *= 1.0 / (ss * ss + f.bandwidth[i] / f.hz[i] * ss + 1.0);
+                }
+                return product * Filters2::VowelMorph::outputGain;
+            }
+            case CombBody:
+            {
+                const auto feedback = combFeedback (resonance);
+                const auto comb = (1.0 - 0.5 * feedback) / (1.0 - feedback * std::exp (-juce::MathConstants<double>::twoPi * s));
+                std::complex<double> body;
+                const auto q = 8.0 + 120.0 * resonance;
+                for (int m = 0; m < 5; ++m)
+                {
+                    const auto ratio = Filters2::ModalBody::ratios[m];
+                    const auto kk = std::sqrt (ratio) / q;
+                    const auto ss = s / ratio;
+                    body += ss * kk / (ss * ss + kk * ss + 1.0) / std::sqrt (ratio);
+                }
+                const auto m = juce::jlimit (0.0, 1.0, morph);
+                return comb * ((1.0 - m) + m * body * 2.0);
             }
             case VowelBank:
             case Talking:
@@ -511,6 +568,7 @@ public:
             case FilterType::CombMinus:
             case FilterType::CombDamped:
             case FilterType::CombMorph:
+            case FilterType::CombBody:
                 c.combDelay = sampleRate / juce::jlimit (20.0, sampleRate * 0.45, cutoff);
                 c.combFeedback = FilterType::combFeedback (resonance) * (type == FilterType::CombMinus ? -1.0 : 1.0);
                 if (type == FilterType::CombMorph)
@@ -547,6 +605,14 @@ public:
         combBuffer.assign ((size_t) juce::nextPowerOfTwo ((int) (sampleRate / 20.0) + 8), 0.0f);
         combMask = (int) combBuffer.size() - 1;
         reset();
+    }
+
+    // The DRIVE knob, for the models that take it inside
+    // (FilterType::drivesInside); the others ignore it.
+    void setDrive (float amount)
+    {
+        acid.setDrive (amount);
+        moogDrive.setDrive (amount);
     }
 
     void setType (int newType, bool newSlope24)
@@ -587,6 +653,9 @@ public:
             case FilterType::CombMinus:
             case FilterType::CombDamped:
             case FilterType::CombMorph:
+            case FilterType::CombBody:
+                if (type == FilterType::CombBody)
+                    body.set (c.sampleRate, c.cutoff, c.resonance);
                 combFeedback = c.combFeedback;
                 // Comb Damped: the loop loses its highs fast (a plucked-tube
                 // tone); the others keep the gentle 0.7 damping.
@@ -609,6 +678,9 @@ public:
             case FilterType::VowelBank:
             case FilterType::Talking:      vowel.set (c.sampleRate, c.cutoff, c.resonance, c.morph, type == FilterType::Talking); break;
             case FilterType::TwinPeak:     twinPeak.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::Acid303:      acid.set (c.sampleRate, c.cutoff, c.resonance); break;
+            case FilterType::MoogDrive:    moogDrive.set (c.sampleRate, c.cutoff, c.resonance); break;
+            case FilterType::VowelMorph:   vowelMorph.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
 
             case FilterType::Formant:
                 for (int band = 0; band < 3; ++band)
@@ -641,6 +713,10 @@ public:
         phaser.reset();
         vowel.reset();
         twinPeak.reset();
+        acid.reset();
+        moogDrive.reset();
+        vowelMorph.reset();
+        body.reset();
 
         for (auto& band : formantBands)
             band.reset();
@@ -676,6 +752,16 @@ public:
             case FilterType::VowelBank:
             case FilterType::Talking:     return vowel.process (input);
             case FilterType::TwinPeak:    return twinPeak.process (input);
+            case FilterType::Acid303:     return acid.process (input);
+            case FilterType::MoogDrive:   return moogDrive.process (input);
+            case FilterType::VowelMorph:  return vowelMorph.process (input);
+            case FilterType::CombBody:
+            {
+                // The comb rings at the cutoff; the body's modes ring on it.
+                const auto comb = processComb (input);
+                const auto m = morph;
+                return comb * (1.0f - m) + (float) body.process ((double) comb) * m * bodyGain;
+            }
 
             case FilterType::Formant:
             {
@@ -762,6 +848,11 @@ private:
     Filters2::PhaserNotch phaser;
     Filters2::VowelFilter vowel;
     Filters2::TwinPeak twinPeak;
+    Filters2::Acid303 acid;
+    Filters2::MoogDrive moogDrive;
+    Filters2::VowelMorph vowelMorph;
+    Filters2::ModalBody body;
+    static constexpr float bodyGain = 2.0f;
     float combDampCoefficient = 0.7f;
 
     std::vector<float> combBuffer;

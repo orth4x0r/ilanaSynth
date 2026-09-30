@@ -72,15 +72,15 @@ Pendulum Swing Pad | fx=23 fx_reverb_on=0 fx_trem_rate=5.5 fx_trem_depth=0.5 fx_
 Phaser Notch Sweep | fx=6 fx_reverb_on=0 amp_release=1.0 amp_velocity=0 osc1_table=15 osc2_table=15 | m4=FEEDBACK: fx_phaser_feedback 0.5
 Sweep Pad | fx=14,13 fx_flanger_rate=0.08 fx_flanger_depth=0.7 fx_flanger_feedback=0.6 fx_flanger_mix=0.5 fx_reverb_mix=0.2 | m4=JET: fx_flanger_feedback 0.35
 # Echo instead of reverb.
-Layered Sync Choir | fx=7,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=10 fx_delay_feedback=0.45 fx_delay_mix=0.3 fx_delay_pingpong=1 amp_attack=0.02 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 osc4_semi+=12 osc5_semi+=12 osc6_semi+=12 | m4=ECHO: Delay Mix 0.4, Delay Feedback 0.3
+Layered Sync Choir | fx=7,9,19 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=10 fx_delay_feedback=0.45 fx_delay_mix=0.3 fx_delay_pingpong=1 amp_attack=0.02 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 osc4_semi+=12 osc5_semi+=12 osc6_semi+=12 fx_util_gain=14 | m4=ECHO: Delay Mix 0.4, Delay Feedback 0.3
 Three Carrier Choir | fx=9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=3 fx_delay_feedback=0.3 fx_delay_mix=0.25 fx_delay_damping=0.7 | m4=ECHO: Delay Mix 0.4
 # Softer, velocity-free, plate rather than hall.
 Comb Choir | fx=22,2 fx_reverb_on=0 fx_width=0.1 fx_width_mix=1 fx_drive_on=1 fx_drive_amount=0.3 fx_drive_mix=0.5 amp_attack=0.025 amp_release=0.4 amp_velocity=0 osc1_semi+=-12 osc2_semi+=-12 sub_semi+=-12 osc4_semi+=-12 osc5_semi+=-12 osc6_semi+=-12 | m4=HONK: Drive Amount 0.5
-Morphing Strings | fx=22,13 fx_width=0.4 fx_width_mix=1 fx_reverb_type=2 fx_reverb_mix=0.22 amp_attack=2.6 osc1_semi+=-12 osc2_semi+=-12 sub_semi+=-12 f1_cutoff=900 osc1_spectral=5 osc1_spectral_amt=0.6 |
+Morphing Strings | fx=22,13,19 fx_width=0.4 fx_width_mix=1 fx_reverb_type=2 fx_reverb_mix=0.22 amp_attack=2.6 osc1_semi+=-12 osc2_semi+=-12 sub_semi+=-12 f1_cutoff=900 osc1_spectral=5 osc1_spectral_amt=0.6 fx_util_gain=8 |
 Cello Section | fx=29,22,13 fx_width=0.2 fx_width_mix=1 fx_reverb_type=0 amp_velocity=0.6 |
 String Ensemble Wide | fx=15,13 fx_reverb_type=2 amp_attack=1.8 |
 Warp Envelope Pad | fx=7,13 fx_reverb_type=0 fx_reverb_mix=0.18 |
-Chaos Filter Pad | fx=6,30 fx_reverb_on=0 fx_aw_algo=28 fx_aw_p1=0.7 fx_aw_p2=0.3 fx_aw_p3=0.7 fx_aw_p4=0.7 fx_aw_p5=0.8 osc1_table=38 osc2_table=38 fx_slot2_mix=0.1 | m4=SPACE: fx_slot2_mix 0.9
+Chaos Filter Pad | fx=6,30,19 fx_reverb_on=0 fx_aw_algo=28 fx_aw_p1=0.7 fx_aw_p2=0.3 fx_aw_p3=0.7 fx_aw_p4=0.7 fx_aw_p5=0.8 osc1_table=38 osc2_table=38 fx_slot2_mix=0.1 fx_util_gain=6 | m4=SPACE: fx_slot2_mix 0.9
 Metal Pad | fx=25,22 fx_reverb_on=0 fx_ring_freq=220 fx_ring_mix=0.3 fx_width=0.5 fx_width_mix=1 amp_release=0.6 amp_velocity=0 | m4=RING: fx_ring_mix 0.5
 Freeze Pad | fx=30,13 fx_aw_algo=14 fx_aw_p1=0.7 fx_aw_p2=0.5 amp_attack=3.2 fx_reverb_type=3 fx_reverb_mix=0.35 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 osc4_semi+=12 osc5_semi+=12 osc6_semi+=12 | m4=AIR: Reverb Mix 0.4
 LFO 4 Sweep | fx=13 fx_reverb_type=4 fx_reverb_mix=0.35 osc1_table=17 osc2_table=17 fm_amount=0.35 | m4=SPRING: Reverb Mix 0.4
@@ -118,7 +118,7 @@ Hyper Reese | fx=20,15 fx_dim_rate=0.3 fx_dim_depth=0.7 fx_dim_mix=0.6 amp_attac
 Through-Zero Growl | fx=30,21 fx_ott_mix=0 fx_aw_algo=23 fx_aw_p1=0.7 fx_aw_p2=0.4 fx_aw_p3=0.4 fx_aw_p4=0.6 fx_aw_p5=1 |
 
 Shift Bass | fx=7,29 fx_drive_on=0 fx_chorus_on=1 fx_chorus_rate=0.5 fx_chorus_depth=0.5 fx_chorus_mix=0.5 f1_cutoff=3000 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=CHORUS: fx_chorus_mix 0.5
-Modulated Route Bass | fx=8,7,29 fx_drive_on=0 fx_haas_delay=12 fx_haas_mix=0.6 fx_chorus_on=1 fx_chorus_mix=0.4 amp_attack=0.15 | m4=WIDTH: fx_haas_mix 0.4
+Modulated Route Bass | fx=8,7,29,19 fx_drive_on=0 fx_haas_delay=12 fx_haas_mix=0.6 fx_chorus_on=1 fx_chorus_mix=0.4 amp_attack=0.15 fx_util_gain=6 | m4=WIDTH: fx_haas_mix 0.4
 MS-20 Growl | fx_reverb_mix=0.35 fx_reverb_type=2 amp_attack=0.03 |
 Wavefold Sub | fx=21 fx_ott_mix=0 amp_decay=0.18 amp_sustain=0 amp_release=0.1 | m4=LENGTH: Amp Decay 0.5
 West Folded Bass | fx=30 fx_drive_on=0 fx_aw_algo=7 fx_aw_p1=0.65 fx_aw_p2=0.7 amp_velocity=0 |

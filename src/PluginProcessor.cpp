@@ -556,11 +556,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             juce::ParameterID { id, 1 }, name, def));
     };
 
+    // Choices (modes, types, sources, destinations, shapes, FX slots) are not
+    // host-automatable: hosts store automation as a normalised value, so a
+    // list that grows in an update would move recorded lanes to other
+    // entries. Saved states keep the index and load unchanged; the knobs,
+    // switches and macros stay automatable.
     const auto addChoice = [&layout] (const juce::String& id, const juce::String& name,
                                       const juce::StringArray& choices, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterChoice> (
-            juce::ParameterID { id, 1 }, name, choices, def));
+            juce::ParameterID { id, 1 }, name, choices, def,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
     };
 
     // OSC 1 and 2 retain their original parameter order and defaults.

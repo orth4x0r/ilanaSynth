@@ -60,8 +60,33 @@ void runAlgorithmFeedbackTest()
            "an FM algorithm's new feedback is Filtered, existing feedback keeps its type");
 }
 
+// No choice parameter is host-automatable (a list that grows would move
+// recorded lanes); the continuous knobs still are.
+void runAutomationTest()
+{
+    IlanaSynthAudioProcessor processor;
+    auto choices = 0, automatableChoices = 0, floats = 0, automatableFloats = 0;
+    for (auto* parameter : processor.getParameters())
+    {
+        if (dynamic_cast<juce::AudioParameterChoice*> (parameter) != nullptr)
+        {
+            ++choices;
+            automatableChoices += parameter->isAutomatable() ? 1 : 0;
+        }
+        else if (dynamic_cast<juce::AudioParameterFloat*> (parameter) != nullptr)
+        {
+            ++floats;
+            automatableFloats += parameter->isAutomatable() ? 1 : 0;
+        }
+    }
+    check (choices > 50 && automatableChoices == 0 && automatableFloats == floats,
+           "no choice parameter is automatable (" + juce::String (choices) + " choices, " + juce::String (automatableChoices)
+               + " automatable); all " + juce::String (floats) + " knobs are");
+}
+
 void runTests()
 {
+    runAutomationTest();
     runInitTest();
     runAlgorithmFeedbackTest();
 }

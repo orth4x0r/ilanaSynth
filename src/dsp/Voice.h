@@ -588,6 +588,10 @@ private:
     double currentFrequency = 440.0;
     double bendSemitones = 0.0;
     float velocityLevel = 1.0f;
+    // The note and velocity (1-127) a multisample picks its region by, and the
+    // region each oscillator plays (null for a plain sample).
+    int lastNote = 60, lastVelocity = 100;
+    const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;

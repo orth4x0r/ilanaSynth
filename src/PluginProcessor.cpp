@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "dsp/MultiSample.h"
 
 #ifdef ILANA_TEST_BUILD
 #include "dsp/Modulation.h"
@@ -351,7 +352,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         const auto prefix = "fx_slot" + juce::String (slot + 1);
-        fxSlotIds[(size_t) slot] = { prefix, prefix + "_bypass", prefix + "_solo", prefix + "_mix" };
+        fxSlotIds[(size_t) slot] = { prefix, prefix + "_bypass", prefix + "_solo", prefix + "_mix", prefix + "_band" };
     }
 
     {
@@ -1380,6 +1381,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                       knob < first.numKnobs ? first.knobs[knob].defaultValue : 0.5f);
         addFloat ("fx_aw_mix", "Airwindows Mix", 0.0f, 1.0f, 1.0f);
     }
+
+    // FX splitters: which part of the signal each slot works on (Full keeps
+    // the whole signal, as before), and the two crossover frequencies.
+    for (int slot = 0; slot < numFxSlots; ++slot)
+        addChoice ("fx_slot" + juce::String (slot + 1) + "_band", "FX Band " + juce::String (slot + 1),
+                   { "Full", "Low", "Mid", "High", "Mid (M/S)", "Side (M/S)" }, 0);
+    addFloat ("fx_split_low", "FX Split Low", 40.0f, 2000.0f, 250.0f, 0.4f);
+    addFloat ("fx_split_high", "FX Split High", 400.0f, 12000.0f, 2500.0f, 0.4f);
 
     return layout;
 }
@@ -3810,8 +3819,13 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
+        const auto band = (int) getParam (ids.band);
 
-        if (solo || blend < 0.999f)
+        if (band > 0 && numChannels == 2)
+        {
+            processSlotBand (slot - 1, type, band, buffer, solo, blend);
+        }
+        else if (solo || blend < 0.999f)
         {
             if (fxScratch.getNumChannels() < numChannels || fxScratch.getNumSamples() < numSamples)
                 fxScratch.setSize (numChannels, numSamples, false, false, true);
@@ -3850,6 +3864,147 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
     }
 
     sanitiseBuffer (buffer);
+}
+
+void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend)
+{
+    const auto numSamples = buffer.getNumSamples();
+    if (fxBand.getNumChannels() < 2 || fxBand.getNumSamples() < numSamples)
+        fxBand.setSize (2, numSamples, false, false, true);
+    if (fxScratch.getNumChannels() < 2 || fxScratch.getNumSamples() < numSamples)
+        fxScratch.setSize (2, numSamples, false, false, true);
+
+    auto& split = fxSplit[(size_t) slot];
+    const auto lowHz = getParam ("fx_split_low");
+    const auto highHz = juce::jmax (lowHz * 1.5f, getParam ("fx_split_high"));
+    const auto rate = juce::jmax (1.0, currentSampleRate);
+    if (split.lastBand != band || split.lastLow != lowHz || split.lastHigh != highHz)
+    {
+        const auto fresh = split.lastBand != band;
+        const auto low = juce::IIRCoefficients::makeLowPass (rate, juce::jlimit (20.0, rate * 0.45, (double) lowHz), 0.70710678);
+        const auto lowCut = juce::IIRCoefficients::makeHighPass (rate, juce::jlimit (20.0, rate * 0.45, (double) lowHz), 0.70710678);
+        const auto high = juce::IIRCoefficients::makeLowPass (rate, juce::jlimit (20.0, rate * 0.45, (double) highHz), 0.70710678);
+        const auto highCut = juce::IIRCoefficients::makeHighPass (rate, juce::jlimit (20.0, rate * 0.45, (double) highHz), 0.70710678);
+        const auto allpass = [rate] (float hz)
+        {
+            return juce::IIRCoefficients::makeAllPass (rate, juce::jlimit (20.0, rate * 0.45, (double) hz), 0.70710678);
+        };
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            split.allLow[(size_t) channel].setCoefficients (allpass (lowHz));
+            split.allHigh[(size_t) channel].setCoefficients (allpass (highHz));
+            if (fresh)
+            {
+                split.allLow[(size_t) channel].reset();
+                split.allHigh[(size_t) channel].reset();
+            }
+        }
+        for (int stage = 0; stage < 2; ++stage)
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                // Low: below the low split. Mid: above it and below the
+                // high one. High: above the high split.
+                auto& a = split.lowA[(size_t) stage][(size_t) channel];
+                auto& b = split.lowB[(size_t) stage][(size_t) channel];
+                a.setCoefficients (band == 1 ? low : (band == 2 ? lowCut : highCut));
+                b.setCoefficients (high);
+                if (fresh)
+                {
+                    a.reset();
+                    b.reset();
+                }
+            }
+        split.lastBand = band;
+        split.lastLow = lowHz;
+        split.lastHigh = highHz;
+    }
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = buffer.getWritePointer (1);
+    auto* bandL = fxBand.getWritePointer (0);
+    auto* bandR = fxBand.getWritePointer (1);
+
+    // The part the slot works on, taken out of the signal.
+    if (band >= 4)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto part = band == 4 ? 0.5f * (left[i] + right[i]) : 0.5f * (left[i] - right[i]);
+            bandL[i] = bandR[i] = part;
+        }
+    }
+    else
+    {
+        fxBand.copyFrom (0, 0, buffer, 0, 0, numSamples);
+        fxBand.copyFrom (1, 0, buffer, 1, 0, numSamples);
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto* data = fxBand.getWritePointer (channel);
+            for (int stage = 0; stage < 2; ++stage)
+            {
+                split.lowA[(size_t) stage][(size_t) channel].processSamples (data, numSamples);
+                if (band == 2)
+                    split.lowB[(size_t) stage][(size_t) channel].processSamples (data, numSamples);
+            }
+        }
+    }
+
+    // Everything else, which passes around the slot: for a frequency band,
+    // the signal through the crossovers' allpasses less the band, so the
+    // two sum to a flat response.
+    if (band <= 3)
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto* data = buffer.getWritePointer (channel);
+            if (band != 3)
+                split.allLow[(size_t) channel].processSamples (data, numSamples);
+            if (band != 1)
+                split.allHigh[(size_t) channel].processSamples (data, numSamples);
+        }
+    for (int i = 0; i < numSamples; ++i)
+    {
+        if (band == 4)
+            left[i] -= bandL[i], right[i] -= bandL[i];
+        else if (band == 5)
+            left[i] -= bandL[i], right[i] += bandL[i];
+        else
+            left[i] -= bandL[i], right[i] -= bandR[i];
+    }
+
+    // The slot on its band, with its blend and solo as on the full signal.
+    fxScratch.copyFrom (0, 0, fxBand, 0, 0, numSamples);
+    fxScratch.copyFrom (1, 0, fxBand, 1, 0, numSamples);
+    processSlot (type, fxScratch);
+    const auto wet = solo ? 1.0f : blend, dry = solo ? 0.0f : 1.0f - blend;
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        auto* out = fxScratch.getWritePointer (channel);
+        const auto* in = fxBand.getReadPointer (channel);
+        for (int i = 0; i < numSamples; ++i)
+            out[i] = out[i] * wet + in[i] * dry;
+    }
+
+    // Soloed, the slot's band is all that is heard.
+    if (solo)
+        buffer.clear();
+
+    const auto* wetL = fxScratch.getReadPointer (0);
+    const auto* wetR = fxScratch.getReadPointer (1);
+    for (int i = 0; i < numSamples; ++i)
+    {
+        if (band == 4 || band == 5)
+        {
+            // Mid or side stays mono: the slot's two channels averaged.
+            const auto part = 0.5f * (wetL[i] + wetR[i]);
+            left[i] += part;
+            right[i] += band == 4 ? part : -part;
+        }
+        else
+        {
+            left[i] += wetL[i];
+            right[i] += wetR[i];
+        }
+    }
 }
 
 void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& buffer)
@@ -5605,6 +5760,17 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     ++dataEpoch; // what the editor draws changes
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
         return false;
+
+    // SoundFont and SFZ instruments: a multisample, its regions picked per note.
+    if (MultiSample::isMultiSampleFile (file))
+    {
+        juce::String error;
+        auto multi = MultiSample::load (file, error);
+        if (multi == nullptr)
+            return false;
+        setUserSample (oscIndex, std::move (multi), file.getFullPathName());
+        return true;
+    }
 
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();

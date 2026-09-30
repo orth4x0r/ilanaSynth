@@ -6072,7 +6072,10 @@ public:
                                               .withAlpha (0.42f + 0.45f * rowHover[(size_t) slot]))
                              .withMultipliedAlpha (dim));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, slotType != 0));
-            g.drawFittedText (slotType != 0 ? getSlotName (slotType) : juce::String ("+  add effect"),
+            // A slot on one band of the signal says which.
+            static const char* const bandTags[] { "", "  LOW", "  MID", "  HIGH", "  M", "  S" };
+            const auto bandTag = slotType != 0 ? bandTags[juce::jlimit (0, 5, getSlotBand (slot))] : "";
+            g.drawFittedText (slotType != 0 ? getSlotName (slotType) + bandTag : juce::String ("+  add effect"),
                               row.reduced (30, 6).withTrimmedRight (18), 1, juce::Justification::centredLeft);
 
             if (slotType != 0 && ! bypassed)
@@ -6425,6 +6428,13 @@ private:
         return 0;
     }
 
+    int getSlotBand (int slot) const
+    {
+        if (const auto* value = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (slot + 1) + "_band"))
+            return (int) value->load();
+        return 0;
+    }
+
     juce::String getSlotName (int type) const
     {
         return juce::isPositiveAndBelow (type, slotNames.size()) ? slotNames[type] : juce::String ("-");
@@ -6447,6 +6457,15 @@ private:
         menu.addItem (1001, "Bypass", true, bypassed);
         menu.addItem (1002, "Solo (wet only)", true, soloed);
 
+        // Splitters: the slot works on one band, the rest passes around it.
+        juce::PopupMenu bands;
+        const juce::StringArray bandNames { "Full signal", "Low band", "Mid band", "High band", "Mid (M/S)", "Side (M/S)" };
+        for (int b = 0; b < bandNames.size(); ++b)
+            bands.addItem (1100 + b, bandNames[b], true, getSlotBand (slot) == b);
+        bands.addSeparator();
+        bands.addItem (1110, "Set crossovers...");
+        menu.addSubMenu ("Band", bands);
+
         juce::Component::SafePointer<FxPage> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -6467,6 +6486,15 @@ private:
                                             slotPrefix + (result == 1001 ? "_bypass" : "_solo")))
                                         parameter->setValueNotifyingHost (parameter->getValue() > 0.5f ? 0.0f : 1.0f);
                                 }
+                                else if (result >= 1100 && result < 1110)
+                                {
+                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (slotPrefix + "_band"))
+                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (result - 1100)));
+                                }
+                                else if (result == 1110)
+                                {
+                                    safeThis->showCrossovers();
+                                }
                                 else if (result == 1003)
                                 {
                                     if (auto* parameter = safeThis->processorRef.apvts.getParameter (slotPrefix))
@@ -6478,6 +6506,31 @@ private:
                             });
     }
 
+    // The splitters' two crossovers, as knobs in a callout.
+    void showCrossovers()
+    {
+        struct Crossovers : public juce::Component
+        {
+            explicit Crossovers (juce::AudioProcessorValueTreeState& state)
+                : low (state, "fx_split_low", "LOW / MID", IlanaTheme::accent(), false),
+                  high (state, "fx_split_high", "MID / HIGH", IlanaTheme::accent(), false)
+            {
+                addAndMakeVisible (low);
+                addAndMakeVisible (high);
+                setSize (220, 120);
+            }
+            void resized() override
+            {
+                auto area = getLocalBounds().reduced (6);
+                low.setBounds (area.removeFromLeft (area.getWidth() / 2));
+                high.setBounds (area);
+            }
+            KnobControl low, high;
+        };
+        juce::CallOutBox::launchAsynchronously (std::make_unique<Crossovers> (processorRef.apvts),
+                                                getScreenBounds().withSizeKeepingCentre (10, 10), nullptr);
+    }
+
     void moveSelectedSlot (int direction)
     {
         const auto target = selectedSlot + direction;
@@ -6487,7 +6540,7 @@ private:
 
         // A slot is its module plus its bypass, solo and blend settings; move
         // them together so a dragged slot keeps how it was set up.
-        for (const auto* suffix : { "", "_bypass", "_solo", "_mix" })
+        for (const auto* suffix : { "", "_bypass", "_solo", "_mix", "_band" })
         {
             auto* current = processorRef.apvts.getParameter ("fx_slot" + juce::String (selectedSlot + 1) + suffix);
             auto* other = processorRef.apvts.getParameter ("fx_slot" + juce::String (target + 1) + suffix);

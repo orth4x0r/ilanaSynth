@@ -30,7 +30,7 @@ For an agent arriving cold. Current state and rules: [HANDOFF.md](../HANDOFF.md)
 `IlanaSynth` (`src/dsp/IlanaSynth.h`, a `juce::Synthesiser`, 32 voices) -> per `Voice` (`src/dsp/Voice.h`, `Voice.cpp`; settings in `VoiceParams`) -> FX chain in the processor -> output.
 | Stage | Where |
 |---|---|
-| 6 oscillators (also FM operators); modes: wavetable, classic, physical, sample, granular, live input | `WavetableOscillator.h`, `Wavetable.{h,cpp}`, `PolyBlepOsc.h`, `UnisonBank.h`, `SamplePlayer.h`, `GranularOsc.h`, `OscillatorIds.h` |
+| 6 oscillators (also FM operators); modes: wavetable, classic, physical, sample, granular, live input | `WavetableOscillator.h`, `Wavetable.{h,cpp}`, `PolyBlepOsc.h`, `UnisonBank.h`, `SamplePlayer.h` (with `MultiSample.h`: SF2/SFZ regions picked per note), `GranularOsc.h`, `OscillatorIds.h` |
 | Warps, spectral work, table building | `SpectralWarp.h`, `SpectralCache.h`, `SpectralFreeze.h`, `TableFFT.h`, `TableFactory.{h,cpp}` |
 | Physical models (exciters, strings, bodies) | `KarplusStrong.h`, `TunedString.h`, `PianoString.h`, `TensionAdsr.h`, `SympatheticStrings.h`, `MaterialBody.h`, `ResonatorBank.h`, `ElectricPiano.h`, `FeedbackGuitar.h`, `WestCoast.h`; fitted constants in `*Tuning.h` |
 | FM (6x6 matrix, algorithms) | `FmAlgorithms.h`; view `src/gui/FmDiagram.h` |

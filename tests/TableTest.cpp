@@ -8434,6 +8434,8 @@ void runProfile (int unison)
 #include "TuningTests.inc"
 #include "AirwindowsTests.inc"
 #include "FilterTests.inc"
+#include "MultiSampleTests.inc"
+#include "SplitterTests.inc"
 #include "DemoRender.inc"
 
 // ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
@@ -8597,6 +8599,21 @@ int main()
     {
         runAirwindowsTests();
         std::cout << (failures == 0 ? "AIRWINDOWS TESTS PASSED" : "AIRWINDOWS TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SPLITTER_TEST", "").isNotEmpty())
+    {
+        runSplitterTests();
+        std::cout << (failures == 0 ? "SPLITTER TESTS PASSED" : "SPLITTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_MULTISAMPLE_TEST", "").isNotEmpty())
+    {
+        runMultiSampleTests();
+    runSplitterTests();
+        std::cout << (failures == 0 ? "MULTISAMPLE TESTS PASSED" : "MULTISAMPLE TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8967,6 +8984,7 @@ int main()
     runTuningTests();
     runAirwindowsTests();
     runFilterOverhaulTests();
+    runMultiSampleTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

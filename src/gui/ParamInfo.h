@@ -944,6 +944,14 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("fx_slot") && id.endsWith ("_mix"))
         return "Parallel blend for this slot: 1 = fully through the effect, 0 = dry.";
 
+    if (id.startsWith ("fx_slot") && id.endsWith ("_band"))
+        return "Splitter: the part of the signal this slot works on (Full, a Low, Mid or High band, or the Mid or Side). "
+               "The rest passes around it. Slots on the same band in a row are that band's chain.";
+
+    if (id == "fx_split_low" || id == "fx_split_high")
+        return juce::String ("Splitter crossover between the ") + (id == "fx_split_low" ? "Low and Mid" : "Mid and High")
+               + " bands (24 dB/oct).";
+
     if (id.startsWith ("fx_slot"))
         return "Rack slot: choose which effect lives at this position.";
 

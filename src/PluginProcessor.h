@@ -389,6 +389,8 @@ public:
     int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
     void clearTableNotice();
     bool loadUserSample (int oscIndex, const juce::File& file);
+    // The FX rack alone over a buffer (the audio path calls it; public for the tests).
+    void processEffects (juce::AudioBuffer<float>& buffer);
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
@@ -501,7 +503,6 @@ private:
     const Wavetable* getTableForChoice (int choiceIndex) const;
     void renderLfos (int numSamples, const juce::MidiBuffer& midiMessages);
     float staticSourceValue (int sourceIndex) const;
-    void processEffects (juce::AudioBuffer<float>& buffer);
     void processAmp (juce::AudioBuffer<float>& buffer);
     void processDrive (juce::AudioBuffer<float>& buffer);
     void processCrush (juce::AudioBuffer<float>& buffer);
@@ -686,7 +687,7 @@ private:
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
     // Which LFOs a mod slot uses: LFO 5-16 only render in full when routed.
     std::array<bool, (size_t) numLfos> lfoRouted {};
-    struct FxSlotIds { ParamRef type, bypass, solo, mix; };
+    struct FxSlotIds { ParamRef type, bypass, solo, mix, band; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<ParamRef, 16> tapStepIds;
     std::array<ParamRef, 16> gateStepIds;
@@ -960,6 +961,22 @@ private:
     Biquad eqBands[2][3];
     Svf vowelFilters[2][3];
     juce::AudioBuffer<float> fxScratch;
+    // FX splitters: a slot set to a band processes only that part of the
+    // signal (Linkwitz-Riley crossovers, or mid/side) and the rest passes
+    // around it, so an untouched band sums back exactly.
+    struct SplitFilter
+    {
+        // Two cascaded Butterworth sections per channel (24 dB/oct, LR4) cut
+        // the band; the crossovers' allpasses give the phase the band's
+        // complement needs (LR4 low + high = a second-order allpass).
+        std::array<std::array<juce::IIRFilter, 2>, 2> lowA, lowB;
+        std::array<juce::IIRFilter, 2> allLow, allHigh;
+        int lastBand = 0;
+        float lastLow = 0.0f, lastHigh = 0.0f;
+    };
+    std::array<SplitFilter, (size_t) numFxSlots> fxSplit;
+    juce::AudioBuffer<float> fxBand;
+    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
     std::atomic<float> compGainReduction { 1.0f };
 

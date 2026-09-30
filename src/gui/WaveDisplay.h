@@ -214,6 +214,10 @@ public:
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
             menu.addItem (i + 1, SampleFactory::getFactorySampleName (i), true, current == i + 1);
 
+        constexpr int loadFileItem = 10000;
+        menu.addSeparator();
+        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -221,6 +225,12 @@ public:
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
+
+                                if (result == loadFileItem)
+                                {
+                                    safeThis->chooseSampleFile();
+                                    return;
+                                }
 
                                 if (auto* parameter = safeThis->processorRef.apvts.getParameter (paramId))
                                     parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) result));
@@ -248,7 +258,8 @@ public:
         const auto extension = juce::File (files[0]).getFileExtension().toLowerCase();
 
         return extension == ".wav" || extension == ".aif" || extension == ".aiff"
-               || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a";
+               || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a"
+               || extension == ".sf2" || extension == ".sfz";
     }
 
     void fileDragEnter (const juce::StringArray&, int, int) override
@@ -284,6 +295,23 @@ public:
     void resized() override
     {
         modeButton.setBounds (getWidth() - 44, 6, 36, 18);
+    }
+
+    void chooseSampleFile()
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Load Sample or SoundFont",
+                                                           juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                           "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a;*.sf2;*.sfz");
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [safeThis] (const juce::FileChooser& chooser)
+                                  {
+                                      if (safeThis == nullptr || ! chooser.getResult().existsAsFile())
+                                          return;
+                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult()))
+                                          safeThis->switchToSampleMode();
+                                      safeThis->repaint();
+                                  });
     }
 
 private:
@@ -994,4 +1022,5 @@ private:
     bool subTableMapping = false;
     juce::TextButton modeButton { "3D" };
     bool threeD = false;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 };

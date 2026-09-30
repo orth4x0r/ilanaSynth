@@ -151,14 +151,25 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
 void Voice::syncSamplePlayers()
 {
-    const auto setup = [] (const VoiceParams::OscParams& osc, SamplePlayer* players, GranularOsc* clouds,
+    const auto setup = [] (const VoiceParams::OscParams& osc, const SampleZone* zone, SamplePlayer* players, GranularOsc* clouds,
                            float startMod, float endMod)
     {
         const auto start = juce::jlimit (0.0f, 0.98f, osc.sampleStart + startMod);
         const auto end = juce::jlimit (start + 0.01f, 1.0f, osc.sampleEnd + endMod);
+        // A multisample plays the region the note picked, with its loop.
+        const auto* sample = zone != nullptr ? zone->data.get() : osc.sample;
 
         SamplePlayer::Params sampleParams;
-        sampleParams.sample = osc.sample;
+        sampleParams.sample = sample;
+        if (zone != nullptr)
+        {
+            sampleParams.gain = zone->gain;
+            if (zone->loop)
+            {
+                sampleParams.loopStart = zone->loopStart;
+                sampleParams.loopEnd = zone->loopEnd;
+            }
+        }
         sampleParams.loop = osc.sampleLoop;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
@@ -172,7 +183,7 @@ void Voice::syncSamplePlayers()
         if (osc.granularMode)
         {
             GranularOsc::Params grainParams;
-            grainParams.sample = osc.sample;
+            grainParams.sample = sample;
             grainParams.position = juce::jlimit (0.0f, 1.0f, osc.sampleStart + startMod);
             grainParams.sizeMs = osc.grainSizeMs;
             grainParams.density = osc.grainDensity;
@@ -202,8 +213,12 @@ void Voice::syncSamplePlayers()
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (osc < 3 || params.oscillatorEnabled[osc]
             || oscEnableSmooth[osc].getCurrentValue() > 0.0005f)
-            setup (params.oscillators[osc], sampleUnison[osc], grains[osc],
+        {
+            const auto* sample = params.oscillators[osc].sample;
+            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity) : nullptr;
+            setup (params.oscillators[osc], sampleZone[osc], sampleUnison[osc], grains[osc],
                    blockMod (startDestinations[osc]), blockMod (endDestinations[osc]));
+        }
 }
 
 void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound*, int currentPitchWheelPosition)
@@ -244,6 +259,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         return;
 
     velocityLevel = velocity;
+    lastNote = midiNoteNumber;
+    lastVelocity = juce::jlimit (1, 127, juce::roundToInt (velocity * 127.0f));
     noteHeld = true;
 
     // Per-voice LFOs restart with each articulated note.
@@ -1677,7 +1694,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         lastSamplePosition[osc] = params.oscillators[osc].sampleMode
-                                      ? samplePositionOf (sampleUnison[osc][0], params.oscillators[osc].sample) : -1.0f;
+                                      ? samplePositionOf (sampleUnison[osc][0], sampleZone[osc] != nullptr ? sampleZone[osc]->data.get()
+                                                                                                           : params.oscillators[osc].sample)
+                                      : -1.0f;
 
     if (bodyTailSamplesRemaining > 0)
         bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
@@ -1842,9 +1861,11 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
             if (u < VoiceParams::maxBufferedUnison)
             {
                 stringFor (osc, u).setFrequency (frequencyU);
-                sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / 261.6255653005986 : 1.0;
+                const auto* zone = sampleZone[osc];
+                const auto* played = zone != nullptr ? zone->data.get() : settings.sample;
+                sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : 261.6255653005986) : 1.0;
                 grains[osc][u].setPlaybackRatio (sampleRatio[osc][u]);
-                sampleUnison[osc][u].setPlaybackRatio ((settings.sample != nullptr ? settings.sample->sampleRate / sampleRate : 1.0)
+                sampleUnison[osc][u].setPlaybackRatio ((played != nullptr ? played->sampleRate / sampleRate : 1.0)
                                                        * sampleRatio[osc][u]);
             }
         }

@@ -2633,8 +2633,10 @@ void runFilterModelTests()
     constexpr double sampleRate = 48000.0;
 
     // Self-oscillation: silence in, a sustained bounded tone out, for both
-    // the SVF above its old resonance cap and the ladder at full feedback.
-    for (const auto type : { (int) FilterType::LowPass, (int) FilterType::LadderLow })
+    // the SVF (Morph; Low Pass is now Airwindows' Y filter, which rings but
+    // doesn't oscillate) above its old resonance cap and the ladder at full
+    // feedback.
+    for (const auto type : { (int) FilterType::Morph, (int) FilterType::LadderLow })
     {
         FilterUnit filter;
         filter.setType (type, false);
@@ -2661,8 +2663,9 @@ void runFilterModelTests()
                    + juce::String (peak, 3) + ", late rms " + juce::String (lateRms, 3) + ")");
     }
 
-    // Below the old cap the SVF path must be bit-identical to the plain Svf,
-    // so existing presets don't change.
+    // At low level Airwindows' Y low-pass (24 dB) is the old SVF cascade
+    // (its encode and decode curves are straight there; the difference is its
+    // 20 kHz Butterworths), so the presets' tone balance carries over.
     {
         FilterUnit unit;
         unit.setType (FilterType::LowPass, true);
@@ -2680,11 +2683,12 @@ void runFilterModelTests()
 
         for (int i = 0; i < 4800; ++i)
         {
-            const auto x = random.nextFloat() * 2.0f - 1.0f;
+            const auto x = (random.nextFloat() * 2.0f - 1.0f) * 0.002f;
             maxDiff = juce::jmax (maxDiff, std::abs (unit.process (x) - b.processSample (a.processSample (x))));
         }
 
-        check (maxDiff == 0.0f, "24 dB SVF through FilterUnit matches the legacy cascade exactly");
+        check (maxDiff < 0.002f * 0.05f, "24 dB Y low-pass matches the old SVF cascade at low level (max diff "
+                                            + juce::String (maxDiff / 0.002f * 100.0f, 3) + " % of the input)");
     }
 
     // Ladder low-pass actually low-passes and high-pass actually high-passes.

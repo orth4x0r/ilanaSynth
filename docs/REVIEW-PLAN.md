@@ -104,4 +104,16 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    Left for the user: listening to all four. Not done: mod-matrix destinations for the vocoder parameters.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
    trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)
-9. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+9. **Airwindows filters** (the user, 2026-09-30): Low / Band / High Pass and Notch replaced by Airwindows' Y filters
+   (done, `docs/filter-overhaul-status.md`); Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a
+   tuneable **Disperser** (all-pass chain at the cutoff, key-tracked) as appended types; then a second diversity pass
+   that uses them on the crowds. Presets may change tone "as long as they don't sound bad"; the level rule stands.
+10. **UI review 1 fixes** (Vital / Serum 2 comparison, `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-1.md`):
+   PLAY gets a live output scope or spectrum and SUB + NOISE collapses when off; every knob shows its live modulated
+   value, and clicking a source chip highlights the knobs it drives (rings already cover all mod destinations);
+   drag cutoff / resonance on the filter graph, frame / warp on the oscillator display, a spectrum view beside 3D;
+   preset browser audition (arrow keys), category chips and macro names; group the header's actions and give save
+   and the preset name weight; move VOICES / BEND / VOICE MODE out of the bottom bar to free room for macro names;
+   larger small-caps labels and contrast on dimmed controls. **Recurring:** a UI review against Vital and Serum 2
+   after each step that touches the interface (the user's ask); findings go to `UI-REVIEW-N.md` and this list.
+11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

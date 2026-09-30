@@ -9,7 +9,7 @@ Type indices are unchanged; 25..28 are appended.
 
 | Model | Now | Self-oscillation (tests) |
 |---|---|---|
-| Low / Band / High Pass, Notch, Morph | linear range bit-identical; above 0.98 the state clipping is replaced by nonlinear damping (Svf.h) | at the cutoff within 0.25 %, level even across the range |
+| Morph (and, before the Airwindows swap, Low / Band / High Pass and Notch) | linear range bit-identical; above 0.98 the state clipping is replaced by nonlinear damping (Svf.h) | at the cutoff within 0.25 %, level even across the range |
 | Ladder LP / HP | `StageCascade` (linear stages, loop sum saturating, solved exactly), 2x | 0.00 % |
 | Diode LP | `DiodeLadderCore` (equal capacitors); slides up as resonance falls (4x at 0) to keep the old brightness; make-up gain part in, part out; soft output ceiling | 0.07 % (it never oscillated before) |
 | MS-20 LP / HP | new `Korg35Core`: the loop's diode limiter solved per sample (one Newton step), 2x; K reaches 2 at resonance 0.97 | 0.02 % (HP was up to 16 % flat) |
@@ -46,9 +46,20 @@ DRIVE goes inside for 303 Acid and Moog Drive only (`FilterType::drivesInside`, 
   not a gain); nothing else needed changing.
 
 ## Airwindows
-Checked for reusable filters: Capacitor2, Isolator2, Baxandall2, Air/Air3 and Pop2 are stereo mixing tools
-(non-resonant shelves and one-poles with their own dither and state per channel), already reachable as the
-Airwindows FX. None fits inside a per-voice resonant filter; nothing was reused.
+2026-09-30, the owner's call: **Low Pass, Band Pass, High Pass and Notch are now Airwindows' Y filters**
+(YLowpass / YBandpass / YHighpass / YNotch, MIT; `src/dsp/AirwindowsFilters.h`). Each is the plugins' chain: a fixed
+20 kHz Butterworth in, the encode curve (RESEDGE fixed at 0.25, p = 1.15^4 ~ 1.75, a table instead of `pow`), the
+resonant two-pole, the decode curve, a fixed 20 kHz Butterworth out; the voice signal meets the curves at half level
+(`headroom`). Two changes from the plugins: the resonant stage is computed as a zero-delay SVF with the biquad's
+response (a direct-form biquad overshot up to +3.7 dB when a filter envelope moved the cutoff every 16 samples), and
+the band-pass peaks at Q like the old one (YBandpass holds its peak at unity, which lost up to 29 dB). Resonance keeps
+the old damping (Q = 1 / (2 - 2 r)), topped at Q 40: they ring at the cutoff (tests) but no longer self-oscillate.
+24 dB puts both stages inside one curve pair. Presets: 389 changed tone, every one within the level rule; four needed
+a trim change of 0.1-0.4 dB (Clock Weirdo, Rust Bass, Resonant Drop, Self-Osc Choir). Morph, Formant and the other
+models are unchanged. Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a Disperser come as
+appended types.
+
+Earlier (step 4): Capacitor2, Isolator2, Baxandall2, Air/Air3 and Pop2 are mixing tools, already in the FX rack.
 
 ## Spectral warps, modulatable
 Each oscillator's SPECTRAL AMOUNT is now a modulation destination ("OscN Spectral Amount", appended to

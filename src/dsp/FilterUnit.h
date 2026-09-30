@@ -3,6 +3,7 @@
 #include "Svf.h"
 #include "FilterModels2.h"
 #include "FilterCore.h"
+#include "AirwindowsFilters.h"
 
 #include <cmath>
 #include <complex>
@@ -555,6 +556,8 @@ public:
         double combDelay = 1.0;
         double combFeedback = 0.0;
         float morph = 0.0f;
+        // Low / Band / High Pass and Notch: Airwindows' Y filters.
+        Airwindows::YFilter::Coefficients y;
         // M8.4 models set themselves from these.
         double sampleRate = 48000.0, cutoff = 1000.0, resonance = 0.0;
     };
@@ -611,6 +614,8 @@ public:
 
             default:
                 c.svf = Svf::makeCoefficients (sampleRate, cutoff, resonance);
+                if (FilterType::isSvf (type))
+                    c.y = Airwindows::YFilter::makeCoefficients (sampleRate, cutoff, resonance);
                 break;
         }
 
@@ -650,6 +655,7 @@ public:
             const auto mode = (Svf::Mode) type;
             stage1.setMode (mode);
             stage2.setMode (mode);
+            y1.setMode (yMode (type));
         }
         else if (type == FilterType::Formant)
         {
@@ -710,6 +716,10 @@ public:
             default:
                 stage1.setCoefficients (c.svf);
                 stage2.setCoefficients (c.svf);
+                if (FilterType::isSvf (type))
+                {
+                    y1.setCoefficients (c.y);
+                }
                 break;
         }
 
@@ -720,6 +730,7 @@ public:
     {
         stage1.reset();
         stage2.reset();
+        y1.reset();
         ladder.reset();
         diode.reset();
         ms20.reset();
@@ -797,6 +808,14 @@ public:
                 return slope24 ? morphStage (stage2, out) : out;
             }
 
+            case FilterType::LowPass:
+            case FilterType::BandPass:
+            case FilterType::HighPass:
+            case FilterType::Notch:
+            {
+                return y1.process (input, slope24);
+            }
+
             default:
             {
                 auto out = stage1.processSample (input);
@@ -806,6 +825,15 @@ public:
     }
 
 private:
+    static Airwindows::YFilter::Mode yMode (int type)
+    {
+        using M = Airwindows::YFilter::Mode;
+        return type == FilterType::BandPass ? M::BandPass
+             : type == FilterType::HighPass ? M::HighPass
+             : type == FilterType::Notch    ? M::Notch
+                                            : M::LowPass;
+    }
+
     float morphStage (Svf& svf, float input)
     {
         float lp, bp, hp;
@@ -853,6 +881,7 @@ private:
     float morph = 0.0f;
     float formantNorm = 1.0f;
     Svf stage1, stage2;
+    Airwindows::YFilter y1;
     Svf formantBands[3];
     LadderFilter ladder;
     DiodeFilter diode;

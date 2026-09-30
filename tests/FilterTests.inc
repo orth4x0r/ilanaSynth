@@ -373,7 +373,7 @@ inline void checkSelfOscillation()
     using namespace FilterType;
     // Every resonant model self-oscillates at its cutoff at full resonance
     // (within 0.5 %, under 9 cents), so it plays in tune with key tracking.
-    for (const auto type : { LowPass, BandPass, HighPass, Morph, LadderLow, LadderHigh, DiodeLow, Ms20Low, LadderBand, LadderDrive,
+    for (const auto type : { Morph, LadderLow, LadderHigh, DiodeLow, Ms20Low, LadderBand, LadderDrive,
                              OtaLow, OtaBand, Ms20High, Steiner, Acid303, MoogDrive })
     {
         auto worst = 0.0, quietest = 1.0;
@@ -386,6 +386,16 @@ inline void checkSelfOscillation()
         check (worst < 0.005 && quietest > 1.0e-3,
                getNames()[type] + " self-oscillates at the cutoff (worst " + juce::String (100.0 * worst, 2) + " %, quietest rms "
                    + juce::String (quietest, 4) + ")");
+    }
+
+    // Low / Band / High Pass are Airwindows' Y filters: they never oscillate
+    // on their own, but at full resonance they ring at the cutoff.
+    for (const auto type : { LowPass, BandPass, HighPass })
+    {
+        auto worst = 0.0;
+        for (const auto hz : { 110.0, 440.0, 1000.0, 3000.0 })
+            worst = juce::jmax (worst, std::abs (ringHz (type, hz, 1.0, hz) / hz - 1.0));
+        check (worst < 0.005, getNames()[type] + " rings at the cutoff (worst " + juce::String (100.0 * worst, 2) + " %)");
     }
 
     // The combs ring at the cutoff (Comb -: an octave below).

@@ -29,6 +29,7 @@
 #include "dsp/AcousticKeys.h"
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
+#include "dsp/airwindows/AirwindowsModule.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
@@ -49,7 +50,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 29;
+    static constexpr int numFxTypes = 30; // 30: Airwindows
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -70,6 +71,8 @@ public:
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
+    // Makes an Airwindows algorithm ahead of its use (the editor picks one).
+    void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
     bool loadFxChainFromFile (const juce::File& file);
@@ -203,7 +206,8 @@ public:
     // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
     // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
     // (for the tuning tool's own renders).
-    static void applyPresetTrims (const char* presetName, std::vector<std::pair<juce::String, float>>& values);
+    static void applyPresetTrims (const char* presetName, const juce::String& category,
+                                  std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
 
@@ -510,6 +514,7 @@ private:
     void processTapeStop (juce::AudioBuffer<float>& buffer);
     void processTilt (juce::AudioBuffer<float>& buffer);
     void processUtility (juce::AudioBuffer<float>& buffer);
+    void processAirwindows (juce::AudioBuffer<float>& buffer);
     void processOtt (juce::AudioBuffer<float>& buffer);
     void processLimiter (juce::AudioBuffer<float>& buffer);
     void processWidener (juce::AudioBuffer<float>& buffer);
@@ -594,6 +599,12 @@ private:
         inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
     ParamRef tuningOnRef { "tuning_on" };
+    // The Airwindows module (FX type 30): only the chosen algorithm runs.
+    airwindows::Module airwindowsModule;
+    ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
+    std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
+        ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
+    std::vector<float> airwindowsMonoRight;
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains

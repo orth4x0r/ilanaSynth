@@ -240,7 +240,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_frame") || id.endsWith ("_start") || id.endsWith ("_end")
         || id.endsWith ("_fade_in") || id.endsWith ("_fade_out") || id == "drift" || id == "ring_mod"
         || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
-        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix"
+        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || id.startsWith ("fx_aw_p")
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id == "body_material" || id == "body_size" || id == "body_coupling"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
@@ -1029,6 +1029,17 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "fx_tape_stop_time" || id == "fx_tape_stop_mix")
         return "Tape stop timing and blend.";
+
+    if (id.startsWith ("fx_aw_"))
+    {
+        if (id == "fx_aw_algo")
+            return "Airwindows: Chris Johnson's algorithms (MIT) - tape, consoles, EQ, dynamics, reverbs, stereo, lo-fi. Changing it starts the new one fresh.";
+
+        if (id == "fx_aw_mix")
+            return "Blend of the Airwindows algorithm with the dry signal.";
+
+        return "An Airwindows knob: what it does follows the chosen algorithm (its name is the knob's label), 0 to 1 as in the plugin.";
+    }
 
     if (id == "fx_tilt" || id == "fx_tilt_level")
         return "Single-knob tone tilt: darker on one side, brighter on the other.";

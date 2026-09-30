@@ -8,8 +8,9 @@ Reads each folder's index.csv and <index>/note.wav and chord.wav (from
 ilanaPresetRender or ilanaRefHost --presets), and writes clap.csv next to
 index.csv: category_score (0-1: how clearly the model picks the preset's own
 category over the other four) and name_score (cosine similarity between the
-audio and "a <name> synthesizer sound"). preset_critic.py reads clap.csv when
-it is there.
+audio and "a <name> synthesizer sound"), and clap_embeddings.npy (one audio
+embedding per row, in index.csv order, for tools/preset_diversity.py).
+preset_critic.py reads clap.csv when it is there.
 """
 
 import csv
@@ -83,6 +84,7 @@ def main():
         with open(folder / "index.csv", newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         out = []
+        embeddings = []
         for row in rows:
             clips = [read_mono(folder / row["index"] / "note.wav"), read_mono(folder / row["index"] / "chord.wav")]
             with torch.no_grad():
@@ -90,6 +92,7 @@ def main():
                 audio = torch.nn.functional.normalize(audio.mean(dim=0, keepdim=True), dim=-1)
                 name_text = processor(text=[f"a {row['name']} synthesizer sound"], return_tensors="pt", padding=True)
                 name_embedding = torch.nn.functional.normalize(features(model.get_text_features(**name_text)), dim=-1)
+            embeddings.append(audio[0].numpy())
             similarities = (audio @ category_embeddings.T)[0]
             probabilities = torch.softmax(similarities * 100.0, dim=0).numpy()
             category = row["category"]
@@ -104,7 +107,8 @@ def main():
             writer = csv.DictWriter(f, fieldnames=list(out[0].keys()))
             writer.writeheader()
             writer.writerows(out)
-        print(f"wrote {folder / 'clap.csv'}")
+        np.save(folder / "clap_embeddings.npy", np.stack(embeddings))
+        print(f"wrote {folder / 'clap.csv'} and clap_embeddings.npy")
     return 0
 
 

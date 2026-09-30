@@ -14,7 +14,7 @@ IlanaSynth is a complete sound design machine:
 - **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
 - **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
-- **Effects:** a 10-slot rack with 29 modules, including a trance gate.
+- **Effects:** a 10-slot rack with 30 modules, including a trance gate and 39 Airwindows algorithms.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
 - **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
@@ -246,7 +246,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Right-click any knob** for quick modulation, reset, copy/paste and MIDI learn.
 - **Four macros** with editable names (double-click a name), shown in the bottom bar and in the matrix.
 
-### Effects rack (10 slots, 29 modules)
+### Effects rack (10 slots, 30 modules)
 **Modules:**
 - **Drive and dynamics**: Drive (tube / fuzz / clean), Bit Crusher, Amp, Compressor, OTT, Limiter, Utility
 - **Modulation**: Chorus, Phaser, Flanger, Dimension, Tremolo, Comb
@@ -255,6 +255,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Trance Gate**: patterns or up to 16 custom steps, with swing
 - **Tone**: Tilt EQ, 3-band parametric EQ
 - **Stereo and pitch**: Haas, Stereo Width, Frequency Shifter, Ring Mod, Octaver, Vowel filter
+- **Airwindows**: 39 of Chris Johnson's Airwindows algorithms (MIT) in one module, picked from a menu by family: tape and saturation (ToTape6, IronOxide5, Density, Spiral2, Tube2, Mojo...), consoles (Console7, Channel9), EQ (Air, Capacitor2, Baxandall2, Isolator2, Holt2), dynamics (Pressure5, ButterComp2, Logical4, Pop2), space (Galactic, kCathedral, Verbity2, Chamber, MatrixVerb), stereo (Wider, Srsly2, ToVinyl4), lo-fi (DeRez2, Deckwrecka, BitShiftGain) and character (DrumSlam, Inflamer, Flutter, ChorusEnsemble); the knobs take each algorithm's own names
 
 **Rack controls:**
 - Modules are coloured by family and stacked in a scrollable view.

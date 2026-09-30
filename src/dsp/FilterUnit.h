@@ -876,6 +876,38 @@ public:
         }
     }
 
+    // process over a block, the model chosen once.
+    void processBlock (const float* input, float* output, int n)
+    {
+        switch (type)
+        {
+            case FilterType::LowPass:
+            case FilterType::BandPass:
+            case FilterType::HighPass:
+            case FilterType::Notch:
+                for (int s = 0; s < n; ++s)
+                    output[s] = y1.process (input[s], slope24);
+                return;
+            case FilterType::LadderLow:
+            case FilterType::LadderHigh:
+                for (int s = 0; s < n; ++s)
+                    output[s] = ladder.process (input[s], type == FilterType::LadderHigh, slope24);
+                return;
+            default:
+                for (int s = 0; s < n; ++s)
+                    output[s] = process (input[s]);
+                return;
+        }
+    }
+
+    // Two filters of the same model (a voice's left and right) over a block.
+    static void processStereoBlock (FilterUnit& left, FilterUnit& right, const float* inLeft, const float* inRight,
+                                    float* outLeft, float* outRight, int n)
+    {
+        left.processBlock (inLeft, outLeft, n);
+        right.processBlock (inRight, outRight, n);
+    }
+
 private:
     static Airwindows::YFilter::Mode yMode (int type)
     {

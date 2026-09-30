@@ -558,6 +558,33 @@ private:
         outLeft = left.process (inLeft);
         outRight = right.process (inRight);
     }
+    // processFilterPair over a block: the left filter alone while the sides
+    // are equal, the right one copied from it where they first differ.
+    static void processFilterPairBlock (FilterUnit& left, FilterUnit& right, bool& linked,
+                                        const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    {
+        auto start = 0;
+        if (linked)
+        {
+            while (start < n && inLeft[start] == inRight[start])
+                ++start;
+            left.processBlock (inLeft, outLeft, start);
+            std::copy (outLeft, outLeft + start, outRight);
+            if (start == n)
+                return;
+            right = left;
+            linked = false;
+        }
+
+        FilterUnit::processStereoBlock (left, right, inLeft + start, inRight + start, outLeft + start, outRight + start, n - start);
+    }
+
+    void processOpenPairBlock (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    {
+        for (int s = 0; s < n; ++s)
+            processOpenPair (inLeft[s], inRight[s], outLeft[s], outRight[s]);
+    }
+
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;
 
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;

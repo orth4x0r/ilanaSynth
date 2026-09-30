@@ -8454,6 +8454,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
 #include "SplitterTests.inc"
+#include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
 #include "DemoRender.inc"
 
@@ -8625,6 +8626,13 @@ int main()
     {
         runSplitterTests();
         std::cout << (failures == 0 ? "SPLITTER TESTS PASSED" : "SPLITTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_AWFILTER_TEST", "").isNotEmpty())
+    {
+        runAirwindowsFilterTests();
+        std::cout << (failures == 0 ? "AWFILTER TESTS PASSED" : "AWFILTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -9020,6 +9028,7 @@ int main()
     timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
+    timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

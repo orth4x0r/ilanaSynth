@@ -1,7 +1,7 @@
 # Filter overhaul: status (models done 2026-09-30, cloud, branch `claude/project-thread-xhtug0`)
 
-REVIEW-PLAN step 4. Every model is rebuilt and the four new ones are in; old presets keep
-their level. Still open: modulatable spectral warps (the other half of step 4, below).
+REVIEW-PLAN step 4, done. Every model is rebuilt and the four new ones are in; old presets keep
+their level; SPECTRAL AMOUNT is a modulation destination (below).
 
 ## What changed
 All in `src/dsp/FilterCore.h` (shared cores), `src/dsp/FilterUnit.h` and `src/dsp/FilterModels2.h`.
@@ -50,11 +50,12 @@ Checked for reusable filters: Capacitor2, Isolator2, Baxandall2, Air/Air3 and Po
 (non-resonant shelves and one-poles with their own dither and state per channel), already reachable as the
 Airwindows FX. None fits inside a per-voice resonant filter; nothing was reused.
 
-## Left
-- **Modulatable spectral warps.** Spectral warps are built per table on a worker thread (`SpectralCache`,
-  64 amount steps), so SPECTRAL AMOUNT can't follow a per-voice modulator as it is. Options: a few precomputed
-  amount levels crossfaded per voice (memory heavy for 256-frame tables), or a block-rate global amount. Not
-  started.
+## Spectral warps, modulatable
+Each oscillator's SPECTRAL AMOUNT is now a modulation destination ("OscN Spectral Amount", appended to
+`Mod::getParamDestinations`, so no index moved). The offset is applied at block rate like the other parameter
+destinations and picks one of `SpectralCache`'s 64 prebuilt amount steps, so it follows macros, LFOs and
+envelopes per block (not per voice; per-voice would need the tables crossfaded per voice). Test: a macro on
+Osc1 Spectral Amount with Stretch moves the spectral centroid (2375 to 2198 Hz); unrouted, it stays.
 
 ## How to gate
 ```

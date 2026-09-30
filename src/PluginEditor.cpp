@@ -5355,8 +5355,8 @@ inline juce::Colour fxColour (int type)
     {
         case 13: case 9: case 15: case 11: case 12: case 8: case 22:
             return juce::Colour (0xff5cc4e8); // space: reverb, delay, dimension, smear, freeze, haas, widener
-        case 2: case 1: case 3: case 26: case 28:
-            return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback
+        case 2: case 1: case 3: case 26: case 28: case 30:
+            return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback, airwindows
         case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5:
             return juce::Colour (0xff9a8cff); // motion: chorus .. comb
         case 16: case 10: case 17:
@@ -5706,7 +5706,11 @@ public:
           eqMidFreq (p.apvts, "fx_eq_mid_freq", "MID FREQ"), eqMidGain (p.apvts, "fx_eq_mid_gain", "MID GAIN"),
           eqMidQ (p.apvts, "fx_eq_mid_q", "MID Q"),
           eqHighFreq (p.apvts, "fx_eq_high_freq", "HIGH FREQ"), eqHighGain (p.apvts, "fx_eq_high_gain", "HIGH GAIN"),
-          eqCurve (p)
+          eqCurve (p),
+          awAlgo (p.apvts, "fx_aw_algo", "ALGORITHM"),
+          awP1 (p.apvts, "fx_aw_p1", "1"), awP2 (p.apvts, "fx_aw_p2", "2"), awP3 (p.apvts, "fx_aw_p3", "3"),
+          awP4 (p.apvts, "fx_aw_p4", "4"), awP5 (p.apvts, "fx_aw_p5", "5"),
+          awMix (p.apvts, "fx_aw_mix", "MIX")
     {
         addAll (*this, eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain);
         addChildComponent (eqCurve);
@@ -5775,6 +5779,9 @@ public:
         slotGroups.push_back ({ &vowelMorph, &vowelMix });
         slotGroups.push_back ({ &feedbackAmount, &feedbackDelay, &feedbackTone, &feedbackMix });
         slotGroups.push_back ({ &eqLowFreq, &eqLowGain, &eqMidFreq, &eqMidGain, &eqMidQ, &eqHighFreq, &eqHighGain });
+        slotGroups.push_back ({ &awAlgo, &awP1, &awP2, &awP3, &awP4, &awP5, &awMix });
+        // Airwindows: the algorithms grouped by family, not one long list.
+        awAlgo.setPopupOverride ([this] { showAirwindowsMenu(); });
 
         prevSlotButton.onClick = [this] { moveSelectedSlot (-1); };
         nextSlotButton.onClick = [this] { moveSelectedSlot (1); };
@@ -6550,6 +6557,7 @@ private:
                 control->setAlpha (1.0f);
             }
 
+        updateAirwindowsKnobs (shown[30]);
         tapGrid.setVisible (shown[9]);
         gateGrid->setVisible (shown[16]);
         eqCurve.setVisible (shown[29]);
@@ -6601,8 +6609,10 @@ private:
 
             const auto& group = slotGroups[(size_t) type];
             // (The on switch goes in the header, so it doesn't count.)
-            const auto rowItems = std::count_if (group.begin(), group.end(), [] (juce::Component* item)
+            const auto rowItems = std::count_if (group.begin(), group.end(), [type] (juce::Component* item)
             {
+                if (type == 30 && ! item->isVisible())
+                    return false;
                 auto* toggle = dynamic_cast<ToggleControl*> (item);
                 return toggle == nullptr || ! toggle->isSwitch();
             });
@@ -6641,6 +6651,9 @@ private:
                 for (auto* item : group)
                 {
                     auto* toggle = dynamic_cast<ToggleControl*> (item);
+
+                    if (type == 30 && ! item->isVisible())
+                        continue; // an Airwindows knob the algorithm doesn't use
 
                     if (toggle != nullptr && toggle->isSwitch() && power == nullptr)
                         power = toggle;
@@ -6754,7 +6767,7 @@ private:
     // Groups, in order, and how many of quickAddPicks() each takes.
     static const std::vector<QuickAddGroup>& quickAddGroups()
     {
-        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 5 }, { "MOTION", 8 },
+        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 6 }, { "MOTION", 8 },
                                                          { "RHYTHM", 3 }, { "TONE & LEVEL", 6 } };
         return groups;
     }
@@ -6763,7 +6776,7 @@ private:
     {
         static const std::vector<std::pair<int, const char*>> picks {
             { 13, "REVERB" }, { 9, "DELAY" }, { 15, "DIMENSION" }, { 11, "SMEAR" }, { 12, "FREEZE" }, { 8, "HAAS" }, { 22, "WIDENER" },
-            { 2, "DRIVE" }, { 1, "AMP" }, { 3, "CRUSH" }, { 26, "OCTAVER" }, { 28, "FEEDBACK" },
+            { 2, "DRIVE" }, { 1, "AMP" }, { 3, "CRUSH" }, { 26, "OCTAVER" }, { 28, "FEEDBACK" }, { 30, "AIRWINDOWS" },
             { 7, "CHORUS" }, { 6, "PHASER" }, { 14, "FLANGER" }, { 23, "TREMOLO" }, { 24, "FREQ SHIFT" }, { 25, "RING MOD" },
             { 27, "VOWEL" }, { 5, "COMB" },
             { 16, "TRANCE GATE" }, { 10, "STUTTER" }, { 17, "TAPE STOP" },
@@ -6935,6 +6948,8 @@ private:
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
             signature += juce::String (getSlotType (slot)) + ",";
+
+        signature += juce::String (airwindowsAlgorithm()); // its knobs differ
 
         if (signature != lastSignature)
         {
@@ -7146,6 +7161,93 @@ private:
     KnobControl feedbackAmount, feedbackDelay, feedbackTone, feedbackMix;
     KnobControl eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain;
     EqCurve eqCurve;
+    ComboControl awAlgo;
+    KnobControl awP1, awP2, awP3, awP4, awP5, awMix;
+
+    int airwindowsAlgorithm() const
+    {
+        if (const auto* value = processorRef.apvts.getRawParameterValue ("fx_aw_algo"))
+            return juce::jlimit (0, airwindows::count() - 1, (int) value->load());
+
+        return 0;
+    }
+
+    // The chosen algorithm's knobs carry its own names; the rest hide.
+    void updateAirwindowsKnobs (bool loaded)
+    {
+        const auto& info = airwindows::registry()[(size_t) airwindowsAlgorithm()];
+        KnobControl* knobs[] { &awP1, &awP2, &awP3, &awP4, &awP5 };
+
+        for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+        {
+            const auto used = k < info.numKnobs;
+            if (used)
+                knobs[k]->setLabelText (juce::String (info.knobs[k].name).toUpperCase());
+            knobs[k]->setVisible (loaded && used);
+        }
+    }
+
+    // The algorithms by family; picking one sets its knobs to the plugin's
+    // own defaults.
+    void showAirwindowsMenu()
+    {
+        juce::PopupMenu menu;
+        const auto& list = airwindows::registry();
+        const auto chosen = airwindowsAlgorithm();
+        juce::StringArray categories;
+
+        for (const auto& info : list)
+            categories.addIfNotAlreadyThere (info.category);
+
+        for (const auto& category : categories)
+        {
+            juce::PopupMenu family;
+            auto holdsChosen = false;
+
+            for (int i = 0; i < (int) list.size(); ++i)
+            {
+                if (category == list[(size_t) i].category)
+                {
+                    family.addItem (i + 1, list[(size_t) i].name, true, i == chosen);
+                    holdsChosen = holdsChosen || i == chosen;
+                }
+            }
+
+            menu.addSubMenu (category, family, true, nullptr, holdsChosen);
+        }
+
+        juce::Component::SafePointer<FxPage> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&awAlgo),
+                            [safeThis] (int result)
+                            {
+                                if (safeThis != nullptr && result > 0)
+                                    safeThis->chooseAirwindows (result - 1);
+                            });
+    }
+
+    void chooseAirwindows (int algorithm)
+    {
+        algorithm = juce::jlimit (0, airwindows::count() - 1, algorithm);
+        const auto& info = airwindows::registry()[(size_t) algorithm];
+        processorRef.preloadAirwindows (algorithm);
+
+        const auto set = [this] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                parameter->endChangeGesture();
+            }
+        };
+
+        for (int k = 0; k < info.numKnobs; ++k)
+            set ("fx_aw_p" + juce::String (k + 1), info.knobs[k].defaultValue);
+
+        set ("fx_aw_algo", (float) algorithm);
+        updateVisibility();
+        repaint();
+    }
 };
 } // namespace
 

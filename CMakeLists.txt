@@ -58,6 +58,7 @@ target_sources(ilanaSynth PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_compile_definitions(ilanaSynth PUBLIC
@@ -103,6 +104,7 @@ target_sources(ilanaSynthFX PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_compile_definitions(ilanaSynthFX PUBLIC
@@ -151,6 +153,7 @@ target_sources(ilanaTableTest PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_include_directories(ilanaTableTest PRIVATE src)
@@ -192,6 +195,7 @@ target_sources(ilanaSnapshot PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_include_directories(ilanaSnapshot PRIVATE src)
@@ -226,6 +230,7 @@ target_sources(ilanaFingerprint PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_include_directories(ilanaFingerprint PRIVATE src)
@@ -259,6 +264,7 @@ target_sources(ilanaPresetRender PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_include_directories(ilanaPresetRender PRIVATE src)
@@ -313,6 +319,7 @@ target_sources(ilanaFxTest PRIVATE
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
 )
 
 target_include_directories(ilanaFxTest PRIVATE src)

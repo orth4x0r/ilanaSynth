@@ -1,0 +1,39 @@
+Airwindows algorithms in ilanaSynth
+===================================
+
+The files in this folder other than Algorithm.h, Registry.h and Registry.cpp
+are ports of Airwindows plugins by Chris Johnson (https://www.airwindows.com,
+https://github.com/airwindows/airwindows). Their per-sample processing code and
+state are Chris's; only the VST plugin glue was removed, by
+tools/port_airwindows.py. Thank you, Chris.
+
+Ported: ToTape6, IronOxide5, Tape, Density, Drive, Spiral2, PurestDrive,
+Tube2, Mojo, Coils2, Console7Channel, Console7Buss, Channel9, Air, Air3,
+Capacitor2, Baxandall2, Isolator2, Holt2, Pressure5, ButterComp2, Logical4,
+Pyewacket, Pop2, Galactic, kCathedral, Verbity2, Chamber, MatrixVerb, Wider,
+Srsly2, ToVinyl4, DeRez2, Deckwrecka, BitShiftGain, DrumSlam, Inflamer,
+Flutter, ChorusEnsemble.
+
+Airwindows is released under the MIT licence:
+
+MIT License
+
+Copyright (c) 2018 Chris Johnson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -896,7 +896,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
                                       "Flanger", "Dimension", "Trance Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
-                                      "Octaver", "Vowel", "Feedback", "EQ" };
+                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -1356,6 +1356,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Scala microtuning (the .scl/.kbm text is saved in the patch; off is 12-TET).
     addBool ("tuning_on", "Tuning On", false);
 
+    // The Airwindows FX module (type 30): Chris Johnson's algorithms, the
+    // choice in src/dsp/airwindows/Registry.h's order (append only); five
+    // knobs mapped onto the chosen algorithm's own, at the first one's defaults.
+    {
+        juce::StringArray names;
+        for (const auto& info : airwindows::registry())
+            names.add (info.name);
+        addChoice ("fx_aw_algo", "Airwindows Algorithm", names, 0);
+        const auto& first = airwindows::registry().front();
+        for (int knob = 0; knob < airwindows::Module::numKnobs; ++knob)
+            addFloat ("fx_aw_p" + juce::String (knob + 1), "Airwindows " + juce::String (knob + 1), 0.0f, 1.0f,
+                      knob < first.numKnobs ? first.knobs[knob].defaultValue : 0.5f);
+        addFloat ("fx_aw_mix", "Airwindows Mix", 0.0f, 1.0f, 1.0f);
+    }
+
     return layout;
 }
 
@@ -1692,6 +1707,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     reverb.setSampleRate (sampleRate);
     reverb.reset();
+    airwindowsModule.prepare (sampleRate, samplesPerBlock);
     chunkMidi.ensureSize (4096);
     updateLatency();
 }
@@ -1741,6 +1757,7 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     delayLine.reset();
     combLine.reset();
     reverb.reset();
+    airwindowsModule.reset();
 
     // The modulators start over too, as in a new instance, so a patch sounds
     // the same whatever played before it (a slow free-running LFO otherwise
@@ -3840,6 +3857,7 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
         case 27: processVowel (buffer); break;
         case 28: processFeedback (buffer); break;
         case 29: processEq (buffer); break;
+        case 30: processAirwindows (buffer); break;
         default: break;
     }
 }
@@ -4774,6 +4792,34 @@ void IlanaSynthAudioProcessor::processEq (juce::AudioBuffer<float>& buffer)
                 data[i] = filter.process (data[i]);
         }
     }
+}
+
+// Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.
+void IlanaSynthAudioProcessor::processAirwindows (juce::AudioBuffer<float>& buffer)
+{
+    const auto numSamples = buffer.getNumSamples();
+
+    if (numSamples <= 0 || buffer.getNumChannels() == 0)
+        return;
+
+    std::array<float, airwindows::Module::numKnobs> knobs {};
+    for (size_t knob = 0; knob < knobs.size(); ++knob)
+        knobs[knob] = getParam (awKnobRefs[knob]);
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = left;
+
+    if (buffer.getNumChannels() > 1)
+        right = buffer.getWritePointer (1);
+    else
+    {
+        if ((int) airwindowsMonoRight.size() < numSamples)
+            airwindowsMonoRight.resize ((size_t) numSamples);
+        std::copy (left, left + numSamples, airwindowsMonoRight.begin());
+        right = airwindowsMonoRight.data();
+    }
+
+    airwindowsModule.process (left, right, numSamples, (int) getParam (awAlgoRef), knobs, getParam (awMixRef));
 }
 
 void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
@@ -7037,6 +7083,10 @@ void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
 
     if (enableId != nullptr)
         set (enableId, 1.0f);
+
+    // Airwindows: its algorithm is made here, off the audio thread.
+    if (type == 30)
+        airwindowsModule.preload ((int) getParam (awAlgoRef));
 }
 
 void IlanaSynthAudioProcessor::randomizeFxChain()

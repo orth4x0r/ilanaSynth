@@ -8428,6 +8428,7 @@ void runProfile (int unison)
 #include "PolishTests.inc"
 #include "PlanTests.inc"
 #include "TuningTests.inc"
+#include "AirwindowsTests.inc"
 #include "DemoRender.inc"
 
 // ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
@@ -8584,6 +8585,13 @@ int main()
     {
         runTuningTests();
         std::cout << (failures == 0 ? "TUNING TESTS PASSED" : "TUNING TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_AIRWINDOWS_TEST", "").isNotEmpty())
+    {
+        runAirwindowsTests();
+        std::cout << (failures == 0 ? "AIRWINDOWS TESTS PASSED" : "AIRWINDOWS TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8945,6 +8953,7 @@ int main()
     runPolishTests();
     runPlanTests();
     runTuningTests();
+    runAirwindowsTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

@@ -104,6 +104,9 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    Left for the user: listening to all four. Not done: mod-matrix destinations for the vocoder parameters.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
    trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)
+   **Done** 2026-09-30: Grand Piano renamed Felt Hammer Board (same slot and sound); the editor's pages in
+   `src/gui/pages/*.h`, the processor's areas in `src/processor/*.cpp`; `ILANA_TEST_TIMES=1` prints each suite's time
+   (on Linux M81 and the arp tests take 4-7 s; the slow ones were two polish tests, 180 s to 48 s; full run ~300 s).
 9. **Airwindows filters** (the user, 2026-09-30): Low / Band / High Pass and Notch replaced by Airwindows' Y filters
    (done, `docs/filter-overhaul-status.md`); Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a
    tuneable **Disperser** (all-pass chain at the cutoff, key-tracked) as appended types; then a second diversity pass

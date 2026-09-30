@@ -1,5 +1,20 @@
 #include "ProcessorInternal.h"
 
+namespace
+{
+// The automatic timbre macro's name (see applyDefaultMacros): FM depth when
+// OSC 2 already frequency-modulates OSC 1, the warp when OSC 1 is warped,
+// else from OSC 1's mode.
+juce::String defaultTimbreMacro (int osc1Mode, float fmAmount, bool osc2On, int osc1Warp)
+{
+    if (osc2On && fmAmount > 0.01f)
+        return "FM";
+    if (osc1Mode == 0 && osc1Warp > 0)
+        return "WARP";
+    return osc1Mode == 0 ? "MORPH" : (osc1Mode == 1 ? "DAMP" : "START");
+}
+} // namespace
+
 juce::StringArray IlanaSynthAudioProcessor::getFactoryPresetNames() const
 {
     juce::StringArray names;
@@ -104,10 +119,12 @@ juce::StringArray IlanaSynthAudioProcessor::getFactoryMacroNames (int factoryInd
         }
 
         const auto osc1Mode = (int) value ("osc1_mode");
+        const auto timbre = defaultTimbreMacro (osc1Mode, value ("fm_amount"), value ("osc2_on") > 0.5f,
+                                                (int) value ("osc1_warp"));
         const juce::String defaults[4] {
-            "TONE",
-            osc1Mode == 0 ? "MORPH" : (osc1Mode == 1 ? "DAMP" : "START"),
-            "DRIVE",
+            value ("f1_cutoff") > 6000.0f ? "DARKEN" : "BRIGHT",
+            timbre,
+            value ("f1_reso") > 0.5f ? "RESO" : "DRIVE",
             hasReverb || hasDelay ? "SPACE" : (value ("osc1_unison") > 1.5f ? "WIDTH" : "SWELL")
         };
 
@@ -363,13 +380,24 @@ void IlanaSynthAudioProcessor::applyDefaultMacros (const std::array<bool, 4>& ke
     const auto on = [this] (const char* id) { return getParam (id) > 0.5f; };
 
     // 1: tone. Bright patches close down, dark ones open up.
-    map (0, "TONE", { { (int) D::Filter1Cutoff, getParam ("f1_cutoff") > 6000.0f ? -0.5f : 0.4f } });
+    const auto bright = getParam ("f1_cutoff") > 6000.0f;
+    map (0, bright ? "DARKEN" : "BRIGHT", { { (int) D::Filter1Cutoff, bright ? -0.5f : 0.4f } });
 
-    // 2: timbre, from whatever the main oscillators are.
+    // 2: timbre, from whatever the main oscillators are: FM depth, warp,
+    // wavetable frame, string damping or sample start.
     const auto osc1Mode = (int) getParam ("osc1_mode");
     const auto osc2Wave = on ("osc2_on") && (int) getParam ("osc2_mode") == 0;
+    const auto timbre = defaultTimbreMacro (osc1Mode, getParam ("fm_amount"), on ("osc2_on"), (int) getParam ("osc1_warp"));
 
-    if (osc1Mode == 0)
+    if (timbre == "FM")
+    {
+        map (1, "FM", { { (int) D::FmAmount, 0.3f } });
+    }
+    else if (timbre == "WARP")
+    {
+        map (1, "WARP", { { (int) D::Osc1Warp, 0.4f } });
+    }
+    else if (osc1Mode == 0)
     {
         Targets targets { { (int) D::Osc1Frame, 0.4f } };
 
@@ -387,8 +415,11 @@ void IlanaSynthAudioProcessor::applyDefaultMacros (const std::array<bool, 4>& ke
         map (1, "START", { { (int) D::Osc1SampleStart, 0.3f } });
     }
 
-    // 3: drive into the filter.
-    map (2, "DRIVE", { { (int) D::Filter1Drive, 0.5f } });
+    // 3: resonance on resonant patches, else drive into the filter.
+    if (getParam ("f1_reso") > 0.5f)
+        map (2, "RESO", { { (int) D::Filter1Reso, 0.3f } });
+    else
+        map (2, "DRIVE", { { (int) D::Filter1Drive, 0.5f } });
 
     // 4: space if the chain has reverb or delay, else width or swell.
     auto hasReverb = false, hasDelay = false;

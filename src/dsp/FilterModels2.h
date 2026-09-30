@@ -277,7 +277,8 @@ private:
 
 // Phaser notch: four first-order allpasses around the cutoff (spread an
 // octave either side by morph) summed with the input: two notches, with
-// feedback (resonance) sharpening them into peaks between.
+// feedback (resonance, saturating, solved with zero delay) sharpening them
+// into peaks between.
 class PhaserNotch
 {
 public:
@@ -292,10 +293,26 @@ public:
         }
         feedback = 0.85 * juce::jlimit (0.0, 1.0, resonance);
     }
-    void reset() { state.fill (0.0); last = 0.0; }
+    void reset() { state.fill (0.0); }
     float process (float input)
     {
-        auto x = (double) input + feedback * last;
+        // The chain's output is A x + S for its input x; solve the loop
+        // x = in + feedback tanh (A x + S) with zero delay (Newton; the loop
+        // gain feedback |A| <= 0.85 keeps it monotone).
+        auto gain = 1.0, offset = 0.0;
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto a = coefficients[(size_t) i];
+            offset = a * offset + state[(size_t) i];
+            gain *= a;
+        }
+        const auto in = (double) input;
+        auto x = in + feedback * FilterCore::tanhApprox (gain * in + offset);
+        for (int step = 0; step < 2; ++step)
+        {
+            const auto t = FilterCore::tanhApprox (gain * x + offset);
+            x -= (x - in - feedback * t) / (1.0 - feedback * gain * FilterCore::tanhSlope (t));
+        }
         for (int i = 0; i < 4; ++i)
         {
             const auto a = coefficients[(size_t) i];
@@ -303,15 +320,14 @@ public:
             state[(size_t) i] = x - a * y;
             x = y;
         }
-        last = std::tanh (x);
-        const auto out = 0.5 * ((double) input + x);
+        const auto out = 0.5 * (in + x);
         if (! std::isfinite (out)) { reset(); return 0.0f; }
         return (float) out;
     }
 
 private:
     std::array<double, 4> coefficients {}, state {};
-    double feedback = 0.0, last = 0.0;
+    double feedback = 0.0;
 };
 
 // Formant bank: five band-passes at a vowel's formants with their

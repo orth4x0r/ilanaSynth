@@ -587,11 +587,15 @@ public:
             case FilterType::CombMinus:
             case FilterType::CombDamped:
             case FilterType::CombMorph:
-                combDelay = juce::jlimit (1.0, (double) juce::jmax (1, combMask - 4), c.combDelay);
                 combFeedback = c.combFeedback;
                 // Comb Damped: the loop loses its highs fast (a plucked-tube
                 // tone); the others keep the gentle 0.7 damping.
                 combDampCoefficient = type == FilterType::CombDamped ? 0.18f : 0.7f;
+                // The damping one-pole delays the loop too; take its phase
+                // delay at the pitch off the line so the comb rings exactly
+                // at the cutoff (Comb -: at half of it).
+                combDelay = juce::jlimit (2.0, (double) juce::jmax (2, combMask - 4),
+                                          c.combDelay - dampingPhaseDelay (combDampCoefficient, juce::MathConstants<double>::twoPi / c.combDelay));
                 break;
 
             case FilterType::LadderBand:
@@ -706,19 +710,31 @@ private:
         return m < 1.0f ? lp + (bp - lp) * m : bp + (hp - bp) * (m - 1.0f);
     }
 
+    // Phase delay (samples) at w (radians per sample) of the loop's damping
+    // one-pole y += c (x - y).
+    static double dampingPhaseDelay (double c, double w)
+    {
+        const auto h = c / (std::complex<double> (1.0, 0.0) - (1.0 - c) * std::exp (std::complex<double> (0.0, -w)));
+        return -std::arg (h) / w;
+    }
+
     float processComb (float input)
     {
         if (combBuffer.empty())
             return input;
 
-        // Fractional read one period back, damped a touch in the loop so
+        // Fractional read one period back (cubic Lagrange, flat in phase
+        // well past the pitches a comb plays), damped a touch in the loop so
         // high resonance rings like a plucked tube instead of whistling.
         const auto readPosition = (double) combWrite - combDelay;
         const auto base = (int) std::floor (readPosition);
-        const auto frac = (float) (readPosition - (double) base);
-        const auto a = combBuffer[(size_t) (base & combMask)];
-        const auto b = combBuffer[(size_t) ((base + 1) & combMask)];
-        const auto delayed = a + (b - a) * frac;
+        const auto d = (float) (readPosition - (double) base);
+        const auto xm1 = combBuffer[(size_t) ((base - 1) & combMask)];
+        const auto x0 = combBuffer[(size_t) (base & combMask)];
+        const auto x1 = combBuffer[(size_t) ((base + 1) & combMask)];
+        const auto x2 = combBuffer[(size_t) ((base + 2) & combMask)];
+        const auto delayed = -d * (d - 1.0f) * (d - 2.0f) / 6.0f * xm1 + (d + 1.0f) * (d - 1.0f) * (d - 2.0f) / 2.0f * x0
+                             - (d + 1.0f) * d * (d - 2.0f) / 2.0f * x1 + (d + 1.0f) * d * (d - 1.0f) / 6.0f * x2;
 
         combDamp += combDampCoefficient * (delayed - combDamp);
         const auto fed = input + (float) combFeedback * combDamp;

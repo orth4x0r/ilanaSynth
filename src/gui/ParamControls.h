@@ -152,6 +152,14 @@ inline int& highlightedModSource()
     return source;
 }
 
+// The source pinned by clicking its chip in the bottom bar (0: none). Knobs
+// it drives stay lit until the chip is clicked again. Message thread only.
+inline int& pinnedModSource()
+{
+    static int source = 0;
+    return source;
+}
+
 // One colour per modulation source, used by its chip, its card (LFO and
 // envelope pages), its tabs, the matrix and the rings on knobs it moves.
 inline juce::Colour modSourceColour (int sourceIndex)
@@ -451,6 +459,10 @@ public:
     // The modulation destination whose depth the knob's ring shows (0: none).
     int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
+    // Whether a mod slot routes this source into the knob, and whether the
+    // source pinned by a chip click is one of them (the knob is lit).
+    bool isDrivenBy (int source) const { return routesFrom (source); }
+    bool isLitByPinnedSource() const { return pinnedModSource() != 0 && routesFrom (pinnedModSource()); }
 
     // Compact knobs (bottom strip) have no label or value box: the owner
     // draws those next to the knob.
@@ -498,15 +510,16 @@ public:
         }
 
         // A hovered source lights up every knob it modulates.
-        const auto highlighted = highlightedModSource();
+        const auto pinned = pinnedModSource();
+        const auto highlighted = highlightedModSource() != 0 ? highlightedModSource() : pinned;
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
             const auto radius = knobRadius + 5.0f;
-            g.setColour (modSourceColour (highlighted).withAlpha (0.22f));
+            g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.3f : 0.22f));
             g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
-            g.setColour (modSourceColour (highlighted).withAlpha (0.8f));
-            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.5f);
+            g.setColour (modSourceColour (highlighted).withAlpha (0.85f));
+            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), highlighted == pinned ? 2.0f : 1.5f);
         }
 
         if (dragHover)
@@ -539,6 +552,17 @@ public:
         g.setColour (modSourceColour (dominantSource).withAlpha (0.85f));
         g.strokePath (arc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
+
+        // A marker where the modulation currently puts the knob.
+        const auto markerRadius = juce::jlimit (2.5f, 3.6f, knobRadius * 0.14f);
+        const auto markerCentre = centre.getPointOnCircumference (arcRadius, angleB);
+        const auto marker = juce::Rectangle<float> (markerRadius * 2.0f, markerRadius * 2.0f).withCentre (markerCentre);
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
+        g.fillEllipse (marker.expanded (1.2f));
+        g.setColour (modSourceColour (dominantSource));
+        g.fillEllipse (marker);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.drawEllipse (marker, 1.0f);
     }
 
     void resized() override
@@ -830,7 +854,7 @@ private:
             refreshRoutings();
         }
 
-        const auto highlighted = highlightedModSource();
+        const auto highlighted = highlightedModSource() * 1000 + pinnedModSource();
         const auto modValue = processorRef->getModDisplay (ringConfig.destination);
 
         if (std::abs (modValue - lastModValue) > 0.002f || highlighted != lastHighlighted)

@@ -122,7 +122,7 @@ private:
     IconButton historyButton { "history", IlanaIcons::Icon::History, "History\nJump back to any earlier change." };
     juce::TextButton abButton { "A" };
     IconButton diceButton { "dice", IlanaIcons::Icon::Dice, "Randomise\nRoll a new patch, or randomise one part of it." };
-    IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nSkin, interface size, keyboard and the welcome tour." };
+    IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nVoice mode, voices and pitch-bend range, skin, interface size, keyboard and the welcome tour." };
     juce::TextButton keysButton { "KEYS" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -144,9 +144,11 @@ private:
     juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip
     int macroPage = 0;
     void showMacroPage (int page);
-    std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
+    // (Voices, pitch-bend range and voice mode live in the settings menu.)
+    std::unique_ptr<StripKnob> glideKnob, masterKnob;
     std::unique_ptr<OutputMeter> outputMeter;
-    std::unique_ptr<ComboControl> voiceModeBox;
+    // Where the header's action groups (file, edit, tools) part, in header x.
+    std::array<int, 2> headerSeparatorX {};
     std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = false;
     juce::int64 loadedFingerprint = 0;

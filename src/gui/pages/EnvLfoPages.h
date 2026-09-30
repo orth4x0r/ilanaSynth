@@ -141,7 +141,7 @@ private:
 
         const auto fade = [] (juce::Component& component, bool active)
         {
-            const auto alpha = active ? 1.0f : 0.4f;
+            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
 
             if (component.getAlpha() != alpha)
                 component.setAlpha (alpha);
@@ -873,8 +873,8 @@ private:
             }
             updateVisibility();
         }
-        const auto rateAlpha = synced ? 0.35f : 1.0f;
-        const auto divAlpha = synced ? 1.0f : 0.35f;
+        const auto rateAlpha = synced ? IlanaTheme::dimmedAlpha : 1.0f;
+        const auto divAlpha = synced ? 1.0f : IlanaTheme::dimmedAlpha;
 
         if (c.rate.getAlpha() != rateAlpha)
             c.rate.setAlpha (rateAlpha);

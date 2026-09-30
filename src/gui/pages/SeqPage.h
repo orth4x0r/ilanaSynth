@@ -437,7 +437,7 @@ private:
             resized();
 
         const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
-        const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : 0.45f;
+        const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
 
         for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
                                           static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
@@ -448,8 +448,8 @@ private:
         const auto dim = [] (std::initializer_list<juce::Component*> controls, bool on)
         {
             for (auto* control : controls)
-                if (control->getAlpha() != (on ? 1.0f : 0.45f))
-                    control->setAlpha (on ? 1.0f : 0.45f);
+                if (control->getAlpha() != (on ? 1.0f : IlanaTheme::dimmedAlpha))
+                    control->setAlpha (on ? 1.0f : IlanaTheme::dimmedAlpha);
         };
 
         dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
@@ -462,7 +462,7 @@ private:
         repaint (stepTitle2);
 
         const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
-        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : 0.45f;
+        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
 
         for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
                                           static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),

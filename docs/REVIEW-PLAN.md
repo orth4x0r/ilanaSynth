@@ -119,4 +119,27 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    and the preset name weight; move VOICES / BEND / VOICE MODE out of the bottom bar to free room for macro names;
    larger small-caps labels and contrast on dimmed controls. **Recurring:** a UI review against Vital and Serum 2
    after each step that touches the interface (the user's ask); findings go to `UI-REVIEW-N.md` and this list.
+   **Done** 2026-09-30 (cloud, `ui-fixes-1`; screenshots in `/mnt/project-files/ilanasynth/ui-fixes-1/`, the second review in
+   `.../ui-review/UI-REVIEW-2.md`); no audio or preset change (fingerprints: 0 of 400 presets changed):
+   1. Every mod-destination knob draws a marker disc where the modulation currently puts it, on the existing arc;
+      clicking a bottom-bar source chip pins it (thicker halo on every knob it drives, chip outlined), a second click
+      clears (`pinnedModSource()` beside `highlightedModSource()`; hover still works).
+   2. PLAY: SUB + NOISE folds to one line while both are off (click the line to open it for the noise knob) and a live
+      OUTPUT view (`src/gui/OutputView.h`: waveform over spectrum, click cycles both / wave / spectrum) takes the room
+      under PATCH when 48 px or more is free.
+   3. Filter display: was absolute-position drag within 24 px of a marker and no gestures; now a drag anywhere picks the
+      nearest filter (cutoff across, resonance up and down) inside one begin/endChangeGesture per parameter.
+   4. Preset browser: arrow keys already loaded the next / previous preset from the search box or list; now also with
+      focus anywhere in the panel (`stepSelection`). The vertical category list with counts already was the category
+      filter, so no second row of chips. New: each row lists the preset's four macro names (`getFactoryMacroNames`,
+      worked out without loading and checked against a real load for all 371 presets in `--uitest`; the loaded preset
+      shows its live names).
+   5. Header: file (star, save, menu) / edit (undo, redo, history, A/B) / tools (dice, settings) parted by rules; SAVE is
+      the accent-filled key; the preset name is 19 px.
+   6. Voice mode, voices and pitch-bend range moved to the settings menu (Voice mode / Voices / Pitch bend range);
+      macros use the freed width (glide, legato, master stay).
+   7. Knob, field and chip labels were already 11-13 px (label 11.5, knob labels 13); dimmed controls went from 30-45 %
+      to 60 % opacity (`IlanaTheme::dimmedAlpha`).
+   Still open from the review: oscillator display drag (frame / warp) and its spectrum view, PHYSICAL and VECTOR empty
+   states, a persistent side browser.
 11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

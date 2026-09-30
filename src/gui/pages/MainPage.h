@@ -110,11 +110,34 @@ public:
         subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", subColour(), true);
         noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel);
+        oscColumn.addChildComponent (outputView);
+        // A folded SUB + NOISE opens on a click (the noise has no switch of
+        // its own); an opened one closes again the same way while both are off.
+        oscColumn.onClick = [this] (juce::Point<int> point)
+        {
+            if (subCard.contains (point) && point.y < subCard.getY() + 30 && subOn != nullptr
+                && ! subOn->getBounds().contains (point) && subIsIdle())
+            {
+                subExpanded = ! subExpanded;
+                resized();
+            }
+        };
 
         oscColumn.onPaint = [this] (juce::Graphics& g)
         {
             if (! subCard.isEmpty())
-                paintCard (g, subCard, "SUB + NOISE", subColour());
+            {
+                paintCard (g, subCard, "SUB + NOISE", subColour(), subFolded);
+
+                if (subFolded)
+                {
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                    g.drawText ("OFF  -  switch on, or click to reach the noise",
+                                subCard.withTrimmedLeft (110).withHeight (16).withY (titleCentreY (subCard, true) - 8),
+                                juce::Justification::centredLeft);
+                }
+            }
 
             if (! patchCard.isEmpty())
                 paintCard (g, patchCard, "PATCH", IlanaTheme::accent());
@@ -293,7 +316,9 @@ public:
         // rows apart.
         const auto oscHeight = baseHeight;
         juce::ignoreUnused (spare);
-        auto columnHeight = (anyHidden ? addButtonHeight : -8) + 8 + subCardHeight;
+        subFolded = subIsIdle() && ! subExpanded;
+        const auto subHeight = subFolded ? foldedHeight : subCardHeight;
+        auto columnHeight = (anyHidden ? addButtonHeight : -8) + 8 + subHeight;
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
@@ -320,10 +345,29 @@ public:
         // Height the column doesn't need goes to the ADD tile (a drop zone
         // for the next oscillator), so the sub card ends level with the LFO
         // card rather than leaving a gap under it.
-        const auto leftover = scrolls ? 0 : juce::jmax (0, column.getHeight() - (anyHidden ? addButtonHeight + 8 : 0) - subCardHeight);
+        const auto leftover = scrolls ? 0 : juce::jmax (0, column.getHeight() - (anyHidden ? addButtonHeight + 8 : 0) - subHeight);
         // A tall tile shows the patch live (the signal flow, clickable as on
         // FILTER) with the ADD button in its header; a short one is the button.
-        auto tile = column.removeFromTop (anyHidden ? addButtonHeight + leftover : 0);
+        // With room to spare (SUB + NOISE folded), a live output view takes
+        // the lower part of it.
+        const auto roomBelow = anyHidden ? addButtonHeight + leftover : leftover;
+        const auto showOutput = roomBelow >= (anyHidden ? patchWithOutputHeight + 8 : 8) + outputMinHeight;
+        auto tile = juce::Rectangle<int>();
+        outputCard = {};
+
+        if (showOutput)
+        {
+            const auto patchHeight = anyHidden ? juce::jlimit (patchWithOutputHeight, patchWithOutputHeight + 30, roomBelow / 2) : 0;
+            tile = column.removeFromTop (patchHeight);
+            column.removeFromTop (anyHidden ? 8 : 0);
+            outputCard = column.removeFromTop (roomBelow - patchHeight - 8);
+            column.removeFromTop (8);
+        }
+        else
+        {
+            tile = column.removeFromTop (anyHidden ? addButtonHeight + leftover : 0);
+        }
+
         const auto showPatch = tile.getHeight() >= patchMinHeight;
         patchCard = showPatch ? tile : juce::Rectangle<int>();
         patchFlow.setVisible (showPatch);
@@ -342,8 +386,13 @@ public:
         }
 
         addOscButton.setVisible (anyHidden);
-        column.removeFromTop (anyHidden ? 8 : 0);
-        subCard = column.removeFromTop (subCardHeight + (anyHidden ? 0 : leftover));
+        column.removeFromTop (anyHidden && ! showOutput ? 8 : 0);
+        subCard = column.removeFromTop (subHeight + (anyHidden || showOutput ? 0 : leftover));
+        outputView.setVisible (! outputCard.isEmpty());
+
+        if (! outputCard.isEmpty())
+            outputView.setBounds (outputCard);
+
         layoutSubCard();
         oscColumn.repaint();
 
@@ -516,10 +565,15 @@ private:
         if (processorRef.getRevealVersion() != lastRevealVersion)
             updateStrips();
 
+        // SUB + NOISE folds to one line while both are off (and opens again the
+        // moment either is used).
+        if ((subIsIdle() && ! subExpanded) != subFolded)
+            resized();
+
         // The sub's controls follow its switch; noise has its own level.
         {
             const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
-            const auto alpha = subSwitch != nullptr && subSwitch->load() > 0.5f ? 1.0f : 0.4f;
+            const auto alpha = subSwitch != nullptr && subSwitch->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
             for (auto* control : { static_cast<juce::Component*> (subShape.get()), static_cast<juce::Component*> (subOctave.get()),
                                    static_cast<juce::Component*> (subLevel.get()) })
                 if (control->getAlpha() != alpha)
@@ -534,7 +588,7 @@ private:
 
         for (auto [index, active] : { std::pair<int, bool> { 1, ! synced }, { 3, synced } })
         {
-            const auto alpha = active ? 1.0f : 0.35f;
+            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
 
             if (items[(size_t) index]->getAlpha() != alpha)
                 items[(size_t) index]->setAlpha (alpha);
@@ -599,12 +653,27 @@ private:
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
 
+    // Sub off and noise at zero: nothing there to show.
+    bool subIsIdle() const
+    {
+        const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
+        const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
+        return subSwitch != nullptr && noise != nullptr && subSwitch->load() < 0.5f && noise->load() < 0.0005f;
+    }
+
     void layoutSubCard()
     {
         auto inner = subCard.reduced (10, 8);
         inner.removeFromTop (18);
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard)));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard, subFolded)));
         inner.removeFromTop (2);
+
+        for (auto* control : { static_cast<juce::Component*> (subShape.get()), static_cast<juce::Component*> (subOctave.get()),
+                               static_cast<juce::Component*> (subLevel.get()), static_cast<juce::Component*> (noiseLevel.get()) })
+            control->setVisible (! subFolded);
+
+        if (subFolded)
+            return;
 
         // One row across the whole card: the sub's menus and level, and the
         // noise.
@@ -615,7 +684,13 @@ private:
     struct Column : public juce::Component
     {
         std::function<void (juce::Graphics&)> onPaint;
+        std::function<void (juce::Point<int>)> onClick;
         void paint (juce::Graphics& g) override { if (onPaint != nullptr) onPaint (g); }
+        void mouseUp (const juce::MouseEvent& event) override
+        {
+            if (onClick != nullptr && ! event.mouseWasDraggedSinceMouseDown())
+                onClick (event.getPosition());
+        }
     };
 
     IlanaSynthAudioProcessor& processorRef;
@@ -630,7 +705,12 @@ private:
     static constexpr int addButtonHeight = 36;
     static constexpr int foldedHeight = 36;
     static constexpr int subCardHeight = 8 + 20 + 13 + 58 + 16 + 12;
-    juce::Rectangle<int> subCard;
+    juce::Rectangle<int> subCard, outputCard;
+    OutputView outputView { processorRef };
+    static constexpr int outputMinHeight = 48;
+    static constexpr int patchWithOutputHeight = 114; // the signal flow needs this much to keep its rows apart
+    bool subFolded = false;   // SUB + NOISE shown as one line (both off)
+    bool subExpanded = false; // the user opened the folded card to reach the noise knob
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel;

@@ -291,7 +291,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - COMPARE: flip between two versions of the patch (A and B)
   - DICE: randomise or mutate the patch, or one section of it
   - settings
-- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard opens with KEYS.
+- **Bottom bar**: the modulation source chips (click one to keep every knob it drives lit, click again to clear), the four macros, glide, legato, master and an output meter (it lights red after a clip; click to reset). Voice mode, voice limit and pitch-bend range are in the settings menu (the gear). The on-screen keyboard opens with KEYS.
   - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
 - **Presets**: 371 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.

@@ -31,6 +31,94 @@ juce::Array<juce::File> IlanaSynthAudioProcessor::getUserPresetFiles() const
     return files;
 }
 
+juce::StringArray IlanaSynthAudioProcessor::getFactoryMacroNames (int factoryIndex) const
+{
+    const auto& presets = Presets::getFactoryPresets();
+    juce::StringArray result;
+    for (int i = 0; i < 4; ++i)
+        result.add ({});
+
+    if (factoryIndex < 0 || factoryIndex >= (int) presets.size())
+        return result;
+
+    const auto& preset = presets[(size_t) factoryIndex];
+    std::vector<std::pair<juce::String, float>> values;
+
+    for (const auto& value : preset.values)
+        values.push_back ({ juce::String (value.id), value.value });
+
+    std::array<juce::String, 4> voiced;
+    applyPresetVoicing (preset.name, values, voiced);
+
+    for (size_t macro = 0; macro < 4; ++macro)
+    {
+        if (macro < preset.macroNames.size() && preset.macroNames[macro] != nullptr)
+            result.set ((int) macro, preset.macroNames[macro]);
+
+        if (voiced[macro].isNotEmpty())
+            result.set ((int) macro, voiced[macro]);
+    }
+
+    // A preset with no macros of its own gets the automatic ones when loaded
+    // (applyDefaultMacros): the same choices, read from the recipe's values
+    // over the parameters' defaults instead of from a loaded patch. Keep the
+    // two in step (the UI test compares them for every preset).
+    if (factoryIndex > 0 && preset.macroNames.empty())
+    {
+        const auto value = [this, &values] (const juce::String& id)
+        {
+            for (const auto& entry : values)
+                if (entry.first == id)
+                    return entry.second;
+
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id)))
+                return ranged->convertFrom0to1 (ranged->getDefaultValue());
+
+            return 0.0f;
+        };
+        const auto changedFrom = [this, &values] (const juce::String& prefix)
+        {
+            for (const auto& entry : values)
+                if (entry.first.startsWith (prefix))
+                    if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (entry.first)))
+                        if (std::abs (entry.second - ranged->convertFrom0to1 (ranged->getDefaultValue())) > 0.0001f)
+                            return true;
+
+            return false;
+        };
+
+        auto anySlotAssigned = false, hasReverb = false, hasDelay = false;
+
+        for (int slot = 1; slot <= numFxSlots; ++slot)
+        {
+            const auto type = value ("fx_slot" + juce::String (slot));
+            anySlotAssigned = anySlotAssigned || type > 0.5f;
+            hasReverb = hasReverb || (int) type == 13;
+            hasDelay = hasDelay || (int) type == 9;
+        }
+
+        if (! anySlotAssigned)
+        {
+            hasReverb = changedFrom ("fx_reverb_");
+            hasDelay = changedFrom ("fx_delay_") || changedFrom ("fx_taps_");
+        }
+
+        const auto osc1Mode = (int) value ("osc1_mode");
+        const juce::String defaults[4] {
+            "TONE",
+            osc1Mode == 0 ? "MORPH" : (osc1Mode == 1 ? "DAMP" : "START"),
+            "DRIVE",
+            hasReverb || hasDelay ? "SPACE" : (value ("osc1_unison") > 1.5f ? "WIDTH" : "SWELL")
+        };
+
+        for (int macro = 0; macro < 4; ++macro)
+            if (voiced[(size_t) macro].isEmpty())
+                result.set (macro, defaults[macro]);
+    }
+
+    return result;
+}
+
 juce::StringArray IlanaSynthAudioProcessor::getAllPresetNames() const
 {
     auto names = getFactoryPresetNames();

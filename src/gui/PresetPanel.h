@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <map>
+
 #include "../PluginProcessor.h"
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
@@ -89,6 +91,7 @@ public:
     void refresh()
     {
         names = processorRef.getAllPresetNames();
+        macroTextCache.clear();
         categories = processorRef.getAllPresetCategories();
         tags = processorRef.getAllPresetTags();
         rebuildSidebar();
@@ -232,7 +235,26 @@ public:
             return true;
         }
 
+        if (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey)
+        {
+            stepSelection (key == juce::KeyPress::downKey ? 1 : -1);
+            return true;
+        }
+
         return false;
+    }
+
+    // Loads the next (1) or previous (-1) preset of the list shown, leaving
+    // the browser open. Also what the arrow keys do wherever focus is.
+    void stepSelection (int delta)
+    {
+        if (filtered.isEmpty())
+            return;
+
+        const auto current = list.getSelectedRow();
+        const auto next = current < 0 ? (delta > 0 ? 0 : filtered.size() - 1)
+                                      : juce::jlimit (0, filtered.size() - 1, current + delta);
+        list.selectRow (next);
     }
 
     // Clicks anywhere in the window outside the browser close it.
@@ -473,6 +495,39 @@ private:
         return count;
     }
 
+    // "TONE  ·  MORPH  ·  DRIVE": the preset's macro names. The loaded one
+    // reads them from the patch (so an automatic mapping shows too); the
+    // others from the factory table. Cached until the list is rebuilt.
+    juce::String macroNamesFor (int presetIndex, bool loaded)
+    {
+        if (loaded)
+        {
+            juce::StringArray live;
+
+            for (int macro = 0; macro < 4; ++macro)
+            {
+                const auto name = processorRef.apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString();
+
+                if (name.isNotEmpty())
+                    live.add (name);
+            }
+
+            return live.joinIntoString (juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))).toUpperCase();
+        }
+
+        if (isUserPreset (presetIndex))
+            return {};
+
+        if (const auto found = macroTextCache.find (presetIndex); found != macroTextCache.end())
+            return found->second;
+
+        auto list = processorRef.getFactoryMacroNames (presetIndex);
+        list.removeEmptyStrings();
+        const auto text = list.joinIntoString (juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))).toUpperCase();
+        macroTextCache[presetIndex] = text;
+        return text;
+    }
+
     int getNumRows() override { return filtered.size(); }
 
     void paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool selected) override
@@ -514,6 +569,8 @@ private:
         g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.8f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
         g.drawText (name, juce::Rectangle<int> (32, 0, width - 170, height), juce::Justification::centredLeft);
+        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
+        const auto nameEnd = 32 + juce::GlyphArrangement::getStringWidthInt (nameFont, name);
 
         const auto isUser = isUserPreset (presetIndex);
         const auto category = categories[presetIndex];
@@ -523,10 +580,25 @@ private:
         if (isUser)
             tagText = tagText.isEmpty() ? juce::String ("USER") : juce::String (juce::CharPointer_UTF8 ("USER \xc2\xb7 ")) + tagText;
 
+        const auto tagWidth = tagText.isEmpty() ? 0.0f : juce::jmax (40.0f, (float) tagText.length() * 6.4f + 14.0f);
+
+        // What this preset's macros are called, between the name and the tag.
+        {
+            const auto macros = macroNamesFor (presetIndex, isCurrent);
+            const auto left = juce::jmax (nameEnd + 16, (int) ((float) width * 0.4f));
+            const auto right = width - (int) tagWidth - 20;
+
+            if (macros.isNotEmpty() && right - left > 40)
+            {
+                g.setColour (IlanaTheme::Ui::text2.withAlpha (selected ? 0.95f : 0.75f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                g.drawText (macros, juce::Rectangle<int> (left, 0, right - left, height), juce::Justification::centredLeft, true);
+            }
+        }
+
         if (tagText.isEmpty())
             return;
 
-        const auto tagWidth = juce::jmax (40.0f, (float) tagText.length() * 6.4f + 14.0f);
         const auto tagBounds = juce::Rectangle<float> ((float) width - tagWidth - 10.0f,
                                                        (float) height * 0.5f - 8.0f, tagWidth, 16.0f);
 
@@ -585,14 +657,7 @@ private:
     {
         if (origin == &search && (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey))
         {
-            if (filtered.isEmpty())
-                return true;
-
-            const auto current = list.getSelectedRow();
-            const auto next = current < 0 ? 0
-                                          : juce::jlimit (0, filtered.size() - 1,
-                                                          current + (key == juce::KeyPress::downKey ? 1 : -1));
-            list.selectRow (next);
+            stepSelection (key == juce::KeyPress::downKey ? 1 : -1);
             return true;
         }
 
@@ -966,6 +1031,7 @@ private:
 
     juce::StringArray names, categories, tags;
     const int factoryCount = processorRef.getFactoryPresetNames().size();
+    std::map<int, juce::String> macroTextCache;
     juce::Array<int> filtered;
     juce::TextEditor search;
     Sidebar sidebar;

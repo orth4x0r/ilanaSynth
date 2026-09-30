@@ -13,6 +13,7 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 
 #include "Presets.h"
 #include "PresetTrims.h"
+#include "PresetVoicing.h"
 #include "gui/ParamInfo.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
@@ -6110,6 +6111,180 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
     }
 }
 
+namespace
+{
+// The voicing table's lines, parsed once (or ILANA_PRESET_VOICING's file,
+// re-read on every load so a renderer can iterate without a rebuild).
+struct VoicingLine
+{
+    juce::String name;
+    std::vector<std::pair<juce::String, float>> set;
+    std::vector<std::pair<juce::String, float>> add; // id+=value: added to the recipe's value
+    struct Macro
+    {
+        int index = 0;
+        juce::String name;
+        std::vector<std::pair<int, float>> targets;
+    };
+    std::vector<Macro> macros;
+};
+
+int voicingDestination (const juce::String& target)
+{
+    if (const auto d = Mod::destinationForParamId (target); d > 0)
+        return d;
+    static const auto names = Mod::getDestinationNames();
+    return juce::jmax (0, names.indexOf (target, true));
+}
+
+std::vector<VoicingLine> parseVoicing (const juce::String& text)
+{
+    std::vector<VoicingLine> lines;
+    for (auto raw : juce::StringArray::fromLines (text))
+    {
+        raw = raw.trim();
+        if (raw.isEmpty() || raw.startsWith ("#"))
+            continue;
+
+        const auto parts = juce::StringArray::fromTokens (raw, "|", "");
+        VoicingLine line;
+        line.name = parts[0].trim();
+
+        for (const auto& token : juce::StringArray::fromTokens (parts[1], " \t", ""))
+        {
+            const auto id = token.upToFirstOccurrenceOf ("=", false, false).trim();
+            const auto value = token.fromFirstOccurrenceOf ("=", false, false).trim();
+            if (id.isEmpty())
+                continue;
+            if (id == "fx")
+            {
+                const auto types = juce::StringArray::fromTokens (value, ",", "");
+                for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                    line.set.push_back ({ "fx_slot" + juce::String (slot + 1), slot < types.size() ? types[slot].getFloatValue() : 0.0f });
+            }
+            else if (id.endsWithChar ('+'))
+            {
+                line.add.push_back ({ id.dropLastCharacters (1), value.getFloatValue() });
+            }
+            else
+            {
+                line.set.push_back ({ id, value.getFloatValue() });
+            }
+        }
+
+        for (const auto& text : juce::StringArray::fromTokens (parts[2], ";", ""))
+        {
+            const auto head = text.upToFirstOccurrenceOf (":", false, false).trim();
+            if (! head.startsWithChar ('m') || ! head.containsChar ('='))
+                continue;
+            VoicingLine::Macro macro;
+            macro.index = head.substring (1).upToFirstOccurrenceOf ("=", false, false).getIntValue();
+            macro.name = head.fromFirstOccurrenceOf ("=", false, false).trim();
+            for (auto target : juce::StringArray::fromTokens (text.fromFirstOccurrenceOf (":", false, false), ",", ""))
+            {
+                target = target.trim();
+                const auto split = target.lastIndexOfChar (' ');
+                if (split <= 0)
+                    continue;
+                if (const auto d = voicingDestination (target.substring (0, split).trim()); d > 0)
+                    macro.targets.push_back ({ d, target.substring (split + 1).getFloatValue() });
+                else
+                    DBG ("voicing: unknown macro target " << target);
+            }
+            if (macro.index >= 1 && macro.index <= 4)
+                line.macros.push_back (macro);
+        }
+
+        lines.push_back (line);
+    }
+    return lines;
+}
+
+const VoicingLine* findVoicing (const char* presetName)
+{
+    static const auto builtIn = parseVoicing (Presets::getVoicingText());
+    static std::vector<VoicingLine> fromFile;
+
+    const auto* table = &builtIn;
+    if (const auto path = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_VOICING", ""); path.isNotEmpty())
+    {
+        fromFile = parseVoicing (juce::File (path).loadFileAsString());
+        table = &fromFile;
+    }
+
+    for (const auto& line : *table)
+        if (line.name == presetName)
+            return &line;
+    return nullptr;
+}
+} // namespace
+
+void IlanaSynthAudioProcessor::applyPresetVoicing (const char* presetName, std::vector<std::pair<juce::String, float>>& values,
+                                                   std::array<juce::String, 4>& macroNames)
+{
+    if (presetName == nullptr)
+        return;
+    const auto* line = findVoicing (presetName);
+    if (line == nullptr)
+        return;
+
+    const auto find = [&values] (const juce::String& id) -> std::pair<juce::String, float>*
+    {
+        for (auto& entry : values)
+            if (entry.first == id)
+                return &entry;
+        return nullptr;
+    };
+    const auto put = [&] (const juce::String& id, float value)
+    {
+        if (auto* entry = find (id))
+            entry->second = value;
+        else
+            values.push_back ({ id, value });
+    };
+
+    for (const auto& [id, value] : line->set)
+        put (id, value);
+
+    for (const auto& [id, value] : line->add)
+    {
+        if (auto* entry = find (id))
+            entry->second += value;
+        else
+            values.push_back ({ id, value }); // the recipe left it at its default: 0 for the ids += is for
+    }
+
+    for (const auto& macro : line->macros)
+    {
+        const auto source = (float) Mod::macroSourceFor (macro.index - 1);
+        std::vector<int> free;
+        for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        {
+            const auto p = "mod" + juce::String (slot);
+            auto* src = find (p + "_src");
+            if (src != nullptr && juce::roundToInt (src->second) == juce::roundToInt (source))
+            {
+                src->second = 0.0f;
+                put (p + "_dst", 0.0f);
+                put (p + "_amt", 0.0f);
+                put (p + "_curve", 0.0f);
+                put (p + "_aux", 0.0f);
+            }
+            if (src == nullptr || juce::roundToInt (src->second) == 0)
+                free.push_back (slot);
+        }
+
+        macroNames[(size_t) macro.index - 1] = macro.name;
+        for (size_t i = 0; i < macro.targets.size() && i < free.size(); ++i)
+        {
+            const auto p = "mod" + juce::String (free[i]);
+            put (p + "_src", source);
+            put (p + "_dst", (float) macro.targets[i].first);
+            put (p + "_amt", macro.targets[i].second);
+        }
+    }
+}
+
 void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const juce::String& category,
                                                   std::vector<std::pair<juce::String, float>>& values)
 {
@@ -6279,6 +6454,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                                    values.push_back ({ id, value });
                            });
     }
+
+    std::array<juce::String, 4> voicedMacroNames;
+    applyPresetVoicing (presets[(size_t) index].name, values, voicedMacroNames);
+    for (int macro = 0; macro < 4; ++macro)
+        if (voicedMacroNames[(size_t) macro].isNotEmpty())
+            setMacroName (macro, voicedMacroNames[(size_t) macro]);
 
     applyPresetTrims (presets[(size_t) index].name, getFactoryPresetCategories()[index], values);
 

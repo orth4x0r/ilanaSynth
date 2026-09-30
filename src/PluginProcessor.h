@@ -206,6 +206,10 @@ public:
     // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
     // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
     // (for the tuning tool's own renders).
+    // The diversity pass's redesigns (src/PresetVoicing.h): parameter
+    // changes and macro rewiring over the recipe, applied before the trims.
+    static void applyPresetVoicing (const char* presetName, std::vector<std::pair<juce::String, float>>& values,
+                                    std::array<juce::String, 4>& macroNames);
     static void applyPresetTrims (const char* presetName, const juce::String& category,
                                   std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);

@@ -130,7 +130,7 @@ inline const std::vector<Trim>& getTrims()
         { "Glass Shell Hybrid", -0.13f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glitch Lead", 1.28f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Grain Choir", -2.14f, { 1.000f, 1.000f, 1.000f, 1.000f } },
-        { "Grand Piano", 7.02f, { 1.000f, 1.000f, 1.000f, 1.000f } },
+        { "Felt Hammer Board", 7.02f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Granular Clap", 0.07f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Granular Cloud", 4.25f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Granular Pad", 7.69f, { 1.000f, 1.000f, 1.000f, 1.000f } },

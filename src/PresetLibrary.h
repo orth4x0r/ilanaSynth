@@ -2699,7 +2699,7 @@ inline std::vector<FactoryPreset> build()
     // M8.2: the reworked piano (Piano exciter: a real felt hammer, two
     // polarisations, the bass bark), fitted across the whole keyboard at
     // pp, mf and ff (tools/fit_piano2.py).
-    add (B ("Grand Piano", "Keys")
+    add (B ("Felt Hammer Board", "Keys")
              .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.2803f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
              .set ("osc1_excite", 9)
              .set ("osc2_on", 0).set ("sub_on", 0)

@@ -4,7 +4,7 @@ usage: python tools/bake_piano2.py build/fit82/best-board.json [build/fit82/extr
 
 Tuning values replace the defaults in the header ("name = value" inside the
 struct); boardEq comes from the extra file. Preset values (osc1_*, sb_*) are
-printed for the Grand Piano preset in src/PresetLibrary.h.
+printed for the Felt Hammer Board preset in src/PresetLibrary.h.
 """
 import json
 import re

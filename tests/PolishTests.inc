@@ -261,13 +261,14 @@ void runHostEdgeTest()
     for (const auto rate : { 22050.0, 44100.0, 96000.0, 192000.0 })
         for (const auto block : { 1, 17, 480 })
         {
-            // A different slice of the library for each setting.
+            // A different slice of the library for each setting, through one
+            // processor (building one per preset was most of the time).
+            IlanaSynthAudioProcessor processor;
             for (int index = 1 + (run++ % 12); index < names.size(); index += 12)
             {
-                IlanaSynthAudioProcessor processor;
                 processor.loadFactoryPreset (index);
                 processor.prepareToPlay (rate, block);
-                const auto seconds = block == 1 ? 0.05 : 0.4;
+                const auto seconds = block == 1 ? 0.02 : 0.2; // long enough for the all-notes-off halfway
                 const auto total = (int) (rate * seconds);
                 juce::AudioBuffer<float> buffer (2, juce::jmax (block * 3, 1));
                 auto peak = 0.0f;
@@ -652,15 +653,18 @@ void runVoicesEndTest()
     const auto report = juce::SystemStats::getEnvironmentVariable ("ILANA_VOICE_REPORT", "").isNotEmpty();
     auto slowest = 0.0;
     juce::String slowestName;
+    // One processor for the whole library (building one per preset was most
+    // of the time): each preset starts once the last one's voices are gone.
+    // At 24 kHz: release times are in seconds, so half the rate halves the work.
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (24000.0, 512);
     for (int index = 1; index < names.size(); ++index)
     {
         if (categories[index] == "FX Input")
             continue;
-        IlanaSynthAudioProcessor processor;
         processor.loadFactoryPreset (index);
-        processor.prepareToPlay (48000.0, 512);
         juce::AudioBuffer<float> buffer (2, 512);
-        const auto blocksPerSecond = 48000.0 / 512.0;
+        const auto blocksPerSecond = 24000.0 / 512.0;
         auto endedAt = -1.0;
         for (int block = 0; block < (int) (15.5 * blocksPerSecond); ++block)
         {
@@ -731,18 +735,18 @@ void runTransportStopTest()
 
 void runTests()
 {
-    runTransportStopTest();
-    runVoicesEndTest();
-    runTuningAcrossRatesTest();
-    runStateRoundTripTest();
-    runStateFuzzTest();
-    runNanParameterTest();
-    runConcurrencyTest();
-    runMonoTest();
-    runHostEdgeTest();
-    runContinuousTest();
-    runRepeatableLoadTest();
-    runPatchCutTest();
+    timedRun ("Polish::runTransportStopTest", [] { runTransportStopTest(); });
+    timedRun ("Polish::runVoicesEndTest", [] { runVoicesEndTest(); });
+    timedRun ("Polish::runTuningAcrossRatesTest", [] { runTuningAcrossRatesTest(); });
+    timedRun ("Polish::runStateRoundTripTest", [] { runStateRoundTripTest(); });
+    timedRun ("Polish::runStateFuzzTest", [] { runStateFuzzTest(); });
+    timedRun ("Polish::runNanParameterTest", [] { runNanParameterTest(); });
+    timedRun ("Polish::runConcurrencyTest", [] { runConcurrencyTest(); });
+    timedRun ("Polish::runMonoTest", [] { runMonoTest(); });
+    timedRun ("Polish::runHostEdgeTest", [] { runHostEdgeTest(); });
+    timedRun ("Polish::runContinuousTest", [] { runContinuousTest(); });
+    timedRun ("Polish::runRepeatableLoadTest", [] { runRepeatableLoadTest(); });
+    timedRun ("Polish::runPatchCutTest", [] { runPatchCutTest(); });
 }
 } // namespace Polish
 

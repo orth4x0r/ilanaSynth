@@ -2,7 +2,7 @@
 
 usage: python tools/fit_piano2.py [iterations] [--all]
 
-Renders the Grand Piano preset at pp, mf and ff (ILANA_NOTE_DEBUG with
+Renders the Felt Hammer Board preset at pp, mf and ff (ILANA_NOTE_DEBUG with
 ILANA_NOTE_SET=keyboard) on a spread of notes, with the model's constants
 (ILANA_PIANO2_TUNING) and a few preset knobs (ILANA_PRESET_OVERRIDES) varied,
 and scores them with tools/piano_metrics.py against the reference in
@@ -65,7 +65,7 @@ PARAMETERS = [
 ]
 
 
-# Phase 2 (--board): the dense soundboard (Grand Piano's sb_model = Dense),
+# Phase 2 (--board): the dense soundboard (Felt Hammer Board's sb_model = Dense),
 # with the knock and the strings' decay, once the strings are fitted.
 BOARD_PARAMETERS = [
     ("boardMix", "tuning", 0.5, 0.0, 3.0, 0.2),
@@ -104,7 +104,7 @@ def render(values, tag, notes):
     folder = os.path.join(FIT, tag)
     os.makedirs(folder, exist_ok=True)
     env = dict(os.environ)
-    env["ILANA_NOTE_DEBUG"] = "Grand Piano"
+    env["ILANA_NOTE_DEBUG"] = "Felt Hammer Board"
     env["ILANA_NOTE_SET"] = "keyboard"
     env["ILANA_NOTE_LIST"] = ",".join(str(n) for n in notes)
     env["ILANA_NOTE_SECONDS"] = "4"

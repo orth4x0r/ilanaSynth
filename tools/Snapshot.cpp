@@ -1039,7 +1039,7 @@ int runUiTests()
 
     // M8.7: the PHYSICAL page follows the patch's Physical oscillator.
     {
-        processor.loadFactoryPreset (names.indexOf ("Grand Piano"));
+        processor.loadFactoryPreset (names.indexOf ("Felt Hammer Board"));
         pages->showPage ("PHYSICAL");
         settle (400);
         auto* page = pages->getCurrentPage();
@@ -1054,7 +1054,7 @@ int runUiTests()
         auto bound = false;
         for (auto* knob : knobs)
             bound = bound || (knob->getParameterId() == physicalPrefix + "_string_decay" && visibleInTree (knob));
-        expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Grand Piano's string (" + physicalPrefix + ")");
+        expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Felt Hammer Board's string (" + physicalPrefix + ")");
         processor.loadFactoryPreset (neuroWobble);
         settle (200);
     }
@@ -1743,9 +1743,9 @@ int main (int argc, char** argv)
                 parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
-    // M8.7: the PHYSICAL page, a moment after a note (Grand Piano, then a
+    // M8.7: the PHYSICAL page, a moment after a note (Felt Hammer Board, then a
     // feedback guitar).
-    for (const auto& [presetName, file] : { std::pair<const char*, const char*> { "Grand Piano", "physical-page.png" },
+    for (const auto& [presetName, file] : { std::pair<const char*, const char*> { "Felt Hammer Board", "physical-page.png" },
                                             { "", "physical-feedback.png" } })
     {
         if (juce::String (presetName).isNotEmpty())

@@ -1110,7 +1110,7 @@ inline void addM10Presets (const std::function<void (const FactoryPreset&)>& add
              .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
              .fx ({ FxReverb }).reverb (Hall, 0.85f, 0.3f));
     add (B ("Reversed Piano Wash", "Pad")
-             .bounceFrom ("Grand Piano", 1, false, 60, 3.0f, 1.0f)
+             .bounceFrom ("Felt Hammer Board", 1, false, 60, 3.0f, 1.0f)
              .set ("osc1_sample_reverse", 1).set ("sub_on", 0)
              .filter1 (LP, 4000.0f, 0.1f).amp (0.05f, 0.5f, 1.0f, 1.5f)
              .macro (1, "TONE", { { D::Filter1Cutoff, 0.4f } })

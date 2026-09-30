@@ -8422,6 +8422,19 @@ void runProfile (int unison)
    #endif
 }
 
+// ILANA_TEST_TIMES=1 prints how long each suite of the full run takes, to
+// find the slow ones.
+template <typename Suite>
+void timedRun (const char* name, Suite&& suite)
+{
+    static const auto report = juce::SystemStats::getEnvironmentVariable ("ILANA_TEST_TIMES", "").isNotEmpty();
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    suite();
+
+    if (report)
+        std::cout << "TIME " << name << " " << juce::String ((juce::Time::getMillisecondCounterHiRes() - start) / 1000.0, 2) << " s" << std::endl;
+}
+
 #include "M81Tests.inc"
 #include "M82Tests.inc"
 #include "M83Tests.inc"
@@ -8913,96 +8926,96 @@ int main()
 
     std::cout << "ilanaSynth table tests" << std::endl;
 
-    runMipmapTests();
-    runAliasTests();
-    runLoaderTest();
-    runFilterTests();
-    runSubOscillatorTests();
-    runVoiceSmokeTest();
-    runFrameModulationTest();
-    runCrossModulationTest();
-    runKarplusStrongTest();
-    runFactoryTableContentTest();
-    runWeirdDspTest();
-    runSampleOscTest();
-    runPresetSanityTest();
-    runOsc2Test();
-    runOscLevelTest();
-    runPresetTuningTest();
-    runParameterStressTest();
-    runFxModuleIsolationTest();
-    runFxIntegrityTest();
-    runStateRoundTripTest();
-    runSoakTest();
-    runLegacyPresetFxTest();
-    runLfo34Test();
-    runOversamplingTest();
-    runFxSlotAssignTest();
-    runPresetNameTest();
-    runFilterModelTests();
-    runVoiceModeTests();
-    runWarpTests();
-    runUnisonTests();
-    runPerVoiceLfoTest();
-    runMatrixTests();
-    runStaleModulationTest();
-    runPhase2StateAndCpuTest();
-    runUnisonBankEquivalenceTest();
-    runExtraFilterTests();
-    runFilterRoutingTest();
-    runOversampledTuningTest();
-    runResynthesisTest();
-    runCurveLfoTest();
-    runFactoryLibraryTest();
-    runTapeStopLatencyTest();
-    runTranceGateTest();
-    runGenerativeTests();
-    runOsc3MigrationTest();
-    runFmMatrixTests();
-    runM3bEngineTests();
-    runSpectralWarpTests();
-    runChaosLfoTests();
-    runPhysicsLfoTests();
-    runPhysicsLfoMotionTest();
-    runSympatheticTuningTest();
-    runSympatheticResonanceTest();
-    runBridgeBuzzStabilityTest();
-    runIntegerValueTextTest();
-    runMissingParameterDefaultTest();
-    runM3PhysicalTests();
-    runM3MissingParameterTest();
-    runGranularTests();
-    runHeavyPresetCpuTest();
-    runPhysicalStringTest();
-    runPhysicalPatchMigrationTest();
-    runScaleRandomReleaseTest();
-    runArpHostStopTests();
-    runM4Tests();
-    runM5DeepFmTests();
-    runM6PhaseDistortionTests();
-    runM6bMatrixTests();
-    runM70ExtendedFmModTests();
-    runM71GenerativeTests();
-    runM72BodyTests();
-    runM73ElectricPianoTests();
-    runM74WavetableEditorTests();
-    runSplitRenderTest();
-    runM81ModulatorTests();
-    runM82PianoTests();
-    runM83WestTests();
-    runM84FilterTests();
-    runM85Tests();
-    runM86Tests();
-    runM10Tests();
-    runPolishTests();
-    runPlanTests();
-    runTuningTests();
-    runAirwindowsTests();
-    runVocoderTests();
-    runFilterOverhaulTests();
-    runMultiSampleTests();
-    runSplitterTests();
-    runClipTests();
+    timedRun ("runMipmapTests", [] { runMipmapTests(); });
+    timedRun ("runAliasTests", [] { runAliasTests(); });
+    timedRun ("runLoaderTest", [] { runLoaderTest(); });
+    timedRun ("runFilterTests", [] { runFilterTests(); });
+    timedRun ("runSubOscillatorTests", [] { runSubOscillatorTests(); });
+    timedRun ("runVoiceSmokeTest", [] { runVoiceSmokeTest(); });
+    timedRun ("runFrameModulationTest", [] { runFrameModulationTest(); });
+    timedRun ("runCrossModulationTest", [] { runCrossModulationTest(); });
+    timedRun ("runKarplusStrongTest", [] { runKarplusStrongTest(); });
+    timedRun ("runFactoryTableContentTest", [] { runFactoryTableContentTest(); });
+    timedRun ("runWeirdDspTest", [] { runWeirdDspTest(); });
+    timedRun ("runSampleOscTest", [] { runSampleOscTest(); });
+    timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
+    timedRun ("runOsc2Test", [] { runOsc2Test(); });
+    timedRun ("runOscLevelTest", [] { runOscLevelTest(); });
+    timedRun ("runPresetTuningTest", [] { runPresetTuningTest(); });
+    timedRun ("runParameterStressTest", [] { runParameterStressTest(); });
+    timedRun ("runFxModuleIsolationTest", [] { runFxModuleIsolationTest(); });
+    timedRun ("runFxIntegrityTest", [] { runFxIntegrityTest(); });
+    timedRun ("runStateRoundTripTest", [] { runStateRoundTripTest(); });
+    timedRun ("runSoakTest", [] { runSoakTest(); });
+    timedRun ("runLegacyPresetFxTest", [] { runLegacyPresetFxTest(); });
+    timedRun ("runLfo34Test", [] { runLfo34Test(); });
+    timedRun ("runOversamplingTest", [] { runOversamplingTest(); });
+    timedRun ("runFxSlotAssignTest", [] { runFxSlotAssignTest(); });
+    timedRun ("runPresetNameTest", [] { runPresetNameTest(); });
+    timedRun ("runFilterModelTests", [] { runFilterModelTests(); });
+    timedRun ("runVoiceModeTests", [] { runVoiceModeTests(); });
+    timedRun ("runWarpTests", [] { runWarpTests(); });
+    timedRun ("runUnisonTests", [] { runUnisonTests(); });
+    timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
+    timedRun ("runMatrixTests", [] { runMatrixTests(); });
+    timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });
+    timedRun ("runPhase2StateAndCpuTest", [] { runPhase2StateAndCpuTest(); });
+    timedRun ("runUnisonBankEquivalenceTest", [] { runUnisonBankEquivalenceTest(); });
+    timedRun ("runExtraFilterTests", [] { runExtraFilterTests(); });
+    timedRun ("runFilterRoutingTest", [] { runFilterRoutingTest(); });
+    timedRun ("runOversampledTuningTest", [] { runOversampledTuningTest(); });
+    timedRun ("runResynthesisTest", [] { runResynthesisTest(); });
+    timedRun ("runCurveLfoTest", [] { runCurveLfoTest(); });
+    timedRun ("runFactoryLibraryTest", [] { runFactoryLibraryTest(); });
+    timedRun ("runTapeStopLatencyTest", [] { runTapeStopLatencyTest(); });
+    timedRun ("runTranceGateTest", [] { runTranceGateTest(); });
+    timedRun ("runGenerativeTests", [] { runGenerativeTests(); });
+    timedRun ("runOsc3MigrationTest", [] { runOsc3MigrationTest(); });
+    timedRun ("runFmMatrixTests", [] { runFmMatrixTests(); });
+    timedRun ("runM3bEngineTests", [] { runM3bEngineTests(); });
+    timedRun ("runSpectralWarpTests", [] { runSpectralWarpTests(); });
+    timedRun ("runChaosLfoTests", [] { runChaosLfoTests(); });
+    timedRun ("runPhysicsLfoTests", [] { runPhysicsLfoTests(); });
+    timedRun ("runPhysicsLfoMotionTest", [] { runPhysicsLfoMotionTest(); });
+    timedRun ("runSympatheticTuningTest", [] { runSympatheticTuningTest(); });
+    timedRun ("runSympatheticResonanceTest", [] { runSympatheticResonanceTest(); });
+    timedRun ("runBridgeBuzzStabilityTest", [] { runBridgeBuzzStabilityTest(); });
+    timedRun ("runIntegerValueTextTest", [] { runIntegerValueTextTest(); });
+    timedRun ("runMissingParameterDefaultTest", [] { runMissingParameterDefaultTest(); });
+    timedRun ("runM3PhysicalTests", [] { runM3PhysicalTests(); });
+    timedRun ("runM3MissingParameterTest", [] { runM3MissingParameterTest(); });
+    timedRun ("runGranularTests", [] { runGranularTests(); });
+    timedRun ("runHeavyPresetCpuTest", [] { runHeavyPresetCpuTest(); });
+    timedRun ("runPhysicalStringTest", [] { runPhysicalStringTest(); });
+    timedRun ("runPhysicalPatchMigrationTest", [] { runPhysicalPatchMigrationTest(); });
+    timedRun ("runScaleRandomReleaseTest", [] { runScaleRandomReleaseTest(); });
+    timedRun ("runArpHostStopTests", [] { runArpHostStopTests(); });
+    timedRun ("runM4Tests", [] { runM4Tests(); });
+    timedRun ("runM5DeepFmTests", [] { runM5DeepFmTests(); });
+    timedRun ("runM6PhaseDistortionTests", [] { runM6PhaseDistortionTests(); });
+    timedRun ("runM6bMatrixTests", [] { runM6bMatrixTests(); });
+    timedRun ("runM70ExtendedFmModTests", [] { runM70ExtendedFmModTests(); });
+    timedRun ("runM71GenerativeTests", [] { runM71GenerativeTests(); });
+    timedRun ("runM72BodyTests", [] { runM72BodyTests(); });
+    timedRun ("runM73ElectricPianoTests", [] { runM73ElectricPianoTests(); });
+    timedRun ("runM74WavetableEditorTests", [] { runM74WavetableEditorTests(); });
+    timedRun ("runSplitRenderTest", [] { runSplitRenderTest(); });
+    timedRun ("runM81ModulatorTests", [] { runM81ModulatorTests(); });
+    timedRun ("runM82PianoTests", [] { runM82PianoTests(); });
+    timedRun ("runM83WestTests", [] { runM83WestTests(); });
+    timedRun ("runM84FilterTests", [] { runM84FilterTests(); });
+    timedRun ("runM85Tests", [] { runM85Tests(); });
+    timedRun ("runM86Tests", [] { runM86Tests(); });
+    timedRun ("runM10Tests", [] { runM10Tests(); });
+    timedRun ("runPolishTests", [] { runPolishTests(); });
+    timedRun ("runPlanTests", [] { runPlanTests(); });
+    timedRun ("runTuningTests", [] { runTuningTests(); });
+    timedRun ("runAirwindowsTests", [] { runAirwindowsTests(); });
+    timedRun ("runVocoderTests", [] { runVocoderTests(); });
+    timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });
+    timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
+    timedRun ("runSplitterTests", [] { runSplitterTests(); });
+    timedRun ("runClipTests", [] { runClipTests(); });
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

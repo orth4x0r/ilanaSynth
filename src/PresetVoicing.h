@@ -259,7 +259,7 @@ Pedal Bloom | | m1=BLOOM: Soundboard Mix 0.6, Soundboard Size 0.5, Pedal Resonan
 Supersaw Bell Body | | m2=SIZE: Body Size 0.8, Res Amount 0.3
 Tine Keys | | m3=TONE: Filter1 Cutoff -0.7
 Reed Keys | | m2=FELT: Filter1 Cutoff -0.7, Osc1 Hammer -0.8; m3=TONE: Filter1 Cutoff -0.7
-Grand Piano | | m1=HAMMER: Osc1 Hammer 0.7, Osc1 String Damp -0.5
+Felt Hammer Board | | m1=HAMMER: Osc1 Hammer 0.7, Osc1 String Damp -0.5
 Rossler Tide | | m1=TIDE: LFO1 Rate 1, Filter1 Cutoff 0.5
 Upright Piano | | m1=HAMMER: Osc1 Hammer 0.7, Osc1 String Damp -0.5
 Bright Concert Grand | | m1=FELT: Filter1 Cutoff -0.7, Osc1 Hammer -0.8

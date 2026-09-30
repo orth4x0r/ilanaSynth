@@ -197,14 +197,14 @@ Hypersaw Pluck | amp_attack=0.2 amp_decay=0.9 fx=15,9 fx_reverb_on=0 fx_dim_mix=
 Warp Pluck | amp_attack=0.35 fx=6,9 fx_reverb_on=0 fx_phaser_on=1 fx_phaser_rate=0.4 fx_phaser_depth=0.7 fx_phaser_mix=0.5 f1_type=29 f1_slope=0 f1_cutoff=1050 f1_reso=0.9 f1_morph=1 | m4=PHASE: fx_phaser_mix 0.5
 Formant Pluck | amp_attack=0.5 amp_decay=1.2 fx=27,9 fx_reverb_on=0 fx_vowel_mix=0.4 | m4=VOWEL: fx_vowel_morph 0.5
 # Lo-fi and driven.
-Quad Mod Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=32 fx_aw_p1=0.35 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.7 f1_type=30 f1_slope=0 f1_cutoff=1500 f1_reso=0.7 f1_morph=0.8 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
+Quad Mod Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=32 fx_aw_p1=0.35 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.7 f1_type=34 f1_slope=0 f1_cutoff=1800 f1_reso=0.6 f1_morph=0.8 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Resonator Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.6 fx_aw_p3=0.8 fx_slot1_mix=0.1 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=3 | m4=HEAT: fx_slot1_mix 0.9; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Tap Pluck | fx=30 fx_reverb_on=0 fx_delay_on=0 fx_aw_algo=31 fx_aw_p1=0.5 fx_aw_p2=0.6 fx_aw_p3=0.2 fx_aw_p4=0.6 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=3.5 | m4=SWELL: Amp Attack 0.7; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Chord Stab | fx=30,9 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.7 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 f1_type=35 f1_slope=0 f1_cutoff=1500 f1_reso=0.9 f1_morph=0.9 | m4=ECHO: Delay Mix 0.4; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Minor Chord Stab | fx=4,30 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.7 fx_aw_p2=0.6 | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6; m4=SWELL: Amp Attack 1, Filter1 Cutoff -0.6
 # Echo, rhythm and motion.
 Comb Harp | fx=21,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=7 fx_delay_feedback=0.5 fx_delay_mix=0.3 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
-Metal Keys | fx=23,9 fx_reverb_on=0 fx_trem_rate=7 fx_trem_depth=0.5 fx_trem_shape=4 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=1 f1_morph=1 f1_keytrack=1 f1_env=3 | m4=TREMOLO: fx_trem_depth 0.5; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
+Metal Keys | fx=23,9 fx_reverb_on=0 fx_trem_rate=7 fx_trem_depth=0.5 fx_trem_shape=4 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.7 f1_morph=0.6 f1_keytrack=1 f1_env=0 | m4=TREMOLO: fx_trem_depth 0.5; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Arp Glass | fx=16,13 fx_gate_div=4 fx_gate_mix=0.6 fx_reverb_mix=0.25 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=3 | m4=CHOP: fx_gate_mix 0.4, Filter1 Cutoff -0.4; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Glass Keys | fx=14 fx_reverb_on=0 fx_flanger_rate=0.15 fx_flanger_depth=0.6 fx_flanger_feedback=0.5 fx_flanger_mix=0.5 | m4=JET: fx_flanger_mix 0.5
 Smear Pluck | fx=11,30 fx_reverb_on=0 fx_aw_algo=26 fx_aw_p1=0.8 fx_aw_p2=0.8 fx_aw_p3=0.5 fx_aw_p4=0.6 f1_type=31 f1_slope=0 f1_cutoff=1500 f1_reso=0.7 f1_morph=0.8 | m4=SMEAR: Smear Mix 0.5; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6

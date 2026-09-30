@@ -111,6 +111,16 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    (done, `docs/filter-overhaul-status.md`); Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a
    tuneable **Disperser** (all-pass chain at the cutoff, key-tracked) as appended types; then a second diversity pass
    that uses them on the crowds. Presets may change tone "as long as they don't sound bad"; the level rule stands.
+   **Second diversity pass done** 2026-09-30: 62 crowd presets (18 Bass, 15 Pad, 11 Lead, 8 Keys, 10 Pluck)
+   re-voiced in `src/PresetVoicing.h` with filter types 29-38 (Acid squelch and Pear/Holt/YNot on basses, Disperser zaps
+   with KEY TRK 1 on plucks and percussive basses, Holt/Pear/Angle warmth and Z high/band-pass on pads and keys, Z drive on
+   leads); a TONE/CUTOFF/MORPH macro per preset now sweeps cutoff and MORPH. Levels re-fitted to the baseline per preset with
+   `tools/match_levels.py` (level trims, iterate: fingerprint, `--apply`, rebuild; 0 of 62 break the level rule). Result
+   (`content/analysis/diversity-pass2.md`; reports and embeddings in `content/analysis/critic-v5`, the five focus categories only): spread Bass 78 -> 81 %, Pad 81 -> 85 %, Pluck 82 -> 85 %, Lead 76 %, Keys 88 %
+   (unchanged); largest crowds Bass 12 -> 11, Pad 21 -> 18, Lead 21 -> 20, Keys 22 -> 25 (greedy grouping, noisy). The filter
+   alone moves CLAP little (a low-pass or all-pass change is ~0.03-0.1 cosine distance; only high/band-pass thinning moves it
+   a lot and those break the level rule's peak limit), so the crowds are mostly set by oscillators and FX: the next pass has
+   to change those, not the filter. A/B clips: `/mnt/project-files/ilanasynth/ab-filters/manifest.json` (`tools/ab_pairs.py`).
 10. **UI review 1 fixes** (Vital / Serum 2 comparison, `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-1.md`):
    PLAY gets a live output scope or spectrum and SUB + NOISE collapses when off; every knob shows its live modulated
    value, and clicking a source chip highlights the knobs it drives (rings already cover all mod destinations);

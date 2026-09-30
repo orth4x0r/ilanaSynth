@@ -14,7 +14,7 @@ IlanaSynth is a complete sound design machine:
 - **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
 - **Filters and envelopes:** 29 filter models across two routable filters, and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
-- **Effects:** a 10-slot rack with 30 modules, including a trance gate and 39 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side: right-click it, Band), so a run of slots is a chain per band.
+- **Effects:** a 10-slot rack with 31 modules, including a trance gate, a channel vocoder (audio input or built-in Talk modulator) and 39 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side: right-click it, Band), so a run of slots is a chain per band.
 - **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
 - **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
 - **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.

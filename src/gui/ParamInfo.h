@@ -36,6 +36,22 @@ inline juce::String describeNumber (float value, int maxDecimals = 2)
 
 inline juce::String describeValue (const juce::String& id, float value)
 {
+    // The vocoder card.
+    if (id == "fx_voc_bands")
+        return juce::String (juce::roundToInt (value)) + " bands";
+    if (id == "fx_voc_width")
+        return "x" + describeNumber (value, 2);
+    if (id == "fx_voc_attack" || id == "fx_voc_release")
+        return describeNumber (value, 1) + " ms";
+    if (id == "fx_voc_formant")
+        return (std::round (value * 10.0f) > 0.0f ? "+" : "") + describeFixed (value, 1) + " st";
+    if (id == "fx_voc_rate")
+        return describeNumber (value, 1) + " Hz";
+    if (id == "fx_voc_level")
+        return describeFixed (value, 1) + " dB";
+    if (id == "fx_voc_unvoiced" || id == "fx_voc_mix")
+        return juce::String (juce::roundToInt (value * 100.0f)) + "%";
+
     // Counts and ratios in their own words.
     if (id == "arp_octaves")
         return juce::String (juce::roundToInt (value)) + " oct";
@@ -1078,6 +1094,31 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "fx_vowel_morph" || id == "fx_vowel_mix")
         return "Vowel filter: morphs A-E-I-O-U formant shapes.";
+
+    if (id.startsWith ("fx_voc_"))
+    {
+        if (id == "fx_voc_source")
+            return "Where the voice comes from. Input: the audio input (ilanaSynth FX). Talk: a built-in vowel sweep of the "
+                   "synth's own sound, for the instrument. Auto: Input when the host gives one, else Talk.";
+        if (id == "fx_voc_bands")
+            return "Number of vocoder bands, log-spaced 100 Hz to 8 kHz. More is clearer speech, fewer is rougher.";
+        if (id == "fx_voc_width")
+            return "Band sharpness. Low: smooth and blurred, high: narrow, ringing and more robotic.";
+        if (id == "fx_voc_attack")
+            return "How fast each band follows a rise in the voice. Short keeps consonants clear.";
+        if (id == "fx_voc_release")
+            return "How fast each band lets go. Long smears the words, short is choppy.";
+        if (id == "fx_voc_formant")
+            return "Shifts the synth's bands against the voice's, in semitones: the vowel character moves up or down "
+                   "(chipmunk to giant) without changing the notes.";
+        if (id == "fx_voc_unvoiced")
+            return "Noise fed into the bands above 3 kHz, so S, T and F still come through when the synth has little up there.";
+        if (id == "fx_voc_rate")
+            return "Speed of the built-in vowel sweep (Talk).";
+        if (id == "fx_voc_level")
+            return "Output level of the vocoded signal.";
+        return "Blend of the vocoded signal with the dry synth.";
+    }
 
     if (id == "fx_delay_time_r")
         return "Independent right-channel delay time.";

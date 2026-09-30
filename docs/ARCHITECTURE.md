@@ -37,7 +37,7 @@ For an agent arriving cold. Current state and rules: [HANDOFF.md](../HANDOFF.md)
 | Two filters | `FilterUnit.h` (`FilterUnit`, `LadderFilter`, `DiodeFilter`, `Ms20Filter`), `FilterCore.h`, `FilterModels2.h`, `Svf.h`, `Biquad.h`; overhaul status in `docs/filter-overhaul-status.md` |
 | Envelopes (16), LFOs (16), MSEG, chaos/physics shapes, Evolve, generative | `Modulation.h` (`Mod` namespace), `Mseg.h`, `LfoShape.h`, `LfoSim.h`, `LfoCurve.h`, `Evolve.h`, `Generative.h` |
 | Tuning | `Tuning.h` (.scl/.kbm parsers, 128-note table) |
-| FX chain (type 30 = Airwindows) | in `PluginProcessor.cpp`; Airwindows via `src/dsp/airwindows/` |
+| FX chain (type 30 = Airwindows, 31 = Vocoder) | in `PluginProcessor.cpp`; Airwindows via `src/dsp/airwindows/`; the vocoder is `Vocoder.h` (carrier = slot signal, modulator = audio input or built-in Talk) |
 
 ## Parameters and modulation
 - Parameters are created in `createParameterLayout()` (`src/PluginProcessor.cpp`); per-block reads use a `ParamRef` member (resolved once).
@@ -56,7 +56,7 @@ For an agent arriving cold. Current state and rules: [HANDOFF.md](../HANDOFF.md)
 ## Tests and probes
 | Target | Notes |
 |---|---|
-| `ilanaTableTest` | `tests/TableTest.cpp` + `tests/*.inc`. One suite via env switch: `ILANA_M5_TEST`, `ILANA_M81_TEST`..`ILANA_M86_TEST`, `ILANA_M10_TEST`, `ILANA_POLISH_TEST`, `ILANA_LIBRARY_TEST`, `ILANA_FILTER_TEST`, `ILANA_TUNING_TEST`, `ILANA_AIRWINDOWS_TEST`, `ILANA_PLAN_TEST`, `ILANA_KS_TEST`, `ILANA_PRESET_TEST`, `ILANA_ARP_TEST`. Probes: `ILANA_PRESET_OVERRIDES`, `ILANA_NOTE_DEBUG`, `ILANA_RENDER_DEMO`, `ILANA_PRESET_PROFILE`, `ILANA_BENCH`, `ILANA_PARAM_TEXT` |
+| `ilanaTableTest` | `tests/TableTest.cpp` + `tests/*.inc`. One suite via env switch: `ILANA_M5_TEST`, `ILANA_M81_TEST`..`ILANA_M86_TEST`, `ILANA_M10_TEST`, `ILANA_POLISH_TEST`, `ILANA_LIBRARY_TEST`, `ILANA_FILTER_TEST`, `ILANA_TUNING_TEST`, `ILANA_AIRWINDOWS_TEST`, `ILANA_VOCODER_TEST`, `ILANA_PLAN_TEST`, `ILANA_KS_TEST`, `ILANA_PRESET_TEST`, `ILANA_ARP_TEST`. Probes: `ILANA_PRESET_OVERRIDES`, `ILANA_NOTE_DEBUG`, `ILANA_RENDER_DEMO`, `ILANA_PRESET_PROFILE`, `ILANA_BENCH`, `ILANA_PARAM_TEXT` |
 | `ilanaFxTest` | `tests/FxTest.cpp`: the FX plugin |
 | `ilanaSnapshot` | `tools/Snapshot.cpp`; `--uitest` (pages, folding, switch), `--fps`, `--idlecpu`; needs a display (Xvfb on Linux) |
 | `ilanaFingerprint` | `tools/PresetFingerprint.cpp`; `ilanaFingerprint out.csv`, then `python tools/compare_fingerprints.py before.csv after.csv`. Linux baseline: `tests/fingerprints-linux.csv` (compare only within a platform) |

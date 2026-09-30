@@ -898,7 +898,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
                                       "Flanger", "Dimension", "Trance Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
-                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows" };
+                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -1390,6 +1390,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fx_split_low", "FX Split Low", 40.0f, 2000.0f, 250.0f, 0.4f);
     addFloat ("fx_split_high", "FX Split High", 400.0f, 12000.0f, 2500.0f, 0.4f);
 
+    // The vocoder (FX type 31): the carrier is the signal in the slot, the
+    // modulator the audio input (FX plugin) or, without one, an internal TALK.
+    addChoice ("fx_voc_source", "Vocoder Modulator", { "Auto", "Input", "Talk" }, 0);
+    addInt ("fx_voc_bands", "Vocoder Bands", 8, 24, 16);
+    addFloat ("fx_voc_width", "Vocoder Width", 0.25f, 4.0f, 1.0f, 0.5f);
+    addFloat ("fx_voc_attack", "Vocoder Attack", 0.5f, 50.0f, 5.0f, 0.4f);
+    addFloat ("fx_voc_release", "Vocoder Release", 5.0f, 500.0f, 60.0f, 0.4f);
+    addFloat ("fx_voc_formant", "Vocoder Formant", -12.0f, 12.0f, 0.0f);
+    addFloat ("fx_voc_unvoiced", "Vocoder Unvoiced", 0.0f, 1.0f, 0.3f);
+    addFloat ("fx_voc_rate", "Vocoder Talk Rate", 0.1f, 8.0f, 1.0f, 0.5f);
+    addFloat ("fx_voc_level", "Vocoder Level", -12.0f, 12.0f, 0.0f);
+    addFloat ("fx_voc_mix", "Vocoder Mix", 0.0f, 1.0f, 1.0f);
+
     return layout;
 }
 
@@ -1727,6 +1740,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     reverb.setSampleRate (sampleRate);
     reverb.reset();
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
+    vocoder.prepare (sampleRate);
+    vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
     chunkMidi.ensureSize (4096);
     updateLatency();
 }
@@ -1777,6 +1792,7 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     combLine.reset();
     reverb.reset();
     airwindowsModule.reset();
+    vocoder.reset();
 
     // The modulators start over too, as in a new instance, so a patch sounds
     // the same whatever played before it (a slow free-running LFO otherwise
@@ -4041,6 +4057,7 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
         case 28: processFeedback (buffer); break;
         case 29: processEq (buffer); break;
         case 30: processAirwindows (buffer); break;
+        case 31: processVocoder (buffer); break;
         default: break;
     }
 }
@@ -4975,6 +4992,46 @@ void IlanaSynthAudioProcessor::processEq (juce::AudioBuffer<float>& buffer)
                 data[i] = filter.process (data[i]);
         }
     }
+}
+
+// Vocoder (type 31): the buffer is the carrier; the modulator is the audio
+// input (mono sum) or, without one, the module's own TALK.
+void IlanaSynthAudioProcessor::processVocoder (juce::AudioBuffer<float>& buffer)
+{
+    const auto numSamples = buffer.getNumSamples();
+    Vocoder::Settings settings;
+    settings.bands = (int) getParam (vocBandsRef);
+    settings.width = getParam (vocWidthRef);
+    settings.attackMs = getParam (vocAttackRef);
+    settings.releaseMs = getParam (vocReleaseRef);
+    settings.formantSemitones = getParam (vocFormantRef);
+    settings.unvoiced = getParam (vocUnvoicedRef);
+    settings.talkRate = getParam (vocRateRef);
+    settings.levelDb = getParam (vocLevelRef);
+    settings.mix = getParam (vocMixRef);
+
+    // Auto: the input when the host gives one, else TALK. Input chosen with
+    // none present gives a silent modulator.
+    const auto source = (int) getParam (vocSourceRef);
+    const auto haveInput = liveInputSamples > 0;
+    const float* modulator = nullptr;
+
+    if (source == 1 || (source == 0 && haveInput))
+    {
+        if ((int) vocoderModulator.size() < numSamples)
+            vocoderModulator.resize ((size_t) numSamples);
+
+        const auto valid = juce::jmin (numSamples, liveInputSamples);
+        const auto* inL = liveDry.getReadPointer (0);
+        const auto* inR = liveDry.getReadPointer (1);
+        for (int i = 0; i < numSamples; ++i)
+            vocoderModulator[(size_t) i] = i < valid ? 0.5f * (inL[i] + inR[i]) : 0.0f;
+        modulator = vocoderModulator.data();
+    }
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+    vocoder.process (left, right, numSamples, modulator, settings);
 }
 
 // Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.

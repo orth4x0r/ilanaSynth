@@ -30,6 +30,7 @@
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
@@ -50,7 +51,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 30; // 30: Airwindows
+    static constexpr int numFxTypes = 31; // 30: Airwindows, 31: Vocoder
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -523,6 +524,7 @@ private:
     void processTilt (juce::AudioBuffer<float>& buffer);
     void processUtility (juce::AudioBuffer<float>& buffer);
     void processAirwindows (juce::AudioBuffer<float>& buffer);
+    void processVocoder (juce::AudioBuffer<float>& buffer);
     void processOtt (juce::AudioBuffer<float>& buffer);
     void processLimiter (juce::AudioBuffer<float>& buffer);
     void processWidener (juce::AudioBuffer<float>& buffer);
@@ -613,6 +615,13 @@ private:
     std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
         ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
     std::vector<float> airwindowsMonoRight;
+    // The vocoder (FX type 31).
+    Vocoder vocoder;
+    std::vector<float> vocoderModulator;
+    ParamRef vocSourceRef { "fx_voc_source" }, vocBandsRef { "fx_voc_bands" }, vocWidthRef { "fx_voc_width" },
+        vocAttackRef { "fx_voc_attack" }, vocReleaseRef { "fx_voc_release" }, vocFormantRef { "fx_voc_formant" },
+        vocUnvoicedRef { "fx_voc_unvoiced" }, vocRateRef { "fx_voc_rate" }, vocLevelRef { "fx_voc_level" },
+        vocMixRef { "fx_voc_mix" };
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains

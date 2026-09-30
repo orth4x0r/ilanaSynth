@@ -8433,6 +8433,7 @@ void runProfile (int unison)
 #include "PlanTests.inc"
 #include "TuningTests.inc"
 #include "AirwindowsTests.inc"
+#include "VocoderTests.inc"
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
 #include "SplitterTests.inc"
@@ -8612,8 +8613,14 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_MULTISAMPLE_TEST", "").isNotEmpty())
     {
         runMultiSampleTests();
-    runSplitterTests();
         std::cout << (failures == 0 ? "MULTISAMPLE TESTS PASSED" : "MULTISAMPLE TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_VOCODER_TEST", "").isNotEmpty())
+    {
+        runVocoderTests();
+        std::cout << (failures == 0 ? "VOCODER TESTS PASSED" : "VOCODER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8983,8 +8990,10 @@ int main()
     runPlanTests();
     runTuningTests();
     runAirwindowsTests();
+    runVocoderTests();
     runFilterOverhaulTests();
     runMultiSampleTests();
+    runSplitterTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

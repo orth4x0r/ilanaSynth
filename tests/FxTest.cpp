@@ -467,6 +467,27 @@ int main()
         check (finite && peak > 0.01f && peak < 2.0f, juce::String (name) + " plays its input (peak " + juce::String (peak, 3) + ")");
     }
 
+    // The vocoder's modulator is the audio input: a silent input gives a
+    // silent carrier at full mix, a noisy one lets the synth through.
+    {
+        const auto render = [] (bool noisy)
+        {
+            IlanaSynthAudioProcessor processor;
+            quiet (processor);
+            setParam (processor, "osc1_on", 1.0f);
+            processor.assignFxSlot (1, 31);
+            setParam (processor, "fx_voc_source", 1.0f);
+            setParam (processor, "fx_voc_unvoiced", 0.0f);
+            juce::Random random (17);
+            return run (processor, [&] (int) { return noisy ? (random.nextFloat() - 0.5f) * 0.6f : 0.0f; }, 48000,
+                        [] (int block, juce::MidiBuffer& m) { if (block == 0) m.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0); });
+        };
+        const auto silentIn = render (false), noisyIn = render (true);
+        check (rms (silentIn, 24000, 48000) < 1.0e-4 && rms (noisyIn, 24000, 48000) > 1.0e-3,
+               "Vocoder: the audio input is the modulator (silent in " + juce::String (rms (silentIn, 24000, 48000), 6)
+                   + ", noise in " + juce::String (rms (noisyIn, 24000, 48000), 4) + ")");
+    }
+
     // The editor has the INPUT page, and the Live oscillator shows the input.
     {
         IlanaSynthAudioProcessor processor;

@@ -223,7 +223,7 @@ void runSlotTests()
         processor.assignFxSlot (1, 30);
         auto* slot = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("fx_slot1"));
         check (slot != nullptr && slot->getIndex() == 30 && slot->getCurrentChoiceName() == "Airwindows"
-                   && IlanaSynthAudioProcessor::numFxTypes == 30,
+                   && IlanaSynthAudioProcessor::numFxTypes >= 30,
                "Airwindows: assignFxSlot puts type 30, Airwindows, in the slot");
 
         // Saved and restored with the patch.

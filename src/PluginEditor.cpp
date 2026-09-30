@@ -5391,8 +5391,8 @@ inline juce::Colour fxColour (int type)
             return juce::Colour (0xff5cc4e8); // space: reverb, delay, dimension, smear, freeze, haas, widener
         case 2: case 1: case 3: case 26: case 28: case 30:
             return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback, airwindows
-        case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5:
-            return juce::Colour (0xff9a8cff); // motion: chorus .. comb
+        case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5: case 31:
+            return juce::Colour (0xff9a8cff); // motion: chorus .. comb, vocoder
         case 16: case 10: case 17:
             return juce::Colour (0xff7ad98e); // rhythm: trance gate, stutter, tape stop
         case 29: case 18: case 4: case 20: case 21: case 19:
@@ -5744,7 +5744,12 @@ public:
           awAlgo (p.apvts, "fx_aw_algo", "ALGORITHM"),
           awP1 (p.apvts, "fx_aw_p1", "1"), awP2 (p.apvts, "fx_aw_p2", "2"), awP3 (p.apvts, "fx_aw_p3", "3"),
           awP4 (p.apvts, "fx_aw_p4", "4"), awP5 (p.apvts, "fx_aw_p5", "5"),
-          awMix (p.apvts, "fx_aw_mix", "MIX")
+          awMix (p.apvts, "fx_aw_mix", "MIX"),
+          vocSource (p.apvts, "fx_voc_source", "MODULATOR"), vocBands (p.apvts, "fx_voc_bands", "BANDS"),
+          vocWidth (p.apvts, "fx_voc_width", "WIDTH"), vocAttack (p.apvts, "fx_voc_attack", "ATTACK"),
+          vocRelease (p.apvts, "fx_voc_release", "RELEASE"), vocFormant (p.apvts, "fx_voc_formant", "FORMANT"),
+          vocUnvoiced (p.apvts, "fx_voc_unvoiced", "UNVOICED"), vocRate (p.apvts, "fx_voc_rate", "TALK RATE"),
+          vocLevel (p.apvts, "fx_voc_level", "LEVEL"), vocMix (p.apvts, "fx_voc_mix", "MIX")
     {
         addAll (*this, eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain);
         addChildComponent (eqCurve);
@@ -5814,6 +5819,8 @@ public:
         slotGroups.push_back ({ &feedbackAmount, &feedbackDelay, &feedbackTone, &feedbackMix });
         slotGroups.push_back ({ &eqLowFreq, &eqLowGain, &eqMidFreq, &eqMidGain, &eqMidQ, &eqHighFreq, &eqHighGain });
         slotGroups.push_back ({ &awAlgo, &awP1, &awP2, &awP3, &awP4, &awP5, &awMix });
+        slotGroups.push_back ({ &vocSource, &vocBands, &vocWidth, &vocAttack, &vocRelease, &vocFormant, &vocUnvoiced,
+                                &vocRate, &vocLevel, &vocMix });
         // Airwindows: the algorithms grouped by family, not one long list.
         awAlgo.setPopupOverride ([this] { showAirwindowsMenu(); });
 
@@ -6854,7 +6861,7 @@ private:
     // Groups, in order, and how many of quickAddPicks() each takes.
     static const std::vector<QuickAddGroup>& quickAddGroups()
     {
-        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 6 }, { "MOTION", 8 },
+        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 6 }, { "MOTION", 9 },
                                                          { "RHYTHM", 3 }, { "TONE & LEVEL", 6 } };
         return groups;
     }
@@ -6865,7 +6872,7 @@ private:
             { 13, "REVERB" }, { 9, "DELAY" }, { 15, "DIMENSION" }, { 11, "SMEAR" }, { 12, "FREEZE" }, { 8, "HAAS" }, { 22, "WIDENER" },
             { 2, "DRIVE" }, { 1, "AMP" }, { 3, "CRUSH" }, { 26, "OCTAVER" }, { 28, "FEEDBACK" }, { 30, "AIRWINDOWS" },
             { 7, "CHORUS" }, { 6, "PHASER" }, { 14, "FLANGER" }, { 23, "TREMOLO" }, { 24, "FREQ SHIFT" }, { 25, "RING MOD" },
-            { 27, "VOWEL" }, { 5, "COMB" },
+            { 27, "VOWEL" }, { 5, "COMB" }, { 31, "VOCODER" },
             { 16, "TRANCE GATE" }, { 10, "STUTTER" }, { 17, "TAPE STOP" },
             { 29, "EQ" }, { 18, "TILT" }, { 4, "COMP" }, { 20, "OTT" }, { 21, "LIMITER" }, { 19, "UTILITY" }
         };
@@ -7250,6 +7257,8 @@ private:
     EqCurve eqCurve;
     ComboControl awAlgo;
     KnobControl awP1, awP2, awP3, awP4, awP5, awMix;
+    ComboControl vocSource;
+    KnobControl vocBands, vocWidth, vocAttack, vocRelease, vocFormant, vocUnvoiced, vocRate, vocLevel, vocMix;
 
     int airwindowsAlgorithm() const
     {

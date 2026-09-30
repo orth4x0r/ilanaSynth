@@ -1,6 +1,6 @@
 # IlanaSynth — v1.3
 
-**IlanaSynth, para un sonido más buto.** (for a more brutal sound)
+**IlanaSynth, para un sonido más bruto.** (for a more brutal sound)
 
 An aggressive wavetable synthesizer for VST3, built with JUCE.
 

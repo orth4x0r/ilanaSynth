@@ -1553,6 +1553,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     if (isEffectBuild)
     {
         liveHistory.buffer.setSize (2, (int) (sampleRate * 3.0), false, true, false);
+        liveHistory.buffer.clear();
         liveHistory.sampleRate = sampleRate;
         liveHistory.name = "Live input";
     }
@@ -6450,7 +6451,13 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
             if (! FmAlgorithms::hasRoute (algorithm, source, target))
                 set (id, 0.0f);
             else if (current < 0.001f)
+            {
                 set (id, source == target ? FmAlgorithms::defaultFeedbackAmount : FmAlgorithms::defaultRouteAmount);
+                // New feedback starts Filtered (calm at high amounts); feedback
+                // the patch already had keeps its type.
+                if (source == target)
+                    set (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type", (float) FmFeedback::Filtered);
+            }
         }
 
     for (int op = 0; op < algorithm.numOperators; ++op)

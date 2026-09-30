@@ -544,6 +544,7 @@ private:
     float keyLevelGain[VoiceParams::numOscillators] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     juce::Random random;
     juce::Random lfoPoolRandom { 27183 };
+    juce::Random liveGrainRandom { 0x1f3a }; // seeds for live grains only
 
     juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];

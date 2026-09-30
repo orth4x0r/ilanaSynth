@@ -293,6 +293,27 @@ int main()
                                                  + juce::String (ratio, 3) + ")");
     }
 
+    // The Classic body rings from the input too (it used to take only the
+    // material bodies), and the input doesn't leak through its dry path.
+    {
+        const auto body = [] (float amount)
+        {
+            IlanaSynthAudioProcessor processor;
+            quiet (processor);
+            setParam (processor, "in_trigger", 2.0f);
+            setParam (processor, "res_on", 1.0f);
+            setParam (processor, "body_type", 0.0f);
+            setParam (processor, "res_amount", 0.8f);
+            setParam (processor, "res_decay", 0.9f);
+            setParam (processor, "in_body", amount);
+            return run (processor, [] (int n) { return n >= 12000 && n < 12100 ? 0.8f : 0.0f; }, 48000);
+        };
+        const auto rung = body (1.0f);
+        const auto dry = body (0.0f);
+        check (rms (rung, 12200, 20000) > 1.0e-4 && rms (dry, 11000, 20000) < 1.0e-6,
+               "INPUT TO BODY rings the Classic body from a click (" + juce::String (rms (rung, 12200, 20000), 5) + ")");
+    }
+
     // BODY rings from the input and keeps ringing after it stops.
     {
         const auto body = [] (float amount)
@@ -402,6 +423,32 @@ int main()
         for (auto value : out)
             finite = finite && std::isfinite (value);
         check (finite && tone > 0.01, "Live Grains granulate the input (220 Hz at " + juce::String (tone, 3) + ")");
+    }
+
+    // Every FX starting point renders the same in two fresh instances (live
+    // grains draw from their own seeded generator, strings restart their seeds
+    // per instance). Within one session the analog randomness stays free, as
+    // it does in the instrument.
+    for (const auto* name : { "Live Body", "Live Wah", "Live Grains", "Live Strings" })
+    {
+        const auto render = [name]
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (name));
+            return run (processor, sine220, 48000);
+        };
+        const auto a = render();
+        const auto b = render();
+        auto worst = 0.0f;
+        auto first = -1;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            worst = juce::jmax (worst, std::abs (a[i] - b[i]));
+            if (first < 0 && std::abs (a[i] - b[i]) > 1.0e-6f)
+                first = (int) i;
+        }
+        check (worst < 1.0e-6f, juce::String (name) + " renders the same in a fresh instance (worst "
+                                    + juce::String (worst, 6) + ", from sample " + juce::String (first) + ")");
     }
 
     // Every FX starting point plays its input and stays in range.

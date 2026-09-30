@@ -62,7 +62,9 @@ public:
         lowpassCoefficient = 1.0f - juce::jlimit (0.0f, 1.0f, newDamping) * 0.9f;
     }
 
-    float process (float input)
+    // excite rings the delay lines without joining the dry mix (the live
+    // input in ilanaSynth FX); at 0 the output is exactly as before.
+    float process (float input, float excite = 0.0f)
     {
         if (buffers[0].empty() || amount < 0.001f)
             return input;
@@ -84,7 +86,7 @@ public:
                                  + (buffers[(size_t) i][(size_t) next] - buffers[(size_t) i][(size_t) index]) * fraction;
 
             lowpassState[i] += (delayed - lowpassState[i]) * lowpassCoefficient;
-            buffers[(size_t) i][(size_t) writePosition] = input + lowpassState[i] * feedback;
+            buffers[(size_t) i][(size_t) writePosition] = input + excite + lowpassState[i] * feedback;
             sum += delayed;
         }
 

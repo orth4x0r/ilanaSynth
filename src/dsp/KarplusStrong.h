@@ -891,12 +891,24 @@ private:
             piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition, eco);
     }
 
+public:
+    // Each plugin instance starts the seed sequence over, so every instance
+    // renders the same; the first instance in a process gets the seeds it
+    // always had.
+    static void restartSeeds() { seedCounter().store (0); }
+
+private:
+    static std::atomic<std::uint32_t>& seedCounter()
+    {
+        static std::atomic<std::uint32_t> counter { 0 };
+        return counter;
+    }
+
     static int nextSeed()
     {
         // Unsigned, so a long session wraps instead of overflowing an int
         // (undefined); the same seeds as before until then.
-        static std::atomic<std::uint32_t> counter { 0 };
-        return (int) (counter.fetch_add (1) * 7919u + 12345u);
+        return (int) (seedCounter().fetch_add (1) * 7919u + 12345u);
     }
 
     std::vector<float> buffer;

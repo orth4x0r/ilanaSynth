@@ -354,7 +354,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
             for (int u = 0; u < bufferedCount (settings.unison); ++u)
             {
                 sampleUnison[osc][u].trigger();
-                grains[osc][u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729 + random.nextInt()));
+                // Live grains (ilanaSynth FX) draw their seeds from their own
+                // seeded generator, so an input renders the same every time;
+                // sample grains stay free, as the plugin's analog randomness is.
+                grains[osc][u].reset ((juce::uint32) (midiNoteNumber * 7919 + u * 104729
+                                                      + (settings.grainLive ? liveGrainRandom.nextInt() : random.nextInt())));
             }
 
         lastStringMode[osc] = settings.stringMode;
@@ -434,6 +438,7 @@ void Voice::resetForNewPatch()
 #endif
     fmNoiseRandom.setSeed (31337);
     lfoPoolRandom.setSeed (27183);
+    liveGrainRandom.setSeed (0x1f3a);
     lfoSimNotes = 0;
     driftValue = driftTarget = 0.0f;
     hasPlayedNote = false;
@@ -1585,8 +1590,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         float bodyWetL = 0.0f, bodyWetR = 0.0f;
         if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
         {
-            outL = resonatorL.process (outL);
-            outR = resonatorR.process (outR);
+            // M7.5: the live input rings the Classic body too.
+            const auto excite = liveSample * params.inputToBody;
+            outL = resonatorL.process (outL, excite);
+            outR = resonatorR.process (outR, excite);
         }
         else if (params.resonatorOn && resonatorAmount > 0.001f)
         {

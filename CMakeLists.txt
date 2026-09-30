@@ -248,6 +248,39 @@ target_link_libraries(ilanaFingerprint
         juce::juce_recommended_config_flags
 )
 
+# Dev tool: renders every factory preset's test phrases for the preset critic
+# (tools/preset_critic.py; not shipped).
+juce_add_console_app(ilanaPresetRender PRODUCT_NAME "ilanaPresetRender")
+
+target_sources(ilanaPresetRender PRIVATE
+    tools/PresetRender.cpp
+    src/PluginProcessor.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/WavetableDoc.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+)
+
+target_include_directories(ilanaPresetRender PRIVATE src)
+
+target_compile_definitions(ilanaPresetRender PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_TEST_BUILD=1
+    ILANA_FINGERPRINT_BUILD=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaPresetRender
+    PRIVATE
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)
+
 # Dev tool: renders reference notes from an installed VST3's default sound,
 # for fitting modelled sounds (not shipped).
 juce_add_console_app(ilanaRefHost PRODUCT_NAME "ilanaRefHost")

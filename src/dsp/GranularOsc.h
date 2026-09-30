@@ -44,8 +44,7 @@ public:
             grain.active = false;
 
         random.setSeed ((juce::int64) seed);
-        untilNextGrain = 0.0;
-    }
+        untilNextGrain = 0.0;    }
 
     void process (float& left, float& right)
     {
@@ -181,6 +180,9 @@ private:
 
     Params params;
     std::array<Grain, 32> grains;
-    juce::Random random;
+    // A fixed seed until the first reset (a default juce::Random seeds itself
+    // from the clock, so live grains, which can start before a reset, varied
+    // from run to run).
+    juce::Random random { 0x6a41 };
     double sampleRate = 44100.0, ratio = 1.0, untilNextGrain = 0.0;
 };

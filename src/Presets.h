@@ -39,7 +39,15 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
 {
     static const std::vector<FactoryPreset> presets
     {
-        { "Init", {} },
+        // Init opens with the filter fully open, so the first sound is the
+        // oscillator itself, and with Filtered FM feedback (calm at high
+        // amounts; Plain splits into a buzz). The parameter defaults stay as
+        // they were, so other presets are unchanged.
+        { "Init", {
+            { "f1_cutoff", 20000.0f },
+            { "osc1_fb_type", 1 }, { "osc2_fb_type", 1 }, { "sub_fb_type", 1 },
+            { "osc4_fb_type", 1 }, { "osc5_fb_type", 1 }, { "osc6_fb_type", 1 },
+        } },
 
         { "Rip Bass", {
             { "osc1_table", 7 }, { "osc1_frame", 0.25f }, { "osc1_level", 0.85f },

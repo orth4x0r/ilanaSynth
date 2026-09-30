@@ -17,6 +17,7 @@
 #include "dsp/GranularPitchShift.h"
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
+#include "dsp/KarplusStrong.h"
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Evolve.h"
@@ -35,6 +36,13 @@
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
 {
+    // First member, so it runs before any string is built: the strings'
+    // seeds start over for each instance, and every instance renders alike.
+    struct StringSeedStart
+    {
+        StringSeedStart() { KarplusStrong::restartSeeds(); }
+    } stringSeedStart;
+
 public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;

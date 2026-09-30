@@ -399,3 +399,13 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 397,"Filter model: Moog Drive",-17.2418,0.551199,845.542,0
 398,"Filter model: Vowel Morph",-13.0792,0.804546,450.394,0
 399,"Filter model: Comb Body",-18.0324,0.48746,2697.86,0
+400,"Filter model: AW Z LP",-18.0099,0.465372,979.607,0
+401,"Filter model: AW Z HP",-30.0539,0.364872,6878.14,0
+402,"Filter model: AW Z BP",-29.2668,0.329065,3121.24,0
+403,"Filter model: AW Acid",-16.7933,0.492554,3387.9,0
+404,"Filter model: AW X LP",-22.0153,0.260105,1259.1,0
+405,"Filter model: AW YNot LP",-13.5393,0.785785,3133.93,0
+406,"Filter model: AW Holt",-12.9497,0.731571,1089.33,0
+407,"Filter model: AW Angle",-13.192,0.724293,1050.31,0
+408,"Filter model: AW Pear",-12.8866,0.75806,1122.96,0
+409,"Filter model: Disperser",-13.1159,0.805974,2997.82,0

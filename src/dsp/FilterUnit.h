@@ -4,6 +4,7 @@
 #include "FilterModels2.h"
 #include "FilterCore.h"
 #include "AirwindowsFilters.h"
+#include "AirwindowsCharacter.h"
 
 #include <cmath>
 #include <complex>
@@ -44,6 +45,8 @@ enum
     CombDamped, CombMorph, VowelBank, Talking, TwinPeak,
     // The filter overhaul (appended)
     Acid303, MoogDrive, VowelMorph, CombBody,
+    // Airwindows character filters and the Disperser (appended)
+    AwZLow, AwZHigh, AwZBand, AwAcid, AwXLow, AwYNotLow, AwHolt, AwAngle, AwPear, Disperser,
     Count
 };
 
@@ -53,17 +56,20 @@ inline juce::StringArray getNames()
              "Diode LP", "MS-20 LP", "Comb +", "Comb -", "Formant", "Morph",
              "Ladder BP", "Ladder Drive", "SEM", "OTA LP", "OTA BP", "MS-20 HP", "Steiner", "Phaser Notch",
              "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak",
-             "303 Acid", "Moog Drive", "Vowel Morph", "Comb Body" };
+             "303 Acid", "Moog Drive", "Vowel Morph", "Comb Body",
+             "AW Z LP", "AW Z HP", "AW Z BP", "AW Acid", "AW X LP", "AW YNot LP", "AW Holt", "AW Angle", "AW Pear",
+             "Disperser" };
 }
 
 inline bool isSvf (int type) { return type >= LowPass && type <= Notch; }
 inline bool isLadder (int type) { return type == LadderLow || type == LadderHigh; }
 inline bool isComb (int type) { return type == CombPlus || type == CombMinus || type == CombDamped || type == CombMorph; }
+inline bool isAirwindows (int type) { return type >= AwZLow && type <= Disperser; }
 inline bool usesMorph (int type)
 {
     return type == Formant || type == Morph || type == Sem || type == Steiner || type == PhaserNotch
            || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak
-           || type == VowelMorph || type == CombBody;
+           || type == VowelMorph || type == CombBody || (isAirwindows (type) && type != AwXLow);
 }
 // These take the DRIVE knob inside, into their feedback loop's input; the
 // others are driven by a tanh in front (Voice).
@@ -231,6 +237,16 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
                 const auto m = juce::jlimit (0.0, 1.0, morph);
                 return comb * ((1.0 - m) + m * body * 2.0);
             }
+            // The Airwindows models, drawn as their plain small-signal
+            // shape (their drive and curves are level-dependent).
+            case AwZLow: case AwAcid: case AwXLow: case AwYNotLow: case AwHolt: case AwAngle: case AwPear:
+                return 1.0 / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case AwZHigh:
+                return s * s / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case AwZBand:
+                return s * (2.0 - 1.8 * resonance) / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case Disperser:
+                return { 1.0, 0.0 }; // all-pass: flat
             case VowelBank:
             case Talking:
             {
@@ -705,6 +721,16 @@ public:
             case FilterType::Acid303:      acid.set (c.sampleRate, c.cutoff, c.resonance); break;
             case FilterType::MoogDrive:    moogDrive.set (c.sampleRate, c.cutoff, c.resonance); break;
             case FilterType::VowelMorph:   vowelMorph.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZLow:       awZLow.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZHigh:      awZHigh.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZBand:      awZBand.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwAcid:       awAcid.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwXLow:       awX.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwYNotLow:    awYNot.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwHolt:       awHolt.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwAngle:      awAngle.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwPear:       awPear.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::Disperser:    disperser.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
 
             case FilterType::Formant:
                 for (int band = 0; band < 3; ++band)
@@ -746,6 +772,16 @@ public:
         moogDrive.reset();
         vowelMorph.reset();
         body.reset();
+        awZLow.reset();
+        awZHigh.reset();
+        awZBand.reset();
+        awAcid.reset();
+        awX.reset();
+        awYNot.reset();
+        awHolt.reset();
+        awAngle.reset();
+        awPear.reset();
+        disperser.reset();
 
         for (auto& band : formantBands)
             band.reset();
@@ -784,6 +820,16 @@ public:
             case FilterType::Acid303:     return acid.process (input);
             case FilterType::MoogDrive:   return moogDrive.process (input);
             case FilterType::VowelMorph:  return vowelMorph.process (input);
+            case FilterType::AwZLow:      return awZLow.process (input);
+            case FilterType::AwZHigh:     return awZHigh.process (input);
+            case FilterType::AwZBand:     return awZBand.process (input);
+            case FilterType::AwAcid:      return awAcid.process (input);
+            case FilterType::AwXLow:      return awX.process (input);
+            case FilterType::AwYNotLow:   return awYNot.process (input);
+            case FilterType::AwHolt:      return awHolt.process (input);
+            case FilterType::AwAngle:     return awAngle.process (input);
+            case FilterType::AwPear:      return awPear.process (input);
+            case FilterType::Disperser:   return disperser.process (input);
             case FilterType::CombBody:
             {
                 // The comb rings at the cutoff; the body's modes ring on it.
@@ -899,6 +945,16 @@ private:
     Filters2::MoogDrive moogDrive;
     Filters2::VowelMorph vowelMorph;
     Filters2::ModalBody body;
+    Airwindows::ZLowpass awZLow;
+    Airwindows::ZHighpass awZHigh;
+    Airwindows::ZBandpass awZBand;
+    Airwindows::AcidLowpass awAcid;
+    Airwindows::XLowpass awX;
+    Airwindows::YNotLowpass awYNot;
+    Airwindows::HoltFilter awHolt;
+    Airwindows::AngleFilter awAngle;
+    Airwindows::PearFilter awPear;
+    Airwindows::Disperser disperser;
     static constexpr float bodyGain = 2.0f;
     float combDampCoefficient = 0.7f;
 

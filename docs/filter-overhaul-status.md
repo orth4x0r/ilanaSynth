@@ -56,8 +56,12 @@ the band-pass peaks at Q like the old one (YBandpass holds its peak at unity, wh
 the old damping (Q = 1 / (2 - 2 r)), topped at Q 40: they ring at the cutoff (tests) but no longer self-oscillate.
 24 dB puts both stages inside one curve pair. Presets: 389 changed tone, every one within the level rule; four needed
 a trim change of 0.1-0.4 dB (Clock Weirdo, Rust Bass, Resonant Drop, Self-Osc Choir). Morph, Formant and the other
-models are unchanged. Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a Disperser come as
-appended types.
+models are unchanged. Airwindows character filters are appended types 29-37 (`src/dsp/AirwindowsCharacter.h`, tests
+`ILANA_AWFILTER_TEST`): AW Z LP / HP / BP (MORPH = poles, RESO = drive into the op-amp stage), AW Acid (ZAcidLowpass,
+MORPH = meltdown), AW X LP (RESO = nuke), AW YNot LP (MORPH = resedge), AW Holt (MORPH = poles), AW Angle (MORPH =
+hard), AW Pear (MORPH = nonlin, RESO = poles). Type 38 is the **Disperser**: up to 64 zero-delay all-pass sections at
+the cutoff (KEY TRK tunes it to the note), RESO = sharpness (Q 0.5-8), MORPH = stages. Their display draws a plain
+two-pole shape (flat for the Disperser); their level still moves with cutoff (up to ~9 dB for Z and X).
 
 Earlier (step 4): Capacitor2, Isolator2, Baxandall2, Air/Air3 and Pop2 are mixing tools, already in the FX rack.
 

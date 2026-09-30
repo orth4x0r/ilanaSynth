@@ -83,7 +83,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    Loop: `ilanaPresetRender` -> `preset_critic.py` -> `clap_score.py` -> `preset_diversity.py`, plus the user's A/B votes.
 4. **Filter overhaul:** models done (status in `docs/filter-overhaul-status.md`: 25 rebuilt, 4 added, levels held,
    Airwindows' filters checked and not reused). Spectral amount is modulatable (block rate). **Done.**
-5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand. **Done** 2026-09-30: 106 weak macros on 85 presets rewired in `src/PresetVoicing.h`; auto-mapped presets keep the voicing's macros; re-levelled. None left under 1.0 except the exempt ones (GLIDE, GATE, PEDAL, SWING, SPRAY).
+5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand. **Done** 2026-09-30: 106 weak macros on 85 presets rewired in `src/PresetVoicing.h` (four more by hand after re-levelling: Arp Glass, S&H Techno, Oversampled Grind, Metal Hat); auto-mapped presets keep the voicing's macros; re-levelled. None left under 1.0 except the exempt ones (GLIDE, GATE, PEDAL, SWING, SPRAY).
 6. **Interface:** a live patch view instead of PLAY's empty ADD OSCILLATOR box; the VECTOR pad fills its card
    and the evolve rows fit 8; a PHYSICAL page preview when no oscillator is physical; verify mod rings; identity pass.
 7. **Features:** SoundFont (SF2/SFZ) in the Sample oscillator; FX splitters (multiband/LR/MS); vocoder; clip sequencer.

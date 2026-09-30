@@ -32,6 +32,7 @@
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 #include "dsp/WavetableDoc.h"
+#include "TuningState.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
@@ -410,10 +411,19 @@ public:
     // Puts a render on the target oscillator (message thread).
     bool applyBounce (const BounceRequest& request, std::shared_ptr<SampleData> audio, juce::String& message);
 
+    // Scala microtuning, saved in the patch (TuningState). Loading a scale
+    // switches tuning_on on; reset goes back to 12-TET and switches it off.
+    // Message thread; false (and an error) for a malformed file.
+    bool loadTuningScale (const juce::String& sclText, juce::String& error);
+    bool loadTuningMapping (const juce::String& kbmText, juce::String& error);
+    void resetTuning();
+    const TuningState& getTuningState() const { return tuningState; }
+
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
 
 private:
+    TuningState tuningState;
     void handleAsyncUpdate() override;
 
     // M8.6 bounce: the render thread hands its result over through these
@@ -577,6 +587,7 @@ private:
     ParamRef inGainRef { "in_gain" }, inDryRef { "in_dry" }, inBodyRef { "in_body" }, inStringsRef { "in_strings" },
         inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
+    ParamRef tuningOnRef { "tuning_on" };
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains

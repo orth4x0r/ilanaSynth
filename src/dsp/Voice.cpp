@@ -215,7 +215,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     monoPending = false;
     monoKeepRunning = false;
 
-    baseFrequency = juce::MidiMessage::getMidiNoteInHertz (midiNoteNumber);
+    baseFrequency = params.tuning != nullptr ? params.tuning->getFrequency (midiNoteNumber)
+                                             : juce::MidiMessage::getMidiNoteInHertz (midiNoteNumber);
 
     // Stretch tuning (Railsback): bass a little flat, treble sharp, about
     // +/-35 cents at the ends of the keyboard when fully on.

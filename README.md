@@ -268,6 +268,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Voices**: 32-voice polyphony with a voice limit, and Poly, Mono and Legato modes.
 - **Glide and bend**: glide (optionally legato-only, with the LEGATO switch next to it) and pitch-bend range.
 - **MPE mode** in the settings menu.
+- **Microtuning**: Scala scales (.scl) with optional keyboard mappings (.kbm) from the settings menu (Tuning); saved inside the patch, STRETCH still applies on top.
 - **Oversampling**: 2x or 4x for the voice engine (settings menu or the scope panel).
 - **Output**: master volume, and 4 macros with MIDI learn.
 

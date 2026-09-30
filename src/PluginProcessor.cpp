@@ -1353,6 +1353,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice ("west_src", "West Strike Source", sources, 0);
     }
 
+    // Scala microtuning (the .scl/.kbm text is saved in the patch; off is 12-TET).
+    addBool ("tuning_on", "Tuning On", false);
+
     return layout;
 }
 
@@ -2538,6 +2541,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             }
         }
     }
+
+    // Scala tuning: nullptr (off, or nothing loaded) keeps the 12-TET path.
+    p.tuning = getParam (tuningOnRef) > 0.5f ? tuningState.acquireForAudio() : nullptr;
+    synth.setTuning (p.tuning);
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
@@ -6147,6 +6154,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                 resetUserTableToDefault (i);
     }
 
+    tuningState.reset(); // factory presets are 12-TET (tuning_on goes off below)
+
     for (auto* parameter : getParameters())
     {
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
@@ -6403,6 +6412,8 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     if (samples.getNumChildren() > 0)
         state.appendChild (samples, nullptr);
 
+    tuningState.saveTo (state);
+
     return state;
 }
 
@@ -6643,6 +6654,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     liveRetrigger = true;
     patchCut = true;
     auto state = stateIn.createCopy();
+    tuningState.loadFrom (state); // no Tuning child: 12-TET
     {
         // Pre-mask M3b states saved a count of revealed envelopes.
         auto envMask = (int) state.getProperty ("envRevealMask", defaultRevealMask);
@@ -6942,6 +6954,34 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
     apvts.replaceState (state);
+}
+
+bool IlanaSynthAudioProcessor::loadTuningScale (const juce::String& sclText, juce::String& error)
+{
+    ++dataEpoch;
+    if (! tuningState.loadScale (sclText, error))
+        return false;
+    if (auto* parameter = apvts.getParameter ("tuning_on"))
+        parameter->setValueNotifyingHost (1.0f);
+    return true;
+}
+
+bool IlanaSynthAudioProcessor::loadTuningMapping (const juce::String& kbmText, juce::String& error)
+{
+    ++dataEpoch;
+    if (! tuningState.loadMapping (kbmText, error))
+        return false;
+    if (auto* parameter = apvts.getParameter ("tuning_on"); parameter != nullptr && tuningState.hasScale())
+        parameter->setValueNotifyingHost (1.0f);
+    return true;
+}
+
+void IlanaSynthAudioProcessor::resetTuning()
+{
+    ++dataEpoch;
+    tuningState.reset();
+    if (auto* parameter = apvts.getParameter ("tuning_on"))
+        parameter->setValueNotifyingHost (0.0f);
 }
 
 void IlanaSynthAudioProcessor::getStateInformation (juce::MemoryBlock& destData)

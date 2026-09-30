@@ -45,10 +45,29 @@ enum class Source
     Lfo9B, Lfo10B, Lfo11B, Lfo12B, Lfo13B, Lfo14B, Lfo15B, Lfo16B,
     // M8.5: the vector pad's position.
     VectorX, VectorY,
+    // Macros 5-8 (appended after the review; 1-4 keep their indices).
+    Macro5, Macro6, Macro7, Macro8,
     Count
 };
 
 constexpr int numLfoSources = 16;
+constexpr int numMacros = 8;
+
+// Macro index 0..7 for a macro source, or -1.
+inline int macroIndexFor (Source source)
+{
+    if (source >= Source::Macro1 && source <= Source::Macro4)
+        return (int) source - (int) Source::Macro1;
+    if (source >= Source::Macro5 && source <= Source::Macro8)
+        return 4 + (int) source - (int) Source::Macro5;
+    return -1;
+}
+
+inline Source macroSourceFor (int index)
+{
+    index = juce::jlimit (0, numMacros - 1, index);
+    return index < 4 ? (Source) ((int) Source::Macro1 + index) : (Source) ((int) Source::Macro5 + index - 4);
+}
 
 inline int lfoIndexFor (Source source)
 {
@@ -587,6 +606,8 @@ inline juce::StringArray getSourceNames()
         names.add ("LFO " + juce::String (lfo) + " B");
     names.add ("Vector X");
     names.add ("Vector Y");
+    for (int macro = 5; macro <= 8; ++macro)
+        names.add ("Macro " + juce::String (macro));
     return names;
 }
 

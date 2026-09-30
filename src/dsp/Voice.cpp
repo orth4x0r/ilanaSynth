@@ -671,6 +671,10 @@ void Voice::prepareModSlots()
             case Mod::Source::Macro2:
             case Mod::Source::Macro3:
             case Mod::Source::Macro4:
+            case Mod::Source::Macro5:
+            case Mod::Source::Macro6:
+            case Mod::Source::Macro7:
+            case Mod::Source::Macro8:
             case Mod::Source::VectorX:
             case Mod::Source::VectorY:
                 return true;
@@ -1957,6 +1961,10 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::Macro2:     return params.macros[1];
         case Mod::Source::Macro3:     return params.macros[2];
         case Mod::Source::Macro4:     return params.macros[3];
+        case Mod::Source::Macro5:     return params.macros[4];
+        case Mod::Source::Macro6:     return params.macros[5];
+        case Mod::Source::Macro7:     return params.macros[6];
+        case Mod::Source::Macro8:     return params.macros[7];
         case Mod::Source::ClockSh:    return params.clockSh != nullptr ? params.clockSh[renderStart + sampleIndex] : 0.0f;
         case Mod::Source::Mseg:       return params.mseg != nullptr ? params.mseg[renderStart + sampleIndex] : 0.0f;
         case Mod::Source::Env4:       return env4Value * velocityScaleFor (params.env4Velocity);

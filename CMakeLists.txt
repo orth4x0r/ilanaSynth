@@ -53,6 +53,7 @@ juce_add_binary_data(ilanaFonts SOURCES
 
 target_sources(ilanaSynth PRIVATE
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/PluginEditor.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
@@ -98,6 +99,7 @@ juce_add_plugin(ilanaSynthFX
 
 target_sources(ilanaSynthFX PRIVATE
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/PluginEditor.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
@@ -147,6 +149,7 @@ target_sources(ilanaTableTest PRIVATE
     tests/TableTest.cpp
     tests/SamplingProfiler.cpp
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -187,6 +190,7 @@ juce_add_console_app(ilanaSnapshot PRODUCT_NAME "ilanaSnapshot")
 target_sources(ilanaSnapshot PRIVATE
     tools/Snapshot.cpp
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/PluginEditor.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
@@ -222,6 +226,7 @@ juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
 target_sources(ilanaFingerprint PRIVATE
     tools/PresetFingerprint.cpp
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -255,6 +260,7 @@ juce_add_console_app(ilanaPresetRender PRODUCT_NAME "ilanaPresetRender")
 target_sources(ilanaPresetRender PRIVATE
     tools/PresetRender.cpp
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -308,6 +314,7 @@ juce_add_console_app(ilanaFxTest PRODUCT_NAME "ilanaFxTest")
 target_sources(ilanaFxTest PRIVATE
     tests/FxTest.cpp
     src/PluginProcessor.cpp
+    src/MtsEsp.cpp
     src/PluginEditor.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp

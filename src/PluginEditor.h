@@ -141,6 +141,9 @@ private:
     void layoutChips (juce::Rectangle<int> row);
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
+    juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip
+    int macroPage = 0;
+    void showMacroPage (int page);
     std::unique_ptr<StripKnob> glideKnob, bendKnob, masterKnob, voicesKnob;
     std::unique_ptr<OutputMeter> outputMeter;
     std::unique_ptr<ComboControl> voiceModeBox;

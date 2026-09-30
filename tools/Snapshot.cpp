@@ -997,7 +997,7 @@ int runUiTests()
         for (auto* knob : knobs)
             if (knob->getParameterId().endsWith ("_evolve"))
                 ++evolveKnobs;
-        expect (evolveKnobs == 4, "EVOLVE has a knob for each macro");
+        expect (evolveKnobs == Mod::numMacros, "EVOLVE has a knob for each macro");
         std::vector<juce::TextButton*> buttons;
         if (page != nullptr)
             findAll<juce::TextButton> (*page, buttons);

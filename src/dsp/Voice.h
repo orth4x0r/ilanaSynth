@@ -325,7 +325,7 @@ struct VoiceParams
     float glideTime = 0.0f;
     float pitchBendRange = 2.0f;
 
-    float macros[4] { 0.0f, 0.0f, 0.0f, 0.0f };
+    float macros[Mod::numMacros] {};
     float vectorX = 0.5f, vectorY = 0.5f; // M8.5
 
     const float* lfoBuffers[numLfos] {}; // free-running LFOs, shared by every voice

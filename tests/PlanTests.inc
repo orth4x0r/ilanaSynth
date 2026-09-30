@@ -128,8 +128,59 @@ void runDcBlockTest()
     check (dc < 0.005, "no DC offset reaches the output (Warp Envelope Pad: " + juce::String (dc, 5) + ")");
 }
 
+// Macros 5-8: sources, parameters and names like 1-4, and a routing from
+// Macro 7 moves what it drives.
+void runEightMacrosTest()
+{
+    const auto names = Mod::getSourceNames();
+    auto sourcesOk = names.size() == (int) Mod::Source::Count;
+    for (int m = 0; m < Mod::numMacros; ++m)
+        sourcesOk = sourcesOk && names[(int) Mod::macroSourceFor (m)] == "Macro " + juce::String (m + 1)
+                    && Mod::macroIndexFor (Mod::macroSourceFor (m)) == m;
+
+    IlanaSynthAudioProcessor processor;
+    auto paramsOk = true;
+    for (int m = 5; m <= 8; ++m)
+        paramsOk = paramsOk && processor.apvts.getParameter ("macro" + juce::String (m)) != nullptr
+                   && processor.apvts.getParameter ("macro" + juce::String (m) + "_evolve") != nullptr;
+
+    const auto render = [&processor] (float macro7)
+    {
+        setParam (processor, "macro7", macro7);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto sum = 0.0;
+        for (int block = 0; block < 60; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            if (block >= 20)
+                for (int i = 0; i < 256; ++i)
+                    sum += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        }
+        return sum;
+    };
+    processor.assignModSlot ((int) Mod::Source::Macro7, (int) Mod::Destination::Osc1Level, -1.0f);
+    const auto open = render (0.0f);
+    const auto closed = render (1.0f);
+
+    processor.setMacroName (6, "SEVEN");
+    juce::MemoryBlock state;
+    processor.getStateInformation (state);
+    IlanaSynthAudioProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+
+    check (sourcesOk && paramsOk && closed < open * 0.5 && restored.getMacroName (6) == "SEVEN",
+           "macros 5-8 are sources and parameters, Macro 7 turns OSC 1 down (" + juce::String (10.0 * std::log10 (juce::jmax (1.0e-30, closed / juce::jmax (1.0e-30, open))), 1)
+               + " dB) and its name survives a state round trip");
+}
+
 void runTests()
 {
+    runEightMacrosTest();
     runDcBlockTest();
     runPolyphonyTest();
     runAutomationTest();

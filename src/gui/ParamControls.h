@@ -180,7 +180,11 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case Mod::Source::Macro1:
         case Mod::Source::Macro2:
         case Mod::Source::Macro3:
-        case Mod::Source::Macro4:     return juce::Colour (0xffffd447);
+        case Mod::Source::Macro4:
+        case Mod::Source::Macro5:
+        case Mod::Source::Macro6:
+        case Mod::Source::Macro7:
+        case Mod::Source::Macro8:     return juce::Colour (0xffffd447);
         case Mod::Source::Mseg:       return juce::Colour (0xffe0e6f0);
         default: break;
     }

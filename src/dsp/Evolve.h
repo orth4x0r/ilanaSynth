@@ -15,7 +15,7 @@
 class MacroEvolve
 {
 public:
-    static constexpr int numMacros = 4;
+    static constexpr int numMacros = 8;
 
     void reset (std::uint32_t seed = 4242u)
     {

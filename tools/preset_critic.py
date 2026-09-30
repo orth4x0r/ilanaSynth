@@ -243,7 +243,7 @@ def judge(rows, refs):
 
         names = [row.get(f"macro{k}", "") for k in range(1, 5)]
         dead = [f"{k} ({names[k - 1] or 'unnamed'})" for k in range(1, 5) if m[f"macro{k}_effect"] < 1.0]
-        if dead:
+        if dead and category not in ("FX Input", "Init"):
             issues.append((8 * len(dead), "macros that barely change the sound", "macro " + ", ".join(dead)))
 
         if category in ("Keys", "Pluck", "Bass", "Lead") and m["vel_db"] < 1.5 and abs(m["vel_bright"]) < 0.08:

@@ -211,7 +211,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     for (auto& value : displaySamplePositions)
         value.store (-1.0f);
 
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < Mod::numMacros; ++i)
         macroCc[i].store (20 + i);
 
     scopeLeft.assign ((size_t) scopeSize, 0.0f);
@@ -337,7 +337,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             ids.steps[(size_t) step] = prefix + "_step" + juce::String (step + 1);
     }
 
-    for (int m = 0; m < 4; ++m)
+    for (int m = 0; m < Mod::numMacros; ++m)
     {
         macroIds[(size_t) m] = "macro" + juce::String (m + 1);
         evolveIds[(size_t) m] = { "macro" + juce::String (m + 1) + "_evolve", "macro" + juce::String (m + 1) + "_evolve_rate" };
@@ -1356,6 +1356,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Scala microtuning (the .scl/.kbm text is saved in the patch; off is 12-TET).
     addBool ("tuning_on", "Tuning On", false);
 
+    // Macros 5-8 and their Evolve (appended; 1-4 keep their place).
+    for (int macro = 5; macro <= Mod::numMacros; ++macro)
+        addFloat ("macro" + juce::String (macro), "Macro " + juce::String (macro), 0.0f, 1.0f, 0.0f);
+    for (int macro = 5; macro <= Mod::numMacros; ++macro)
+    {
+        addFloat ("macro" + juce::String (macro) + "_evolve", "Macro " + juce::String (macro) + " Evolve", 0.0f, 1.0f, 0.0f);
+        addFloat ("macro" + juce::String (macro) + "_evolve_rate", "Macro " + juce::String (macro) + " Evolve Rate", 0.01f, 2.0f, 0.1f, 0.4f);
+    }
+
     return layout;
 }
 
@@ -2352,6 +2361,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.macros[1] = macroValue (1);
     p.macros[2] = macroValue (2);
     p.macros[3] = macroValue (3);
+    for (int m = 4; m < Mod::numMacros; ++m)
+        p.macros[m] = macroValue (m);
     p.vectorX = vectorX.load();
     p.vectorY = vectorY.load();
 
@@ -2544,6 +2555,14 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     // Scala tuning: nullptr (off, or nothing loaded) keeps the 12-TET path.
     p.tuning = getParam (tuningOnRef) > 0.5f ? tuningState.acquireForAudio() : nullptr;
+    // An MTS-ESP master in the session takes over (it retunes every client
+    // live; new notes pick up its current table).
+    if (mtsEsp.hasMaster())
+    {
+        for (int note = 0; note < 128; ++note)
+            mtsTuning.setNote (note, mtsEsp.noteToFrequency (note), ! mtsEsp.shouldFilterNote (note));
+        p.tuning = &mtsTuning;
+    }
     synth.setTuning (p.tuning);
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
@@ -2861,7 +2880,7 @@ void IlanaSynthAudioProcessor::triggerPreviewNote (int midiNote, bool isOn, floa
 
 void IlanaSynthAudioProcessor::startMacroLearn (int macroIndex)
 {
-    macroLearn.store (juce::jlimit (0, 3, macroIndex));
+    macroLearn.store (juce::jlimit (0, Mod::numMacros - 1, macroIndex));
 }
 
 void IlanaSynthAudioProcessor::cancelMacroLearn()
@@ -2951,7 +2970,7 @@ bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)
 // M8.5: a macro's value with Evolve's drift.
 float IlanaSynthAudioProcessor::macroValue (int macro) const
 {
-    const auto index = juce::jlimit (0, 3, macro);
+    const auto index = juce::jlimit (0, Mod::numMacros - 1, macro);
     return juce::jlimit (0.0f, 1.0f, getParam (macroIds[(size_t) index]) + macroDrift[(size_t) index].load());
 }
 
@@ -3007,14 +3026,14 @@ void IlanaSynthAudioProcessor::updateEvolveAndVector (int numSamples)
     const auto seconds = (double) numSamples / juce::jmax (1.0, baseSampleRate);
 
     // Evolve.
-    std::array<float, 4> amounts {}, rates {};
-    for (int m = 0; m < 4; ++m)
+    std::array<float, Mod::numMacros> amounts {}, rates {};
+    for (int m = 0; m < Mod::numMacros; ++m)
     {
         amounts[(size_t) m] = getParam (evolveIds[(size_t) m].first);
         rates[(size_t) m] = getParam (evolveIds[(size_t) m].second);
     }
     evolve.advance (seconds, amounts, rates);
-    for (int m = 0; m < 4; ++m)
+    for (int m = 0; m < Mod::numMacros; ++m)
         macroDrift[(size_t) m].store (evolve.offset (m));
 
     // The vector pad: hand position, or the path, then drift.
@@ -3062,7 +3081,7 @@ void IlanaSynthAudioProcessor::updateEvolveAndVector (int numSamples)
 
 void IlanaSynthAudioProcessor::freezeEvolve()
 {
-    for (int m = 0; m < 4; ++m)
+    for (int m = 0; m < Mod::numMacros; ++m)
     {
         const auto frozen = macroValue (m);
         if (auto* parameter = apvts.getParameter ("macro" + juce::String (m + 1)))
@@ -3128,12 +3147,12 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
             if (learnTarget >= 0)
             {
-                macroCc[juce::jlimit (0, 3, learnTarget)].store (controllerNumber);
+                macroCc[juce::jlimit (0, Mod::numMacros - 1, learnTarget)].store (controllerNumber);
                 macroLearn.store (-1);
                 triggerAsyncUpdate();
             }
 
-            for (int macro = 0; macro < 4; ++macro)
+            for (int macro = 0; macro < Mod::numMacros; ++macro)
             {
                 if (macroCc[macro].load() == controllerNumber)
                 {
@@ -3710,6 +3729,10 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         case Mod::Source::Macro2:     return macroValue (1);
         case Mod::Source::Macro3:     return macroValue (2);
         case Mod::Source::Macro4:     return macroValue (3);
+        case Mod::Source::Macro5:     return macroValue (4);
+        case Mod::Source::Macro6:     return macroValue (5);
+        case Mod::Source::Macro7:     return macroValue (6);
+        case Mod::Source::Macro8:     return macroValue (7);
         case Mod::Source::VectorX:    return vectorX.load();
         case Mod::Source::VectorY:    return vectorY.load();
         case Mod::Source::ModWheel:   return modWheelDisplay.load();
@@ -3738,6 +3761,10 @@ float IlanaSynthAudioProcessor::staticSourceValue (int sourceIndex) const
         case Mod::Source::Macro2:     return macroValue (1);
         case Mod::Source::Macro3:     return macroValue (2);
         case Mod::Source::Macro4:     return macroValue (3);
+        case Mod::Source::Macro5:     return macroValue (4);
+        case Mod::Source::Macro6:     return macroValue (5);
+        case Mod::Source::Macro7:     return macroValue (6);
+        case Mod::Source::Macro8:     return macroValue (7);
         case Mod::Source::VectorX:    return vectorX.load();
         case Mod::Source::VectorY:    return vectorY.load();
         case Mod::Source::ModWheel:   return modWheelValue;
@@ -6073,7 +6100,7 @@ void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, std::ve
         const auto* source = find ("mod" + juce::String (slot) + "_src");
         if (source == nullptr)
             continue;
-        const auto macro = juce::roundToInt (source->second) - (int) Mod::Source::Macro1;
+        const auto macro = Mod::macroIndexFor ((Mod::Source) juce::roundToInt (source->second));
         if (macro < 0 || macro >= 4 || trim->macroScale[macro] == 1.0f)
             continue;
         if (auto* amount = find ("mod" + juce::String (slot) + "_amt"))
@@ -6094,7 +6121,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     setCurrentPresetName (presets[(size_t) index].name);
     setPresetMeta (getFactoryPresetCategories()[index], {});
 
-    for (int macro = 0; macro < 4; ++macro)
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
     {
         const auto& names = presets[(size_t) index].macroNames;
         setMacroName (macro, macro < (int) names.size() ? juce::String (names[(size_t) macro]) : juce::String());
@@ -6116,7 +6143,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     // The rest of the per-patch state a factory preset doesn't carry goes
     // back to its default too, as applyFullState does for a state without it:
     // macro CCs, drawn LFO shapes, loaded samples and user tables.
-    for (int macro = 0; macro < 4; ++macro)
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
         macroCc[macro].store (20 + macro);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
@@ -6356,7 +6383,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         state.setProperty ("lfo" + juce::String (lfo + 1) + "Curve", getLfoCurve (lfo).toString(), nullptr);
     }
 
-    for (int macro = 0; macro < 4; ++macro)
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
@@ -6794,7 +6821,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         setLfoCurve (lfo, curveText.isNotEmpty() ? LfoCurve::fromString (curveText) : LfoCurve::preset (0));
     }
 
-    for (int macro = 0; macro < 4; ++macro)
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
     {
         const auto property = "macroCc" + juce::String (macro);
 

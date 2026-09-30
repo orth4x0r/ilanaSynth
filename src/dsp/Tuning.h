@@ -48,6 +48,15 @@ public:
     double getFrequency (int midiNote) const noexcept { return frequencies[(size_t) juce::jlimit (0, 127, midiNote)]; }
     bool isMapped (int midiNote) const noexcept { return midiNote >= 0 && midiNote < 128 && mapped[(size_t) midiNote]; }
 
+    // One key's frequency set directly (MTS-ESP fills a table from its master).
+    void setNote (int midiNote, double frequency, bool isMappedKey) noexcept
+    {
+        if (midiNote < 0 || midiNote >= 128 || ! std::isfinite (frequency) || frequency <= 0.0)
+            return;
+        frequencies[(size_t) midiNote] = frequency;
+        mapped[(size_t) midiNote] = isMappedKey;
+    }
+
     const juce::String& getDescription() const noexcept { return description; }
     const juce::String& getScaleText() const noexcept { return scaleText; }
     const juce::String& getMappingText() const noexcept { return mappingText; }

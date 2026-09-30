@@ -1702,7 +1702,7 @@ public:
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
         // The EVOLVE and RATE names head their columns once, on the first row.
-        for (int m = 0; m < 4; ++m)
+        for (int m = 0; m < Mod::numMacros; ++m)
         {
             evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", m == 0 ? "EVOLVE" : "",
                                                                     evolveColour(), true));
@@ -1736,7 +1736,7 @@ public:
 
         // Each macro: its name, where it is set and where it has drifted to,
         // with a hairline between rows.
-        for (int m = 0; m < 4; ++m)
+        for (int m = 0; m < Mod::numMacros; ++m)
         {
             const auto row = macroRows[(size_t) m];
             if (m > 0)
@@ -1798,8 +1798,8 @@ public:
         rows.removeFromTop (30);
         // FREEZE is an action on the whole card: in its header, at the right.
         freeze.setBounds (evolveCard.getRight() - 12 - 96, evolveCard.getY() + 4, 96, 20);
-        const auto rowHeight = rows.getHeight() / 4;
-        for (int m = 0; m < 4; ++m)
+        const auto rowHeight = rows.getHeight() / Mod::numMacros;
+        for (int m = 0; m < Mod::numMacros; ++m)
         {
             auto row = rows.removeFromTop (rowHeight);
             macroRows[(size_t) m] = row.withWidth (116).withTrimmedTop (8);
@@ -1846,7 +1846,7 @@ private:
     std::vector<std::unique_ptr<KnobControl>> evolveAmount, evolveRate;
     juce::TextButton freeze;
     juce::Rectangle<int> vectorCard, evolveCard;
-    std::array<juce::Rectangle<int>, 4> macroRows;
+    std::array<juce::Rectangle<int>, Mod::numMacros> macroRows;
 };
 
 // M8.7: the PHYSICAL page. The animated string, its exciter and the body
@@ -5207,7 +5207,7 @@ private:
     {
         juce::StringArray macroNames;
 
-        for (int m = 0; m < 4; ++m)
+        for (int m = 0; m < Mod::numMacros; ++m)
             macroNames.add (processorRef.getMacroName (m));
 
         if (macroNames != shownMacroNames)
@@ -7347,14 +7347,19 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.addChildComponent (*scopePanel);
 
     // Bottom strip: macros, then performance controls, then master.
-    for (int macro = 0; macro < 4; ++macro)
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
     {
         auto knob = std::make_unique<StripKnob> (p, "macro" + juce::String (macro + 1),
                                                  "Macro " + juce::String (macro + 1), macro,
                                                  juce::Colour (0xffffd447), false);
-        content.addAndMakeVisible (*knob);
+        content.addChildComponent (*knob);
         macroKnobs.push_back (std::move (knob));
     }
+    // Four macros fit the strip: a small switch pages between 1-4 and 5-8.
+    macroPageButton.setTooltip ("Show macros 1-4 or 5-8");
+    macroPageButton.onClick = [this] { showMacroPage (1 - macroPage); };
+    content.addAndMakeVisible (macroPageButton);
+    showMacroPage (0);
 
     glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
     legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
@@ -7455,8 +7460,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         chip->valueProvider = [this, source = spec.source]
         {
             using S = Mod::Source;
-            const auto played = source == S::Macro1 || source == S::Macro2 || source == S::Macro3
-                                || source == S::Macro4 || source == S::ModWheel || source == S::Aftertouch
+            const auto played = Mod::macroIndexFor (source) >= 0 || source == S::ModWheel || source == S::Aftertouch
                                 || source == S::InputEnv;
 
             if (! played && ! usedModSources[(size_t) juce::jlimit (0, (int) S::Count - 1, (int) source)])
@@ -7990,10 +7994,15 @@ void IlanaSynthAudioProcessorEditor::resized()
     glideKnob->setBounds (strip.removeFromRight (92));
     strip.removeFromRight (6);
 
-    const auto macroWidth = strip.getWidth() / juce::jmax (1, (int) macroKnobs.size());
+    macroPageButton.setBounds (strip.removeFromLeft (30).withSizeKeepingCentre (30, 20));
+    strip.removeFromLeft (4);
+    const auto macroWidth = strip.getWidth() / 4;
 
-    for (auto& knob : macroKnobs)
-        knob->setBounds (strip.removeFromLeft (macroWidth).withTrimmedRight (6));
+    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
+        if (macro % 4 == 0)
+            for (int k = 0; k < 4 && macro + k < (int) macroKnobs.size(); ++k)
+                macroKnobs[(size_t) (macro + k)]->setBounds (strip.getX() + k * macroWidth, strip.getY(),
+                                                             macroWidth - 6, strip.getHeight());
 
     auto chipsRow = area.removeFromBottom (26).reduced (14, 1);
 
@@ -8313,6 +8322,14 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
         knob->refreshName();
 }
 
+void IlanaSynthAudioProcessorEditor::showMacroPage (int page)
+{
+    macroPage = juce::jlimit (0, (Mod::numMacros - 1) / 4, page);
+    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
+        macroKnobs[(size_t) macro]->setVisible (macro / 4 == macroPage);
+    macroPageButton.setButtonText (macroPage == 0 ? "5-8" : "1-4");
+}
+
 void IlanaSynthAudioProcessorEditor::updateUndoButtons()
 {
     auto& undoManager = processorRef.getUndoManager();
@@ -8486,6 +8503,11 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     tuning.addItem (801, "Load Scala tuning (.scl)...");
     tuning.addItem (802, "Load keyboard mapping (.kbm)...");
     tuning.addItem (803, "Reset to 12-TET", hasScale || read ("tuning_on") > 0.5f);
+    tuning.addSeparator();
+    // MTS-ESP: shown for information; a master in the session takes over.
+    tuning.addItem (804, processorRef.isMtsEspConnected() ? "MTS-ESP: " + processorRef.getMtsEspScaleName() + " (overrides the scale)"
+                                                          : juce::String ("MTS-ESP: no master in this session"),
+                    false, processorRef.isMtsEspConnected());
 
     juce::PopupMenu menu;
     menu.addSubMenu ("Skin", skins);

@@ -18,6 +18,7 @@
 #include "dsp/GranularSmear.h"
 #include "dsp/IlanaSynth.h"
 #include "dsp/KarplusStrong.h"
+#include "MtsEsp.h"
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Evolve.h"
@@ -117,7 +118,7 @@ public:
     int getVectorCorner (int corner) const;
     bool isVectorPathOn() const;
     juce::Point<float> getVectorPathPoint (int point) const;
-    float getMacroDrift (int macro) const { return macroDrift[(size_t) juce::jlimit (0, 3, macro)].load(); }
+    float getMacroDrift (int macro) const { return macroDrift[(size_t) juce::jlimit (0, Mod::numMacros - 1, macro)].load(); }
     void freezeEvolve();
 
     // M8.3: the loudest voice's WEST gate conductance, for the card.
@@ -303,7 +304,7 @@ public:
     void startMacroLearn (int macroIndex);
     void cancelMacroLearn();
     int getMacroLearnTarget() const { return macroLearn.load(); }
-    int getMacroCc (int macroIndex) const { return macroCc[juce::jlimit (0, 3, macroIndex)].load(); }
+    int getMacroCc (int macroIndex) const { return macroCc[juce::jlimit (0, Mod::numMacros - 1, macroIndex)].load(); }
     juce::File getUserPresetDirectory() const;
     float getEnvMonitorAmp() const { return envMonitorAmp.load(); }
     float getEnvMonitorFilter() const { return envMonitorFilter.load(); }
@@ -418,12 +419,17 @@ public:
     bool loadTuningMapping (const juce::String& kbmText, juce::String& error);
     void resetTuning();
     const TuningState& getTuningState() const { return tuningState; }
+    // MTS-ESP: a tuning master in the session overrides the Scala tuning.
+    bool isMtsEspConnected() const { return mtsEsp.hasMaster(); }
+    juce::String getMtsEspScaleName() const { return juce::String::fromUTF8 (mtsEsp.scaleName()); }
 
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     TuningState tuningState;
+    MtsEspClient mtsEsp;
+    Tuning mtsTuning; // filled from the master each block while one is connected
     void handleAsyncUpdate() override;
 
     // M8.6 bounce: the render thread hands its result over through these
@@ -708,12 +714,12 @@ private:
     // M8.5
     void updateEvolveAndVector (int numSamples);
     MacroEvolve evolve, vectorDrift;
-    std::array<std::atomic<float>, 4> macroDrift {};
+    std::array<std::atomic<float>, Mod::numMacros> macroDrift {};
     std::atomic<float> vectorX { 0.5f }, vectorY { 0.5f };
     std::array<float, OscillatorIds::count> vectorGains = [] { std::array<float, OscillatorIds::count> g {}; g.fill (1.0f); return g; }();
     double vectorPathPhase = 0.0;
-    std::array<ParamRef, 4> macroIds;
-    std::array<std::pair<ParamRef, ParamRef>, 4> evolveIds;
+    std::array<ParamRef, Mod::numMacros> macroIds;
+    std::array<std::pair<ParamRef, ParamRef>, Mod::numMacros> evolveIds;
     std::array<std::pair<ParamRef, ParamRef>, numVectorPoints> vectorPathIds;
     std::array<LfoSmoother, (size_t) numLfos> lfoSmoothers;
     std::array<bool, (size_t) numLfos> lfoRoutedB {};
@@ -802,10 +808,10 @@ private:
     std::atomic<float> cpuUsage { 0.0f };
     std::atomic<int> activeVoiceCount { 0 };
     std::atomic<int> macroLearn { -1 };
-    std::atomic<int> macroCc[4] {};
+    std::atomic<int> macroCc[Mod::numMacros] {};
 
     std::atomic<int> pendingProgramChange { -1 };
-    std::atomic<float> pendingMacros[4] {};
+    std::atomic<float> pendingMacros[Mod::numMacros] {};
     std::atomic<bool> macrosPending { false };
     std::atomic<float> envMonitorAmp { 0.0f };
     std::atomic<float> envMonitorFilter { 0.0f };

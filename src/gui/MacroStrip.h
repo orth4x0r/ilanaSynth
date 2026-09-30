@@ -117,7 +117,7 @@ public:
         hover = true;
 
         if (macroIndex >= 0)
-            highlightedModSource() = (int) Mod::Source::Macro1 + macroIndex;
+            highlightedModSource() = (int) Mod::macroSourceFor (macroIndex);
 
         repaint();
     }
@@ -126,7 +126,7 @@ public:
     {
         hover = false;
 
-        if (macroIndex >= 0 && highlightedModSource() == (int) Mod::Source::Macro1 + macroIndex)
+        if (macroIndex >= 0 && highlightedModSource() == (int) Mod::macroSourceFor (macroIndex))
             highlightedModSource() = 0;
 
         repaint();
@@ -155,7 +155,7 @@ public:
             {
                 auto image = createComponentSnapshot (textArea(), true, 1.0f);
                 image.multiplyAllAlphas (0.8f);
-                container->startDragging ("modsource:" + juce::String ((int) Mod::Source::Macro1 + macroIndex), this,
+                container->startDragging ("modsource:" + juce::String ((int) Mod::macroSourceFor (macroIndex)), this,
                                           juce::ScaledImage (image), true);
             }
         }

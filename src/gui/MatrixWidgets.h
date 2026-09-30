@@ -236,7 +236,7 @@ public:
         {
             const auto base = "Macro " + juce::String (m + 1);
             const auto text = names[m] == base ? base : base + " (" + names[m] + ")";
-            const auto itemId = (int) Mod::Source::Macro1 + m + 1;
+            const auto itemId = (int) Mod::macroSourceFor (m) + 1;
 
             for (auto* box : { &source, &via })
             {

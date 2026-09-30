@@ -242,7 +242,8 @@ public:
 
     // Gives a patch without macro mappings a sensible set (tone, timbre,
     // drive, space), chosen from what the patch uses. Silent at macro 0.
-    void applyDefaultMacros();
+    // Macros marked in keep (the preset voicing's own) are left alone.
+    void applyDefaultMacros (const std::array<bool, 4>& keep = {});
 
     static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
                                    const std::function<void (const juce::String&, float)>& set);

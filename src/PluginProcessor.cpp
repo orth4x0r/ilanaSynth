@@ -6036,13 +6036,16 @@ int IlanaSynthAudioProcessor::assignModSlot (int sourceIndex, int destination, f
     return -1;
 }
 
-void IlanaSynthAudioProcessor::applyDefaultMacros()
+void IlanaSynthAudioProcessor::applyDefaultMacros (const std::array<bool, 4>& keep)
 {
     using D = Mod::Destination;
     using Targets = std::vector<std::pair<int, float>>;
 
-    const auto map = [this] (int macro, const char* name, const Targets& targets)
+    const auto map = [this, &keep] (int macro, const char* name, const Targets& targets)
     {
+        if (keep[(size_t) macro])
+            return;
+
         setMacroName (macro, name);
 
         for (const auto& target : targets)
@@ -6567,8 +6570,15 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         }
     }
 
+    // Auto-mapped presets get the defaults, except on macros the voicing wired
+    // (those keep their own name and routing, not the default's on top).
     if (index > 0 && presets[(size_t) index].macroNames.empty())
-        applyDefaultMacros();
+    {
+        std::array<bool, 4> keep {};
+        for (size_t macro = 0; macro < 4; ++macro)
+            keep[macro] = voicedMacroNames[macro].isNotEmpty();
+        applyDefaultMacros (keep);
+    }
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

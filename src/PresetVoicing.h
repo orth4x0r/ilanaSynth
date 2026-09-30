@@ -164,7 +164,7 @@ Octave Screamer | fx=30,21 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=35 fx_aw_p1=0
 # Lo-fi and rhythm.
 Tape Lead | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.65 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6; m4=WOW: Drift 0.5
 Glitch Lead | fx=30,9 fx_crush_on=0 fx_aw_algo=32 fx_aw_p1=0.3 fx_aw_p2=0.5 fx_aw_p3=0.8 fx_aw_p4=0.8 |
-S&H Techno | fx=2,16 fx_delay_on=0 fx_gate_div=4 fx_gate_mix=0.7 | m4=CHOP: fx_gate_mix 0.3
+S&H Techno | fx=2,16 fx_delay_on=0 fx_gate_div=4 fx_gate_mix=0.7 | m4=CHOP: fx_gate_mix 0.3, Filter1 Cutoff -0.4
 # The voted-down vowel leads: drier, less extreme.
 Vowel Lead | fx_reverb_on=0 fx=27,2 fx_vowel_mix=0.35 |
 Vowel Bank Voice | fx_reverb_mix=0.1 amp_attack=0.06 |
@@ -205,7 +205,7 @@ Minor Chord Stab | fx=4,30 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.7 fx_aw_p2=0.6
 # Echo, rhythm and motion.
 Comb Harp | fx=21,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=7 fx_delay_feedback=0.5 fx_delay_mix=0.3 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
 Metal Keys | fx=23,9 fx_reverb_on=0 fx_trem_rate=7 fx_trem_depth=0.5 fx_trem_shape=4 | m4=TREMOLO: fx_trem_depth 0.5
-Arp Glass | fx=16,13 fx_gate_div=4 fx_gate_mix=0.6 fx_reverb_mix=0.25 | m4=CHOP: fx_gate_mix 0.4
+Arp Glass | fx=16,13 fx_gate_div=4 fx_gate_mix=0.6 fx_reverb_mix=0.25 | m4=CHOP: fx_gate_mix 0.4, Filter1 Cutoff -0.4
 Glass Keys | fx=14 fx_reverb_on=0 fx_flanger_rate=0.15 fx_flanger_depth=0.6 fx_flanger_feedback=0.5 fx_flanger_mix=0.5 | m4=JET: fx_flanger_mix 0.5
 Smear Pluck | fx=11,30 fx_reverb_on=0 fx_aw_algo=26 fx_aw_p1=0.8 fx_aw_p2=0.8 fx_aw_p3=0.5 fx_aw_p4=0.6 | m4=SMEAR: Smear Mix 0.5
 # Registers.
@@ -275,6 +275,8 @@ Glass Chime Body | | m3=SIZE: Body Size 0.8, Res Amount 0.3
 FM Struck Body | | m3=MATERIAL: Body Material 0.8, Res Amount 0.3
 Sympathetic Body Drone | | m3=SIZE: Body Size 0.8, Res Amount 0.3
 Comb Morph Pluck | | m2=RING: Filter1 Reso 0.2, Filter1 Morph 0.5
+Oversampled Grind | | m3=DRIVE: Filter1 Drive 1, Filter1 Reso 0.3
+Metal Hat | | m4=WIDTH: Osc1 Pan -0.8, Width 0.5, fx_slot1_mix 0.9
 )VOICING";
 }
 } // namespace Presets

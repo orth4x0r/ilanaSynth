@@ -13,8 +13,10 @@
 #include "gui/KeyboardStrip.h"
 #include "gui/LogoComponent.h"
 #include "gui/MacroStrip.h"
+#include "gui/ModHoverPopup.h"
 #include "gui/ModSourceChip.h"
 #include "gui/OutputMeter.h"
+#include "gui/OutputView.h"
 #include "gui/PresetPanel.h"
 #include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
@@ -67,9 +69,15 @@ private:
     void exportPreset();
     void loadPreset();
     void togglePresetPanel();
+    // The browser docked at the side: the window grows by dockWidth.
+    void createPresetPanel();
+    void setPresetDockShown (bool shown);
+    bool isPresetDockShown() const { return presetDockShown; }
+    int currentDesignWidth() const { return designWidth + (presetDockShown ? dockWidth : 0); }
+    void applyAspectAndLimits();
     void showPresetMenu();
     void showDiceMenu();
-    void showSettingsMenu();
+    void showSettingsMenu (bool voicesOnly = false);
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);
@@ -95,6 +103,7 @@ private:
 
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
+    static constexpr int dockWidth = 340;
     static constexpr const char* appVersion = "1.3";
 
     IlanaSynthAudioProcessor& processorRef;
@@ -129,6 +138,23 @@ private:
     std::unique_ptr<WavetableEditor> wavetableEditor;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<PresetPanel> presetPanel;
+    ModHoverPopup modHoverPopup { processorRef };
+    Content dockHolder; // the docked browser's column, right of content
+    // The header's live waveform strip (click: the scope).
+    OutputView headerScope { processorRef };
+    // VOICES in the status line: a click opens the voice settings.
+    struct ClickArea : public juce::Component, public juce::SettableTooltipClient
+    {
+        std::function<void()> onClick;
+        void mouseUp (const juce::MouseEvent& event) override
+        {
+            if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+                onClick();
+        }
+    };
+    ClickArea voicesArea;
+    bool presetDocked = false;     // the user's choice: dock rather than drop down
+    bool presetDockShown = false;  // the docked browser is open
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // LFO 5-16 and ENV 6-16: a chip each, shown while that module is added

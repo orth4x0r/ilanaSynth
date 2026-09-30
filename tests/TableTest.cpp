@@ -8461,7 +8461,7 @@ void timedRun (const char* name, Suite&& suite)
 // (default 4) of that preset at 44.1 kHz; print % of one core, then profile.
 void runPresetProfile (const juce::String& name)
 {
-   #if JUCE_WINDOWS
+   #if JUCE_WINDOWS || JUCE_LINUX
     IlanaSynthAudioProcessor processor;
     const auto index = processor.getFactoryPresetNames().indexOf (name);
 
@@ -8496,8 +8496,10 @@ void runPresetProfile (const juce::String& name)
     const auto restrike = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_RESTRIKE", "0").getIntValue();
     const auto start = juce::Time::getMillisecondCounterHiRes();
     auto slowest = 0.0;
+   #if JUCE_WINDOWS
     SamplingProfiler profiler;
     profiler.start();
+   #endif
 
     for (int block = 0; block < blocks; ++block)
     {
@@ -8510,20 +8512,92 @@ void runPresetProfile (const juce::String& name)
         slowest = juce::jmax (slowest, juce::Time::getMillisecondCounterHiRes() - blockStart);
     }
 
+   #if JUCE_WINDOWS
     profiler.stop();
+   #endif
     const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
     std::cout << "preset " << name << ", " << notes << " notes: "
               << juce::String (100.0 * elapsed / (blocks * (double) blockSize / 44100.0), 1) << " % of one core, slowest block "
               << juce::String (100.0 * slowest / 1000.0 / (blockSize / 44100.0), 0) << " %" << std::endl;
+   #if JUCE_WINDOWS
     profiler.report();
+   #endif
    #else
     juce::ignoreUnused (name);
    #endif
 }
 
+// ILANA_LIBRARY_BENCH=1: hold 4 notes of every factory preset (or those in
+// ILANA_LIBRARY_BENCH_ONLY="A|B") for ILANA_PROFILE_SECONDS (default 3) at
+// 44.1 kHz, 256-sample blocks, and print each one's % of one core, then the
+// median, mean and the slowest ten. Compare builds by alternating runs.
+void runLibraryBench()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto blockSize = 256;
+    processor.prepareToPlay (44100.0, blockSize);
+    const auto names = processor.getFactoryPresetNames();
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH_ONLY", ""), "|", "");
+    const auto seconds = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_SECONDS", "3").getIntValue();
+    std::vector<std::pair<double, juce::String>> results;
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    for (int index = 0; index < names.size(); ++index)
+    {
+        if (! only.isEmpty() && ! only.contains (names[index]))
+            continue;
+
+        processor.loadFactoryPreset (index);
+        processor.panic();
+        juce::MidiBuffer noteOns;
+
+        for (int note = 0; note < 4; ++note)
+            noteOns.addEvent (juce::MidiMessage::noteOn (1, 48 + note * 5, (juce::uint8) 100), 0);
+
+        buffer.clear();
+        processor.processBlock (buffer, noteOns);
+        const auto blocks = 44100 * seconds / blockSize;
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+        const auto percent = 100.0 * elapsed / (blocks * (double) blockSize / 44100.0);
+        results.emplace_back (percent, names[index]);
+        std::cout << "bench " << names[index] << ": " << juce::String (percent, 2) << " %" << std::endl;
+    }
+
+    if (results.empty())
+        return;
+
+    std::vector<double> values;
+    for (const auto& r : results)
+        values.push_back (r.first);
+    std::sort (values.begin(), values.end());
+    std::sort (results.begin(), results.end(), [] (const auto& a, const auto& b) { return a.first > b.first; });
+    auto sum = 0.0;
+    for (auto v : values)
+        sum += v;
+    std::cout << "LIBRARY BENCH " << results.size() << " presets: median " << juce::String (values[values.size() / 2], 2)
+              << " %, mean " << juce::String (sum / (double) values.size(), 2) << " %" << std::endl;
+    for (size_t i = 0; i < juce::jmin<size_t> (10, results.size()); ++i)
+        std::cout << "  slowest " << results[i].second << ": " << juce::String (results[i].first, 2) << " %" << std::endl;
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH", "").isNotEmpty())
+    {
+        runLibraryBench();
+        return 0;
+    }
 
     if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_PROFILE", ""); preset.isNotEmpty())
     {

@@ -54,48 +54,52 @@ struct Svf2
     void reset() { s1 = s2 = 0.0; }
 };
 
-// Moog ladder with a tanh in every stage (Huovilainen, DAFx 2004), solved
-// with the feedback taken from the previous sample's output and a half-
-// sample compensation, oversampled 2x inside: warmer and more compressed
-// than the linear-loop Ladder.
+// Moog ladder with every stage saturating (the transistor pairs: each
+// stage's cutoff falls with the current through it, Huovilainen's
+// character), now zero-delay (FilterCore::StageCascade) at twice the sample
+// rate, so it self-oscillates at the cutoff at any pitch. Warmer and more
+// compressed than the linear-stage Ladder.
 class DriveLadder
 {
 public:
     void set (double sampleRate, double cutoff, double resonance, bool bandPassTaps)
     {
-        // 2x internally.
-        const auto fc = juce::jlimit (10.0, sampleRate * 0.45, cutoff);
-        const auto x = fc / (2.0 * sampleRate);
-        // Huovilainen's tuning polynomial.
-        g = 1.0 - std::exp (-juce::MathConstants<double>::twoPi * x * (1.0 + x * (-0.44 + x * 0.34)));
-        k = 4.0 * juce::jlimit (0.0, 1.0, resonance) * (1.0 + x * (0.4 - x * 0.2)) * 1.02;
+        FilterCore::StageCascade::Settings settings;
+        settings.g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
+        settings.k = 4.15 * juce::jlimit (0.0, 1.0, resonance);
+        settings.stageDrive = stageDrive;
+        settings.loopLevel = loopLevel;
+        cascade.set (settings);
+        k = settings.k;
         bandPass = bandPassTaps;
     }
-    void reset() { y.fill (0.0); w.fill (0.0); delayed = 0.0; }
+    void reset() { cascade.reset(); oversampler.reset(); }
     float process (float input)
     {
-        auto out = 0.0;
-        for (int pass = 0; pass < 2; ++pass)
-        {
-            const auto in = std::tanh ((double) input * (1.0 + 0.5 * k) * 0.8 - k * delayed);
-            y[0] += g * (in - w[0]);
-            w[0] = std::tanh (y[0]);
-            y[1] += g * (w[0] - w[1]);
-            w[1] = std::tanh (y[1]);
-            y[2] += g * (w[1] - w[2]);
-            w[2] = std::tanh (y[2]);
-            y[3] += g * (w[2] - std::tanh (y[3]));
-            delayed = 0.5 * (y[3] + last);
-            last = y[3];
-            out = bandPass ? 2.0 * (y[1] - y[2]) * 1.8 : y[3] * 1.25;
-        }
-        if (! std::isfinite (out)) { reset(); return 0.0f; }
-        return (float) out;
+        double first, second;
+        oversampler.upsample ((double) input * (1.0 + 0.5 * k) * inputGain, first, second);
+        const auto a = step (first);
+        const auto b = step (second);
+        return (float) oversampler.downsample (a, b);
     }
 
+    // Stage saturation (0.5 keeps the self-oscillation within 0.2 % of the
+    // cutoff) and the old model's input and tap gains (its level table
+    // within 0.8 dB).
+    static constexpr double stageDrive = 0.5, loopLevel = 1.0, inputGain = 0.8, bandGain = 3.9, lowGain = 1.25;
+
 private:
-    std::array<double, 4> y {}, w {};
-    double g = 0.1, k = 0.0, delayed = 0.0, last = 0.0;
+    double step (double x)
+    {
+        std::array<double, 4> y;
+        double u;
+        cascade.process (x, y, u);
+        return bandPass ? (y[1] - y[2]) * bandGain : y[3] * lowGain;
+    }
+
+    FilterCore::StageCascade cascade;
+    FilterCore::Halfband2x oversampler;
+    double k = 0.0;
     bool bandPass = false;
 };
 

@@ -154,6 +154,11 @@ public:
         const auto warping = (warpMode != Warp::Off && warpAmount > 0.0f)
                              || (warpMode2 != Warp::Off && warpAmount2 > 0.0f);
         const auto lerpFrames = frames.frac > 0.0f && frames.frame1 != frames.frame0;
+        // Sync alone (the common case) runs vectorised; the result is the
+        // same as warpedRead's, operation for operation.
+        const auto syncOnly = warping && warpMode == Warp::Sync && warpAmount > 0.0f
+                              && ! (warpMode2 != Warp::Off && warpAmount2 > 0.0f);
+        juce::ignoreUnused (syncOnly);
         const auto numLanes = numGroups * laneWidth;
 
         // Steps for this sample. The plain pitch uses the cached increments;
@@ -209,6 +214,11 @@ public:
                     const auto read = _mm_add_epi32 (phases, modulationVec);
                     _mm_store_si128 (reinterpret_cast<__m128i*> (index), _mm_srli_epi32 (read, 32 - frameBits));
                     fractionVec = _mm_mul_ps (_mm_cvtepi32_ps (_mm_and_si128 (read, fractionMask)), fractionScale);
+                }
+                else if (syncOnly)
+                {
+                    syncRead (_mm_add_epi32 (phases, modulationVec), index, fraction);
+                    fractionVec = _mm_load_ps (fraction);
                 }
                 else
                 {
@@ -375,6 +385,44 @@ private:
     }
 
    #if ILANA_UNISON_SSE
+    // Warp::apply's Sync on four lanes, two at a time in doubles, with the
+    // same operations as warpedRead: phase = u / 2^32, p = phase (1 + 7a),
+    // p - floor (p) (p >= 0, so floor is truncation), then the frame
+    // position, its index and fraction.
+    void syncRead (__m128i fixedPhases, std::int32_t* index, float* fraction) const noexcept
+    {
+        const auto ratio = _mm_set1_pd (1.0 + (double) juce::jlimit (0.0f, 1.0f, warpAmount) * 7.0);
+        const auto toCycles = _mm_set1_pd (phaseToDouble);
+        const auto frameSize = _mm_set1_pd ((double) Wavetable::frameSize);
+        const auto offset = _mm_set1_pd (2147483648.0);
+        // Unsigned to double: flip the sign bit, convert as signed, add 2^31.
+        const auto flipped = _mm_xor_si128 (fixedPhases, _mm_set1_epi32 ((int) 0x80000000u));
+
+        for (int half = 0; half < 2; ++half)
+        {
+            const auto signedPair = half == 0 ? flipped : _mm_shuffle_epi32 (flipped, _MM_SHUFFLE (1, 0, 3, 2));
+            const auto unsignedPair = _mm_add_pd (_mm_cvtepi32_pd (signedPair), offset);
+            const auto p = _mm_mul_pd (_mm_mul_pd (unsignedPair, toCycles), ratio);
+            const auto whole = _mm_cvtepi32_pd (_mm_cvttpd_epi32 (p));
+            const auto position = _mm_mul_pd (_mm_sub_pd (p, whole), frameSize);
+            auto integer = _mm_cvttpd_epi32 (position);
+            // jlimit (0, frameSize - 1): the position is under frameSize, so
+            // only the top needs the clamp, as a guard.
+            alignas (16) std::int32_t ints[4];
+            _mm_store_si128 (reinterpret_cast<__m128i*> (ints), integer);
+            ints[0] = juce::jmin (ints[0], Wavetable::frameSize - 1);
+            ints[1] = juce::jmin (ints[1], Wavetable::frameSize - 1);
+            integer = _mm_load_si128 (reinterpret_cast<const __m128i*> (ints));
+            const auto frac = _mm_sub_pd (position, _mm_cvtepi32_pd (integer));
+            alignas (16) double fractions[2];
+            _mm_store_pd (fractions, frac);
+            index[half * 2] = ints[0];
+            index[half * 2 + 1] = ints[1];
+            fraction[half * 2] = (float) fractions[0];
+            fraction[half * 2 + 1] = (float) fractions[1];
+        }
+    }
+
     // Each lane's four cubic taps are adjacent (frames carry a guard sample
     // before and two after), so one unaligned load per lane fetches them;
     // the transpose turns four lanes' taps into four tap vectors.

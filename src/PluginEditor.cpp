@@ -7884,12 +7884,16 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
     const auto activeVoices = processorRef.getActiveVoiceCount();
     const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
-    const auto maxVoices = juce::jlimit (1, 16, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 16);
+    const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
+    // Up to 16 dots at full size; more share the same width at half size.
+    const auto spacing = maxVoices > 16 ? 4.0f : 8.0f;
+    const auto size = maxVoices > 16 ? 3.0f : 5.0f;
 
     for (int i = 0; i < maxVoices; ++i)
     {
         const auto lit = i < activeVoices;
-        const auto dot = juce::Rectangle<float> ((float) (designWidth - 232 + i * 8), (float) statusY + 3.0f, 5.0f, 5.0f);
+        const auto dot = juce::Rectangle<float> ((float) (designWidth - 232) + (float) i * spacing,
+                                                 (float) statusY + 3.0f + (5.0f - size) * 0.5f, size, size);
 
         // Playing voices light up with a halo.
         if (lit)

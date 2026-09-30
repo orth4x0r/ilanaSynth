@@ -18,3 +18,5 @@ snapshots/
 *.aps
 CMakeUserPresets.json
 __pycache__/
+
+.claude/worktrees/

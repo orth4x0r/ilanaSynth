@@ -12,6 +12,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <fstream>
+#include <map>
 #include <iostream>
 
 namespace
@@ -34,7 +35,7 @@ namespace
 
     // Runs the plugin with no input for a while, so it finishes loading
     // samples or settling after a note.
-    void idle (juce::AudioPluginInstance& plugin, int blocks)
+    void idle (juce::AudioPluginInstance& plugin, int blocks, bool sleep = true)
     {
         juce::AudioBuffer<float> buffer (juce::jmax (2, plugin.getTotalNumOutputChannels()), blockSize);
         juce::MidiBuffer midi;
@@ -42,7 +43,8 @@ namespace
         {
             buffer.clear();
             plugin.processBlock (buffer, midi);
-            juce::Thread::sleep (2);
+            if (sleep)
+                juce::Thread::sleep (2);
         }
     }
 }
@@ -81,8 +83,8 @@ namespace presets
             for (int channel = 0; channel < 2; ++channel)
                 out.copyFrom (channel, start, buffer, channel, 0, blockSize);
         }
-        // Let tails die away before the next phrase.
-        idle (plugin, (int) (3.0 * sampleRate / blockSize));
+        // Let tails die away before the next phrase (no need to wait in real time).
+        idle (plugin, (int) (3.0 * sampleRate / blockSize), false);
         return out;
     }
 
@@ -103,6 +105,86 @@ namespace presets
         return style;
     }
 
+    // Surge's patch folders (Basses, Leads, ...) to the critic's categories.
+    juce::String categoryForFolder (const juce::String& folder)
+    {
+        static const std::pair<const char*, const char*> map[] { { "Basses", "Bass" }, { "Leads", "Lead" }, { "Pads", "Pad" },
+                                                                 { "Keys", "Keys" }, { "Plucks", "Pluck" } };
+        for (const auto& [from, to] : map)
+            if (folder == from)
+                return to;
+        return {};
+    }
+
+    // Surge's hosted state is the .fxp's patch chunk (from byte 60, 'sub3').
+    bool loadSurgePatch (juce::AudioPluginInstance& plugin, const juce::File& file)
+    {
+        juce::MemoryBlock fxp;
+        if (! file.loadFileAsData (fxp) || fxp.getSize() <= 64 || std::memcmp (static_cast<const char*> (fxp.getData()) + 60, "sub3", 4) != 0)
+            return false;
+        juce::MemoryBlock hostState;
+        plugin.getStateInformation (hostState);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (hostState.getData(), (int) hostState.getSize());
+        auto* component = xml != nullptr ? xml->getChildByName ("IComponent") : nullptr;
+        if (component == nullptr)
+            return false;
+        const juce::MemoryBlock chunk (static_cast<const char*> (fxp.getData()) + 60, fxp.getSize() - 60);
+        component->deleteAllTextElements();
+        component->addTextElement (chunk.toBase64Encoding());
+        juce::MemoryBlock newState;
+        juce::AudioProcessor::copyXmlToBinary (*xml, newState);
+        plugin.setStateInformation (newState.getData(), (int) newState.getSize());
+        return true;
+    }
+
+    void writeBigEndian (juce::MemoryBlock& block, size_t offset, std::uint32_t value)
+    {
+        auto* bytes = static_cast<std::uint8_t*> (block.getData()) + offset;
+        bytes[0] = (std::uint8_t) (value >> 24);
+        bytes[1] = (std::uint8_t) (value >> 16);
+        bytes[2] = (std::uint8_t) (value >> 8);
+        bytes[3] = (std::uint8_t) value;
+    }
+
+    // JUCE's VST3 host keeps a plugin's state as XML with the component
+    // state in base64. Vital's is a VST2-style chunk: a 16-byte 'VstW'
+    // header, then an opaque 'CcnK'/'FBCh' bank (size at byte 20, data size
+    // at 172, data from 176) whose data is the preset's JSON. The preset is
+    // put in that frame, keeping the plugin's own header.
+    bool loadVitalPreset (juce::AudioPluginInstance& plugin, const juce::String& json)
+    {
+        juce::MemoryBlock hostState;
+        plugin.getStateInformation (hostState);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (hostState.getData(), (int) hostState.getSize());
+        auto* component = xml != nullptr ? xml->getChildByName ("IComponent") : nullptr;
+        if (component == nullptr)
+            return false;
+
+        juce::MemoryBlock current;
+        current.fromBase64Encoding (component->getAllSubText());
+        constexpr size_t dataStart = 176;
+        if (current.getSize() < dataStart || std::memcmp (current.getData(), "VstW", 4) != 0)
+            return false;
+
+        const auto* oldData = static_cast<const char*> (current.getData()) + dataStart;
+        const auto oldSize = current.getSize() - dataStart;
+        const auto trailingNull = oldSize > 0 && oldData[oldSize - 1] == 0;
+
+        juce::MemoryBlock chunk (current.getData(), dataStart);
+        chunk.append (json.toRawUTF8(), json.getNumBytesAsUTF8());
+        if (trailingNull)
+            chunk.append ("\0", 1);
+        writeBigEndian (chunk, 20, (std::uint32_t) (chunk.getSize() - 24));
+        writeBigEndian (chunk, 172, (std::uint32_t) (chunk.getSize() - dataStart));
+
+        component->deleteAllTextElements();
+        component->addTextElement (chunk.toBase64Encoding());
+        juce::MemoryBlock newState;
+        juce::AudioProcessor::copyXmlToBinary (*xml, newState);
+        plugin.setStateInformation (newState.getData(), (int) newState.getSize());
+        return true;
+    }
+
     // ilanaRefHost --presets <plugin.vst3> <preset folder> <out folder>
     // Loads every .vital file (the plugin's state is the preset's JSON) and
     // renders the critic's phrases into <out>/<n>/, with an index.csv.
@@ -111,19 +193,41 @@ namespace presets
         folder.createDirectory();
         std::ofstream index (folder.getChildFile ("index.csv").getFullPathName().toStdString());
         index << "index,name,category,home_note,macro1,macro2,macro3,macro4\n";
-        auto files = presetFolder.findChildFiles (juce::File::findFiles, true, "*.vital");
+        auto files = presetFolder.findChildFiles (juce::File::findFiles, true, "*.vital;*.fxp");
         files.sort();
-        int count = 0;
-        for (const auto& file : files)
-        {
-            const auto json = file.loadFileAsString();
-            const auto parsed = juce::JSON::parse (json);
-            const auto category = categoryFor (parsed.getProperty ("preset_style", "").toString());
-            if (category.isEmpty() || ! juce::StringArray { "Bass", "Pad", "Lead", "Keys", "Pluck" }.contains (category))
-                continue;
 
-            juce::MemoryBlock state (json.toRawUTF8(), json.getNumBytesAsUTF8());
-            plugin.setStateInformation (state.getData(), (int) state.getSize());
+        // Each file's category; at most ILANA_REF_LIMIT (40) per category,
+        // spread evenly through the sorted list.
+        std::vector<std::pair<juce::File, juce::String>> chosen;
+        {
+            std::map<juce::String, std::vector<juce::File>> byCategory;
+            for (const auto& file : files)
+            {
+                const auto category = file.hasFileExtension ("vital")
+                                          ? categoryFor (juce::JSON::parse (file.loadFileAsString()).getProperty ("preset_style", "").toString())
+                                          : categoryForFolder (file.getParentDirectory().getFileName());
+                if (juce::StringArray { "Bass", "Pad", "Lead", "Keys", "Pluck" }.contains (category))
+                    byCategory[category].push_back (file);
+            }
+            const auto limit = juce::SystemStats::getEnvironmentVariable ("ILANA_REF_LIMIT", "40").getIntValue();
+            for (auto& [category, list] : byCategory)
+            {
+                const auto take = juce::jmin ((int) list.size(), limit);
+                for (int i = 0; i < take; ++i)
+                    chosen.push_back ({ list[(size_t) (i * (int) list.size() / take)], category });
+            }
+        }
+
+        int count = 0;
+        for (const auto& [file, category] : chosen)
+        {
+            const auto loaded = file.hasFileExtension ("vital") ? loadVitalPreset (plugin, file.loadFileAsString())
+                                                                : loadSurgePatch (plugin, file);
+            if (! loaded)
+            {
+                std::cout << "could not load " << file.getFileName() << std::endl;
+                continue;
+            }
             idle (plugin, 100);
 
             const auto home = category == "Bass" ? 36 : 60;
@@ -193,6 +297,29 @@ int main (int argc, char* argv[])
         plugin->prepareToPlay (sampleRate, blockSize);
         plugin->setNonRealtime (true);
         idle (*plugin, 300);
+        if (juce::String (argv[3]) == "--inspect")
+        {
+            juce::MemoryBlock state;
+            plugin->getStateInformation (state);
+            if (auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()))
+            {
+                std::cout << "host state tag " << xml->getTagName() << std::endl;
+                for (auto* child : xml->getChildIterator())
+                {
+                    juce::MemoryBlock data;
+                    data.fromBase64Encoding (child->getAllSubText());
+                    std::cout << "  " << child->getTagName() << ": " << data.getSize() << " bytes, starts "
+                              << juce::String::toHexString (data.getData(), juce::jmin (96, (int) data.getSize()))
+                              << " '" << juce::String::fromUTF8 ((const char*) data.getData(), juce::jmin (48, (int) data.getSize())) << "'" << std::endl;
+                }
+            }
+            else
+            {
+                std::cout << "state is not XML: " << state.getSize() << " bytes, starts "
+                          << juce::String::toHexString (state.getData(), juce::jmin (16, (int) state.getSize())) << std::endl;
+            }
+            return 0;
+        }
         const auto result = presets::run (*plugin, juce::File (juce::String (argv[3])),
                                           juce::File::getCurrentWorkingDirectory().getChildFile (juce::String (argv[4])));
         plugin->releaseResources();

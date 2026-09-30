@@ -84,8 +84,54 @@ void runAutomationTest()
                + " automatable); all " + juce::String (floats) + " knobs are");
 }
 
+// 32-voice polyphony: 32 held notes sound at once by default.
+void runPolyphonyTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    juce::AudioBuffer<float> buffer (2, 256);
+    juce::MidiBuffer midi;
+    for (int note = 0; note < 32; ++note)
+        midi.addEvent (juce::MidiMessage::noteOn (1, 36 + note, (juce::uint8) 100), 0);
+    processor.processBlock (buffer, midi);
+    juce::MidiBuffer none;
+    buffer.clear();
+    processor.processBlock (buffer, none);
+    check (processor.getActiveVoiceCount() == 32, "32 held notes sound on 32 voices ("
+                                                    + juce::String (processor.getActiveVoiceCount()) + ")");
+}
+
+// The DC blocker before the effects: Warp Envelope Pad left an offset of
+// 0.44 of full scale before it.
+void runDcBlockTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Warp Envelope Pad"));
+    processor.prepareToPlay (48000.0, 256);
+    juce::AudioBuffer<float> buffer (2, 256);
+    auto sum = 0.0, count = 0.0;
+    for (int block = 0; block < 400; ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+        if (block >= 200) // from about 1 s on
+            for (int i = 0; i < 256; ++i)
+            {
+                sum += 0.5 * (buffer.getSample (0, i) + buffer.getSample (1, i));
+                count += 1.0;
+            }
+    }
+    const auto dc = std::abs (sum / juce::jmax (1.0, count));
+    check (dc < 0.005, "no DC offset reaches the output (Warp Envelope Pad: " + juce::String (dc, 5) + ")");
+}
+
 void runTests()
 {
+    runDcBlockTest();
+    runPolyphonyTest();
     runAutomationTest();
     runInitTest();
     runAlgorithmFeedbackTest();

@@ -2,7 +2,7 @@
 ilanaPresetRender writes, and says what is wrong with the weak ones.
 
     ilanaPresetRender build/critic
-    python tools/preset_critic.py build/critic [--refs build/critic-refs]
+    python tools/preset_critic.py build/critic [--refs build/critic-refs ...]
 
 It measures level, peak and clipping, DC, brightness, stereo width, movement
 over a held note, attack, sustain and release, velocity response, how much
@@ -135,6 +135,11 @@ def measure(folder):
     m["dc"] = float(abs(np.mean(np.concatenate([note, chord]))))
     m["level_db"] = max(loudness(note), loudness(chord), loudness(line))
     m["width"] = rms(side) / max(rms(chord), 1e-9)
+    # Width under 150 Hz only (a bass's low end should be mono; unison up top is fine).
+    side_spec, mid_spec = spectrum(side, 0.05, 2.0), spectrum(chord, 0.05, 2.0)
+    freqs = np.fft.rfftfreq((len(mid_spec) - 1) * 2, 1.0 / RATE)
+    low = (freqs > 20) & (freqs < 150)
+    m["low_width"] = float(np.sqrt(np.sum(side_spec[low] ** 2) / max(np.sum(mid_spec[low] ** 2), 1e-18)))
 
     spec = spectrum(note, 0.05, 2.0)
     m["centroid_hz"] = centroid(spec)
@@ -228,12 +233,13 @@ def judge(rows, refs):
         if m["dc"] > 0.01:
             issues.append((15, "DC offset", f"{m['dc']:.3f}"))
 
-        level_median = float(np.median([r["m"]["level_db"] for r in rows]))
+        peers = [r["m"]["level_db"] for r in by_category.get(category, []) if r is not row]
+        level_median = float(np.median(peers)) if len(peers) >= 4 else float(np.median([r["m"]["level_db"] for r in rows]))
         off = m["level_db"] - level_median
         if abs(off) > 6:
-            issues.append((15, "too quiet" if off < 0 else "too loud", f"{off:+.1f} dB against the library"))
+            issues.append((15, "too quiet" if off < 0 else "too loud", f"{off:+.1f} dB against its category"))
         elif abs(off) > 3:
-            issues.append((5, "a little quiet" if off < 0 else "a little loud", f"{off:+.1f} dB against the library"))
+            issues.append((5, "a little quiet" if off < 0 else "a little loud", f"{off:+.1f} dB against its category"))
 
         names = [row.get(f"macro{k}", "") for k in range(1, 5)]
         dead = [f"{k} ({names[k - 1] or 'unnamed'})" for k in range(1, 5) if m[f"macro{k}_effect"] < 1.0]
@@ -250,14 +256,14 @@ def judge(rows, refs):
         if category == "Pad" and m["attack_s"] < 0.02 and m["width"] < 0.15:
             issues.append((5, "thin for a pad (instant attack, narrow)", f"attack {m['attack_s'] * 1000:.0f} ms, width {m['width']:.2f}"))
         if category == "Bass":
-            if m["width"] > 0.35:
-                issues.append((6, "wide bass (low end not mono)", f"width {m['width']:.2f}"))
+            if m["low_width"] > 0.2:
+                issues.append((6, "wide bass (low end not mono)", f"width under 150 Hz {m['low_width']:.2f}"))
             if m["low_fraction"] < 0.15:
                 issues.append((8, "weak low end for a bass", f"{m['low_fraction'] * 100:.0f} % under 150 Hz"))
         if category in ("Bass", "Pluck", "Lead") and m["line_dip_db"] < 3:
             issues.append((6, "fast notes smear together", f"{m['line_dip_db']:.1f} dB between notes"))
-        if category in ("Bass", "Pluck", "Lead", "Keys") and m["release_s"] > 6:
-            issues.append((4, "very long tail", f"{m['release_s']:.1f} s to -60 dB"))
+        if category in ("Bass", "Pluck", "Lead") and m["release_s"] > 8:
+            issues.append((3, "very long tail", f"{m['release_s']:.1f} s to -60 dB after note-off"))
 
         for key, label, points in (("centroid_hz", "brightness", 5), ("high_fraction", "harsh top end", 6), ("width", "width", 4)):
             median, spread = stats(category, key)
@@ -266,11 +272,26 @@ def judge(rows, refs):
                 value, median = math.log2(max(value, 20)), math.log2(max(median, 20))
                 spread = max(spread / max(2 ** median, 1.0), 0.15)
             z = (value - median) / spread
-            if key == "high_fraction" and z > 3:
+            if key == "high_fraction" and z > 3 and m[key] > 0.02:
                 issues.append((points, label, f"{m[key] * 100:.1f} % above 8 kHz (category median {median * 100:.1f} %)"))
             elif key == "centroid_hz" and abs(z) > 3:
                 issues.append((points, "much darker than its category" if z < 0 else "much brighter than its category",
                                f"{m['centroid_hz']:.0f} Hz"))
+
+        clap = row.get("clap")
+        if clap is not None and category in FOCUS:
+            score = float(clap["category_score"])
+            # Only where the model is reliable: most reference presets in this
+            # category must pass (it hears few real pads or keys as such).
+            ref_scores = [float(r["clap"]["category_score"]) for r in by_category.get("ref:" + category, []) if r.get("clap")]
+            reliable = len(ref_scores) >= 5 and float(np.median(ref_scores)) >= 0.5
+            if reliable and np.isfinite(score) and score < 0.3:
+                issues.append((8, "doesn't sound like its category", f"CLAP hears it as {clap['heard_as']} ({score:.2f} {category})"))
+            names = [float(r["clap"]["name_score"]) for r in by_category.get(category, []) if r.get("clap")]
+            if len(names) >= 8:
+                median, spread = robust_stats(names)
+                if (float(clap["name_score"]) - median) / spread < -2.5:
+                    issues.append((3, "doesn't sound like its name", f"name match {float(clap['name_score']):.2f}, category median {median:.2f}"))
 
         row["issues"] = sorted(issues, key=lambda issue: -issue[0])
         row["score"] = max(0, 100 - sum(points for points, _, _ in issues))
@@ -281,17 +302,30 @@ def main():
         print(__doc__)
         return 1
     root = Path(sys.argv[1])
-    refs_root = Path(sys.argv[sys.argv.index("--refs") + 1]) if "--refs" in sys.argv else None
+    refs_roots = [Path(sys.argv[i + 1]) for i, arg in enumerate(sys.argv[:-1]) if arg == "--refs"]
 
     rows = load_index(root)
     for row in rows:
         row["m"] = measure(root / row["index"])
         print(f"measured {row['index']} {row['name']}", flush=True)
+    if (root / "clap.csv").exists():
+        with open(root / "clap.csv", newline="", encoding="utf-8") as f:
+            clap = {r["index"]: r for r in csv.DictReader(f)}
+        for row in rows:
+            row["clap"] = clap.get(row["index"])
     refs = []
-    if refs_root is not None and (refs_root / "index.csv").exists():
-        refs = load_index(refs_root)
-        for row in refs:
+    for refs_root in refs_roots:
+        if not (refs_root / "index.csv").exists():
+            continue
+        these = load_index(refs_root)
+        for row in these:
             row["m"] = measure(refs_root / row["index"])
+        if (refs_root / "clap.csv").exists():
+            with open(refs_root / "clap.csv", newline="", encoding="utf-8") as f:
+                ref_clap = {r["index"]: r for r in csv.DictReader(f)}
+            for row in these:
+                row["clap"] = ref_clap.get(row["index"])
+        refs += these
 
     judge(rows, refs)
 

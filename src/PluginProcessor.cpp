@@ -12,6 +12,7 @@ juce::AudioProcessorEditor* IlanaSynthAudioProcessor::createEditor()
 #endif
 
 #include "Presets.h"
+#include "PresetTrims.h"
 #include "gui/ParamInfo.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
@@ -80,7 +81,7 @@ struct FactoryTables
     }
 };
 
-constexpr int numVoices = 16;
+constexpr int numVoices = 32;
 
 juce::StringArray getSyncDivisionNames()
 {
@@ -1568,6 +1569,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     liveGateOpen = false;
     liveGateNote = -1;
     liveInputSamples = 0;
+    for (auto& stage : dcBlock)
+        for (auto& channel : stage)
+            channel = { 0.0f, 0.0f };
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -1699,6 +1703,10 @@ void IlanaSynthAudioProcessor::cutPatchTails()
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             voice->resetForNewPatch();
     noteSpray.reset();
+
+    for (auto& stage : dcBlock)
+        for (auto& channel : stage)
+            channel = { 0.0f, 0.0f };
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -2651,7 +2659,33 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         }
     }
 
+    // DC blockers (5 Hz one-pole high-passes) before and after the effects:
+    // some warps, phase distortion and drives leave an offset (up to 0.4 of
+    // full scale) that ate headroom, pushed the clipper and pumped the
+    // dynamics, and asymmetric effects add their own.
+    const auto blockDc = [this, &buffer] (int stage)
+    {
+        const auto pole = (float) std::exp (-juce::MathConstants<double>::twoPi * 5.0 / juce::jmax (1.0, baseSampleRate));
+        for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+        {
+            auto* data = buffer.getWritePointer (channel);
+            auto& state = dcBlock[stage][channel];
+            auto x1 = state[0], y1 = state[1];
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const auto x = data[i];
+                y1 = x - x1 + pole * y1;
+                x1 = x;
+                data[i] = y1;
+            }
+            state[0] = x1;
+            state[1] = std::isfinite (y1) && std::abs (y1) > 1.0e-20f ? y1 : 0.0f;
+        }
+    };
+
+    blockDc (0);
     processEffects (buffer);
+    blockDc (1);
 
     buffer.applyGain (juce::Decibels::decibelsToGain (getParam ("master")));
 
@@ -5996,6 +6030,50 @@ void IlanaSynthAudioProcessor::applyDefaultMacros()
     }
 }
 
+void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, std::vector<std::pair<juce::String, float>>& values)
+{
+    if (presetName == nullptr || juce::SystemStats::getEnvironmentVariable ("ILANA_NO_TRIMS", "").isNotEmpty())
+        return;
+
+    const Presets::Trim* trim = nullptr;
+    for (const auto& candidate : Presets::getTrims())
+        if (std::strcmp (candidate.name, presetName) == 0)
+            trim = &candidate;
+    if (trim == nullptr)
+        return;
+
+    const auto find = [&values] (const juce::String& id) -> std::pair<juce::String, float>*
+    {
+        for (auto& entry : values)
+            if (entry.first == id)
+                return &entry;
+        return nullptr;
+    };
+
+    if (trim->levelDb != 0.0f)
+    {
+        auto* master = find ("master");
+        const auto base = master != nullptr ? master->second : -6.0f; // the parameter's default
+        const auto level = juce::jlimit (-60.0f, 12.0f, base + trim->levelDb);
+        if (master != nullptr)
+            master->second = level;
+        else
+            values.push_back ({ "master", level });
+    }
+
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+    {
+        const auto* source = find ("mod" + juce::String (slot) + "_src");
+        if (source == nullptr)
+            continue;
+        const auto macro = juce::roundToInt (source->second) - (int) Mod::Source::Macro1;
+        if (macro < 0 || macro >= 4 || trim->macroScale[macro] == 1.0f)
+            continue;
+        if (auto* amount = find ("mod" + juce::String (slot) + "_amt"))
+            amount->second = juce::jlimit (-1.0f, 1.0f, amount->second * trim->macroScale[macro]);
+    }
+}
+
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
     ++dataEpoch; // what the editor draws changes
@@ -6105,6 +6183,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                                    values.push_back ({ id, value });
                            });
     }
+
+    applyPresetTrims (presets[(size_t) index].name, values);
 
     const auto applyValues = [this, &values]
     {

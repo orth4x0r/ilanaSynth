@@ -265,7 +265,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - The OUTPUT strip has the soft clipper and clip gain.
 
 ### Voice & global
-- **Voices**: 16-voice polyphony with a voice limit, and Poly, Mono and Legato modes.
+- **Voices**: 32-voice polyphony with a voice limit, and Poly, Mono and Legato modes.
 - **Glide and bend**: glide (optionally legato-only, with the LEGATO switch next to it) and pitch-bend range.
 - **MPE mode** in the settings menu.
 - **Oversampling**: 2x or 4x for the voice engine (settings menu or the scope panel).

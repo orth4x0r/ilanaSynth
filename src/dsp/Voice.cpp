@@ -1494,11 +1494,19 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto drive = [] (float value, float amount) { return amount > 1.0f ? std::tanh (value * amount) : value; };
 
         // Filter 1 hears the Default and Filter-1 buses.
-        const auto defaultL = drive (busL[FilterRoute::Default], drive1);
-        const auto defaultR = drive (busR[FilterRoute::Default], drive1);
+        // A mono source feeds both sides alike: drive it once (the same result).
+        const auto drivePair = [&drive] (float l, float r, float amount, float& outL, float& outR)
+        {
+            outL = drive (l, amount);
+            outR = r == l ? outL : drive (r, amount);
+        };
+        float defaultL, defaultR;
+        drivePair (busL[FilterRoute::Default], busR[FilterRoute::Default], drive1, defaultL, defaultR);
         const auto hasF1Bus = busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f;
-        const auto inL = hasF1Bus ? drive (busL[FilterRoute::Default] + busL[FilterRoute::Filter1], drive1) : defaultL;
-        const auto inR = hasF1Bus ? drive (busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1) : defaultR;
+        auto inL = defaultL, inR = defaultR;
+        if (hasF1Bus)
+            drivePair (busL[FilterRoute::Default] + busL[FilterRoute::Filter1],
+                       busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL, inR);
 
         float f1L, f1R;
         processFilterPair (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R);
@@ -1535,8 +1543,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         if (params.filtersParallel)
         {
             // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
-            const auto in2L = drive (defaultL + busL[FilterRoute::Filter2], drive2);
-            const auto in2R = drive (defaultR + busR[FilterRoute::Filter2], drive2);
+            float in2L, in2R;
+            drivePair (defaultL + busL[FilterRoute::Filter2], defaultR + busR[FilterRoute::Filter2], drive2, in2L, in2R);
 
             // Balance fades one filter out; at the centre both are at full.
             const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
@@ -1554,8 +1562,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
         else
         {
-            const auto f2inL = drive (f1L + busL[FilterRoute::Filter2], drive2);
-            const auto f2inR = drive (f1R + busR[FilterRoute::Filter2], drive2);
+            float f2inL, f2inR;
+            drivePair (f1L + busL[FilterRoute::Filter2], f1R + busR[FilterRoute::Filter2], drive2, f2inL, f2inR);
 
             if (westReplacesFilter2)
             {

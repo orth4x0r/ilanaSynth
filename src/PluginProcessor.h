@@ -198,6 +198,10 @@ public:
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
+    // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
+    // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
+    // (for the tuning tool's own renders).
+    static void applyPresetTrims (const char* presetName, std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
 
@@ -592,6 +596,7 @@ private:
     // stepping to it.
     std::atomic<bool> patchCut { false };
     float lastOutput[2] {}, declick[2] {};
+    std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
     struct OscCoreIds

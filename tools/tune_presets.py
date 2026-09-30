@@ -9,8 +9,8 @@ puts macros that more depth didn't help back to their written depth): each pass 
 left, because level and macro effect are not linear in the trims (the soft
 clipper, drives, and macro depths that saturate at +-1).
 
-- Level: each preset is moved to its category's loudness (the median of the
-  library's own presets in that category, so the library as a whole stays as
+- Level: each preset is moved to its category's loudness (PINNED_TARGETS,
+  or else the median of the library's own presets in that category, so the library as a whole stays as
   loud as it was), when it is more than 1.5 dB off. The trim is added to the
   preset's master level.
 - Macros: a macro whose effect scores under 1.0 has every routing it drives
@@ -54,12 +54,18 @@ def read_trims():
     return trims
 
 
+# Category loudness pinned at the library's medians before the diversity
+# pass (critic renders of 2026-09-30): redesigning a category must not drag
+# its level down with it. Categories not listed use their own median.
+PINNED_TARGETS = {"Bass": -13.4, "Keys": -14.3, "Lead": -13.7, "Pad": -14.4, "Pluck": -17.1}
+
+
 def category_targets(rows):
     targets = {}
     for category in {r["category"] for r in rows}:
         own = [float(r["level_db"]) for r in rows if r["category"] == category and float(r["level_db"]) > -45]
         if own:
-            targets[category] = float(np.median(own))
+            targets[category] = PINNED_TARGETS.get(category, float(np.median(own)))
     return targets
 
 

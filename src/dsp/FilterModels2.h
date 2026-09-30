@@ -105,64 +105,84 @@ private:
 
 // Oberheim SEM: a 2-pole state-variable with the SEM's single mode knob
 // sweeping low-pass -> notch -> high-pass (morph), a soft input stage, and
-// modest resonance (it never quite self-oscillates).
+// modest resonance (it never quite self-oscillates). Its two integrators
+// are OTAs: each one's gain sags with the signal it integrates (a secant
+// gain from the last sample), so loud notes round off and the resonance
+// thickens instead of ringing.
 class SemFilter
 {
 public:
     void set (double sampleRate, double cutoff, double resonance, float morph)
     {
-        svf.set (sampleRate, cutoff, 2.0 * (1.0 - 0.94 * juce::jlimit (0.0, 1.0, resonance)));
+        g = prewarp (sampleRate, cutoff);
+        k = 2.0 * (1.0 - 0.94 * juce::jlimit (0.0, 1.0, resonance));
         mode = juce::jlimit (0.0f, 1.0f, morph);
     }
-    void reset() { svf.reset(); }
+    void reset() { s1 = s2 = lastHp = lastBp = 0.0; }
     float process (float input)
     {
-        double lp, bp, hp;
-        svf.process (std::tanh ((double) input * 0.9) / 0.9, lp, bp, hp);
+        const auto x = std::tanh ((double) input * 0.9) / 0.9;
+        const auto g1 = g * FilterCore::tanhOverX (otaDrive * lastHp);
+        const auto g2 = g * FilterCore::tanhOverX (otaDrive * lastBp);
+        // TPT SVF with the two integrators' own gains.
+        const auto hp = (x - (k + g2) * s1 - s2) / (1.0 + g1 * (k + g2));
+        const auto bp = g1 * hp + s1;
+        s1 = g1 * hp + bp;
+        const auto lp = g2 * bp + s2;
+        s2 = g2 * bp + lp;
+        lastHp = hp;
+        lastBp = bp;
         const auto m = (double) mode;
         // LP to notch (LP + HP) to HP, keeping level even.
         const auto y = m < 0.5 ? lp + hp * (2.0 * m) : hp + lp * (2.0 - 2.0 * m);
         return (float) y;
     }
 
+    static constexpr double otaDrive = 0.5;
+
 private:
-    Svf2 svf;
+    double g = 0.1, k = 2.0, s1 = 0.0, s2 = 0.0, lastHp = 0.0, lastBp = 0.0;
     float mode = 0.0f;
 };
 
-// OTA cascade (CEM3320 / SSM2040 style): four transconductance stages, each
-// with the differential pair's tanh at its input, resonance fed back from
-// the fourth stage. Low-pass, or band-pass (two low-pass poles and two
-// high-pass differences, as the chip's BP configuration).
+// OTA cascade (CEM3320 / SSM2040 style, FilterCore::StageCascade): four
+// transconductance stages whose differential pairs saturate, the loop solved
+// with zero delay so it self-oscillates at the cutoff. Low-pass with
+// negative feedback, or band-pass (two low-pass and two high-pass stages,
+// as the chip's BP configuration) with positive feedback: both reach the
+// oscillation threshold at k = 4 exactly at the cutoff.
 class OtaFilter
 {
 public:
     void set (double sampleRate, double cutoff, double resonance, bool bandPassMode)
     {
-        const auto g = prewarp (sampleRate, cutoff);
-        bigG = g / (1.0 + g);
-        k = juce::jlimit (0.0, 1.0, resonance) * (bandPassMode ? 3.2 : 3.9);
+        FilterCore::StageCascade::Settings settings;
+        settings.g = FilterCore::prewarp (sampleRate, cutoff);
+        settings.k = juce::jlimit (0.0, 1.0, resonance) * (bandPassMode ? bandK : lowK);
+        settings.positiveFeedback = bandPassMode;
+        settings.highPassStages34 = bandPassMode;
+        settings.stageDrive = bandPassMode ? bandStageDrive : lowStageDrive;
+        cascade.set (settings);
+        k = settings.k;
         bandPass = bandPassMode;
     }
-    void reset() { for (auto& p : poles) p.reset(); feedback = 0.0; }
+    void reset() { cascade.reset(); }
     float process (float input)
     {
-        auto x = std::tanh ((double) input * (1.0 + 0.3 * k) - k * feedback);
-        std::array<double, 4> y {};
-        for (int i = 0; i < 4; ++i)
-        {
-            const auto lp = poles[(size_t) i].lowPass (std::tanh (x), bigG);
-            y[(size_t) i] = bandPass && i >= 2 ? x - lp : lp;
-            x = y[(size_t) i];
-        }
-        feedback = y[3];
-        if (! std::isfinite (feedback)) { reset(); return 0.0f; }
-        return (float) (bandPass ? y[3] * (2.0 + k * 0.5) : y[3]);
+        std::array<double, 4> y;
+        double u;
+        const auto in = (double) input * (bandPass ? bandInput : 1.0 + lowComp * k);
+        cascade.process (in, y, u);
+        return (float) (bandPass ? y[3] * (bandGain + bandPerK * k) : y[3] * lowGain);
     }
 
+    // Fitted to the old models' level tables (every cell within 1 dB).
+    static constexpr double lowK = 4.1, lowStageDrive = 0.562, lowComp = 0.405, lowGain = 0.814;
+    static constexpr double bandK = 4.1, bandStageDrive = 0.730, bandInput = 1.088, bandGain = 1.85, bandPerK = 0.169;
+
 private:
-    std::array<OnePole, 4> poles;
-    double bigG = 0.1, k = 0.0, feedback = 0.0;
+    FilterCore::StageCascade cascade;
+    double k = 0.0;
     bool bandPass = false;
 };
 
@@ -199,38 +219,60 @@ private:
 // Steiner-Parker: one 2-pole loop with three inputs. Feeding the source
 // into the low, band or high input gives H(s) = (a_L + a_B s + a_H s^2) /
 // (s^2 + k s + 1), the same as mixing a state-variable's outputs, which is
-// how it is built here; morph slides the input from low to band to high.
-// Its resonance is diode-limited: the band state is soft-limited in the
-// loop, so it screams without hard clipping.
+// how it is built here (TPT, twice the sample rate); morph slides the input
+// from low to band to high. Its resonance is diode-limited: the damping
+// grows with the band-pass level, so near full resonance the damping goes
+// negative and the loop self-oscillates at the cutoff at a level the
+// diodes hold, without clipping the states.
 class SteinerParker
 {
 public:
     void set (double sampleRate, double cutoff, double resonance, float morph)
     {
-        g = prewarp (sampleRate, cutoff);
-        k = 2.0 - 1.97 * juce::jlimit (0.0, 1.0, resonance);
+        g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
+        const auto r = juce::jlimit (0.0, 1.0, resonance);
+        kOut = 2.0 - 1.97 * r;
+        // As the output's damping up to 0.9, then down through zero (-0.03
+        // at full resonance) so the loop oscillates.
+        kLoop = kOut - 0.6 * juce::jmax (0.0, r - 0.9);
         const auto m = juce::jlimit (0.0f, 1.0f, morph) * 2.0f;
         inLow = (double) juce::jmax (0.0f, 1.0f - m);
         inBand = (double) (1.0f - std::abs (m - 1.0f));
         inHigh = (double) juce::jmax (0.0f, m - 1.0f);
     }
-    void reset() { s1 = s2 = 0.0; }
+    void reset() { s1 = s2 = lastBp = 0.0; oversampler.reset(); }
     float process (float input)
     {
-        const auto x = (double) input;
-        const auto hp = (x - (k + g) * s1 - s2) / (1.0 + k * g + g * g);
-        const auto bp = g * hp + s1;
-        s1 = g * hp + bp;
-        const auto lp = g * bp + s2;
-        s2 = g * bp + lp;
-        s1 = std::tanh (s1 * 0.5) * 2.0;
-        const auto y = inLow * lp + inBand * bp * k * 1.2 + inHigh * hp;
+        double first, second;
+        oversampler.upsample ((double) input, first, second);
+        const auto a = step (first);
+        const auto b = step (second);
+        const auto y = oversampler.downsample (a, b);
         if (! std::isfinite (y)) { reset(); return 0.0f; }
         return (float) y;
     }
 
+    // The diodes' extra damping at large band-pass levels.
+    // Fitted to the old model's level table: within 0.7 dB up to resonance
+    // 0.5; at 0.9 it is 1.8 dB louder at 300 Hz and quieter at 3 kHz (the
+    // old model clipped its states, which depended on the cutoff).
+    static constexpr double diodeDamping = 0.637, diodeScale = 3.3;
+
 private:
-    double g = 0.1, k = 1.4, s1 = 0.0, s2 = 0.0, inLow = 1.0, inBand = 0.0, inHigh = 0.0;
+    double step (double x)
+    {
+        const auto k = kLoop + diodeDamping * (1.0 - FilterCore::tanhOverX (diodeScale * lastBp));
+        const auto hp = (x - (k + g) * s1 - s2) / (1.0 + g * (k + g));
+        const auto bp = g * hp + s1;
+        s1 = g * hp + bp;
+        const auto lp = g * bp + s2;
+        s2 = g * bp + lp;
+        lastBp = bp;
+        return inLow * lp + inBand * bp * kOut * 1.2 + inHigh * hp;
+    }
+
+    FilterCore::Halfband2x oversampler;
+    double g = 0.1, kOut = 1.4, kLoop = 1.4, s1 = 0.0, s2 = 0.0, lastBp = 0.0, inLow = 1.0, inBand = 0.0, inHigh = 0.0;
 };
 
 // Phaser notch: four first-order allpasses around the cutoff (spread an

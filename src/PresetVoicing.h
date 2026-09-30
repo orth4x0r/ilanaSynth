@@ -138,6 +138,47 @@ Lorenz Bass | fx=2,30 fx_aw_algo=28 fx_aw_p1=0.6 fx_aw_p2=0.4 fx_aw_p3=0.3 fx_aw
 Steiner Growl | fx=2,27 fx_vowel_morph=0.3 fx_vowel_mix=0.6 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=VOWEL: fx_vowel_morph 0.5
 Stick-Slip Growl | fx=30,24 fx_drive_on=0 fx_aw_algo=8 fx_aw_p1=0.75 fx_slot1_mix=0.5 fx_shifter_shift=3 fx_shifter_mix=0.3 | m4=SHIFT: fx_shifter_mix 0.5
 Octave Hyper Bass | fx=20,22 fx_width=1.8 fx_width_mix=0.8 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 amp_attack=0.05 amp_velocity=0 f1_cutoff=2500 | m4=WIDTH: fx_width 0.4
+# ---- Leads: archetypes (diversity pass 1) ----
+# Dry and mono: no echo or reverb.
+Ladder Lead | fx=2 fx_delay_on=0 fx_reverb_on=0 | m4=DRIVE: Drive Amount 0.4
+Chip Lead | fx=3 fx_delay_on=0 amp_velocity=0 | m4=CRUNCH: Crush Mix 0.5
+Sync Scream | fx=1,19 fx_delay_on=0 fx_reverb_on=0 fx_util_mono=1 amp_velocity=0 | m4=DRIVE: fx_amp_drive 0.4
+# Dark and mellow.
+Soft Saw Lead | f1_cutoff=650 fx=30 fx_reverb_on=0 fx_aw_algo=10 fx_aw_p1=0.8 amp_attack=0.01 | m4=OPEN: Filter1 Cutoff 0.4
+Theremin | f1_cutoff=1500 fx=30,13 fx_aw_algo=26 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.6 fx_aw_p4=0.3 fx_reverb_on=0 | m4=ROOM: fx_slot1_mix 0.4
+# Slow swells.
+Supersaw Anthem | amp_attack=0.55 fx=7,13 fx_delay_on=0 fx_chorus_on=1 fx_chorus_mix=0.4 | m4=SPACE: Reverb Mix 0.4
+FM Brass Lead | amp_attack=0.9 amp_decay=1.5 amp_sustain=0.2 f1_cutoff=1200 fx_reverb_type=0 | m3=SWELL: Amp Attack -0.4
+MPE Lead | amp_attack=0.7 fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.5 fx_aw_p2=0.6 fx_aw_p3=0.4 fx_aw_p4=0.8 fx_aw_p5=0.4 | m4=SPACE: fx_slot1_mix 0.5
+# Wide, spaced and decaying.
+Glass Lead | amp_sustain=0.15 amp_decay=1.2 fx=30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=1 fx_aw_p2=0.3 fx_aw_p3=1 | m4=WIDTH: fx_slot1_mix 0.5
+Stereo Bend Lead | fx=9,30 fx_reverb_on=0 fx_aw_algo=28 fx_aw_p1=0.8 fx_aw_p2=0.2 fx_aw_p3=0.7 fx_aw_p4=0.6 fx_aw_p5=0.3 | m4=SPACE: fx_slot2_mix 0.5
+Legato Glide Lead | fx=9,30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.5 fx_aw_p2=0.5 fx_aw_p3=0.4 fx_aw_p4=0.3 fx_aw_p5=0.3 | m4=CHAMBER: fx_slot2_mix 0.5
+Formant Shifter | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=25 fx_aw_p1=0.3 | m4=SPACE: fx_slot1_mix 0.6
+Frozen Grain Lead | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.7 fx_aw_p2=0.4 fx_aw_p3=0.7 fx_aw_p4=1 fx_aw_p5=0.5 | m4=GALAXY: fx_slot1_mix 0.5
+# Airwindows drive.
+Acid Squelch Lead | fx=30,9 fx_drive_on=0 fx_aw_algo=36 fx_aw_p1=0.65 fx_aw_p2=0.6 fx_aw_p3=1 fx_slot1_mix=0.5 | m4=HEAT: fx_slot1_mix 0.5
+Scream Lead | fx=30,9 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.75 fx_aw_p2=0.7 | m4=ECHO: Delay Mix 0.4
+Key FM Scream | fx=30,9 fx_drive_on=0 fx_reverb_on=0 fx_aw_algo=4 fx_aw_p1=0.5 fx_aw_p2=0.1 fx_aw_p3=0.8 fx_aw_p4=1 fx_slot1_mix=0.5 | m4=DRIVE: fx_slot1_mix 0.5
+Octave Screamer | fx=30,21 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=35 fx_aw_p1=0.6 fx_aw_p2=0.8 fx_aw_p3=1 fx_slot1_mix=0.5 | m4=SLAM: fx_slot1_mix 0.5
+# Lo-fi and rhythm.
+Tape Lead | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.65 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 | m4=WOW: Drift 0.5
+Glitch Lead | fx=30,9 fx_crush_on=0 fx_aw_algo=32 fx_aw_p1=0.3 fx_aw_p2=0.5 fx_aw_p3=0.8 fx_aw_p4=0.8 |
+S&H Techno | fx=2,16 fx_delay_on=0 fx_gate_div=4 fx_gate_mix=0.7 | m4=CHOP: fx_gate_mix 0.3
+# The voted-down vowel leads: drier, less extreme.
+Vowel Lead | fx_reverb_on=0 fx=27,2 fx_vowel_mix=0.35 |
+Vowel Bank Voice | fx_reverb_mix=0.1 amp_attack=0.06 |
+Talking Filter Lead | amp_attack=0.02 |
+Vintage Mono Lead | fx=1 fx_delay_on=0 f1_cutoff=500 glide=0.08 amp_attack=0.012 | m4=DRIFT: Drift 0.5
+SEM Classic Lead | amp_attack=0.25 fx=9 fx_reverb_on=0 fx_delay_mix=0.3 | m4=ECHO: Delay Mix 0.4
+Talkbox Lead | fx=9,23 fx_reverb_on=0 fx_trem_rate=6 fx_trem_depth=0.4 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=TREMOLO: fx_trem_depth 0.5
+Formant Scream II | fx=1,14 fx_reverb_on=0 fx_flanger_rate=0.3 fx_flanger_depth=0.8 fx_flanger_feedback=0.7 fx_flanger_mix=0.5 | m4=JET: fx_flanger_mix 0.5
+Fifth Stack Lead | amp_attack=0.2 fx=7,30 fx_drive_on=0 fx_reverb_on=0 fx_chorus_on=1 fx_chorus_mix=0.5 fx_aw_algo=24 fx_aw_p1=0.5 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.35 | m4=SPACE: fx_slot2_mix 0.5
+Six-Layer Stack | fx=20,22 fx_reverb_on=0 fx_ott_amount=0.5 fx_ott_mix=0.6 fx_width=1.9 fx_width_mix=0.8 | m4=WIDTH: fx_width 0.3
+Hollow Pulse Lead | fx=7,9 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay_feedback=0.4 fx_delay_mix=0.3 fx_delay_pingpong=1 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 f1_cutoff=8000 | m4=ECHO: Delay Mix 0.4
+Fifth Engine | fx=30 fx_reverb_on=0 fx_delay_on=0 fx_aw_algo=32 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.8 |
+Ring Lead | amp_decay=0.5 amp_sustain=0.2 fx_reverb_type=0 fx_reverb_mix=0.2 |
+Diode Screamer | fx=30,21 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=6 fx_aw_p1=0.9 fx_slot1_mix=0.5 amp_attack=0.2 amp_decay=0.8 amp_sustain=0.05 | m4=DRIVE: fx_slot1_mix 0.5
 )VOICING";
 }
 } // namespace Presets

@@ -276,10 +276,10 @@ void runProcessorTests()
                    && restored.apvts.getRawParameterValue ("tuning_on")->load() < 0.5f,
                "tuning: a state without a tuning loads as 12-TET");
 
-        // A factory preset is 12-TET too.
+        // Browsing factory presets keeps the loaded tuning (they carry none).
         source.loadFactoryPreset (1);
-        check (! source.getTuningState().hasScale() && source.apvts.getRawParameterValue ("tuning_on")->load() < 0.5f,
-               "tuning: a factory preset goes back to 12-TET");
+        check (source.getTuningState().hasScale() && source.apvts.getRawParameterValue ("tuning_on")->load() > 0.5f,
+               "tuning: a loaded scale stays on through factory presets");
     }
 
     // Tuning off renders exactly as before, even with a scale loaded.

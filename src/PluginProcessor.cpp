@@ -6154,13 +6154,19 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                 resetUserTableToDefault (i);
     }
 
-    tuningState.reset(); // factory presets are 12-TET (tuning_on goes off below)
+    // A loaded Scala tuning stays through preset browsing (factory presets
+    // carry none): tuning_on keeps its value across the reset to defaults.
+    const auto tuningWasOn = getParam (tuningOnRef) > 0.5f;
 
     for (auto* parameter : getParameters())
     {
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
             ranged->setValueNotifyingHost (ranged->getDefaultValue());
     }
+
+    if (tuningWasOn)
+        if (auto* parameter = apvts.getParameter ("tuning_on"))
+            parameter->setValueNotifyingHost (1.0f);
 
     // The original 80 presets predate the separate sub; move them over.
     std::vector<std::pair<juce::String, float>> values;

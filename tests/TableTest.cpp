@@ -8437,6 +8437,7 @@ void runProfile (int unison)
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
 #include "SplitterTests.inc"
+#include "ClipTests.inc"
 #include "DemoRender.inc"
 
 // ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
@@ -8607,6 +8608,13 @@ int main()
     {
         runSplitterTests();
         std::cout << (failures == 0 ? "SPLITTER TESTS PASSED" : "SPLITTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_CLIP_TEST", "").isNotEmpty())
+    {
+        runClipTests();
+        std::cout << (failures == 0 ? "CLIP TESTS PASSED" : "CLIP TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -8994,6 +9002,7 @@ int main()
     runFilterOverhaulTests();
     runMultiSampleTests();
     runSplitterTests();
+    runClipTests();
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")
               << " (" << failures << " failures)" << std::endl;

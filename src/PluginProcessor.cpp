@@ -202,6 +202,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         parameter->addListener (&paramEpochListener);
 
     arpHeldNotes.ensureStorageAllocated (128);
+    clipHeld.ensureStorageAllocated (128);
+    clipActive.reserve (1024);
     arpChordActive.ensureStorageAllocated (128);
     arpChordNotes.ensureStorageAllocated (128);
     spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
@@ -1403,6 +1405,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fx_voc_level", "Vocoder Level", -12.0f, 12.0f, 0.0f);
     addFloat ("fx_voc_mix", "Vocoder Mix", 0.0f, 1.0f, 1.0f);
 
+    // Clip sequencer (the notes are saved in the patch, see ClipState).
+    addBool ("clip_on", "Clip On", false);
+    addChoice ("clip_index", "Clip", { "1", "2", "3", "4", "5", "6", "7", "8" }, 0);
+    addChoice ("clip_mode", "Clip Mode", { "Key transpose", "Host play" }, 0);
+
     return layout;
 }
 
@@ -1568,6 +1575,11 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     noteSpray.reset();
     arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (4096);
+    clipScratch.ensureSize (8192);
+    clipActive.clear();
+    clipHeld.clearQuick();
+    clipRunning = clipUsedHost = false;
+    clipLastIndex = clipLastMode = -1;
     // A new stream: nothing to ease from.
     for (int channel = 0; channel < 2; ++channel)
         lastOutput[channel] = declick[channel] = 0.0f;
@@ -2575,6 +2587,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     processArpeggiator (generatedMidi, buffer.getNumSamples(), midiForSynth);
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
+    processClip (midiForSynth, buffer.getNumSamples());
 
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.
@@ -5767,6 +5780,237 @@ void IlanaSynthAudioProcessor::addEuclidExciterHits (juce::MidiBuffer& midi, int
     euclidExciterPhase = std::fmod (end, 4096.0);
 }
 
+// Clip sequencer: plays the current clip (ClipState) as note events in the
+// synth's MIDI, before the voices render. Key transpose: the held key (C3
+// plays the clip as written) starts it and gates it, and the played keys
+// don't reach the voices; it follows the host's beat while the transport
+// plays, else counts from the key. Host play: it plays only while the host
+// does, on the host's beat, and the played keys still sound. With the clip
+// off nothing is touched (the sounding notes are released once).
+void IlanaSynthAudioProcessor::processClip (juce::MidiBuffer& midi, int numSamples)
+{
+    const auto on = getParam (clipOnRef) > 0.5f;
+
+    if (! on)
+    {
+        if (clipWasOn)
+        {
+            for (const auto& active : clipActive)
+                midi.addEvent (juce::MidiMessage::noteOff (1, active.note), 0);
+
+            clipActive.clear();
+
+            // Keys still held in Key transpose were taken out of the MIDI:
+            // give them back to the synth so they sound again.
+            for (auto note : clipHeld)
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, clipHeldVelocity[(size_t) note]), 0);
+
+            clipHeld.clearQuick();
+            clipWasOn = clipRunning = false;
+            clipLastIndex = clipLastMode = -1;
+            clipPlayhead.store (-1.0f);
+        }
+
+        return;
+    }
+
+    clipWasOn = true;
+    const auto& clips = clipState.acquireForAudio();
+    const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) getParam (clipIndexRef));
+    const auto& clip = clips[(size_t) index];
+    const auto hostMode = (int) getParam (clipModeRef) == 1;
+    const auto playing = hostPlaying.load();
+    const auto rate = (juce::jmax (20.0, currentBpm.load()) / 60.0) / currentSampleRate; // beats per sample
+    const auto lengthBeats = (double) (clip.bars * ClipState::beatsPerBar);
+    const auto lastSample = juce::jmax (0, numSamples - 1);
+
+    // Where the notes go: straight into the buffer, or (Key transpose,
+    // which takes the played keys out) into a copy that replaces it.
+    auto* out = &midi;
+
+    if (! hostMode)
+    {
+        clipScratch.clear();
+        out = &clipScratch;
+    }
+
+    const auto releaseAll = [&out, this] (int position)
+    {
+        for (const auto& active : clipActive)
+            out->addEvent (juce::MidiMessage::noteOff (1, active.note), position);
+
+        clipActive.clear();
+    };
+
+    if (index != clipLastIndex || (int) hostMode != clipLastMode)
+    {
+        releaseAll (0);
+
+        if (hostMode && clipLastMode == 0)
+            for (auto note : clipHeld)
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, clipHeldVelocity[(size_t) note]), 0);
+
+        clipHeld.clearQuick();
+        clipRunning = false;
+        clipLastIndex = index;
+        clipLastMode = (int) hostMode;
+    }
+
+    if (hostMode)
+    {
+        if (! playing)
+        {
+            releaseAll (0);
+            clipRunning = clipUsedHost = false;
+            clipPlayhead.store (-1.0f);
+            return;
+        }
+
+        clipRunning = true;
+    }
+
+    // The clock: the host's beat while it plays (a jump, a loop or a start
+    // drops the sounding notes), else a count from zero.
+    if (playing)
+    {
+        const auto ppq = hostPpq.load();
+
+        if (! clipUsedHost || std::abs (ppq - clipExpected) > 0.05)
+            releaseAll (0);
+
+        clipBase = ppq;
+    }
+    else if (clipUsedHost)
+    {
+        releaseAll (0);
+        clipBase = 0.0;
+    }
+
+    clipUsedHost = playing;
+
+    // Note events for the samples [from, to), on the beat clock.
+    const auto generate = [&] (int from, int to)
+    {
+        if (to <= from || rate <= 0.0)
+            return;
+
+        const auto b0 = clipBase + (double) from * rate;
+        const auto b1 = clipBase + (double) to * rate;
+        const auto transpose = hostMode || clipHeld.isEmpty() ? 0 : clipHeld.getLast() - ClipState::rootNote;
+        const auto samplePosition = [&] (double beat)
+        {
+            return juce::jlimit (from, to - 1, from + (int) std::ceil ((beat - b0) / rate - 1.0e-9));
+        };
+
+        for (auto loop = std::floor (b0 / lengthBeats); loop * lengthBeats < b1; loop += 1.0)
+        {
+            for (const auto& n : clip.notes)
+            {
+                const auto start = loop * lengthBeats + (double) n.start;
+
+                if (start < b0 || start >= b1 || (double) n.start >= lengthBeats)
+                    continue;
+
+                const auto position = samplePosition (start);
+                const auto pitch = juce::jlimit (0, 127, n.note + transpose);
+
+                // The same pitch still sounding is released first.
+                for (size_t i = 0; i < clipActive.size(); ++i)
+                    if (clipActive[i].note == pitch)
+                    {
+                        out->addEvent (juce::MidiMessage::noteOff (1, pitch), position);
+                        clipActive.erase (clipActive.begin() + (std::ptrdiff_t) i);
+                        break;
+                    }
+
+                out->addEvent (juce::MidiMessage::noteOn (1, pitch, (juce::uint8) n.velocity), position);
+                clipActive.push_back ({ pitch, loop * lengthBeats + juce::jmin (lengthBeats, (double) (n.start + n.length)) });
+            }
+        }
+
+        for (size_t i = 0; i < clipActive.size();)
+        {
+            if (clipActive[i].endBeat < b1)
+            {
+                out->addEvent (juce::MidiMessage::noteOff (1, clipActive[i].note), samplePosition (clipActive[i].endBeat));
+                clipActive.erase (clipActive.begin() + (std::ptrdiff_t) i);
+            }
+            else
+            {
+                ++i;
+            }
+        }
+    };
+
+    if (hostMode)
+    {
+        generate (0, numSamples);
+    }
+    else
+    {
+        // Walk the keys event by event so the clip starts and stops on their samples.
+        auto position = 0;
+
+        for (const auto metadata : midi)
+        {
+            const auto eventPosition = juce::jlimit (0, lastSample, metadata.samplePosition);
+
+            if (clipRunning)
+                generate (position, eventPosition);
+
+            position = juce::jmax (position, eventPosition);
+            const auto message = metadata.getMessage();
+            auto taken = false;
+
+            if (message.isNoteOn())
+            {
+                taken = true;
+                const auto wasEmpty = clipHeld.isEmpty();
+                clipHeld.removeAllInstancesOf (message.getNoteNumber());
+                clipHeld.add (message.getNoteNumber());
+                clipHeldVelocity[(size_t) message.getNoteNumber()] = message.getVelocity();
+
+                if (wasEmpty)
+                {
+                    clipRunning = true;
+
+                    if (! playing)
+                        clipBase = -(double) position * rate; // beat 0 on this sample
+                }
+            }
+            else if (message.isNoteOff() && clipHeld.contains (message.getNoteNumber()))
+            {
+                taken = true;
+                clipHeld.removeAllInstancesOf (message.getNoteNumber());
+
+                if (clipHeld.isEmpty())
+                {
+                    releaseAll (position);
+                    clipRunning = false;
+                }
+            }
+            else if (message.isAllNotesOff() || message.isAllSoundOff())
+            {
+                clipHeld.clearQuick();
+                releaseAll (position);
+                clipRunning = false;
+            }
+
+            if (! taken)
+                clipScratch.addEvent (message, eventPosition);
+        }
+
+        if (clipRunning)
+            generate (position, numSamples);
+
+        midi.swapWith (clipScratch);
+    }
+
+    clipBase += (double) numSamples * rate;
+    clipExpected = clipBase;
+    clipPlayhead.store (clipRunning ? (float) std::fmod (std::fmod (clipBase, lengthBeats) + lengthBeats, lengthBeats) : -1.0f);
+}
+
 const Wavetable* IlanaSynthAudioProcessor::getTableForChoice (int choiceIndex) const
 {
     const auto& factory = FactoryTables::get().tables;
@@ -6914,6 +7158,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         state.appendChild (samples, nullptr);
 
     tuningState.saveTo (state);
+    clipState.saveTo (state);
 
     return state;
 }
@@ -7156,6 +7401,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     patchCut = true;
     auto state = stateIn.createCopy();
     tuningState.loadFrom (state); // no Tuning child: 12-TET
+    clipState.loadFrom (state);   // no Clips child: no clips
     {
         // Pre-mask M3b states saved a count of revealed envelopes.
         auto envMask = (int) state.getProperty ("envRevealMask", defaultRevealMask);

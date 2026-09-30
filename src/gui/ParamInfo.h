@@ -426,6 +426,11 @@ inline juce::String describeParameter (const juce::String& id)
         return "Changes the string across the keyboard: stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";
     if (id == "tuning_on") return "Plays the Scala scale (and keyboard mapping) loaded from the settings menu instead of 12-TET. STRETCH still applies on top.";
+    if (id == "clip_on") return "Clip sequencer: plays the notes of the chosen clip. Off leaves the keyboard alone.";
+    if (id == "clip_index") return "Which of the eight clips plays and is shown in the piano roll.";
+    if (id == "clip_mode")
+        return "Key transpose: a held key plays the clip, transposed from C3 (the clip as written), and gates it, like the arp. "
+               "Host play: the clip plays in sync with the host's transport while it runs.";
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
     if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
     if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";

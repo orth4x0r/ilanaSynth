@@ -27,6 +27,7 @@
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
 #include "gui/GenerativeWidgets.h"
+#include "gui/ClipEditor.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
 #include "gui/LfoThumbs.h"
@@ -3784,7 +3785,7 @@ public:
           sprayOn (p.apvts, "spray_on", "ON"),
           sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
           sprayStrum (p.apvts, "spray_strum", "MODE"),
-          engineTabs ({ "ARP", "EUCLID", "PROB SEQ" }, { arpColour(), euclidColour(), pseqColour() }, false),
+          engineTabs ({ "ARP", "EUCLID", "PROB SEQ", "CLIP" }, { arpColour(), euclidColour(), pseqColour(), clipColour() }, false),
           euclidDisplay (p, euclidColour()),
           eucOn (p.apvts, "euc_on", "ON"),
           eucTarget (p.apvts, "euc_target", "TARGET"),
@@ -3797,7 +3798,12 @@ public:
           pseqOn (p.apvts, "pseq_on", "ON"),
           pseqDiv (p.apvts, "pseq_div", "RATE"),
           pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), true),
-          pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), true)
+          pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), true),
+          clipEditor (p, clipColour()),
+          clipOn (p.apvts, "clip_on", "ON"),
+          clipIndex (p.apvts, "clip_index", "CLIP"),
+          clipMode (p.apvts, "clip_mode", "MODE"),
+          clipBars (p, "LENGTH")
     {
         sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), true);
         sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), true);
@@ -3810,7 +3816,12 @@ public:
 
         // The Generative card: ARP, EUCLID and PROB SEQ share one card.
         addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
-                pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate);
+                pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate, clipEditor, clipOn, clipIndex, clipMode, clipBars,
+                clipImport);
+        clipImport.setButtonText ("Import MIDI...");
+        clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
+                               "replacing its notes. The clip's length becomes the file's, in whole bars.");
+        clipImport.onClick = [this] { importMidiFile(); };
         engineTabs.onSelect = [this] (int) { showEngineTab(); };
 
         addAndMakeVisible (step1);
@@ -3845,7 +3856,7 @@ public:
                 arpDisplay, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
 
         // Open on whichever part of the card is switched on.
-        engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : 0, false);
+        engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : readOn ("clip_on") ? 3 : 0, false);
         showEngineTab();
 
         if (part == Part::notes)
@@ -3861,7 +3872,8 @@ public:
         {
             for (auto* control : std::initializer_list<juce::Component*> {
                      &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
-                     &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &arpDisplay, &arpOn, &arpMode, &arpDiv,
+                     &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
+                     &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
                      sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
                 control->setVisible (false);
@@ -3877,6 +3889,7 @@ public:
     static juce::Colour generateColour() { return IlanaTheme::accent(); }
     static juce::Colour euclidColour() { return IlanaTheme::accent(); }
     static juce::Colour pseqColour() { return IlanaTheme::accent(); }
+    static juce::Colour clipColour() { return IlanaTheme::accent(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -3921,7 +3934,7 @@ public:
         }
 
         const auto tab = engineTabs.getSelected();
-        const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : arpColour();
+        const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : tab == 3 ? clipColour() : arpColour();
         IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, tabColour.withAlpha (0.35f));
         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
         IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (26), "GENERATE",
@@ -3930,6 +3943,7 @@ public:
         {
             // The subtitle says what the tab shown does right now.
             const auto arpOnNow = readOn ("arp_on"), seqOnNow = readOn ("pseq_on"), euclidOnNow = readOn ("euc_on");
+            const auto clipOnNow = readOn ("clip_on");
             juce::String hint;
 
             if (tab == 0)
@@ -3938,10 +3952,13 @@ public:
                 hint = (int) readValue ("euc_target") == 0 ? (arpOnNow || seqOnNow ? "rests the steps between hits" : "plays the held chord on each hit")
                      : (int) readValue ("euc_target") == 1 ? "re-strikes Physical strings on each hit"
                                                            : "drives the Trance Gate effect (add it in FX)";
-            else
+            else if (tab == 2)
                 hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
+            else
+                hint = (int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, other keys transpose it"
+                                                          : "plays in sync with the host transport";
 
-            if (tab == 1 && ! euclidOnNow)
+            if ((tab == 1 && ! euclidOnNow) || (tab == 3 && ! clipOnNow))
                 hint = "switch it on (top right) to use it";
 
             IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", hint, tabColour,
@@ -4040,7 +4057,7 @@ public:
         // The shown engine's on switch in the header's switch place, its tabs
         // just left of it.
         const auto engineSwitch = IlanaTheme::cardSwitchBounds (arpCard, header.getCentreY());
-        for (auto* toggle : { &arpOn, &eucOn, &pseqOn })
+        for (auto* toggle : { &arpOn, &eucOn, &pseqOn, &clipOn })
             toggle->setBounds (engineSwitch);
         header.setRight (engineSwitch.getX() - 8);
         engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
@@ -4051,12 +4068,20 @@ public:
         arpDisplay.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
+        clipEditor.setBounds (display);
 
         // Every engine's row on one six-column grid, packed from the left,
         // and the same grid runs through Generate below.
         layoutRow (arpArea, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, nullptr });
         layoutRow (arpArea, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
         layoutRow (arpArea, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
+        layoutRow (arpArea, { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
+        // LENGTH and the import button continue the row on its grid.
+        {
+            const auto column = arpArea.getWidth() / 6;
+            clipBars.setBounds (clipMode.getBounds().translated (column, 0));
+            clipImport.setBounds (clipMode.getBounds().translated (column * 2, 0).withTrimmedTop (13));
+        }
 
         // Generate: three groups side by side, each under its own heading:
         // SCALE (two columns), STRUM (one) and NOTE SPRAY (three, its
@@ -4180,6 +4205,8 @@ private:
 
         dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
         dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
+        dim ({ &clipIndex, &clipMode, &clipBars, &clipImport }, readOn ("clip_on"));
+        clipBars.refresh();
         dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
         repaint (engineHint);
         repaint (stepTitle1); // their notes follow the LFOs' shapes
@@ -4221,7 +4248,45 @@ private:
         for (auto* control : std::initializer_list<juce::Component*> { &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate })
             control->setVisible (tab == 2);
 
+        for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
+                                                                        &clipImport })
+            control->setVisible (tab == 3);
+
         repaint();
+    }
+
+    // Reads a .mid file into the chosen clip (IMPORT MIDI).
+    void importMidiFile()
+    {
+        clipChooser = std::make_unique<juce::FileChooser> ("Import MIDI into the clip",
+                                                           juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                           "*.mid;*.midi");
+        juce::Component::SafePointer<SeqPage> safeThis (this);
+
+        clipChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [safeThis] (const juce::FileChooser& chooser)
+                                  {
+                                      const auto file = chooser.getResult();
+
+                                      if (safeThis == nullptr || ! file.existsAsFile())
+                                          return;
+
+                                      Clip imported;
+                                      juce::String error;
+
+                                      if (! ClipState::importMidi (file, imported, error))
+                                      {
+                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
+                                          return;
+                                      }
+
+                                      auto& processor = safeThis->processorRef;
+                                      const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) safeThis->readValue ("clip_index"));
+                                      processor.getClipState().setClip (index, std::move (imported));
+                                      processor.clipsEdited();
+                                      safeThis->clipEditor.reload (true);
+                                      safeThis->clipBars.refresh();
+                                  });
     }
 
     Part part;
@@ -4248,6 +4313,12 @@ private:
     ToggleControl pseqOn;
     ComboControl pseqDiv;
     KnobControl pseqLength, pseqGate;
+    ClipEditor clipEditor;
+    ToggleControl clipOn;
+    ComboControl clipIndex, clipMode;
+    ClipBarsControl clipBars;
+    juce::TextButton clipImport;
+    std::unique_ptr<juce::FileChooser> clipChooser;
     juce::Rectangle<int> engineHint;
     juce::Rectangle<int> sprayDivider, scaleDivider, strumDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;

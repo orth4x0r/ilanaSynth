@@ -36,6 +36,7 @@
 #include "dsp/Wavetable.h"
 #include "dsp/WavetableDoc.h"
 #include "TuningState.h"
+#include "ClipState.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
@@ -433,6 +434,11 @@ public:
     bool loadTuningMapping (const juce::String& kbmText, juce::String& error);
     void resetTuning();
     const TuningState& getTuningState() const { return tuningState; }
+    // The clip sequencer's clips, saved in the patch (ClipState). Message thread.
+    ClipState& getClipState() { return clipState; }
+    void clipsEdited() { ++dataEpoch; }
+    // The beat the clip has reached (0 to its length), or -1 when it isn't playing.
+    float getClipPlayhead() const { return clipPlayhead.load(); }
     // MTS-ESP: a tuning master in the session overrides the Scala tuning.
     bool isMtsEspConnected() const { return mtsEsp.hasMaster(); }
     juce::String getMtsEspScaleName() const { return juce::String::fromUTF8 (mtsEsp.scaleName()); }
@@ -442,6 +448,7 @@ public:
 
 private:
     TuningState tuningState;
+    ClipState clipState;
     MtsEspClient mtsEsp;
     Tuning mtsTuning; // filled from the master each block while one is connected
     void handleAsyncUpdate() override;
@@ -569,6 +576,19 @@ private:
     long long engineStepCount = 0;
     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
+    // Clip sequencer: plays the current clip into the synth's MIDI.
+    void processClip (juce::MidiBuffer& midi, int numSamples);
+    struct ClipActiveNote { int note; double endBeat; };
+    ParamRef clipOnRef { "clip_on" }, clipIndexRef { "clip_index" }, clipModeRef { "clip_mode" };
+    juce::MidiBuffer clipScratch;
+    std::vector<ClipActiveNote> clipActive;
+    juce::Array<int> clipHeld; // keys down, in press order (Key transpose)
+    std::array<juce::uint8, 128> clipHeldVelocity {}; // their velocities, to give them back
+    double clipBase = 0.0;     // the beat at the block's first sample
+    double clipExpected = 0.0; // where the host's beat should be next block
+    bool clipWasOn = false, clipRunning = false, clipUsedHost = false;
+    int clipLastIndex = -1, clipLastMode = -1;
+    std::atomic<float> clipPlayhead { -1.0f };
     int arpRatchetNote = 0, arpRatchetsLeft = 0, arpRatchetInterval = 0, arpRatchetCounter = 0;
     double euclidExciterPhase = 0.0;
     long long euclidExciterLastStep = -1;

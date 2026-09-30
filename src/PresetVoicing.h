@@ -179,6 +179,38 @@ Hollow Pulse Lead | fx=7,9 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay
 Fifth Engine | fx=30 fx_reverb_on=0 fx_delay_on=0 fx_aw_algo=32 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.8 |
 Ring Lead | amp_decay=0.5 amp_sustain=0.2 fx_reverb_type=0 fx_reverb_mix=0.2 |
 Diode Screamer | fx=30,21 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=6 fx_aw_p1=0.9 fx_slot1_mix=0.5 amp_attack=0.2 amp_decay=0.8 amp_sustain=0.05 | m4=DRIVE: fx_slot1_mix 0.5
+# ---- Plucks: archetypes (diversity pass 1) ----
+# Dry and close.
+Ladder Pluck | fx=2 fx_delay_on=0 fx_reverb_on=0 fx_drive_on=1 fx_drive_amount=0.3 fx_drive_mix=0.5 | m4=DRIVE: Drive Amount 0.5
+Diode Blip | fx=19 fx_delay_on=0 fx_reverb_on=0 fx_util_mono=1 amp_velocity=0 | m4=SNAP: Amp Decay 0.4
+Muted Guitar | fx=1 fx_delay_on=0 | m4=AMP: fx_amp_drive 0.4
+Pizzicato | fx=30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.25 fx_aw_p2=0.2 fx_aw_p3=0.5 fx_aw_p4=0.3 fx_aw_p5=0.25 | m4=HALL: fx_slot1_mix 0.5
+Kalimba | fx=30 fx_reverb_on=0 fx_aw_algo=10 fx_aw_p1=0.85 |
+KS Marimba | fx=19 fx_reverb_on=0 amp_velocity=0.8 |
+# Wide and shimmering.
+Glass Mallet | fx=30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=1 fx_aw_p2=0.3 fx_aw_p3=1 | m4=WIDTH: fx_slot1_mix 0.5
+Plucked Bell Stack | fx=30 fx_reverb_on=0 fx_aw_algo=25 fx_aw_p1=0.45 | m4=CATHEDRAL: fx_slot1_mix 0.5
+Ratio Snap Bell | fx=30 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.6 fx_aw_p2=0.7 fx_aw_p3=0.6 fx_aw_p4=1 fx_aw_p5=0.4 | m4=GALAXY: fx_slot1_mix 0.5
+PD Metallic Bell | fx=7,30 fx_reverb_on=0 fx_chorus_on=1 fx_chorus_mix=0.5 fx_aw_algo=28 fx_aw_p1=0.9 fx_aw_p2=0.2 fx_aw_p3=0.6 fx_aw_p4=0.7 fx_aw_p5=0.3 | m4=SPACE: fx_slot2_mix 0.5
+# Slow-attack and bowed plucks.
+Hypersaw Pluck | amp_attack=0.2 amp_decay=0.9 fx=15,9 fx_reverb_on=0 fx_dim_mix=0.6 | m4=ECHO: Delay Mix 0.4
+Warp Pluck | amp_attack=0.35 fx=6,9 fx_reverb_on=0 fx_phaser_on=1 fx_phaser_rate=0.4 fx_phaser_depth=0.7 fx_phaser_mix=0.5 | m4=PHASE: fx_phaser_mix 0.5
+Formant Pluck | amp_attack=0.5 amp_decay=1.2 fx=27,9 fx_reverb_on=0 fx_vowel_mix=0.4 | m4=VOWEL: fx_vowel_morph 0.5
+# Lo-fi and driven.
+Quad Mod Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=32 fx_aw_p1=0.35 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.7 |
+Resonator Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.6 fx_aw_p3=0.8 fx_slot1_mix=0.5 | m4=HEAT: fx_slot1_mix 0.5
+Tap Pluck | fx=30 fx_reverb_on=0 fx_delay_on=0 fx_aw_algo=31 fx_aw_p1=0.5 fx_aw_p2=0.6 fx_aw_p3=0.2 fx_aw_p4=0.6 |
+Chord Stab | fx=30,9 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.7 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 | m4=ECHO: Delay Mix 0.4
+Minor Chord Stab | fx=4,30 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.7 fx_aw_p2=0.6 |
+# Echo, rhythm and motion.
+Comb Harp | fx=21,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=7 fx_delay_feedback=0.5 fx_delay_mix=0.3 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
+Metal Keys | fx=23,9 fx_reverb_on=0 fx_trem_rate=7 fx_trem_depth=0.5 fx_trem_shape=4 | m4=TREMOLO: fx_trem_depth 0.5
+Arp Glass | fx=16,13 fx_gate_div=4 fx_gate_mix=0.6 fx_reverb_mix=0.25 | m4=CHOP: fx_gate_mix 0.4
+Glass Keys | fx=14 fx_reverb_on=0 fx_flanger_rate=0.15 fx_flanger_depth=0.6 fx_flanger_feedback=0.5 fx_flanger_mix=0.5 | m4=JET: fx_flanger_mix 0.5
+Smear Pluck | fx=11,30 fx_reverb_on=0 fx_aw_algo=26 fx_aw_p1=0.8 fx_aw_p2=0.8 fx_aw_p3=0.5 fx_aw_p4=0.6 | m4=SMEAR: Smear Mix 0.5
+# Registers.
+Resonant Drop | osc1_semi+=-12 osc2_semi+=-12 sub_semi+=-12 fx_reverb_on=0 fx=9 |
+Nylon Twelve | fx=7,30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.3 fx_aw_p2=0.3 fx_aw_p3=0.5 fx_aw_p4=0.2 fx_aw_p5=0.3 |
 )VOICING";
 }
 } // namespace Presets

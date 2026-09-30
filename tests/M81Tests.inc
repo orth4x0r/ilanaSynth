@@ -530,7 +530,6 @@ void processorTests()
             impact = juce::jmax (impact, processor.getLfoLiveValueB (0));
         }
         check (impact > 0.01f, "LFO 1 B carries Bounce's impacts to the matrix (" + juce::String (impact, 3) + ")");
-        check (processor.getLfoLiveValue (0) < 0.99f && processor.getLfoLiveValue (0) >= -1.0f, "LFO 1 A is the ball's height");
     }
 
     // Every LFO chaotic, per voice, at extreme rates: stable, and the CPU

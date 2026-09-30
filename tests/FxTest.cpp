@@ -204,8 +204,7 @@ int main()
         mono.inputBuses.add (juce::AudioChannelSet::mono());
         mono.outputBuses.add (juce::AudioChannelSet::stereo());
         check (processor.checkBusesLayoutSupported (mono), "a mono input works too");
-        check (processor.getCurrentPresetName() == "Live Body" || processor.getFactoryPresetNames().indexOf ("Live Body") >= 0,
-               "the effect opens on Live Body");
+        check (processor.getCurrentPresetName() == "Live Body", "the effect opens on Live Body");
     }
 
     // Nothing routed: the input doesn't leak through; DRY puts it back.
@@ -488,24 +487,17 @@ int main()
         find (*editor);
         const auto index = tabs != nullptr ? tabs->getTabNames().indexOf ("INPUT") : -1;
         check (index >= 0 && index == tabs->getNumTabs() - 1, "ilanaSynth FX has an INPUT page (the last tab)");
-        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory);
-        const auto snap = [&editor, &folder] (const juce::String& name)
-        {
-            const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
-            const auto file = folder.getChildFile (name);
-            file.deleteFile();
-            juce::FileOutputStream stream (file);
-            juce::PNGImageFormat().writeImageToStream (image, stream);
-        };
+        // The INPUT page and the OSC page (a Live oscillator) paint.
+        const auto paint = [&editor] { editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f); };
         if (index >= 0)
         {
             tabs->setCurrentTabIndex (index);
             juce::MessageManager::getInstance()->runDispatchLoopUntil (300);
-            snap ("ilana-fx-input.png");
+            paint();
             tabs->setCurrentTabIndex (tabs->getTabNames().indexOf ("OSC"));
             processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Live Wah"));
             juce::MessageManager::getInstance()->runDispatchLoopUntil (400);
-            snap ("ilana-fx-osc.png");
+            paint();
         }
         editor.reset();
     }

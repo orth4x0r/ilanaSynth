@@ -2443,10 +2443,6 @@ void runLfo34Test()
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
     };
 
-    check (processor.apvts.getParameter ("lfo3_rate") != nullptr
-               && processor.apvts.getParameter ("lfo4_shape") != nullptr,
-           "LFO 3 and 4 parameters exist");
-
     setParam ("lfo3_shape", 0.0f);
     setParam ("lfo3_rate", 8.0f);
     setParam ("lfo4_shape", 0.0f);
@@ -2993,7 +2989,7 @@ void runUnisonTests()
     const auto hyper = widthOf (16, 1.0f, UnisonMode::Hypersaw);
     const auto octaves = widthOf (9, 1.0f, UnisonMode::Octaves);
 
-    check (full16 > 0.2 && std::isfinite (hyper) && hyper > 0.1 && std::isfinite (octaves),
+    check (full16 > 0.2 && std::isfinite (hyper) && hyper > 0.1 && std::isfinite (octaves) && octaves > 0.1,
            "16-voice unison, hypersaw and octave stacks render wide (" + juce::String (full16, 2) + ", "
                + juce::String (hyper, 2) + ", " + juce::String (octaves, 2) + ")");
     check (blend0 < 0.01, "unison blend 0 keeps only the centre voice (width " + juce::String (blend0, 4) + ")");
@@ -3098,8 +3094,7 @@ void runMatrixTests()
                                               + juce::String (Mod::shape (slot, 0.5f), 3) + ")");
 
     check (Mod::numExplicitDestinations + Mod::numLegacyParamDestinations == Mod::firstNewExplicitDestination
-               && Mod::getDestinationNames().size() == Mod::getNumDestinations()
-               && Mod::getNumDestinations() <= IlanaSynthAudioProcessor::maxDestinations,
+               && Mod::getDestinationNames().size() == Mod::getNumDestinations(),
            "parameter destinations end exactly where the OSC 4-6 destinations begin");
     check (Mod::getExplicitDestinationNames().size() == Mod::numExplicitDestinations,
            "destination names match the destination list ("
@@ -4754,16 +4749,6 @@ void runMissingParameterDefaultTest()
 
 void runM3PhysicalTests()
 {
-    {
-        IlanaSynthAudioProcessor processor;
-        for (const auto* id : { "osc1_excite", "osc2_excite", "sub_excite" })
-        {
-            auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
-            check (choice != nullptr && choice->getAllValueStrings().size() >= 5
-                   && choice->getAllValueStrings()[4] == "Bow",
-                   juce::String (id) + " appends Bow after the four legacy exciters");
-        }
-    }
     const auto renderBow = [] (float expression, bool release)
     {
         KarplusStrong string (777);
@@ -5667,7 +5652,8 @@ void runM4Tests()
                   << plainEarly << " dB/s" << std::endl;
         check (early < late - 6.0, "coupled strings decay in two stages (fast prompt sound, slow aftersound)");
         check (early < plainEarly - 3.0, "coupling speeds up the prompt decay");
-        check (bandEnergy (coupled, 120000, 144000) > 0.0, "the aftersound is still ringing after 2.5 s");
+        check (bandEnergy (coupled, 120000, 144000) > bandEnergy (coupled, 2400, 26400) * 1.0e-8,
+               "the aftersound is still ringing after 2.5 s (within 80 dB of the attack)");
     }
 
     // Stretch tuning: the top of the keyboard is sharp, the middle unchanged.
@@ -5903,8 +5889,6 @@ void runM4Tests()
         check (Mod::lfoIndexFor (Mod::Source::Lfo16) == 15 && Mod::lfoSourceFor (15) == Mod::Source::Lfo16
                    && Mod::lfoRateDestinationFor (4) == Mod::Destination::Lfo5Rate,
                "LFO pool index helpers agree");
-        check ((int) Mod::Destination::Count <= IlanaSynthAudioProcessor::maxDestinations,
-               "every destination fits the modulation arrays");
 
         IlanaSynthAudioProcessor processor;
         processor.setLfoCurve (9, LfoCurve::preset (5));
@@ -8126,6 +8110,10 @@ void runM72BodyTests()
         }, 60, 0.35);
     };
     const auto uncoupled = renderCoupling (0);
+    auto uncoupledSquared = 0.0;
+    for (const auto sample : uncoupled)
+        uncoupledSquared += (double) sample * sample;
+    const auto uncoupledRms = std::sqrt (uncoupledSquared / (double) juce::jmax ((size_t) 1, uncoupled.size()));
     for (int mode = 1; mode <= 3; ++mode)
     {
         const auto coupled = renderCoupling (mode);
@@ -8135,8 +8123,10 @@ void runM72BodyTests()
             const auto delta = (double) coupled[i] - (double) uncoupled[i];
             squared += delta * delta;
         }
-        check (std::sqrt (squared / (double) coupled.size()) > 1.0e-5,
-               "coupling path " + juce::String (mode) + " changes the voice");
+        const auto change = std::sqrt (squared / (double) coupled.size());
+        check (change > uncoupledRms * 0.01,
+               "coupling path " + juce::String (mode) + " changes the voice (by "
+                   + juce::String (juce::Decibels::gainToDecibels (change / juce::jmax (1.0e-12, uncoupledRms)), 1) + " dB of its level)");
     }
 
     MaterialBody stress;

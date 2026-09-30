@@ -227,7 +227,7 @@ void runM84FilterTests()
                     peak = juce::jmax (peak, std::abs (v));
                 }
         }
-        if (peak < 0.001f || peak > 20.0f)
+        if (peak < 0.01f || peak > 20.0f)
         {
             audible = false;
             std::cout << "INFO: filter model " << names[type] << " peak " << peak << std::endl;

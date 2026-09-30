@@ -170,8 +170,6 @@ void runTests()
         for (int n = 1; n <= 14; ++n)
             levels.push_back (partial (x, f0, n, 3.0e-4).second);
         // The dip nearest 1 / strike fraction.
-        KarplusStrong probeString;
-        juce::ignoreUnused (probeString);
         auto dip = 0;
         auto lowest = 1.0e30;
         for (int n = 6; n <= 14; ++n)
@@ -201,8 +199,8 @@ void runTests()
         check (finite && ! quiet, "the Piano exciter is stable at every note, velocity, hardness and quality");
     }
 
-    // The preset: plays, in tune across the keyboard, and the new
-    // excite and board keep old patches as they were (fingerprints).
+    // The preset plays at a sensible level (its tuning is in the preset
+    // tuning test, old patches in the fingerprints).
     {
         IlanaSynthAudioProcessor processor;
         const auto index = processor.getFactoryPresetNames().indexOf ("Grand Piano");
@@ -224,26 +222,6 @@ void runTests()
                 peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
             }
             check (peak > 0.05f && peak < 1.5f, "Grand Piano plays a chord at a sensible level (peak " + juce::String (peak, 3) + ")");
-
-            // A3 through the whole preset, measured two ways.
-            processor.loadFactoryPreset (index);
-            processor.prepareToPlay (48000.0, 512);
-            std::vector<float> a3;
-            for (int block = 0; block < 120; ++block)
-            {
-                juce::MidiBuffer midi;
-                if (block == 0)
-                    midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
-                buffer.clear();
-                processor.processBlock (buffer, midi);
-                for (int i = 0; i < 512; ++i)
-                    a3.push_back (0.5f * (buffer.getSample (0, i) + buffer.getSample (1, i)));
-            }
-            std::vector<float> window (a3.begin() + 4800, a3.begin() + 4800 + 28800);
-            const auto autocorrelated = fundamentalOf (window, 48000.0);
-            const auto [spectral, level] = partial (a3, 220.0, 1, 0.0);
-            juce::ignoreUnused (level);
-            std::cout << "INFO: Grand Piano A3: autocorrelation " << autocorrelated << " Hz, spectral fundamental " << spectral << " Hz" << std::endl;
         }
     }
 }

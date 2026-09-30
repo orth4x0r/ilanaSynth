@@ -31,10 +31,21 @@ Review: claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS. Projected "potential" review
 | 39a2f21 | 8 macros; MTS-ESP client; level + macro trims for 289 presets; A/B clip tool; `tools/build_content.py` |
 | 1cc7c25 | Airwindows FX (39 algorithms); Lead glide divided by 3 at load; `tools/preset_diversity.py` |
 | c911267 | Filter overhaul groundwork (see below) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | Gate clean on Linux (a merge leftover broke the test build); new Linux fingerprint baseline; Lead A/B clips re-rendered with the reduced glide; docs/ARCHITECTURE.md, docs/DECISIONS.md; **preset diversity pass** (below) |
+
+Diversity pass (step 3, 2026-09-30): `src/PresetVoicing.h` lays parameter changes and macro
+rewiring over 172 factory recipes (Airwindows saturation and spaces instead of Hall, dry and mono,
+lo-fi, wide, slow swells, decaying, echo, rhythm, other registers, tables and filter types). Spread
+against the Vital/Surge references: Pad 53 -> 80 %, Bass 57 -> 80 %, Lead 66 -> 80 %, Keys 76 -> 90 %,
+Pluck 68 -> 82 %; near-duplicate pairs roughly halved in every category. Crowds (the tool's greedy
+groups) are still large: the target "no crowd bigger than ~4" is not met. Levels re-trimmed with
+category loudness pinned at the old medians (`PINNED_TARGETS` in `tools/tune_presets.py`); the
+fitted pianos kept their sound. Iterate with `ILANA_PRESET_VOICING=<file> ILANA_RENDER_CATEGORY=Pad
+ilanaPresetRender`, then `tools/bake_voicing.py`.
 
 CPU: the heavy benchmark went from 42-84 % to 19-25 %. Library loudness spread (10-90 %) 17.5 dB to 8 dB.
 
-## Gate state at the move (not clean)
+## Gate state at the move (fixed 2026-09-30: clean on Linux, see Done)
 The last Windows run: FX tests and `--uitest` pass; 9 of 396 fingerprints moved (lead glide, expected).
 Two table-test failures, both believed fixed or environmental but NOT re-verified:
 - Vocal Chop -14.4 dB under the median (limit 14): its trim is now 0 dB (`LEVEL_OVERRIDES` in `tools/tune_presets.py`).
@@ -56,9 +67,10 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 - CLAP scoring: `pip install torch transformers`, model `laion/clap-htsat-unfused` (downloads itself).
 
 ## Next, in order
-1. **Gate on Linux** (above). Fix what fails.
-2. **Re-render the Lead A/B clips** (`tools/ab_clips.py`) with the reduced glide; republish the A/B page.
-3. **Preset diversity (the user's top complaint after levels):** presets sound alike. Measured spread against
+1. ~~Gate on Linux~~ (done).
+2. ~~Re-render the Lead A/B clips~~ (done; all categories re-rendered again after step 3).
+3. **Preset diversity** (first pass done, see Done; left: the user's A/B verdicts on the redesigns,
+   and the crowds). Was: **Preset diversity (the user's top complaint after levels):** presets sound alike. Measured spread against
    the references: Bass 57 %, Pad 53 %, Lead 66 %, Keys 76 %, Pluck 68 %; 50 of 57 pads form one crowd.
    Causes: reverb on nearly everything (Hall 111x), FX chains nearly all Reverb / Delay+Reverb / Chorus+Reverb,
    macro 4 = SPACE/HALL/ROOM/ECHO on ~240 presets, 1 ms amp attack almost everywhere.
@@ -77,5 +89,5 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    and the evolve rows fit 8; a PHYSICAL page preview when no oscillator is physical; verify mod rings; identity pass.
 7. **Features:** SoundFont (SF2/SFZ) in the Sample oscillator; FX splitters (multiband/LR/MS); vocoder; clip sequencer.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
-   an architecture map and decision log; trim slow tests (M81 coverage, arp release); README typo "buto" -> "bruto".
+   trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)
 9. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

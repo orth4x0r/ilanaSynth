@@ -34,6 +34,7 @@ Review: claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS. Projected "potential" review
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | Gate clean on Linux (a merge leftover broke the test build); new Linux fingerprint baseline; Lead A/B clips re-rendered with the reduced glide; docs/ARCHITECTURE.md, docs/DECISIONS.md; **preset diversity pass** (below) |
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | **Filter overhaul models** (step 4): all 25 rebuilt on solved zero-delay cores, in tune at self-oscillation, every preset's level held; 303 Acid, Moog Drive, Vowel Morph, Comb Body; filter tests; SPECTRAL AMOUNT is a modulation destination. See `docs/filter-overhaul-status.md` |
 | claude/project-thread-xhtug0 (2026-09-30, cloud) | **Weak macros** (step 5): 106 macros on 85 presets rewired in `src/PresetVoicing.h`; `applyDefaultMacros` skips macros the voicing wires; presets re-levelled (`tune_presets.py`, two passes) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Interface** (step 6): PATCH card on PLAY, VECTOR pad fills its card, PHYSICAL preview, mod-ring UI test, physical-hybrid positioning |
 
 Diversity pass (step 3, 2026-09-30): `src/PresetVoicing.h` lays parameter changes and macro
 rewiring over 172 factory recipes (Airwindows saturation and spaces instead of Hall, dry and mono,
@@ -86,6 +87,13 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand. **Done** 2026-09-30: 106 weak macros on 85 presets rewired in `src/PresetVoicing.h` (four more by hand after re-levelling: Arp Glass, S&H Techno, Oversampled Grind, Metal Hat); auto-mapped presets keep the voicing's macros; re-levelled. None left under 1.0 except the exempt ones (GLIDE, GATE, PEDAL, SWING, SPRAY).
 6. **Interface:** a live patch view instead of PLAY's empty ADD OSCILLATOR box; the VECTOR pad fills its card
    and the evolve rows fit 8; a PHYSICAL page preview when no oscillator is physical; verify mod rings; identity pass.
+   **Done** 2026-09-30: PLAY's spare tile is a PATCH card (the live, clickable signal flow, ADD OSC in its header;
+   a plain ADD button when the tile is short); the VECTOR pad fills its card's height (EVOLVE narrower; its 8 rows
+   already fit); PHYSICAL previews the string, plucking itself every 3 s, when the chosen oscillator isn't physical;
+   rings checked end to end by a UI test (all 408 knob destinations show their depth; knobs on parameters that are
+   not mod destinations, such as KEY TRK, UNISON and the Airwindows knobs, have none); identity: README opener and
+   the plugin description say "physical hybrid synthesizer". Left for the user: a new logo, colours or type, and an
+   Init patch that opens on a hybrid sound (it would change Init's sound).
 7. **Features:** SoundFont (SF2/SFZ) in the Sample oscillator; FX splitters (multiband/LR/MS); vocoder; clip sequencer.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
    trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)

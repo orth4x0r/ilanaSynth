@@ -149,7 +149,7 @@ public:
         // Not a Physical oscillator: the picture is only what it would be.
         if (juce::roundToInt (read ("_mode")) != 1)
         {
-            g.setColour (IlanaTheme::Ui::well.withAlpha (0.86f));
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.5f));
             g.fillRoundedRectangle (bounds, 8.0f);
             // The card beside it says why and offers the switch; here only
             // a quiet label, so the page doesn't say it twice.
@@ -253,10 +253,10 @@ private:
                                                         0.5 * level * std::abs (std::sin (juce::MathConstants<double>::pi * n * excitePosition())) / (n * n));
         bodyGlow = IlanaAnim::approach (bodyGlow, juce::jmin (1.0f, processorRef.getOutputPeak() * 2.0f), 0.15f, frameTicks());
 
-        // Only a Physical oscillator's string moves; the preview of another
-        // mode stays at rest.
-        if (juce::roundToInt (read ("_mode")) != 1)
-            modeLevel.fill (0.0);
+        // Another mode's preview plucks itself now and then (while shown),
+        // so the page shows what the switch would give.
+        if (juce::roundToInt (read ("_mode")) != 1 && isShowing() && sinceNote > 3.0)
+            restart();
 
         // The string rests once its motion is under a tenth of a pixel.
         auto total = 0.0;

@@ -35,7 +35,7 @@ juce_add_plugin(ilanaSynth
     PLUGIN_CODE Ilns
     FORMATS ${ILANA_FORMATS}
     PRODUCT_NAME "ilanaSynth"
-    DESCRIPTION "Aggressive wavetable synthesizer"
+    DESCRIPTION "Physical hybrid synthesizer"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE

@@ -2,7 +2,7 @@
 
 **IlanaSynth, para un sonido más bruto.** (for a more brutal sound)
 
-An aggressive wavetable synthesizer for VST3, built with JUCE.
+A physical hybrid synthesizer: strings, bows, hammers, pianos and resonant bodies you can break, wired into wavetable, FM, granular and sample engines. VST3, CLAP and AU, built with JUCE.
 
 ---
 

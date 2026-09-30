@@ -1732,7 +1732,7 @@ public:
         IlanaTheme::paintCardHeader (g, header, "VECTOR", "four oscillators at the corners; Vector X / Y are mod sources", colour());
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "EVOLVE", "each macro drifts within its range", evolveColour(), 110);
+        IlanaTheme::paintCardHeader (g, header, "EVOLVE", "macros drift in range", evolveColour(), 110);
 
         // Each macro: its name, where it is set and where it has drifted to,
         // with a hairline between rows.
@@ -1762,20 +1762,21 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
-        vectorCard = area.removeFromLeft (area.getWidth() * 58 / 100);
+        // The pad gets most of the page: EVOLVE's rows need little width.
+        vectorCard = area.removeFromLeft (area.getWidth() * 70 / 100);
         area.removeFromLeft (10);
         evolveCard = area;
 
-        auto inner = vectorCard.reduced (10, 0);
+        auto inner = vectorCard.reduced (12, 0);
         inner.removeFromTop (30);
-        inner.removeFromBottom (8);
-        const auto side = juce::jmin (inner.getHeight(), inner.getWidth() / 2 + 40);
-
-        // The pad and its controls as one block, centred in the card.
-        const auto controlsHeight = 40 + 44 + 44 + 6 + 112 * 2 + 18;
-        inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), juce::jmax (side, controlsHeight)));
+        inner.removeFromBottom (12);
+        // The pad fills the card's height; the controls take the width left.
+        const auto controlsWidth = 250;
+        const auto side = juce::jmax (200, juce::jmin (inner.getHeight(), inner.getWidth() - controlsWidth - 12));
         pad.setBounds (inner.removeFromLeft (side).withSizeKeepingCentre (side, side));
-        inner.removeFromLeft (10);
+        inner.removeFromLeft (12);
+        const auto controlsHeight = 40 + 44 + 44 + 6 + 112 * 2 + 18;
+        inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), controlsHeight));
         // The vector's on switch in its header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
         auto toggles = inner.removeFromTop (40);
@@ -1935,13 +1936,17 @@ public:
         auto area = getLocalBounds().reduced (12);
         const auto physical = isPhysical (chosen);
 
-        for (juce::Component* c : { (juce::Component*) &view, (juce::Component*) &resOn, (juce::Component*) &bodyType,
+        for (juce::Component* c : { (juce::Component*) &resOn, (juce::Component*) &bodyType,
                                     (juce::Component*) &sbOn, (juce::Component*) &sbModel })
             c->setVisible (physical);
 
+        // Not physical: the view still shows, in its own preview look, what
+        // the switch gives (drawn from the oscillator's string settings).
+        view.setInterceptsMouseClicks (physical, physical);
+
         if (! physical)
         {
-            emptyCard = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 560), juce::jmin (area.getHeight(), 240));
+            emptyCard = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 900), juce::jmin (area.getHeight(), 600));
             auto inner = emptyCard.reduced (14, 0);
             inner.removeFromTop (38);
             auto shownButtons = 0;
@@ -1952,6 +1957,9 @@ public:
                 if (button.isVisible())
                     button.setBounds (picker.removeFromLeft (96).reduced (3, 3));
             makePhysical.setBounds (juce::Rectangle<int> (240, 34).withCentre ({ emptyCard.getCentreX(), emptyCard.getBottom() - 40 }));
+            inner.removeFromTop (6);
+            inner.removeFromBottom (130); // the message and the switch
+            view.setBounds (inner);
             return;
         }
 
@@ -4341,6 +4349,7 @@ public:
             updateStrips();
         };
         oscColumn.addChildComponent (addOscButton);
+        oscColumn.addChildComponent (patchFlow);
 
         // Sub and noise under the oscillators: the rest of the sources, laid
         // out like the filter card (menus stacked left, knobs on the
@@ -4356,6 +4365,9 @@ public:
         {
             if (! subCard.isEmpty())
                 paintCard (g, subCard, "SUB + NOISE", subColour());
+
+            if (! patchCard.isEmpty())
+                paintCard (g, patchCard, "PATCH", IlanaTheme::accent());
 
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 if (shownStrips[(size_t) osc])
@@ -4559,8 +4571,27 @@ public:
         // for the next oscillator), so the sub card ends level with the LFO
         // card rather than leaving a gap under it.
         const auto leftover = scrolls ? 0 : juce::jmax (0, column.getHeight() - (anyHidden ? addButtonHeight + 8 : 0) - subCardHeight);
+        // A tall tile shows the patch live (the signal flow, clickable as on
+        // FILTER) with the ADD button in its header; a short one is the button.
+        auto tile = column.removeFromTop (anyHidden ? addButtonHeight + leftover : 0);
+        const auto showPatch = tile.getHeight() >= patchMinHeight;
+        patchCard = showPatch ? tile : juce::Rectangle<int>();
+        patchFlow.setVisible (showPatch);
+
+        if (showPatch)
+        {
+            auto header = tile.reduced (8, 0).withHeight (26).reduced (0, 3);
+            addOscButton.setButtonText ("+  ADD OSC");
+            addOscButton.setBounds (header.removeFromRight (104));
+            patchFlow.setBounds (tile.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
+        }
+        else
+        {
+            addOscButton.setButtonText ("+  ADD OSCILLATOR");
+            addOscButton.setBounds (tile);
+        }
+
         addOscButton.setVisible (anyHidden);
-        addOscButton.setBounds (column.removeFromTop (anyHidden ? addButtonHeight + leftover : 0));
         column.removeFromTop (anyHidden ? 8 : 0);
         subCard = column.removeFromTop (subCardHeight + (anyHidden ? 0 : leftover));
         layoutSubCard();
@@ -4841,6 +4872,9 @@ private:
     juce::Viewport oscView;
     Column oscColumn;
     juce::TextButton addOscButton;
+    SignalFlow patchFlow { processorRef };
+    juce::Rectangle<int> patchCard;
+    static constexpr int patchMinHeight = 90;
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1;
     static constexpr int addButtonHeight = 36;

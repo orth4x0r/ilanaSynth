@@ -1119,6 +1119,56 @@ int runUiTests()
         }
     }
 
+    // Modulation rings: every knob on every page that drives a destination
+    // shows that destination's live depth. Each destination is routed from a
+    // macro at full travel, a note is played, and the depth the ring reads
+    // must move.
+    if (pages != nullptr)
+    {
+        std::map<int, juce::String> destinations;
+        juce::StringArray ringless;
+        for (const auto& id : pages->getPageIds())
+        {
+            pages->showPage (id);
+            settle (60);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+            {
+                if (knob->getRingDestination() > 0)
+                    destinations.emplace (knob->getRingDestination(), knob->getParameterId());
+                else if (knob->getParameterId().isNotEmpty())
+                    ringless.addIfNotAlreadyThere (knob->getParameterId());
+            }
+        }
+        pages->showPage ("MAIN");
+
+        juce::StringArray silent;
+        for (const auto& [destination, id] : destinations)
+        {
+            IlanaSynthAudioProcessor probe;
+            probe.prepareToPlay (48000.0, 512);
+            if (auto* macro = probe.apvts.getParameter ("macro1"))
+                macro->setValueNotifyingHost (1.0f);
+            probe.assignModSlot ((int) Mod::Source::Macro1, destination, 0.5f);
+            juce::AudioBuffer<float> buffer (2, 512);
+            for (int block = 0; block < 3; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 0);
+                buffer.clear();
+                probe.processBlock (buffer, midi);
+            }
+            if (std::abs (probe.getModDisplay (destination)) < 0.001f)
+                silent.add (id);
+        }
+        expect (silent.isEmpty(), "every modulatable knob's ring shows its depth (" + juce::String ((int) destinations.size())
+                                      + " destinations" + (silent.isEmpty() ? juce::String() : "; silent: " + silent.joinIntoString (", ")) + ")");
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_RING_REPORT", "").isNotEmpty())
+            std::cout << "knobs without a ring: " << ringless.joinIntoString (", ") << std::endl;
+    }
+
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;

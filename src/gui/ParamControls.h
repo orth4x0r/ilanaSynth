@@ -448,6 +448,8 @@ public:
     juce::String getLabelText() const { return label.getText(); }
     bool isCompact() const { return compact; }
     const juce::String& getParameterId() const { return parameterId; }
+    // The modulation destination whose depth the knob's ring shows (0: none).
+    int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
 
     // Compact knobs (bottom strip) have no label or value box: the owner

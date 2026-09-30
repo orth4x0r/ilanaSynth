@@ -276,6 +276,20 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
     outputMeter = std::make_unique<OutputMeter> (p);
     content.addAndMakeVisible (*outputMeter);
+    content.addChildComponent (modHoverPopup);
+
+    headerScope.setStrip (true);
+    headerScope.onStripClick = [this]
+    {
+        scopeButton.setToggleState (! scopeButton.getToggleState(), juce::dontSendNotification);
+        setScopeOpen (scopeButton.getToggleState());
+    };
+    content.addAndMakeVisible (headerScope);
+
+    voicesArea.setTooltip ("Voices\nThe dots light for each note sounding. Click for the voice mode, how many voices and the pitch-bend range.");
+    voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    voicesArea.onClick = [this] { showSettingsMenu (true); };
+    content.addAndMakeVisible (voicesArea);
 
     for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (masterKnob.get()) })
         content.addAndMakeVisible (*component);
@@ -413,6 +427,19 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     frameSource = std::make_unique<IlanaAnim::FrameClock::Source> (*this);
     animator.onFrame = [this] { animate(); };
 
+    presetDocked = settings->getBoolValue ("presetBrowserDocked", false);
+    addChildComponent (dockHolder);
+    dockHolder.onPaint = [] (juce::Graphics& g) { g.fillAll (IlanaTheme::Ui::bg); };
+
+    if (presetDocked && settings->getBoolValue ("presetBrowserDockOpen", false))
+    {
+        createPresetPanel();
+        presetPanel->setDocked (true);
+        dockHolder.addAndMakeVisible (*presetPanel);
+        presetDockShown = true;
+        presetPanel->open();
+    }
+
     applyUiZoom ((float) settings->getDoubleValue ("uiZoom", 1.0));
     displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
 
@@ -513,14 +540,19 @@ void IlanaSynthAudioProcessorEditor::applyUiZoom (float newZoom)
         settings->saveIfNeeded();
     }
 
-    setResizeLimits (juce::roundToInt ((float) designWidth * 0.75f), juce::roundToInt ((float) designHeight * 0.75f),
-                     designWidth * 2, designHeight * 2);
+    applyAspectAndLimits();
+    setSize (juce::roundToInt ((float) currentDesignWidth() * uiZoom),
+             juce::roundToInt ((float) designHeight * uiZoom));
+}
+
+void IlanaSynthAudioProcessorEditor::applyAspectAndLimits()
+{
+    const auto width = currentDesignWidth();
+    setResizeLimits (juce::roundToInt ((float) width * 0.75f), juce::roundToInt ((float) designHeight * 0.75f),
+                     width * 2, designHeight * 2);
 
     if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio ((double) designWidth / (double) designHeight);
-
-    setSize (juce::roundToInt ((float) designWidth * uiZoom),
-             juce::roundToInt ((float) designHeight * uiZoom));
+        boundsConstrainer->setFixedAspectRatio ((double) width / (double) designHeight);
 }
 
 void IlanaSynthAudioProcessorEditor::applyDisplayScale()
@@ -560,16 +592,16 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
     // ourselves for the real display DPI: the host then creates a matching
     // window and the UI renders at native resolution instead of being
     // bitmap-stretched.
-    if (getWidth() > designWidth + 20)
+    if (getHeight() > designHeight + 20)
         return;
 
-    setResizeLimits (juce::roundToInt (795.0f * scale), juce::roundToInt (540.0f * scale),
-                     juce::roundToInt (1590.0f * scale), juce::roundToInt (1080.0f * scale));
+    setResizeLimits (juce::roundToInt ((float) currentDesignWidth() * 0.75f * scale), juce::roundToInt (540.0f * scale),
+                     juce::roundToInt ((float) currentDesignWidth() * 1.5f * scale), juce::roundToInt (1080.0f * scale));
 
     if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio ((double) designWidth / (double) designHeight);
+        boundsConstrainer->setFixedAspectRatio ((double) currentDesignWidth() / (double) designHeight);
 
-    setSize (juce::roundToInt ((float) designWidth * scale),
+    setSize (juce::roundToInt ((float) currentDesignWidth() * scale),
              juce::roundToInt ((float) designHeight * scale));
    #endif
 }
@@ -791,7 +823,16 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     g.setColour (IlanaTheme::Ui::text3);
     g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
                 juce::Rectangle<int> (designWidth - 356, statusY, 70, 11), juce::Justification::centredRight);
-    g.drawText ("VOICES", juce::Rectangle<int> (designWidth - 280, statusY, 44, 11), juce::Justification::centredRight);
+    {
+        // The voice mode when it isn't the usual Poly, so Mono or Legato
+        // shows without opening the settings.
+        const auto* modeValue = processorRef.apvts.getRawParameterValue ("voice_mode");
+        const auto mode = modeValue != nullptr ? juce::roundToInt (modeValue->load()) : 0;
+        g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+        g.drawText (mode == 1 ? "MONO" : (mode == 2 ? "LEGATO" : "VOICES"),
+                    juce::Rectangle<int> (designWidth - 290, statusY, 54, 11), juce::Justification::centredRight);
+        g.setColour (IlanaTheme::Ui::text3);
+    }
 
     const auto activeVoices = processorRef.getActiveVoiceCount();
     const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
@@ -820,7 +861,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
 void IlanaSynthAudioProcessorEditor::resized()
 {
-    const auto scale = (float) getWidth() / (float) designWidth;
+    const auto scale = (float) getHeight() / (float) designHeight;
     IlanaTheme::uiScaleRef() = scale * hostScaleFactor();
 
     // A corner drag changes the zoom; remember it (saved on the timer so a
@@ -833,6 +874,12 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     content.setBounds (0, 0, designWidth, designHeight);
     content.setTransform (juce::AffineTransform::scale (scale));
+    dockHolder.setBounds (designWidth, 0, dockWidth, designHeight);
+    dockHolder.setTransform (juce::AffineTransform::scale (scale));
+    dockHolder.setVisible (presetDockShown);
+
+    if (presetDockShown && presetPanel != nullptr)
+        presetPanel->setBounds (dockHolder.getLocalBounds().reduced (0, 8).withTrimmedRight (8));
 
     auto area = content.getLocalBounds();
 
@@ -876,6 +923,11 @@ void IlanaSynthAudioProcessorEditor::resized()
     headerRow.removeFromLeft (3);
     headerRow.removeFromRight (3);
     presetDisplay.setBounds (headerRow.withTrimmedTop (-3).withHeight (headerRow.getHeight() + 6));
+
+    // The status line (y 41-52): the live waveform under the preset name,
+    // then tempo, VOICES and CPU at the right.
+    headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), designWidth - 372) - prevButton.getX(), 14);
+    voicesArea.setBounds (designWidth - 284, 38, 190, 17);
 
     // Bottom: source chips, the macro / performance strip, the info line and
     // the optional keyboard.
@@ -1370,7 +1422,7 @@ void IlanaSynthAudioProcessorEditor::showDiceMenu()
                         });
 }
 
-void IlanaSynthAudioProcessorEditor::showSettingsMenu()
+void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
 {
     const char* const skinNames[] { "Ember", "Ice", "Acid", "Neon" };
     const float zoomChoices[] { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -1438,6 +1490,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
     menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
     menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
+
     menu.addSeparator();
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
@@ -1450,7 +1503,17 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
+    // The status line's VOICES opens just the voice settings.
+    if (voicesOnly)
+    {
+        menu = juce::PopupMenu();
+        menu.addSectionHeader ("VOICES");
+        menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
+        menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
+        menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (voicesOnly ? static_cast<juce::Component*> (&voicesArea) : &settingsButton),
                         [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
                         {
                             if (safeThis == nullptr || result == 0)
@@ -1554,23 +1617,92 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu()
                         });
 }
 
+void IlanaSynthAudioProcessorEditor::createPresetPanel()
+{
+    if (presetPanel != nullptr)
+        return;
+
+    presetPanel = std::make_unique<PresetPanel> (processorRef, settings.get());
+    presetPanel->onLoad = [this] (int index, bool closeAfter)
+    {
+        loadPresetIndex (index);
+
+        if (closeAfter && presetPanel != nullptr)
+            presetPanel->close();
+    };
+    presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
+    presetPanel->setAnchor (&presetDisplay);
+    presetPanel->onDockRequest = [this] (bool dock)
+    {
+        presetDocked = dock;
+
+        if (settings != nullptr)
+        {
+            settings->setValue ("presetBrowserDocked", presetDocked);
+            settings->saveIfNeeded();
+        }
+
+        if (dock)
+        {
+            presetPanel->setVisible (false);
+            setPresetDockShown (true);
+        }
+        else
+        {
+            setPresetDockShown (false);
+            togglePresetPanel();
+        }
+    };
+    presetPanel->onDockedClose = [this] { setPresetDockShown (false); };
+
+    // Hidden until open() fades it in.
+    content.addChildComponent (*presetPanel);
+}
+
+void IlanaSynthAudioProcessorEditor::setPresetDockShown (bool shown)
+{
+    createPresetPanel();
+
+    if (shown == presetDockShown)
+        return;
+
+    const auto scale = (float) getHeight() / (float) designHeight;
+    presetDockShown = shown;
+
+    if (shown)
+    {
+        presetPanel->setVisible (false);
+        presetPanel->setDocked (true);
+        dockHolder.addAndMakeVisible (*presetPanel);
+        presetPanel->open();
+    }
+    else
+    {
+        presetPanel->setVisible (false);
+        presetPanel->setDocked (false);
+        content.addChildComponent (*presetPanel);
+    }
+
+    if (settings != nullptr)
+    {
+        settings->setValue ("presetBrowserDockOpen", presetDockShown);
+        settings->saveIfNeeded();
+    }
+
+    // Grow or shrink the window by the column, keeping the zoom.
+    applyAspectAndLimits();
+    setSize (juce::roundToInt ((float) currentDesignWidth() * scale), getHeight());
+    resized();
+}
+
 void IlanaSynthAudioProcessorEditor::togglePresetPanel()
 {
-    if (presetPanel == nullptr)
+    createPresetPanel();
+
+    if (presetDocked)
     {
-        presetPanel = std::make_unique<PresetPanel> (processorRef, settings.get());
-        presetPanel->onLoad = [this] (int index, bool closeAfter)
-        {
-            loadPresetIndex (index);
-
-            if (closeAfter && presetPanel != nullptr)
-                presetPanel->close();
-        };
-        presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
-        presetPanel->setAnchor (&presetDisplay);
-
-        // Hidden until open() fades it in.
-        content.addChildComponent (*presetPanel);
+        setPresetDockShown (! presetDockShown);
+        return;
     }
 
     // Drop down under the preset name, kept inside the window.

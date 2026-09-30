@@ -33,6 +33,8 @@
 #include "gui/ParamControls.h"
 #include "gui/SubTabBar.h"
 #include "gui/TutorialOverlay.h"
+#include "gui/WaveDisplay.h"
+#include "gui/ModHoverPopup.h"
 
 namespace
 {
@@ -1335,6 +1337,168 @@ int runUiTests()
             processor.loadFactoryPreset (0);
             settle (200);
         }
+
+        // The oscillator display: across scrubs the frame, up raises the warp, one gesture each; the corner key cycles WAVE / 3D / SPEC.
+        {
+            processor.loadFactoryPreset (0);
+            pages->showPage ("MAIN");
+            const auto set = [&] (const char* id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set ("osc1_warp", 2.0f); // Bend +
+            set ("osc1_warp_amt", 0.2f);
+            settle (400);
+
+            std::vector<WaveDisplay*> waves;
+            findAll<WaveDisplay> (*editor, waves);
+            WaveDisplay* wave = nullptr;
+            for (auto* candidate : waves)
+                if (visibleInTree (candidate) && candidate->getOscIndex() == 0)
+                    wave = candidate;
+            expect (wave != nullptr, "PLAY shows OSC 1's display");
+
+            if (wave != nullptr)
+            {
+                struct GestureCounter : juce::AudioProcessorParameter::Listener
+                {
+                    int begins = 0, ends = 0;
+                    void parameterValueChanged (int, float) override {}
+                    void parameterGestureChanged (int, bool starting) override { (starting ? begins : ends)++; }
+                } frameGestures, warpGestures;
+
+                auto* frame = processor.apvts.getParameter ("osc1_frame");
+                auto* warp = processor.apvts.getParameter ("osc1_warp_amt");
+                frame->addListener (&frameGestures);
+                warp->addListener (&warpGestures);
+                const auto w = (float) wave->getWidth();
+                const auto h = (float) wave->getHeight();
+                auto* component = static_cast<juce::Component*> (wave);
+                component->mouseDown (makeEvent (*component, { 10.0f + 0.25f * (w - 20.0f), 0.6f * h }, false));
+                component->mouseDrag (makeEvent (*component, { 10.0f + 0.75f * (w - 20.0f), 0.2f * h }, true));
+                const auto frameAfter = frame->getValue();
+                const auto warpAfter = processor.apvts.getRawParameterValue ("osc1_warp_amt")->load();
+                expect (wave->isDraggingWarp(), "a drag on a warped table moves the warp");
+                component->mouseUp (makeEvent (*component, { 10.0f + 0.75f * (w - 20.0f), 0.2f * h }, true));
+                expect (std::abs (frameAfter - 0.75f) < 0.03f, "dragging across the oscillator display scrubs the frame (" + juce::String (frameAfter, 2) + ")");
+                expect (warpAfter > 0.3f, "dragging up on the oscillator display raises the warp amount (0.20 -> " + juce::String (warpAfter, 2) + ")");
+                expect (frameGestures.begins == 1 && frameGestures.ends == 1 && warpGestures.begins == 1 && warpGestures.ends == 1,
+                        "the oscillator drag is one gesture per parameter");
+                component->mouseDoubleClick (makeEvent (*component, { 20.0f, 20.0f }, false));
+                expect (processor.apvts.getRawParameterValue ("osc1_warp_amt")->load() < 0.001f, "a double-click sets the warp back to zero");
+                frame->removeListener (&frameGestures);
+                warp->removeListener (&warpGestures);
+
+                // With no warp chosen a vertical drag leaves the amount alone.
+                set ("osc1_warp", 0.0f);
+                set ("osc1_warp_amt", 0.4f);
+                settle (100);
+                component->mouseDown (makeEvent (*component, { 30.0f, 0.8f * h }, false));
+                component->mouseDrag (makeEvent (*component, { 30.0f, 0.1f * h }, true));
+                component->mouseUp (makeEvent (*component, { 30.0f, 0.1f * h }, true));
+                expect (std::abs (processor.apvts.getRawParameterValue ("osc1_warp_amt")->load() - 0.4f) < 0.001f,
+                        "without a warp the vertical drag changes nothing");
+
+                std::vector<juce::TextButton*> keys;
+                findAll<juce::TextButton> (*wave, keys);
+                juce::StringArray seen;
+                for (int i = 0; i < 3 && ! keys.empty(); ++i)
+                {
+                    seen.add (keys.front()->getButtonText());
+                    keys.front()->triggerClick();
+                    settle (60);
+                    const auto image = wave->createComponentSnapshot (wave->getLocalBounds());
+                    juce::ignoreUnused (image);
+                }
+                expect (seen.joinIntoString (",") == "WAVE,3D,SPEC" && wave->getViewMode() == 0,
+                        "the view key cycles WAVE, 3D and SPEC (" + seen.joinIntoString (",") + ")");
+            }
+
+            processor.loadFactoryPreset (0);
+            settle (200);
+        }
+
+        // Resting on a modulated knob opens a card listing its sources with live bars.
+        {
+            processor.loadFactoryPreset (neuroWobble);
+            pages->showPage ("MAIN");
+            settle (400);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            KnobControl* modulated = nullptr;
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getNumRoutings() > 0)
+                {
+                    modulated = knob;
+                    break;
+                }
+            expect (modulated != nullptr, "Neuro Wobble has a modulated knob on PLAY");
+            auto* card = findChild<ModHoverPopup> (*editor);
+            expect (card != nullptr, "the editor has the modulation card");
+
+            if (modulated != nullptr && card != nullptr)
+            {
+                modulated->openModCard(); // (hover opens it after a short rest; the test has no mouse)
+                const auto inside = card->getParentComponent() != nullptr
+                                    && card->getParentComponent()->getLocalBounds().contains (card->getBounds());
+                expect (card->isShowingFor (*modulated) && card->getNumRows() >= modulated->getNumRoutings() && inside,
+                        "the card lists the knob's " + juce::String (modulated->getNumRoutings()) + " source(s) inside the window ("
+                            + modulated->getParameterId() + ")");
+                modulated->closeModCard();
+                settle (60);
+                expect (! card->isVisible(), "leaving the knob closes the card");
+            }
+        }
+
+        // DOCK keeps the browser at the side: the window grows, loading doesn't close it, the name toggles it, FLOAT returns it.
+        if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+        {
+            processor.loadFactoryPreset (0);
+            const auto baseWidth = editor->getWidth();
+            display->onClick();
+            settle (400);
+            auto* panel = findChild<PresetPanel> (*editor);
+            expect (panel != nullptr && panel->onDockRequest != nullptr, "the browser has a DOCK key");
+
+            if (panel != nullptr && panel->onDockRequest != nullptr)
+            {
+                panel->onDockRequest (true);
+                settle (300);
+                expect (panel->isDocked() && panel->isVisible() && editor->getWidth() == baseWidth + 340 && editor->getHeight() == 720,
+                        "docking grows the window by the browser's column (" + juce::String (baseWidth) + " -> " + juce::String (editor->getWidth()) + ")");
+                const auto start = processor.getCurrentPresetName();
+                panel->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                settle (150);
+                panel->keyPressed (juce::KeyPress (juce::KeyPress::returnKey));
+                settle (150);
+                expect (processor.getCurrentPresetName() != start && panel->isVisible(),
+                        "the docked browser loads with the arrows and stays open on Enter");
+                display->onClick();
+                settle (300);
+                expect (! panel->isVisible() && editor->getWidth() == baseWidth, "the preset name closes the docked browser and the window shrinks back");
+                display->onClick();
+                settle (300);
+                expect (panel->isVisible() && panel->isDocked() && editor->getWidth() == baseWidth + 340, "the preset name reopens it docked");
+                panel->onDockRequest (false);
+                settle (400);
+                expect (! panel->isDocked() && panel->isOpen() && editor->getWidth() == baseWidth, "FLOAT returns it to the drop-down");
+                panel->close();
+                settle (400);
+            }
+        }
+
+        // The header's live waveform and the VOICES hotspot.
+        {
+            auto* scope = findChild<OutputView> (*editor);
+            std::vector<OutputView*> views;
+            findAll<OutputView> (*editor, views);
+            auto strips = 0;
+            for (auto* view : views)
+                strips += view->isStrip() && visibleInTree (view) && view->getWidth() > 100 ? 1 : 0;
+            juce::ignoreUnused (scope);
+            expect (strips == 1, "the header shows one live waveform strip");
+        }
     }
 
     // Modulation rings: every knob on every page that drives a destination
@@ -1738,6 +1902,58 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_EXTRAS: the UI review 2 additions (the SPEC view, a
+    // knob's source card, the docked browser), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_EXTRAS", "").isNotEmpty())
+    {
+        pages->showPage ("MAIN");
+        settle (400);
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (*editor, waves);
+        for (auto* wave : waves)
+            if (visibleInTree (wave) && wave->getOscIndex() == 0)
+            {
+                std::vector<juce::TextButton*> keys;
+                findAll<juce::TextButton> (*wave, keys);
+                if (! keys.empty())
+                {
+                    keys.front()->triggerClick();
+                    settle (60);
+                    keys.front()->triggerClick();
+                    settle (300);
+                }
+            }
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* busiest = nullptr;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob) && knob->getNumRoutings() > (busiest != nullptr ? busiest->getNumRoutings() : 0))
+                busiest = knob;
+        if (busiest != nullptr)
+            busiest->openModCard (true);
+        save (*editor, outDir.getChildFile ("extra-spec-and-card.png"));
+        for (auto* knob : knobs)
+            knob->closeModCard();
+
+        if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+        {
+            display->onClick();
+            settle (500);
+            save (*editor, outDir.getChildFile ("extra-browser-dropdown.png"));
+            if (auto* panel = findChild<PresetPanel> (*editor); panel != nullptr && panel->onDockRequest != nullptr)
+            {
+                panel->onDockRequest (true);
+                settle (500);
+                save (*editor, outDir.getChildFile ("extra-browser-docked.png"));
+                panel->onDockRequest (false);
+                settle (300);
+                panel->close();
+                settle (300);
+            }
+        }
+        return 0;
+    }
 
     const auto pageIds = pages->getPageIds();
 

@@ -205,6 +205,20 @@ inline juce::Colour modSourceColour (int sourceIndex)
     return IlanaTheme::accent();
 }
 
+// How a knob opens and closes the editor's modulation card (ModHoverPopup,
+// which sets these while it exists): the knob, its destination and title.
+struct ModHoverHooks
+{
+    std::function<void (juce::Component&, int, const juce::String&)> show;
+    std::function<void (const juce::Component&)> hide;
+};
+
+inline ModHoverHooks& modHoverHooks()
+{
+    static ModHoverHooks hooks;
+    return hooks;
+}
+
 inline juce::String& knobClipboard()
 {
     static juce::String value;
@@ -443,6 +457,8 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        closeModCard();
+
         if (event.mods.isPopupMenu())
             showModMenu();
     }
@@ -484,6 +500,30 @@ public:
     {
         hover = false;
         repaint();
+    }
+
+    ~KnobControl() override { closeModCard(); }
+
+    // Opens the card listing this knob's sources (hover does it after a
+    // short rest). Held: it stays until closeModCard (tests, snapshots).
+    void openModCard (bool held = false)
+    {
+        modCardHeld = held;
+        if (modHoverHooks().show != nullptr && ! routings.empty())
+        {
+            modHoverHooks().show (*this, ringConfig.destination, parameter != nullptr ? parameter->getName (40) : label.getText());
+            modCardOpen = true;
+        }
+    }
+
+    void closeModCard()
+    {
+        if (modCardOpen && modHoverHooks().hide != nullptr)
+            modHoverHooks().hide (*this);
+
+        modCardOpen = false;
+        modCardHeld = false;
+        hoverRest = 0.0f;
     }
 
 
@@ -854,6 +894,17 @@ private:
             refreshRoutings();
         }
 
+        // Resting on a modulated knob (not turning it) opens its source card.
+        if (! routings.empty() && isMouseOver (true) && ! slider.isMouseButtonDown())
+        {
+            if (! modCardOpen && (hoverRest += frameSeconds()) >= 0.35f)
+                openModCard();
+        }
+        else if ((modCardOpen && ! modCardHeld) || hoverRest > 0.0f)
+        {
+            closeModCard();
+        }
+
         const auto highlighted = highlightedModSource() * 1000 + pinnedModSource();
         const auto modValue = processorRef->getModDisplay (ringConfig.destination);
 
@@ -884,6 +935,9 @@ private:
     std::vector<ModDotStrip::Dot> routings;
     int dominantSource = 0;
     float routingCheck = 0.0f;
+    float hoverRest = 0.0f;
+    bool modCardOpen = false;
+    bool modCardHeld = false;
     int lastHighlighted = 0;
     float lastModValue = 0.0f;
     float glow = 0.0f;

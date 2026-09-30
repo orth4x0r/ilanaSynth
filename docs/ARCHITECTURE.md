@@ -12,7 +12,8 @@ For an agent arriving cold. Current state and rules: [HANDOFF.md](../HANDOFF.md)
 | Path | Contents |
 |---|---|
 | `src/PluginProcessor.{h,cpp}` | `IlanaSynthAudioProcessor`: parameter layout (`createParameterLayout`), patch state, mod matrix application, FX chain, preset loading, MIDI/MPE, `getUiEpoch()` |
-| `src/PluginEditor.{h,cpp}` | `IlanaSynthAudioProcessorEditor`: pages and layout (tabs PLAY, OSC, FILTER, MOD, FM, SEQ, FX) |
+| `src/PluginEditor.{h,cpp}` | `IlanaSynthAudioProcessorEditor` shell (~1700 lines): construction, tabs, header, menus, layout, key handling, `ScopePanel`. The page classes are in `src/gui/pages/` |
+| `src/gui/pages/*.h` | Page classes split verbatim from PluginEditor.cpp; header-only, in the anonymous namespace, included only by PluginEditor.cpp after its own includes, in dependency order (page-helpers, Osc, FilterVectorPhysical, EnvLfo, FmInput, Seq, Main, Matrix, FxWidgets, Fx): `PageHelpers.h` `addAll`, `paintSectionTitle`, heading constants, Windows DPI helper; `OscPage.h` `OscPage`, `OscPageViewport` (OSC tab); `FilterVectorPhysicalPages.h` `FilterPanel`, `WestPanel`, `VectorPage`, `PhysicalPage`; `EnvLfoPages.h` `FilterPage`, `EnvSection`, `LfoSection`, `EnvLfoPage` (FILTER and MOD tabs); `FmInputPages.h` `FmPage`, `InputPage`; `SeqPage.h` `SeqPage` (SEQ tab); `MainPage.h` `MainPage` (PLAY tab overview); `MatrixPage.h` `MatrixPage` (mod matrix); `FxWidgets.h` `TapGrid`, `GateGrid`, `SlotSwitch`, `fxColour`, FX stack helpers; `FxPage.h` `FxPage` (FX tab) |
 | `src/Presets.h`, `PresetLibrary.h`, `PresetPackM10.h` | `FactoryPreset` / `Value`, the library `Builder`, the M10 pack |
 | `src/PresetTrims.h` | Generated per-preset level and macro trims (`Trim`), written by `tools/tune_presets.py` |
 | `src/TuningState.h`, `src/MtsEsp.{h,cpp}`, `src/thirdparty/mts-esp` | Scala tuning text saved in the patch; MTS-ESP client |

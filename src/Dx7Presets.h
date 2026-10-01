@@ -115,8 +115,12 @@ inline std::vector<Value> values (const Dx7::Voice& v)
         set (prefix + "_dst", (float) d);
         set (prefix + "_amt", amount);
     };
+    // With no modulators (organs, alg 32) BRIGHT lifts the upper carriers.
+    auto anyModulator = false;
     for (int k = 1; k <= 6; ++k)
-        if (! r.carrier[(size_t) (k - 1)])
+        anyModulator = anyModulator || ! r.carrier[(size_t) (k - 1)];
+    for (int k = 1; k <= 6; ++k)
+        if (! r.carrier[(size_t) (k - 1)] || (! anyModulator && k > 1))
             route (0, "Osc" + juce::String (k) + " Level", 0.3f);
     route (1, "Filter1 Cutoff", -0.55f);
     route (2, "Drift", 0.6f);

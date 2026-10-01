@@ -1,0 +1,256 @@
+#pragma once
+
+// Voice filters ported from Airwindows (Chris Johnson, https://www.airwindows.com,
+// MIT license: see airwindows/LICENSE.txt). Each is one channel of one voice,
+// set from a cutoff in Hz and a resonance 0..1 like the other models; the
+// plugins' own knobs are fixed at the values noted.
+
+#include <juce_core/juce_core.h>
+
+#include "FilterCore.h"
+
+#include <array>
+#include <cmath>
+
+namespace Airwindows
+{
+// The encode/decode curve the Y filters wrap around their biquad
+// (by torridgristle, MIT): y = 1 - (1 - x)^p on each polarity, clamped to
+// +-1. A table per exponent (the plugins call pow per sample).
+class PowCurve
+{
+public:
+    explicit PowCurve (double exponent)
+    {
+        for (size_t i = 0; i < table.size(); ++i)
+        {
+            const auto x = (double) i / (double) (size - 1);
+            table[i] = (float) (1.0 - std::pow (1.0 - x, exponent));
+        }
+    }
+
+    double operator() (double x) const
+    {
+        const auto a = std::abs (x);
+        if (a >= 1.0)
+            return x > 0.0 ? 1.0 : -1.0;
+
+        const auto position = a * (double) (size - 1);
+        const auto index = (size_t) position;
+        const auto fraction = (float) (position - (double) index);
+        const auto y = (double) (table[index] + (table[index + 1] - table[index]) * fraction);
+        return x > 0.0 ? y : -y;
+    }
+
+private:
+    static constexpr int size = 4097;
+    std::array<float, (size_t) size + 1> table {};
+};
+
+// A transposed direct form II biquad whose coefficients glide to a new set
+// over the next 16 samples (the voice sets them every 16), as the plugins
+// glide theirs over a host buffer.
+struct GlideBiquad
+{
+    std::array<double, 5> from {}, to {}, now {};
+    double s1 = 0.0, s2 = 0.0;
+    int step = 0;
+    static constexpr int steps = 16;
+
+    void set (const std::array<double, 5>& target, bool jump)
+    {
+        from = jump ? target : now;
+        to = target;
+        step = jump ? steps : 0;
+        if (jump)
+            now = target;
+    }
+
+    double process (double x)
+    {
+        if (step < steps)
+        {
+            ++step;
+            const auto t = (double) step / (double) steps;
+            for (size_t i = 0; i < 5; ++i)
+                now[i] = from[i] + (to[i] - from[i]) * t;
+        }
+
+        const auto y = x * now[0] + s1;
+        s1 = x * now[1] - y * now[3] + s2;
+        s2 = x * now[2] - y * now[4];
+        return y;
+    }
+
+    void reset() { s1 = s2 = 0.0; }
+};
+
+// YLowpass, YHighpass, YBandpass and YNotch: a resonant two-pole filter
+// between the encode and decode curves (RESEDGE), with fixed 20 kHz
+// Butterworth low-passes on the way in and out. The plugins' resonant stage is
+// a biquad whose coefficients glide over a buffer; here it is the same
+// response computed as a zero-delay state-variable filter, because a voice's
+// filter envelope moves the cutoff every 16 samples and a direct-form biquad
+// overshoots under that (up to +3.7 dB peaks on the presets). Resonance 0..1
+// sets the damping as the old SVF models did (Q = 1 / (2 - 2 r), so their
+// linear response and every preset's tone balance carry over), topped at
+// Q 40 up to resonance 0.98; above it they self-oscillate (see makeCoefficients).
+class YFilter
+{
+public:
+    enum class Mode { LowPass, BandPass, HighPass, Notch };
+
+    struct Coefficients
+    {
+        double g = 0.0, k = 2.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        bool selfOscillating = false;
+        std::array<double, 5> fixed {};
+    };
+
+    // RESEDGE: the plugins' D knob, p = (D + 0.9)^4. At its default 0.1 the
+    // curve is a straight line; above it the resonant peak gets its edge.
+    static constexpr double resEdge = 0.25;
+    // The voice runs hotter than a mix bus: the curve sees the signal at this
+    // level (and the gain comes back after).
+    static constexpr double headroom = 0.5;
+
+    static constexpr double oscillationStart = 0.98, oscDamping = 0.5, oscScale = 3.4;
+
+    static double exponent() { return std::pow (resEdge + 0.9, 4.0); }
+
+    static Coefficients makeCoefficients (double sampleRate, double cutoff, double resonance)
+    {
+        Coefficients c;
+        const auto f = juce::jlimit (15.0, sampleRate * 0.45, cutoff) / sampleRate;
+        const auto r = juce::jlimit (0.0, 1.0, resonance);
+        c.g = std::tan (juce::MathConstants<double>::pi * f);
+        // Above 0.98 the damping goes negative and the filter sings at the
+        // cutoff, held at a steady level by nonlinear damping (as the old SVF
+        // models did; the Airwindows plugins stop short of this).
+        c.selfOscillating = r > oscillationStart;
+        c.k = c.selfOscillating ? 2.0 - 2.0 * oscillationStart - (r - oscillationStart) * 3.0
+                                : juce::jmax (2.0 - 2.0 * r, 1.0 / 40.0);
+        c.a1 = 1.0 / (1.0 + c.g * (c.g + c.k));
+        c.a2 = c.g * c.a1;
+        c.a3 = c.g * c.a2;
+
+        const auto fixedQ = 0.7071;
+        const auto k = std::tan (juce::MathConstants<double>::pi * juce::jmin (20000.0, sampleRate * 0.45) / sampleRate);
+        const auto norm = 1.0 / (1.0 + k / fixedQ + k * k);
+        c.fixed = { k * k * norm, 2.0 * k * k * norm, k * k * norm, 2.0 * (k * k - 1.0) * norm, (1.0 - k / fixedQ + k * k) * norm };
+        return c;
+    }
+
+    void setMode (Mode newMode) { mode = newMode; }
+
+    void setCoefficients (const Coefficients& c)
+    {
+        coefficients = c;
+        fixedIn.set (c.fixed, true);
+        fixedOut.set (c.fixed, true);
+    }
+
+    void reset()
+    {
+        ic1 = ic2 = ic3 = ic4 = 0.0;
+        band1 = band2 = 0.0;
+        fixedIn.reset();
+        fixedOut.reset();
+    }
+
+    // 24 dB: the second stage sits inside the same encode/decode pair.
+    float process (float input, bool slope24 = false)
+    {
+        auto x = encode (fixedIn.process ((double) input) * headroom);
+        x = stage (x, ic1, ic2, band1);
+        if (slope24)
+            x = stage (x, ic3, ic4, band2);
+        return (float) fixedOut.process (decode (x) / headroom);
+    }
+
+private:
+    double stage (double x, double& s1, double& s2, double& lastBand) const
+    {
+        const auto& c = coefficients;
+        auto k = c.k, a1 = c.a1, a2 = c.a2, a3 = c.a3;
+
+        if (c.selfOscillating)
+        {
+            // The damping rises with the band-pass level (from the last
+            // sample): kappa = k + c (1 - tanh (a bp) / (a bp)).
+            k += oscDamping * (1.0 - FilterCore::tanhOverX (oscScale * lastBand));
+            a1 = 1.0 / (1.0 + c.g * (c.g + k));
+            a2 = c.g * a1;
+            a3 = c.g * a2;
+        }
+
+        const auto v3 = x - s2;
+        const auto v1 = a1 * s1 + a2 * v3;
+        const auto v2 = s2 + a2 * s1 + a3 * v3;
+        s1 = 2.0 * v1 - s1;
+        s2 = 2.0 * v2 - s2;
+        lastBand = v1;
+
+        switch (mode)
+        {
+            case Mode::LowPass:  return v2;
+            case Mode::BandPass: return v1; // peak gain Q, as the old band-pass
+            case Mode::HighPass: return x - k * v1 - v2;
+            case Mode::Notch:    return x - k * v1;
+        }
+        return x;
+    }
+
+    inline static const PowCurve encode { exponent() };
+    inline static const PowCurve decode { 1.0 / exponent() };
+
+    Mode mode = Mode::LowPass;
+    Coefficients coefficients;
+    double ic1 = 0.0, ic2 = 0.0, ic3 = 0.0, ic4 = 0.0, band1 = 0.0, band2 = 0.0;
+    GlideBiquad fixedIn, fixedOut;
+};
+// The Y Low Pass while it sits wide open (above 19 kHz, low resonance): the
+// same fixed Butterworths and resonant stage, without the encode/decode
+// curves (which cancel while the stage passes the band unchanged) and without
+// the gliding coefficient sets. Measured against YFilter (ILANA_OPEN_FILTER_CHECK)
+// it matches within 0.1 dB up to 15 kHz and 0.2 dB at 18 kHz.
+class OpenLowPass
+{
+public:
+    void set (double sampleRate, double cutoff, double resonance)
+    {
+        const auto c = YFilter::makeCoefficients (sampleRate, cutoff, resonance);
+        for (size_t i = 0; i < 5; ++i)
+            fixed[i] = (float) c.fixed[i];
+        a1 = (float) c.a1;
+        a2 = (float) c.a2;
+        a3 = (float) c.a3;
+    }
+
+    void reset() { in1 = in2 = out1 = out2 = s1 = s2 = 0.0f; }
+
+    float process (float x)
+    {
+        // Transposed direct form II, as GlideBiquad.
+        const auto b = x * fixed[0] + in1;
+        in1 = x * fixed[1] - b * fixed[3] + in2;
+        in2 = x * fixed[2] - b * fixed[4];
+
+        const auto v3 = b - s2;
+        const auto v1 = a1 * s1 + a2 * v3;
+        const auto v2 = s2 + a2 * s1 + a3 * v3;
+        s1 = 2.0f * v1 - s1;
+        s2 = 2.0f * v2 - s2;
+
+        const auto y = v2 * fixed[0] + out1;
+        out1 = v2 * fixed[1] - y * fixed[3] + out2;
+        out2 = v2 * fixed[2] - y * fixed[4];
+        return y;
+    }
+
+private:
+    std::array<float, 5> fixed {};
+    float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+    float in1 = 0.0f, in2 = 0.0f, out1 = 0.0f, out2 = 0.0f, s1 = 0.0f, s2 = 0.0f;
+};
+} // namespace Airwindows

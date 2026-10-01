@@ -147,7 +147,7 @@ private:
 
     // Two pages of families, each a block two cells high. Page 1 is the
     // classic twelve (CLASSIC, CHARACTER, SPECIAL); page 2 holds M8.4's
-    // models. Type indices are unchanged.
+    // models and the overhaul's four. Type indices are unchanged.
     static const std::array<std::vector<Group>, 2>& pages()
     {
         using namespace FilterType;
@@ -155,9 +155,9 @@ private:
             std::vector<Group> { { "CLASSIC", { LowPass, BandPass, HighPass, Notch } },
                                  { "CHARACTER", { LadderLow, LadderHigh, DiodeLow, Ms20Low } },
                                  { "SPECIAL", { CombPlus, CombMinus, Formant, Morph } } },
-            std::vector<Group> { { "ANALOG", { LadderDrive, LadderBand, OtaLow, OtaBand, Ms20High, Sem } },
+            std::vector<Group> { { "ANALOG", { LadderDrive, LadderBand, OtaLow, OtaBand, Ms20High, Sem, Acid303, MoogDrive } },
                                  { "SHAPES", { Steiner, PhaserNotch, TwinPeak, CombMorph } },
-                                 { "VOICE", { VowelBank, Talking, CombDamped } } }
+                                 { "VOICE", { VowelBank, Talking, VowelMorph, CombDamped, CombBody } } }
         };
         return list;
     }

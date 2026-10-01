@@ -1,0 +1,54 @@
+SELFOSC Low Pass: 50->-0.01% (rms 0.023) 110->-0.01% (rms 0.034) 440->-0.01% (rms 0.068) 1000->-0.01% (rms 0.102) 3000->-0.01% (rms 0.172) 10000->0.00% (rms 0.220)
+SELFOSC Band Pass: 50->-0.01% (rms 0.023) 110->-0.01% (rms 0.034) 440->-0.01% (rms 0.068) 1000->-0.01% (rms 0.102) 3000->-0.01% (rms 0.171) 10000->0.00% (rms 0.220)
+SELFOSC High Pass: 50->-0.01% (rms 0.023) 110->-0.01% (rms 0.034) 440->-0.01% (rms 0.068) 1000->-0.01% (rms 0.102) 3000->-0.01% (rms 0.172) 10000->0.00% (rms 0.220)
+SELFOSC Notch: 50->-0.01% (rms 0.000) 110->-0.01% (rms 0.001) 440->-0.01% (rms 0.001) 1000->-0.01% (rms 0.002) 3000->-0.01% (rms 0.003) 10000->0.00% (rms 0.004)
+SELFOSC Ladder LP: 50->0.12% (rms 0.123) 110->-0.00% (rms 0.133) 440->-0.00% (rms 0.133) 1000->-0.00% (rms 0.133) 3000->-0.00% (rms 0.133) 10000->0.00% (rms 0.125)
+SELFOSC Ladder HP: 50->0.43% (rms 0.100) 110->0.00% (rms 0.133) 440->-0.00% (rms 0.133) 1000->-0.00% (rms 0.133) 3000->-0.00% (rms 0.133) 10000->0.00% (rms 0.125)
+SELFOSC Diode LP: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC MS-20 LP: 50->-0.00% (rms 0.024) 110->-0.00% (rms 0.023) 440->-0.00% (rms 0.012) 1000->-0.00% (rms 0.009) 3000->-0.00% (rms 0.005) 10000->0.00% (rms 0.004)
+SELFOSC Comb +: 50->none (rms 0.005) 110->none (rms 0.002) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Comb -: 50->-50.06% (rms 0.005) 110->-50.11% (rms 0.002) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Formant: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Morph: 50->-0.01% (rms 0.023) 110->-0.01% (rms 0.034) 440->-0.01% (rms 0.068) 1000->-0.01% (rms 0.102) 3000->-0.01% (rms 0.171) 10000->0.00% (rms 0.220)
+SELFOSC Ladder BP: 50->0.09% (rms 0.171) 110->-0.26% (rms 0.234) 440->0.32% (rms 0.157) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Ladder Drive: 50->0.09% (rms 0.042) 110->-0.26% (rms 0.057) 440->0.32% (rms 0.039) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC SEM: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC OTA LP: 50->-0.80% (rms 0.003) 110->-0.99% (rms 0.003) 440->-2.76% (rms 0.037) 1000->-5.95% (rms 0.068) 3000->-15.04% (rms 0.126) 10000->-31.34% (rms 0.235)
+SELFOSC OTA BP: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC MS-20 HP: 50->-0.16% (rms 0.011) 110->-0.35% (rms 0.013) 440->-1.38% (rms 0.076) 1000->-3.02% (rms 0.126) 3000->-7.81% (rms 0.197) 10000->-15.63% (rms 0.151)
+SELFOSC Steiner: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Phaser Notch: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Comb Damped: 50->none (rms 0.003) 110->none (rms 0.001) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Comb Morph: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Vowel: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Talking: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SELFOSC Twin Peak: 50->none (rms 0.000) 110->none (rms 0.000) 440->none (rms 0.000) 1000->none (rms 0.000) 3000->none (rms 0.000) 10000->none (rms 0.000)
+SVFOSC reso 0.99: LP rms 8.05259e-11 peak 0.509354, BP rms 8.04075e-11 peak 0.426021
+SVFOSC reso 0.995: LP rms 0.050981 peak 0.513899, BP rms 0.0509812 peak 0.432813
+CPU 0 Low Pass: 12.7 ns/sample
+CPU 1 Band Pass: 12.9 ns/sample
+CPU 2 High Pass: 13.6 ns/sample
+CPU 3 Notch: 13.3 ns/sample
+CPU 4 Ladder LP: 40.1 ns/sample
+CPU 5 Ladder HP: 39.1 ns/sample
+CPU 6 Diode LP: 127.0 ns/sample
+CPU 7 MS-20 LP: 40.9 ns/sample
+CPU 8 Comb +: 19.7 ns/sample
+CPU 9 Comb -: 18.0 ns/sample
+CPU 10 Formant: 18.1 ns/sample
+CPU 11 Morph: 18.2 ns/sample
+CPU 12 Ladder BP: 259.4 ns/sample
+CPU 13 Ladder Drive: 251.3 ns/sample
+CPU 14 SEM: 18.7 ns/sample
+CPU 15 OTA LP: 151.2 ns/sample
+CPU 16 OTA BP: 178.0 ns/sample
+CPU 17 MS-20 HP: 54.8 ns/sample
+CPU 18 Steiner: 47.1 ns/sample
+CPU 19 Phaser Notch: 63.1 ns/sample
+CPU 20 Comb Damped: 38.0 ns/sample
+CPU 21 Comb Morph: 35.8 ns/sample
+CPU 22 Vowel: 45.6 ns/sample
+CPU 23 Talking: 45.1 ns/sample
+CPU 24 Twin Peak: 21.5 ns/sample
+CPU average: 63.3 ns/sample
+FILTER TESTS PASSED (0 failures)

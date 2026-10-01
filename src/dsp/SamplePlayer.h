@@ -3,15 +3,66 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <cmath>
+#include <memory>
+#include <vector>
+
+struct SampleData;
+
+// One region of a multisample (a SoundFont or SFZ instrument): the audio a
+// range of keys and velocities plays, the key it was recorded at and its
+// loop.
+struct SampleZone
+{
+    std::shared_ptr<SampleData> data;
+    int loKey = 0, hiKey = 127, loVel = 1, hiVel = 127;
+    double rootNote = 60.0; // fractional: tuning folded in
+    float gain = 1.0f;
+    bool loop = false;
+    int loopStart = 0, loopEnd = 0; // samples into data
+
+    bool covers (int note, int velocity) const noexcept
+    {
+        return note >= loKey && note <= hiKey && velocity >= loVel && velocity <= hiVel;
+    }
+
+    double rootHz() const noexcept { return 440.0 * std::exp2 ((rootNote - 69.0) / 12.0); }
+};
 
 struct SampleData
 {
     juce::AudioBuffer<float> buffer;
     double sampleRate = 44100.0;
     juce::String name;
+    // A multisample's regions. Empty for a plain sample; otherwise buffer
+    // holds the region under middle C, for the displays.
+    std::vector<SampleZone> zones;
 
     int getNumChannels() const noexcept { return buffer.getNumChannels(); }
     int getNumSamples() const noexcept { return buffer.getNumSamples(); }
+
+    // The region a note plays: the one that covers it, else the nearest by
+    // key (a velocity outside every range takes the closest layer).
+    const SampleZone* zoneFor (int note, int velocity) const noexcept
+    {
+        const SampleZone* best = nullptr;
+        auto bestDistance = 1 << 30;
+        for (const auto& zone : zones)
+        {
+            if (zone.data == nullptr)
+                continue;
+            if (zone.covers (note, velocity))
+                return &zone;
+            const auto keyDistance = note < zone.loKey ? zone.loKey - note : (note > zone.hiKey ? note - zone.hiKey : 0);
+            const auto velDistance = velocity < zone.loVel ? zone.loVel - velocity : (velocity > zone.hiVel ? velocity - zone.hiVel : 0);
+            const auto distance = keyDistance * 128 + velDistance;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = &zone;
+            }
+        }
+        return best;
+    }
 };
 
 class SamplePlayer
@@ -26,6 +77,9 @@ public:
         float end = 1.0f;
         float fadeIn = 0.0f;
         float fadeOut = 0.0f;
+        float gain = 1.0f;
+        // A multisample region's own loop (samples); used when loopEnd > loopStart.
+        int loopStart = 0, loopEnd = 0;
     };
 
     void prepare (double)
@@ -87,6 +141,11 @@ public:
         if (! active || params.sample == nullptr)
             return;
 
+        // A region's sustain loop: forward only, inside the played range.
+        if (params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
+            && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
+            position -= (double) (params.loopEnd - params.loopStart);
+
         if (position >= regionEnd || position < regionStart)
         {
             if (! params.loop)
@@ -137,6 +196,7 @@ public:
         if (fadeOutLength > 1.0)
             gain *= juce::jlimit (0.0, 1.0, posToEnd / fadeOutLength);
 
+        gain *= (double) params.gain;
         left = readL * (float) gain;
         right = readR * (float) gain;
 

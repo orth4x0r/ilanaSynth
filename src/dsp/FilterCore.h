@@ -101,16 +101,29 @@ struct OnePole
 
 // Solve u = sat (v - a u) for u, sat = drive-scaled tanh with ceiling
 // 'level': u = level * tanh ((v - a u) / level). Monotone in u for a >= 0;
-// a linear-loop start and two Newton steps land within float precision.
+// from a linear-loop start, one Newton step is within 1e-4 of the root for
+// a <= 0.5 (the ladders at any cutoff), two within 1e-3 for any a <= 4.
+// Each Newton step folds tanh's Pade quotient and the step's own division
+// into one division (the loop is latency-bound, and divisions dominate).
 inline double solveLoop (double v, double a, double level)
 {
     const auto inv = 1.0 / level;
     auto u = level * tanhApprox (v * inv / (1.0 + a));
-    for (int step = 0; step < 2; ++step)
+    const auto steps = a <= 0.5 ? 1 : 2;
+    for (int step = 0; step < steps; ++step)
     {
-        const auto t = tanhApprox ((v - a * u) * inv);
-        const auto f = u - level * t;
-        u -= f / (1.0 + a * tanhSlope (t));
+        const auto x = (v - a * u) * inv;
+        if (std::abs (x) > 4.97)
+        {
+            // Past the clamp tanh is flat: u = +-level.
+            u = x > 0.0 ? level : -level;
+            continue;
+        }
+        // tanh (x) = n / d; f = u - level n / d; f' = 1 + a (1 - n^2 / d^2).
+        const auto x2 = x * x;
+        const auto n = x * (135135.0 + x2 * (17325.0 + x2 * (378.0 + x2)));
+        const auto d = 135135.0 + x2 * (62370.0 + x2 * (3150.0 + x2 * 28.0));
+        u -= (u * d - level * n) * d / (d * d + a * (d * d - n * n));
     }
     return u;
 }
@@ -133,7 +146,12 @@ public:
         double loopLevel = 1.0;     // the input sum's clip level
     };
 
-    void set (const Settings& s) { settings = s; }
+    void set (const Settings& s)
+    {
+        settings = s;
+        linearBeta = 1.0 / (1.0 + s.g);
+        linearBigG = s.g * linearBeta;
+    }
     void reset() { state.fill (0.0); last.fill (0.0); }
 
     // Returns the four stage outputs in y and the loop input u.
@@ -141,12 +159,19 @@ public:
     {
         const auto& s = settings;
         std::array<double, 4> bigG, beta;
-        for (size_t i = 0; i < 4; ++i)
+        if (s.stageDrive > 0.0)
         {
-            const auto t = s.stageDrive > 0.0 ? tanhOverX (s.stageDrive * last[i]) : 1.0;
-            const auto g = s.g * t;
-            beta[i] = 1.0 / (1.0 + g);
-            bigG[i] = g * beta[i];
+            for (size_t i = 0; i < 4; ++i)
+            {
+                const auto g = s.g * tanhOverX (s.stageDrive * last[i]);
+                beta[i] = 1.0 / (1.0 + g);
+                bigG[i] = g * beta[i];
+            }
+        }
+        else
+        {
+            beta.fill (linearBeta);
+            bigG.fill (linearBigG);
         }
 
         // The output as a + b u.
@@ -184,7 +209,79 @@ public:
 
 private:
     Settings settings;
+    double linearBeta = 1.0, linearBigG = 0.0;
     std::array<double, 4> state {}, last {};
+};
+
+// The Korg-35 (MS-20) loop: an input one-pole (low- or high-pass), then a
+// second one-pole of the same kind whose output is fed back through a
+// one-pole of the other kind with gain K and a diode limiter:
+//   low-pass:  u = LP1 (x) + sat (K HP (y)), y = LP2 (u)
+//   high-pass: u = HP1 (x) + sat (K LP (y)), y = HP2 (u)
+// which is 1 / (s^2 + (2 - K) s + 1) (or s^2 over it): it self-oscillates at
+// K = 2 exactly at the cutoff. The limiter is solved per sample (Newton;
+// the loop's local gain c = K G beta is at most 0.52, so it is monotone,
+// and one step from the start below is within 3e-4 of the root).
+class Korg35Core
+{
+public:
+    void set (double g, double k, bool highPassMode, double limit)
+    {
+        bigG = g / (1.0 + g);
+        beta = 1.0 / (1.0 + g);
+        loopK = k;
+        highPass = highPassMode;
+        level = limit;
+    }
+
+    void reset() { in.reset(); forward.reset(); feedback.reset(); }
+
+    double process (double x)
+    {
+        const auto y1 = highPass ? in.highPass (x, bigG) : in.lowPass (x, bigG);
+        // The fed-back one-pole's output as c u + d.
+        double c, d;
+        if (highPass)
+        {
+            c = loopK * bigG * beta;
+            d = loopK * beta * (feedback.s - bigG * forward.s);
+        }
+        else
+        {
+            c = loopK * bigG * beta;
+            d = loopK * beta * (beta * forward.s - feedback.s);
+        }
+
+        // u = y1 + level tanh ((c u + d) / level)
+        const auto inv = 1.0 / level;
+        const auto linear = (y1 + d) / (1.0 - c);
+        auto u = y1 + level * tanhApprox ((c * linear + d) * inv);
+        const auto arg = (c * u + d) * inv;
+        if (std::abs (arg) > 4.97)
+        {
+            u = y1 + (arg > 0.0 ? level : -level);
+        }
+        else
+        {
+            // tanh (arg) = n / m; one division per step (see solveLoop).
+            const auto x2 = arg * arg;
+            const auto n = arg * (135135.0 + x2 * (17325.0 + x2 * (378.0 + x2)));
+            const auto m = 135135.0 + x2 * (62370.0 + x2 * (3150.0 + x2 * 28.0));
+            u -= ((u - y1) * m - level * n) * m / (m * m - c * (m * m - n * n));
+        }
+
+        const auto y = highPass ? forward.highPass (u, bigG) : forward.lowPass (u, bigG);
+        if (highPass)
+            feedback.lowPass (y, bigG);
+        else
+            feedback.highPass (y, bigG);
+        return y;
+    }
+
+private:
+    double bigG = 0.1, beta = 0.9, loopK = 0.0, level = 1.0;
+    bool highPass = false;
+    OnePole in, forward, feedback;
 };
 
 // The diode ladder: four capacitors coupled by diode pairs (each node sees
@@ -279,9 +376,10 @@ public:
         diff[3] = y[2] - y[3];
     }
 
-    // The linear core's response at s (normalised to the stage frequency):
-    // from the same tridiagonal model the processor runs.
-    static std::complex<double> coreResponse (std::complex<double> s, bool halfTopCap)
+    // The linear core's response at s (normalised to the stage frequency) at
+    // one node (3 is the output): from the same tridiagonal model the
+    // processor runs.
+    static std::complex<double> coreResponse (std::complex<double> s, bool halfTopCap, int node = 3)
     {
         // Node equations: C_i s v_i = sum of neighbour conductances.
         const double caps[4] { 1.0, 1.0, 1.0, halfTopCap ? 0.5 : 1.0 };
@@ -297,7 +395,11 @@ public:
             d[i] -= m * up[i - 1];
             r[i] -= m * r[i - 1];
         }
-        return r[3] / d[3];
+        // Back-substitute down to the node asked for (3 is the output).
+        auto v = r[3] / d[3];
+        for (int i = 2; i >= node; --i)
+            v = (r[i] - up[i] * v) / d[i];
+        return v;
     }
 
 private:

@@ -59,6 +59,10 @@ enum Fx
     FxSmear, FxFreeze, FxReverb, FxFlanger, FxDimension, FxGate, FxTapeStop, FxTilt, FxUtility, FxOtt,
     FxLimiter, FxWidener, FxTremolo, FxFreqShift, FxRingMod, FxOctaver, FxVowel, FxFeedback, FxEq
 };
+// Airwindows filter types (FilterType 29..38) and the Airwindows FX module.
+enum AwFilter { AwZLP = 29, AwZHP, AwZBP, AwAcid, AwXLP, AwYNotLP, AwHolt, AwAngle, AwPear, Disperser };
+constexpr int FxAirwindows = 30;
+
 enum Div { D1_1 = 0, D1_2, D1_4, D1_8, D1_16, D1_32, D1_4T, D1_8T, D1_16T, D1_8D, D1_16D };
 enum Verb { Room = 0, Hall, Plate, Shimmer, Spring, Gated };
 enum LfoShape { Sine = 0, Tri, SawUp, SawDown, Square, SampleHold, DrawShape, StepsShape, CurveShape,
@@ -594,6 +598,118 @@ namespace Library
 {
 #include "PresetPackM10.h"
 
+// The owner's blind A/B marked these presets bad in both their old and new
+// form (2026-09-30): rebuilt from scratch (content/analysis/rebuild-8.md).
+// Five of them keep their slot in the original 80 (their host program
+// numbers), so getFactoryPresets() swaps them in by name; the other three
+// are edited where they were written.
+inline void rebuildLegacy (std::vector<FactoryPreset>& list)
+{
+    using B = Builder;
+    const auto swap = [&list] (const FactoryPreset& preset)
+    {
+        for (auto& existing : list)
+            if (std::string (existing.name) == preset.name)
+            {
+                existing = preset;
+                return;
+            }
+    };
+
+    // Rip Bass: a growling wavetable saw with an FM "rip" on every attack.
+    swap (B ("Rip Bass", "Bass")
+              .osc1 (GrowlT, 0.35f, 0.8f).unison (1, 3, 10.0f, 0.15f)
+              .osc2 (SineT, 0.0f, 0.5f, 12).modOnly (2).fm (0.08f)
+              .menv (0.001f, 0.16f, 0.1f, 0.14f).mod (ModEnv, D::FmAmount, 0.45f).mod (ModEnv, D::Osc1Frame, 0.3f)
+              .sub (0, 0.4f, 0)
+              .filter1 (AwYNotLP, 300.0f, 0.7f, 2.6f, 2.0f, 0.35f).morph (1, 0.5f)
+              .fenv (0.001f, 0.2f, 0.1f, 0.15f).amp (0.001f, 0.6f, 0.75f, 0.12f)
+              .filterVelocity (0.6f).velocity (0.4f)
+              .mono (0.03f)
+              .lfoSync (1, Tri, D1_8).mod (Lfo1, Target (D::Filter1Cutoff, 0.3f), 0.0f, M3)
+              .macro (1, "TONE", { { D::Filter1Cutoff, 0.45f }, { D::Filter1Morph, 0.4f } })
+              .macro (2, "RIP", { { D::FmAmount, 0.5f }, { D::Osc1Frame, 0.4f } })
+              .macro (3, "WUB", {})
+              .macro (4, "GRIT", { { D::FxDriveAmount, 0.5f }, { D::Filter1Drive, 0.3f } })
+              .fx ({ FxDrive, FxAirwindows, FxEq, FxLimiter }).driveFx (2.0f, 0.4f, 0.0f)
+              .set ("fx_aw_algo", 36).set ("fx_aw_p1", 0.4f).set ("fx_aw_p2", 0.5f).set ("fx_aw_p3", 1.0f)
+              .eq (2.0f, 1800.0f, 2.0f, 1.0f, 90.0f).limiter (-1.0f));
+
+    // Glitch Lead: stepped, bit-quantised digital lead, chopped by a gate.
+    swap (B ("Glitch Lead", "Lead")
+              .osc1 (BitRamp, 0.3f, 0.75f).unison (1, 2, 9.0f, 0.5f).warp (1, WQuantize, 0.35f)
+              .osc2 (Wavecrush, 0.4f, 0.3f, 12)
+              .lfoSync (1, SampleHold, D1_16).mod (Lfo1, D::Osc1Frame, 0.35f).mod (Lfo1, D::Filter1Cutoff, 0.12f)
+              .lfoSync (2, SampleHold, D1_8).mod (Lfo2, D::Osc2Frame, 0.3f)
+              .filter1 (AwAngle, 2200.0f, 0.6f, 1.5f, 1.8f, 0.4f).morph (1, 0.6f).filterVelocity (0.6f)
+              .fenv (0.001f, 0.3f, 0.4f, 0.2f).amp (0.002f, 0.3f, 0.75f, 0.15f).velocity (0.5f)
+              .legato (0.02f)
+              .macro (1, "GLITCH", { { D::Osc1Warp, 0.5f }, { D::Osc2Level, 0.3f } })
+              .macro (2, "CRUSH", { { D::FxCrushMix, 0.5f }, { param ("fx_crush_bits"), -0.4f } })
+              .macro (3, "CHOP", { { param ("fx_gate_mix"), 0.55f } })
+              .macro (4, "TONE", { { D::Filter1Cutoff, 0.4f }, { D::Filter1Morph, 0.3f } })
+              .fx ({ FxCrush, FxGate, FxDelay, FxReverb })
+              .crush (10.0f, 2.0f, 0.3f)
+              .gateSteps (D1_16, "9909900990990909", 0.25f, 0.0f, 0.45f)
+              .delay (D1_8D, 0.35f, 0.2f, true).reverb (Plate, 0.35f, 0.12f));
+
+    // Rig Lead: a guitar-rig solo voice: tube amp, late vibrato, spring and echo.
+    swap (B ("Rig Lead", "Lead")
+              .osc1 (SoftSaw, 0.8f, 0.75f).unison (1, 2, 7.0f, 0.5f)
+              .osc2 (SoftSquareT, 0.0f, 0.3f, -12)
+              .filter1 (AwHolt, 1800.0f, 0.3f, 1.5f, 1.5f, 0.5f).morph (1, 0.4f)
+              .fenv (0.005f, 0.6f, 0.5f, 0.4f).amp (0.008f, 0.4f, 0.85f, 0.35f)
+              .velocity (0.6f).filterVelocity (0.4f)
+              .menv (0.5f, 0.3f, 1.0f, 0.3f)
+              .lfo (1, Sine, 5.4f).mod (Lfo1, Target (D::Osc1Pitch, 0.012f), 0.0f, ModEnv).mod (Lfo1, Target (D::Osc2Pitch, 0.012f), 0.0f, ModEnv)
+              .mod (Lfo1, Target (D::Osc1Pitch, 0.015f), 0.0f, M3).mod (Lfo1, Target (D::Osc2Pitch, 0.015f), 0.0f, M3)
+              .legato (0.05f).bend (2.0f)
+              .macro (1, "DRIVE", { { param ("fx_amp_drive"), 0.5f }, { D::Filter1Drive, 0.2f } })
+              .macro (2, "TONE", { { D::Filter1Cutoff, 0.6f }, { param ("fx_amp_treble"), 0.4f } })
+              .macro (3, "VIBRATO", {})
+              .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.3f } })
+              .fx ({ FxAmp, FxDelay, FxReverb, FxLimiter })
+              .ampSim (0, 6.0f, 1.0f, 1.15f, 0.95f, 0.8f)
+              .delay (D1_8D, 0.4f, 0.18f, false, 0.5f).reverb (Spring, 0.5f, 0.15f).limiter (-1.0f));
+
+    // Quad Mod Pluck: four modulators at once (envelope, random, velocity,
+    // LFO) move an FM-stack pluck; Airwindows bite and ensemble width.
+    swap (B ("Quad Mod Pluck", "Pluck")
+              .osc1 (PluckStiff, 0.5f, 0.8f).unison (1, 2, 8.0f, 0.5f)
+              .osc2 (FmStack, 0.3f, 0.35f, 12)
+              .menv (0.001f, 0.25f, 0.0f, 0.2f).mod (ModEnv, D::Osc1Frame, -0.4f).mod (ModEnv, D::Osc2Frame, 0.3f)
+              .mod (Rnd, D::Osc1Frame, 0.12f).mod (Vel, D::Filter1Cutoff, 0.25f)
+              .lfo (1, SmoothRandom, 3.0f, true).mod (Lfo1, D::Osc2Level, 0.2f)
+              .filter1 (AwHolt, 500.0f, 0.4f, 3.5f, 1.6f, 0.5f).morph (1, 0.7f)
+              .fenv (0.001f, 0.28f, 0.0f, 0.2f).amp (0.001f, 0.6f, 0.0f, 0.4f)
+              .macro (1, "BITE", { { D::Filter1Cutoff, 0.6f }, { D::Filter1Reso, 0.3f }, { D::Filter1Drive, 0.3f } })
+              .macro (2, "MOTION", { { D::Osc1Frame, 0.4f }, { D::Osc2Level, 0.35f } })
+              .macro (3, "DECAY", { { D::AmpDecay, 0.4f }, { D::FeDecay, 0.3f } })
+              .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.3f } })
+              .fx ({ FxAirwindows, FxDelay, FxReverb, FxLimiter })
+              .set ("fx_aw_algo", 38).set ("fx_aw_p1", 0.45f).set ("fx_aw_p2", 0.5f).set ("fx_aw_p3", 0.7f)
+              .delay (D1_8D, 0.35f, 0.15f, true).reverb (Plate, 0.45f, 0.15f).limiter (-3.0f));
+
+    // Resonator Pluck: a noise-burst string and an octave-up burst string
+    // ring a tuned bar resonator (string-to-body coupling); a Holt filter
+    // opens on the strike.
+    swap (B ("Resonator Pluck", "Pluck")
+              .string (1, 0.85f, XNoise, 0.6f, 0.4f).unison (1, 2, 6.0f, 0.6f)
+              .string (2, 0.4f, XBurst, 0.5f, 0.45f).set ("osc2_semi", 12)
+              .set ("res_on", 1).set ("res_amount", 0.85f).set ("res_decay", 0.5f).set ("res_keytrack", 1.0f)
+              .set ("body_type", 1).set ("body_material", 0.5f).set ("body_size", 0.45f)
+              .set ("body_coupling_mode", 1).set ("body_coupling", 0.7f)
+              .filter1 (AwHolt, 3000.0f, 0.5f, 2.0f, 1.0f, 0.5f).morph (1, 0.5f)
+              .fenv (0.001f, 0.4f, 0.0f, 0.3f)
+              .amp (0.001f, 2.0f, 0.0f, 0.4f).velocity (0.3f)
+              .macro (1, "BODY", { { D::ResAmount, 0.3f }, { param ("body_coupling"), 0.3f } })
+              .macro (2, "DECAY", { { D::ResDecay, 0.3f }, { param ("osc1_string_decay"), 0.3f } })
+              .macro (3, "BRIGHT", { { D::Filter1Cutoff, 0.5f }, { param ("osc1_string_damp"), -0.3f } })
+              .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.3f } })
+              .fx ({ FxDelay, FxReverb })
+              .delay (D1_8D, 0.3f, 0.15f, true).reverb (Room, 0.5f, 0.2f));
+}
+
 inline std::vector<FactoryPreset> build()
 {
     using B = Builder;
@@ -881,18 +997,24 @@ inline std::vector<FactoryPreset> build()
              .mod (Lfo1, D::Filter1Cutoff, 0.02f, 0.0f, M3)
              .fx ({ FxLimiter, FxDelay, FxReverb }).limiter (-6.0f).delay (D1_4, 0.3f, 0.12f).reverb (Hall, 0.6f, 0.2f));
 
+    // Rebuilt 2026-09-30 (content/analysis/rebuild-8.md): true hard sync, the
+    // slave sweeping under an envelope, the wheel and a slow LFO.
     add (B ("Sync Scream", "Lead")
-             .osc1 (Basic, 0.0f, 0.8f).warp (1, WSync, 0.4f).unison (1, 3, 12.0f, 0.5f)
-             .filter1 (LP, 6000.0f, 0.2f, 0.0f, 2.0f)
-             .menv (0.001f, 0.8f, 0.3f, 0.4f).mod (ModEnv, D::Osc1Warp, 0.4f)
-             .amp (0.002f, 0.3f, 0.9f, 0.25f)
+             .osc1 (Basic, 0.0f, 0.8f).modOnly (1)
+             .osc2 (Basic, 0.0f, 0.8f, 0).unison (2, 2, 7.0f, 0.4f).sync()
+             .menv (0.001f, 1.6f, 0.25f, 0.4f).mod (ModEnv, D::Osc2Pitch, 0.3f)
+             .lfo (1, Sine, 4.6f).mod (Lfo1, D::Osc2Pitch, 0.04f)
+             .mod (Wheel, D::Osc2Pitch, 0.18f)
+             .sub (1, 0.22f, 0)
+             .filter1 (AwZLP, 3500.0f, 0.4f, 1.5f, 1.6f, 0.6f).morph (1, 0.6f).filterVelocity (0.6f)
+             .fenv (0.002f, 0.8f, 0.5f, 0.3f)
+             .amp (0.002f, 0.3f, 0.9f, 0.25f).velocity (0.5f)
              .legato (0.04f)
-             .mod (Wheel, D::Osc1Warp, 0.4f)
-             .macro (1, "SYNC", { { D::Osc1Warp, 0.4f } })
-             .macro (2, "TONE", { { D::Filter1Cutoff, -0.4f } })
-             .macro (3, "DRIVE", { { param ("fx_amp_drive"), 0.4f } })
-             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
-             .fx ({ FxAmp, FxDelay, FxReverb }).ampSim (0, 3.0f, 0.9f, 1.1f, 1.0f, 0.8f).delay (D1_8D, 0.35f, 0.15f, true).reverb (Plate, 0.5f, 0.15f));
+             .macro (1, "SYNC", { { D::Osc2Pitch, 0.17f }, { D::Filter1Cutoff, 0.15f } })
+             .macro (2, "SCREAM", { { param ("fx_amp_drive"), 0.5f }, { D::Filter1Reso, 0.25f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f }, { D::Filter1Morph, 0.3f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.25f } })
+             .fx ({ FxAmp, FxDelay, FxReverb, FxLimiter }).ampSim (0, 3.5f, 0.9f, 1.15f, 1.0f, 0.8f).delay (D1_8D, 0.35f, 0.15f, true).reverb (Plate, 0.5f, 0.12f).limiter (-3.0f));
 
     add (B ("FM Brass Lead", "Lead")
              .osc1 (SineT, 0.0f, 0.8f).osc2 (SineT, 0.0f, 0.0f, 0, 1.0f)
@@ -1049,17 +1171,25 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "DRIFT", { { D::Drift, 0.5f } })
              .fx ({ FxAmp, FxDelay }).ampSim (0, 2.0f, 1.0f, 1.1f, 0.9f, 0.9f).delay (D1_4, 0.3f, 0.1f));
 
+    // Rebuilt 2026-09-30 (content/analysis/rebuild-8.md): octave-stacked
+    // saws into a mid-hump EQ and drive, a tube-screamer pedal in front of an amp.
     add (B ("Octave Screamer", "Lead")
-             .osc1 (HardSync, 0.4f, 0.8f).unison (1, 4, 8.0f, 0.5f, Octaves, 0.5f)
-             .filter1 (LP, 5000.0f, 0.25f, 0.0f, 2.5f)
-             .amp (0.002f, 0.3f, 0.9f, 0.25f)
-             .legato (0.03f)
-             .lfo (1, Sine, 0.25f).mod (Lfo1, D::Osc1Frame, 0.2f)
-             .macro (1, "FRAME", { { D::Osc1Frame, 0.4f } })
-             .macro (2, "OCTAVES", { { D::Osc1Blend, 0.4f } })
-             .macro (3, "DRIVE", { { D::Filter1Drive, 0.5f } })
-             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f } })
-             .fx ({ FxDelay, FxReverb, FxLimiter }).delay (D1_8D, 0.35f, 0.15f, true).reverb (Plate, 0.4f, 0.12f).limiter (-1.0f));
+             .osc1 (SawOctaves, 0.45f, 0.75f).unison (1, 5, 7.0f, 0.6f, Octaves, 0.7f)
+             .osc2 (DriveSaw, 0.5f, 0.3f, 12).unison (2, 3, 9.0f, 0.5f, Fifths, 0.5f)
+             .filter1 (AwZLP, 2500.0f, 0.3f, 0.8f, 1.6f, 0.5f).morph (1, 0.5f)
+             .fenv (0.003f, 0.6f, 0.6f, 0.3f)
+             .amp (0.004f, 0.3f, 0.9f, 0.25f).velocity (0.5f)
+             .legato (0.04f)
+             .lfo (1, Sine, 5.2f).mod (Lfo1, Target (D::Osc1Pitch, 0.012f), 0.0f, Wheel).mod (Lfo1, Target (D::Osc2Pitch, 0.012f), 0.0f, Wheel)
+             .lfo (2, Tri, 0.25f).mod (Lfo2, D::Osc1Frame, 0.25f)
+             .macro (1, "OCTAVES", { { D::Osc1Blend, 0.3f }, { D::Osc2Level, 0.4f } })
+             .macro (2, "SCREAM", { { D::FxDriveAmount, 0.5f }, { D::Filter1Drive, 0.3f } })
+             .macro (3, "TONE", { { D::Filter1Cutoff, 0.4f }, { D::Filter1Morph, 0.3f } })
+             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.3f } })
+             .fx ({ FxEq, FxDrive, FxAirwindows, FxDelay, FxReverb, FxLimiter })
+             .eq (-4.0f, 900.0f, 5.0f, -1.0f, 140.0f, 6000.0f, 0.8f).driveFx (3.0f, 0.75f)
+             .set ("fx_aw_algo", 36).set ("fx_aw_p1", 0.55f).set ("fx_aw_p2", 0.5f).set ("fx_aw_p3", 1.0f)
+             .delay (D1_8D, 0.35f, 0.15f, true).reverb (Plate, 0.4f, 0.12f).limiter (-1.0f));
 
     add (B ("Pan Flute", "Lead")
              .osc1 (SineT, 0.0f, 0.7f).osc2 (TriangleT, 0.0f, 0.25f, 12).noise (0.08f)
@@ -2699,7 +2829,7 @@ inline std::vector<FactoryPreset> build()
     // M8.2: the reworked piano (Piano exciter: a real felt hammer, two
     // polarisations, the bass bark), fitted across the whole keyboard at
     // pp, mf and ff (tools/fit_piano2.py).
-    add (B ("Grand Piano", "Keys")
+    add (B ("Felt Hammer Board", "Keys")
              .piano (1, 0.8f, 0.5f, 3, 0.0f, 0.2803f, 0.8f, 1.0f, 0.5f, 0.5f, 0.5f)
              .set ("osc1_excite", 9)
              .set ("osc2_on", 0).set ("sub_on", 0)

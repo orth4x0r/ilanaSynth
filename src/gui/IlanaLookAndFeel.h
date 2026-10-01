@@ -50,6 +50,10 @@ inline juce::Colour oscColour (int index)
     return juce::Colour (colours[(size_t) juce::jlimit (0, 5, index)]);
 }
 
+// How opaque a control is while it does nothing (its section is off): dimmed,
+// but still readable against the card (about 4:1 for the label text).
+inline constexpr float dimmedAlpha = 0.6f;
+
 // The type scale (component units; the editor zooms them). Every text in the
 // UI uses one of these, so sizes stay consistent from page to page.
 namespace TextSize

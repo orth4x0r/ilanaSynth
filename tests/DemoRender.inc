@@ -192,7 +192,7 @@ void renderM82 (const juce::File& folder)
             scale.push_back ({ time + 0.9, juce::MidiMessage::noteOff (1, note) });
             time += 0.45;
         }
-    for (const auto* preset : { "Grand Piano", "Hammered Strings" })
+    for (const auto* preset : { "Felt Hammer Board", "Hammered Strings" })
         render (folder, juce::String ("01 Scale pp mf ff - ") + preset, preset, {}, scale, time + 1.5);
 
     // A pedalled progression, then deep bass notes (the bark).
@@ -215,7 +215,7 @@ void renderM82 (const juce::File& folder)
         music.push_back ({ 7.0 + i * 1.8, juce::MidiMessage::noteOn (1, bass[i], (juce::uint8) 120) });
         music.push_back ({ 7.0 + i * 1.8 + 1.6, juce::MidiMessage::noteOff (1, bass[i]) });
     }
-    for (const auto* preset : { "Grand Piano", "Hammered Strings" })
+    for (const auto* preset : { "Felt Hammer Board", "Hammered Strings" })
         render (folder, juce::String ("02 Chords and bass - ") + preset, preset, {}, music, 12.5);
 
     // A/B: the reference grand's note, then ours (dry, no reverb), for a
@@ -254,7 +254,7 @@ void renderM82 (const juce::File& folder)
                 }
             }
             IlanaSynthAudioProcessor processor;
-            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Grand Piano"));
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Felt Hammer Board"));
             for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
                 processor.assignFxSlot (slot, 0);
             processor.prepareToPlay (48000.0, 480);
@@ -415,9 +415,9 @@ void renderM86 (const juce::File& folder)
                 setParam (p, "lfo1_rate", 0.25f);
             });
 
-    // The Grand Piano bounced at C4 and played as a sampler: fast, and
+    // The Felt Hammer Board bounced at C4 and played as a sampler: fast, and
     // through a low-pass it never had.
-    render (folder, "03 Bounce - Grand Piano into a sample, through a low-pass", "Grand Piano",
+    render (folder, "03 Bounce - Felt Hammer Board into a sample, through a low-pass", "Felt Hammer Board",
             S {}, held ({ 48, 55, 60, 64 }, 0.05, 2.9) + held ({ 36, 60 }, 3.0, 5.9) + held ({ 67, 72, 76 }, 6.0, 9.0), 10.0,
             [bounce] (IlanaSynthAudioProcessor& p, double t)
             {

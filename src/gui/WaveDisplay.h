@@ -1,5 +1,6 @@
 #pragma once
 
+#include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../dsp/EpTuning.h"
@@ -54,24 +55,29 @@ public:
 
         displayedFrame = readValue (frameId);
 
-        setTooltip ("Drag to scrub the frame, click 3D to toggle the waterfall view");
+        setTooltip (tableTooltip);
 
-        modeButton.setClickingTogglesState (true);
+        modeButton.setClickingTogglesState (false);
         modeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
         modeButton.setColour (juce::TextButton::buttonOnColourId,
                               (followsTheme ? IlanaTheme::accent() : traceColour).withAlpha (0.8f));
         modeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.6f));
         modeButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        modeButton.setTooltip ("Switch the view: the cycle (WAVE), every frame (3D) or the harmonics (SPEC)");
         modeButton.onClick = [this]
         {
-            threeD = modeButton.getToggleState();
+            viewMode = (viewMode + 1) % 3;
+            updateModeButton();
             repaint();
         };
+        updateModeButton();
 
         addAndMakeVisible (modeButton);
 
         startTimerHz (30);
     }
+
+    ~WaveDisplay() override { endGestures(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -156,9 +162,15 @@ public:
 
         const auto plot = bounds.reduced (10.0f);
 
-        if (threeD)
+        if (viewMode == 1)
         {
             drawWaterfall (g, table, frame, plot);
+        }
+        else if (viewMode == 2)
+        {
+            const auto frameCount = table->getNumFrames();
+            const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
+            drawSpectrum (g, table, frameIndex, plot);
         }
         else
         {
@@ -191,16 +203,45 @@ public:
             drawPlayhead (g, table, frameIndex, plot, centreY, halfHeight);
         }
 
+        if (dragging)
+            drawDragReadout (g, table, plot);
+
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
 
+    // A drag on a table: across scrubs the frame (the white line follows
+    // the mouse), up and down change the first WARP's amount when a warp is
+    // chosen. Each parameter moves inside one gesture, so a host records one
+    // undo step and automation writes a clean move. Grains: across moves the
+    // read position.
     void mouseDown (const juce::MouseEvent& event) override
     {
+        endGestures();
+
         if (! event.mods.isPopupMenu())
         {
             if (isGranularMode())
+            {
+                beginGesture (startId);
                 setPositionFromX (event.position.x);
+                return;
+            }
 
+            if (! isTableMode())
+                return;
+
+            beginGesture (frameId);
+
+            if (canDragWarp())
+            {
+                beginGesture (warpAmountId());
+                warpAtDragStart = readPlain (warpAmountId());
+            }
+
+            dragStartY = event.position.y;
+            dragging = true;
+            setFrameFromX (event.position.x);
+            repaint();
             return;
         }
 
@@ -214,6 +255,10 @@ public:
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
             menu.addItem (i + 1, SampleFactory::getFactorySampleName (i), true, current == i + 1);
 
+        constexpr int loadFileItem = 10000;
+        menu.addSeparator();
+        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -221,6 +266,12 @@ public:
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
+
+                                if (result == loadFileItem)
+                                {
+                                    safeThis->chooseSampleFile();
+                                    return;
+                                }
 
                                 if (auto* parameter = safeThis->processorRef.apvts.getParameter (paramId))
                                     parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) result));
@@ -234,11 +285,47 @@ public:
         if (isGranularMode())
             setPositionFromX (event.position.x);
 
-        if (isSampleMode() || isPhysicalString() || isElectricPiano() || isLiveInput())
+        if (! dragging || ! isTableMode())
             return;
 
         setFrameFromX (event.position.x);
+
+        if (canDragWarp())
+        {
+            // A full sweep of the amount takes about 1.5 display heights
+            // (shift for fine steps).
+            const auto span = (float) juce::jmax (60, getHeight()) * (event.mods.isShiftDown() ? 6.0f : 1.5f);
+            setPlain (warpAmountId(), juce::jlimit (0.0f, 1.0f, warpAtDragStart + (dragStartY - event.position.y) / span));
+        }
+
+        repaint();
     }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        endGestures();
+
+        if (dragging)
+        {
+            dragging = false;
+            repaint();
+        }
+    }
+
+    // Double-click on a warped table sets the warp amount back to zero.
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu() || ! isTableMode() || ! canDragWarp())
+            return;
+
+        beginGesture (warpAmountId());
+        setPlain (warpAmountId(), 0.0f);
+        endGestures();
+    }
+
+    int getViewMode() const { return viewMode; }
+    int getOscIndex() const { return oscIndex; }
+    bool isDraggingWarp() const { return dragging && canDragWarp(); }
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
@@ -248,7 +335,8 @@ public:
         const auto extension = juce::File (files[0]).getFileExtension().toLowerCase();
 
         return extension == ".wav" || extension == ".aif" || extension == ".aiff"
-               || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a";
+               || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a"
+               || extension == ".sf2" || extension == ".sfz";
     }
 
     void fileDragEnter (const juce::StringArray&, int, int) override
@@ -283,7 +371,24 @@ public:
 
     void resized() override
     {
-        modeButton.setBounds (getWidth() - 44, 6, 36, 18);
+        modeButton.setBounds (getWidth() - 52, 6, 44, 18);
+    }
+
+    void chooseSampleFile()
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Load Sample or SoundFont",
+                                                           juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                           "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a;*.sf2;*.sfz");
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [safeThis] (const juce::FileChooser& chooser)
+                                  {
+                                      if (safeThis == nullptr || ! chooser.getResult().existsAsFile())
+                                          return;
+                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult()))
+                                          safeThis->switchToSampleMode();
+                                      safeThis->repaint();
+                                  });
     }
 
 private:
@@ -739,7 +844,7 @@ private:
                         : isLiveInput() ? "The audio coming into ilanaSynth FX."
                         : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
                         : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
-                                       : "Drag to scrub the frame, click 3D to toggle the waterfall view. Drop a wav to switch this oscillator to Sample.");
+                                       : tableTooltip);
         }
 
         const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
@@ -786,6 +891,9 @@ private:
         if (frameId == "osc1_frame") return Mod::Destination::Osc1Frame;
         if (frameId == "osc2_frame") return Mod::Destination::Osc2Frame;
         if (frameId == "sub_frame") return Mod::Destination::SubFrame;
+        if (frameId == "osc4_frame") return Mod::Destination::Osc4Frame;
+        if (frameId == "osc5_frame") return Mod::Destination::Osc5Frame;
+        if (frameId == "osc6_frame") return Mod::Destination::Osc6Frame;
 
         return Mod::Destination::None;
     }
@@ -974,6 +1082,161 @@ private:
         g.strokePath (path, juce::PathStrokeType (1.6f));
     }
 
+    void updateModeButton()
+    {
+        static const char* const names[] { "WAVE", "3D", "SPEC" };
+        modeButton.setButtonText (names[viewMode]);
+        modeButton.setToggleState (viewMode != 0, juce::dontSendNotification);
+    }
+
+    // A plain wavetable oscillator (not sample, grains, physical or live).
+    bool isTableMode() const
+    {
+        return frameId.isNotEmpty() && (modeId.isEmpty() || readChoice (modeId) == 0);
+    }
+
+    juce::String warpAmountId() const
+    {
+        return juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]) + "_warp_amt";
+    }
+
+    // The vertical drag has a warp to move only when one is chosen.
+    bool canDragWarp() const
+    {
+        if (subTableMapping || ! isTableMode())
+            return false;
+
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
+        return Warp::isOscillatorWarp (readChoice (prefix + "_warp")) && processorRef.apvts.getParameter (warpAmountId()) != nullptr;
+    }
+
+    void beginGesture (const juce::String& id)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter (id))
+        {
+            parameter->beginChangeGesture();
+            openGestures.push_back (parameter);
+        }
+    }
+
+    void endGestures()
+    {
+        for (auto* parameter : openGestures)
+            parameter->endChangeGesture();
+
+        openGestures.clear();
+    }
+
+    void setPlain (const juce::String& id, float plainValue)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
+    }
+
+    // One cycle as the oscillator plays it: the frame through the warps.
+    void fillCycle (const Wavetable* table, int frameIndex, std::vector<float>& out) const
+    {
+        const auto size = (int) out.size();
+        const auto* data = table->getFrameData (0, frameIndex);
+        const auto warped = hasWarp();
+        const auto stages = readWarp();
+
+        for (int i = 0; i < size; ++i)
+        {
+            auto phase = (double) i / (double) size;
+            auto silent = false;
+            auto gain = 1.0f, gain2 = 1.0f;
+
+            if (warped)
+            {
+                const auto applyStage = [&silent] (int mode, float amount, double p, float& stageGain)
+                {
+                    if (amount <= 0.0f)
+                        return p;
+                    if (Warp::isPhaseDistortion (mode))
+                        return Warp::applyPhaseDistortion (mode, amount, p, stageGain);
+                    return Warp::apply (mode, amount, p, silent);
+                };
+                phase = applyStage (stages.mode1, stages.amount1, juce::jlimit (0.0, 0.999999, phase), gain);
+                if (! silent)
+                    phase = applyStage (stages.mode2, stages.amount2, phase, gain2);
+            }
+
+            const auto index = (int) (phase * (double) Wavetable::frameSize);
+            out[(size_t) i] = silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+        }
+    }
+
+    // The cycle's harmonics as bars (level in dB against the loudest, 60 dB
+    // shown), the fundamental at the left, the way Vital's spectrum view
+    // reads. Warps are included, so a warp sweep shows its new partials.
+    void drawSpectrum (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot) const
+    {
+        constexpr int order = 11;
+        constexpr int size = 1 << order;
+        static_assert (size == Wavetable::frameSize, "one cycle per FFT");
+        cycleBuffer.assign ((size_t) size, 0.0f);
+        fillCycle (table, frameIndex, cycleBuffer);
+
+        spectrumBuffer.assign ((size_t) size * 2, 0.0f);
+        std::copy (cycleBuffer.begin(), cycleBuffer.end(), spectrumBuffer.begin());
+        if (fft == nullptr)
+            fft = std::make_unique<juce::dsp::FFT> (order);
+        fft->performFrequencyOnlyForwardTransform (spectrumBuffer.data(), true);
+
+        const auto area = plot.withTrimmedTop (20.0f).withTrimmedBottom (4.0f);
+        const auto bars = juce::jlimit (8, 128, (int) (area.getWidth() / 4.0f));
+        auto loudest = 1.0e-9f;
+        for (int h = 1; h <= bars; ++h)
+            loudest = juce::jmax (loudest, spectrumBuffer[(size_t) h]);
+
+        const auto barWidth = area.getWidth() / (float) bars;
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (int db = -20; db >= -40; db -= 20)
+        {
+            const auto y = area.getY() + area.getHeight() * (float) -db / 60.0f;
+            g.fillRect (juce::Rectangle<float> (area.getX(), y, area.getWidth(), 1.0f));
+        }
+
+        for (int h = 1; h <= bars; ++h)
+        {
+            const auto level = juce::Decibels::gainToDecibels (spectrumBuffer[(size_t) h] / loudest, -60.0f);
+            const auto height = area.getHeight() * (1.0f + level / 60.0f);
+
+            if (height < 0.5f)
+                continue;
+
+            const auto bar = juce::Rectangle<float> (area.getX() + (float) (h - 1) * barWidth + 0.5f, area.getBottom() - height,
+                                                     juce::jmax (1.0f, barWidth - 1.0f), height);
+            g.setColour (traceColour.withAlpha (h % 2 == 1 ? 0.9f : 0.65f));
+            g.fillRect (bar);
+        }
+
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawText ("HARMONICS 1-" + juce::String (bars), plot.withHeight (18.0f).toNearestInt(), juce::Justification::centredLeft);
+    }
+
+    // While dragging: the frame, and the warp amount when the drag moves it.
+    void drawDragReadout (juce::Graphics& g, const Wavetable* table, juce::Rectangle<float> plot) const
+    {
+        const auto frames = table->getNumFrames();
+        auto text = "FRAME " + juce::String (juce::roundToInt (readValue (frameId) * (float) juce::jmax (0, frames - 1)) + 1)
+                    + " / " + juce::String (frames);
+
+        if (canDragWarp())
+            text << "   WARP " << juce::roundToInt (readPlain (warpAmountId()) * 100.0f) << "%";
+
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 14.0f;
+        const auto box = juce::Rectangle<float> (plot.getX(), plot.getY() + (viewMode == 2 ? 20.0f : 0.0f), width, 16.0f);
+        g.setColour (IlanaTheme::Ui::raised.withAlpha (0.92f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (font);
+        g.drawText (text, box.toNearestInt(), juce::Justification::centred);
+    }
+
     IlanaSynthAudioProcessor& processorRef;
     IlanaAnim::ChangeGate changeGate;
     juce::uint64 modeEpoch = ~(juce::uint64) 0;
@@ -992,6 +1255,17 @@ private:
     float displayedFrame = 0.0f;
     bool sampleDragHover = false;
     bool subTableMapping = false;
-    juce::TextButton modeButton { "3D" };
-    bool threeD = false;
+    juce::TextButton modeButton { "WAVE" };
+    int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
+    bool dragging = false;
+    float dragStartY = 0.0f, warpAtDragStart = 0.0f;
+    std::vector<juce::RangedAudioParameter*> openGestures;
+    mutable std::vector<float> cycleBuffer;
+    mutable std::vector<float> spectrumBuffer;
+    mutable std::unique_ptr<juce::dsp::FFT> fft;
+
+    static constexpr const char* tableTooltip =
+        "Drag across to scrub the frame; with a WARP chosen, drag up or down for its amount (shift: fine, double-click: zero). "
+        "The corner key switches WAVE / 3D / SPEC. Drop a wav to switch this oscillator to Sample.";
+    std::unique_ptr<juce::FileChooser> fileChooser;
 };

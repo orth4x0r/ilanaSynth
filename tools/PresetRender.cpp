@@ -3,6 +3,10 @@
 //
 //   ilanaPresetRender <out folder> [first index] [count]
 //
+// ILANA_RENDER_CATEGORY=Pad renders only that category's presets (for
+// iterating on one category; the critic and diversity tools work per
+// category).
+//
 // For each preset <out>/<index>/ holds:
 //   note.wav     the home note (C2 for basses, C4 otherwise) held 2 s, then 1.5 s of release
 //   chord.wav    a triad plus octave on the home note, held 2 s, then 1.5 s of release
@@ -119,12 +123,30 @@ int main (int argc, char** argv)
     if (! append)
         index << "index,name,category,home_note,macro1,macro2,macro3,macro4\n";
 
+    const auto onlyCategory = juce::SystemStats::getEnvironmentVariable ("ILANA_RENDER_CATEGORY", "");
+
     for (int preset = first; preset < last; ++preset)
     {
         const auto category = categories[preset];
+        if (onlyCategory.isNotEmpty() && category != onlyCategory)
+            continue;
         const auto home = category == "Bass" ? 36 : 60;
         const auto out = folder.getChildFile (juce::String (preset));
         out.createDirectory();
+
+        {
+            // params.txt: the loaded preset's parameters that differ from
+            // their defaults (what the recipe, voicing and trims set).
+            processor.loadFactoryPreset (preset);
+            juce::String text;
+            for (auto* parameter : processor.getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                    if (std::abs (ranged->getValue() - ranged->getDefaultValue()) > 1.0e-6f)
+                        text << ranged->getParameterID() << "=" << ranged->convertFrom0to1 (ranged->getValue()) << "\n";
+            for (int macro = 0; macro < 4; ++macro)
+                text << "#macro" << (macro + 1) << "=" << processor.getMacroName (macro) << "\n";
+            out.getChildFile ("params.txt").replaceWithText (text);
+        }
 
         write (out.getChildFile ("note.wav"), render (processor, preset, { { 0.0, 2.0, home, 100 } }, 3.5));
         write (out.getChildFile ("chord.wav"),

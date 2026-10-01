@@ -152,6 +152,14 @@ inline int& highlightedModSource()
     return source;
 }
 
+// The source pinned by clicking its chip in the bottom bar (0: none). Knobs
+// it drives stay lit until the chip is clicked again. Message thread only.
+inline int& pinnedModSource()
+{
+    static int source = 0;
+    return source;
+}
+
 // One colour per modulation source, used by its chip, its card (LFO and
 // envelope pages), its tabs, the matrix and the rings on knobs it moves.
 inline juce::Colour modSourceColour (int sourceIndex)
@@ -195,6 +203,23 @@ inline juce::Colour modSourceColour (int sourceIndex)
         return juce::Colour::fromHSV (0.04f + 0.7f * (float) (sourceIndex - (int) Mod::Source::Env6) / 10.0f, 0.55f, 0.95f, 1.0f);
 
     return IlanaTheme::accent();
+}
+
+// How a knob opens and closes the editor's modulation card (ModHoverPopup,
+// which sets these while it exists): the knob, its destination and title.
+struct ModHoverHooks
+{
+    std::function<void (juce::Component&, int, const juce::String&)> show;
+    std::function<void (const juce::Component&)> hide;
+    // True while the mouse is on the knob's card (or dragging a row, or its
+    // menu is open), so the card stays when the mouse moves onto it.
+    std::function<bool (const juce::Component&)> engaged;
+};
+
+inline ModHoverHooks& modHoverHooks()
+{
+    static ModHoverHooks hooks;
+    return hooks;
 }
 
 inline juce::String& knobClipboard()
@@ -351,6 +376,16 @@ private:
     float dragStartDepth = 0.0f;
 };
 
+// The colour a knob draws a modulation arc in: the source's own, unless it
+// is too close in hue to the knob's colour, then lifted towards white.
+inline juce::Colour modArcColour (juce::Colour source, juce::Colour knob)
+{
+    auto hueGap = std::abs (source.getHue() - knob.getHue());
+    hueGap = juce::jmin (hueGap, 1.0f - hueGap);
+    const auto bothColoured = source.getSaturation() > 0.3f && knob.getSaturation() > 0.3f;
+    return bothColoured && hueGap < 0.06f ? source.interpolatedWith (juce::Colours::white, 0.6f) : source;
+}
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -435,6 +470,8 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        closeModCard();
+
         if (event.mods.isPopupMenu())
             showModMenu();
     }
@@ -448,7 +485,13 @@ public:
     juce::String getLabelText() const { return label.getText(); }
     bool isCompact() const { return compact; }
     const juce::String& getParameterId() const { return parameterId; }
+    // The modulation destination whose depth the knob's ring shows (0: none).
+    int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
+    // Whether a mod slot routes this source into the knob, and whether the
+    // source pinned by a chip click is one of them (the knob is lit).
+    bool isDrivenBy (int source) const { return routesFrom (source); }
+    bool isLitByPinnedSource() const { return pinnedModSource() != 0 && routesFrom (pinnedModSource()); }
 
     // Compact knobs (bottom strip) have no label or value box: the owner
     // draws those next to the knob.
@@ -470,6 +513,31 @@ public:
     {
         hover = false;
         repaint();
+    }
+
+    ~KnobControl() override { closeModCard(); }
+
+    // Opens the card listing this knob's sources (hover does it after a
+    // short rest). Held: it stays until closeModCard (tests, snapshots).
+    void openModCard (bool held = false)
+    {
+        modCardHeld = held;
+        if (modHoverHooks().show != nullptr && ! routings.empty())
+        {
+            modHoverHooks().show (*this, ringConfig.destination, parameter != nullptr ? parameter->getName (40) : label.getText());
+            modCardOpen = true;
+        }
+    }
+
+    void closeModCard()
+    {
+        if (modCardOpen && modHoverHooks().hide != nullptr)
+            modHoverHooks().hide (*this);
+
+        modCardOpen = false;
+        modCardHeld = false;
+        hoverRest = 0.0f;
+        cardLeave = 0.0f;
     }
 
 
@@ -496,15 +564,16 @@ public:
         }
 
         // A hovered source lights up every knob it modulates.
-        const auto highlighted = highlightedModSource();
+        const auto pinned = pinnedModSource();
+        const auto highlighted = highlightedModSource() != 0 ? highlightedModSource() : pinned;
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
             const auto radius = knobRadius + 5.0f;
-            g.setColour (modSourceColour (highlighted).withAlpha (0.22f));
+            g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.3f : 0.22f));
             g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
-            g.setColour (modSourceColour (highlighted).withAlpha (0.8f));
-            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.5f);
+            g.setColour (modSourceColour (highlighted).withAlpha (0.85f));
+            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), highlighted == pinned ? 2.0f : 1.5f);
         }
 
         if (dragHover)
@@ -534,9 +603,28 @@ public:
         arc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                            juce::jmin (angleA, angleB), juce::jmax (angleA, angleB), true);
 
-        g.setColour (modSourceColour (dominantSource).withAlpha (0.85f));
+        // A dark underlay keeps the arc apart from the knob's own value arc,
+        // and a source whose colour is close to the knob's (a macro on an
+        // OSC 1 knob: yellow on gold) is drawn paler so it still reads.
+        const auto arcColour = modArcColour (modSourceColour (dominantSource),
+                                             slider.findColour (juce::Slider::rotarySliderFillColourId));
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        g.strokePath (arc, juce::PathStrokeType (lineWidth + 2.0f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+        g.setColour (arcColour.withAlpha (0.92f));
         g.strokePath (arc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
+
+        // A marker where the modulation currently puts the knob.
+        const auto markerRadius = juce::jlimit (2.5f, 3.6f, knobRadius * 0.14f);
+        const auto markerCentre = centre.getPointOnCircumference (arcRadius, angleB);
+        const auto marker = juce::Rectangle<float> (markerRadius * 2.0f, markerRadius * 2.0f).withCentre (markerCentre);
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
+        g.fillEllipse (marker.expanded (1.2f));
+        g.setColour (arcColour);
+        g.fillEllipse (marker);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.drawEllipse (marker, 1.0f);
     }
 
     void resized() override
@@ -828,7 +916,30 @@ private:
             refreshRoutings();
         }
 
-        const auto highlighted = highlightedModSource();
+        // Resting on a modulated knob (not turning it) opens its source card.
+        // It stays while the mouse is on the card, after a moment's grace to
+        // cross the gap between them.
+        const auto overKnob = isMouseOver (true) && ! slider.isMouseButtonDown();
+        const auto cardEngaged = modCardOpen && modHoverHooks().engaged != nullptr && modHoverHooks().engaged (*this);
+
+        if (! routings.empty() && (overKnob || cardEngaged))
+        {
+            cardLeave = 0.0f;
+
+            if (! modCardOpen && overKnob && (hoverRest += frameSeconds()) >= 0.35f)
+                openModCard();
+        }
+        else if (modCardOpen && ! modCardHeld)
+        {
+            if ((cardLeave += frameSeconds()) >= 0.25f)
+                closeModCard();
+        }
+        else if (hoverRest > 0.0f)
+        {
+            closeModCard();
+        }
+
+        const auto highlighted = highlightedModSource() * 1000 + pinnedModSource();
         const auto modValue = processorRef->getModDisplay (ringConfig.destination);
 
         if (std::abs (modValue - lastModValue) > 0.002f || highlighted != lastHighlighted)
@@ -858,6 +969,10 @@ private:
     std::vector<ModDotStrip::Dot> routings;
     int dominantSource = 0;
     float routingCheck = 0.0f;
+    float hoverRest = 0.0f;
+    float cardLeave = 0.0f;
+    bool modCardOpen = false;
+    bool modCardHeld = false;
     int lastHighlighted = 0;
     float lastModValue = 0.0f;
     float glow = 0.0f;

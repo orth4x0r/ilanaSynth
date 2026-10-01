@@ -203,8 +203,8 @@ void runTests()
     // tuning test, old patches in the fingerprints).
     {
         IlanaSynthAudioProcessor processor;
-        const auto index = processor.getFactoryPresetNames().indexOf ("Grand Piano");
-        check (index >= 0, "the Grand Piano preset exists");
+        const auto index = processor.getFactoryPresetNames().indexOf ("Felt Hammer Board");
+        check (index >= 0, "the Felt Hammer Board preset exists");
         if (index >= 0)
         {
             processor.loadFactoryPreset (index);
@@ -221,7 +221,7 @@ void runTests()
                 processor.processBlock (buffer, midi);
                 peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
             }
-            check (peak > 0.05f && peak < 1.5f, "Grand Piano plays a chord at a sensible level (peak " + juce::String (peak, 3) + ")");
+            check (peak > 0.05f && peak < 1.5f, "Felt Hammer Board plays a chord at a sensible level (peak " + juce::String (peak, 3) + ")");
         }
     }
 }

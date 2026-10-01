@@ -31,10 +31,25 @@ Review: claude.ai/artifact/LAbrHT1KnLVEiv8Yd3SjHS. Projected "potential" review
 | 39a2f21 | 8 macros; MTS-ESP client; level + macro trims for 289 presets; A/B clip tool; `tools/build_content.py` |
 | 1cc7c25 | Airwindows FX (39 algorithms); Lead glide divided by 3 at load; `tools/preset_diversity.py` |
 | c911267 | Filter overhaul groundwork (see below) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | Gate clean on Linux (a merge leftover broke the test build); new Linux fingerprint baseline; Lead A/B clips re-rendered with the reduced glide; docs/ARCHITECTURE.md, docs/DECISIONS.md; **preset diversity pass** (below) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Filter overhaul models** (step 4): all 25 rebuilt on solved zero-delay cores, in tune at self-oscillation, every preset's level held; 303 Acid, Moog Drive, Vowel Morph, Comb Body; filter tests; SPECTRAL AMOUNT is a modulation destination. See `docs/filter-overhaul-status.md` |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Weak macros** (step 5): 106 macros on 85 presets rewired in `src/PresetVoicing.h`; `applyDefaultMacros` skips macros the voicing wires; presets re-levelled (`tune_presets.py`, two passes) |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Interface** (step 6): PATCH card on PLAY, VECTOR pad fills its card, PHYSICAL preview, mod-ring UI test, physical-hybrid positioning |
+| claude/project-thread-xhtug0 (2026-09-30, cloud) | **Features** (step 7): SF2/SFZ multisamples, FX splitters, vocoder, clip sequencer |
+
+Diversity pass (step 3, 2026-09-30): `src/PresetVoicing.h` lays parameter changes and macro
+rewiring over 172 factory recipes (Airwindows saturation and spaces instead of Hall, dry and mono,
+lo-fi, wide, slow swells, decaying, echo, rhythm, other registers, tables and filter types). Spread
+against the Vital/Surge references: Pad 53 -> 80 %, Bass 57 -> 80 %, Lead 66 -> 80 %, Keys 76 -> 90 %,
+Pluck 68 -> 82 %; near-duplicate pairs roughly halved in every category. Crowds (the tool's greedy
+groups) are still large: the target "no crowd bigger than ~4" is not met. Levels re-trimmed with
+category loudness pinned at the old medians (`PINNED_TARGETS` in `tools/tune_presets.py`); the
+fitted pianos kept their sound. Iterate with `ILANA_PRESET_VOICING=<file> ILANA_RENDER_CATEGORY=Pad
+ilanaPresetRender`, then `tools/bake_voicing.py`.
 
 CPU: the heavy benchmark went from 42-84 % to 19-25 %. Library loudness spread (10-90 %) 17.5 dB to 8 dB.
 
-## Gate state at the move (not clean)
+## Gate state at the move (fixed 2026-09-30: clean on Linux, see Done)
 The last Windows run: FX tests and `--uitest` pass; 9 of 396 fingerprints moved (lead glide, expected).
 Two table-test failures, both believed fixed or environmental but NOT re-verified:
 - Vocal Chop -14.4 dB under the median (limit 14): its trim is now 0 dB (`LEVEL_OVERRIDES` in `tools/tune_presets.py`).
@@ -56,9 +71,10 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 - CLAP scoring: `pip install torch transformers`, model `laion/clap-htsat-unfused` (downloads itself).
 
 ## Next, in order
-1. **Gate on Linux** (above). Fix what fails.
-2. **Re-render the Lead A/B clips** (`tools/ab_clips.py`) with the reduced glide; republish the A/B page.
-3. **Preset diversity (the user's top complaint after levels):** presets sound alike. Measured spread against
+1. ~~Gate on Linux~~ (done).
+2. ~~Re-render the Lead A/B clips~~ (done; all categories re-rendered again after step 3).
+3. **Preset diversity** (first pass done, see Done; left: the user's A/B verdicts on the redesigns,
+   and the crowds). Was: **Preset diversity (the user's top complaint after levels):** presets sound alike. Measured spread against
    the references: Bass 57 %, Pad 53 %, Lead 66 %, Keys 76 %, Pluck 68 %; 50 of 57 pads form one crowd.
    Causes: reverb on nearly everything (Hall 111x), FX chains nearly all Reverb / Delay+Reverb / Chorus+Reverb,
    macro 4 = SPACE/HALL/ROOM/ECHO on ~240 presets, 1 ms amp attack almost everywhere.
@@ -67,15 +83,92 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    `content/analysis/critic-v4/diversity.md`; use the sample library and the physical engine.
    Target: spread at least ~80 % of the references', no crowd bigger than ~4, levels at the category target.
    Loop: `ilanaPresetRender` -> `preset_critic.py` -> `clap_score.py` -> `preset_diversity.py`, plus the user's A/B votes.
-4. **Filter overhaul:** groundwork on main, status and design in `docs/filter-overhaul-status.md`
-   (baselines in `docs/filter-overhaul/`, cores in `src/dsp/FilterCore.h`, tests `ILANA_FILTER_TEST=1`).
-   Remaining: rebuild the 25 models, add 303 Acid, Moog Drive, Vowel Morph, Comb Body; modulatable spectral warps;
-   levels within +-1 dB. Make a Linux level baseline from c911267 before changing any model.
-   Check Airwindows' filters for pieces worth reusing.
-5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand.
+4. **Filter overhaul:** models done (status in `docs/filter-overhaul-status.md`: 25 rebuilt, 4 added, levels held,
+   Airwindows' filters checked and not reused). Spectral amount is modulatable (block rate). **Done.**
+5. **Weak macros:** ~80 presets whose macros barely do anything (`tools/tune_presets.py` lists them): fix by hand. **Done** 2026-09-30: 106 weak macros on 85 presets rewired in `src/PresetVoicing.h` (four more by hand after re-levelling: Arp Glass, S&H Techno, Oversampled Grind, Metal Hat); auto-mapped presets keep the voicing's macros; re-levelled. None left under 1.0 except the exempt ones (GLIDE, GATE, PEDAL, SWING, SPRAY).
 6. **Interface:** a live patch view instead of PLAY's empty ADD OSCILLATOR box; the VECTOR pad fills its card
    and the evolve rows fit 8; a PHYSICAL page preview when no oscillator is physical; verify mod rings; identity pass.
+   **Done** 2026-09-30: PLAY's spare tile is a PATCH card (the live, clickable signal flow, ADD OSC in its header;
+   a plain ADD button when the tile is short); the VECTOR pad fills its card's height (EVOLVE narrower; its 8 rows
+   already fit); PHYSICAL previews the string, plucking itself every 3 s, when the chosen oscillator isn't physical;
+   rings checked end to end by a UI test (all 408 knob destinations show their depth; knobs on parameters that are
+   not mod destinations, such as KEY TRK, UNISON and the Airwindows knobs, have none); identity: README opener and
+   the plugin description say "physical hybrid synthesizer". Left for the user: a new logo, colours or type, and an
+   Init patch that opens on a hybrid sound (it would change Init's sound).
 7. **Features:** SoundFont (SF2/SFZ) in the Sample oscillator; FX splitters (multiband/LR/MS); vocoder; clip sequencer.
+   **Done** 2026-09-30: SF2 (first preset) and SFZ load as key/velocity zones in the Sample oscillator (drop or right-click the display);
+   any FX slot can work on one band (Low / Mid / High with two LR4 crossovers, or Mid / Side), the rest passing untouched;
+   the vocoder is FX type 31 (audio input or a built-in Talk modulator, 8-24 bands); the clip sequencer plays 8 clips
+   saved in the patch (Key transpose from C3 or Host play), with a CLIP tab piano roll and .mid import. Each has its
+   test suite (`ILANA_MULTISAMPLE_TEST`, `ILANA_SPLITTER_TEST`, `ILANA_VOCODER_TEST`, `ILANA_CLIP_TEST`); old presets unchanged.
+   Left for the user: listening to all four. Not done: mod-matrix destinations for the vocoder parameters.
 8. **Maintenance for agents:** rename Grand Piano; split PluginEditor.cpp and PluginProcessor.cpp;
-   an architecture map and decision log; trim slow tests (M81 coverage, arp release); README typo "buto" -> "bruto".
-9. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+   trim slow tests (M81 coverage, arp release). (Architecture map, decision log and the README typo: done.)
+   **Done** 2026-09-30: Grand Piano renamed Felt Hammer Board (same slot and sound); the editor's pages in
+   `src/gui/pages/*.h`, the processor's areas in `src/processor/*.cpp`; `ILANA_TEST_TIMES=1` prints each suite's time
+   (on Linux M81 and the arp tests take 4-7 s; the slow ones were two polish tests, 180 s to 48 s; full run ~300 s).
+9. **Airwindows filters** (the user, 2026-09-30): Low / Band / High Pass and Notch replaced by Airwindows' Y filters
+   (done, `docs/filter-overhaul-status.md`); Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a
+   tuneable **Disperser** (all-pass chain at the cutoff, key-tracked) as appended types; then a second diversity pass
+   that uses them on the crowds. Presets may change tone "as long as they don't sound bad"; the level rule stands.
+   **Second diversity pass done** 2026-09-30: 62 crowd presets (18 Bass, 15 Pad, 11 Lead, 8 Keys, 10 Pluck)
+   re-voiced in `src/PresetVoicing.h` with filter types 29-38 (Acid squelch and Pear/Holt/YNot on basses, Disperser zaps
+   with KEY TRK 1 on plucks and percussive basses, Holt/Pear/Angle warmth and Z high/band-pass on pads and keys, Z drive on
+   leads); a TONE/CUTOFF/MORPH macro per preset now sweeps cutoff and MORPH. Levels re-fitted to the baseline per preset with
+   `tools/match_levels.py` (level trims, iterate: fingerprint, `--apply`, rebuild; 0 of 62 break the level rule). Result
+   (`content/analysis/diversity-pass2.md`; reports and embeddings in `content/analysis/critic-v5`, the five focus categories only): spread Bass 78 -> 81 %, Pad 81 -> 85 %, Pluck 82 -> 85 %, Lead 76 %, Keys 88 %
+   (unchanged); largest crowds Bass 12 -> 11, Pad 21 -> 18, Lead 21 -> 20, Keys 22 -> 25 (greedy grouping, noisy). The filter
+   alone moves CLAP little (a low-pass or all-pass change is ~0.03-0.1 cosine distance; only high/band-pass thinning moves it
+   a lot and those break the level rule's peak limit), so the crowds are mostly set by oscillators and FX: the next pass has
+   to change those, not the filter. A/B clips: `/mnt/project-files/ilanasynth/ab-filters/manifest.json` (`tools/ab_pairs.py`).
+10. **UI review 1 fixes** (Vital / Serum 2 comparison, `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-1.md`):
+   PLAY gets a live output scope or spectrum and SUB + NOISE collapses when off; every knob shows its live modulated
+   value, and clicking a source chip highlights the knobs it drives (rings already cover all mod destinations);
+   drag cutoff / resonance on the filter graph, frame / warp on the oscillator display, a spectrum view beside 3D;
+   preset browser audition (arrow keys), category chips and macro names; group the header's actions and give save
+   and the preset name weight; move VOICES / BEND / VOICE MODE out of the bottom bar to free room for macro names;
+   larger small-caps labels and contrast on dimmed controls. **Recurring:** a UI review against Vital and Serum 2
+   after each step that touches the interface (the user's ask); findings go to `UI-REVIEW-N.md` and this list.
+   **Done** 2026-09-30 (cloud, `ui-fixes-1`; screenshots in `/mnt/project-files/ilanasynth/ui-fixes-1/`, the second review in
+   `.../ui-review/UI-REVIEW-2.md`); no audio or preset change (fingerprints: 0 of 400 presets changed):
+   1. Every mod-destination knob draws a marker disc where the modulation currently puts it, on the existing arc;
+      clicking a bottom-bar source chip pins it (thicker halo on every knob it drives, chip outlined), a second click
+      clears (`pinnedModSource()` beside `highlightedModSource()`; hover still works).
+   2. PLAY: SUB + NOISE folds to one line while both are off (click the line to open it for the noise knob) and a live
+      OUTPUT view (`src/gui/OutputView.h`: waveform over spectrum, click cycles both / wave / spectrum) takes the room
+      under PATCH when 48 px or more is free.
+   3. Filter display: was absolute-position drag within 24 px of a marker and no gestures; now a drag anywhere picks the
+      nearest filter (cutoff across, resonance up and down) inside one begin/endChangeGesture per parameter.
+   4. Preset browser: arrow keys already loaded the next / previous preset from the search box or list; now also with
+      focus anywhere in the panel (`stepSelection`). The vertical category list with counts already was the category
+      filter, so no second row of chips. New: each row lists the preset's four macro names (`getFactoryMacroNames`,
+      worked out without loading and checked against a real load for all 371 presets in `--uitest`; the loaded preset
+      shows its live names).
+   5. Header: file (star, save, menu) / edit (undo, redo, history, A/B) / tools (dice, settings) parted by rules; SAVE is
+      the accent-filled key; the preset name is 19 px.
+   6. Voice mode, voices and pitch-bend range moved to the settings menu (Voice mode / Voices / Pitch bend range);
+      macros use the freed width (glide, legato, master stay).
+   7. Knob, field and chip labels were already 11-13 px (label 11.5, knob labels 13); dimmed controls went from 30-45 %
+      to 60 % opacity (`IlanaTheme::dimmedAlpha`).
+   **Round 2 done** 2026-09-30 (cloud, branch `claude/ui-review-fixes-i3zmpv`, merged into PR #5; screenshots in
+   `/mnt/project-files/ilanasynth/ui-fixes-2/`, review 3 in `.../ui-review/UI-REVIEW-3.md`); no audio or preset change:
+   1. Oscillator display (`WaveDisplay`): drag across scrubs the frame, up / down sets the first WARP's amount when one is
+      chosen (shift fine, double-click zero), one host gesture each, with a FRAME / WARP readout; the corner key cycles
+      WAVE / 3D / SPEC (the cycle's harmonics, warps included). OSC 4-6 displays follow frame modulation.
+   2. Resting 0.35 s on a modulated knob opens `ModHoverPopup` (src/gui/ModHoverPopup.h, one per editor, reached through
+      `modHoverHooks()`): each source with colour, depth and a live bar of what it adds.
+   3. Preset browser DOCK: a 340 px column right of the page; the window grows by it (`currentDesignWidth()`, the scale
+      is now height / 720), loading never closes it, the preset name toggles it, FLOAT returns it to the drop-down;
+      `presetBrowserDocked` / `presetBrowserDockOpen` in the settings file.
+   4. A live waveform strip under the preset name on every page (`OutputView::setStrip`; a click opens the scope).
+   5. VOICES in the status line opens the voice settings (`showSettingsMenu (true)`) and reads MONO / LEGATO when not Poly.
+   PHYSICAL and VECTOR empty states were already done in step 6. Tests in `--uitest`; `ILANA_SNAPSHOT_EXTRAS=1
+   ilanaSnapshot <dir> <preset>` renders the new views. Open from review 3: macro names are nearly the same on every
+   preset (content, for the preset rework), a draggable source card, macro yellow against OSC 1 gold, PHYSICAL's NO BODY
+   box, a log-harmonic SPEC axis, a narrower docked layout.
+   **Review 3 fixes** 2026-10-01 (same branch; screenshots in `.../ui-fixes-3/`): the source card's rows are controls
+   (drag sideways or up / down for depth in one gesture, shift fine, double-click zero, right-click Bypass / Remove; the
+   knob keeps the card open while the mouse is on it, `modHoverHooks().engaged`); mod arcs get a dark underlay and a
+   source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
+   draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
+11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

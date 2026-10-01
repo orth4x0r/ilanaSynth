@@ -12,6 +12,7 @@
 #include "AnimationUtils.h"
 
 class FilterDisplay : public juce::Component,
+                      public juce::SettableTooltipClient,
                       public IlanaAnim::PageAnimated,
                       private IlanaAnim::FrameTimer
 {
@@ -24,8 +25,12 @@ public:
         fftInput.assign (fftSize, {});
         fftOutput.assign (fftSize, {});
 
+        setMouseCursor (juce::MouseCursor::UpDownLeftRightResizeCursor);
+        setTooltip ("Drag a marker (or anywhere on the graph): left / right sets the cutoff, up / down the resonance.");
         startTimerHz (30);
     }
+
+    ~FilterDisplay() override { endGestures(); }
 
     void visibilityChanged() override
     {
@@ -292,13 +297,17 @@ private:
                     juce::Justification::centred);
     }
 
+    // Drag anywhere on the graph: the nearest filter's marker follows the
+    // mouse, left / right for the cutoff and up / down for the resonance,
+    // as one gesture per parameter (so a host records one undo step and
+    // automation writes a clean move).
     void mouseDown (const juce::MouseEvent& event) override
     {
+        endGestures();
         draggingFilter = -1;
 
-        const auto bounds = getLocalBounds().toFloat();
-        const auto plot = bounds.reduced (10.0f, 12.0f);
-        auto bestDistance = 24.0f;
+        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 12.0f);
+        auto bestDistance = 1.0e9f;
 
         for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
         {
@@ -306,29 +315,61 @@ private:
             const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
             const juce::Point<float> marker (plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth(),
                                              resoToY (plot, reso));
-            const auto distance = marker.getDistanceFrom (event.position);
+            // Near a marker: the plain distance. Elsewhere the horizontal
+            // distance decides, so a click anywhere picks a filter.
+            const auto distance = marker.getDistanceFrom (event.position) < 24.0f
+                                      ? marker.getDistanceFrom (event.position)
+                                      : 24.0f + std::abs (marker.x - event.position.x);
 
-            if (distance < bestDistance)
+            if (distance < bestDistance - 0.5f)
             {
                 bestDistance = distance;
                 draggingFilter = filterIndex;
             }
         }
+
+        if (draggingFilter >= 0)
+        {
+            beginGestures (draggingFilter);
+            applyDrag (event.position);
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        if (draggingFilter < 0)
-            return;
+        if (draggingFilter >= 0)
+            applyDrag (event.position);
+    }
 
+    void mouseUp (const juce::MouseEvent&) override { endGestures(); }
+
+    void applyDrag (juce::Point<float> position)
+    {
         const auto plot = getLocalBounds().toFloat().reduced (10.0f, 12.0f);
-        const auto proportion = (double) juce::jlimit (0.0f, 1.0f,
-                                                       (event.position.x - plot.getX()) / plot.getWidth());
+        const auto proportion = (double) juce::jlimit (0.0f, 1.0f, (position.x - plot.getX()) / plot.getWidth());
         const auto frequency = juce::jlimit (20.0, 20000.0, xToFrequency (proportion));
-        const auto reso = yToReso (plot, event.position.y);
+        const auto reso = yToReso (plot, position.y);
 
         setParameter (draggingFilter == 0 ? "f1_cutoff" : "f2_cutoff", (float) frequency);
         setParameter (draggingFilter == 0 ? "f1_reso" : "f2_reso", reso);
+    }
+
+    void beginGestures (int filterIndex)
+    {
+        for (const auto* id : { filterIndex == 0 ? "f1_cutoff" : "f2_cutoff", filterIndex == 0 ? "f1_reso" : "f2_reso" })
+            if (auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                parameter->beginChangeGesture();
+                openGestures.push_back (parameter);
+            }
+    }
+
+    void endGestures()
+    {
+        for (auto* parameter : openGestures)
+            parameter->endChangeGesture();
+
+        openGestures.clear();
     }
 
     void setParameter (const char* id, float plainValue)
@@ -336,6 +377,8 @@ private:
         if (auto* parameter = processorRef.apvts.getParameter (id))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
     }
+
+    std::vector<juce::RangedAudioParameter*> openGestures;
 
     IlanaSynthAudioProcessor& processorRef;
     int draggingFilter = -1;

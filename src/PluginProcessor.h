@@ -30,11 +30,13 @@
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 #include "dsp/WavetableDoc.h"
 #include "TuningState.h"
+#include "ClipState.h"
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
@@ -50,7 +52,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 30; // 30: Airwindows
+    static constexpr int numFxTypes = 31; // 30: Airwindows, 31: Vocoder
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -180,6 +182,10 @@ public:
     juce::StringArray getFactoryPresetNames() const;
     juce::StringArray getFactoryPresetCategories() const;
     juce::Array<juce::File> getUserPresetFiles() const;
+    // The four macro names a factory preset loads with (its own, the
+    // voicing's, then the automatic ones), worked out without loading it;
+    // an empty string is a macro with no name.
+    juce::StringArray getFactoryMacroNames (int factoryIndex) const;
     juce::StringArray getAllPresetNames() const;
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;
@@ -206,6 +212,12 @@ public:
     // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
     // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
     // (for the tuning tool's own renders).
+    // The diversity pass's redesigns (src/PresetVoicing.h): parameter
+    // changes and macro rewiring over the recipe, applied before the trims.
+    // Off in tests that check what a recipe itself loads.
+    static inline bool presetVoicingEnabled = true;
+    static void applyPresetVoicing (const char* presetName, std::vector<std::pair<juce::String, float>>& values,
+                                    std::array<juce::String, 4>& macroNames);
     static void applyPresetTrims (const char* presetName, const juce::String& category,
                                   std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
@@ -236,7 +248,8 @@ public:
 
     // Gives a patch without macro mappings a sensible set (tone, timbre,
     // drive, space), chosen from what the patch uses. Silent at macro 0.
-    void applyDefaultMacros();
+    // Macros marked in keep (the preset voicing's own) are left alone.
+    void applyDefaultMacros (const std::array<bool, 4>& keep = {});
 
     static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
                                    const std::function<void (const juce::String&, float)>& set);
@@ -256,6 +269,16 @@ public:
     static constexpr int curveShape = 8;
     LfoCurve getLfoCurve (int lfoIndex) const;
     void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+
+    // A drawn remap curve per mod slot (Vital's per-route remap). A straight
+    // line from -1 to 1 is off; the slot then shapes as before.
+    static LfoCurve identityRemap() { LfoCurve curve; curve.points = { { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } }; return curve; }
+    static bool isIdentityRemap (const LfoCurve& curve);
+    LfoCurve getModRemap (int slotIndex) const;
+    bool isModRemapOn (int slotIndex) const;
+    void setModRemap (int slotIndex, const LfoCurve& curve);
+    void resetModRemap (int slotIndex) { setModRemap (slotIndex, identityRemap()); }
+    void resetAllModRemaps();
     float getLfoCurveValue (int lfoIndex, double phase) const;
 
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
@@ -382,6 +405,8 @@ public:
     int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
     void clearTableNotice();
     bool loadUserSample (int oscIndex, const juce::File& file);
+    // The FX rack alone over a buffer (the audio path calls it; public for the tests).
+    void processEffects (juce::AudioBuffer<float>& buffer);
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
@@ -423,6 +448,11 @@ public:
     bool loadTuningMapping (const juce::String& kbmText, juce::String& error);
     void resetTuning();
     const TuningState& getTuningState() const { return tuningState; }
+    // The clip sequencer's clips, saved in the patch (ClipState). Message thread.
+    ClipState& getClipState() { return clipState; }
+    void clipsEdited() { ++dataEpoch; }
+    // The beat the clip has reached (0 to its length), or -1 when it isn't playing.
+    float getClipPlayhead() const { return clipPlayhead.load(); }
     // MTS-ESP: a tuning master in the session overrides the Scala tuning.
     bool isMtsEspConnected() const { return mtsEsp.hasMaster(); }
     juce::String getMtsEspScaleName() const { return juce::String::fromUTF8 (mtsEsp.scaleName()); }
@@ -432,6 +462,7 @@ public:
 
 private:
     TuningState tuningState;
+    ClipState clipState;
     MtsEspClient mtsEsp;
     Tuning mtsTuning; // filled from the master each block while one is connected
     void handleAsyncUpdate() override;
@@ -494,7 +525,6 @@ private:
     const Wavetable* getTableForChoice (int choiceIndex) const;
     void renderLfos (int numSamples, const juce::MidiBuffer& midiMessages);
     float staticSourceValue (int sourceIndex) const;
-    void processEffects (juce::AudioBuffer<float>& buffer);
     void processAmp (juce::AudioBuffer<float>& buffer);
     void processDrive (juce::AudioBuffer<float>& buffer);
     void processCrush (juce::AudioBuffer<float>& buffer);
@@ -515,6 +545,7 @@ private:
     void processTilt (juce::AudioBuffer<float>& buffer);
     void processUtility (juce::AudioBuffer<float>& buffer);
     void processAirwindows (juce::AudioBuffer<float>& buffer);
+    void processVocoder (juce::AudioBuffer<float>& buffer);
     void processOtt (juce::AudioBuffer<float>& buffer);
     void processLimiter (juce::AudioBuffer<float>& buffer);
     void processWidener (juce::AudioBuffer<float>& buffer);
@@ -559,6 +590,19 @@ private:
     long long engineStepCount = 0;
     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
+    // Clip sequencer: plays the current clip into the synth's MIDI.
+    void processClip (juce::MidiBuffer& midi, int numSamples);
+    struct ClipActiveNote { int note; double endBeat; };
+    ParamRef clipOnRef { "clip_on" }, clipIndexRef { "clip_index" }, clipModeRef { "clip_mode" };
+    juce::MidiBuffer clipScratch;
+    std::vector<ClipActiveNote> clipActive;
+    juce::Array<int> clipHeld; // keys down, in press order (Key transpose)
+    std::array<juce::uint8, 128> clipHeldVelocity {}; // their velocities, to give them back
+    double clipBase = 0.0;     // the beat at the block's first sample
+    double clipExpected = 0.0; // where the host's beat should be next block
+    bool clipWasOn = false, clipRunning = false, clipUsedHost = false;
+    int clipLastIndex = -1, clipLastMode = -1;
+    std::atomic<float> clipPlayhead { -1.0f };
     int arpRatchetNote = 0, arpRatchetsLeft = 0, arpRatchetInterval = 0, arpRatchetCounter = 0;
     double euclidExciterPhase = 0.0;
     long long euclidExciterLastStep = -1;
@@ -605,6 +649,13 @@ private:
     std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
         ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
     std::vector<float> airwindowsMonoRight;
+    // The vocoder (FX type 31).
+    Vocoder vocoder;
+    std::vector<float> vocoderModulator;
+    ParamRef vocSourceRef { "fx_voc_source" }, vocBandsRef { "fx_voc_bands" }, vocWidthRef { "fx_voc_width" },
+        vocAttackRef { "fx_voc_attack" }, vocReleaseRef { "fx_voc_release" }, vocFormantRef { "fx_voc_formant" },
+        vocUnvoicedRef { "fx_voc_unvoiced" }, vocRateRef { "fx_voc_rate" }, vocLevelRef { "fx_voc_level" },
+        vocMixRef { "fx_voc_mix" };
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains
@@ -679,7 +730,7 @@ private:
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
     // Which LFOs a mod slot uses: LFO 5-16 only render in full when routed.
     std::array<bool, (size_t) numLfos> lfoRouted {};
-    struct FxSlotIds { ParamRef type, bypass, solo, mix; };
+    struct FxSlotIds { ParamRef type, bypass, solo, mix, band; };
     std::array<FxSlotIds, (size_t) numFxSlots> fxSlotIds;
     std::array<ParamRef, 16> tapStepIds;
     std::array<ParamRef, 16> gateStepIds;
@@ -808,6 +859,16 @@ private:
     std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> lfoCurveTables {};
     std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> activeLfoCurveTables {};
     mutable juce::SpinLock lfoShapeLock;
+
+    using RemapTable = std::array<float, (size_t) Mod::remapSize + 1>;
+    std::array<LfoCurve, (size_t) Mod::maxSlots> modRemaps;
+    std::array<RemapTable, (size_t) Mod::maxSlots> modRemapTables {};
+    std::array<std::atomic<bool>, (size_t) Mod::maxSlots> modRemapOn {};
+    std::array<RemapTable, (size_t) Mod::maxSlots> activeModRemapTables {};
+    std::array<bool, (size_t) Mod::maxSlots> activeModRemapOn {};
+    std::atomic<int> remapEpoch { 0 };
+    int activeRemapEpoch = -1;
+    mutable juce::SpinLock remapLock;
 
     // On-screen keyboard notes, queued lock-free from the message thread so
     // none are lost between blocks; they join the MIDI input (and so go
@@ -953,6 +1014,22 @@ private:
     Biquad eqBands[2][3];
     Svf vowelFilters[2][3];
     juce::AudioBuffer<float> fxScratch;
+    // FX splitters: a slot set to a band processes only that part of the
+    // signal (Linkwitz-Riley crossovers, or mid/side) and the rest passes
+    // around it, so an untouched band sums back exactly.
+    struct SplitFilter
+    {
+        // Two cascaded Butterworth sections per channel (24 dB/oct, LR4) cut
+        // the band; the crossovers' allpasses give the phase the band's
+        // complement needs (LR4 low + high = a second-order allpass).
+        std::array<std::array<juce::IIRFilter, 2>, 2> lowA, lowB;
+        std::array<juce::IIRFilter, 2> allLow, allHigh;
+        int lastBand = 0;
+        float lastLow = 0.0f, lastHigh = 0.0f;
+    };
+    std::array<SplitFilter, (size_t) numFxSlots> fxSplit;
+    juce::AudioBuffer<float> fxBand;
+    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
     std::atomic<float> compGainReduction { 1.0f };
 

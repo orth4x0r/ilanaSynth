@@ -508,6 +508,37 @@ private:
     // state is stale). The first different input copies the left state over
     // and the pair runs apart until the next reset.
     bool filter1Linked = true, filter2Linked = true;
+    // Filter 2 while wide open (updateFilterCoefficients): a linear copy.
+    bool filter2Open = false, bothRouteActive = false;
+    static constexpr double openFilterHz = 19000.0;
+    Airwindows::OpenLowPass openFilter2L, openFilter2R;
+    double openCutoff2 = -1.0;
+    float openReso2 = -1.0f;
+
+    // Like processFilterPair: one filter while both sides are equal. The
+    // linear filters from equal states stay equal, so the right one follows
+    // by copy until the sides first differ.
+    void processOpenPair (float inLeft, float inRight, float& outLeft, float& outRight)
+    {
+        if (filter2Linked)
+        {
+            if (inLeft == inRight)
+            {
+                outLeft = outRight = openFilter2L.process (inLeft);
+                return;
+            }
+
+            openFilter2R = openFilter2L;
+            filter2Linked = false;
+        }
+
+        outLeft = openFilter2L.process (inLeft);
+        outRight = openFilter2R.process (inRight);
+    }
+public:
+    // Tests: run Filter 2 even when it is wide open.
+    inline static bool disableOpenFilterBypass = false;
+private:
 
     static void processFilterPair (FilterUnit& left, FilterUnit& right, bool& linked,
                                    float inLeft, float inRight, float& outLeft, float& outRight)
@@ -527,6 +558,33 @@ private:
         outLeft = left.process (inLeft);
         outRight = right.process (inRight);
     }
+    // processFilterPair over a block: the left filter alone while the sides
+    // are equal, the right one copied from it where they first differ.
+    static void processFilterPairBlock (FilterUnit& left, FilterUnit& right, bool& linked,
+                                        const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    {
+        auto start = 0;
+        if (linked)
+        {
+            while (start < n && inLeft[start] == inRight[start])
+                ++start;
+            left.processBlock (inLeft, outLeft, start);
+            std::copy (outLeft, outLeft + start, outRight);
+            if (start == n)
+                return;
+            right = left;
+            linked = false;
+        }
+
+        FilterUnit::processStereoBlock (left, right, inLeft + start, inRight + start, outLeft + start, outRight + start, n - start);
+    }
+
+    void processOpenPairBlock (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    {
+        for (int s = 0; s < n; ++s)
+            processOpenPair (inLeft[s], inRight[s], outLeft[s], outRight[s]);
+    }
+
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;
 
     TensionAdsr ampEnv, filterEnv, filter2Env, modEnv, env4;
@@ -588,6 +646,10 @@ private:
     double currentFrequency = 440.0;
     double bendSemitones = 0.0;
     float velocityLevel = 1.0f;
+    // The note and velocity (1-127) a multisample picks its region by, and the
+    // region each oscillator plays (null for a plain sample).
+    int lastNote = 60, lastVelocity = 100;
+    const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;

@@ -1,21 +1,21 @@
 # IlanaSynth — v1.3
 
-**IlanaSynth, para un sonido más buto.** (for a more brutal sound)
+**IlanaSynth, para un sonido más bruto.** (for a more brutal sound)
 
-An aggressive wavetable synthesizer for VST3, built with JUCE.
+A physical hybrid synthesizer: strings, bows, hammers, pianos and resonant bodies you can break, wired into wavetable, FM, granular and sample engines. VST3, CLAP and AU, built with JUCE.
 
 ---
 
 ## What it is
 
 IlanaSynth is a complete sound design machine:
-- **Oscillators:** six full oscillators, each with wavetable, physical modelling (strings, and Rhodes- and Wurlitzer-style electric pianos), sample, granular and live-input modes, plus a dedicated sub. OSC 4–6 start off.
+- **Oscillators:** six full oscillators, each with wavetable, physical modelling (strings, and Rhodes- and Wurlitzer-style electric pianos), sample, granular and live-input modes, plus a dedicated sub. OSC 4–6 start off. Sample mode also plays SoundFont (SF2) and SFZ multisamples: drop the file on the oscillator's display, or right-click it.
 - **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
 - **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
-- **Filters and envelopes:** twelve filter models across two routable filters, and a pool of sixteen tension envelopes.
+- **Filters and envelopes:** 39 filter models across two routable filters (Low, Band and High Pass and Notch are Airwindows' Y filters; nine Airwindows character filters; a tuneable Disperser), and a pool of sixteen tension envelopes.
 - **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
-- **Effects:** a 10-slot rack with 30 modules, including a trance gate and 39 Airwindows algorithms.
-- **Generative tools:** an arpeggiator with scale-random mode, plus note spray and scale snapping.
+- **Effects:** a 10-slot rack with 31 modules, including a trance gate, a channel vocoder (audio input or built-in Talk modulator) and 39 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side: right-click it, Band), so a run of slots is a chain per band.
+- **Generative tools:** an arpeggiator with scale-random mode, a clip sequencer (8 clips of notes saved in the patch, a piano roll, MIDI import; a held key transposes the clip, or it follows the host's play), plus note spray and scale snapping.
 - **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
 - **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
 
@@ -39,9 +39,10 @@ It all sits in a hardware-inspired interface with 371 factory presets.
   - input **GAIN** and **DRY**
   - quick starts: Live Body, Live Wah, Live Grains and Live Strings. The effect opens on Live Body.
 - **Simulated LFO shapes** (M8.1): random family (Random Hold, Sine Random, Perlin, Drunk Walk), chaotic attractors and maps (Lorenz, Rössler, Duffing, Logistic, Hénon, Double Pendulum) and physics (Bounce, Pendulum, Spring, Friction), each with its own named knobs, SMOOTH, a second output (**LFO n B**, a new mod source) and FIRE to kick it.
-- **Grand Piano** (M8.2): a new **Piano** exciter (a nonlinear felt hammer on a stiff, two-polarisation string with tension modulation) and a **Dense** soundboard, fitted note by note to the Salamander Grand (a Yamaha C5) across the keyboard at three dynamics. Preset: Grand Piano.
+- **Felt Hammer Board** (M8.2, formerly Grand Piano: it is a hammered string on a soundboard, not a piano): a new **Piano** exciter (a nonlinear felt hammer on a stiff, two-polarisation string with tension modulation) and a **Dense** soundboard, fitted note by note to the Salamander Grand (a Yamaha C5) across the keyboard at three dynamics. Preset: Grand Piano.
 - **WEST** (M8.3): a west-coast card on the FILTER page, after the filters or in place of Filter 2: a wavefolder (FOLD, SYMMETRY, 1–4 stages) into a vactrol **low-pass gate** struck by each note or by any mod source (try LFO B with the Bounce shape).
 - **13 more filter models** (M8.4), on a second page of the type grid: Ladder BP and Drive, SEM, OTA LP and BP, MS-20 HP, Steiner-Parker, Phaser Notch, damped and morphing combs, Vowel, Talking and Twin Peak.
+- **Filter overhaul**: the analog models are rebuilt as zero-delay circuits solved every sample (the ladders, the MS-20 pair and Steiner-Parker at twice the sample rate), so full resonance self-oscillates exactly at the cutoff and plays in tune with key tracking; the Diode LP is a real diode ladder, the combs ring at their pitch. Old presets keep their level. Four new models: **303 Acid** (the TB-303's diode ladder with its feedback high-pass: resonance keeps the bass), **Moog Drive** (the ladder driven from inside), **Vowel Morph** (a five-formant vocal tract, A-E-I-O-U on MORPH, male to female voice with the cutoff) and **Comb Body** (a comb ringing a chime's modes). DRIVE goes inside the loop on 303 Acid and Moog Drive.
 - **Feedback** exciter (M8.5): an amp and speaker in the string's loop, so a held note blooms into a harmonic; AMP GAIN and DISTANCE pick how and which.
 - **VECTOR** page (M8.5): an XY pad mixing any four oscillators, moved by hand, by a drawn path, by drift or by modulation (Vector X / Y are mod sources), and **EVOLVE**: each macro drifts within a range, with FREEZE.
 - **BOUNCE** (M8.6) on every oscillator card: renders the patch (one note, with or without its effects) in the background and puts it on that oscillator as a tuned sample or cut into a wavetable. The bounce is saved inside the patch; from there granulate it, warp it, or drive a string with it (Osc In).
@@ -177,7 +178,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - Every route is a modulation destination.
 
 ### Filters (2)
-- 25 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to thirteen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
+- 29 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to seventeen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
   - Low pass, Band pass, High pass and Notch (12 or 24 dB)
   - Ladder LP and Ladder HP
   - Diode LP and MS-20 LP
@@ -214,6 +215,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
 - **The Generative card** has three tabs:
   - **ARP**: the arpeggiator above.
+  - **CLIP**: the clip sequencer: choose a clip (1–8), draw notes in the piano roll (click to add, drag to move or resize, right-click to delete) or import a .mid file. KEY TRANSPOSE plays it while a key is held, transposed from C3; HOST PLAY runs it with the host's transport.
   - **EUCLID**: a Euclidean rhythm. STEPS (2–32), HITS spread as evenly as possible over them, ROTATE, RATE and GATE. The ring shows the pattern and the step playing; drag on it to change the hits (up/down) or rotate (sideways). TARGET picks what it drives:
     - **Notes**: rests the arp's steps between hits. With the arp off, it plays the held chord on each hit.
     - **Exciter**: re-strikes the Physical strings of the notes held, on each hit, sample-accurately.
@@ -289,7 +291,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - COMPARE: flip between two versions of the patch (A and B)
   - DICE: randomise or mutate the patch, or one section of it
   - settings
-- **Bottom bar**: the modulation source chips, the four macros, glide, legato, bend, voice mode, voices, master and an output meter (it lights red after a clip; click to reset). The on-screen keyboard opens with KEYS.
+- **Bottom bar**: the modulation source chips (click one to keep every knob it drives lit, click again to clear), the four macros, glide, legato, master and an output meter (it lights red after a clip; click to reset). Voice mode, voice limit and pitch-bend range are in the settings menu (the gear). The on-screen keyboard opens with KEYS.
   - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
 - **Presets**: 371 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.

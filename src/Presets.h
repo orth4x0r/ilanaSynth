@@ -44,23 +44,16 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
         // amounts; Plain splits into a buzz). The parameter defaults stay as
         // they were, so other presets are unchanged.
         { "Init", {
+            // Basic table halfway from saw to square (round, not harsh), filter open:
+            // a neutral, good-sounding start. A new plugin instance opens on it.
+            { "osc1_table", 0 }, { "osc1_frame", 0.5f }, { "osc1_level", 1.0f },
+            { "amp_attack", 0.003f }, { "amp_release", 0.3f },
             { "f1_cutoff", 20000.0f },
             { "osc1_fb_type", 1 }, { "osc2_fb_type", 1 }, { "sub_fb_type", 1 },
             { "osc4_fb_type", 1 }, { "osc5_fb_type", 1 }, { "osc6_fb_type", 1 },
         } },
 
-        { "Rip Bass", {
-            { "osc1_table", 7 }, { "osc1_frame", 0.25f }, { "osc1_level", 0.85f },
-            { "osc1_unison", 3 }, { "osc1_detune", 12.0f }, { "osc1_spread", 0.4f },
-            { "sub_level", 0.5f }, { "sub_shape", 1 }, { "sub_octave", 1 },
-            { "f1_slope", 1 }, { "f1_cutoff", 400.0f }, { "f1_reso", 0.5f },
-            { "f1_drive", 3.0f }, { "f1_env", 2.5f }, { "f1_keytrack", 0.3f },
-            { "fe_attack", 0.001f }, { "fe_decay", 0.25f }, { "fe_sustain", 0.0f }, { "fe_release", 0.2f },
-            { "amp_decay", 0.5f }, { "amp_sustain", 0.6f }, { "amp_release", 0.15f },
-            { "amp_velocity", 0.5f }, { "filter_velocity", 0.7f },
-            { "glide", 0.05f },
-            { "fx_drive_on", 1 }, { "fx_drive_amount", 5.0f }, { "fx_drive_mix", 0.6f },
-        } },
+        { "Rip Bass", {} }, // rebuilt in PresetLibrary.h (rebuildLegacy)
 
         { "Scream Lead", {
             { "osc1_table", 4 }, { "osc1_frame", 0.4f }, { "osc1_level", 0.8f },
@@ -303,15 +296,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_reverb_on", 1 }, { "fx_reverb_mix", 0.2f },
         } },
 
-        { "Glitch Lead", {
-            { "osc1_table", 1 }, { "osc1_frame", 0.5f }, { "osc1_level", 0.85f },
-            { "osc1_unison", 2 }, { "osc1_detune", 10.0f },
-            { "f1_cutoff", 5000.0f }, { "f1_reso", 0.3f }, { "f1_drive", 3.5f },
-            { "amp_decay", 0.35f }, { "amp_sustain", 0.5f }, { "amp_release", 0.2f },
-            { "fx_crush_on", 1 }, { "fx_crush_bits", 8.0f }, { "fx_crush_down", 3.0f }, { "fx_crush_mix", 0.5f },
-            { "fx_delay_on", 1 }, { "fx_delay_sync", 1 }, { "fx_delay_div", 7 }, { "fx_delay_feedback", 0.4f }, { "fx_delay_mix", 0.25f },
-            { "fx_taps_on", 1 }, { "fx_taps_pattern", 4 }, { "fx_taps_mix", 0.5f },
-        } },
+        { "Glitch Lead", {} }, // rebuilt in PresetLibrary.h (rebuildLegacy)
 
         { "Smear Pluck", {
             { "osc1_table", 5 }, { "osc1_frame", 0.3f }, { "osc1_level", 0.85f },
@@ -589,24 +574,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_reverb_on", 1 }, { "fx_reverb_size", 0.9f }, { "fx_reverb_mix", 0.4f },
         } },
 
-        { "Rig Lead", {
-            { "osc1_table", 10 }, { "osc1_frame", 0.4f }, { "osc1_level", 0.85f },
-            { "osc1_unison", 3 }, { "osc1_detune", 15.0f }, { "osc1_spread", 0.6f },
-            { "f1_cutoff", 6000.0f }, { "f1_reso", 0.25f },
-            { "amp_attack", 0.01f }, { "amp_sustain", 0.85f }, { "amp_release", 0.5f },
-            { "fx_slot1", 1 }, { "fx_slot2", 4 }, { "fx_slot3", 2 }, { "fx_slot4", 0 }, { "fx_slot5", 0 },
-            { "fx_slot6", 0 }, { "fx_slot7", 7 }, { "fx_slot8", 8 }, { "fx_slot9", 9 }, { "fx_slot10", 13 },
-            { "fx_amp_mode", 0 }, { "fx_amp_drive", 6.0f }, { "fx_amp_bass", 1.1f }, { "fx_amp_mid", 0.9f },
-            { "fx_amp_treble", 1.2f }, { "fx_amp_level", 0.8f },
-            { "fx_comp_threshold", -20.0f }, { "fx_comp_ratio", 4.0f }, { "fx_comp_attack", 12.0f },
-            { "fx_comp_release", 160.0f }, { "fx_comp_makeup", 6.0f },
-            { "fx_drive_on", 1 }, { "fx_drive_amount", 3.0f }, { "fx_drive_mix", 0.4f },
-            { "fx_chorus_on", 1 }, { "fx_chorus_mix", 0.25f },
-            { "fx_haas_delay", 16.0f }, { "fx_haas_mix", 0.5f },
-            { "fx_delay_on", 1 }, { "fx_delay_sync", 1 }, { "fx_delay_div", 3 }, { "fx_delay_feedback", 0.45f },
-            { "fx_delay_damping", 0.4f }, { "fx_delay_mix", 0.25f },
-            { "fx_reverb_on", 1 }, { "fx_reverb_type", 0 }, { "fx_reverb_size", 0.6f }, { "fx_reverb_mix", 0.22f },
-        } },
+        { "Rig Lead", {} }, // rebuilt in PresetLibrary.h (rebuildLegacy)
 
         { "Shimmer Pad", {
             { "osc1_table", 10 }, { "osc1_frame", 0.3f }, { "osc1_level", 0.7f },
@@ -879,21 +847,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_reverb_on", 1 }, { "fx_reverb_type", 3 }, { "fx_reverb_size", 0.85f }, { "fx_reverb_mix", 0.4f },
         } },
 
-        { "Quad Mod Pluck", {
-            { "osc1_table", 2 }, { "osc1_frame", 0.4f }, { "osc1_level", 0.85f },
-            { "f1_cutoff", 4500.0f }, { "f1_reso", 0.3f }, { "f1_env", 1.6f },
-            { "fe_decay", 0.35f },
-            { "amp_attack", 0.001f }, { "amp_decay", 0.6f }, { "amp_sustain", 0.0f }, { "amp_release", 0.4f },
-            { "lfo1_rate", 6.0f }, { "lfo2_rate", 3.0f }, { "lfo3_rate", 0.8f }, { "lfo4_rate", 0.3f },
-            { "mod1_src", 1 }, { "mod1_dst", 9 }, { "mod1_amt", 0.25f },
-            { "mod2_src", 2 }, { "mod2_dst", 2 }, { "mod2_amt", 0.3f },
-            { "mod3_src", 20 }, { "mod3_dst", 14 }, { "mod3_amt", 0.4f },
-            { "mod4_src", 21 }, { "mod4_dst", 22 }, { "mod4_amt", 0.4f },
-            { "fx_slot9", 9 }, { "fx_slot10", 13 },
-            { "fx_delay_on", 1 }, { "fx_delay_sync", 1 }, { "fx_delay_div", 3 }, { "fx_delay_feedback", 0.4f },
-            { "fx_delay_mix", 0.3f },
-            { "fx_reverb_on", 1 }, { "fx_reverb_size", 0.6f }, { "fx_reverb_mix", 0.3f },
-        } },
+        { "Quad Mod Pluck", {} }, // rebuilt in PresetLibrary.h (rebuildLegacy)
 
         { "LFO 3 Wobble", {
             { "osc1_table", 10 }, { "osc1_frame", 0.6f }, { "osc1_level", 0.85f },
@@ -917,17 +871,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_reverb_on", 1 }, { "fx_reverb_type", 3 }, { "fx_reverb_size", 0.7f }, { "fx_reverb_mix", 0.4f },
         } },
 
-        { "Resonator Pluck", {
-            { "osc1_table", 1 }, { "osc1_frame", 0.5f }, { "osc1_level", 0.8f },
-            { "res_on", 1 }, { "res_amount", 0.7f }, { "res_decay", 0.6f }, { "res_keytrack", 1.0f },
-            { "f1_cutoff", 6000.0f }, { "f1_env", 1.2f },
-            { "fe_decay", 0.3f },
-            { "amp_attack", 0.001f }, { "amp_decay", 0.5f }, { "amp_sustain", 0.0f }, { "amp_release", 0.35f },
-            { "fx_slot9", 9 }, { "fx_slot10", 13 },
-            { "fx_delay_on", 1 }, { "fx_delay_sync", 1 }, { "fx_delay_div", 4 }, { "fx_delay_feedback", 0.35f },
-            { "fx_delay_mix", 0.25f },
-            { "fx_reverb_on", 1 }, { "fx_reverb_size", 0.6f }, { "fx_reverb_mix", 0.3f },
-        } },
+        { "Resonator Pluck", {} }, // rebuilt in PresetLibrary.h (rebuildLegacy)
 
         { "Sub 808 Arp", {
             { "osc1_mode", 2 }, { "osc1_sample_tuned", 1 }, { "osc1_level", 0.95f },
@@ -997,6 +941,7 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
     static const std::vector<FactoryPreset> presets = []
     {
         auto list = getLegacyPresets();
+        Library::rebuildLegacy (list);
 
         for (auto& preset : Library::build())
             list.push_back (preset);

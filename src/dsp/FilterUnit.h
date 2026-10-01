@@ -2,10 +2,24 @@
 
 #include "Svf.h"
 #include "FilterModels2.h"
+#include "FilterCore.h"
+#include "AirwindowsFilters.h"
+#include "AirwindowsCharacter.h"
 
 #include <cmath>
 #include <complex>
 #include <vector>
+
+// Diode LP's tuning (DiodeFilter), shared with its response display.
+namespace DiodeTuning
+{
+constexpr double oscillationRatio = 1.1952286093343936; // sqrt (10 / 7)
+constexpr double threshold = 18.392857142857142;         // 1 / |H (j w0)|
+// Fitted to the old model's level table and its seven presets' levels and
+// peaks (every one within 1 dB).
+constexpr double lift0 = 4.034, liftPower = 1.475;
+constexpr double compensationBase = 1.0, compensationPerK = 0.653;
+} // namespace DiodeTuning
 
 // One channel of one voice filter. Wraps every filter model behind a single
 // type index so the voice, the response display and the tests share it.
@@ -29,6 +43,10 @@ enum
     // M8.4 (appended; patches store the index)
     LadderBand, LadderDrive, Sem, OtaLow, OtaBand, Ms20High, Steiner, PhaserNotch,
     CombDamped, CombMorph, VowelBank, Talking, TwinPeak,
+    // The filter overhaul (appended)
+    Acid303, MoogDrive, VowelMorph, CombBody,
+    // Airwindows character filters and the Disperser (appended)
+    AwZLow, AwZHigh, AwZBand, AwAcid, AwXLow, AwYNotLow, AwHolt, AwAngle, AwPear, Disperser,
     Count
 };
 
@@ -37,17 +55,25 @@ inline juce::StringArray getNames()
     return { "Low Pass", "Band Pass", "High Pass", "Notch", "Ladder LP", "Ladder HP",
              "Diode LP", "MS-20 LP", "Comb +", "Comb -", "Formant", "Morph",
              "Ladder BP", "Ladder Drive", "SEM", "OTA LP", "OTA BP", "MS-20 HP", "Steiner", "Phaser Notch",
-             "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak" };
+             "Comb Damped", "Comb Morph", "Vowel", "Talking", "Twin Peak",
+             "303 Acid", "Moog Drive", "Vowel Morph", "Comb Body",
+             "AW Z LP", "AW Z HP", "AW Z BP", "AW Acid", "AW X LP", "AW YNot LP", "AW Holt", "AW Angle", "AW Pear",
+             "Disperser" };
 }
 
 inline bool isSvf (int type) { return type >= LowPass && type <= Notch; }
 inline bool isLadder (int type) { return type == LadderLow || type == LadderHigh; }
 inline bool isComb (int type) { return type == CombPlus || type == CombMinus || type == CombDamped || type == CombMorph; }
+inline bool isAirwindows (int type) { return type >= AwZLow && type <= Disperser; }
 inline bool usesMorph (int type)
 {
     return type == Formant || type == Morph || type == Sem || type == Steiner || type == PhaserNotch
-           || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak;
+           || type == CombMorph || type == VowelBank || type == Talking || type == TwinPeak
+           || type == VowelMorph || type == CombBody || (isAirwindows (type) && type != AwXLow);
 }
+// These take the DRIVE knob inside, into their feedback loop's input; the
+// others are driven by a tanh in front (Voice).
+inline bool drivesInside (int type) { return type == Acid303 || type == MoogDrive; }
 // The M8.4 models ignore the 12/24 dB switch (each has its own order).
 inline bool usesSlope (int type) { return type < LadderBand; }
 inline bool isModel2 (int type) { return type >= LadderBand && type < Count && ! isComb (type); }
@@ -161,6 +187,66 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
                 const auto d2 = svfBank (s2, k, unused);
                 return 0.3 / d1 + (s / d1 + s2 / d2) * k * 0.8;
             }
+            case Acid303:
+            {
+                // The core's response with the feedback high-pass, as the
+                // model tunes it (at 48 kHz).
+                const auto r = resonance;
+                const auto lift = std::pow (Filters2::Acid303::lift0, 1.0 - std::pow (r, Filters2::Acid303::liftPower));
+                const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff * lift, 21000.0) / 48000.0);
+                const auto gHp = std::tan (juce::MathConstants<double>::pi * Filters2::Acid303::feedbackHpHz / 48000.0);
+                const auto tuning = Filters2::Acid303::tuningFor (gHp / g);
+                const auto hpGain = g / std::sqrt (g * g + gHp * gHp);
+                const auto k = r * 1.03 / (tuning.gain * hpGain);
+                // s is in cutoff units; the core runs at cutoff * lift / ratio.
+                const auto sc = s * tuning.ratio / lift;
+                const auto core = FilterCore::DiodeLadderCore::coreResponse (sc, true);
+                const auto sh = s / lift;
+                const auto hp = sh / (sh + gHp / g);
+                return core / (1.0 + k * core * hp);
+            }
+            case MoogDrive:
+            {
+                const auto k = 4.15 * juce::jmin (0.96, resonance);
+                return std::pow (onePole, 4) / (1.0 + k * std::pow (onePole, 4)) * (1.0 + 0.25 * k);
+            }
+            case VowelMorph:
+            {
+                const auto f = Filters2::VowelMorph::formantsFor (cutoff, resonance, morph);
+                std::complex<double> product (1.0, 0.0);
+                for (int i = 0; i < 5; ++i)
+                {
+                    const auto ss = s * cutoff / f.hz[i];
+                    product *= 1.0 / (ss * ss + f.bandwidth[i] / f.hz[i] * ss + 1.0);
+                }
+                return product * Filters2::VowelMorph::outputGain;
+            }
+            case CombBody:
+            {
+                const auto feedback = combFeedback (resonance);
+                const auto comb = (1.0 - 0.5 * feedback) / (1.0 - feedback * std::exp (-juce::MathConstants<double>::twoPi * s));
+                std::complex<double> body;
+                const auto q = 8.0 + 120.0 * resonance;
+                for (int m = 0; m < 5; ++m)
+                {
+                    const auto ratio = Filters2::ModalBody::ratios[m];
+                    const auto kk = std::sqrt (ratio) / q;
+                    const auto ss = s / ratio;
+                    body += ss * kk / (ss * ss + kk * ss + 1.0) / std::sqrt (ratio);
+                }
+                const auto m = juce::jlimit (0.0, 1.0, morph);
+                return comb * ((1.0 - m) + m * body * 2.0);
+            }
+            // The Airwindows models, drawn as their plain small-signal
+            // shape (their drive and curves are level-dependent).
+            case AwZLow: case AwAcid: case AwXLow: case AwYNotLow: case AwHolt: case AwAngle: case AwPear:
+                return 1.0 / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case AwZHigh:
+                return s * s / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case AwZBand:
+                return s * (2.0 - 1.8 * resonance) / (s * s + (2.0 - 1.8 * resonance) * s + 1.0);
+            case Disperser:
+                return { 1.0, 0.0 }; // all-pass: flat
             case VowelBank:
             case Talking:
             {
@@ -191,14 +277,24 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
         }
     }
 
-    if (isLadder (type) || type == DiodeLow)
+    if (type == DiodeLow)
     {
-        const auto k = type == DiodeLow ? juce::jmin (3.6, resonance * 3.8) : juce::jmin (3.95, resonance * 4.15);
+        // The diode-ladder core as DiodeFilter tunes it (at 48 kHz).
+        const auto lift = std::pow (DiodeTuning::lift0, 1.0 - std::pow (resonance, DiodeTuning::liftPower));
+        const auto k = juce::jmin (0.97, resonance) * DiodeTuning::threshold * 1.02;
+        const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff * lift, 21000.0) / 48000.0);
+        const auto warped = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff, 21000.0) / 48000.0);
+        const auto sc = s * (warped / g) * DiodeTuning::oscillationRatio;
+        const auto out = FilterCore::DiodeLadderCore::coreResponse (sc, false);
+        const auto tap = FilterCore::DiodeLadderCore::coreResponse (sc, false, slope24 ? 3 : 2);
+        return tap / (1.0 + k * out) * DiodeTuning::compensationBase * (1.0 + DiodeTuning::compensationPerK * k);
+    }
+
+    if (isLadder (type))
+    {
+        const auto k = juce::jmin (3.95, resonance * 4.15);
         const auto onePole = 1.0 + s;
         const auto loop = std::pow (onePole, 4) + k;
-
-        if (type == DiodeLow)
-            return (1.0 + 0.4 * k) * (slope24 ? 1.0 / loop : onePole / loop);
 
         if (type == LadderLow)
             h = (1.0 + 0.5 * k) * (slope24 ? 1.0 / loop : onePole * onePole / loop);
@@ -266,210 +362,200 @@ inline std::complex<double> response (int type, bool slope24, double resonance, 
 }
 } // namespace FilterType
 
-// Four one-pole stages in a zero-delay feedback loop (Moog topology). The
-// feedback sum is solved linearly and then saturated, which keeps the filter
-// stable while letting resonance scream and self-oscillate.
+// The Moog ladder: four one-pole stages in a zero-delay feedback loop
+// (FilterCore::StageCascade), the loop's input sum saturating and solved
+// exactly each sample, run at twice the sample rate. The linear loop
+// oscillates exactly at the cutoff (k = 4), so full resonance plays in tune.
 class LadderFilter
 {
 public:
     struct Coefficients
     {
-        double bigG = 0.0;     // g / (1 + g)
-        double beta = 1.0;     // 1 / (1 + g)
-        double k = 0.0;        // feedback, self-oscillates from about 4
+        double g = 0.1;        // tan (pi fc / 2 fs): the stages run at 2x
+        double k = 0.0;        // feedback, self-oscillates from 4
     };
 
     static Coefficients makeCoefficients (double sampleRate, double cutoff, double resonance)
     {
-        const auto clampedCutoff = juce::jlimit (10.0, sampleRate * 0.45, cutoff);
-        const auto g = std::tan (juce::MathConstants<double>::pi * clampedCutoff / sampleRate);
-
         Coefficients c;
-        c.bigG = g / (1.0 + g);
-        c.beta = 1.0 / (1.0 + g);
+        c.g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
         c.k = juce::jlimit (0.0, 1.0, resonance) * 4.15;
         return c;
     }
 
-    void setCoefficients (const Coefficients& c) { coeffs = c; }
-    void reset() { s[0] = s[1] = s[2] = s[3] = 0.0; }
+    void setCoefficients (const Coefficients& c)
+    {
+        coeffs = c;
+        FilterCore::StageCascade::Settings settings;
+        settings.g = c.g;
+        settings.k = c.k;
+        cascade.set (settings);
+    }
+
+    void reset()
+    {
+        cascade.reset();
+        oversampler.reset();
+    }
 
     // Returns the low-pass (or high-pass) output; slope24 picks four or two
     // stages.
     float process (float input, bool highPass, bool slope24)
     {
-        const auto G = coeffs.bigG;
-        const auto b = coeffs.beta;
-        const auto k = coeffs.k;
-        const auto G2 = G * G;
-        const auto G3 = G2 * G;
-        const auto G4 = G3 * G;
-
-        const auto sigma = G3 * b * s[0] + G2 * b * s[1] + G * b * s[2] + b * s[3];
-
         // Low-pass loses passband level as feedback rises; make some back so
         // turning resonance up doesn't thin the sound out.
-        const auto compensation = highPass ? 1.0 : 1.0 + 0.5 * k;
-        auto u = ((double) input * compensation - k * sigma) / (1.0 + k * G4);
-        u = std::tanh (u);
-
-        double y[4];
-        auto in = u;
-
-        for (int stage = 0; stage < 4; ++stage)
-        {
-            const auto v = (in - s[stage]) * G;
-            y[stage] = v + s[stage];
-            s[stage] = y[stage] + v;
-            in = y[stage];
-        }
-
-        if (highPass)
-            return (float) (slope24 ? u - 4.0 * y[0] + 6.0 * y[1] - 4.0 * y[2] + y[3]
-                                    : u - 2.0 * y[0] + y[1]);
-
-        return (float) (slope24 ? y[3] : y[1]);
+        const auto compensation = highPass ? 1.0 : 1.0 + 0.5 * coeffs.k;
+        double first, second;
+        oversampler.upsample ((double) input * compensation, first, second);
+        const auto a = step (first, highPass, slope24);
+        const auto b = step (second, highPass, slope24);
+        return (float) oversampler.downsample (a, b);
     }
 
 private:
+    double step (double x, bool highPass, bool slope24)
+    {
+        std::array<double, 4> y;
+        double u;
+        cascade.process (x, y, u);
+
+        if (highPass)
+            return slope24 ? u - 4.0 * y[0] + 6.0 * y[1] - 4.0 * y[2] + y[3]
+                           : u - 2.0 * y[0] + y[1];
+
+        return slope24 ? y[3] : y[1];
+    }
+
     Coefficients coeffs;
-    double s[4] {};
+    FilterCore::StageCascade cascade;
+    FilterCore::Halfband2x oversampler;
 };
 
-// A 303-flavoured diode ladder: the ladder's feedback runs through a
-// high-pass (so resonance thins the bass instead of booming), every stage
-// soft-clips asymmetrically, and the 12 dB setting taps three poles for the
-// squelchy 18 dB character.
+// The diode ladder (FilterCore::DiodeLadderCore, equal capacitors): four
+// nodes coupled by diode pairs so the stages load each other, which rounds
+// the knee and spreads the resonance. The linear ladder's loop phase crosses
+// -180 degrees at sqrt (10/7) of its stage frequency, where its gain is
+// 1 / 18.39; at full resonance the core is scaled to oscillate exactly at
+// the cutoff. Its passband is far below that point (-3 dB at a tenth of
+// it), so as resonance falls the core slides up (4x at resonance 0) to keep
+// the old model's brightness and level (fitted to levels-before-linux.txt,
+// every cell within 1 dB). The feedback's level loss is made up at the
+// input. The 12 dB setting taps the third node.
 class DiodeFilter
 {
 public:
     struct Coefficients
     {
-        double bigG = 0.0;
-        double beta = 1.0;
-        double k = 0.0;
-        double highPass = 0.0; // one-pole HP coefficient in the feedback path
+        double h = 0.1;       // the core's stage frequency (TPT)
+        double k = 0.0;       // feedback, self-oscillates from 18.39
+        double gain = 1.0;    // passband make-up into the core
+        double post = 1.0;    // and after it
     };
+
+    static constexpr double oscillationRatio = DiodeTuning::oscillationRatio, threshold = DiodeTuning::threshold;
+    static constexpr double lift0 = DiodeTuning::lift0, liftPower = DiodeTuning::liftPower;
+    static constexpr double compensationBase = DiodeTuning::compensationBase, compensationPerK = DiodeTuning::compensationPerK;
+    // Share of the make-up gain applied after the core (the rest drives it).
+    static constexpr double outputShare = 0.2;
+    static constexpr double diodeDrive = 0.5;
+    // The output stage's soft ceiling (the old model clipped every stage).
+    static constexpr double clipLevel = 0.8;
 
     static Coefficients makeCoefficients (double sampleRate, double cutoff, double resonance)
     {
-        const auto base = LadderFilter::makeCoefficients (sampleRate, cutoff, resonance);
         Coefficients c;
-        c.bigG = base.bigG;
-        c.beta = base.beta;
-        c.k = juce::jlimit (0.0, 1.0, resonance) * 3.8;
-        c.highPass = std::exp (-juce::MathConstants<double>::twoPi * 110.0 / sampleRate);
+        const auto r = juce::jlimit (0.0, 1.0, resonance);
+        const auto lift = std::pow (lift0, 1.0 - std::pow (r, liftPower));
+        c.h = FilterCore::prewarp (sampleRate, cutoff * lift) / oscillationRatio;
+        c.k = r * threshold * 1.02;
+        const auto makeUp = compensationBase * (1.0 + compensationPerK * c.k);
+        c.post = std::pow (makeUp, outputShare);
+        c.gain = makeUp / c.post;
         return c;
     }
 
-    void setCoefficients (const Coefficients& c) { coeffs = c; }
-
-    void reset()
+    void setCoefficients (const Coefficients& c)
     {
-        s[0] = s[1] = s[2] = s[3] = 0.0;
-        feedbackHp = feedbackIn = 0.0;
+        coeffs = c;
+        FilterCore::DiodeLadderCore::Settings settings;
+        settings.h = c.h;
+        settings.k = c.k;
+        settings.diodeDrive = diodeDrive;
+        core.set (settings);
     }
+
+    void reset() { core.reset(); }
 
     float process (float input, bool slope24)
     {
-        const auto G = coeffs.bigG;
-        const auto b = coeffs.beta;
-        const auto k = coeffs.k;
-        const auto G2 = G * G, G3 = G2 * G, G4 = G3 * G;
-        const auto sigma = G3 * b * s[0] + G2 * b * s[1] + G * b * s[2] + b * s[3];
-
-        // Solve the loop linearly (as the ladder does), then pull the bass
-        // out of the feedback estimate with the one-pole high-pass.
-        const auto linear = ((double) input * (1.0 + 0.4 * k) - k * sigma) / (1.0 + k * G4);
-        const auto feedbackEstimate = (double) input * (1.0 + 0.4 * k) - linear;
-        feedbackHp = coeffs.highPass * (feedbackHp + feedbackEstimate - feedbackIn);
-        feedbackIn = feedbackEstimate;
-
-        auto u = diodeClip ((double) input * (1.0 + 0.4 * k) - feedbackHp);
-
-        double y[4];
-
-        for (int stage = 0; stage < 4; ++stage)
-        {
-            const auto v = (u - s[stage]) * G;
-            y[stage] = v + s[stage];
-            s[stage] = y[stage] + v;
-            u = stage < 3 ? diodeClip (y[stage]) : y[stage];
-        }
-
-        return (float) (slope24 ? y[3] : y[2]);
+        std::array<double, 4> y;
+        core.process ((double) input * coeffs.gain, y);
+        const auto out = (slope24 ? y[3] : y[2]) * coeffs.post;
+        return (float) (clipLevel * FilterCore::tanhApprox (out / clipLevel));
     }
 
 private:
-    // Asymmetric soft clip: a little even-harmonic grit like a diode pair.
-    static double diodeClip (double x) { return std::tanh (x + 0.12 * x * x * (x > 0.0 ? 1.0 : 0.6)); }
-
     Coefficients coeffs;
-    double s[4] {};
-    double feedbackHp = 0.0, feedbackIn = 0.0;
+    FilterCore::DiodeLadderCore core;
 };
 
-// Korg-35 style Sallen-Key low-pass (the MS-20 filter): two poles with a
-// saturating feedback path that gets gnarly and self-oscillates near the top.
+// The MS-20 low-pass (FilterCore::Korg35Core): two poles with the
+// resonance fed back through a high-pass and a diode limiter, solved per
+// sample at twice the sample rate. K reaches 2 (self-oscillation, exactly at
+// the cutoff) at resonance 0.97; the limiter holds the tone there.
 class Ms20Filter
 {
 public:
     struct Coefficients
     {
-        double bigG = 0.0;
+        double g = 0.1;       // tan (pi fc / 2 fs)
         double k = 0.01;
-        double alpha0 = 1.0;
-        double lpf2Beta = 0.0;
-        double hpf1Beta = 0.0;
     };
 
     static Coefficients makeCoefficients (double sampleRate, double cutoff, double resonance)
     {
-        const auto clampedCutoff = juce::jlimit (10.0, sampleRate * 0.45, cutoff);
-        const auto g = std::tan (juce::MathConstants<double>::pi * clampedCutoff / sampleRate);
-
         Coefficients c;
-        c.bigG = g / (1.0 + g);
-        c.k = 0.01 + juce::jlimit (0.0, 1.0, resonance) * 1.99;
-        c.lpf2Beta = (c.k - c.k * c.bigG) / (1.0 + g);
-        c.hpf1Beta = -1.0 / (1.0 + g);
-        c.alpha0 = 1.0 / (1.0 - c.k * c.bigG + c.k * c.bigG * c.bigG);
+        c.g = FilterCore::prewarp (2.0 * sampleRate, juce::jlimit (10.0, sampleRate * 0.45, cutoff));
+        c.k = 0.01 + juce::jlimit (0.0, 1.0, resonance) * 2.05;
         return c;
     }
 
-    void setCoefficients (const Coefficients& c) { coeffs = c; }
-    void reset() { lpf1 = lpf2 = hpf1 = extra = 0.0; }
+    void setCoefficients (const Coefficients& c)
+    {
+        core.set (c.g, c.k, false, limit);
+        extraG = c.g / (1.0 + c.g);
+    }
+
+    void reset()
+    {
+        core.reset();
+        extra.reset();
+        oversampler.reset();
+    }
 
     // extraPole adds a plain one-pole at the cutoff for the 24 dB setting.
     float process (float input, bool extraPole)
     {
-        const auto G = coeffs.bigG;
-
-        const auto onePoleLow = [G] (double x, double& state)
+        double first, second;
+        oversampler.upsample ((double) input, first, second);
+        auto a = core.process (first), b = core.process (second);
+        if (extraPole)
         {
-            const auto v = (x - state) * G;
-            const auto low = v + state;
-            state = low + v;
-            return low;
-        };
-
-        const auto y1 = onePoleLow ((double) input, lpf1);
-        const auto feedback = coeffs.hpf1Beta * hpf1 + coeffs.lpf2Beta * lpf2;
-        auto u = std::tanh (coeffs.alpha0 * (y1 + feedback) * 1.2) / 1.2;
-        auto y = coeffs.k * onePoleLow (u, lpf2);
-
-        // High-pass stage in the feedback loop.
-        const auto v = (y - hpf1) * G;
-        const auto low = v + hpf1;
-        hpf1 = low + v;
-
-        y /= coeffs.k;
-        return (float) (extraPole ? onePoleLow (y, extra) : y);
+            a = extra.lowPass (a, extraG);
+            b = extra.lowPass (b, extraG);
+        }
+        return (float) (oversampler.downsample (a, b) * outputGain);
     }
 
+    // The limiter's level, and the output gain that keeps the old model's
+    // level (its presets and level table within 1 dB).
+    static constexpr double limit = 0.3, outputGain = 0.82;
+
 private:
-    Coefficients coeffs;
-    double lpf1 = 0.0, lpf2 = 0.0, hpf1 = 0.0, extra = 0.0;
+    FilterCore::Korg35Core core;
+    FilterCore::OnePole extra;
+    FilterCore::Halfband2x oversampler;
+    double extraG = 0.1;
 };
 
 class FilterUnit
@@ -486,6 +572,8 @@ public:
         double combDelay = 1.0;
         double combFeedback = 0.0;
         float morph = 0.0f;
+        // Low / Band / High Pass and Notch: Airwindows' Y filters.
+        Airwindows::YFilter::Coefficients y;
         // M8.4 models set themselves from these.
         double sampleRate = 48000.0, cutoff = 1000.0, resonance = 0.0;
     };
@@ -517,6 +605,7 @@ public:
             case FilterType::CombMinus:
             case FilterType::CombDamped:
             case FilterType::CombMorph:
+            case FilterType::CombBody:
                 c.combDelay = sampleRate / juce::jlimit (20.0, sampleRate * 0.45, cutoff);
                 c.combFeedback = FilterType::combFeedback (resonance) * (type == FilterType::CombMinus ? -1.0 : 1.0);
                 if (type == FilterType::CombMorph)
@@ -541,6 +630,8 @@ public:
 
             default:
                 c.svf = Svf::makeCoefficients (sampleRate, cutoff, resonance);
+                if (FilterType::isSvf (type))
+                    c.y = Airwindows::YFilter::makeCoefficients (sampleRate, cutoff, resonance);
                 break;
         }
 
@@ -553,6 +644,14 @@ public:
         combBuffer.assign ((size_t) juce::nextPowerOfTwo ((int) (sampleRate / 20.0) + 8), 0.0f);
         combMask = (int) combBuffer.size() - 1;
         reset();
+    }
+
+    // The DRIVE knob, for the models that take it inside
+    // (FilterType::drivesInside); the others ignore it.
+    void setDrive (float amount)
+    {
+        acid.setDrive (amount);
+        moogDrive.setDrive (amount);
     }
 
     void setType (int newType, bool newSlope24)
@@ -572,6 +671,7 @@ public:
             const auto mode = (Svf::Mode) type;
             stage1.setMode (mode);
             stage2.setMode (mode);
+            y1.setMode (yMode (type));
         }
         else if (type == FilterType::Formant)
         {
@@ -593,11 +693,18 @@ public:
             case FilterType::CombMinus:
             case FilterType::CombDamped:
             case FilterType::CombMorph:
-                combDelay = juce::jlimit (1.0, (double) juce::jmax (1, combMask - 4), c.combDelay);
+            case FilterType::CombBody:
+                if (type == FilterType::CombBody)
+                    body.set (c.sampleRate, c.cutoff, c.resonance);
                 combFeedback = c.combFeedback;
                 // Comb Damped: the loop loses its highs fast (a plucked-tube
                 // tone); the others keep the gentle 0.7 damping.
                 combDampCoefficient = type == FilterType::CombDamped ? 0.18f : 0.7f;
+                // The damping one-pole delays the loop too; take its phase
+                // delay at the pitch off the line so the comb rings exactly
+                // at the cutoff (Comb -: at half of it).
+                combDelay = juce::jlimit (2.0, (double) juce::jmax (2, combMask - 4),
+                                          c.combDelay - dampingPhaseDelay (combDampCoefficient, juce::MathConstants<double>::twoPi / c.combDelay));
                 break;
 
             case FilterType::LadderBand:
@@ -611,6 +718,19 @@ public:
             case FilterType::VowelBank:
             case FilterType::Talking:      vowel.set (c.sampleRate, c.cutoff, c.resonance, c.morph, type == FilterType::Talking); break;
             case FilterType::TwinPeak:     twinPeak.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::Acid303:      acid.set (c.sampleRate, c.cutoff, c.resonance); break;
+            case FilterType::MoogDrive:    moogDrive.set (c.sampleRate, c.cutoff, c.resonance); break;
+            case FilterType::VowelMorph:   vowelMorph.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZLow:       awZLow.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZHigh:      awZHigh.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwZBand:      awZBand.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwAcid:       awAcid.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwXLow:       awX.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwYNotLow:    awYNot.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwHolt:       awHolt.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwAngle:      awAngle.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::AwPear:       awPear.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
+            case FilterType::Disperser:    disperser.set (c.sampleRate, c.cutoff, c.resonance, c.morph); break;
 
             case FilterType::Formant:
                 for (int band = 0; band < 3; ++band)
@@ -622,6 +742,10 @@ public:
             default:
                 stage1.setCoefficients (c.svf);
                 stage2.setCoefficients (c.svf);
+                if (FilterType::isSvf (type))
+                {
+                    y1.setCoefficients (c.y);
+                }
                 break;
         }
 
@@ -632,6 +756,7 @@ public:
     {
         stage1.reset();
         stage2.reset();
+        y1.reset();
         ladder.reset();
         diode.reset();
         ms20.reset();
@@ -643,11 +768,31 @@ public:
         phaser.reset();
         vowel.reset();
         twinPeak.reset();
+        acid.reset();
+        moogDrive.reset();
+        vowelMorph.reset();
+        body.reset();
+        awZLow.reset();
+        awZHigh.reset();
+        awZBand.reset();
+        awAcid.reset();
+        awX.reset();
+        awYNot.reset();
+        awHolt.reset();
+        awAngle.reset();
+        awPear.reset();
+        disperser.reset();
 
         for (auto& band : formantBands)
             band.reset();
 
-        std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+        // The comb line is only cleared once a comb has written to it (a
+        // note-on resets eight filters; most never use the line).
+        if (combUsed)
+        {
+            std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+            combUsed = false;
+        }
         combWrite = 0;
         combDamp = 0.0f;
     }
@@ -678,6 +823,26 @@ public:
             case FilterType::VowelBank:
             case FilterType::Talking:     return vowel.process (input);
             case FilterType::TwinPeak:    return twinPeak.process (input);
+            case FilterType::Acid303:     return acid.process (input);
+            case FilterType::MoogDrive:   return moogDrive.process (input);
+            case FilterType::VowelMorph:  return vowelMorph.process (input);
+            case FilterType::AwZLow:      return awZLow.process (input);
+            case FilterType::AwZHigh:     return awZHigh.process (input);
+            case FilterType::AwZBand:     return awZBand.process (input);
+            case FilterType::AwAcid:      return awAcid.process (input);
+            case FilterType::AwXLow:      return awX.process (input);
+            case FilterType::AwYNotLow:   return awYNot.process (input);
+            case FilterType::AwHolt:      return awHolt.process (input);
+            case FilterType::AwAngle:     return awAngle.process (input);
+            case FilterType::AwPear:      return awPear.process (input);
+            case FilterType::Disperser:   return disperser.process (input);
+            case FilterType::CombBody:
+            {
+                // The comb rings at the cutoff; the body's modes ring on it.
+                const auto comb = processComb (input);
+                const auto m = morph;
+                return comb * (1.0f - m) + (float) body.process ((double) comb) * m * bodyGain;
+            }
 
             case FilterType::Formant:
             {
@@ -695,6 +860,14 @@ public:
                 return slope24 ? morphStage (stage2, out) : out;
             }
 
+            case FilterType::LowPass:
+            case FilterType::BandPass:
+            case FilterType::HighPass:
+            case FilterType::Notch:
+            {
+                return y1.process (input, slope24);
+            }
+
             default:
             {
                 auto out = stage1.processSample (input);
@@ -703,7 +876,48 @@ public:
         }
     }
 
+    // process over a block, the model chosen once.
+    void processBlock (const float* input, float* output, int n)
+    {
+        switch (type)
+        {
+            case FilterType::LowPass:
+            case FilterType::BandPass:
+            case FilterType::HighPass:
+            case FilterType::Notch:
+                for (int s = 0; s < n; ++s)
+                    output[s] = y1.process (input[s], slope24);
+                return;
+            case FilterType::LadderLow:
+            case FilterType::LadderHigh:
+                for (int s = 0; s < n; ++s)
+                    output[s] = ladder.process (input[s], type == FilterType::LadderHigh, slope24);
+                return;
+            default:
+                for (int s = 0; s < n; ++s)
+                    output[s] = process (input[s]);
+                return;
+        }
+    }
+
+    // Two filters of the same model (a voice's left and right) over a block.
+    static void processStereoBlock (FilterUnit& left, FilterUnit& right, const float* inLeft, const float* inRight,
+                                    float* outLeft, float* outRight, int n)
+    {
+        left.processBlock (inLeft, outLeft, n);
+        right.processBlock (inRight, outRight, n);
+    }
+
 private:
+    static Airwindows::YFilter::Mode yMode (int type)
+    {
+        using M = Airwindows::YFilter::Mode;
+        return type == FilterType::BandPass ? M::BandPass
+             : type == FilterType::HighPass ? M::HighPass
+             : type == FilterType::Notch    ? M::Notch
+                                            : M::LowPass;
+    }
+
     float morphStage (Svf& svf, float input)
     {
         float lp, bp, hp;
@@ -712,22 +926,35 @@ private:
         return m < 1.0f ? lp + (bp - lp) * m : bp + (hp - bp) * (m - 1.0f);
     }
 
+    // Phase delay (samples) at w (radians per sample) of the loop's damping
+    // one-pole y += c (x - y).
+    static double dampingPhaseDelay (double c, double w)
+    {
+        const auto h = c / (std::complex<double> (1.0, 0.0) - (1.0 - c) * std::exp (std::complex<double> (0.0, -w)));
+        return -std::arg (h) / w;
+    }
+
     float processComb (float input)
     {
         if (combBuffer.empty())
             return input;
 
-        // Fractional read one period back, damped a touch in the loop so
+        // Fractional read one period back (cubic Lagrange, flat in phase
+        // well past the pitches a comb plays), damped a touch in the loop so
         // high resonance rings like a plucked tube instead of whistling.
         const auto readPosition = (double) combWrite - combDelay;
         const auto base = (int) std::floor (readPosition);
-        const auto frac = (float) (readPosition - (double) base);
-        const auto a = combBuffer[(size_t) (base & combMask)];
-        const auto b = combBuffer[(size_t) ((base + 1) & combMask)];
-        const auto delayed = a + (b - a) * frac;
+        const auto d = (float) (readPosition - (double) base);
+        const auto xm1 = combBuffer[(size_t) ((base - 1) & combMask)];
+        const auto x0 = combBuffer[(size_t) (base & combMask)];
+        const auto x1 = combBuffer[(size_t) ((base + 1) & combMask)];
+        const auto x2 = combBuffer[(size_t) ((base + 2) & combMask)];
+        const auto delayed = -d * (d - 1.0f) * (d - 2.0f) / 6.0f * xm1 + (d + 1.0f) * (d - 1.0f) * (d - 2.0f) / 2.0f * x0
+                             - (d + 1.0f) * d * (d - 2.0f) / 2.0f * x1 + (d + 1.0f) * d * (d - 1.0f) / 6.0f * x2;
 
         combDamp += combDampCoefficient * (delayed - combDamp);
         const auto fed = input + (float) combFeedback * combDamp;
+        combUsed = true;
         combBuffer[(size_t) combWrite] = std::tanh (fed * 0.5f) * 2.0f;
         combWrite = (combWrite + 1) & combMask;
 
@@ -739,6 +966,7 @@ private:
     float morph = 0.0f;
     float formantNorm = 1.0f;
     Svf stage1, stage2;
+    Airwindows::YFilter y1;
     Svf formantBands[3];
     LadderFilter ladder;
     DiodeFilter diode;
@@ -752,9 +980,25 @@ private:
     Filters2::PhaserNotch phaser;
     Filters2::VowelFilter vowel;
     Filters2::TwinPeak twinPeak;
+    Filters2::Acid303 acid;
+    Filters2::MoogDrive moogDrive;
+    Filters2::VowelMorph vowelMorph;
+    Filters2::ModalBody body;
+    Airwindows::ZLowpass awZLow;
+    Airwindows::ZHighpass awZHigh;
+    Airwindows::ZBandpass awZBand;
+    Airwindows::AcidLowpass awAcid;
+    Airwindows::XLowpass awX;
+    Airwindows::YNotLowpass awYNot;
+    Airwindows::HoltFilter awHolt;
+    Airwindows::AngleFilter awAngle;
+    Airwindows::PearFilter awPear;
+    Airwindows::Disperser disperser;
+    static constexpr float bodyGain = 2.0f;
     float combDampCoefficient = 0.7f;
 
     std::vector<float> combBuffer;
+    bool combUsed = false;
     int combMask = 0;
     int combWrite = 0;
     double combDelay = 1.0;

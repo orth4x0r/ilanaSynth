@@ -68,6 +68,21 @@ std::unique_ptr<Algorithm> createDrumSlam();
 std::unique_ptr<Algorithm> createInflamer();
 std::unique_ptr<Algorithm> createFlutter();
 std::unique_ptr<Algorithm> createChorusEnsemble();
+std::unique_ptr<Algorithm> createToTape8();
+std::unique_ptr<Algorithm> createTapeHack2();
+std::unique_ptr<Algorithm> createDensity3();
+std::unique_ptr<Algorithm> createTapeDelay2();
+std::unique_ptr<Algorithm> createPitchDelay();
+std::unique_ptr<Algorithm> createStarChild2();
+std::unique_ptr<Algorithm> createPurestEcho();
+std::unique_ptr<Algorithm> createDoublelay();
+std::unique_ptr<Algorithm> createEnsemble();
+std::unique_ptr<Algorithm> createChorus();
+std::unique_ptr<Algorithm> createVibrato();
+std::unique_ptr<Algorithm> createDesk4();
+std::unique_ptr<Algorithm> createTapeDust();
+std::unique_ptr<Algorithm> createDirt();
+std::unique_ptr<Algorithm> createStereoFX();
 
 inline const std::vector<Info>& registry()
 {
@@ -111,6 +126,21 @@ inline const std::vector<Info>& registry()
         { "Inflamer", "Character", 3, { { 0, "Drive", 0.5f, 0.0f, 1.0f }, { 1, "Curve", 0.5f, 0.0f, 1.0f }, { 2, "Effect", 1.0f, 0.0f, 1.0f } }, &createInflamer },
         { "Flutter", "Character", 1, { { 0, "Flutter", 0.0f, 0.0f, 1.0f } }, &createFlutter },
         { "ChorusEnsemble", "Character", 3, { { 0, "Speed", 0.5f, 0.0f, 1.0f }, { 1, "Range", 0.5f, 0.0f, 1.0f }, { 2, "Dry/Wet", 0.8f, 0.0f, 1.0f } }, &createChorusEnsemble },
+        { "ToTape8", "Saturation & Tape", 5, { { 0, "Input", 0.5f, 0.0f, 1.0f }, { 1, "Tilt", 0.5f, 0.0f, 1.0f }, { 3, "Flutter", 0.5f, 0.0f, 1.0f }, { 6, "HeadBmp", 0.5f, 0.0f, 1.0f }, { 8, "Output", 0.5f, 0.0f, 1.0f } }, &createToTape8 },
+        { "TapeHack2", "Saturation & Tape", 3, { { 0, "Input", 0.1f, 0.0f, 1.0f }, { 1, "Output", 1.0f, 0.0f, 1.0f }, { 2, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createTapeHack2 },
+        { "Density3", "Saturation & Tape", 4, { { 0, "Density", 0.0f, 0.0f, 1.0f }, { 1, "Highpas", 0.0f, 0.0f, 1.0f }, { 2, "Output", 1.0f, 0.0f, 1.0f }, { 3, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createDensity3 },
+        { "TapeDelay2", "Delay", 5, { { 0, "Time", 1.0f, 0.0f, 1.0f }, { 1, "Regen", 0.0f, 0.0f, 1.0f }, { 2, "Freq", 0.5f, 0.0f, 1.0f }, { 4, "Flutter", 0.0f, 0.0f, 1.0f }, { 5, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createTapeDelay2 },
+        { "PitchDelay", "Delay", 5, { { 0, "Time", 1.0f, 0.0f, 1.0f }, { 1, "Regen", 0.0f, 0.0f, 1.0f }, { 2, "Freq", 0.5f, 0.0f, 1.0f }, { 4, "Pitch", 0.5f, 0.0f, 1.0f }, { 5, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createPitchDelay },
+        { "StarChild2", "Delay", 3, { { 0, "Sustain", 1.0f, 0.0f, 1.0f }, { 1, "Grain", 0.7f, 0.0f, 1.0f }, { 2, "Dry/Wet", 0.2f, 0.0f, 1.0f } }, &createStarChild2 },
+        { "PurestEcho", "Delay", 5, { { 0, "Time", 1.0f, 0.0f, 1.0f }, { 1, "Tap 1", 1.0f, 0.0f, 1.0f }, { 2, "Tap 2", 0.0f, 0.0f, 1.0f }, { 3, "Tap 3", 0.0f, 0.0f, 1.0f }, { 4, "Tap 4", 0.0f, 0.0f, 1.0f } }, &createPurestEcho },
+        { "Doublelay", "Delay", 5, { { 0, "Detune", 0.2f, 0.0f, 1.0f }, { 1, "Delay L", 0.1f, 0.0f, 1.0f }, { 2, "Delay R", 0.2f, 0.0f, 1.0f }, { 3, "Feedbk", 0.0f, 0.0f, 1.0f }, { 4, "Dry/Wet", 0.6f, 0.0f, 1.0f } }, &createDoublelay },
+        { "Ensemble", "Modulation", 4, { { 0, "Ensemble", 0.5f, 0.0f, 1.0f }, { 1, "Fullness", 0.0f, 0.0f, 1.0f }, { 2, "Brighten", 1.0f, 0.0f, 1.0f }, { 3, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createEnsemble },
+        { "Chorus", "Modulation", 3, { { 0, "Speed", 0.5f, 0.0f, 1.0f }, { 1, "Range", 0.5f, 0.0f, 1.0f }, { 2, "Dry/Wet", 0.5f, 0.0f, 1.0f } }, &createChorus },
+        { "Vibrato", "Modulation", 5, { { 0, "Speed", 0.3f, 0.0f, 1.0f }, { 1, "Depth", 0.0f, 0.0f, 1.0f }, { 2, "FMSpeed", 0.4f, 0.0f, 1.0f }, { 3, "FMDepth", 0.0f, 0.0f, 1.0f }, { 4, "Inv/Wet", 1.0f, 0.0f, 1.0f } }, &createVibrato },
+        { "Desk4", "Console", 5, { { 0, "Overdrive", 0.27f, 0.0f, 1.0f }, { 1, "Hi Choke", 0.18f, 0.0f, 1.0f }, { 2, "Power Sag", 0.26f, 0.0f, 1.0f }, { 4, "Output Trim", 0.84f, 0.0f, 1.0f }, { 5, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createDesk4 },
+        { "TapeDust", "Lo-Fi", 2, { { 0, "Dust", 0.0f, 0.0f, 1.0f }, { 1, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createTapeDust },
+        { "Dirt", "Lo-Fi", 5, { { 0, "Gain", 0.1f, 0.0f, 1.0f }, { 1, "Lowpass", 1.0f, 0.0f, 1.0f }, { 2, "Highpass", 0.0f, 0.0f, 1.0f }, { 3, "Output", 1.0f, 0.0f, 1.0f }, { 4, "Dry/Wet", 1.0f, 0.0f, 1.0f } }, &createDirt },
+        { "StereoFX", "Stereo", 3, { { 0, "Wide", 0.0f, 0.0f, 1.0f }, { 1, "MonoBs", 0.0f, 0.0f, 1.0f }, { 2, "CSquish", 0.0f, 0.0f, 1.0f } }, &createStereoFX },
     };
     return list;
 }

@@ -207,6 +207,26 @@ public:
         // Airwindows: the algorithms grouped by family, not one long list.
         awAlgo.setPopupOverride ([this] { showAirwindowsMenu(); });
 
+        // The Airwindows category modules (types 32-41): an effect picker,
+        // five knobs named after the chosen effect's own, and a mix.
+        for (int c = 0; c < (int) airwindows::categoryModules().size(); ++c)
+        {
+            const juce::String prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
+            auto& controls = awCategories.emplace_back();
+            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "EFFECT");
+            for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+                controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
+            controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
+            std::vector<juce::Component*> group { controls.algo.get() };
+            for (auto& knob : controls.knobs)
+                group.push_back (knob.get());
+            group.push_back (controls.mix.get());
+            for (auto* item : group)
+                addChildComponent (*item);
+            slotGroups.push_back (group);
+            controls.algo->setPopupOverride ([this, c] { showCategoryMenu (c); });
+        }
+
         prevSlotButton.onClick = [this] { moveSelectedSlot (-1); };
         nextSlotButton.onClick = [this] { moveSelectedSlot (1); };
         diceButton.onClick = [this] { processorRef.randomizeFxChain(); };
@@ -341,19 +361,37 @@ public:
             button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised.interpolatedWith (fxColour (type), 0.08f));
             button->setColour (juce::TextButton::textColourOffId, fxColour (type).interpolatedWith (juce::Colours::white, 0.35f));
             button->setTooltip ("Add " + juce::String (pick.second).toLowerCase() + " to the first empty slot");
-            button->onClick = [this, type]
+            const auto add = [this] (int typeToAdd)
             {
                 for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
                 {
                     if (getSlotType (slot) == 0)
                     {
-                        processorRef.assignFxSlot (slot + 1, type);
+                        processorRef.assignFxSlot (slot + 1, typeToAdd);
                         selectedSlot = slot;
                         updateVisibility();
                         return;
                     }
                 }
             };
+            if (type == 30)
+            {
+                // AIRWINDOWS opens its category modules (and the all-in-one).
+                button->setTooltip ("Add an Airwindows module: pick a category");
+                button->onClick = [this, add, target = button.get()]
+                {
+                    juce::PopupMenu menu;
+                    const auto& categories = airwindows::categoryModules();
+                    for (int c = 0; c < (int) categories.size(); ++c)
+                        menu.addItem (airwindows::firstCategoryFxType + c, juce::String (categories[(size_t) c].label).fromFirstOccurrenceOf ("AW ", false, false));
+                    menu.addSeparator();
+                    menu.addItem (30, "All-in-one (every algorithm)");
+                    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+                                        [add] (int result) { if (result > 0) add (result); });
+                };
+            }
+            else
+                button->onClick = [add, type] { add (type); };
             addChildComponent (*button);
             quickAddButtons.push_back (std::move (button));
         }
@@ -1035,6 +1073,8 @@ private:
             }
 
         updateAirwindowsKnobs (shown[30]);
+        for (int c = 0; c < (int) awCategories.size(); ++c)
+            updateCategoryKnobs (c, shown[(size_t) (airwindows::firstCategoryFxType + c)]);
         tapGrid.setVisible (shown[9]);
         gateGrid->setVisible (shown[16]);
         eqCurve.setVisible (shown[29]);
@@ -1088,7 +1128,7 @@ private:
             // (The on switch goes in the header, so it doesn't count.)
             const auto rowItems = std::count_if (group.begin(), group.end(), [type] (juce::Component* item)
             {
-                if (type == 30 && ! item->isVisible())
+                if (isAirwindowsType (type) && ! item->isVisible())
                     return false;
                 auto* toggle = dynamic_cast<ToggleControl*> (item);
                 return toggle == nullptr || ! toggle->isSwitch();
@@ -1129,7 +1169,7 @@ private:
                 {
                     auto* toggle = dynamic_cast<ToggleControl*> (item);
 
-                    if (type == 30 && ! item->isVisible())
+                    if (isAirwindowsType (type) && ! item->isVisible())
                         continue; // an Airwindows knob the algorithm doesn't use
 
                     if (toggle != nullptr && toggle->isSwitch() && power == nullptr)
@@ -1427,6 +1467,8 @@ private:
             signature += juce::String (getSlotType (slot)) + ",";
 
         signature += juce::String (airwindowsAlgorithm()); // its knobs differ
+        for (int c = 0; c < (int) awCategories.size(); ++c)
+            signature += "," + juce::String (categoryChoice (c));
 
         if (signature != lastSignature)
         {
@@ -1724,6 +1766,84 @@ private:
             set ("fx_aw_p" + juce::String (k + 1), info.knobs[k].defaultValue);
 
         set ("fx_aw_algo", (float) algorithm);
+        updateVisibility();
+        repaint();
+    }
+
+    // ---- The Airwindows category modules (types 32-41) ----
+    struct AwCategoryControls
+    {
+        std::unique_ptr<ComboControl> algo;
+        std::array<std::unique_ptr<KnobControl>, airwindows::Module::numKnobs> knobs;
+        std::unique_ptr<KnobControl> mix;
+    };
+    std::vector<AwCategoryControls> awCategories;
+
+    static bool isAirwindowsType (int type) { return type == 30 || airwindows::categoryForFxType (type) >= 0; }
+
+    int categoryChoice (int c) const
+    {
+        const auto& info = airwindows::categoryModules()[(size_t) c];
+        if (const auto* value = processorRef.apvts.getRawParameterValue (juce::String ("fx_") + info.id + "_algo"))
+            return juce::jlimit (0, (int) info.algorithms.size() - 1, (int) value->load());
+        return 0;
+    }
+
+    void updateCategoryKnobs (int c, bool loaded)
+    {
+        const auto& category = airwindows::categoryModules()[(size_t) c];
+        const auto& info = airwindows::registry()[(size_t) category.algorithms[(size_t) categoryChoice (c)]];
+        auto& controls = awCategories[(size_t) c];
+        for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+        {
+            const auto used = k < info.numKnobs;
+            if (used)
+                controls.knobs[(size_t) k]->setLabelText (juce::String (info.knobs[k].name).toUpperCase());
+            controls.knobs[(size_t) k]->setVisible (loaded && used);
+        }
+    }
+
+    // The category's effects; picking one sets its knobs to the plugin's
+    // own defaults.
+    void showCategoryMenu (int c)
+    {
+        const auto& category = airwindows::categoryModules()[(size_t) c];
+        const auto chosen = categoryChoice (c);
+        juce::PopupMenu menu;
+        menu.addSectionHeader (juce::String (category.label).toUpperCase());
+        for (int i = 0; i < (int) category.algorithms.size(); ++i)
+            menu.addItem (i + 1, airwindows::registry()[(size_t) category.algorithms[(size_t) i]].name, true, i == chosen);
+
+        juce::Component::SafePointer<FxPage> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (awCategories[(size_t) c].algo.get()),
+                            [safeThis, c] (int result)
+                            {
+                                if (safeThis != nullptr && result > 0)
+                                    safeThis->chooseCategoryEffect (c, result - 1);
+                            });
+    }
+
+    void chooseCategoryEffect (int c, int choice)
+    {
+        const auto& category = airwindows::categoryModules()[(size_t) c];
+        choice = juce::jlimit (0, (int) category.algorithms.size() - 1, choice);
+        const auto& info = airwindows::registry()[(size_t) category.algorithms[(size_t) choice]];
+        processorRef.preloadAirwindowsCategory (c, choice);
+        const juce::String prefix = juce::String ("fx_") + category.id;
+
+        const auto set = [this] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                parameter->endChangeGesture();
+            }
+        };
+
+        for (int k = 0; k < info.numKnobs; ++k)
+            set (prefix + "_p" + juce::String (k + 1), info.knobs[k].defaultValue);
+        set (prefix + "_algo", (float) choice);
         updateVisibility();
         repaint();
     }

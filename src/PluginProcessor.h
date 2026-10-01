@@ -31,6 +31,7 @@
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
@@ -53,7 +54,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 31; // 30: Airwindows, 31: Vocoder
+    static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -76,6 +77,7 @@ public:
     void assignFxSlot (int slot, int type);
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
     void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
+    void preloadAirwindowsCategory (int category, int choice);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
     bool loadFxChainFromFile (const juce::File& file);
@@ -650,6 +652,25 @@ private:
     std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
         ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
     std::vector<float> airwindowsMonoRight;
+    // The Airwindows category modules (FX types 32-41), one engine each;
+    // their refs: algo, p1..p5, mix.
+    static constexpr int numAwCategories = 10;
+    std::array<airwindows::Module, numAwCategories> awCategoryModules;
+    static std::array<std::array<ParamRef, 7>, numAwCategories> makeAwCategoryRefs()
+    {
+        std::array<std::array<ParamRef, 7>, numAwCategories> refs;
+        for (int c = 0; c < numAwCategories; ++c)
+        {
+            const auto prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
+            refs[(size_t) c][0] = ParamRef (prefix + "_algo");
+            for (int k = 0; k < 5; ++k)
+                refs[(size_t) c][(size_t) k + 1] = ParamRef (prefix + "_p" + juce::String (k + 1));
+            refs[(size_t) c][6] = ParamRef (prefix + "_mix");
+        }
+        return refs;
+    }
+    std::array<std::array<ParamRef, 7>, numAwCategories> awCategoryRefs = makeAwCategoryRefs();
+    void processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category);
     // The vocoder (FX type 31).
     Vocoder vocoder;
     std::vector<float> vocoderModulator;

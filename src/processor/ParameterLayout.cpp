@@ -487,7 +487,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
                                       "Flanger", "Dimension", "Trance Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
-                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder" };
+                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder",
+                                      // 32-41: the Airwindows category modules (append only)
+                                      "AW Tape", "AW Saturation", "AW Reverb", "AW Delay", "AW Modulation",
+                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -969,6 +972,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             addFloat ("fx_aw_p" + juce::String (knob + 1), "Airwindows " + juce::String (knob + 1), 0.0f, 1.0f,
                       knob < first.numKnobs ? first.knobs[knob].defaultValue : 0.5f);
         addFloat ("fx_aw_mix", "Airwindows Mix", 0.0f, 1.0f, 1.0f);
+    }
+
+    // The Airwindows category modules (types 32-41, airwindows/Categories.h):
+    // each picks from its own few effects; knobs default to its first one's.
+    for (const auto& category : airwindows::categoryModules())
+    {
+        const juce::String prefix = juce::String ("fx_") + category.id;
+        const juce::String name (category.label);
+        juce::StringArray names;
+        for (auto algorithm : category.algorithms)
+            names.add (airwindows::registry()[(size_t) algorithm].name);
+        addChoice (prefix + "_algo", name + " Effect", names, 0);
+        const auto& first = airwindows::registry()[(size_t) category.algorithms.front()];
+        for (int knob = 0; knob < airwindows::Module::numKnobs; ++knob)
+            addFloat (prefix + "_p" + juce::String (knob + 1), name + " " + juce::String (knob + 1), 0.0f, 1.0f,
+                      knob < first.numKnobs ? first.knobs[knob].defaultValue : 0.5f);
+        addFloat (prefix + "_mix", name + " Mix", 0.0f, 1.0f, 1.0f);
     }
 
     // FX splitters: which part of the signal each slot works on (Full keeps

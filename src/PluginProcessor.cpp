@@ -633,6 +633,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     reverb.setSampleRate (sampleRate);
     reverb.reset();
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
+    for (auto& module : awCategoryModules)
+        module.prepare (sampleRate, samplesPerBlock);
     vocoder.prepare (sampleRate);
     vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
     chunkMidi.ensureSize (4096);
@@ -685,6 +687,8 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     combLine.reset();
     reverb.reset();
     airwindowsModule.reset();
+    for (auto& module : awCategoryModules)
+        module.reset();
     vocoder.reset();
 
     // The effects' own LFOs and followers restart too (a Dimension or flanger

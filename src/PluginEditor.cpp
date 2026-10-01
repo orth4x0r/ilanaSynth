@@ -443,7 +443,48 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     applyUiZoom ((float) settings->getDoubleValue ("uiZoom", 1.0));
     displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
 
+    setGpuRendering (settings->getBoolValue ("gpuRendering", true)
+                     && juce::SystemStats::getEnvironmentVariable ("ILANA_NO_GPU", "").isEmpty());
+
     tabs.getTabbedButtonBar().addChangeListener (this);
+}
+
+void IlanaSynthAudioProcessorEditor::setGpuRendering (bool shouldUseGpu)
+{
+   #if ILANA_GPU_UI
+    if (shouldUseGpu == (openGL != nullptr))
+        return;
+
+    if (shouldUseGpu)
+    {
+        // The whole component tree is painted into the context on its render
+        // thread. Frames come from repaints (the frame clock, ChangeGate), not
+        // a continuous loop, so an idle UI stays idle. The context attaches
+        // once the editor is on screen: off-screen snapshots still draw in
+        // software.
+        openGL = std::make_unique<juce::OpenGLContext>();
+        openGL->setComponentPaintingEnabled (true);
+        openGL->setContinuousRepainting (false);
+        openGL->attachTo (*this);
+    }
+    else
+    {
+        openGL->detach();
+        openGL.reset();
+        repaint();
+    }
+   #else
+    juce::ignoreUnused (shouldUseGpu);
+   #endif
+}
+
+bool IlanaSynthAudioProcessorEditor::isGpuRendering() const
+{
+   #if ILANA_GPU_UI
+    return openGL != nullptr && openGL->isAttached();
+   #else
+    return false;
+   #endif
 }
 
 void IlanaSynthAudioProcessorEditor::openWavetableEditor (int slot, juce::Colour colour)
@@ -471,6 +512,7 @@ void IlanaSynthAudioProcessorEditor::closeWavetableEditor()
 
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+    setGpuRendering (false); // before any child goes: the render thread paints them
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);
@@ -1498,6 +1540,9 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
     menu.addSubMenu ("Oversampling", oversampling);
     menu.addSubMenu (tuningOn ? "Tuning: " + tuningState.getDescription() : juce::String ("Tuning"), tuning, true, nullptr, tuningOn);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
+   #if ILANA_GPU_UI
+    menu.addItem (310, "GPU rendering (OpenGL)", true, openGL != nullptr);
+   #endif
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
     menu.addSeparator();
@@ -1527,6 +1572,15 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
                                 safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
                             else if (result == 300)
                                 safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                           #if ILANA_GPU_UI
+                            else if (result == 310)
+                            {
+                                const auto useGpu = safeThis->openGL == nullptr;
+                                safeThis->setGpuRendering (useGpu);
+                                safeThis->settings->setValue ("gpuRendering", useGpu);
+                                safeThis->settings->saveIfNeeded();
+                            }
+                           #endif
                             else if (result == 500)
                             {
                                 if (auto* mpe = safeThis->processorRef.apvts.getParameter ("mpe_mode"))

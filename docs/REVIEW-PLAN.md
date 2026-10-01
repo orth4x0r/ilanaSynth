@@ -171,4 +171,6 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    knob keeps the card open while the mouse is on it, `modHoverHooks().engaged`); mod arcs get a dark underlay and a
    source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
    draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
-11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+11. ~~Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.~~ **Done** 2026-10-01: the self-hosted gate
+   workflow, `tools/setup-runner.ps1` and `tools/verify.ps1` (the user still has to register her PC:
+   `docs/SELF-HOSTED-RUNNER.md`); the editor draws through OpenGL on macOS and Linux (HANDOFF, "GPU UI").

@@ -375,3 +375,12 @@ if (MSVC)
 endif()
 
 add_test(NAME fx_tests COMMAND ilanaFxTest)
+
+# GPU UI on macOS and Linux: the editor paints through an OpenGL context
+# (Windows already draws with Direct2D). The snapshot tool links it too, so
+# its --fps and --idlecpu probes measure the GPU path.
+if (NOT WIN32)
+    foreach(target ilanaSynth ilanaSynthFX ilanaSnapshot)
+        target_link_libraries(${target} PRIVATE juce::juce_opengl)
+    endforeach()
+endif()

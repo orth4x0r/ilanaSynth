@@ -6,6 +6,7 @@
 #
 #   tools/verify.sh              everything
 #   tools/verify.sh --quick      skip pluginval
+#   ILANA_JOBS=2 tools/verify.sh build parallelism (default: every core)
 #
 # Needs: cmake, ninja, python3; on a headless Linux box xvfb-run; pluginval
 # is fetched once into build/pluginval (set PLUGINVAL=/path to use another).
@@ -22,7 +23,7 @@ step "Build"
 if [ ! -f build/CMakeCache.txt ]; then
     cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 fi
-cmake --build build --parallel "$(nproc 2> /dev/null || echo 4)"
+cmake --build build --parallel "${ILANA_JOBS:-$(nproc 2> /dev/null || echo 4)}"
 
 step "Unit tests"
 ILANA_CI=1 build/ilanaTableTest_artefacts/Release/ilanaTableTest | tee build/table-test.txt | grep -E "^FAIL|TESTS" || true

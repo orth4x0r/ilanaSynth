@@ -2,6 +2,15 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+// macOS and Linux draw the UI through OpenGL (CMake links juce_opengl there);
+// Windows already draws with Direct2D.
+#if JUCE_MODULE_AVAILABLE_juce_opengl && ! JUCE_WINDOWS
+ #include <juce_opengl/juce_opengl.h>
+ #define ILANA_GPU_UI 1
+#else
+ #define ILANA_GPU_UI 0
+#endif
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -51,6 +60,12 @@ public:
     juce::Component* getCurrentPage() const;
     void setScopeOpen (bool shouldBeOpen);
     bool isScopeOpen() const;
+
+    // GPU drawing on macOS and Linux (settings menu > GPU rendering, saved as
+    // "gpuRendering", on by default; ILANA_NO_GPU=1 turns it off for a run).
+    // Windows always draws with Direct2D, so these do nothing there.
+    void setGpuRendering (bool shouldUseGpu);
+    bool isGpuRendering() const;
 
 private:
     struct Content : public juce::Component
@@ -205,6 +220,10 @@ private:
     void* previousDpiContext = nullptr;
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;
+
+   #if ILANA_GPU_UI
+    std::unique_ptr<juce::OpenGLContext> openGL;
+   #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessorEditor)
 };

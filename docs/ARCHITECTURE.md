@@ -72,6 +72,7 @@ Gate: `tools/verify.sh [--quick]` builds all targets, runs tests, `--uitest`, fi
 | Script | Does |
 |---|---|
 | `tools/verify.sh` | The full gate |
+| `tools/verify.ps1`, `tools/setup-runner.ps1` | The gate on Windows; registers the PC as the self-hosted runner (`docs/SELF-HOSTED-RUNNER.md`) |
 | `tools/compare_fingerprints.py` | Diff two fingerprint CSVs |
 | `tools/preset_critic.py`, `clap_score.py`, `preset_diversity.py` | Score renders, CLAP embeddings, library diversity |
 | `tools/tune_presets.py` | Generates `src/PresetTrims.h` |

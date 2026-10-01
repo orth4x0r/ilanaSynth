@@ -21,6 +21,7 @@
 #include "Tuning.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
+#include "Dx7Engine.h"
 #include "UnisonBank.h"
 #include "WavetableOscillator.h"
 
@@ -341,6 +342,9 @@ struct VoiceParams
     // out ~8 dB over a plucked string. Off for patches saved before then that
     // use those exciters, so they keep their sound.
     bool exciterLevelMatch = false;
+    // DX7 mode (2026-10-01): the patch's DX7 voice, or null. Owned by the
+    // processor for at least the block.
+    const Dx7::Voice* dx7 = nullptr;
 
     // M8.3: the west-coast voice (wavefolder into a low-pass gate).
     struct WestParams
@@ -668,6 +672,18 @@ private:
     int lastNote = 60, lastVelocity = 100;
     const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
+
+    // DX7 mode: the note's control side and its operator gains, stepped
+    // every 64 samples and ramped in between (as msfa ramps them).
+    Dx7::Note dx7Note;
+    std::array<float, 6> dx7Previous {}, dx7Current {};
+    int dx7Count = 0;
+    bool dx7Playing = false;
+    // Dexed's output is the carriers' sum / 16 (msfa's >> 4 then >> 9).
+    static constexpr float dx7CarrierScale = 1.0f / 16.0f;
+    // An operator's level knob at 0.5 gives the DX7's own gain (the
+    // importer sets 0.5), leaving room to push a modulator deeper.
+    static constexpr float dx7LevelScale = 2.0f;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;
     float randomValue = 0.0f;

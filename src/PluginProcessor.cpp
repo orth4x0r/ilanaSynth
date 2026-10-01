@@ -1500,6 +1500,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processClip (midiForSynth, buffer.getNumSamples());
 
     p.exciterLevelMatch = exciterLevelMatch.load();
+    p.dx7 = dx7Voice.load();
 
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.

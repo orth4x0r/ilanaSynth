@@ -420,6 +420,19 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         feedbackHistory[osc] = feedbackFiltered[osc] = 0.0f;
+
+    // DX7 mode: the operators' gains come from the patch's DX7 voice.
+    dx7Playing = params.dx7 != nullptr;
+    if (dx7Playing)
+    {
+        // Scaling follows the transposed key, as on the DX7 (the
+        // oscillators get the transpose from their SEMI knobs).
+        const auto transposed = juce::jlimit (0, 127, midiNoteNumber + (int) (*params.dx7)[144] - 24);
+        dx7Note.start (*params.dx7, transposed, lastVelocity, sampleRate);
+        dx7Previous.fill (0.0f);
+        dx7Current = dx7Note.getGains();
+        dx7Count = 0;
+    }
 }
 
 void Voice::resetForNewPatch()
@@ -489,6 +502,8 @@ void Voice::stopNote (float, bool allowTailOff)
         if (params.resonatorOn && params.bodyType != 0)
             bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
                 1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
+        if (dx7Playing)
+            dx7Note.keyUp();
         ampEnv.noteOff();
         filterEnv.noteOff();
         filter2Env.noteOff();
@@ -508,6 +523,7 @@ void Voice::stopNote (float, bool allowTailOff)
         for (auto& env : extraEnvs)
             env.reset();
         extraEnvValues.fill (0.0f); // the ENV page monitors these
+        dx7Playing = false;
         lastAmpValue = 0.0f;
         lastLifetimeValue = 0.0f;
         lastFilterValue = 0.0f;
@@ -1117,7 +1133,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     auto* right = outputBuffer.getNumChannels() > 1 ? outputBuffer.getWritePointer (1) : nullptr;
 
     const auto ampVelScale = 1.0f - params.ampVelocity + params.ampVelocity * velocityLevel;
-    bool alternateAmpRouting = false;
+    // DX7 mode supplies every operator's gain, so the amp envelope steps aside.
+    bool alternateAmpRouting = dx7Playing;
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         alternateAmpRouting = alternateAmpRouting
                               || (params.oscillatorEnabled[osc] && params.oscillators[osc].ampEnv != 0);
@@ -1431,6 +1448,25 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                          extraEnvValues[6], extraEnvValues[7], extraEnvValues[8],
                                          extraEnvValues[9], extraEnvValues[10], msegEnvValue };
 
+        // DX7 mode: step the operator gains every 64 samples, ramp between.
+        float dx7Gain[6] {};
+        auto dx7PitchRate = 1.0;
+        if (dx7Playing)
+        {
+            if (dx7Count == 0)
+            {
+                dx7Previous = dx7Current;
+                dx7Note.step();
+                dx7Current = dx7Note.getGains();
+            }
+            const auto t = (float) (dx7Count + 1) / (float) Dx7::block;
+            for (int op = 0; op < 6; ++op)
+                dx7Gain[op] = dx7Previous[(size_t) op] + (dx7Current[(size_t) op] - dx7Previous[(size_t) op]) * t;
+            dx7Count = (dx7Count + 1) % Dx7::block;
+            if (const auto octaves = dx7Note.getPitchOctaves(); octaves != 0.0f)
+                dx7PitchRate = std::exp2 ((double) octaves);
+        }
+
         advanceVoiceLfos();
         evaluateMods (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
@@ -1487,7 +1523,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
                 if (type == FmFeedback::Filtered)
                 {
-                    sum += self * (double) feedbackFiltered[osc];
+                    // DX7 mode: the DX7's own feedback, the plain average of
+                    // the last two samples.
+                    sum += self * (dx7Playing ? 0.5 * ((double) previousOsc[osc] + (double) feedbackHistory[osc])
+                                              : (double) feedbackFiltered[osc]);
                 }
                 else
                 {
@@ -1551,13 +1590,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 const auto warpSource = osc == 0 ? previousOsc[1] : oscMono[0];
                 const auto phase = fmPhase (fmInput[osc])
                                    + (settings.warpMode == Warp::Fm ? (double) (warpAmount * warpSource) : 0.0);
-                const auto rate = fmRate (fmInput[osc]);
+                // The DX7 pitch envelope and LFO move every ratio operator
+                // (a fixed-frequency one stays put, as on the DX7).
+                const auto rate = fmRate (fmInput[osc])
+                                  * (dx7Playing && settings.tuneMode != OscTuning::Fixed ? dx7PitchRate : 1.0);
                 const auto ring = settings.warpMode == Warp::Ring
                                       ? 1.0f + (warpSource - 1.0f) * warpAmount : 1.0f;
                 const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
 
                 auto stringSum = 0.0f;
-                const auto selectedEnv = envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
+                // DX7 mode: the operator's DX7 gain in place of its envelope.
+                const auto selectedEnv = dx7Playing ? dx7Gain[osc] * dx7LevelScale
+                                                    : envelopeValues[juce::jlimit (0, 16, settings.ampEnv)];
                 const auto oscGain = renderLevel * enable * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
                 const auto wavetable = ! settings.granularMode && ! settings.sampleMode && ! settings.stringMode
                                        && ! settings.liveMode;
@@ -1570,8 +1614,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
                     if (params.oscOut[osc])
                     {
-                        busL[routes[osc]] += sums.left * gain;
-                        busR[routes[osc]] += sums.right * gain;
+                        // DX7 mode: carriers are heard as Dexed scales them;
+                        // the FM path above keeps the gain in cycles.
+                        const auto heard = dx7Playing ? gain * dx7CarrierScale : gain;
+                        busL[routes[osc]] += sums.left * heard;
+                        busR[routes[osc]] += sums.right * heard;
                     }
                 }
 
@@ -1772,7 +1819,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         lastAmpValue = ampValue;
         lastLifetimeValue = ampValue;
-        if (alternateAmpRouting)
+        if (dx7Playing)
+            lastLifetimeValue = dx7Note.isActive() ? 1.0f : 0.0f;
+        else if (alternateAmpRouting)
             for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                 if (params.oscillatorEnabled[osc])
                     lastLifetimeValue = juce::jmax (lastLifetimeValue,
@@ -1847,6 +1896,8 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
 
 bool Voice::hasActiveAmpEnvelope() const
 {
+    if (dx7Playing)
+        return dx7Note.isActive();
     if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0)
         return true;
     bool anyOscillator = false;

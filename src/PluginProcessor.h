@@ -8,6 +8,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -677,6 +678,22 @@ private:
     // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
     std::atomic<bool> exciterLevelMatch { true };
     void updateExciterLevelMatch (bool savedWithMatch);
+
+    // DX7 mode: the patch's DX7 voice (saved as a "Dx7" child). Every voice
+    // ever set is kept, so the audio thread's pointer always stays valid.
+    std::deque<std::unique_ptr<Dx7::Voice>> dx7Store;
+    std::atomic<const Dx7::Voice*> dx7Voice { nullptr };
+
+public:
+    void setDx7Voice (const Dx7::Voice* voice);
+    const Dx7::Voice* getDx7Voice() const { return dx7Voice.load(); }
+    // Loads one DX7 voice as the current patch (named after it).
+    void loadDx7Voice (const Dx7::Voice& voice, const juce::String& name);
+    // A .syx bank (32 voices) or single voice, saved as user presets under
+    // DX7/<file name>/. Returns how many were imported; message says why not.
+    int importDx7File (const juce::File& file, juce::String& message);
+
+private:
     float lastOutput[2] {}, declick[2] {};
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();

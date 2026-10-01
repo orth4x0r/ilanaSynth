@@ -38,7 +38,8 @@ juce::Array<juce::File> IlanaSynthAudioProcessor::getUserPresetFiles() const
 
     if (directory.isDirectory())
     {
-        for (const auto& entry : juce::RangedDirectoryIterator (directory, false, "*.ilanapreset"))
+        // Recursive: imported DX7 banks sit in DX7/<bank>/.
+        for (const auto& entry : juce::RangedDirectoryIterator (directory, true, "*.ilanapreset"))
             files.add (entry.getFile());
     }
 
@@ -937,6 +938,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     }
 
     updateExciterLevelMatch (false);
+    setDx7Voice (presets[(size_t) index].dx7);
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

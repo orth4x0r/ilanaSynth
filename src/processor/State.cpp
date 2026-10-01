@@ -92,6 +92,15 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     tuningState.saveTo (state);
     clipState.saveTo (state);
 
+    // DX7 mode: the voice as its 156 bytes (Dexed's layout), base64.
+    state.removeChild (state.getChildWithName ("Dx7"), nullptr);
+    if (const auto* voice = dx7Voice.load())
+    {
+        juce::ValueTree dx7 ("Dx7");
+        dx7.setProperty ("voice", juce::Base64::toBase64 (voice->data(), voice->size()), nullptr);
+        state.appendChild (dx7, nullptr);
+    }
+
     return state;
 }
 
@@ -543,6 +552,24 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
             }
         }
         state.removeChild (samples, nullptr);
+
+        // DX7 mode: a saved DX7 voice comes back; without one the mode is off.
+        {
+            const auto dx7 = state.getChildWithName ("Dx7");
+            juce::MemoryOutputStream bytes;
+            if (dx7.isValid() && juce::Base64::convertFromBase64 (bytes, dx7.getProperty ("voice").toString())
+                && bytes.getDataSize() == (size_t) Dx7::voiceBytes)
+            {
+                // Range-checked: a damaged state can't index past a table.
+                Dx7::Voice voice {};
+                std::memcpy (voice.data(), bytes.getData(), voice.size());
+                Dx7::clampRanges (voice);
+                setDx7Voice (&voice);
+            }
+            else
+                setDx7Voice (nullptr);
+            state.removeChild (dx7, nullptr);
+        }
 
         for (int i = 0; i < numSampleOscs; ++i)
             if (! restoredSamples[(size_t) i] && isSampleEmbedded (i))

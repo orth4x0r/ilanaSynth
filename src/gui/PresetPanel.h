@@ -543,6 +543,7 @@ private:
         if (category == "Arp") return juce::Colour (0xffff7ac6);
         if (category == "Drums") return juce::Colour (0xffc9ced6);
         if (category == "Generative") return juce::Colour (0xff4fc3ff);
+        if (category == "DX7") return juce::Colour (0xffd9765f); // the DX7's membrane-panel red
         return IlanaTheme::Ui::text2;
     }
 

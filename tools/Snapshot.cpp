@@ -1889,6 +1889,165 @@ int runFps()
     return 0;
 }
 
+// Times what a host does when it opens a saved project: construct, prepare,
+// restore the state, open the editor, and restore again with it open.
+static int runLoadTime()
+{
+    const auto now = [] { return juce::Time::getMillisecondCounterHiRes(); };
+    const auto pump = []
+    {
+        for (int i = 0; i < 20; ++i)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+    };
+
+    auto start = now();
+    auto processor = std::make_unique<IlanaSynthAudioProcessor>();
+    std::cout << "construct:        " << juce::String (now() - start, 0) << " ms" << std::endl;
+
+    start = now();
+    processor->prepareToPlay (48000.0, 512);
+    std::cout << "prepareToPlay:    " << juce::String (now() - start, 0) << " ms" << std::endl;
+
+    for (const auto* name : { "Swarm", "Init" })
+    {
+        const auto index = processor->getFactoryPresetNames().indexOf (name);
+        start = now();
+        processor->loadFactoryPreset (index);
+        std::cout << "load preset " << name << ": " << juce::String (now() - start, 0) << " ms" << std::endl;
+    }
+
+    processor->loadFactoryPreset (processor->getFactoryPresetNames().indexOf ("Swarm"));
+    juce::MemoryBlock state;
+    start = now();
+    processor->getStateInformation (state);
+    std::cout << "getState:         " << juce::String (now() - start, 0) << " ms (" << (int) state.getSize() << " bytes)" << std::endl;
+
+    start = now();
+    processor->setStateInformation (state.getData(), (int) state.getSize());
+    std::cout << "setState:         " << juce::String (now() - start, 0) << " ms" << std::endl;
+
+    start = now();
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor->createEditorIfNeeded());
+    std::cout << "createEditor:     " << juce::String (now() - start, 0) << " ms" << std::endl;
+    start = now();
+    pump();
+    std::cout << "editor settle:    " << juce::String (now() - start - 100.0, 0) << " ms (beyond the 100 ms pump)" << std::endl;
+
+    start = now();
+    processor->setStateInformation (state.getData(), (int) state.getSize());
+    std::cout << "setState+editor:  " << juce::String (now() - start, 0) << " ms" << std::endl;
+
+    // What a host hears while presets are clicked through with the editor open.
+    struct Counter : juce::AudioProcessorListener
+    {
+        int changes = 0;
+        void audioProcessorParameterChanged (juce::AudioProcessor*, int, float) override { ++changes; }
+        void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
+    } counter;
+    processor->addListener (&counter);
+
+    for (const auto* name : { "Init", "Swarm", "Rip Bass", "Grain Choir", "Scream Lead" })
+    {
+        counter.changes = 0;
+        start = now();
+        processor->loadFactoryPreset (processor->getFactoryPresetNames().indexOf (name));
+        const auto loadMs = now() - start;
+        start = now();
+        pump();
+        std::cout << "preset " << name << " with editor: " << juce::String (loadMs, 0) << " ms, settle "
+                  << juce::String (now() - start - 100.0, 0) << " ms, " << counter.changes << " host notifications" << std::endl;
+    }
+
+    processor->removeListener (&counter);
+    start = now();
+    pump();
+    std::cout << "after settle:     " << juce::String (now() - start - 100.0, 0) << " ms (beyond the 100 ms pump)" << std::endl;
+
+    editor.reset();
+    return 0;
+}
+
+// A 1-bar clip looped in a DAW: four notes held for the whole bar, the
+// note-offs and the next loop's note-ons on the same sample. Prints each
+// loop's render time and the live voice count.
+static int runLoopTest (const juce::String& presetName, bool allNotesOffAtLoop)
+{
+    IlanaSynthAudioProcessor processor;
+    const auto rate = 48000.0;
+    const auto blockSize = 512;
+    processor.prepareToPlay (rate, blockSize);
+    processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+
+    // ILANA_LOOP_SET="id=value;id=value" sets parameters (real values) after the load.
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+
+    const int notes[] { 48, 55, 60, 64 };
+    const auto barSamples = (int) (rate * 2.0); // 120 BPM, 4/4
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::int64 position = 0;
+
+    for (int loop = 0; loop < 12; ++loop)
+    {
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        auto maxVoices = 0;
+
+        for (int offset = 0; offset < barSamples; offset += blockSize)
+        {
+            juce::MidiBuffer midi;
+            const auto n = juce::jmin (blockSize, barSamples - offset);
+
+            if (offset == 0)
+            {
+                if (loop > 0)
+                {
+                    if (allNotesOffAtLoop)
+                        midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+                    else
+                        for (auto note : notes)
+                            midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                }
+
+                for (auto note : notes)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            }
+
+            buffer.setSize (2, n, false, false, true);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            maxVoices = juce::jmax (maxVoices, processor.getActiveVoiceCount());
+            position += n;
+        }
+
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+        std::cout << "loop " << loop + 1 << ": " << juce::String (100.0 * ms / 2000.0, 1) << "% of real time, up to "
+                  << maxVoices << " voices" << std::endl;
+    }
+
+    // Release everything and see how long the voices take to free up.
+    juce::MidiBuffer offs;
+    for (auto note : notes)
+        offs.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+
+    buffer.setSize (2, blockSize, false, false, true);
+    for (int block = 0; block < (int) (rate * 60.0) / blockSize; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer none;
+        processor.processBlock (buffer, block == 0 ? offs : none);
+
+        if (processor.getActiveVoiceCount() == 0)
+        {
+            std::cout << "all voices free " << juce::String (block * blockSize / rate, 2) << " s after the last note-off" << std::endl;
+            return 0;
+        }
+    }
+
+    std::cout << processor.getActiveVoiceCount() << " voices still live 60 s after the last note-off" << std::endl;
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -1908,6 +2067,12 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--fps")
         return runFps();
+
+    if (juce::String (argv[1]) == "--loadtime")
+        return runLoadTime();
+
+    if (juce::String (argv[1]) == "--looptest")
+        return runLoopTest (argc > 2 ? juce::String (argv[2]) : juce::String ("Swarm"), argc > 3);
 
     const juce::File outDir (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
     outDir.createDirectory();

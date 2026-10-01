@@ -476,6 +476,12 @@ void Voice::stopNote (float, bool allowTailOff)
     if (! allowTailOff && monoPending && monoKeepRunning)
         return;
 
+    // Already released: the synth stops every voice on a note when that note
+    // starts again, released ones too. Restarting the release here kept a
+    // looped clip's old voices alive whenever the release outlasted the loop.
+    if (allowTailOff && ! noteHeld)
+        return;
+
     noteHeld = false;
 
     if (allowTailOff)

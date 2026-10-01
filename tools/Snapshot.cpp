@@ -1419,6 +1419,16 @@ int runUiTests()
             settle (200);
         }
 
+        // A macro's arc on an OSC 1 knob (yellow on gold) is drawn paler; an unrelated hue is left alone.
+        {
+            const auto macro = modSourceColour ((int) Mod::Source::Macro1);
+            const auto onGold = modArcColour (macro, IlanaTheme::oscColour (0));
+            const auto onBlue = modArcColour (macro, IlanaTheme::oscColour (1));
+            expect (onGold.getBrightness() > macro.getBrightness() + 0.02f || onGold.getSaturation() < macro.getSaturation() - 0.2f,
+                    "a macro arc on an OSC 1 knob stands apart from its gold");
+            expect (onBlue == macro, "a macro arc on an OSC 2 knob keeps the macro colour");
+        }
+
         // Resting on a modulated knob opens a card listing its sources with live bars.
         {
             processor.loadFactoryPreset (neuroWobble);
@@ -1448,6 +1458,62 @@ int runUiTests()
                 modulated->closeModCard();
                 settle (60);
                 expect (! card->isVisible(), "leaving the knob closes the card");
+
+                // The card's rows are controls: drag for depth (one gesture), double-click for zero, right-click to bypass or remove.
+                modulated->openModCard (true);
+                const auto slot = card->getRowSlot (0);
+                auto* depth = slot >= 0 ? processor.apvts.getParameter (processor.getModSlotParamId (slot, "amt")) : nullptr;
+                expect (depth != nullptr, "the card's first row names its routing");
+
+                if (depth != nullptr)
+                {
+                    struct GestureCounter : juce::AudioProcessorParameter::Listener
+                    {
+                        int begins = 0, ends = 0;
+                        void parameterValueChanged (int, float) override {}
+                        void parameterGestureChanged (int, bool starting) override { (starting ? begins : ends)++; }
+                    } gestures;
+                    depth->addListener (&gestures);
+
+                    const auto row = card->getRowBounds (0).toFloat();
+                    const auto from = row.getCentre();
+                    const auto to = from.translated (25.0f, 0.0f);
+                    const auto rowEvent = [&] (juce::Point<float> at, bool dragged, juce::ModifierKeys mods = juce::ModifierKeys::leftButtonModifier)
+                    {
+                        const auto now = juce::Time::getCurrentTime();
+                        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                 card, card, now, from, now, 1, dragged);
+                    };
+                    const auto read = [&] { return processor.readModSlot (slot); };
+                    const auto start = read().depth;
+                    // Away from the clamp, so the move shows.
+                    processor.setModSlotValue (slot, "amt", 0.2f);
+                    settle (80); // the card re-reads its rows each frame
+                    auto& component = static_cast<juce::Component&> (*card);
+                    component.mouseDown (rowEvent (from, false));
+                    component.mouseDrag (rowEvent (to, true));
+                    component.mouseUp (rowEvent (to, true));
+                    expect (std::abs (read().depth - 0.35f) < 0.02f && gestures.begins == 1 && gestures.ends == 1,
+                            "dragging a card row sets its depth in one gesture (0.20 -> " + juce::String (read().depth, 2) + ")");
+                    component.mouseDoubleClick (rowEvent (from, false));
+                    expect (std::abs (read().depth) < 0.001f, "double-clicking a card row zeroes its depth");
+                    depth->removeListener (&gestures);
+                    processor.setModSlotValue (slot, "amt", start);
+
+                    card->applyRowAction (0, ModHoverPopup::RowAction::toggleBypass);
+                    expect (read().bypass, "the row menu bypasses the routing");
+                    card->applyRowAction (0, ModHoverPopup::RowAction::toggleBypass);
+                    expect (! read().bypass, "and turns it back on");
+
+                    const auto rowsBefore = card->getNumRows();
+                    card->applyRowAction (0, ModHoverPopup::RowAction::remove);
+                    expect (read().source == Mod::Source::None && (card->getNumRows() == rowsBefore - 1 || ! card->isVisible()),
+                            "the row menu removes the routing and the card follows");
+                }
+
+                modulated->closeModCard();
+                processor.loadFactoryPreset (neuroWobble);
+                settle (200);
             }
         }
 

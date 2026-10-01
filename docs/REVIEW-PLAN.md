@@ -166,4 +166,9 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    ilanaSnapshot <dir> <preset>` renders the new views. Open from review 3: macro names are nearly the same on every
    preset (content, for the preset rework), a draggable source card, macro yellow against OSC 1 gold, PHYSICAL's NO BODY
    box, a log-harmonic SPEC axis, a narrower docked layout.
+   **Review 3 fixes** 2026-10-01 (same branch; screenshots in `.../ui-fixes-3/`): the source card's rows are controls
+   (drag sideways or up / down for depth in one gesture, shift fine, double-click zero, right-click Bypass / Remove; the
+   knob keeps the card open while the mouse is on it, `modHoverHooks().engaged`); mod arcs get a dark underlay and a
+   source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
+   draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
 11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

@@ -687,6 +687,25 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     airwindowsModule.reset();
     vocoder.reset();
 
+    // The effects' own LFOs and followers restart too (a Dimension or flanger
+    // phase left by the last patch otherwise changes how this one starts).
+    flangerPhase = 0.0;
+    dimPhase = 0.0;
+    tremoloPhase = 0.0;
+    shifterPhase = 0.0;
+    ringPhase = 0.0;
+    gatePhase = 0.0;
+    gateEnvelope = 1.0f;
+    gatedReverbEnvelope = 0.0f;
+    duckEnvelope = 0.0f;
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        limiterEnvelope[channel] = 0.0f;
+        for (int band = 0; band < 3; ++band)
+            ottEnvelope[channel][band] = 0.0f;
+    }
+    compEnvelope[0] = compEnvelope[1] = 0.0f;
+
     // The modulators start over too, as in a new instance, so a patch sounds
     // the same whatever played before it (a slow free-running LFO otherwise
     // starts wherever the last patch left it).

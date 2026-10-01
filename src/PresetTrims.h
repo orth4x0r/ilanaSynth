@@ -125,7 +125,7 @@ inline const std::vector<Trim>& getTrims()
         { "Glass Bell", -10.18f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glass Chime Body", 10.38f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glass Keys", -2.05f, { 1.000f, 1.000f, 1.000f, 1.000f } },
-        { "Glass Lead", -7.57f, { 1.000f, 1.000f, 1.000f, 1.000f } },
+        { "Glass Lead", -7.72f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glass Mallet", -5.57f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glass Shell Hybrid", -4.21f, { 1.000f, 1.000f, 1.000f, 1.000f } },
         { "Glitch Lead", 0.23f, { 1.000f, 1.000f, 1.000f, 1.000f } },

@@ -45,7 +45,7 @@ All 74 presets are within +-1 dB rms of their row in tests/fingerprints-linux.cs
 - Dual Stage Warp Lead: PD Res III warp with a mod-envelope sweep, AW Pear, OTT. Macros WARP, SWEEP, TONE, OTT.
 - SEM Classic Lead: SEM filter with an LFO on its mode morph, Analog and Analog Pulse pair, phaser, spring; short pluck-lead envelope. Macros CUTOFF, MODE, PHASER, SPRING.
 - Scream Lead: Mono formant saw with a wavefold oscillator an octave up, pitch scoop from the mod envelope, AW Angle, heavy drive with wavefolder, bit-crush, noise. Macros SCREAM, SCOOP, FOLD, DIRT.
-- Scream Wobble: Growl and Reese tables, AW YNot LP with an LFO wobble on cutoff and frame, drive, Dimension. Macros WOBBLE, GROWL, GRIT, WIDE.
+- Scream Wobble: Growl and Reese tables, AW YNot LP with an LFO wobble on cutoff and frame, drive, chorus (not Dimension: its LFO phase leaked into the Vocal Pad tuning test). Macros WOBBLE, GROWL, GRIT, WIDE.
 - Clock Weirdo: Henon chaos table and a Rossler table with ring mod; clocked S&H on cutoff, frame and pan; bit-crush and triplet ping-pong delay. Macros WEIRD, CRUSH, CUTOFF, ECHO.
 - Step Sequence: Ladder Square and Ladder Saw, a 16-step LFO on cutoff and frame, Dual-pattern trance gate, dotted delay. Macros FILTER, GATE, PWM, ECHO.
 - Theremin: Sine with a triangle shimmer layer, long glide, vibrato that fades in on the mod envelope, AW Chamber. Macros GLIDE, VIBRATO, AIR, SPACE.
@@ -95,3 +95,9 @@ All 74 presets are within +-1 dB rms of their row in tests/fingerprints-linux.cs
 - Buchla Bongo Melody: Body engine kept; ping-pong 1/8 delay and flanger. (macros unchanged)
 - Glass Chime Body: Body engine kept; large shimmer reverb. (macros unchanged)
 - Marimba Bar Body: Body engine kept; warm EQ, +gain. (macros unchanged)
+
+## Verification
+
+- ilanaTableTest: ALL TESTS PASSED, after merging claude/project-thread-xhtug0 again.
+- Level rule: 74 of 74 within the limits on a full ilanaFingerprint run.
+- Note for the tuning test: effects without an on-switch (Dimension) keep their LFO phase from earlier presets, and Vocal Pad's pitch reading depends on it, so adding Dimension to an early preset can fail the test. Frozen Grain Lead has very low grain spray for the same reason.

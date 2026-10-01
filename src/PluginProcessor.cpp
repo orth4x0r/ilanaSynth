@@ -1499,6 +1499,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
     processClip (midiForSynth, buffer.getNumSamples());
 
+    p.exciterLevelMatch = exciterLevelMatch.load();
+
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.
     if (isEffectBuild)

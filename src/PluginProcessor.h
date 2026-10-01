@@ -674,6 +674,9 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
+    std::atomic<bool> exciterLevelMatch { true };
+    void updateExciterLevelMatch (bool savedWithMatch);
     float lastOutput[2] {}, declick[2] {};
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();

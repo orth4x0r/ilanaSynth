@@ -1092,6 +1092,21 @@ int runUiTests()
             onSecond = onSecond || grid->getPage() == 1;
         }
         expect (! grids.empty() && onSecond, "the filter type grid shows the page with the new models");
+
+        // Every type has a short name, and an Airwindows model opens its page.
+        expect (FilterTypeGrid::shortNames().size() == FilterType::Count, "every filter type has a short name in the grid");
+        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Disperser));
+        settle (200);
+        auto onAirwindows = false;
+        for (auto* grid : grids)
+        {
+            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
+            juce::Graphics g (image);
+            grid->paintEntireComponent (g, false);
+            onAirwindows = onAirwindows || grid->getPage() == 3;
+        }
+        expect (onAirwindows, "the filter type grid shows the AIRWINDOWS page for the Disperser");
         if (auto* parameter = processor.apvts.getParameter ("f1_type"))
             parameter->setValueNotifyingHost (0.0f);
     }
@@ -2051,6 +2066,105 @@ static int runLoopTest (const juce::String& presetName, bool allNotesOffAtLoop)
     return 0;
 }
 
+// Loudness of each physical exciter on Init with OSC 1 switched to Physical:
+// one note held 1 s, RMS and peak in dBFS. ILANA_LOOP_SET applies as above.
+static int runExciterLevels()
+{
+    const juce::StringArray names { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" };
+    const auto rate = 48000.0;
+    const auto blockSize = 512;
+
+    for (const auto note : { 48, 60, 72 })
+    {
+        std::cout << "note " << note << ":" << std::endl;
+
+        for (int excite = 0; excite < names.size(); ++excite)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.prepareToPlay (rate, blockSize);
+            processor.loadFactoryPreset (0);
+            const auto set = [&processor] (const juce::String& id, float value)
+            {
+                if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (id)))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set ("osc1_mode", 1.0f);
+            set ("osc1_excite", (float) excite);
+            for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
+                set (pair.upToFirstOccurrenceOf ("=", false, false), pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            double sum = 0.0;
+            float peak = 0.0f;
+            int count = 0;
+
+            for (int block = 0; block < (int) rate / blockSize; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    const auto s = buffer.getSample (0, i);
+                    sum += (double) s * s;
+                    peak = juce::jmax (peak, std::abs (s));
+                    ++count;
+                }
+            }
+
+            std::cout << "  " << names[excite].paddedRight (' ', 9) << " rms " << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sum / count), -120.0f), 1)
+                      << " dB, peak " << juce::String (juce::Decibels::gainToDecibels (peak, -120.0f), 1) << " dB" << std::endl;
+        }
+    }
+
+    return 0;
+}
+
+// Loads a saved state (as a host would hand it back) and plays a note: for
+// chasing a crash the state fuzz test finds. ILANA_STRIP="Samples;Wavetables"
+// removes those children first.
+static int runLoadState (const juce::File& file)
+{
+    juce::MemoryBlock data;
+    file.loadFileAsData (data);
+
+    if (const auto strip = juce::SystemStats::getEnvironmentVariable ("ILANA_STRIP", ""); strip.isNotEmpty())
+        if (auto xml = juce::AudioProcessor::getXmlFromBinary (data.getData(), (int) data.getSize()))
+        {
+            auto tree = juce::ValueTree::fromXml (*xml);
+            for (const auto& name : juce::StringArray::fromTokens (strip, ";", ""))
+                tree.removeChild (tree.getChildWithName (name), nullptr);
+            data.reset();
+            juce::AudioProcessor::copyXmlToBinary (*tree.createXml(), data);
+        }
+
+    auto target = std::make_unique<IlanaSynthAudioProcessor>();
+    std::cout << "setState" << std::endl;
+    target->setStateInformation (data.getData(), (int) data.getSize());
+    std::cout << "flush" << std::endl;
+    target->flushAsyncUpdates();
+    std::cout << "play" << std::endl;
+    target->prepareToPlay (48000.0, 256);
+    juce::AudioBuffer<float> buffer (2, 256);
+    for (int b = 0; b < 30; ++b)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        if (b == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        target->processBlock (buffer, midi);
+    }
+    std::cout << "save" << std::endl;
+    juce::MemoryBlock again;
+    target->getStateInformation (again);
+    target.reset();
+    std::cout << "ok" << std::endl;
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -2073,6 +2187,12 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--loadtime")
         return runLoadTime();
+
+    if (juce::String (argv[1]) == "--loadstate" && argc > 2)
+        return runLoadState (juce::File (juce::String (argv[2])));
+
+    if (juce::String (argv[1]) == "--exciters")
+        return runExciterLevels();
 
     if (juce::String (argv[1]) == "--looptest")
         return runLoopTest (argc > 2 ? juce::String (argv[2]) : juce::String ("Swarm"), argc > 3);

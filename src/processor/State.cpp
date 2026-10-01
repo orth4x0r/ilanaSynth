@@ -6,6 +6,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 3, nullptr);
+    state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -641,6 +642,26 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
     apvts.replaceState (state);
+    updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
+}
+
+// A patch saved with the matched exciter levels keeps them; one saved before
+// (or a factory preset) gets them only if it plays none of the trimmed
+// exciters, so nothing that was already made changes its level.
+void IlanaSynthAudioProcessor::updateExciterLevelMatch (bool savedWithMatch)
+{
+    auto usesTrimmed = false;
+
+    for (const auto* prefix : OscillatorIds::prefixes)
+    {
+        const auto* mode = apvts.getRawParameterValue (juce::String (prefix) + "_mode");
+        const auto* excite = apvts.getRawParameterValue (juce::String (prefix) + "_excite");
+        if (mode != nullptr && excite != nullptr && juce::roundToInt (mode->load()) == 1
+            && Voice::exciterTrim (juce::roundToInt (excite->load())) != 1.0f)
+            usesTrimmed = true;
+    }
+
+    exciterLevelMatch = savedWithMatch || ! usesTrimmed;
 }
 
 bool IlanaSynthAudioProcessor::loadTuningScale (const juce::String& sclText, juce::String& error)
@@ -681,6 +702,21 @@ void IlanaSynthAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     ++dataEpoch; // what the editor draws changes
+
+    // getXmlFromBinary decodes the text as UTF-8 without checking it, and a
+    // damaged state (the fuzz test's bit flips) read past the end and
+    // crashed. Same header as copyXmlToBinary: magic, length, text.
+    if (data != nullptr && sizeInBytes > 8)
+    {
+        const auto* bytes = static_cast<const char*> (data);
+        if (juce::ByteOrder::littleEndianInt (bytes) == 0x21324356)
+        {
+            const auto length = (int) juce::ByteOrder::littleEndianInt (bytes + 4);
+            if (length < 0 || length > sizeInBytes - 8 || ! juce::CharPointer_UTF8::isValidString (bytes + 8, length))
+                return;
+        }
+    }
+
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
 
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))

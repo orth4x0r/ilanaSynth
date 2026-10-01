@@ -1600,6 +1600,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         if (params.inputToStrings > 0.0f)
                             stringFor (osc, u).addLiveInput (liveSample * params.inputToStrings);
                         raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
+                        if (params.exciterLevelMatch)
+                            raw *= exciterTrim (settings.stringExcite);
                         stringSum += raw;
                     }
 

@@ -46,11 +46,14 @@ public:
         setRepaintsOnMouseActivity (true);
     }
 
+    // One per FilterType, in index order.
     static juce::StringArray shortNames()
     {
         return { "LP", "BP", "HP", "NOTCH", "LADDER", "LAD HP", "DIODE", "MS-20", "COMB +", "COMB -", "FORMANT", "MORPH",
                  "LAD BP", "DRIVE", "SEM", "OTA LP", "OTA BP", "MS HP", "STEINER", "PHASER", "DAMPED", "MIX",
-                 "VOWEL", "TALK", "TWIN" };
+                 "VOWEL", "TALK", "TWIN",
+                 "303", "MOOG", "V MORPH", "BODY",
+                 "Z LP", "Z HP", "Z BP", "ACID", "X LP", "YNOT", "HOLT", "ANGLE", "PEAR", "DISPERSE" };
     }
 
     void paint (juce::Graphics& g) override
@@ -67,27 +70,36 @@ public:
             const auto holdsCurrent = std::find (types.begin(), types.end(), current) != types.end();
             g.setColour (holdsCurrent ? colour.withAlpha (0.9f) : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            auto label = block.withHeight (labelHeight).reduced (3.0f, 0.0f);
-            label.setRight (juce::jmin (label.getRight(), pageBounds().getX() - 4.0f));
+            const auto label = block.withY ((float) tabHeight).withHeight ((float) familyHeight).reduced (3.0f, 0.0f);
             g.drawText (groups[(size_t) group].name, label.toNearestInt(), juce::Justification::centredLeft);
 
             if (group > 0)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.08f));
-                g.fillRect (juce::Rectangle<float> (block.getX() - groupGap * 0.5f - 0.5f, block.getY() + 2.0f,
-                                                    1.0f, block.getHeight() - 4.0f));
+                g.fillRect (juce::Rectangle<float> (block.getX() - groupGap * 0.5f - 0.5f, (float) tabHeight + 2.0f,
+                                                    1.0f, block.getHeight() - (float) tabHeight - 4.0f));
             }
         }
 
-        // The page switch: the classic twelve, then M8.4's models.
+        // The page tabs: one per page across the top, the open one filled.
+        for (int p = 0; p < numPages; ++p)
         {
-            const auto pill = pageBounds();
-            const auto hovered = isMouseOver() && pill.contains (getMouseXYRelative().toFloat());
-            g.setColour (colour.withAlpha (hovered ? 0.35f : 0.18f));
-            g.fillRoundedRectangle (pill, 5.0f);
-            g.setColour (colour);
+            const auto tab = tabBounds (p);
+            const auto hovered = isMouseOver() && tab.contains (getMouseXYRelative().toFloat());
+            const auto holdsCurrent = pageOf (current) == p;
+            if (p == page)
+            {
+                g.setColour (colour.withAlpha (0.22f));
+                g.fillRoundedRectangle (tab.reduced (1.0f, 0.0f), 5.0f);
+            }
+            else if (hovered)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.06f));
+                g.fillRoundedRectangle (tab.reduced (1.0f, 0.0f), 5.0f);
+            }
+            g.setColour (p == page ? colour : (holdsCurrent ? colour.withAlpha (0.7f) : IlanaTheme::Ui::text3));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (page == 0 ? "MORE  >" : "<  CLASSIC", pill, juce::Justification::centred);
+            g.drawText (pageNames()[p] + (holdsCurrent && p != page ? "  *" : ""), tab, juce::Justification::centred);
         }
 
         for (int group = 0; group < (int) groups.size(); ++group)
@@ -119,24 +131,38 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         followCurrent();
-        if (pageBounds().contains (event.position))
-        {
-            page = 1 - page;
-            pageChosen = true;
-            repaint();
-            return;
-        }
+        for (int p = 0; p < numPages; ++p)
+            if (tabBounds (p).contains (event.position))
+            {
+                page = p;
+                pageChosen = true;
+                repaint();
+                return;
+            }
         for (const auto& group : pages()[(size_t) page])
             for (auto type : group.types)
                 if (cellBounds (type).contains (event.position))
                     setValue (type);
     }
 
-    // Label strip above the cells (the page adds it to the grid's height).
-    static constexpr int labelHeight = 13;
+    // Above the cells: the page tabs, then the family labels (the page adds
+    // labelHeight to the grid's height).
+    static constexpr int tabHeight = 17, familyHeight = 14;
+    static constexpr int labelHeight = tabHeight + familyHeight;
 
     int getPage() const { return page; }
-    void setPage (int newPage) { page = juce::jlimit (0, 1, newPage); pageChosen = true; repaint(); }
+    void setPage (int newPage) { page = juce::jlimit (0, numPages - 1, newPage); pageChosen = true; repaint(); }
+
+    // The full name of the cell under the mouse.
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        juce::String tip = "Filter type\nClick a model.  The drawing shows its basic response.  The tabs turn the page (* marks the page holding the current type).";
+        for (const auto& group : pages()[(size_t) page])
+            for (auto type : group.types)
+                if (cellBounds (type).contains (event.position))
+                    tip = FilterType::getNames()[type];
+        setTooltip (tip);
+    }
 
 private:
     struct Group
@@ -145,19 +171,32 @@ private:
         std::vector<int> types;
     };
 
-    // Two pages of families, each a block two cells high. Page 1 is the
-    // classic twelve (CLASSIC, CHARACTER, SPECIAL); page 2 holds M8.4's
-    // models and the overhaul's four. Type indices are unchanged.
-    static const std::array<std::vector<Group>, 2>& pages()
+    // Four pages of families, each a block two cells high and at most two
+    // wide, so every page has page 1's roomy cells (the user picked that
+    // layout). Every type is on exactly one page; indices are unchanged.
+    static constexpr int numPages = 4;
+
+    static const juce::StringArray& pageNames()
+    {
+        static const juce::StringArray names { "CLASSIC", "ANALOG", "VOICE", "AIRWINDOWS" };
+        return names;
+    }
+
+    static const std::array<std::vector<Group>, numPages>& pages()
     {
         using namespace FilterType;
-        static const std::array<std::vector<Group>, 2> list {
+        static const std::array<std::vector<Group>, numPages> list {
             std::vector<Group> { { "CLASSIC", { LowPass, BandPass, HighPass, Notch } },
                                  { "CHARACTER", { LadderLow, LadderHigh, DiodeLow, Ms20Low } },
                                  { "SPECIAL", { CombPlus, CombMinus, Formant, Morph } } },
-            std::vector<Group> { { "ANALOG", { LadderDrive, LadderBand, OtaLow, OtaBand, Ms20High, Sem, Acid303, MoogDrive } },
-                                 { "SHAPES", { Steiner, PhaserNotch, TwinPeak, CombMorph } },
-                                 { "VOICE", { VowelBank, Talking, VowelMorph, CombDamped, CombBody } } }
+            std::vector<Group> { { "LADDER", { LadderBand, LadderDrive, MoogDrive, Acid303 } },
+                                 { "OTA / MS", { OtaLow, OtaBand, Sem, Ms20High } },
+                                 { "SHAPES", { Steiner, PhaserNotch, TwinPeak } } },
+            std::vector<Group> { { "VOWEL", { VowelBank, Talking, VowelMorph } },
+                                 { "COMB", { CombDamped, CombMorph, CombBody } } },
+            std::vector<Group> { { "CLEAN", { AwZLow, AwZHigh, AwZBand, AwXLow } },
+                                 { "COLOUR", { AwAcid, AwYNotLow, AwHolt, AwPear } },
+                                 { "SPECIAL", { AwAngle, Disperser } } }
         };
         return list;
     }
@@ -166,8 +205,20 @@ private:
 
     static int columnsOf (const Group& group) { return ((int) group.types.size() + 1) / 2; }
 
-    // Right edge level with the cells' (they're inset 2 px).
-    juce::Rectangle<float> pageBounds() const { return { (float) getWidth() - 72.0f, 0.0f, 70.0f, (float) labelHeight }; }
+    juce::Rectangle<float> tabBounds (int p) const
+    {
+        const auto width = (float) getWidth() / (float) numPages;
+        return { width * (float) p, 0.0f, width, (float) tabHeight - 2.0f };
+    }
+
+    static int pageOf (int type)
+    {
+        for (int p = 0; p < numPages; ++p)
+            for (const auto& group : pages()[(size_t) p])
+                if (std::find (group.types.begin(), group.types.end(), type) != group.types.end())
+                    return p;
+        return 0;
+    }
 
     juce::Rectangle<float> groupBounds (int group) const
     {
@@ -205,7 +256,7 @@ private:
     void followCurrent()
     {
         if (! pageChosen)
-            page = current >= FilterType::LadderBand ? 1 : 0;
+            page = pageOf (current);
     }
 
     int page = 0;

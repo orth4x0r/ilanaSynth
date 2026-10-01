@@ -8795,6 +8795,11 @@ void runNullCheck()
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    juce::SystemStats::setApplicationCrashHandler ([] (void*)
+    {
+        std::cout << "CRASH" << std::endl;
+        std::cout << juce::SystemStats::getStackBacktrace() << std::endl;
+    });
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEN_FILTER_CHECK", "").isNotEmpty())
     {

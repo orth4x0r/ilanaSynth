@@ -337,6 +337,10 @@ struct VoiceParams
     const float* liveInput = nullptr;
     const float* inputEnv = nullptr;
     float inputToBody = 0.0f, inputToStrings = 0.0f;
+    // Physical exciters at matched loudness (2026-10-01): Bow and Tine came
+    // out ~8 dB over a plucked string. Off for patches saved before then that
+    // use those exciters, so they keep their sound.
+    bool exciterLevelMatch = false;
 
     // M8.3: the west-coast voice (wavefolder into a low-pass gate).
     struct WestParams
@@ -387,6 +391,19 @@ public:
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     float getLastAmpValue() const { return lastAmpValue; }
+    // Gain bringing each exciter's first-second RMS within ~2 dB of a plucked
+    // string (Burst) at C3-C5 on Init (`ilanaSnapshot --exciters`).
+    static float exciterTrim (int excite) noexcept
+    {
+        switch (excite)
+        {
+            case 4:  return 0.376f; // Bow, -8.5 dB
+            case 5:  return 0.708f; // Hammer (classic), -3 dB
+            case 7:  return 0.398f; // Tine, -8 dB
+            case 8:  return 0.708f; // Reed, -3 dB
+            default: return 1.0f;
+        }
+    }
     float getWestGateLevel() const { return params.west.on && isVoiceActive() ? westGateL.getConductance() : 0.0f; }
     float getLastLifetimeValue() const { return lastLifetimeValue; }
     float getLastExtraEnvValue (int index) const { return extraEnvValues[(size_t) juce::jlimit (0, 10, index)]; }

@@ -935,6 +935,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             keep[macro] = voicedMacroNames[macro].isNotEmpty();
         applyDefaultMacros (keep);
     }
+
+    updateExciterLevelMatch (false);
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

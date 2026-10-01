@@ -4,6 +4,8 @@
 
 #include <vector>
 
+#include "dsp/Dx7Engine.h"
+
 namespace Presets
 {
 struct Value
@@ -33,6 +35,9 @@ struct FactoryPreset
         bool withFx = true;
     };
     std::vector<Bounce> bounces {};
+
+    // A DX7 voice played in DX7 mode (Dx7Presets.h), or null.
+    const Dx7::Voice* dx7 = nullptr;
 };
 
 inline const std::vector<FactoryPreset>& getLegacyPresets()
@@ -931,6 +936,7 @@ inline juce::StringArray getLegacyCategories()
 } // namespace Presets
 
 #include "PresetLibrary.h"
+#include "Dx7Presets.h"
 
 namespace Presets
 {
@@ -945,6 +951,10 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
 
         for (auto& preset : Library::build())
             list.push_back (preset);
+
+        // The DX7 banks last (appended: earlier indices keep their meaning).
+        for (auto& preset : Dx7Import::bankPresets())
+            list.push_back (std::move (preset));
 
         return list;
     }();

@@ -71,6 +71,22 @@ ALGORITHMS = [
     ("Inflamer", "Character", "ABC"),
     ("Flutter", "Character", "A"),
     ("ChorusEnsemble", "Character", "ABC"),
+    # 2026-10-01: for the category modules (AW Tape, AW Delay, ...).
+    ("ToTape8", "Saturation & Tape", "ABDGI"),      # C (Shape), E (FlutSpd), F (Bias), H (HeadFrq) stay at defaults
+    ("TapeHack2", "Saturation & Tape", "ABC"),
+    ("Density3", "Saturation & Tape", "ABCD"),
+    ("TapeDelay2", "Delay", "ABCEF"),               # D (Reso) stays at its default
+    ("PitchDelay", "Delay", "ABCEF"),               # D (Reso) stays at its default
+    ("StarChild2", "Delay", "ABC"),
+    ("PurestEcho", "Delay", "ABCDE"),
+    ("Doublelay", "Delay", "ABCDE"),
+    ("Ensemble", "Modulation", "ABCD"),
+    ("Chorus", "Modulation", "ABC"),
+    ("Vibrato", "Modulation", "ABCDE"),
+    ("Desk4", "Console", "ABCEF"),                  # D (Frequency) stays at its default
+    ("TapeDust", "Lo-Fi", "AB"),
+    ("Dirt", "Lo-Fi", "ABCDE"),
+    ("StereoFX", "Stereo", "ABC"),
 ]
 
 HEADER = """// Airwindows @NAME@ by Chris Johnson (airwindows.com), MIT licence (see

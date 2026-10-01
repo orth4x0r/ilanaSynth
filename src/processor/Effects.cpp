@@ -241,7 +241,10 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
         case 29: processEq (buffer); break;
         case 30: processAirwindows (buffer); break;
         case 31: processVocoder (buffer); break;
-        default: break;
+        default:
+            if (const auto category = airwindows::categoryForFxType (type); category >= 0)
+                processAirwindowsCategory (buffer, category);
+            break;
     }
 }
 
@@ -1245,6 +1248,44 @@ void IlanaSynthAudioProcessor::processAirwindows (juce::AudioBuffer<float>& buff
     airwindowsModule.process (left, right, numSamples, (int) getParam (awAlgoRef), knobs, getParam (awMixRef));
 }
 
+// An Airwindows category module (types 32-41): its chosen effect, as above.
+void IlanaSynthAudioProcessor::processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category)
+{
+    const auto numSamples = buffer.getNumSamples();
+    if (numSamples <= 0 || buffer.getNumChannels() == 0)
+        return;
+
+    const auto& info = airwindows::categoryModules()[(size_t) category];
+    const auto& refs = awCategoryRefs[(size_t) category];
+    std::array<float, airwindows::Module::numKnobs> knobs {};
+    for (size_t knob = 0; knob < knobs.size(); ++knob)
+        knobs[knob] = getParam (refs[knob + 1]);
+    const auto choice = juce::jlimit (0, (int) info.algorithms.size() - 1, (int) getParam (refs[0]));
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = left;
+    if (buffer.getNumChannels() > 1)
+        right = buffer.getWritePointer (1);
+    else
+    {
+        if ((int) airwindowsMonoRight.size() < numSamples)
+            airwindowsMonoRight.resize ((size_t) numSamples);
+        std::copy (left, left + numSamples, airwindowsMonoRight.begin());
+        right = airwindowsMonoRight.data();
+    }
+
+    awCategoryModules[(size_t) category].process (left, right, numSamples, info.algorithms[(size_t) choice], knobs,
+                                                  getParam (refs[6]));
+}
+
+void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choice)
+{
+    if (category < 0 || category >= numAwCategories)
+        return;
+    const auto& info = airwindows::categoryModules()[(size_t) category];
+    awCategoryModules[(size_t) category].preload (info.algorithms[(size_t) juce::jlimit (0, (int) info.algorithms.size() - 1, choice)]);
+}
+
 void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
@@ -1565,6 +1606,8 @@ void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
     // Airwindows: its algorithm is made here, off the audio thread.
     if (type == 30)
         airwindowsModule.preload ((int) getParam (awAlgoRef));
+    if (const auto category = airwindows::categoryForFxType (type); category >= 0)
+        preloadAirwindowsCategory (category, (int) getParam (awCategoryRefs[(size_t) category][0]));
 }
 
 void IlanaSynthAudioProcessor::randomizeFxChain()

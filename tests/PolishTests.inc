@@ -457,6 +457,14 @@ void runStateFuzzTest()
                 juce::AudioProcessor::copyXmlToBinary (*out, data);
         }
 
+        // ILANA_FUZZ_TRACE=<dir>: write each trial's state there first, so a
+        // crash leaves the state that caused it.
+        if (const auto dir = juce::SystemStats::getEnvironmentVariable ("ILANA_FUZZ_TRACE", ""); dir.isNotEmpty())
+        {
+            juce::File (dir).getChildFile ("trial-" + juce::String (trial) + ".bin").replaceWithData (data.getData(), data.getSize());
+            std::cout << "fuzz trial " << trial << std::endl;
+        }
+
         IlanaSynthAudioProcessor target;
         target.setStateInformation (data.getData(), (int) data.getSize());
         target.flushAsyncUpdates();

@@ -8,6 +8,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
@@ -52,7 +54,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 31; // 30: Airwindows, 31: Vocoder
+    static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -75,6 +77,7 @@ public:
     void assignFxSlot (int slot, int type);
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
     void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
+    void preloadAirwindowsCategory (int category, int choice);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
     bool loadFxChainFromFile (const juce::File& file);
@@ -649,6 +652,25 @@ private:
     std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
         ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
     std::vector<float> airwindowsMonoRight;
+    // The Airwindows category modules (FX types 32-41), one engine each;
+    // their refs: algo, p1..p5, mix.
+    static constexpr int numAwCategories = 10;
+    std::array<airwindows::Module, numAwCategories> awCategoryModules;
+    static std::array<std::array<ParamRef, 7>, numAwCategories> makeAwCategoryRefs()
+    {
+        std::array<std::array<ParamRef, 7>, numAwCategories> refs;
+        for (int c = 0; c < numAwCategories; ++c)
+        {
+            const auto prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
+            refs[(size_t) c][0] = ParamRef (prefix + "_algo");
+            for (int k = 0; k < 5; ++k)
+                refs[(size_t) c][(size_t) k + 1] = ParamRef (prefix + "_p" + juce::String (k + 1));
+            refs[(size_t) c][6] = ParamRef (prefix + "_mix");
+        }
+        return refs;
+    }
+    std::array<std::array<ParamRef, 7>, numAwCategories> awCategoryRefs = makeAwCategoryRefs();
+    void processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category);
     // The vocoder (FX type 31).
     Vocoder vocoder;
     std::vector<float> vocoderModulator;
@@ -674,6 +696,25 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
+    std::atomic<bool> exciterLevelMatch { true };
+    void updateExciterLevelMatch (bool savedWithMatch);
+
+    // DX7 mode: the patch's DX7 voice (saved as a "Dx7" child). Every voice
+    // ever set is kept, so the audio thread's pointer always stays valid.
+    std::deque<std::unique_ptr<Dx7::Voice>> dx7Store;
+    std::atomic<const Dx7::Voice*> dx7Voice { nullptr };
+
+public:
+    void setDx7Voice (const Dx7::Voice* voice);
+    const Dx7::Voice* getDx7Voice() const { return dx7Voice.load(); }
+    // Loads one DX7 voice as the current patch (named after it).
+    void loadDx7Voice (const Dx7::Voice& voice, const juce::String& name);
+    // A .syx bank (32 voices) or single voice, saved as user presets under
+    // DX7/<file name>/. Returns how many were imported; message says why not.
+    int importDx7File (const juce::File& file, juce::String& message);
+
+private:
     float lastOutput[2] {}, declick[2] {};
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();

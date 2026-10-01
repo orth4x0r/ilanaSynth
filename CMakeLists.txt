@@ -54,6 +54,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Presets.cpp
     src/processor/State.cpp
     src/processor/Bounce.cpp
+    src/processor/Dx7.cpp
 )
 
 juce_add_binary_data(ilanaFonts SOURCES
@@ -195,11 +196,20 @@ target_link_libraries(ilanaTableTest
 # Symbols for the optimised test build, so ILANA_PROFILE can name lines.
 if (MSVC)
     target_compile_options(ilanaTableTest PRIVATE /Zi)
-    target_link_options(ilanaTableTest PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    # 16 MB stack: the tests keep whole processors on the stack, which outgrew
+    # MSVC's 1 MB default (Linux gives 8 MB).
+    target_link_options(ilanaTableTest PRIVATE /DEBUG /OPT:REF /OPT:ICF /STACK:16777216)
     target_link_libraries(ilanaTableTest PRIVATE dbghelp winmm)
 endif()
 
 add_test(NAME table_tests COMMAND ilanaTableTest)
+
+# The same stack for the dev tools below, which also build processors on the stack.
+function (ilana_big_stack target)
+    if (MSVC)
+        target_link_options(${target} PRIVATE /STACK:16777216)
+    endif()
+endfunction()
 
 # Dev tool: offscreen PNG snapshots of every editor tab (not shipped).
 juce_add_console_app(ilanaSnapshot PRODUCT_NAME "ilanaSnapshot")
@@ -375,3 +385,7 @@ if (MSVC)
 endif()
 
 add_test(NAME fx_tests COMMAND ilanaFxTest)
+
+foreach (tool ilanaSnapshot ilanaFingerprint ilanaPresetRender ilanaFxTest)
+    ilana_big_stack (${tool})
+endforeach()

@@ -1,0 +1,81 @@
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column of preset rows, A and B side by side, a vote strip under each. */
+:root {
+  --bg: #f6f4fa; --panel: #ffffff; --fg: #1f1a2b; --muted: #6c6480; --line: #e2dcec;
+  --accent: #c13fd6; --accent-soft: #f4dcf8; --pick: #2c7a5b;
+  --display: "Manrope", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15121c; --panel: #1f1a29; --fg: #ece8f4; --muted: #a39cb5; --line: #332c42;
+  --accent: #e27af2; --accent-soft: #3d2448; --pick: #5fc79c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15121c; --panel: #1f1a29; --fg: #ece8f4; --muted: #a39cb5; --line: #332c42;
+  --accent: #e27af2; --accent-soft: #3d2448; --pick: #5fc79c; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--display); padding: 28px 16px 48px; }
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 22px; }
+h1 { margin: 0; font-size: 1.7rem; font-weight: 800; text-wrap: balance; }
+.intro { color: var(--muted); margin: 0; max-width: 62ch; }
+ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.name { font-weight: 800; font-size: 1.05rem; }
+.cat { font: 500 0.75rem var(--mono); color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .pair { grid-template-columns: 1fr; } }
+.side { display: grid; gap: 4px; min-width: 0; }
+.tag { font: 500 0.72rem var(--mono); color: var(--muted); letter-spacing: 0.05em; }
+audio { width: 100%; }
+.vote { display: flex; flex-wrap: wrap; gap: 8px; }
+.vote button { font: 600 0.85rem var(--display); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.vote button:hover { border-color: var(--accent); }
+.vote button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vote button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.summary { position: sticky; bottom: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.summary span { color: var(--muted); font-size: 0.9rem; }
+.summary button { font: 700 0.9rem var(--display); background: var(--accent); color: var(--bg); border: 0; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+textarea { width: 100%; min-height: 6em; font: 0.8rem var(--mono); background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-sizing: border-box; }
+</style>
+<main>
+  <header style="display:grid;gap:8px">
+    <h1>{{TITLE}}</h1>
+    <p class="intro">A is each preset as it is now, B is the rebuild from the DX7 patch it is named after. Both play the same phrase at the same loudness. Pick one per preset, then copy your votes into the thread.</p>
+  </header>
+  <ol id="list">
+{{ITEMS}}
+  </ol>
+  <div class="summary">
+    <span id="count">No votes yet</span>
+    <button type="button" id="copy">Copy votes</button>
+    <textarea id="out" readonly hidden aria-label="Your votes"></textarea>
+  </div>
+</main>
+<script>
+const KEY = "ab-votes:" + document.title;
+let votes = {};
+try { votes = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+const items = [...document.querySelectorAll(".item")];
+function render() {
+  items.forEach(li => li.querySelectorAll("button").forEach(b =>
+    b.setAttribute("aria-pressed", votes[li.dataset.name] === b.dataset.v ? "true" : "false")));
+  const n = Object.keys(votes).length;
+  document.getElementById("count").textContent = n ? `${n} of ${items.length} voted` : "No votes yet";
+}
+items.forEach(li => li.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+  votes[li.dataset.name] = b.dataset.v;
+  try { localStorage.setItem(KEY, JSON.stringify(votes)); } catch (e) {}
+  render();
+})));
+document.querySelectorAll("audio").forEach(a => a.addEventListener("play", () =>
+  document.querySelectorAll("audio").forEach(o => { if (o !== a) o.pause(); })));
+document.getElementById("copy").addEventListener("click", () => {
+  const text = items.map(li => `${li.dataset.name}: ${votes[li.dataset.name] || "-"}`).join("\n");
+  const out = document.getElementById("out");
+  out.value = text; out.hidden = false;
+  navigator.clipboard?.writeText(text).then(() => { document.getElementById("copy").textContent = "Copied"; },
+    () => { out.select(); });
+});
+render();
+</script>

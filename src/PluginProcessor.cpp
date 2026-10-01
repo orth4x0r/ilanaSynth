@@ -633,6 +633,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     reverb.setSampleRate (sampleRate);
     reverb.reset();
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
+    for (auto& module : awCategoryModules)
+        module.prepare (sampleRate, samplesPerBlock);
     vocoder.prepare (sampleRate);
     vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
     chunkMidi.ensureSize (4096);
@@ -685,6 +687,8 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     combLine.reset();
     reverb.reset();
     airwindowsModule.reset();
+    for (auto& module : awCategoryModules)
+        module.reset();
     vocoder.reset();
 
     // The effects' own LFOs and followers restart too (a Dimension or flanger
@@ -1498,6 +1502,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processArpeggiator (generatedMidi, buffer.getNumSamples(), midiForSynth);
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
     processClip (midiForSynth, buffer.getNumSamples());
+
+    p.exciterLevelMatch = exciterLevelMatch.load();
+    p.dx7 = dx7Voice.load();
 
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.

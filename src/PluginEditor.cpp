@@ -1363,6 +1363,8 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
     menu.addItem (5, "Export preset file...");
     menu.addItem (3, "Load preset file...");
     menu.addItem (4, "Open user preset folder");
+    menu.addSeparator();
+    menu.addItem (6, "Import DX7 / Dexed bank (.syx)...");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreButton),
                         [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
@@ -1376,6 +1378,25 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
                                 case 2: safeThis->savePreset(); break;
                                 case 3: safeThis->loadPreset(); break;
                                 case 5: safeThis->exportPreset(); break;
+                                case 6:
+                                {
+                                    // Each voice becomes a user preset under DX7/<bank>/.
+                                    safeThis->fileChooser = std::make_unique<juce::FileChooser> (
+                                        "Import DX7 bank", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.syx");
+                                    safeThis->fileChooser->launchAsync (
+                                        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                        [safeThis] (const juce::FileChooser& chooser)
+                                        {
+                                            const auto file = chooser.getResult();
+                                            if (safeThis == nullptr || ! file.existsAsFile())
+                                                return;
+                                            juce::String message;
+                                            safeThis->processorRef.importDx7File (file, message);
+                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                                                    "Import DX7 bank", message);
+                                        });
+                                    break;
+                                }
                                 case 4:
                                 {
                                     const auto directory = safeThis->processorRef.getUserPresetDirectory();

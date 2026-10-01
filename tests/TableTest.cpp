@@ -8637,6 +8637,88 @@ void runOpenFilterCheck()
 // ILANA_NULL_CHECK=1: render every factory preset (4 notes, 2 s at 44.1 kHz)
 // with Voice::disableOpenFilterBypass off and on, and print the difference
 // against the signal in dB (a CPU shortcut must null below -60 dB or so).
+// A drawn remap curve per mod slot: shape() applies it over the slot's
+// range, it saves and loads with the patch, a factory preset or a cleared
+// slot drops it, and the voices hear it.
+void runModRemapTests()
+{
+    std::array<float, Mod::remapSize + 1> identity {}, invert {};
+    for (int i = 0; i <= Mod::remapSize; ++i)
+    {
+        identity[(size_t) i] = 2.0f * (float) i / (float) Mod::remapSize - 1.0f;
+        invert[(size_t) i] = -identity[(size_t) i];
+    }
+
+    Mod::Slot slot;
+    slot.source = Mod::Source::Macro1; // unipolar
+    slot.remap = identity.data();
+    check (std::abs (Mod::shape (slot, 0.3f) - 0.3f) < 1.0e-5f, "remap: a straight line leaves a unipolar source as it was");
+    slot.remap = invert.data();
+    check (std::abs (Mod::shape (slot, 0.25f) - 0.75f) < 1.0e-5f, "remap: an inverted line flips a unipolar source");
+    slot.source = Mod::Source::Lfo1; // bipolar
+    check (std::abs (Mod::shape (slot, 0.5f) + 0.5f) < 1.0e-5f, "remap: an inverted line flips a bipolar source");
+    slot.remap = identity.data();
+    check (std::abs (Mod::shape (slot, -0.4f) + 0.4f) < 1.0e-5f, "remap: a straight line leaves a bipolar source as it was");
+
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    processor.loadFactoryPreset (0);
+    check (! processor.isModRemapOn (3), "remap: off by default");
+    processor.setModRemap (3, IlanaSynthAudioProcessor::identityRemap());
+    check (! processor.isModRemapOn (3), "remap: a straight line counts as off");
+    LfoCurve flipped;
+    flipped.points = { { 0.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } };
+    processor.setModRemap (3, flipped);
+    check (processor.isModRemapOn (3) && processor.readModSlot (3).remap != nullptr, "remap: a drawn curve is on");
+
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor loaded;
+    loaded.setStateInformation (saved.getData(), (int) saved.getSize());
+    check (loaded.isModRemapOn (3) && loaded.getModRemap (3).toString() == flipped.toString(), "remap: saved and loaded with the patch");
+    loaded.loadFactoryPreset (0);
+    check (! loaded.isModRemapOn (3), "remap: a factory preset clears it");
+    processor.clearModSlot (3);
+    check (! processor.isModRemapOn (3), "remap: clearing the slot clears it");
+
+    // Macro 1 at full pulls Amp Level all the way down; inverted by the
+    // remap, the macro sends nothing and the note plays.
+    const auto render = [] (bool remap)
+    {
+        IlanaSynthAudioProcessor p;
+        p.prepareToPlay (48000.0, 256);
+        p.loadFactoryPreset (0);
+        if (auto* macro = p.apvts.getParameter ("macro1"))
+            macro->setValueNotifyingHost (1.0f);
+        p.clearModSlot (0);
+        p.setModSlotValue (0, "src", (float) Mod::Source::Macro1);
+        p.setModSlotValue (0, "dst", (float) Mod::Destination::AmpLevel);
+        p.setModSlotValue (0, "amt", -1.0f);
+        if (remap)
+        {
+            LfoCurve curve;
+            curve.points = { { 0.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } };
+            p.setModRemap (0, curve);
+        }
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto sum = 0.0;
+        for (int block = 0; block < 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            p.processBlock (buffer, midi);
+            for (int i = 0; i < 256; ++i)
+                sum += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        }
+        return std::sqrt (sum / (60.0 * 256.0));
+    };
+    const auto plain = render (false), remapped = render (true);
+    check (plain < 1.0e-4 && remapped > 1.0e-3,
+           "remap: the voices hear it (rms " + juce::String (plain, 6) + " plain, " + juce::String (remapped, 6) + " remapped)");
+}
+
 void runNullCheck()
 {
     IlanaSynthAudioProcessor processor;
@@ -8757,6 +8839,13 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_REMAP_TEST", "").isNotEmpty())
+    {
+        runModRemapTests();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M71_TEST", "").isNotEmpty())
@@ -9223,6 +9312,7 @@ int main()
     timedRun ("runM83WestTests", [] { runM83WestTests(); });
     timedRun ("runM84FilterTests", [] { runM84FilterTests(); });
     timedRun ("runM85Tests", [] { runM85Tests(); });
+    timedRun ("runModRemapTests", [] { runModRemapTests(); });
     timedRun ("runM86Tests", [] { runM86Tests(); });
     timedRun ("runM10Tests", [] { runM10Tests(); });
     timedRun ("runPolishTests", [] { runPolishTests(); });

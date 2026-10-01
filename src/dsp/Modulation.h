@@ -559,6 +559,9 @@ struct Slot
     Polarity polarity = Polarity::Natural;
     Source aux = Source::None;
     bool bypass = false;
+    // The slot's drawn remap curve (Vital's per-route remap): remapSize + 1
+    // values in -1..1 over the source's range, or nullptr for a straight line.
+    const float* remap = nullptr;
 
     bool isActive() const
     {
@@ -568,6 +571,7 @@ struct Slot
 
 // M6b: 64 slots. Slots 1-32 keep their parameter IDs; 33-64 are appended.
 constexpr int maxSlots = 64;
+constexpr int remapSize = 256;
 
 // Shapes a raw source value by the slot's polarity and curve.
 inline float shape (const Slot& slot, float value)
@@ -583,6 +587,19 @@ inline float shape (const Slot& slot, float value)
     {
         const auto exponent = std::exp2 (slot.curve * 3.0f);
         value = value >= 0.0f ? std::pow (value, exponent) : -std::pow (-value, exponent);
+    }
+
+    if (slot.remap != nullptr)
+    {
+        // The curve spans the slot's range: -1..1 when it swings both ways,
+        // else 0..1 (its -1..1 drawing scaled to that).
+        const auto bipolar = slot.polarity == Polarity::Bipolar
+                             || (slot.polarity == Polarity::Natural && bipolarSource);
+        const auto x = juce::jlimit (0.0f, 1.0f, bipolar ? 0.5f * (value + 1.0f) : value);
+        const auto position = x * (float) remapSize;
+        const auto index = juce::jmin ((int) position, remapSize - 1);
+        const auto y = slot.remap[index] + (slot.remap[index + 1] - slot.remap[index]) * (position - (float) index);
+        value = bipolar ? y : 0.5f * (y + 1.0f);
     }
 
     return value;

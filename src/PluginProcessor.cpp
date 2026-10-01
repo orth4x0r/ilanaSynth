@@ -975,6 +975,15 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         activeLfoCurveTables = lfoCurveTables;
     }
 
+    if (const auto epoch = remapEpoch.load(); epoch != activeRemapEpoch)
+    {
+        const juce::SpinLock::ScopedLockType lock (remapLock);
+        activeModRemapTables = modRemapTables;
+        for (size_t i = 0; i < activeModRemapOn.size(); ++i)
+            activeModRemapOn[i] = modRemapOn[i].load();
+        activeRemapEpoch = epoch;
+    }
+
     {
         const auto scope = previewFifo.read (previewFifo.getNumReady());
 
@@ -1008,7 +1017,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     for (int i = 0; i < Mod::maxSlots; ++i)
     {
-        const auto slot = readModSlot (i);
+        auto slot = readModSlot (i);
+        slot.remap = activeModRemapOn[(size_t) i] ? activeModRemapTables[(size_t) i].data() : nullptr;
 
         if (slot.isActive())
             activeSlots[numActiveSlots++] = slot;

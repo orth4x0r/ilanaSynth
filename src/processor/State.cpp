@@ -22,6 +22,10 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         state.setProperty ("lfo" + juce::String (lfo + 1) + "Curve", getLfoCurve (lfo).toString(), nullptr);
     }
 
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        if (isModRemapOn (slot))
+            state.setProperty ("mod" + juce::String (slot + 1) + "Remap", getModRemap (slot).toString(), nullptr);
+
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
@@ -460,6 +464,15 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
         const auto curveText = state.getProperty ("lfo" + juce::String (lfo + 1) + "Curve").toString();
         setLfoCurve (lfo, curveText.isNotEmpty() ? LfoCurve::fromString (curveText) : LfoCurve::preset (0));
+    }
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto remapText = state.getProperty ("mod" + juce::String (slot + 1) + "Remap").toString();
+        if (remapText.isNotEmpty())
+            setModRemap (slot, LfoCurve::fromString (remapText));
+        else if (isModRemapOn (slot))
+            resetModRemap (slot);
     }
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)

@@ -1955,6 +1955,33 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_REMAP: the matrix with a drawn remap on the first row,
+    // its editor open, then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_REMAP", "").isNotEmpty())
+    {
+        pages->showPage ("MATRIX");
+        settle (400);
+        std::vector<CurveControl*> curves;
+        findAll<CurveControl> (*editor, curves);
+        for (auto* curve : curves)
+            if (visibleInTree (curve))
+            {
+                const auto slot = curve->getSlotIndex();
+                processor.setModRemap (slot, RemapEditor::shape (4));
+                settle (300);
+                save (*editor, outDir.getChildFile ("remap-matrix.png"));
+                // The pop-up's content, placed where the call-out would be.
+                RemapEditor remap (processor, slot, IlanaTheme::accent());
+                editor->addAndMakeVisible (remap);
+                remap.setTopLeftPosition (editor->getLocalArea (curve, curve->getLocalBounds()).getBottomLeft().translated (-120, 8));
+                settle (500);
+                save (*editor, outDir.getChildFile ("remap-editor.png"));
+                editor->removeChildComponent (&remap);
+                break;
+            }
+        return 0;
+    }
+
     const auto pageIds = pages->getPageIds();
 
     for (int i = 0; i < pageIds.size(); ++i)

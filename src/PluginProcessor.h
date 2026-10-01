@@ -269,6 +269,16 @@ public:
     static constexpr int curveShape = 8;
     LfoCurve getLfoCurve (int lfoIndex) const;
     void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+
+    // A drawn remap curve per mod slot (Vital's per-route remap). A straight
+    // line from -1 to 1 is off; the slot then shapes as before.
+    static LfoCurve identityRemap() { LfoCurve curve; curve.points = { { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } }; return curve; }
+    static bool isIdentityRemap (const LfoCurve& curve);
+    LfoCurve getModRemap (int slotIndex) const;
+    bool isModRemapOn (int slotIndex) const;
+    void setModRemap (int slotIndex, const LfoCurve& curve);
+    void resetModRemap (int slotIndex) { setModRemap (slotIndex, identityRemap()); }
+    void resetAllModRemaps();
     float getLfoCurveValue (int lfoIndex, double phase) const;
 
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
@@ -849,6 +859,16 @@ private:
     std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> lfoCurveTables {};
     std::array<std::array<float, LfoCurve::tableSize>, (size_t) numLfos> activeLfoCurveTables {};
     mutable juce::SpinLock lfoShapeLock;
+
+    using RemapTable = std::array<float, (size_t) Mod::remapSize + 1>;
+    std::array<LfoCurve, (size_t) Mod::maxSlots> modRemaps;
+    std::array<RemapTable, (size_t) Mod::maxSlots> modRemapTables {};
+    std::array<std::atomic<bool>, (size_t) Mod::maxSlots> modRemapOn {};
+    std::array<RemapTable, (size_t) Mod::maxSlots> activeModRemapTables {};
+    std::array<bool, (size_t) Mod::maxSlots> activeModRemapOn {};
+    std::atomic<int> remapEpoch { 0 };
+    int activeRemapEpoch = -1;
+    mutable juce::SpinLock remapLock;
 
     // On-screen keyboard notes, queued lock-free from the message thread so
     // none are lost between blocks; they join the MIDI input (and so go

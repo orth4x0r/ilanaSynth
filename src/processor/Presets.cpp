@@ -704,6 +704,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         const auto* text = lfo < (int) curves.size() ? curves[(size_t) lfo] : nullptr;
         setLfoCurve (lfo, text != nullptr ? LfoCurve::fromString (text) : LfoCurve::preset (0));
     }
+    resetAllModRemaps();
 
     // Back to three of each module; anything the preset turns on or routes
     // still shows because it is in use.

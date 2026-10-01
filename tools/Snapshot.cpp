@@ -1976,7 +1976,10 @@ static int runLoopTest (const juce::String& presetName, bool allNotesOffAtLoop)
     const auto rate = 48000.0;
     const auto blockSize = 512;
     processor.prepareToPlay (rate, blockSize);
-    processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+    if (juce::File::isAbsolutePath (presetName))
+        processor.loadPresetFromFile (juce::File (presetName));
+    else
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
 
     // ILANA_LOOP_SET="id=value;id=value" sets parameters (real values) after the load.
     for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))

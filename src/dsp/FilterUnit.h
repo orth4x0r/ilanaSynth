@@ -786,7 +786,13 @@ public:
         for (auto& band : formantBands)
             band.reset();
 
-        std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+        // The comb line is only cleared once a comb has written to it (a
+        // note-on resets eight filters; most never use the line).
+        if (combUsed)
+        {
+            std::fill (combBuffer.begin(), combBuffer.end(), 0.0f);
+            combUsed = false;
+        }
         combWrite = 0;
         combDamp = 0.0f;
     }
@@ -870,6 +876,38 @@ public:
         }
     }
 
+    // process over a block, the model chosen once.
+    void processBlock (const float* input, float* output, int n)
+    {
+        switch (type)
+        {
+            case FilterType::LowPass:
+            case FilterType::BandPass:
+            case FilterType::HighPass:
+            case FilterType::Notch:
+                for (int s = 0; s < n; ++s)
+                    output[s] = y1.process (input[s], slope24);
+                return;
+            case FilterType::LadderLow:
+            case FilterType::LadderHigh:
+                for (int s = 0; s < n; ++s)
+                    output[s] = ladder.process (input[s], type == FilterType::LadderHigh, slope24);
+                return;
+            default:
+                for (int s = 0; s < n; ++s)
+                    output[s] = process (input[s]);
+                return;
+        }
+    }
+
+    // Two filters of the same model (a voice's left and right) over a block.
+    static void processStereoBlock (FilterUnit& left, FilterUnit& right, const float* inLeft, const float* inRight,
+                                    float* outLeft, float* outRight, int n)
+    {
+        left.processBlock (inLeft, outLeft, n);
+        right.processBlock (inRight, outRight, n);
+    }
+
 private:
     static Airwindows::YFilter::Mode yMode (int type)
     {
@@ -916,6 +954,7 @@ private:
 
         combDamp += combDampCoefficient * (delayed - combDamp);
         const auto fed = input + (float) combFeedback * combDamp;
+        combUsed = true;
         combBuffer[(size_t) combWrite] = std::tanh (fed * 0.5f) * 2.0f;
         combWrite = (combWrite + 1) & combMask;
 
@@ -959,6 +998,7 @@ private:
     float combDampCoefficient = 0.7f;
 
     std::vector<float> combBuffer;
+    bool combUsed = false;
     int combMask = 0;
     int combWrite = 0;
     double combDelay = 1.0;

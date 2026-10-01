@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
+#include "RemapEditor.h"
 
 namespace MatrixMenus
 {
@@ -122,17 +123,21 @@ inline void fillDestinations (juce::ComboBox& combo)
 }
 } // namespace MatrixMenus
 
-// Curve control: drag up or down to bend the response, double-click to
-// straighten it. Draws the resulting transfer curve.
+// Curve control: drag up or down to bend the response; click to draw the
+// slot's remap curve (in a pop-up). Draws the resulting transfer curve, the
+// bend and the remap together.
 class CurveControl : public juce::Component,
                      public juce::SettableTooltipClient
 {
 public:
-    CurveControl (juce::RangedAudioParameter& parameterIn)
+    CurveControl (juce::RangedAudioParameter& parameterIn, IlanaSynthAudioProcessor& p, int slotIndexIn)
         : parameter (parameterIn),
-          attachment (parameterIn, [this] (float) { repaint(); }, nullptr)
+          attachment (parameterIn, [this] (float) { repaint(); }, nullptr),
+          processorRef (p),
+          slotIndex (slotIndexIn)
     {
-        setTooltip ("Curve\nDrag up or down to bend how the source maps to the amount.  Double-click to reset.");
+        setTooltip ("Curve\nDrag up or down to bend how the source maps to the amount.  "
+                    "Click to draw a remap curve.  Double-click to straighten the bend.");
         attachment.sendInitialUpdate();
     }
 
@@ -140,6 +145,17 @@ public:
     {
         colour = newColour;
         repaint();
+    }
+
+    // The remap is not a parameter: the row polls it.
+    void refresh()
+    {
+        const auto epoch = processorRef.getDataEpoch();
+        if (epoch != lastEpoch)
+        {
+            lastEpoch = epoch;
+            repaint();
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -150,13 +166,20 @@ public:
         const auto plot = bounds.reduced (5.0f, 4.0f);
         const auto curve = parameter.convertFrom0to1 (parameter.getValue());
         const auto exponent = std::exp2 (curve * 3.0f);
+        const auto* remap = processorRef.readModSlot (slotIndex).remap;
 
         juce::Path path;
 
-        for (int i = 0; i <= 24; ++i)
+        for (int i = 0; i <= 48; ++i)
         {
-            const auto x = (float) i / 24.0f;
-            const auto y = std::pow (x, exponent);
+            const auto x = (float) i / 48.0f;
+            auto y = std::pow (x, exponent);
+            if (remap != nullptr)
+            {
+                const auto position = y * (float) Mod::remapSize;
+                const auto index = juce::jmin ((int) position, Mod::remapSize - 1);
+                y = 0.5f * (remap[index] + (remap[index + 1] - remap[index]) * (position - (float) index) + 1.0f);
+            }
             const juce::Point<float> point (plot.getX() + x * plot.getWidth(), plot.getBottom() - y * plot.getHeight());
 
             if (i == 0)
@@ -167,6 +190,10 @@ public:
 
         g.setColour (colour.withAlpha (isMouseOver() ? 1.0f : 0.8f));
         g.strokePath (path, juce::PathStrokeType (1.5f));
+
+        // A drawn remap is marked in the corner.
+        if (remap != nullptr)
+            g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ bounds.getRight() - 5.0f, bounds.getY() + 5.0f }));
     }
 
     void mouseEnter (const juce::MouseEvent&) override { repaint(); }
@@ -175,25 +202,72 @@ public:
     void mouseDown (const juce::MouseEvent&) override
     {
         dragStart = parameter.convertFrom0to1 (parameter.getValue());
-        attachment.beginGesture();
+        dragging = false;
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (! dragging)
+        {
+            if (event.getDistanceFromDragStart() < 3)
+                return;
+            dragging = true;
+            attachment.beginGesture();
+        }
+
         const auto perPixel = event.mods.isShiftDown() ? 0.002f : 0.01f;   // shift = fine
         const auto value = juce::jlimit (-1.0f, 1.0f, dragStart - (float) event.getDistanceFromDragStartY() * perPixel);
         attachment.setValueAsPartOfGesture (value);
     }
 
-    void mouseUp (const juce::MouseEvent&) override { attachment.endGesture(); }
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (dragging)
+        {
+            attachment.endGesture();
+            dragging = false;
+        }
+        else if (event.mouseWasClicked() && event.getNumberOfClicks() == 1)
+        {
+            // Wait out a double-click before opening the editor.
+            juce::Component::SafePointer<CurveControl> safeThis (this);
+            juce::Timer::callAfterDelay (juce::MouseEvent::getDoubleClickTimeout() + 20, [safeThis]
+            {
+                if (safeThis != nullptr && ! safeThis->doubleClicked)
+                    safeThis->openRemapEditor();
+                if (safeThis != nullptr)
+                    safeThis->doubleClicked = false;
+            });
+        }
+    }
 
-    void mouseDoubleClick (const juce::MouseEvent&) override { attachment.setValueAsCompleteGesture (0.0f); }
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        doubleClicked = true;
+        attachment.setValueAsCompleteGesture (0.0f);
+    }
+
+    int getSlotIndex() const { return slotIndex; }
+
+    void openRemapEditor()
+    {
+        auto editor = std::make_unique<RemapEditor> (processorRef, slotIndex, colour);
+        auto* parent = getTopLevelComponent();
+        juce::CallOutBox::launchAsynchronously (std::move (editor),
+                                                parent != nullptr ? parent->getLocalArea (this, getLocalBounds())
+                                                                  : getScreenBounds(),
+                                                parent);
+    }
 
 private:
     juce::RangedAudioParameter& parameter;
     juce::ParameterAttachment attachment;
+    IlanaSynthAudioProcessor& processorRef;
+    int slotIndex;
     juce::Colour colour = IlanaTheme::accent();
     float dragStart = 0.0f;
+    bool dragging = false, doubleClicked = false;
+    unsigned lastEpoch = 0;
 };
 
 // Binds a choice parameter to a combo box by item ID (ID = choice + 1)
@@ -254,7 +328,7 @@ public:
     MatrixRow (IlanaSynthAudioProcessor& p, int slotIndexIn)
         : processorRef (p),
           slotIndex (slotIndexIn),
-          curve (*p.apvts.getParameter (p.getModSlotParamId (slotIndexIn, "curve")))
+          curve (*p.apvts.getParameter (p.getModSlotParamId (slotIndexIn, "curve")), p, slotIndexIn)
     {
         const auto id = [this] (const char* field) { return processorRef.getModSlotParamId (slotIndex, field); };
 
@@ -311,6 +385,7 @@ public:
             curve.setColour (colour);
         }
 
+        curve.refresh();
         meterValue = slot.source != Mod::Source::None ? processorRef.getSourceDisplayValue ((int) slot.source) : 0.0f;
         active = slot.isActive();
         repaint();

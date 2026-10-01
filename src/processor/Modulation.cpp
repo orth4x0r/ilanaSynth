@@ -42,6 +42,55 @@ void IlanaSynthAudioProcessor::setLfoCurve (int lfoIndex, const LfoCurve& curve)
     lfoCurveTables[(size_t) lfoIndex] = table;
 }
 
+bool IlanaSynthAudioProcessor::isIdentityRemap (const LfoCurve& curve)
+{
+    const auto& p = curve.points;
+    return p.size() == 2 && p[0].y == -1.0f && p[1].y == 1.0f && std::abs (p[0].tension) < 1.0e-3f;
+}
+
+LfoCurve IlanaSynthAudioProcessor::getModRemap (int slotIndex) const
+{
+    const juce::SpinLock::ScopedLockType lock (remapLock);
+    const auto index = (size_t) juce::jlimit (0, Mod::maxSlots - 1, slotIndex);
+    return modRemapOn[index].load() ? modRemaps[index] : identityRemap();
+}
+
+bool IlanaSynthAudioProcessor::isModRemapOn (int slotIndex) const
+{
+    return juce::isPositiveAndBelow (slotIndex, Mod::maxSlots) && modRemapOn[(size_t) slotIndex].load();
+}
+
+void IlanaSynthAudioProcessor::setModRemap (int slotIndex, const LfoCurve& curve)
+{
+    if (! juce::isPositiveAndBelow (slotIndex, Mod::maxSlots))
+        return;
+
+    ++dataEpoch; // what the editor draws changes
+    auto sanitised = curve;
+    sanitised.sanitise();
+    const auto on = ! isIdentityRemap (sanitised);
+
+    RemapTable table {};
+    for (int i = 0; i < Mod::remapSize; ++i)
+        table[(size_t) i] = sanitised.valueAt ((double) i / (double) Mod::remapSize);
+    table[(size_t) Mod::remapSize] = sanitised.points.back().y;
+
+    {
+        const juce::SpinLock::ScopedLockType lock (remapLock);
+        modRemaps[(size_t) slotIndex] = std::move (sanitised);
+        modRemapTables[(size_t) slotIndex] = table;
+        modRemapOn[(size_t) slotIndex].store (on);
+    }
+    ++remapEpoch;
+}
+
+void IlanaSynthAudioProcessor::resetAllModRemaps()
+{
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        if (isModRemapOn (slot))
+            resetModRemap (slot);
+}
+
 float IlanaSynthAudioProcessor::getLfoCurveValue (int lfoIndex, double phase) const
 {
     const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
@@ -110,6 +159,8 @@ Mod::Slot IlanaSynthAudioProcessor::readModSlot (int slotIndex) const
     slot.polarity = (Mod::Polarity) juce::jlimit (0, 2, (int) read (raw.polarity));
     slot.aux = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) read (raw.aux));
     slot.bypass = read (raw.bypass) > 0.5f;
+    // The editor's copy; processBlock points the audio thread's own.
+    slot.remap = modRemapOn[(size_t) slotIndex].load() ? modRemapTables[(size_t) slotIndex].data() : nullptr;
     return slot;
 }
 
@@ -137,6 +188,7 @@ void IlanaSynthAudioProcessor::clearModSlot (int slotIndex)
     setModSlotValue (slotIndex, "pol", 0.0f);
     setModSlotValue (slotIndex, "aux", 0.0f);
     setModSlotValue (slotIndex, "byp", 0.0f);
+    resetModRemap (slotIndex);
 }
 
 bool IlanaSynthAudioProcessor::clearModSlotsForTarget (int destination)

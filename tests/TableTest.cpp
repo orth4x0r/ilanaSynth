@@ -8462,7 +8462,7 @@ void timedRun (const char* name, Suite&& suite)
 // (default 4) of that preset at 44.1 kHz; print % of one core, then profile.
 void runPresetProfile (const juce::String& name)
 {
-   #if JUCE_WINDOWS
+   #if JUCE_WINDOWS || JUCE_LINUX
     IlanaSynthAudioProcessor processor;
     const auto index = processor.getFactoryPresetNames().indexOf (name);
 
@@ -8497,8 +8497,10 @@ void runPresetProfile (const juce::String& name)
     const auto restrike = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_RESTRIKE", "0").getIntValue();
     const auto start = juce::Time::getMillisecondCounterHiRes();
     auto slowest = 0.0;
+   #if JUCE_WINDOWS
     SamplingProfiler profiler;
     profiler.start();
+   #endif
 
     for (int block = 0; block < blocks; ++block)
     {
@@ -8511,20 +8513,306 @@ void runPresetProfile (const juce::String& name)
         slowest = juce::jmax (slowest, juce::Time::getMillisecondCounterHiRes() - blockStart);
     }
 
+   #if JUCE_WINDOWS
     profiler.stop();
+   #endif
     const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
     std::cout << "preset " << name << ", " << notes << " notes: "
               << juce::String (100.0 * elapsed / (blocks * (double) blockSize / 44100.0), 1) << " % of one core, slowest block "
               << juce::String (100.0 * slowest / 1000.0 / (blockSize / 44100.0), 0) << " %" << std::endl;
+   #if JUCE_WINDOWS
     profiler.report();
+   #endif
    #else
     juce::ignoreUnused (name);
    #endif
 }
 
+// ILANA_LIBRARY_BENCH=1: hold 4 notes of every factory preset (or those in
+// ILANA_LIBRARY_BENCH_ONLY="A|B") for ILANA_PROFILE_SECONDS (default 3) at
+// 44.1 kHz, 256-sample blocks, and print each one's % of one core, then the
+// median, mean and the slowest ten. Compare builds by alternating runs.
+void runLibraryBench()
+{
+    Voice::disableOpenFilterBypass = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_OPEN_BYPASS", "").isNotEmpty();
+    IlanaSynthAudioProcessor processor;
+    const auto blockSize = 256;
+    processor.prepareToPlay (44100.0, blockSize);
+    const auto names = processor.getFactoryPresetNames();
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH_ONLY", ""), "|", "");
+    const auto seconds = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_SECONDS", "3").getIntValue();
+    std::vector<std::pair<double, juce::String>> results;
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    for (int index = 0; index < names.size(); ++index)
+    {
+        if (! only.isEmpty() && ! only.contains (names[index]))
+            continue;
+
+        processor.loadFactoryPreset (index);
+        processor.panic();
+        juce::MidiBuffer noteOns;
+
+        for (int note = 0; note < 4; ++note)
+            noteOns.addEvent (juce::MidiMessage::noteOn (1, 48 + note * 5, (juce::uint8) 100), 0);
+
+        buffer.clear();
+        processor.processBlock (buffer, noteOns);
+        const auto blocks = 44100 * seconds / blockSize;
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            processor.processBlock (buffer, midi);
+        }
+
+        const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+        const auto percent = 100.0 * elapsed / (blocks * (double) blockSize / 44100.0);
+        results.emplace_back (percent, names[index]);
+        std::cout << "bench " << names[index] << ": " << juce::String (percent, 2) << " %"
+                  << " f1 " << (int) *processor.apvts.getRawParameterValue ("f1_type")
+                  << " f2 " << (int) *processor.apvts.getRawParameterValue ("f2_type")
+                  << " f2cut " << (int) *processor.apvts.getRawParameterValue ("f2_cutoff") << std::endl;
+    }
+
+    if (results.empty())
+        return;
+
+    std::vector<double> values;
+    for (const auto& r : results)
+        values.push_back (r.first);
+    std::sort (values.begin(), values.end());
+    std::sort (results.begin(), results.end(), [] (const auto& a, const auto& b) { return a.first > b.first; });
+    auto sum = 0.0;
+    for (auto v : values)
+        sum += v;
+    std::cout << "LIBRARY BENCH " << results.size() << " presets: median " << juce::String (values[values.size() / 2], 2)
+              << " %, mean " << juce::String (sum / (double) values.size(), 2) << " %" << std::endl;
+    for (size_t i = 0; i < juce::jmin<size_t> (10, results.size()); ++i)
+        std::cout << "  slowest " << results[i].second << ": " << juce::String (results[i].first, 2) << " %" << std::endl;
+}
+
+// ILANA_OPEN_FILTER_CHECK=1: the gain of Filter 2's default (Low Pass wide
+// open, resonance 0 and 0.3) against a straight wire, per frequency, at
+// 44.1 and 48 kHz, for sines at -6 dBFS and -20 dBFS.
+void runOpenFilterCheck()
+{
+    for (const auto rate : { 44100.0, 48000.0 })
+        for (const auto reso : { 0.0, 0.3 })
+            for (const auto level : { 0.5f, 0.1f })
+            {
+                std::cout << "rate " << rate << " reso " << reso << " level " << level << ":";
+                for (const auto hz : { 100.0, 1000.0, 5000.0, 10000.0, 15000.0, 18000.0 })
+                {
+                    FilterUnit filter;
+                    filter.prepare (rate);
+                    filter.setType (FilterType::LowPass, false);
+                    filter.setCoefficients (FilterUnit::makeCoefficients (FilterType::LowPass, rate, juce::jmin (20000.0, rate * 0.45), reso));
+                    double in = 0.0, out = 0.0;
+                    const auto n = (int) rate;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const auto x = level * (float) std::sin (juce::MathConstants<double>::twoPi * hz * i / rate);
+                        const auto y = filter.process (x);
+                        if (i > n / 4) { in += (double) x * x; out += (double) y * y; }
+                    }
+                    Airwindows::OpenLowPass open;
+                    open.set (rate, juce::jmin (20000.0, rate * 0.45), reso);
+                    double openOut = 0.0;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const auto x = level * (float) std::sin (juce::MathConstants<double>::twoPi * hz * i / rate);
+                        const auto y = open.process (x);
+                        if (i > n / 4) openOut += (double) y * y;
+                    }
+                    std::cout << " " << hz << "Hz " << juce::String (10.0 * std::log10 (out / in), 2)
+                              << "/" << juce::String (10.0 * std::log10 (openOut / in), 2);
+                }
+                std::cout << std::endl;
+            }
+}
+
+// ILANA_NULL_CHECK=1: render every factory preset (4 notes, 2 s at 44.1 kHz)
+// with Voice::disableOpenFilterBypass off and on, and print the difference
+// against the signal in dB (a CPU shortcut must null below -60 dB or so).
+// A drawn remap curve per mod slot: shape() applies it over the slot's
+// range, it saves and loads with the patch, a factory preset or a cleared
+// slot drops it, and the voices hear it.
+void runModRemapTests()
+{
+    std::array<float, Mod::remapSize + 1> identity {}, invert {};
+    for (int i = 0; i <= Mod::remapSize; ++i)
+    {
+        identity[(size_t) i] = 2.0f * (float) i / (float) Mod::remapSize - 1.0f;
+        invert[(size_t) i] = -identity[(size_t) i];
+    }
+
+    Mod::Slot slot;
+    slot.source = Mod::Source::Macro1; // unipolar
+    slot.remap = identity.data();
+    check (std::abs (Mod::shape (slot, 0.3f) - 0.3f) < 1.0e-5f, "remap: a straight line leaves a unipolar source as it was");
+    slot.remap = invert.data();
+    check (std::abs (Mod::shape (slot, 0.25f) - 0.75f) < 1.0e-5f, "remap: an inverted line flips a unipolar source");
+    slot.source = Mod::Source::Lfo1; // bipolar
+    check (std::abs (Mod::shape (slot, 0.5f) + 0.5f) < 1.0e-5f, "remap: an inverted line flips a bipolar source");
+    slot.remap = identity.data();
+    check (std::abs (Mod::shape (slot, -0.4f) + 0.4f) < 1.0e-5f, "remap: a straight line leaves a bipolar source as it was");
+
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    processor.loadFactoryPreset (0);
+    check (! processor.isModRemapOn (3), "remap: off by default");
+    processor.setModRemap (3, IlanaSynthAudioProcessor::identityRemap());
+    check (! processor.isModRemapOn (3), "remap: a straight line counts as off");
+    LfoCurve flipped;
+    flipped.points = { { 0.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } };
+    processor.setModRemap (3, flipped);
+    check (processor.isModRemapOn (3) && processor.readModSlot (3).remap != nullptr, "remap: a drawn curve is on");
+
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor loaded;
+    loaded.setStateInformation (saved.getData(), (int) saved.getSize());
+    check (loaded.isModRemapOn (3) && loaded.getModRemap (3).toString() == flipped.toString(), "remap: saved and loaded with the patch");
+    loaded.loadFactoryPreset (0);
+    check (! loaded.isModRemapOn (3), "remap: a factory preset clears it");
+    processor.clearModSlot (3);
+    check (! processor.isModRemapOn (3), "remap: clearing the slot clears it");
+
+    // Macro 1 at full pulls Amp Level all the way down; inverted by the
+    // remap, the macro sends nothing and the note plays.
+    const auto render = [] (bool remap)
+    {
+        IlanaSynthAudioProcessor p;
+        p.prepareToPlay (48000.0, 256);
+        p.loadFactoryPreset (0);
+        if (auto* macro = p.apvts.getParameter ("macro1"))
+            macro->setValueNotifyingHost (1.0f);
+        p.clearModSlot (0);
+        p.setModSlotValue (0, "src", (float) Mod::Source::Macro1);
+        p.setModSlotValue (0, "dst", (float) Mod::Destination::AmpLevel);
+        p.setModSlotValue (0, "amt", -1.0f);
+        if (remap)
+        {
+            LfoCurve curve;
+            curve.points = { { 0.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } };
+            p.setModRemap (0, curve);
+        }
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto sum = 0.0;
+        for (int block = 0; block < 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            p.processBlock (buffer, midi);
+            for (int i = 0; i < 256; ++i)
+                sum += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        }
+        return std::sqrt (sum / (60.0 * 256.0));
+    };
+    const auto plain = render (false), remapped = render (true);
+    check (plain < 1.0e-4 && remapped > 1.0e-3,
+           "remap: the voices hear it (rms " + juce::String (plain, 6) + " plain, " + juce::String (remapped, 6) + " remapped)");
+}
+
+void runNullCheck()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto blockSize = 256;
+    processor.prepareToPlay (44100.0, blockSize);
+    const auto names = processor.getFactoryPresetNames();
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH_ONLY", ""), "|", "");
+    const auto blocks = 44100 * 2 / blockSize;
+    auto worst = -300.0;
+    juce::String worstName;
+
+    // A fresh processor per render: it is seeded the same way every time.
+    const auto render = [&] (int index)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (44100.0, blockSize);
+        processor.loadFactoryPreset (index);
+        // ILANA_NULL_SET="id=value,...": override parameters after loading.
+        for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_NULL_SET", ""), ",", ""))
+            if (auto* parameter = processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false)))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+        processor.panic();
+        juce::AudioBuffer<float> out (2, blocks * blockSize);
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        juce::MidiBuffer noteOns;
+        for (int note = 0; note < 4; ++note)
+            noteOns.addEvent (juce::MidiMessage::noteOn (1, 48 + note * 5, (juce::uint8) 100), 0);
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi = noteOns;
+            if (block == blocks / 2)
+                for (int note = 0; note < 4; ++note)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, 48 + note * 5), 0);
+            processor.processBlock (buffer, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                out.copyFrom (ch, block * blockSize, buffer, ch, 0, blockSize);
+        }
+        return out;
+    };
+
+    for (int index = 0; index < names.size(); ++index)
+    {
+        if (! only.isEmpty() && ! only.contains (names[index]))
+            continue;
+
+        Voice::disableOpenFilterBypass = true;
+        const auto reference = render (index);
+        Voice::disableOpenFilterBypass = juce::SystemStats::getEnvironmentVariable ("ILANA_NULL_CONTROL", "").isNotEmpty();
+        const auto candidate = render (index);
+        Voice::disableOpenFilterBypass = false;
+        double signal = 0.0, diff = 0.0;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < reference.getNumSamples(); ++i)
+            {
+                const auto a = (double) reference.getSample (ch, i), b = (double) candidate.getSample (ch, i);
+                signal += a * a;
+                diff += (a - b) * (a - b);
+            }
+        const auto db = 10.0 * std::log10 ((diff + 1.0e-30) / (signal + 1.0e-30));
+        std::cout << "null " << names[index] << ": " << juce::String (db, 1) << " dB" << std::endl;
+        if (db > worst)
+        {
+            worst = db;
+            worstName = names[index];
+        }
+    }
+
+    std::cout << "NULL CHECK worst " << worstName << ": " << juce::String (worst, 1) << " dB" << std::endl;
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEN_FILTER_CHECK", "").isNotEmpty())
+    {
+        runOpenFilterCheck();
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_NULL_CHECK", "").isNotEmpty())
+    {
+        runNullCheck();
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH", "").isNotEmpty())
+    {
+        runLibraryBench();
+        return 0;
+    }
 
     if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_PROFILE", ""); preset.isNotEmpty())
     {
@@ -8551,6 +8839,13 @@ int main()
     {
         runPhase2StateAndCpuTest();
         return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_REMAP_TEST", "").isNotEmpty())
+    {
+        runModRemapTests();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
     }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M71_TEST", "").isNotEmpty())
@@ -9017,6 +9312,7 @@ int main()
     timedRun ("runM83WestTests", [] { runM83WestTests(); });
     timedRun ("runM84FilterTests", [] { runM84FilterTests(); });
     timedRun ("runM85Tests", [] { runM85Tests(); });
+    timedRun ("runModRemapTests", [] { runModRemapTests(); });
     timedRun ("runM86Tests", [] { runM86Tests(); });
     timedRun ("runM10Tests", [] { runM10Tests(); });
     timedRun ("runPolishTests", [] { runPolishTests(); });

@@ -209,4 +209,48 @@ private:
     double ic1 = 0.0, ic2 = 0.0, ic3 = 0.0, ic4 = 0.0, band1 = 0.0, band2 = 0.0;
     GlideBiquad fixedIn, fixedOut;
 };
+// The Y Low Pass while it sits wide open (above 19 kHz, low resonance): the
+// same fixed Butterworths and resonant stage, without the encode/decode
+// curves (which cancel while the stage passes the band unchanged) and without
+// the gliding coefficient sets. Measured against YFilter (ILANA_OPEN_FILTER_CHECK)
+// it matches within 0.1 dB up to 15 kHz and 0.2 dB at 18 kHz.
+class OpenLowPass
+{
+public:
+    void set (double sampleRate, double cutoff, double resonance)
+    {
+        const auto c = YFilter::makeCoefficients (sampleRate, cutoff, resonance);
+        for (size_t i = 0; i < 5; ++i)
+            fixed[i] = (float) c.fixed[i];
+        a1 = (float) c.a1;
+        a2 = (float) c.a2;
+        a3 = (float) c.a3;
+    }
+
+    void reset() { in1 = in2 = out1 = out2 = s1 = s2 = 0.0f; }
+
+    float process (float x)
+    {
+        // Transposed direct form II, as GlideBiquad.
+        const auto b = x * fixed[0] + in1;
+        in1 = x * fixed[1] - b * fixed[3] + in2;
+        in2 = x * fixed[2] - b * fixed[4];
+
+        const auto v3 = b - s2;
+        const auto v1 = a1 * s1 + a2 * v3;
+        const auto v2 = s2 + a2 * s1 + a3 * v3;
+        s1 = 2.0f * v1 - s1;
+        s2 = 2.0f * v2 - s2;
+
+        const auto y = v2 * fixed[0] + out1;
+        out1 = v2 * fixed[1] - y * fixed[3] + out2;
+        out2 = v2 * fixed[2] - y * fixed[4];
+        return y;
+    }
+
+private:
+    std::array<float, 5> fixed {};
+    float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+    float in1 = 0.0f, in2 = 0.0f, out1 = 0.0f, out2 = 0.0f, s1 = 0.0f, s2 = 0.0f;
+};
 } // namespace Airwindows

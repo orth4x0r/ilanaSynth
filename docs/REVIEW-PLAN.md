@@ -174,3 +174,13 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
 12. **Final detail review** (the user's ask, 2026-09-30): **done** 2026-10-01 (cloud, branch `claude/project-thread-mxim47`); fixes and what is left
    in `/mnt/project-files/ilanasynth/ui-review/DETAIL-REVIEW.md`. Biggest item left: generic automatic macro names (content).
+13. **Detail review leftovers** (the user, 2026-10-01), in order:
+   1. Per-preset macro names for the presets on automatic macros (BRIGHT / DARKEN, MORPH, DRIVE, SPACE from
+      `applyDefaultMacros`): voicing lines in `src/PresetVoicing.h` with names and targets that fit each patch.
+   2. DX7 names: a display-only formatter (Title Case, trailing `\` `^` junk trimmed) that keeps the saved names.
+   3. Name pairs: Hypersaw / Supersaw, Self-Osc / Self Osc, Vocal Chop / Vocal Chops, Formant Scream II, Glass Keys /
+      Stretched Glass Keys. Renames change fingerprint keys and saved sessions' preset names: update
+      `tests/fingerprints-linux.csv` and keep the old names loadable.
+   4. Mod chip row: "E6" beside "ENV 5" when crowded; shorten consistently or not at all.
+   5. A DX7 envelope editor (DX7 voices show oscillator AMP ENV menus that DX7 mode ignores).
+   6. Help text: "+-48 st" to ±, Rössler, Hénon.

@@ -211,6 +211,9 @@ struct ModHoverHooks
 {
     std::function<void (juce::Component&, int, const juce::String&)> show;
     std::function<void (const juce::Component&)> hide;
+    // True while the mouse is on the knob's card (or dragging a row, or its
+    // menu is open), so the card stays when the mouse moves onto it.
+    std::function<bool (const juce::Component&)> engaged;
 };
 
 inline ModHoverHooks& modHoverHooks()
@@ -373,6 +376,16 @@ private:
     float dragStartDepth = 0.0f;
 };
 
+// The colour a knob draws a modulation arc in: the source's own, unless it
+// is too close in hue to the knob's colour, then lifted towards white.
+inline juce::Colour modArcColour (juce::Colour source, juce::Colour knob)
+{
+    auto hueGap = std::abs (source.getHue() - knob.getHue());
+    hueGap = juce::jmin (hueGap, 1.0f - hueGap);
+    const auto bothColoured = source.getSaturation() > 0.3f && knob.getSaturation() > 0.3f;
+    return bothColoured && hueGap < 0.06f ? source.interpolatedWith (juce::Colours::white, 0.6f) : source;
+}
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -524,6 +537,7 @@ public:
         modCardOpen = false;
         modCardHeld = false;
         hoverRest = 0.0f;
+        cardLeave = 0.0f;
     }
 
 
@@ -589,7 +603,15 @@ public:
         arc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                            juce::jmin (angleA, angleB), juce::jmax (angleA, angleB), true);
 
-        g.setColour (modSourceColour (dominantSource).withAlpha (0.85f));
+        // A dark underlay keeps the arc apart from the knob's own value arc,
+        // and a source whose colour is close to the knob's (a macro on an
+        // OSC 1 knob: yellow on gold) is drawn paler so it still reads.
+        const auto arcColour = modArcColour (modSourceColour (dominantSource),
+                                             slider.findColour (juce::Slider::rotarySliderFillColourId));
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        g.strokePath (arc, juce::PathStrokeType (lineWidth + 2.0f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+        g.setColour (arcColour.withAlpha (0.92f));
         g.strokePath (arc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
 
@@ -599,7 +621,7 @@ public:
         const auto marker = juce::Rectangle<float> (markerRadius * 2.0f, markerRadius * 2.0f).withCentre (markerCentre);
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
         g.fillEllipse (marker.expanded (1.2f));
-        g.setColour (modSourceColour (dominantSource));
+        g.setColour (arcColour);
         g.fillEllipse (marker);
         g.setColour (juce::Colours::white.withAlpha (0.9f));
         g.drawEllipse (marker, 1.0f);
@@ -895,12 +917,24 @@ private:
         }
 
         // Resting on a modulated knob (not turning it) opens its source card.
-        if (! routings.empty() && isMouseOver (true) && ! slider.isMouseButtonDown())
+        // It stays while the mouse is on the card, after a moment's grace to
+        // cross the gap between them.
+        const auto overKnob = isMouseOver (true) && ! slider.isMouseButtonDown();
+        const auto cardEngaged = modCardOpen && modHoverHooks().engaged != nullptr && modHoverHooks().engaged (*this);
+
+        if (! routings.empty() && (overKnob || cardEngaged))
         {
-            if (! modCardOpen && (hoverRest += frameSeconds()) >= 0.35f)
+            cardLeave = 0.0f;
+
+            if (! modCardOpen && overKnob && (hoverRest += frameSeconds()) >= 0.35f)
                 openModCard();
         }
-        else if ((modCardOpen && ! modCardHeld) || hoverRest > 0.0f)
+        else if (modCardOpen && ! modCardHeld)
+        {
+            if ((cardLeave += frameSeconds()) >= 0.25f)
+                closeModCard();
+        }
+        else if (hoverRest > 0.0f)
         {
             closeModCard();
         }
@@ -936,6 +970,7 @@ private:
     int dominantSource = 0;
     float routingCheck = 0.0f;
     float hoverRest = 0.0f;
+    float cardLeave = 0.0f;
     bool modCardOpen = false;
     bool modCardHeld = false;
     int lastHighlighted = 0;

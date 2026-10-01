@@ -4429,6 +4429,7 @@ void runChaosLfoTests()
 
         set ("osc1_table", 8.0f);
         set ("osc1_frame", 0.0f);
+        set ("osc1_level", 0.8f); // leaves the level LFO room to swing
         set ("f1_cutoff", 20000.0f);
         set ("f1_env", 0.0f);
         set ("lfo1_shape", (float) shape);

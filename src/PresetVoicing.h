@@ -132,7 +132,6 @@ DX Stack Bass | fx=29,30,7,9 fx_drive_on=0 fx_aw_algo=2 fx_aw_p1=0.7 fx_aw_p2=0.
 Diamond Growl | fx=30,6 fx_drive_on=0 fx_aw_algo=6 fx_aw_p1=0.8 fx_phaser_on=1 fx_phaser_rate=0.25 fx_phaser_depth=0.7 fx_phaser_mix=0.5 amp_attack=0.06 f1_cutoff=2500 fx_slot1_mix=0.1 | m1=CUTOFF: Filter1 Cutoff -0.8; m4=DRIVE: Filter1 Drive 1, Filter1 Reso 0.3
 Feedback Chain Bass | fx=25,2,30 fx_ring_freq=110 fx_ring_mix=0.3 fx_aw_algo=24 fx_aw_p1=0.5 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.7 fx_aw_p5=0.35 amp_attack=0.34 amp_release=1.2 | m1=FEEDBACK: FM Osc3 Feedback 0.8, FM Feedback 0.5; m3=CUTOFF: Filter1 Cutoff -0.6; m4=RING: fx_ring_mix 0.5
 Warp Stack Bass | fx=30 fx_drive_on=0 fx_aw_algo=32 fx_aw_p1=0.3 fx_aw_p2=0.6 fx_aw_p3=0.7 fx_aw_p4=0.7 f1_type=29 f1_slope=0 f1_cutoff=750 f1_reso=1 f1_morph=0.9 f1_keytrack=0.3 | m3=PUNCH: Mod Env Decay 0.4, Osc1 Warp 0.5; m4=DRIVE: Drive Amount 1, Filter1 Drive 1
-Rip Bass | fx=30,23 fx_drive_on=0 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.7 fx_aw_p3=1 fx_trem_rate=8 fx_trem_depth=0.6 fx_trem_shape=4 fx_slot1_mix=0.1 f1_type=32 f1_slope=0 f1_cutoff=400 f1_reso=0.8 f1_morph=0.5 f1_env=3 f1_drive=2.5 | m3=HEAT: fx_slot1_mix 0.9; m4=CHOP: fx_trem_depth 0.4; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Rubber Mono | fx=30 fx_drive_on=0 fx_aw_algo=22 fx_aw_p1=0.7 fx_aw_p2=0.5 fx_aw_p3=0.5 amp_attack=0.02 glide=0.12 | m4=PWM: Osc1 Warp 0.4
 Lorenz Bass | fx=2,30 fx_aw_algo=28 fx_aw_p1=0.6 fx_aw_p2=0.4 fx_aw_p3=0.3 fx_aw_p4=0.5 fx_aw_p5=0.8 amp_attack=0.12 amp_release=0.8 fx_slot2_mix=0.1 | m4=SPACE: fx_slot2_mix 0.9
 Steiner Growl | fx=2,27 fx_vowel_morph=0.3 fx_vowel_mix=0.6 osc1_semi+=12 osc2_semi+=12 sub_semi+=12 | m4=VOWEL: fx_vowel_morph 0.5
@@ -142,13 +141,12 @@ Octave Hyper Bass | fx=20,22 fx_width=1.8 fx_width_mix=0.8 osc1_semi+=12 osc2_se
 # Dry and mono: no echo or reverb.
 Ladder Lead | fx=2 fx_delay_on=0 fx_reverb_on=0 | m4=DRIVE: Drive Amount 0.4
 Chip Lead | fx=3 fx_delay_on=0 amp_velocity=0 | m4=CRUNCH: Crush Mix 0.5
-Sync Scream | fx=1,19 fx_delay_on=0 fx_reverb_on=0 fx_util_mono=1 amp_velocity=0 f1_type=34 f1_slope=0 f1_cutoff=1600 f1_reso=0.9 f1_morph=0.9 | m4=DRIVE: fx_amp_drive 0.4; m2=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 # Dark and mellow.
 Soft Saw Lead | f1_cutoff=650 fx=30 fx_reverb_on=0 fx_aw_algo=10 fx_aw_p1=0.8 amp_attack=0.01 | m3=SWELL: Amp Attack 1, Filt Env Attack 1, Filter1 Cutoff -0.4; m4=OPEN: Filter1 Cutoff 0.4
 Theremin | f1_cutoff=1500 fx=30,13 fx_aw_algo=26 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.6 fx_aw_p4=0.8 fx_reverb_on=0 fx_slot1_mix=0.1 | m4=ROOM: fx_slot1_mix 0.9
 # Slow swells.
 Supersaw Anthem | amp_attack=0.55 fx=7,13 fx_delay_on=0 fx_chorus_on=1 fx_chorus_mix=0.4 f1_type=36 f1_slope=0 f1_cutoff=1600 f1_reso=0.9 f1_morph=0.9 | m4=SPACE: Reverb Mix 0.4; m1=CUTOFF: Filter1 Cutoff 0.4, Filter1 Morph 0.6
-FM Brass Lead | amp_attack=0.9 amp_decay=1.5 amp_sustain=0.2 f1_cutoff=1200 fx_reverb_type=0 | m1=BRIGHT: Osc2 Level 0.6, FM Amount 0.4; m3=SWELL: Amp Attack -0.4
+FM Brass Lead | amp_attack=0.9 amp_decay=1.5 amp_sustain=0.2 f1_cutoff=1200 fx_reverb_type=0 osc2_level=0.12 osc2_out=0 | m1=BRIGHT: FM Amount 0.4; m3=SWELL: Amp Attack -0.4
 MPE Lead | amp_attack=0.7 fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.5 fx_aw_p2=0.6 fx_aw_p3=0.4 fx_aw_p4=0.8 fx_aw_p5=0.8 fx_slot1_mix=0.1 f1_type=37 f1_slope=0 f1_cutoff=1600 f1_reso=1 f1_morph=1 | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6; m4=SPACE: fx_slot1_mix 0.9; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 # Wide, spaced and decaying.
 Glass Lead | amp_sustain=0.15 amp_decay=1.2 fx=30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=1 fx_aw_p2=0.3 fx_aw_p3=1 fx_slot1_mix=0.1 | m3=SHIMMER: Delay Mix 0.4, Delay Feedback 0.3; m4=WIDTH: fx_slot1_mix 0.9
@@ -160,10 +158,8 @@ Frozen Grain Lead | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.
 Acid Squelch Lead | fx=30,9 fx_drive_on=0 fx_aw_algo=36 fx_aw_p1=0.65 fx_aw_p2=0.6 fx_aw_p3=1 fx_slot1_mix=0.1 | m2=SQUELCH: Filter1 Reso 0.25, Filter1 Env Amt 0.5, Filter1 Cutoff -0.2; m4=HEAT: fx_slot1_mix 0.9
 Scream Lead | fx=30,9 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.75 fx_aw_p2=0.7 f1_type=31 f1_slope=0 f1_cutoff=1500 f1_reso=0.8 f1_morph=0.8 | m4=ECHO: Delay Mix 0.4; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Key FM Scream | fx=30,9 fx_drive_on=0 fx_reverb_on=0 fx_aw_algo=4 fx_aw_p1=0.5 fx_aw_p2=0.1 fx_aw_p3=0.8 fx_aw_p4=1 fx_slot1_mix=0.1 | m4=DRIVE: fx_slot1_mix 0.9
-Octave Screamer | fx=30,21 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=35 fx_aw_p1=0.6 fx_aw_p2=0.8 fx_aw_p3=1 fx_slot1_mix=0.1 f1_type=31 f1_slope=0 f1_cutoff=900 f1_reso=0.85 f1_morph=0.4 f1_env=0 | m4=SLAM: fx_slot1_mix 0.9
 # Lo-fi and rhythm.
 Tape Lead | fx=30 fx_delay_on=0 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.65 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 f1_type=35 f1_slope=0 f1_cutoff=1600 f1_reso=0.9 f1_morph=0.9 | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6; m4=WOW: Drift 0.5; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
-Glitch Lead | fx=30,9 fx_crush_on=0 fx_aw_algo=32 fx_aw_p1=0.3 fx_aw_p2=0.5 fx_aw_p3=0.8 fx_aw_p4=0.8 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=1 f1_morph=1 f1_keytrack=1 f1_env=3 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 S&H Techno | fx=2,16 fx_delay_on=0 fx_gate_div=4 fx_gate_mix=0.7 | m4=CHOP: fx_gate_mix 0.3, Filter1 Cutoff -0.4
 # The voted-down vowel leads: drier, less extreme.
 Vowel Lead | fx_reverb_on=0 fx=27,2 fx_vowel_mix=0.35 |
@@ -185,7 +181,7 @@ Ladder Pluck | fx=2 fx_delay_on=0 fx_reverb_on=0 fx_drive_on=1 fx_drive_amount=0
 Diode Blip | fx=19 fx_delay_on=0 fx_reverb_on=0 fx_util_mono=1 amp_velocity=0 | m4=SNAP: Amp Decay 0.4
 Muted Guitar | fx=1 fx_delay_on=0 | m4=AMP: fx_amp_drive 0.4
 Pizzicato | fx=30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.25 fx_aw_p2=0.2 fx_aw_p3=0.5 fx_aw_p4=0.3 fx_aw_p5=0.8 fx_slot1_mix=0.1 | m4=HALL: fx_slot1_mix 0.9
-Kalimba | fx=30 fx_reverb_on=0 fx_aw_algo=10 fx_aw_p1=0.85 | m1=TINE: Osc2 Level 0.6, FM Amount 0.4; m4=TAIL: Amp Release 0.7, Amp Decay 0.4
+Kalimba | fx=30 fx_reverb_on=0 fx_aw_algo=10 fx_aw_p1=0.85 osc2_level=0.25 osc2_out=0 | m1=TINE: FM Amount 0.4; m4=TAIL: Amp Release 0.7, Amp Decay 0.4
 KS Marimba | fx=19 fx_reverb_on=0 amp_velocity=0.8 |
 # Wide and shimmering.
 Glass Mallet | fx=30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=1 fx_aw_p2=0.3 fx_aw_p3=1 fx_slot1_mix=0.1 | m4=WIDTH: fx_slot1_mix 0.9
@@ -197,8 +193,6 @@ Hypersaw Pluck | amp_attack=0.2 amp_decay=0.9 fx=15,9 fx_reverb_on=0 fx_dim_mix=
 Warp Pluck | amp_attack=0.35 fx=6,9 fx_reverb_on=0 fx_phaser_on=1 fx_phaser_rate=0.4 fx_phaser_depth=0.7 fx_phaser_mix=0.5 | m4=PHASE: fx_phaser_mix 0.5
 Formant Pluck | amp_attack=0.5 amp_decay=1.2 fx=27,9 fx_reverb_on=0 fx_vowel_mix=0.4 | m4=VOWEL: fx_vowel_morph 0.5
 # Lo-fi and driven.
-Quad Mod Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=32 fx_aw_p1=0.35 fx_aw_p2=0.5 fx_aw_p3=0.7 fx_aw_p4=0.7 f1_type=34 f1_slope=0 f1_cutoff=1800 f1_reso=0.6 f1_morph=0.8 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
-Resonator Pluck | fx=30,9 fx_reverb_on=0 fx_aw_algo=36 fx_aw_p1=0.7 fx_aw_p2=0.6 fx_aw_p3=0.8 fx_slot1_mix=0.1 f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=3 | m4=HEAT: fx_slot1_mix 0.9; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Tap Pluck | fx=30 fx_reverb_on=0 fx_delay_on=0 fx_aw_algo=31 fx_aw_p1=0.5 fx_aw_p2=0.6 fx_aw_p3=0.2 fx_aw_p4=0.6 | m4=SWELL: Amp Attack 0.7
 Chord Stab | fx=30,9 fx_reverb_on=0 fx_aw_algo=0 fx_aw_p1=0.7 fx_aw_p2=0.5 fx_aw_p3=0.5 fx_aw_p4=0.8 fx_aw_p5=0.5 f1_type=35 f1_slope=0 f1_cutoff=1500 f1_reso=0.9 f1_morph=0.9 | m4=ECHO: Delay Mix 0.4; m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Minor Chord Stab | fx=4,30 fx_reverb_on=0 fx_aw_algo=7 fx_aw_p1=0.7 fx_aw_p2=0.6 | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6; m4=SWELL: Amp Attack 1, Filter1 Cutoff -0.6
@@ -214,13 +208,12 @@ Nylon Twelve | fx=7,30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.3 fx_aw_p2=0.3 fx
 # ---- Keys: archetypes (diversity pass 1; the fitted pianos keep their sound) ----
 # Dry, mono organs and harpsichord.
 Ladder Organ | fx=1,19 fx_reverb_on=0 fx_util_mono=1 | m3=GRIT: Filter1 Drive 1, Filter1 Reso 0.3
-Six-Op Organ | fx=1,7 fx_reverb_on=0 f1_type=35 f1_slope=0 f1_cutoff=2500 f1_reso=0.5 f1_morph=0.7 | m4=DRIVE: Amp Drive 0.6
 Harpsichord | fx=30 fx_reverb_on=0 fx_aw_algo=27 fx_aw_p1=0.2 fx_aw_p2=0.2 fx_aw_p3=0.6 fx_aw_p4=0.2 fx_aw_p5=0.8 fx_slot1_mix=0.1 | m1=BRIGHT: Osc1 String Damp -0.6, Filter1 Cutoff 0.4; m4=ROOM: fx_slot1_mix 0.9
 Detuned Saloon | fx=29 fx_reverb_on=0 | m2=FELT: Filter1 Cutoff -0.7, Osc1 Hammer -0.8; m4=FELT: Osc1 String Damp 0.7, Osc1 Hammer -0.7
 # Wide and echoing.
 DX Keys Classic | fx=7,30,9 fx_reverb_on=0 fx_aw_algo=29 fx_aw_p1=0.9 fx_aw_p2=0.4 fx_aw_p3=1 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=9 fx_delay_feedback=0.35 fx_delay_mix=0.2 fx_delay_pingpong=1 | m1=TINE: Osc2 Level 0.6, FM Amount 0.4; m4=ECHO: Delay Mix 0.4
 Two Pairs Keys | fx=15,13 fx_dim_mix=0.7 fx_reverb_type=2 | m4=CHORUS: Dimension Mix 0.3, Dimension Depth 0.6
-Operator Bell | fx=30 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.6 fx_aw_p2=0.7 fx_aw_p3=0.5 fx_aw_p4=1 fx_aw_p5=0.8 fx_slot1_mix=0.1 | m1=BRIGHT: Osc2 Level 0.6, FM Amount 0.4; m4=GALAXY: fx_slot1_mix 0.9
+Operator Bell | fx=30 fx_reverb_on=0 fx_aw_algo=24 fx_aw_p1=0.6 fx_aw_p2=0.7 fx_aw_p3=0.5 fx_aw_p4=1 fx_aw_p5=0.8 fx_slot1_mix=0.1 osc2_level=0.25 osc2_out=0 | m1=BRIGHT: FM Amount 0.4; m4=GALAXY: fx_slot1_mix 0.9
 Digital Bell Keys | fx=7,9 fx_reverb_on=0 fx_delay_on=1 fx_delay_sync=1 fx_delay_div=10 fx_delay_feedback=0.4 fx_delay_mix=0.25 fx_delay_pingpong=1 | m4=ECHO: Delay Mix 0.4
 # Lo-fi.
 Vinyl Dust Keys | fx=7,30 fx_crush_on=0 fx_reverb_on=0 fx_aw_algo=31 fx_aw_p1=0.4 fx_aw_p2=0.5 fx_aw_p3=0.25 fx_aw_p4=0.6 f1_type=34 f1_slope=0 f1_cutoff=900 f1_reso=0.9 f1_morph=0.9 | m4=TAIL: Amp Release 0.7, Amp Decay 0.4; m2=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
@@ -245,16 +238,16 @@ Feedback Drone | | m2=MORPH: Osc1 Frame 1, Filter1 Reso 0.6
 Tape Wow Dub | | m2=MORPH: Osc1 Frame 0.6, Filter1 Reso 0.4
 Sub 808 Arp | f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=3 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Vocal Chops | | m1=TONE: Filter1 Cutoff -1
-FM Donk | | m1=FM: Osc2 Level 0.6, FM Amount 0.4
+FM Donk | osc2_level=0.25 osc2_out=0 | m1=FM: FM Amount 0.4
 Ring Bass | | m2=GRIT: Filter1 Drive 1, Filter1 Reso 0.3; m3=SUB: Sub Level 0.7
 Distorted 808 | f1_type=33 f1_slope=0 f1_cutoff=900 f1_reso=0.6 f1_morph=0.9 | m2=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
-FM Pluck | | m1=FM: Osc2 Level 0.6, FM Amount 0.4
-FM E-Piano | f1_type=36 f1_slope=0 f1_cutoff=2100 f1_reso=0.9 f1_morph=0.9 | m1=TINE: Osc2 Level 0.6, FM Amount 0.4
+FM Pluck | osc2_level=0.25 osc2_out=0 | m1=FM: FM Amount 0.4
+FM E-Piano | f1_type=36 f1_slope=0 f1_cutoff=2100 f1_reso=0.9 f1_morph=0.9 osc2_level=0.25 osc2_out=0 | m1=TINE: FM Amount 0.4
 Mellow Rhodes | f1_type=35 f1_slope=0 f1_cutoff=900 f1_reso=0.9 f1_morph=0.9 | m2=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Lo-Fi Chord | | m1=TONE: Filter1 Cutoff -0.6; m2=WOBBLE: Tape Wow 0.6, Drift 0.8
-FM Sequence | | m1=FM: Osc2 Level 0.6, FM Amount 0.4
-Metallic Hit | | m1=METAL: Osc2 Level 0.6, FM Amount 0.4
-FM Kalimba | | m1=TINE: Osc2 Level 0.6, FM Amount 0.4; m3=WOOD: Filter1 Cutoff -1, Amp Decay -0.3
+FM Sequence | osc2_level=0.25 osc2_out=0 | m1=FM: FM Amount 0.4
+Metallic Hit | osc2_level=0.25 osc2_out=0 | m1=METAL: FM Amount 0.4
+FM Kalimba | osc2_level=0.25 osc2_out=0 | m1=TINE: FM Amount 0.4; m3=WOOD: Filter1 Cutoff -1, Amp Decay -0.3
 Pedal Bloom | | m1=BLOOM: Soundboard Mix 0.6, Soundboard Size 0.5, Pedal Resonance 1
 Supersaw Bell Body | | m2=SIZE: Body Size 0.8, Res Amount 0.3
 Tine Keys | | m3=TONE: Filter1 Cutoff -0.7
@@ -282,7 +275,6 @@ Metal Hat | | m4=WIDTH: Osc1 Pan -0.8, Width 0.5, fx_slot1_mix 0.9
 Per-Voice Wobble | f1_type=37 f1_slope=0 f1_cutoff=500 f1_reso=0.9 f1_morph=0.7 f1_env=0 |
 Dark Ladder Pluck Bass | f1_type=35 f1_slope=0 f1_cutoff=300 f1_reso=0.9 f1_morph=0.9 | m1=CUTOFF: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Resonant Scream | f1_type=32 f1_slope=0 f1_cutoff=800 f1_reso=0.9 f1_morph=0.9 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
-Rig Lead | f1_type=35 f1_slope=0 f1_cutoff=1600 f1_reso=0.8 f1_morph=0.9 | m1=TONE: Filter1 Cutoff 0.4, Filter1 Morph 0.6
 Celeste | f1_type=37 f1_slope=0 f1_cutoff=2200 f1_reso=0.9 f1_morph=0.9 |
 Vibraphone | f1_type=38 f1_slope=0 f1_cutoff=261.63 f1_reso=0.95 f1_morph=1 f1_keytrack=1 f1_env=0 |
 )VOICING";

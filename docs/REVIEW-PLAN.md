@@ -150,6 +150,20 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
       macros use the freed width (glide, legato, master stay).
    7. Knob, field and chip labels were already 11-13 px (label 11.5, knob labels 13); dimmed controls went from 30-45 %
       to 60 % opacity (`IlanaTheme::dimmedAlpha`).
-   Still open from the review: oscillator display drag (frame / warp) and its spectrum view, PHYSICAL and VECTOR empty
-   states, a persistent side browser.
+   **Round 2 done** 2026-09-30 (cloud, branch `claude/ui-review-fixes-i3zmpv`, merged into PR #5; screenshots in
+   `/mnt/project-files/ilanasynth/ui-fixes-2/`, review 3 in `.../ui-review/UI-REVIEW-3.md`); no audio or preset change:
+   1. Oscillator display (`WaveDisplay`): drag across scrubs the frame, up / down sets the first WARP's amount when one is
+      chosen (shift fine, double-click zero), one host gesture each, with a FRAME / WARP readout; the corner key cycles
+      WAVE / 3D / SPEC (the cycle's harmonics, warps included). OSC 4-6 displays follow frame modulation.
+   2. Resting 0.35 s on a modulated knob opens `ModHoverPopup` (src/gui/ModHoverPopup.h, one per editor, reached through
+      `modHoverHooks()`): each source with colour, depth and a live bar of what it adds.
+   3. Preset browser DOCK: a 340 px column right of the page; the window grows by it (`currentDesignWidth()`, the scale
+      is now height / 720), loading never closes it, the preset name toggles it, FLOAT returns it to the drop-down;
+      `presetBrowserDocked` / `presetBrowserDockOpen` in the settings file.
+   4. A live waveform strip under the preset name on every page (`OutputView::setStrip`; a click opens the scope).
+   5. VOICES in the status line opens the voice settings (`showSettingsMenu (true)`) and reads MONO / LEGATO when not Poly.
+   PHYSICAL and VECTOR empty states were already done in step 6. Tests in `--uitest`; `ILANA_SNAPSHOT_EXTRAS=1
+   ilanaSnapshot <dir> <preset>` renders the new views. Open from review 3: macro names are nearly the same on every
+   preset (content, for the preset rework), a draggable source card, macro yellow against OSC 1 gold, PHYSICAL's NO BODY
+   box, a log-harmonic SPEC axis, a narrower docked layout.
 11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.

@@ -16,6 +16,10 @@
 //   Enter        keep the selected preset and close
 //   Esc, or a click anywhere outside, closes
 // Clicking the star on a row makes it a favourite.
+// DOCK keeps it open at the side of the window instead (the window grows by
+// the panel's width, as Serum 2's browser does): categories above, rows of
+// two lines (name and tag, then the macro names), and loading never closes
+// it. FLOAT returns it to the drop-down, the cross closes it.
 class PresetPanel : public juce::Component,
                     private juce::ListBoxModel,
                     private juce::KeyListener,
@@ -67,6 +71,22 @@ public:
             addAndMakeVisible (button);
 
         surpriseButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
+
+        dockButton.setTooltip ("Keep the browser open at the side of the window");
+        dockButton.onClick = [this]
+        {
+            if (onDockRequest != nullptr)
+                onDockRequest (! docked);
+        };
+        addAndMakeVisible (dockButton);
+
+        closeDockButton.setTooltip ("Close the browser");
+        closeDockButton.onClick = [this]
+        {
+            if (onDockedClose != nullptr)
+                onDockedClose();
+        };
+        addChildComponent (closeDockButton);
     }
 
     ~PresetPanel() override
@@ -84,6 +104,39 @@ public:
     // Called with the preset index, and whether the browser should close.
     std::function<void (int, bool)> onLoad;
     std::function<void()> onFavouriteChanged;
+    // DOCK / FLOAT pressed (true: dock at the side), and the docked cross.
+    std::function<void (bool)> onDockRequest;
+    std::function<void()> onDockedClose;
+
+    // Docked: a side panel that stays open (no scrim, outside clicks and Esc
+    // leave it alone). Undocked: the drop-down.
+    void setDocked (bool shouldDock)
+    {
+        if (docked == shouldDock)
+            return;
+
+        docked = shouldDock;
+        dockButton.setButtonText (docked ? "FLOAT" : "DOCK");
+        dockButton.setTooltip (docked ? "Back to the drop-down under the preset name"
+                                      : "Keep the browser open at the side of the window");
+        closeDockButton.setVisible (docked);
+        list.setRowHeight (docked ? 40 : 26);
+
+        if (docked)
+        {
+            stopWatchingClicks();
+            scrim.setVisible (false);
+            closing = false;
+            appear = 1.0f;
+            setAlpha (1.0f);
+            setTransform ({});
+        }
+
+        resized();
+        repaint();
+    }
+
+    bool isDocked() const { return docked; }
 
     // The preset name box: clicks on it are left to it (it toggles us).
     void setAnchor (juce::Component* anchorComponent) { anchor = anchorComponent; }
@@ -101,6 +154,18 @@ public:
     void open()
     {
         refresh();
+
+        if (docked)
+        {
+            closing = false;
+            appear = 1.0f;
+            setAlpha (1.0f);
+            setTransform ({});
+            setVisible (true);
+            showCurrentPreset();
+            startTimerHz (20);
+            return;
+        }
 
         if (! isVisible())
         {
@@ -134,7 +199,7 @@ public:
 
     void close()
     {
-        if (! isVisible())
+        if (! isVisible() || docked)
             return;
 
         closing = true;
@@ -149,13 +214,13 @@ public:
         const auto bounds = getLocalBounds().toFloat();
 
         // A deep shadow so the browser floats over the page.
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 4 && ! docked; ++i)
         {
             g.setColour (juce::Colours::black.withAlpha (0.12f));
             g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f + (float) i * 2.0f).reduced ((float) (3 - i)), 9.0f);
         }
 
-        IlanaTheme::paintCard (g, bounds, 9.0f, IlanaTheme::accent().withAlpha (0.45f));
+        IlanaTheme::paintCard (g, bounds, 9.0f, IlanaTheme::accent().withAlpha (docked ? 0.25f : 0.45f));
 
         auto header = getLocalBounds().reduced (14, 0).removeFromTop (34);
         g.setColour (IlanaTheme::accent());
@@ -166,10 +231,19 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close")),
-                    header, juce::Justification::centred);
-        g.drawText (juce::String (filtered.size()) + " of " + juce::String (names.size()),
-                    header, juce::Justification::centredRight);
+        const auto count = juce::String (filtered.size()) + " of " + juce::String (names.size());
+
+        if (docked)
+        {
+            g.drawText (count, header.withTrimmedLeft (84).withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 10),
+                        juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close")),
+                        header.withTrimmedRight (dockButton.getWidth() + 40), juce::Justification::centred);
+            g.drawText (count, header.withTrimmedRight (dockButton.getWidth() + 8), juce::Justification::centredRight);
+        }
 
         IlanaTheme::paintRecessedPanel (g, search.getBounds().toFloat().expanded (1.0f), 6.0f);
 
@@ -205,6 +279,24 @@ public:
 
     void resized() override
     {
+        {
+            auto header = getLocalBounds().reduced (12, 0).removeFromTop (34).withSizeKeepingCentre (getWidth() - 24, 20);
+
+            if (docked)
+            {
+                closeDockButton.setBounds (header.removeFromRight (22));
+                header.removeFromRight (4);
+            }
+
+            dockButton.setBounds (header.removeFromRight (56));
+        }
+
+        if (docked)
+        {
+            layoutDocked();
+            return;
+        }
+
         auto area = getLocalBounds().reduced (12);
         area.removeFromTop (24);
 
@@ -231,7 +323,10 @@ public:
     {
         if (key == juce::KeyPress::escapeKey)
         {
-            close();
+            if (docked)
+                unfocusAllComponents();
+            else
+                close();
             return true;
         }
 
@@ -272,6 +367,33 @@ public:
     }
 
 private:
+    void layoutDocked()
+    {
+        auto area = getLocalBounds().reduced (10);
+        area.removeFromTop (26);
+
+        search.setBounds (area.removeFromTop (30).reduced (1));
+        area.removeFromTop (8);
+
+        sidebar.columns = 2;
+        sidebar.setBounds (area.removeFromTop (juce::jmin (sidebar.getPreferredHeight(), area.getHeight() / 3)).reduced (1));
+        area.removeFromTop (8);
+
+        auto footer = area.removeFromBottom (26);
+        area.removeFromBottom (8);
+        list.setBounds (area.reduced (1));
+
+        const auto buttonWidth = footer.getWidth() / 4;
+        surpriseButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
+        saveAsButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
+        deleteButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
+        folderButton.setBounds (footer.reduced (2, 0));
+    }
+
+    bool docked = false;
+    juce::TextButton dockButton { "DOCK" };
+    juce::TextButton closeDockButton { juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) };
+
     static constexpr const char* favouritesKey = "*fav";
     static constexpr const char* userKey = "*user";
 
@@ -331,11 +453,12 @@ private:
             }
         }
 
-        void mouseMove (const juce::MouseEvent& event) override { setHovered (rowAt (event.y)); }
+        void mouseMove (const juce::MouseEvent& event) override { mouseX = event.x; setHovered (rowAt (event.y)); }
         void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
 
         void mouseDown (const juce::MouseEvent& event) override
         {
+            mouseX = event.x;
             const auto row = rowAt (event.y);
 
             if (juce::isPositiveAndBelow (row, (int) entries.size()))
@@ -348,12 +471,27 @@ private:
             }
         }
 
+        // Docked, the categories flow into two columns above the list.
+        int columns = 1;
+
+        int getPreferredHeight() const
+        {
+            return columns > 1 ? 8 + ((int) entries.size() + columns - 1) / columns * rowHeight
+                               : rowBounds ((int) entries.size() - 1).getBottom() + 6;
+        }
+
     private:
         static constexpr int rowHeight = 24;
         static constexpr int gap = 9;
 
         juce::Rectangle<int> rowBounds (int index) const
         {
+            if (columns > 1)
+            {
+                const auto columnWidth = (getWidth() - 8) / columns;
+                return { 4 + (index % columns) * columnWidth, 4 + (index / columns) * rowHeight, columnWidth - 2, rowHeight - 2 };
+            }
+
             auto y = 4;
 
             for (int i = 0; i <= index && i < (int) entries.size(); ++i)
@@ -371,11 +509,14 @@ private:
         int rowAt (int y) const
         {
             for (int i = 0; i < (int) entries.size(); ++i)
-                if (rowBounds (i).expanded (0, 1).contains (getWidth() / 2, y))
+                if (rowBounds (i).expanded (0, 1).contains (columns > 1 ? rowBounds (i).getCentreX() : getWidth() / 2, y)
+                    && (columns == 1 || std::abs (rowBounds (i).getCentreX() - mouseX) <= rowBounds (i).getWidth() / 2 + 1))
                     return i;
 
             return -1;
         }
+
+        int mouseX = 0;
 
         void setHovered (int row)
         {
@@ -566,6 +707,12 @@ private:
         else if (row == hoveredRow)
             drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f, juce::Colours::white.withAlpha (0.35f), false);
 
+        if (docked)
+        {
+            paintDockedRow (g, presetIndex, width, height, selected, isCurrent);
+            return;
+        }
+
         g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.8f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
         g.drawText (name, juce::Rectangle<int> (32, 0, width - 170, height), juce::Justification::centredLeft);
@@ -607,6 +754,44 @@ private:
         g.setColour (colour.withAlpha (selected ? 1.0f : 0.85f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (tagText, tagBounds.toNearestInt(), juce::Justification::centred);
+    }
+
+    // Docked rows: the name with its category tag, and the macro names
+    // on a second line.
+    void paintDockedRow (juce::Graphics& g, int presetIndex, int width, int height, bool selected, bool isCurrent)
+    {
+        const auto name = names[presetIndex];
+        const auto category = categories[presetIndex];
+        const auto colour = categoryColour (category);
+        const auto isUser = isUserPreset (presetIndex);
+        const auto tagText = isUser ? juce::String ("USER") : category.toUpperCase();
+        const juce::Font tagFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto tagWidth = tagText.isEmpty() ? 0.0f : (float) juce::GlyphArrangement::getStringWidthInt (tagFont, tagText) + 14.0f;
+        const auto top = juce::Rectangle<int> (32, 3, width - 40, height / 2 - 1);
+        const auto bottom = juce::Rectangle<int> (32, height / 2, width - 40, height / 2 - 4);
+
+        g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.82f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
+        g.drawText (name, top.withTrimmedRight ((int) tagWidth + 6), juce::Justification::centredLeft, true);
+
+        if (tagText.isNotEmpty())
+        {
+            const auto tagBounds = juce::Rectangle<float> ((float) top.getRight() - tagWidth, (float) top.getCentreY() - 7.5f, tagWidth, 15.0f);
+            g.setColour (colour.withAlpha (selected ? 0.30f : 0.16f));
+            g.fillRoundedRectangle (tagBounds, 7.5f);
+            g.setColour (colour.withAlpha (selected ? 1.0f : 0.85f));
+            g.setFont (tagFont);
+            g.drawText (tagText, tagBounds.toNearestInt(), juce::Justification::centred);
+        }
+
+        const auto macros = macroNamesFor (presetIndex, isCurrent);
+
+        if (macros.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2.withAlpha (selected ? 0.95f : 0.7f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText (macros, bottom, juce::Justification::centredLeft, true);
+        }
     }
 
     void selectedRowsChanged (int lastRowSelected) override
@@ -663,7 +848,10 @@ private:
 
         if (key == juce::KeyPress::escapeKey)
         {
-            close();
+            if (docked)
+                unfocusAllComponents();
+            else
+                close();
             return true;
         }
 
@@ -672,6 +860,8 @@ private:
 
     void loadRow (int row, bool closeAfter)
     {
+        closeAfter = closeAfter && ! docked;
+
         if (! juce::isPositiveAndBelow (row, filtered.size()))
         {
             if (closeAfter)

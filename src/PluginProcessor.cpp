@@ -292,7 +292,6 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     if (isEffectBuild)
         if (const auto index = getFactoryPresetNames().indexOf ("Live Body"); index >= 0)
             loadFactoryPreset (index);
-
 }
 
 namespace

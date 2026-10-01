@@ -250,5 +250,11 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new IlanaSynthAudioProcessor();
+    // A new plugin instance opens on the Init patch rather than the raw
+    // parameter defaults (the tests construct the processor directly and keep
+    // the defaults). A saved session's state replaces it as usual.
+    auto* processor = new IlanaSynthAudioProcessor();
+    if (processor->getCurrentPresetName().isEmpty())
+        processor->loadFactoryPreset (0);
+    return processor;
 }

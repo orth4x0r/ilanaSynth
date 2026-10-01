@@ -4,6 +4,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <complex>
+#include <functional>
 #include <vector>
 
 #include "../PluginProcessor.h"
@@ -32,8 +33,28 @@ public:
 
     int getViewMode() const { return viewMode; }
 
+    // The header's strip: the waveform only, drawn straight on the header
+    // (no card), so every page has a live view of the sound as Vital's top
+    // bar does. A click calls onStripClick (the editor opens the scope).
+    void setStrip (bool shouldBeStrip)
+    {
+        strip = shouldBeStrip;
+        setTooltip (strip ? "Live output.  Click for the scope." : "Live output: waveform and spectrum.  Click to switch between both, wave and spectrum.");
+        repaint();
+    }
+
+    bool isStrip() const { return strip; }
+    std::function<void()> onStripClick;
+
     void mouseDown (const juce::MouseEvent&) override
     {
+        if (strip)
+        {
+            if (onStripClick != nullptr)
+                onStripClick();
+            return;
+        }
+
         viewMode = (viewMode + 1) % 3;
         repaint();
     }
@@ -47,6 +68,14 @@ public:
         }
 
         const auto bounds = getLocalBounds().toFloat();
+
+        if (strip)
+        {
+            processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+            drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.8f), true);
+            return;
+        }
+
         IlanaTheme::paintCard (g, bounds, 6.0f, IlanaTheme::accent());
         IlanaTheme::paintWell (g, bounds.reduced (6.0f), 5.0f);
 
@@ -85,7 +114,7 @@ public:
     }
 
 private:
-    void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour)
+    void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool thin = false)
     {
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
@@ -122,10 +151,10 @@ private:
                 path.lineTo (area.getX() + (float) x, y);
         }
 
-        g.setColour (colour.withAlpha (0.2f));
-        g.strokePath (path, juce::PathStrokeType (4.0f));
-        g.setColour (colour.withAlpha (0.95f));
-        g.strokePath (path, juce::PathStrokeType (1.5f));
+        g.setColour (colour.withMultipliedAlpha (0.2f));
+        g.strokePath (path, juce::PathStrokeType (thin ? 3.0f : 4.0f));
+        g.setColour (colour.withMultipliedAlpha (0.95f));
+        g.strokePath (path, juce::PathStrokeType (thin ? 1.1f : 1.5f));
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour)
@@ -221,11 +250,13 @@ private:
 
         const auto live = processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f;
 
-        if (live || level > 0.002f || firstPaint)
+        if (live || level > 0.002f || firstPaint || wasLive)
         {
             firstPaint = false;
             repaint();
         }
+
+        wasLive = live;
     }
 
     static constexpr int fftSize = 2048;
@@ -238,4 +269,6 @@ private:
     double lastPaintMs = 0.0;
     int viewMode = 0;
     bool firstPaint = true;
+    bool strip = false;
+    bool wasLive = false;
 };

@@ -67,7 +67,7 @@ public:
         addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
                 pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate, clipEditor, clipOn, clipIndex, clipMode, clipBars,
                 clipImport);
-        clipImport.setButtonText ("Import MIDI...");
+        clipImport.setButtonText ("IMPORT MIDI");
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
         clipImport.onClick = [this] { importMidiFile(); };
@@ -210,7 +210,7 @@ public:
             if ((tab == 1 && ! euclidOnNow) || (tab == 3 && ! clipOnNow))
                 hint = "switch it on (top right) to use it";
 
-            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", hint, tabColour,
+            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "PATTERN", hint, tabColour,
                                          arpCard.getRight() - engineTabs.getX() + 80);
         }
         // Generate's group headings: the label, then a hairline to the end

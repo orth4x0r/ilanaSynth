@@ -17,6 +17,13 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
 // one, else none), judged after rounding, so 0.998 shows as "1.0" like 1.0
 // does and typed text reads back the same.
 // A value rounded to a fixed number of decimals, never "-0.0".
+// fx_aw_p1..p5 (the all-in-one) and fx_awsat_p1.. (the category modules).
+inline bool isAirwindowsKnob (const juce::String& id)
+{
+    const auto tail = id.fromLastOccurrenceOf ("_", false, false);
+    return id.startsWith ("fx_aw") && tail.length() == 2 && tail[0] == 'p' && juce::CharacterFunctions::isDigit (tail[1]);
+}
+
 inline juce::String describeFixed (float value, int decimals)
 {
     const auto scale = std::pow (10.0f, (float) decimals);
@@ -256,7 +263,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_frame") || id.endsWith ("_start") || id.endsWith ("_end")
         || id.endsWith ("_fade_in") || id.endsWith ("_fade_out") || id == "drift" || id == "ring_mod"
         || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
-        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || id.startsWith ("fx_aw_p")
+        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || isAirwindowsKnob (id)
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id == "body_material" || id == "body_size" || id == "body_coupling"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
@@ -383,18 +390,18 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_hold"))
         return "DAHDSR: how long the envelope holds at the peak before the decay.";
     if (id.endsWith ("_keyrate"))
-        return "Rate key scaling: every stage gets shorter up the keyboard (at 100 %, half as long per octave above C3).";
+        return "Rate key scaling: every stage gets shorter up the keyboard (at 100%, half as long per octave above C3).";
     if (id.startsWith ("env") && juce::isPositiveAndBelow (id.substring (3).getIntValue() - 6, 11))
     {
         if (id.endsWith ("_velocity")) return "How strongly note velocity scales this envelope when used as a source.";
         if (id.endsWith ("_curve")) return "Envelope tension: positive reaches the target early, negative reaches it late.";
         return "ADSR stage for this per-voice envelope. Drag its chip onto a knob, route it in MATRIX, or pick it as an oscillator amp envelope.";
     }
-    if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
+    if (id == "sym_on") return "Turns on the shared drone strings after the voices and before effects.";
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";
     if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops: from a quarter second to 12 seconds.";
     if (id == "sym_count") return "Number of shared drone strings, from one to six.";
-    if (id == "sym_manual") return "Tune the strings note by note instead of from the GENERATE scale and root. "
+    if (id == "sym_manual") return "Tunes the strings note by note instead of from the GENERATE scale and root. "
                                    "With no scale set they use an open tuning on the root (root, fifth, octave, third).";
     if (id.startsWith ("sym_note")) return "Manual tuning for this drone string, used when MANUAL is on.";
     if (id.endsWith ("_bow_pressure")) return "Bow grip on the string. MPE pressure and channel aftertouch add to it.";
@@ -434,11 +441,11 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
     if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
     if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";
-    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100 % folds about a dozen times.";
+    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100% folds about a dozen times.";
     if (id == "west_sym") return "Offsets the fold: even harmonics, a hollower or reedier tone.";
     if (id == "west_stages") return "Folders in a row: more stages, denser harmonics.";
     if (id == "west_mode") return "Combo: filter and amplifier together (the classic bongo). Low Pass: the filter only. VCA: the level only.";
-    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63 %, slower as it darkens).";
+    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63%, slower as it darkens).";
     if (id == "west_res") return "Resonance of the gate's filter.";
     if (id == "west_strike") return "How hard the gate is struck (times velocity for a note strike, or the chosen source's level).";
     if (id == "west_open") return "Holds the gate partly open, so notes sustain under the strikes.";
@@ -566,7 +573,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Random stereo position per voice - instant width for pads.";
 
     if (id == "unison_random")
-        return "Randomizes unison start phases for a softer, phasey attack.";
+        return "Randomises unison start phases for a softer, phasey attack.";
 
     if (id == "mpe_mode")
         return "Per-note bend and pressure via MIDI channels, +-48 st bend range.";
@@ -609,7 +616,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far the filter envelope moves the cutoff, in octaves (negative closes it).";
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
-        return "Cutoff follows the played note (100 % = full tracking: an octave up the keyboard moves it an octave).";
+        return "Cutoff follows the played note (100% = full tracking: an octave up the keyboard moves it an octave).";
 
     if (id == "fm_mode")
         return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
@@ -881,7 +888,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // BODY
     if (id == "res_on")
-        return "Enable the BODY section. Classic keeps the original three-comb resonator.";
+        return "Turns the BODY section on. Classic keeps the original three-comb resonator.";
 
     if (id == "body_type")
         return "Classic, bar, plate, bell or shell. Material bodies use the oscillator mix as their exciter.";
@@ -1054,10 +1061,16 @@ inline juce::String describeParameter (const juce::String& id)
         return "Tempo-synced trance gate with shaped patterns and smoothing.";
 
     if (id == "fx_tape_stop_trigger")
-        return "Trigger the tape-stop: the signal pitches down and halts.";
+        return "Triggers the tape stop: the signal pitches down and halts.";
 
     if (id == "fx_tape_stop_time" || id == "fx_tape_stop_mix")
         return "Tape stop timing and blend.";
+
+    if (id.startsWith ("fx_aw") && id.endsWith ("_algo") && id != "fx_aw_algo")
+        return "An Airwindows category module: pick one of its effects (Chris Johnson's, MIT). Changing it sets the knobs to that effect's own defaults.";
+
+    if (isAirwindowsKnob (id) && ! id.startsWith ("fx_aw_"))
+        return "An Airwindows knob: what it does follows the chosen effect (its name is the knob's label).";
 
     if (id.startsWith ("fx_aw_"))
     {

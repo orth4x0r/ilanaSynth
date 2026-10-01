@@ -1002,7 +1002,7 @@ private:
         const auto directory = processorRef.getUserPresetDirectory();
         directory.createDirectory();
 
-        fileChooser = std::make_unique<juce::FileChooser> ("Save FX Chain",
+        fileChooser = std::make_unique<juce::FileChooser> ("Save FX chain",
                                                            directory.getChildFile ("My Chain.ilanafxchain"),
                                                            "*.ilanafxchain");
 
@@ -1025,7 +1025,7 @@ private:
         const auto directory = processorRef.getUserPresetDirectory();
         directory.createDirectory();
 
-        fileChooser = std::make_unique<juce::FileChooser> ("Load FX Chain", directory, "*.ilanafxchain");
+        fileChooser = std::make_unique<juce::FileChooser> ("Load FX chain", directory, "*.ilanafxchain");
 
         juce::Component::SafePointer<FxPage> safeThis (this);
 
@@ -1693,6 +1693,22 @@ private:
         return 0;
     }
 
+    // Airwindows' knob names are cut to fit its 8-character plugin labels
+    // ("Pressre", "Feedbk"); the card has room for the whole word.
+    static juce::String airwindowsKnobLabel (const char* name)
+    {
+        static const std::map<juce::String, juce::String> full {
+            { "Compres", "Compress" }, { "Feedbk", "Feedback" }, { "Highpas", "Highpass" }, { "Pressre", "Pressure" },
+            { "Mewines", "Mewiness" }, { "filters Q", "Filter Q" }, { "HeadBmp", "Head Bump" }, { "Head B", "Head Bump" },
+            { "Gv Wear", "Groove Wear" }, { "RmSize", "Room Size" }, { "MakeupGn", "Makeup Gain" }, { "Mid HiP", "Mid Highpass" },
+            { "SideHiP", "Side Highpass" }, { "MonoBs", "Mono Bass" }, { "NonLin", "Nonlinear" }, { "FMDepth", "FM Depth" },
+            { "FMSpeed", "FM Speed" }, { "BitShift", "Bit Shift" }, { "Gnd", "Ground" }, { "11K tap", "11K Tap" },
+            { "15K tap", "15K Tap" }, { "22K tap", "22K Tap" } };
+        const juce::String text (name);
+        const auto found = full.find (text);
+        return (found != full.end() ? found->second : text).toUpperCase();
+    }
+
     // The chosen algorithm's knobs carry its own names; the rest hide.
     void updateAirwindowsKnobs (bool loaded)
     {
@@ -1703,7 +1719,7 @@ private:
         {
             const auto used = k < info.numKnobs;
             if (used)
-                knobs[k]->setLabelText (juce::String (info.knobs[k].name).toUpperCase());
+                knobs[k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
             knobs[k]->setVisible (loaded && used);
         }
     }
@@ -1798,7 +1814,7 @@ private:
         {
             const auto used = k < info.numKnobs;
             if (used)
-                controls.knobs[(size_t) k]->setLabelText (juce::String (info.knobs[k].name).toUpperCase());
+                controls.knobs[(size_t) k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
             controls.knobs[(size_t) k]->setVisible (loaded && used);
         }
     }

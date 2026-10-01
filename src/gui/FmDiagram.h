@@ -258,7 +258,7 @@ public:
 
             g.setColour (out ? colour : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (out ? "OUT" : "MOD ONLY", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
+            g.drawText (out ? "OUT" : "MOD", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
 
             // Oscillators that ignore FM: a dashed ring and a tag under them.
             if (! receivesFm (processorRef, osc))

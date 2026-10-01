@@ -76,7 +76,7 @@ int IlanaSynthAudioProcessor::importDx7File (const juce::File& file, juce::Strin
     juce::MemoryBlock data;
     if (! file.loadFileAsData (data))
     {
-        message = "Couldn't read " + file.getFileName() + ".";
+        message = "Could not read " + file.getFileName() + ".";
         return 0;
     }
     const auto voices = readSyx (data);
@@ -102,6 +102,6 @@ int IlanaSynthAudioProcessor::importDx7File (const juce::File& file, juce::Strin
             ++count;
     }
     applyFullState (before);
-    message = "Imported " + juce::String (count) + " voices to " + folder.getFullPathName() + ".";
+    message = "Imported " + juce::String (count) + (count == 1 ? " voice to " : " voices to ") + folder.getFullPathName() + ".";
     return count;
 }

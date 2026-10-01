@@ -186,7 +186,7 @@ private:
     {
         using namespace FilterType;
         static const std::array<std::vector<Group>, numPages> list {
-            std::vector<Group> { { "CLASSIC", { LowPass, BandPass, HighPass, Notch } },
+            std::vector<Group> { { "BASIC", { LowPass, BandPass, HighPass, Notch } },
                                  { "CHARACTER", { LadderLow, LadderHigh, DiodeLow, Ms20Low } },
                                  { "SPECIAL", { CombPlus, CombMinus, Formant, Morph } } },
             std::vector<Group> { { "LADDER", { LadderBand, LadderDrive, MoogDrive, Acid303 } },

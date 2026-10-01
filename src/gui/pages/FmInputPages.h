@@ -341,6 +341,13 @@ private:
     // "sounds at x1.414 of the note" and the like, after SNAP.
     juce::String soundingText() const
     {
+        // DX7 mode ignores ENVELOPE: the voice's own envelopes play the operator.
+        const juce::String dx7 (processorRef.getDx7Voice() != nullptr ? ", envelope from the DX7 voice" : "");
+        return soundingTuneText() + dx7;
+    }
+
+    juce::String soundingTuneText() const
+    {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) selectedOperator]);
         const auto tune = juce::roundToInt (read (prefix + "_tune"));
 

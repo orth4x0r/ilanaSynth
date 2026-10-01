@@ -172,3 +172,5 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
    draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
 11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+12. **Final detail review** (the user's ask, 2026-09-30): **done** 2026-10-01 (cloud, branch `claude/project-thread-mxim47`); fixes and what is left
+   in `/mnt/project-files/ilanasynth/ui-review/DETAIL-REVIEW.md`. Biggest item left: generic automatic macro names (content).

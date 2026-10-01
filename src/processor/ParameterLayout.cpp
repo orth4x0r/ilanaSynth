@@ -376,26 +376,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     for (const auto* prefix : { "osc1", "osc2", "sub" })
     {
-        addFloat (juce::String (prefix) + "_bow_pressure", juce::String (prefix) + " Bow Pressure", 0.0f, 1.0f, 0.5f);
-        addFloat (juce::String (prefix) + "_bow_speed", juce::String (prefix) + " Bow Speed", 0.0f, 1.0f, 0.5f);
-        addFloat (juce::String (prefix) + "_bridge_buzz", juce::String (prefix) + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
-        addFloat (juce::String (prefix) + "_fret_rattle", juce::String (prefix) + " Fret Rattle", 0.0f, 1.0f, 0.0f);
+        const juce::String oscLabel = juce::String (prefix) == "sub" ? juce::String ("Osc3") : juce::String (prefix).replace ("osc", "Osc");
+        addFloat (juce::String (prefix) + "_bow_pressure", oscLabel + " Bow Pressure", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bow_speed", oscLabel + " Bow Speed", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bridge_buzz", oscLabel + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
+        addFloat (juce::String (prefix) + "_fret_rattle", oscLabel + " Fret Rattle", 0.0f, 1.0f, 0.0f);
         const auto id = juce::String (prefix);
 
-        addBool (id + "_sample_tuned", id + " Sample Tuned", true);
-        addBool (id + "_sample_loop", id + " Sample Loop", false);
-        addBool (id + "_sample_reverse", id + " Sample Reverse", false);
-        addFloat (id + "_sample_start", id + " Sample Start", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_sample_end", id + " Sample End", 0.0f, 1.0f, 1.0f);
-        addFloat (id + "_sample_fade_in", id + " Sample Fade In", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_sample_fade_out", id + " Sample Fade Out", 0.0f, 1.0f, 0.0f);
+        addBool (id + "_sample_tuned", oscLabel + " Sample Tuned", true);
+        addBool (id + "_sample_loop", oscLabel + " Sample Loop", false);
+        addBool (id + "_sample_reverse", oscLabel + " Sample Reverse", false);
+        addFloat (id + "_sample_start", oscLabel + " Sample Start", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_sample_end", oscLabel + " Sample End", 0.0f, 1.0f, 1.0f);
+        addFloat (id + "_sample_fade_in", oscLabel + " Sample Fade In", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_sample_fade_out", oscLabel + " Sample Fade Out", 0.0f, 1.0f, 0.0f);
 
         // Granular mode reads the same sample; its position is Sample Start.
-        addFloat (id + "_grain_size", id + " Grain Size", 10.0f, 500.0f, 80.0f, 0.4f);
-        addFloat (id + "_grain_density", id + " Grain Density", 0.0f, 1.0f, 0.5f);
-        addFloat (id + "_grain_spray", id + " Grain Spray", 0.0f, 1.0f, 0.15f);
-        addFloat (id + "_grain_pitch", id + " Grain Pitch Spray", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_grain_spread", id + " Grain Stereo Spread", 0.0f, 1.0f, 0.6f);
+        addFloat (id + "_grain_size", oscLabel + " Grain Size", 10.0f, 500.0f, 80.0f, 0.4f);
+        addFloat (id + "_grain_density", oscLabel + " Grain Density", 0.0f, 1.0f, 0.5f);
+        addFloat (id + "_grain_spray", oscLabel + " Grain Spray", 0.0f, 1.0f, 0.15f);
+        addFloat (id + "_grain_pitch", oscLabel + " Grain Pitch Spray", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_grain_spread", oscLabel + " Grain Stereo Spread", 0.0f, 1.0f, 0.6f);
     }
 
     // Arpeggiator

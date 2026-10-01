@@ -180,7 +180,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label * scale));
-            g.drawText ("empty", area, juce::Justification::centred);
+            g.drawText ("EMPTY", area, juce::Justification::centred);
             return;
         }
 

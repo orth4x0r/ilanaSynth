@@ -376,7 +376,7 @@ public:
 
     void chooseSampleFile()
     {
-        fileChooser = std::make_unique<juce::FileChooser> ("Load Sample or SoundFont",
+        fileChooser = std::make_unique<juce::FileChooser> ("Load sample or SoundFont",
                                                            juce::File::getSpecialLocation (juce::File::userMusicDirectory),
                                                            "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a;*.sf2;*.sfz");
         juce::Component::SafePointer<WaveDisplay> safeThis (this);

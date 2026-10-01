@@ -580,7 +580,7 @@ private:
     void rebuildSidebar()
     {
         static const juce::StringArray order { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
-                                               "Drone", "Drums", "FX", "Generative", "Other" };
+                                               "Drone", "Drums", "FX", "FX Input", "Generative", "DX7", "Other" };
         juce::StringArray present;
 
         // "User" has its own entry; the Init patch lives under All.
@@ -989,7 +989,7 @@ private:
         juce::Component::SafePointer<PresetPanel> safeThis (this);
 
         juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon,
-                                            "Delete Preset",
+                                            "Delete preset",
                                             "Move '" + name + "' to the recycle bin?",
                                             "Delete", "Cancel", this,
                                             juce::ModalCallbackFunction::create ([safeThis, file] (int result)
@@ -1146,7 +1146,7 @@ public:
     // Shared by the browser's SAVE AS and the header's save button.
     static void showSaveDialog (IlanaSynthAudioProcessor& processor, std::function<void()> onSaved)
     {
-        auto* window = new juce::AlertWindow ("Save Preset", "Saved to your user preset folder.",
+        auto* window = new juce::AlertWindow ("Save preset", "Saves to your user preset folder.",
                                               juce::AlertWindow::NoIcon);
 
         auto currentName = processor.getCurrentPresetName();

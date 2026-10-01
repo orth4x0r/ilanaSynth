@@ -1137,7 +1137,7 @@ void IlanaSynthAudioProcessorEditor::exportPreset()
                                .getChildFile ("ilanaSynth Presets");
     directory.createDirectory();
 
-    fileChooser = std::make_unique<juce::FileChooser> ("Export Preset",
+    fileChooser = std::make_unique<juce::FileChooser> ("Export preset",
                                                        directory.getChildFile (processorRef.getCurrentPresetName() + ".ilanapreset"),
                                                        "*.ilanapreset");
 
@@ -1166,7 +1166,7 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
                                .getChildFile ("ilanaSynth Presets");
     directory.createDirectory();
 
-    fileChooser = std::make_unique<juce::FileChooser> ("Load Preset", directory, "*.ilanapreset");
+    fileChooser = std::make_unique<juce::FileChooser> ("Load preset", directory, "*.ilanapreset");
 
     juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
 

@@ -5,6 +5,7 @@
 namespace
 {
 class MatrixPage : public juce::Component,
+                   public juce::SettableTooltipClient,
                    private IlanaAnim::FrameTimer
 {
 public:
@@ -15,6 +16,7 @@ public:
         {
             auto row = std::make_unique<MatrixRow> (p, i);
             row->getCurve().onOpenRemap = [this] (int slot) { toggleRemap (slot); };
+            row->onDuplicateClicked = [this] (int slot) { showMergeMenu (slot); };
             list.addChildComponent (*row);
             rows.push_back (std::move (row));
         }
@@ -24,6 +26,14 @@ public:
         addButton.setTooltip ("Add a routing.  You can also drag any source chip, macro name or LFO card onto a knob.");
         addButton.onClick = [this] { addRouting(); };
         addAndMakeVisible (addButton);
+
+        // Shown while rows repeat a routing: folds each pair into one row.
+        mergeButton.setTooltip ("Merge repeated routings\nRows with the same source and destination add up; each pair becomes "
+                                "one row with the two depths added (the sound stays the same).");
+        mergeButton.onClick = [this] { mergeAll(); };
+        addChildComponent (mergeButton);
+
+        setTooltip ("Click SOURCE, AMOUNT or DESTINATION to sort the rows (again to reverse, a third time for slot order).");
 
         // One-click starting points for an empty matrix.
         for (size_t i = 0; i < starterRoutings().size(); ++i)
@@ -53,10 +63,13 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, addButton.getX() - headingX - 12), headingHeight),
+        const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.getX()) - 12;
+        paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
                            juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use"
-                           + (numDuplicates > 0 ? ",  " + juce::String (numDuplicates) + " repeated (marked !)" : juce::String())
-                           + ".   Drag a source onto any knob, then drag the dot beside it to set the depth.");
+                           + (numDuplicates > 0 ? ",  " + juce::String (numDuplicates) + " repeat a routing (click a ! to merge)"
+                                                : juce::String())
+                           + (numIdle > 0 ? ",  " + juce::String (numIdle) + " into a module that is off (dimmed)" : juce::String())
+                           + ".   Drag a source onto any knob, then drag its ring on the knob to set the depth.");
 
         // An empty matrix has no columns to head: just the ways in.
         if (visibleRows.empty())
@@ -72,12 +85,91 @@ public:
 
         for (const auto& heading : headings())
         {
-            const auto sorted = heading.sort != Sort::slot && heading.sort == sort;
+            const auto sortable = heading.sort != Sort::none && heading.sort != Sort::slot;
+            const auto sorted = sortable && heading.sort == sort;
             const auto hot = heading.sort != Sort::none && heading.area.contains (getMouseXYRelative()) && isMouseOver (true);
             g.setColour (sorted || hot ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-            const auto arrow = sorted ? juce::String::fromUTF8 (descending ? "  \xe2\x96\xbc" : "  \xe2\x96\xb2") : juce::String();
-            g.drawText (heading.text + arrow, heading.area, juce::Justification::centredLeft);
+            g.drawText (heading.text, heading.area, juce::Justification::centredLeft);
+
+            // A sortable heading carries a faint up-down mark, solid once
+            // it sorts (UI review 6, S6-29).
+            if (sortable)
+            {
+                const auto textWidth = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), heading.text);
+                const auto mark = juce::Rectangle<float> (8.0f, 10.0f).withCentre ({ (float) (heading.area.getX() + textWidth + 9),
+                                                                                    (float) heading.area.getCentreY() });
+                juce::Path up, down;
+                up.addTriangle (mark.getCentreX() - 3.0f, mark.getCentreY() - 1.0f, mark.getCentreX() + 3.0f, mark.getCentreY() - 1.0f,
+                                mark.getCentreX(), mark.getY());
+                down.addTriangle (mark.getCentreX() - 3.0f, mark.getCentreY() + 1.0f, mark.getCentreX() + 3.0f, mark.getCentreY() + 1.0f,
+                                  mark.getCentreX(), mark.getBottom());
+                const auto colour = IlanaTheme::Ui::text2;
+                g.setColour (colour.withAlpha (sorted ? (descending ? 0.25f : 1.0f) : (hot ? 0.7f : 0.35f)));
+                g.fillPath (up);
+                g.setColour (colour.withAlpha (sorted ? (descending ? 1.0f : 0.25f) : (hot ? 0.7f : 0.35f)));
+                g.fillPath (down);
+            }
         }
+
+        paintDock (g);
+    }
+
+    // Under the rows: the docked remap editor beside a summary of its row,
+    // or, when there is room and none is open, a note on how to open it.
+    void paintDock (juce::Graphics& g)
+    {
+        if (dockArea.isEmpty())
+            return;
+
+        if (remapEditor == nullptr)
+        {
+            const auto area = dockArea.toFloat().reduced (2.0f);
+            g.setColour (IlanaTheme::Ui::line);
+            const float dashes[] { 4.0f, 4.0f };
+            juce::Path outline;
+            outline.addRoundedRectangle (area, 8.0f);
+            juce::Path dashed;
+            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+            g.fillPath (dashed);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText ("REMAP", area.withTrimmedTop (area.getHeight() * 0.5f - 22.0f).withHeight (18.0f), juce::Justification::centred);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("Click a row's CURVE to draw how its source maps to the amount here.",
+                        area.withTrimmedTop (area.getHeight() * 0.5f - 2.0f).withHeight (18.0f), juce::Justification::centred);
+            return;
+        }
+
+        // The routing the curve belongs to.
+        const auto slot = processorRef.readModSlot (remapEditor->getSlotIndex());
+        auto info = dockArea.withTrimmedLeft (remapEditor->getRight() - dockArea.getX() + 16).reduced (0, 8);
+        const auto colour = modSourceColour ((int) slot.source);
+
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText ("ROW " + juce::String (rows[(size_t) remapEditor->getSlotIndex()]->getDisplayNumber()), info.removeFromTop (16),
+                    juce::Justification::centredLeft);
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
+        g.setColour (colour);
+        g.drawFittedText (ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1, 0.8f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination), info.removeFromTop (24),
+                          juce::Justification::centredLeft, 1, 0.8f);
+
+        info.removeFromTop (8);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        g.setColour (IlanaTheme::Ui::text2);
+        const auto bipolar = slot.polarity == Mod::Polarity::Bipolar
+                             || (slot.polarity == Mod::Polarity::Natural && Mod::isBipolarSource (slot.source));
+        const juce::String lines[] {
+            "Amount " + juce::String (slot.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (slot.depth * 100.0f)) + "%,  "
+                + (bipolar ? "bipolar (-1 to 1 across)" : "unipolar (0 to 1 across)"),
+            "Left to right: the source's range.  Bottom to top: what it sends.",
+            "Click to add a point, drag the middle dots to bend, double-click to remove.",
+        };
+        for (const auto& line : lines)
+            g.drawFittedText (line, info.removeFromTop (20), juce::Justification::centredLeft, 1, 0.85f);
     }
 
     // A click on a sortable heading.
@@ -123,7 +215,8 @@ public:
     const std::vector<int>& getVisibleSlots() const { return visibleRows; }
     RemapEditor* getRemapEditor() const { return remapEditor.get(); }
 
-    // Opens the slot's remap editor under its row (or closes it if open).
+    // Opens the slot's remap editor in the dock under the rows (or closes
+    // it if open). The rows never move for it (UI review 6, V6-22).
     void toggleRemap (int slot)
     {
         if (remapEditor != nullptr && remapEditor->getSlotIndex() == slot)
@@ -132,6 +225,7 @@ public:
             return;
         }
 
+        closeRemap();
         const auto colour = modSourceColour ((int) processorRef.readModSlot (slot).source);
         remapEditor = std::make_unique<RemapEditor> (processorRef, slot, colour);
         remapEditor->setOnClose ([safeThis = juce::Component::SafePointer<MatrixPage> (this)]
@@ -143,14 +237,22 @@ public:
                     safeThis->closeRemap();
             });
         });
-        list.addAndMakeVisible (*remapEditor);
-        layoutList();
+        addAndMakeVisible (*remapEditor);
 
-        // Scroll so the row and its editor show.
-        const auto editorBounds = remapEditor->getBounds();
+        for (auto& row : rows)
+            row->setSelected (row->getSlotIndex() == slot);
+
+        resized();
+
+        // Scroll so the row shows above the dock.
+        const auto rowBounds = rows[(size_t) slot]->getBounds();
         const auto view = viewport.getViewArea();
-        if (editorBounds.getBottom() > view.getBottom())
-            viewport.setViewPosition (0, editorBounds.getBottom() - view.getHeight() + 4);
+        if (rowBounds.getBottom() > view.getBottom())
+            viewport.setViewPosition (0, rowBounds.getBottom() - view.getHeight() + 4);
+        else if (rowBounds.getY() < view.getY())
+            viewport.setViewPosition (0, rowBounds.getY());
+
+        repaint();
     }
 
     void closeRemap()
@@ -158,9 +260,75 @@ public:
         if (remapEditor == nullptr)
             return;
 
-        list.removeChildComponent (remapEditor.get());
+        removeChildComponent (remapEditor.get());
         remapEditor.reset();
-        layoutList();
+
+        for (auto& row : rows)
+            row->setSelected (false);
+
+        resized();
+        repaint();
+    }
+
+    // The dock's area (empty when it isn't shown); the tests.
+    juce::Rectangle<int> getDockArea() const { return dockArea; }
+
+    // Folds every repeated routing it can into one row.
+    void mergeAll()
+    {
+        processorRef.performEdit ("Merge repeated routings", [this] { processorRef.mergeDuplicateModSlots(); });
+        updateRows (true);
+    }
+
+    // The "!" of a repeated row: merge it with each of its twins.
+    void showMergeMenu (int slot)
+    {
+        juce::PopupMenu menu;
+        const auto routing = processorRef.readModSlot (slot);
+        menu.addSectionHeader (ModNames::source ((int) routing.source, &processorRef) + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
+                               + ModNames::destination (routing.destination));
+
+        for (const auto other : visibleRows)
+        {
+            const auto twin = processorRef.readModSlot (other);
+
+            if (other == slot || twin.source != routing.source || twin.destination != routing.destination)
+                continue;
+
+            juce::String why;
+            const auto into = juce::jmin (slot, other), from = juce::jmax (slot, other);
+            const auto canMerge = processorRef.canMergeModSlots (into, from, &why);
+            const auto sum = juce::roundToInt ((routing.depth + twin.depth) * 100.0f);
+            menu.addItem (1 + other, "Merge with row " + juce::String (rows[(size_t) other]->getDisplayNumber())
+                                         + (canMerge ? "  (" + juce::String (sum >= 0 ? "+" : "") + juce::String (sum) + "%)"
+                                                     : "  (can't: " + why + ")"),
+                          canMerge);
+        }
+
+        menu.addSeparator();
+        menu.addItem (1000, "Remove this row");
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (rows[(size_t) slot].get()),
+                            [safeThis = juce::Component::SafePointer<MatrixPage> (this), slot] (int result)
+                            {
+                                if (safeThis == nullptr || result <= 0)
+                                    return;
+
+                                auto& processor = safeThis->processorRef;
+
+                                if (result == 1000)
+                                    processor.performEdit ("Remove modulation", [&processor, slot] { processor.clearModSlot (slot); });
+                                else
+                                {
+                                    const auto other = result - 1;
+                                    processor.performEdit ("Merge repeated routing", [&processor, slot, other]
+                                    {
+                                        processor.mergeModSlots (juce::jmin (slot, other), juce::jmax (slot, other));
+                                    });
+                                }
+
+                                safeThis->updateRows (true);
+                            });
     }
 
     juce::Rectangle<float> emptyStateCard() const
@@ -246,8 +414,22 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12, 6);
-        addButton.setBounds (area.removeFromTop (32).removeFromRight (190).withTrimmedTop (6).withTrimmedBottom (2));
+        auto top = area.removeFromTop (32);
+        addButton.setBounds (top.removeFromRight (190).withTrimmedTop (6).withTrimmedBottom (2));
+        top.removeFromRight (8);
+        mergeButton.setBounds (top.removeFromRight (210).withTrimmedTop (6).withTrimmedBottom (2));
         headerArea = area.removeFromTop (18);
+
+        // The dock takes the bottom while a remap is open, and also when the
+        // rows leave that much room (as a note on how to open it).
+        const auto rowsHeight = (int) visibleRows.size() * rowHeight + 8;
+        const auto showDock = ! visibleRows.empty()
+                              && (remapEditor != nullptr || area.getHeight() - rowsHeight >= dockHeight + 12);
+        dockArea = showDock ? area.removeFromBottom (dockHeight).withTrimmedTop (8) : juce::Rectangle<int>();
+
+        if (remapEditor != nullptr)
+            remapEditor->setBounds (dockArea.withWidth (juce::jmin (560, dockArea.getWidth() * 3 / 5)));
+
         viewport.setBounds (area);
         layoutList();
         layoutStarters();
@@ -262,7 +444,7 @@ public:
 
 private:
     static constexpr int rowHeight = MatrixRow::rowHeight;
-    static constexpr int remapHeight = 200;
+    static constexpr int dockHeight = 210;
 
     struct Heading
     {
@@ -284,7 +466,7 @@ private:
         };
 
         add ("#", C::number, 0, Sort::slot);
-        add ("ON", C::bypass, C::gap + C::meter + C::gap, Sort::none);
+        add ("ON", C::bypass, C::gap * 2, Sort::none);
         add ("SOURCE", C::source, C::gap, Sort::source);
         add ("VIA", C::via (viaExpanded), C::gap * 2, Sort::none);
         add ("AMOUNT", C::amount, C::gap, Sort::amount);
@@ -310,7 +492,7 @@ private:
         static const std::vector<Starter> starters {
             { "LFO 1  >  CUTOFF", "LFO 1 sweeps filter 1's cutoff.", S::Lfo1, S::None, { D::Filter1Cutoff }, 0.3f },
             { "MOD ENV  >  FRAME", "The mod envelope moves OSC 1's wavetable position on every note.", S::ModEnv, S::None, { D::Osc1Frame }, 0.5f },
-            { "WHEEL  >  VIBRATO", "LFO 2 wobbles the pitch of OSC 1-3, as far as the mod wheel lets it.", S::Lfo2, S::ModWheel,
+            { "MOD WHEEL  >  VIBRATO", "LFO 2 wobbles the pitch of OSC 1-3, as far as the mod wheel lets it.", S::Lfo2, S::ModWheel,
               { D::Osc1Pitch, D::Osc2Pitch, D::SubPitch }, 0.006f },
             { "VELOCITY  >  CUTOFF", "Harder notes open filter 1.", S::Velocity, S::None, { D::Filter1Cutoff }, 0.35f },
             { "LFO 2  >  PAN", "LFO 2 moves OSC 1 across the stereo field.", S::Lfo2, S::None, { D::Osc1Pan }, 0.5f },
@@ -404,12 +586,11 @@ private:
         if (sort == Sort::slot || sort == Sort::none)
             return used;
 
-        const auto sources = Mod::getSourceNames();
-        const auto destinations = Mod::getDestinationNames();
+        // By the names the rows show.
         const auto key = [&] (int index) -> juce::String
         {
             const auto slot = processorRef.readModSlot (index);
-            return sort == Sort::source ? sources[(int) slot.source] : destinations[slot.destination];
+            return sort == Sort::source ? ModNames::source ((int) slot.source, &processorRef) : ModNames::destination (slot.destination);
         };
 
         std::stable_sort (used.begin(), used.end(), [&] (int a, int b)
@@ -478,6 +659,8 @@ private:
         if (duplicates != numDuplicates)
         {
             numDuplicates = duplicates;
+            mergeButton.setButtonText ("MERGE REPEATS  (" + juce::String (duplicates / 2 + duplicates % 2) + ")");
+            mergeButton.setVisible (duplicates > 0);
             repaint();
         }
 
@@ -499,12 +682,22 @@ private:
                 row->setVisible (std::find (used.begin(), used.end(), row->getSlotIndex()) != used.end());
 
             addButton.setEnabled (used.size() < (size_t) Mod::maxSlots);
-            layoutList();
+            resized();
             repaint();
         }
 
+        auto idle = 0;
         for (const auto index : visibleRows)
+        {
             rows[(size_t) index]->refresh();
+            idle += rows[(size_t) index]->getIdleReason().isNotEmpty() ? 1 : 0;
+        }
+
+        if (idle != numIdle)
+        {
+            numIdle = idle;
+            repaint();
+        }
     }
 
     void layoutList()
@@ -516,8 +709,15 @@ private:
         if (remapEditor != nullptr
             && std::find (visibleRows.begin(), visibleRows.end(), remapEditor->getSlotIndex()) == visibleRows.end())
         {
-            list.removeChildComponent (remapEditor.get());
+            removeChildComponent (remapEditor.get());
             remapEditor.reset();
+            for (auto& row : rows)
+                row->setSelected (false);
+            juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MatrixPage> (this)]
+            {
+                if (safeThis != nullptr)
+                    safeThis->resized();
+            });
         }
 
         for (const auto index : visibleRows)
@@ -525,18 +725,12 @@ private:
             auto& row = *rows[(size_t) index];
             row.setBounds (0, y, width, rowHeight);
             y += rowHeight;
+        }
 
-            // The remap editor opens under its own row, beside the curve
-            // it edits, so it covers no other row's amount.
-            if (remapEditor != nullptr && remapEditor->getSlotIndex() == index)
-            {
-                const auto curveX = row.getCurve().getBounds().getCentreX();
-                const auto editorWidth = juce::jmin (480, width - 8);
-                const auto x = juce::jlimit (4, width - editorWidth - 4, curveX - editorWidth / 2);
-                remapEditor->setTitle ("ROW " + juce::String (row.getDisplayNumber()) + "  (slot " + juce::String (index + 1) + ")");
-                remapEditor->setBounds (x, y + 2, editorWidth, remapHeight);
-                y += remapHeight + 6;
-            }
+        if (remapEditor != nullptr)
+        {
+            const auto index = remapEditor->getSlotIndex();
+            remapEditor->setTitle ("ROW " + juce::String (rows[(size_t) index]->getDisplayNumber()) + "  (slot " + juce::String (index + 1) + ")");
         }
 
         list.setSize (width, y + 8);
@@ -585,7 +779,8 @@ private:
 
     Sort sort = Sort::slot;
     bool descending = false, viaExpanded = false;
-    int numDuplicates = 0;
+    int numDuplicates = 0, numIdle = 0;
+    juce::Rectangle<int> dockArea;
     std::unique_ptr<RemapEditor> remapEditor;
 
     IlanaSynthAudioProcessor& processorRef;
@@ -594,7 +789,7 @@ private:
     juce::Component list;
     std::vector<std::unique_ptr<MatrixRow>> rows;
     std::vector<int> visibleRows;
-    juce::TextButton addButton;
+    juce::TextButton addButton, mergeButton;
     std::vector<std::unique_ptr<juce::TextButton>> starterButtons;
     juce::Rectangle<int> headerArea;
 };

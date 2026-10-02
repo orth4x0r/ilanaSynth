@@ -201,6 +201,12 @@ private:
     // performance sources, which always show.
     std::vector<std::pair<int, int>> chipReveal;
     std::vector<bool> chipWanted;
+    // Wanted, but folded into its group's chip because the bar is full.
+    std::vector<bool> chipFolded;
+    // LFO / ENV / MORE: the chips a full bar folds away, in a tray.
+    std::array<std::unique_ptr<ModSourceGroupChip>, 3> groupChips;
+    ModSourceTray chipTray;
+    std::unique_ptr<ModSourceChip> makeSourceChip (int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
     juce::TextButton moreChipsButton;
     void updateChipVisibility();
@@ -213,16 +219,14 @@ public:
 
 private:
     std::unique_ptr<KeyboardStrip> keyboard;
+    // All eight macros, always shown (UI review 6, S6-38).
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
-    juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip
-    int macroPage = 0;
-    void showMacroPage (int page);
-    // (Voices, pitch-bend range and voice mode live in the settings menu.)
-    std::unique_ptr<StripKnob> glideKnob, masterKnob;
+    // (Voices, pitch-bend range, voice mode, glide and legato live in the
+    // VOICES menu.)
+    std::unique_ptr<StripKnob> masterKnob;
     std::unique_ptr<OutputMeter> outputMeter;
     // Where the header's action groups (file, edit, tools) part, in header x.
     std::array<int, 2> headerSeparatorX {};
-    std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = false;
     juce::int64 loadedFingerprint = 0;
     void rememberLoadedFingerprint();

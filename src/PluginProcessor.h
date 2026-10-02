@@ -281,6 +281,16 @@ public:
                                    const std::function<void (const juce::String&, float)>& set);
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
+    // Two slots routing the same source to the same destination (with the
+    // same via, polarity, curve and bypass, and no drawn remap) play as one
+    // slot with the depths added, so they can be merged without changing
+    // the sound. canMergeModSlots says why not when they can't be (they
+    // differ, or the sum would pass 100%). mergeModSlots folds `from` into
+    // `into`; mergeDuplicateModSlots merges every such pair (factory presets
+    // load merged) and returns how many slots it freed. Message thread.
+    bool canMergeModSlots (int into, int from, juce::String* reason = nullptr) const;
+    bool mergeModSlots (int into, int from);
+    int mergeDuplicateModSlots();
     void setModSlotValue (int slotIndex, const juce::String& field, float value);
     juce::String getModSlotParamId (int slotIndex, const juce::String& field) const;
 

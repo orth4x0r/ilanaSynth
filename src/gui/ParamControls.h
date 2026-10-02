@@ -7,6 +7,7 @@
 #include "../PluginProcessor.h"
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 #include "ParamInfo.h"
 
 struct ModRingConfig
@@ -110,15 +111,12 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
 inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processor, Mod::Source source,
                                         juce::StringArray targets = {})
 {
-    static const auto names = Mod::getDestinationNames();
-
     for (int slot = 0; slot < Mod::maxSlots; ++slot)
     {
         const auto routing = processor.readModSlot (slot);
 
-        if (routing.isActive() && (routing.source == source || routing.aux == source)
-            && juce::isPositiveAndBelow (routing.destination, names.size()))
-            targets.addIfNotAlreadyThere (names[routing.destination]);
+        if (routing.isActive() && (routing.source == source || routing.aux == source))
+            targets.addIfNotAlreadyThere (ModNames::destination (routing.destination));
     }
 
     if (targets.isEmpty())
@@ -227,6 +225,9 @@ struct ModHoverHooks
     // True while the mouse is on the knob's card (or dragging a row, or its
     // menu is open), so the card stays when the mouse moves onto it.
     std::function<bool (const juce::Component&)> engaged;
+    // The same card for a source (a macro in the strip, a chip): where it
+    // goes, with a warning for targets whose module is off.
+    std::function<void (juce::Component&, int source)> showSource;
 };
 
 inline ModHoverHooks& modHoverHooks()
@@ -241,11 +242,13 @@ inline juce::String& knobClipboard()
     return value;
 }
 
-// The coloured dots beside a modulated knob: one per routing into it.
-// Drag a dot up or down to change that routing's depth, double-click it to
-// zero the depth (as knobs and the source card do), right-click it to
-// bypass or remove the routing. Hovering shows which source it is; a
-// macro's dot carries the macro's number.
+// The badges beside a modulated knob: one per routing into it, in the
+// source's colour, filled like a pie to show the depth (a macro's carries
+// its number). They are the legend for the knob's rings, and controls too:
+// drag one up or down to set that routing's depth, double-click it to zero
+// the depth (as knobs, rings and the source card do), right-click it to
+// bypass or remove the routing. More routings than fit show as a "+N"
+// badge, which opens the knob's source card with all of them.
 class ModDotStrip : public juce::Component,
                     public juce::SettableTooltipClient
 {
@@ -256,6 +259,7 @@ public:
         int source = 0;
         float depth = 0.0f;
         bool bypass = false;
+        bool bipolar = false;
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
@@ -267,6 +271,8 @@ public:
     // A depth drag's start and end (one undo step).
     std::function<void (int source)> onDragStart;
     std::function<void()> onDragEnd;
+    // The "+N" badge: show every routing (the knob's source card).
+    std::function<void()> onShowAll;
 
     void setDots (const std::vector<Dot>& newDots)
     {
@@ -278,22 +284,33 @@ public:
         repaint();
     }
 
-    static constexpr int dotSize = 10;
-    static constexpr int dotPitch = 13;
+    // At least 14 px, with a 20 px target (UI review 5/6, S5-5).
+    static constexpr int dotSize = 14;
+    static constexpr int dotPitch = 16;
+    static constexpr int stripWidth = 18;
 
-    int getPreferredHeight() const { return (int) dots.size() * dotPitch; }
+    // How many badges the strip has room for; past that, "+N".
+    void setMaxVisible (int count)
+    {
+        maxVisible = juce::jmax (1, count);
+        repaint();
+    }
+
+    int getNumShown() const { return numShown(); }
+    bool hasOverflow() const { return (int) dots.size() > maxVisible; }
+    int getPreferredHeight() const { return juce::jmax (1, numShown() + (hasOverflow() ? 1 : 0)) * dotPitch; }
 
     void paint (juce::Graphics& g) override
     {
-        for (int i = 0; i < (int) dots.size(); ++i)
+        for (int i = 0; i < numShown(); ++i)
         {
             const auto& dot = dots[(size_t) i];
             const auto area = dotBounds (i);
             const auto colour = modSourceColour (dot.source);
             const auto active = i == dragIndex || i == hoverIndex;
 
-            g.setColour (colour.withAlpha (active ? 0.35f : 0.18f));
-            g.fillEllipse (area.expanded (active ? 2.5f : 1.5f));
+            g.setColour (colour.withAlpha (active ? 0.35f : 0.16f));
+            g.fillEllipse (area.expanded (active ? 2.0f : 1.0f));
 
             // Fill shows the depth: a pie from 12 o'clock, clockwise for
             // positive and anticlockwise for negative.
@@ -302,27 +319,30 @@ public:
 
             juce::Path pie;
             const auto angle = juce::jlimit (-1.0f, 1.0f, dot.depth) * juce::MathConstants<float>::twoPi;
-            pie.addPieSegment (area, 0.0f, angle, 0.0f);
-            g.setColour (colour);
+            pie.addPieSegment (area.reduced (1.0f), 0.0f, angle, 0.0f);
+            g.setColour (colour.withAlpha (dot.bypass ? 0.35f : 1.0f));
             g.fillPath (pie);
 
-            g.setColour (colour.withAlpha (dot.bypass ? 0.4f : 0.9f));
-            g.drawEllipse (area, 1.0f);
+            g.setColour (colour.withAlpha (dot.bypass ? 0.4f : 0.95f));
+            g.drawEllipse (area.reduced (0.5f), 1.2f);
 
             // A macro's number, white with a dark outline so it reads on
             // both the yellow and the dark part of the pie.
             if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0)
-            {
-                juce::GlyphArrangement digit;
-                digit.addFittedText (juce::Font (IlanaTheme::font (8.5f, true)), juce::String (macro + 1), area.getX(), area.getY() + 0.5f,
-                                     area.getWidth(), area.getHeight(), juce::Justification::centred, 1);
-                juce::Path glyph;
-                digit.createPath (glyph);
-                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-                g.strokePath (glyph, juce::PathStrokeType (1.6f));
-                g.setColour (juce::Colours::white);
-                g.fillPath (glyph);
-            }
+                paintOutlinedText (g, juce::String (macro + 1), area, 10.0f);
+        }
+
+        if (hasOverflow())
+        {
+            const auto area = dotBounds (numShown());
+            const auto active = hoverIndex == overflowIndex;
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, active ? 0.15f : 0.0f));
+            g.fillEllipse (area);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.drawEllipse (area.reduced (0.5f), 1.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (9.5f, true));
+            g.drawText ("+" + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f), juce::Justification::centred);
         }
     }
 
@@ -333,6 +353,9 @@ public:
         if (index != hoverIndex)
         {
             hoverIndex = index;
+            setMouseCursor (index >= 0 ? juce::MouseCursor::UpDownResizeCursor
+                                       : index == overflowIndex ? juce::MouseCursor::PointingHandCursor
+                                                                : juce::MouseCursor::NormalCursor);
             updateTooltip();
             repaint();
         }
@@ -346,13 +369,22 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
-        if (event.mods.isPopupMenu())
+        const auto index = indexAt (event.position);
+
+        if (index == overflowIndex)
         {
-            showDotMenu (indexAt (event.position));
+            if (onShowAll != nullptr)
+                onShowAll();
             return;
         }
 
-        dragIndex = indexAt (event.position);
+        if (event.mods.isPopupMenu())
+        {
+            showDotMenu (index);
+            return;
+        }
+
+        dragIndex = index;
 
         if (dragIndex >= 0)
         {
@@ -394,11 +426,11 @@ public:
             onZero (dots[(size_t) index].slot);
     }
 
-    // Rings one routing's dot (a source dropped on a knob it already drives
-    // points at the existing routing instead of adding a second).
+    // Rings one routing's badge (a source dropped on a knob it already
+    // drives points at the existing routing instead of adding a second).
     void flashSlot (int slot)
     {
-        for (int i = 0; i < (int) dots.size(); ++i)
+        for (int i = 0; i < numShown(); ++i)
             if (dots[(size_t) i].slot == slot)
             {
                 hoverIndex = i;
@@ -407,7 +439,29 @@ public:
             }
     }
 
+    // White text with a dark outline (a macro's number on a yellow pie).
+    static void paintOutlinedText (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, float size)
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (juce::Font (IlanaTheme::font (size, true)), text, area.getX(), area.getY() + 0.5f,
+                              area.getWidth(), area.getHeight(), juce::Justification::centred, 1);
+        juce::Path glyph;
+        glyphs.createPath (glyph);
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        g.strokePath (glyph, juce::PathStrokeType (1.8f));
+        g.setColour (juce::Colours::white);
+        g.fillPath (glyph);
+    }
+
 private:
+    static constexpr int overflowIndex = -2;
+
+    int numShown() const
+    {
+        const auto count = (int) dots.size();
+        return count > maxVisible ? maxVisible - 1 : count;
+    }
+
     void showDotMenu (int index)
     {
         if (! juce::isPositiveAndBelow (index, (int) dots.size()))
@@ -415,7 +469,7 @@ private:
 
         const auto dot = dots[(size_t) index];
         juce::PopupMenu menu;
-        menu.addSectionHeader (Mod::getSourceNames()[dot.source] + "  (" + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
         menu.addItem (1, "Bypass", true, dot.bypass);
         menu.addItem (2, "Remove");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
@@ -438,34 +492,45 @@ private:
             .withCentre ({ (float) getWidth() * 0.5f, (float) (index * dotPitch) + (float) dotPitch * 0.5f });
     }
 
+    // A badge, overflowIndex for "+N", or -1. Each takes a 20 px target
+    // (its own row's share of it where they touch).
     int indexAt (juce::Point<float> position) const
     {
-        for (int i = 0; i < (int) dots.size(); ++i)
-            if (dotBounds (i).expanded (2.0f).contains (position))
-                return i;
+        const auto rows = numShown() + (hasOverflow() ? 1 : 0);
+        const auto row = (int) std::floor (position.y / (float) dotPitch);
 
-        return -1;
+        if (! juce::isPositiveAndBelow (row, rows) || std::abs (position.x - (float) getWidth() * 0.5f) > 10.0f)
+            return -1;
+
+        return row < numShown() ? row : overflowIndex;
     }
 
     void updateTooltip()
     {
         const auto index = hoverIndex >= 0 ? hoverIndex : dragIndex;
 
+        if (hoverIndex == overflowIndex)
+        {
+            setTooltip ("Show all " + juce::String ((int) dots.size()) + " routings into this knob");
+            return;
+        }
+
         if (! juce::isPositiveAndBelow (index, (int) dots.size()))
         {
-            setTooltip ("Modulation\nDrag a dot to set its depth, double-click it to zero it, right-click to bypass or remove.");
+            setTooltip ("Modulation\nDrag a badge (or the knob's ring) to set its depth, double-click it to zero it, right-click to bypass or remove.");
             return;
         }
 
         const auto& dot = dots[(size_t) index];
-        setTooltip (Mod::getSourceNames()[dot.source] + "  " + juce::String (juce::roundToInt (dot.depth * 100.0f))
-                    + "%" + (dot.bypass ? "  (bypassed)" : "")
+        setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (dot.depth * 100.0f))
+                    + "%" + (dot.bipolar ? "  (swings both ways)" : "") + (dot.bypass ? "  (bypassed)" : "")
                     + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
     }
 
     std::vector<Dot> dots;
     int dragIndex = -1;
     int hoverIndex = -1;
+    int maxVisible = 3;
     float dragStartDepth = 0.0f;
 };
 
@@ -547,7 +612,7 @@ public:
         dotStrip.onZero = [this] (int slot)
         {
             if (processorRef != nullptr)
-                processorRef->performEdit ("Zero " + Mod::getSourceNames()[(int) processorRef->readModSlot (slot).source] + " depth",
+                processorRef->performEdit ("Zero " + ModNames::source ((int) processorRef->readModSlot (slot).source) + " depth",
                                            [this, slot] { processorRef->setModSlotValue (slot, "amt", 0.0f); });
 
             refreshRoutings();
@@ -570,14 +635,18 @@ public:
         dotStrip.onDragStart = [this] (int source)
         {
             if (processorRef != nullptr)
-                processorRef->beginEdit (Mod::getSourceNames()[source] + " depth");
+                processorRef->beginEdit (ModNames::source (source) + " depth");
         };
         dotStrip.onDragEnd = [this]
         {
             if (processorRef != nullptr)
                 processorRef->endEdit();
         };
+        dotStrip.onShowAll = [this] { openModCard (true); };
         addChildComponent (dotStrip);
+        // Over the slider, so a press on a ring sets that routing's depth
+        // (one inside it still turns the knob).
+        addChildComponent (ringOverlay);
 
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, slider);
 
@@ -639,6 +708,19 @@ public:
     // The modulation destination whose depth the knob's ring shows (0: none).
     int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
+    // The depth rings (one per routing, up to three), for the tests: how
+    // many, a point on one (0..1 along its sweep, local to the knob), the
+    // component that takes presses on them, and the badge strip.
+    int getNumRings() const { return numRings(); }
+    juce::Point<float> getRingPoint (int ring, float proportion) const
+    {
+        const auto angle = ringStart + (ringEnd - ringStart) * proportion;
+        return rotaryArea().getCentre().getPointOnCircumference (ringRadius (ring), angle);
+    }
+    juce::Component& getRingOverlay() { return ringOverlay; }
+    // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
+    void syncRoutings() { refreshRoutings(); }
+    ModDotStrip& getDotStrip() { return dotStrip; }
     // Whether a mod slot routes this source into the knob, and whether the
     // source pinned by a chip click is one of them (the knob is lit).
     bool isDrivenBy (int source) const { return routesFrom (source); }
@@ -756,14 +838,14 @@ public:
         }
 
         // A hovered or pinned source lights up every knob it modulates: a
-        // thin ring just outside the mod arc, with no fill, so the knob's
-        // label and value stay readable.
+        // thin halo just outside the knob's rings, with no fill, so the
+        // knob's label and value stay readable.
         const auto pinned = pinnedModSource();
         const auto highlighted = highlightedModSource() != 0 ? highlightedModSource() : pinned;
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
-            const auto radius = knobRadius + 3.0f;
+            const auto radius = outerRingRadius() + 2.5f;
             const juce::Graphics::ScopedSaveState clip (g);
             g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
             g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
@@ -776,49 +858,97 @@ public:
             g.fillRoundedRectangle (knobBounds.toFloat().reduced (2.0f), 6.0f);
         }
 
-        if (! modActive || knobRadius < 8.0f)
+        paintRings (g, highlighted);
+    }
+
+    // The knob's modulation rings (Vital and Serum 2 style): one concentric
+    // ring per routing, outward from just outside the value arc, in the
+    // source's colour. Each spans the range its routing can sweep from the
+    // knob's value (both sides for a source that swings both ways), shows
+    // what it adds right now as a brighter stretch with a white dot, and
+    // ends in a handle at full depth. Drag a ring to set its depth.
+    void paintRings (juce::Graphics& g, int highlighted)
+    {
+        const auto count = numRings();
+        const auto knobRadius = knobRadiusFor (knobBounds);
+
+        if (count == 0 || knobRadius < 8.0f)
             return;
 
-        const auto lineWidth = 2.0f;
-        const auto arcRadius = knobRadius - lineWidth * 0.5f;
-        const auto startAngle = juce::MathConstants<float>::pi * 1.2f;
-        const auto endAngle = juce::MathConstants<float>::pi * 2.8f;
-
+        const auto centre = rotaryArea().getCentre();
+        const auto knobColour = slider.findColour (juce::Slider::rotarySliderFillColourId);
         const auto baseNorm = (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()));
-        const auto displayNorm = juce::jlimit (0.0f, 1.0f, baseNorm + mod * ringConfig.scale);
+        const auto angleOf = [] (float norm) { return ringStart + juce::jlimit (0.0f, 1.0f, norm) * (ringEnd - ringStart); };
 
-        if (std::abs (displayNorm - baseNorm) < 0.001f)
-            return;
+        // The outer rings pass behind the knob's name, not over it.
+        const juce::Graphics::ScopedSaveState state (g);
+        if (label.isVisible() && label.getText().isNotEmpty())
+        {
+            const auto font = label.getFont();
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, label.getText()) + 6.0f;
+            g.excludeClipRegion (label.getBounds().withSizeKeepingCentre (juce::roundToInt (width), label.getHeight()));
+        }
 
-        const auto angleA = startAngle + baseNorm * (endAngle - startAngle);
-        const auto angleB = startAngle + displayNorm * (endAngle - startAngle);
+        for (int i = count - 1; i >= 0; --i)
+        {
+            const auto& dot = routings[(size_t) i];
+            const auto radius = ringRadius (i);
+            const auto hot = i == hoveredRing || i == draggedRing;
+            const auto width = (i == 0 ? 2.0f : 1.75f) + (hot ? 1.0f : 0.0f);
+            const auto quiet = dot.bypass || (highlighted != 0 && highlighted != dot.source);
+            const auto colour = modArcColour (modSourceColour (dot.source), knobColour);
+            const auto depth = dot.depth * ringConfig.scale;
+            const auto low = dot.bipolar ? baseNorm - std::abs (depth) : juce::jmin (baseNorm, baseNorm + depth);
+            const auto high = dot.bipolar ? baseNorm + std::abs (depth) : juce::jmax (baseNorm, baseNorm + depth);
 
-        juce::Path arc;
-        arc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                           juce::jmin (angleA, angleB), juce::jmax (angleA, angleB), true);
+            juce::Path range;
+            const auto a = angleOf (low), b = angleOf (high);
 
-        // A dark underlay keeps the arc apart from the knob's own value arc,
-        // and a source whose colour is close to the knob's (a macro on an
-        // OSC 1 knob: yellow on gold) is drawn paler so it still reads.
-        const auto arcColour = modArcColour (modSourceColour (dominantSource),
-                                             slider.findColour (juce::Slider::rotarySliderFillColourId));
-        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-        g.strokePath (arc, juce::PathStrokeType (lineWidth + 2.0f, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
-        g.setColour (arcColour.withAlpha (0.92f));
-        g.strokePath (arc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
+            // A routing with no depth (or nothing left to sweep) still shows
+            // as a short tick at the knob's value, so it can be grabbed.
+            if (b - a < 0.06f)
+                range.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, (a + b) * 0.5f - 0.03f, (a + b) * 0.5f + 0.03f, true);
+            else
+                range.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, a, b, true);
 
-        // A marker where the modulation currently puts the knob.
-        const auto markerRadius = juce::jlimit (2.5f, 3.6f, knobRadius * 0.14f);
-        const auto markerCentre = centre.getPointOnCircumference (arcRadius, angleB);
-        const auto marker = juce::Rectangle<float> (markerRadius * 2.0f, markerRadius * 2.0f).withCentre (markerCentre);
-        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
-        g.fillEllipse (marker.expanded (1.2f));
-        g.setColour (arcColour);
-        g.fillEllipse (marker);
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.drawEllipse (marker, 1.0f);
+            const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+            g.strokePath (range, juce::PathStrokeType (width + 1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (colour.withAlpha (quiet ? 0.22f : (hot ? 0.7f : 0.45f)));
+            g.strokePath (range, rounded);
+
+            if (dot.bypass)
+                continue;
+
+            // What it adds now: from the knob's value to the live position.
+            const auto live = juce::isPositiveAndBelow (i, (int) liveValues.size()) ? liveValues[(size_t) i] : 0.0f;
+            const auto liveAngle = angleOf (baseNorm + live * ringConfig.scale);
+            const auto baseAngle = angleOf (baseNorm);
+
+            if (std::abs (liveAngle - baseAngle) > 0.01f)
+            {
+                juce::Path now;
+                now.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (baseAngle, liveAngle),
+                                   juce::jmax (baseAngle, liveAngle), true);
+                g.setColour (colour.withAlpha (quiet ? 0.4f : 1.0f));
+                g.strokePath (now, rounded);
+            }
+
+            // The depth handle, then the live dot.
+            const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
+            const auto handle = juce::Rectangle<float> (hot ? 6.5f : 5.0f, hot ? 6.5f : 5.0f).withCentre (handleAt);
+            g.setColour (IlanaTheme::Ui::bg);
+            g.fillEllipse (handle.expanded (1.0f));
+            g.setColour (colour.withAlpha (quiet ? 0.5f : 1.0f));
+            g.fillEllipse (handle);
+
+            if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
+            {
+                const auto dotAt = centre.getPointOnCircumference (radius, liveAngle);
+                g.setColour (juce::Colours::white.withAlpha (0.95f));
+                g.fillEllipse (juce::Rectangle<float> (3.2f, 3.2f).withCentre (dotAt));
+            }
+        }
     }
 
     void resized() override
@@ -903,6 +1033,175 @@ public:
     }
 
 private:
+    // The rings' geometry: the value arc's sweep, the first ring just
+    // outside it, the rest 2.75 px apart. Up to three rings; past that the
+    // badges (and their "+N") list every routing.
+    static constexpr float ringStart = juce::MathConstants<float>::pi * 1.2f;
+    static constexpr float ringEnd = juce::MathConstants<float>::pi * 2.8f;
+    static constexpr float ringPitch = 2.75f;
+    static constexpr int maxRings = 3;
+
+    int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
+    float ringRadius (int index) const { return knobRadiusFor (knobBounds) - 1.0f + (float) index * ringPitch; }
+    float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
+
+    // The ring under a point (local to the knob), or -1: within the ring band
+    // and the arc's sweep (the gap at the bottom stays the knob's).
+    int ringAt (juce::Point<float> position) const
+    {
+        const auto count = numRings();
+
+        if (count == 0 || knobRadiusFor (knobBounds) < 12.0f)
+            return -1;
+
+        const auto centre = rotaryArea().getCentre();
+        const auto distance = position.getDistanceFrom (centre);
+
+        if (distance < ringRadius (0) - 2.5f || distance > ringRadius (count - 1) + 3.0f)
+            return -1;
+
+        // JUCE's angles: 0 at 12 o'clock, clockwise.
+        auto angle = std::atan2 (position.x - centre.x, centre.y - position.y);
+        if (angle < 0.0f)
+            angle += juce::MathConstants<float>::twoPi;
+        if (angle > juce::MathConstants<float>::pi * 0.8f && angle < juce::MathConstants<float>::pi * 1.2f)
+            return -1;
+
+        return juce::jlimit (0, count - 1, juce::roundToInt ((distance - ringRadius (0)) / ringPitch));
+    }
+
+    // Catches presses on the rings (over the slider); the rest of the knob
+    // passes through to the slider. Drag a ring up or right to deepen its
+    // routing (Shift for fine), double-click it to zero the depth,
+    // right-click to bypass or remove it.
+    class RingOverlay : public juce::Component,
+                        public juce::SettableTooltipClient
+    {
+    public:
+        explicit RingOverlay (KnobControl& ownerIn) : owner (ownerIn) { setRepaintsOnMouseActivity (false); }
+
+        bool hitTest (int x, int y) override
+        {
+            return owner.ringAt (owner.getLocalPoint (this, juce::Point<int> (x, y)).toFloat()) >= 0;
+        }
+
+        void mouseMove (const juce::MouseEvent& event) override { setHovered (ringUnder (event)); }
+        void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            owner.closeModCard();
+            const auto ring = ringUnder (event);
+
+            if (! juce::isPositiveAndBelow (ring, (int) owner.routings.size()))
+                return;
+
+            if (event.mods.isPopupMenu())
+            {
+                showMenu (ring);
+                return;
+            }
+
+            owner.draggedRing = ring;
+            dragSlot = owner.routings[(size_t) ring].slot;
+            dragStartDepth = owner.routings[(size_t) ring].depth;
+
+            if (owner.dotStrip.onDragStart != nullptr)
+                owner.dotStrip.onDragStart (owner.routings[(size_t) ring].source);
+        }
+
+        void mouseDrag (const juce::MouseEvent& event) override
+        {
+            if (owner.draggedRing < 0)
+                return;
+
+            const auto fine = event.mods.isShiftDown() ? 0.2f : 1.0f;
+            const auto travel = (float) (event.getDistanceFromDragStartX() - event.getDistanceFromDragStartY());
+            const auto depth = juce::jlimit (-1.0f, 1.0f, dragStartDepth + travel * 0.006f * fine);
+
+            if (juce::isPositiveAndBelow (owner.draggedRing, (int) owner.routings.size()))
+                owner.routings[(size_t) owner.draggedRing].depth = depth;
+
+            if (owner.dotStrip.onDepthChange != nullptr)
+                owner.dotStrip.onDepthChange (dragSlot, depth);
+
+            updateTooltip (owner.draggedRing);
+            owner.repaint();
+        }
+
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (owner.draggedRing >= 0 && owner.dotStrip.onDragEnd != nullptr)
+                owner.dotStrip.onDragEnd();
+
+            owner.draggedRing = -1;
+            owner.repaint();
+        }
+
+        void mouseDoubleClick (const juce::MouseEvent& event) override
+        {
+            const auto ring = ringUnder (event);
+
+            if (juce::isPositiveAndBelow (ring, (int) owner.routings.size()) && owner.dotStrip.onZero != nullptr)
+                owner.dotStrip.onZero (owner.routings[(size_t) ring].slot);
+        }
+
+    private:
+        int ringUnder (const juce::MouseEvent& event) const
+        {
+            return owner.ringAt (owner.getLocalPoint (this, event.position));
+        }
+
+        void setHovered (int ring)
+        {
+            if (ring == owner.hoveredRing)
+                return;
+
+            owner.hoveredRing = ring;
+            setMouseCursor (ring >= 0 ? juce::MouseCursor::UpDownLeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+            updateTooltip (ring);
+            owner.repaint();
+        }
+
+        void updateTooltip (int ring)
+        {
+            if (! juce::isPositiveAndBelow (ring, (int) owner.routings.size()))
+                return;
+
+            const auto& dot = owner.routings[(size_t) ring];
+            setTooltip (ModNames::source (dot.source, owner.processorRef) + "  " + (dot.depth >= 0.0f ? "+" : "")
+                        + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%" + (dot.bipolar ? "  (swings both ways)" : "")
+                        + (dot.bypass ? "  (bypassed)" : "")
+                        + "\nDrag the ring up or right to deepen it (Shift for fine), double-click to zero it, "
+                          "right-click to bypass or remove it.");
+        }
+
+        void showMenu (int ring)
+        {
+            const auto dot = owner.routings[(size_t) ring];
+            juce::PopupMenu menu;
+            menu.addSectionHeader (ModNames::source (dot.source, owner.processorRef) + "  ("
+                                   + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+            menu.addItem (1, "Bypass", true, dot.bypass);
+            menu.addItem (2, "Remove");
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                                [safeOwner = juce::Component::SafePointer<KnobControl> (&owner), dot] (int result)
+                                {
+                                    if (safeOwner == nullptr)
+                                        return;
+
+                                    if (result == 1 && safeOwner->dotStrip.onBypass != nullptr)
+                                        safeOwner->dotStrip.onBypass (dot.slot, ! dot.bypass);
+                                    else if (result == 2 && safeOwner->dotStrip.onRemove != nullptr)
+                                        safeOwner->dotStrip.onRemove (dot.slot);
+                                });
+        }
+
+        KnobControl& owner;
+        int dragSlot = -1;
+        float dragStartDepth = 0.0f;
+    };
+
     float knobRadiusFor (juce::Rectangle<int>) const
     {
         // Deliberately not reduced like the knob itself: the mod ring sits
@@ -940,16 +1239,24 @@ private:
         return true;
     }
 
+    // The badges sit in a column right of the rings, as many as the dial's
+    // height takes (then "+N"); the ring overlay covers the dial.
     void layoutDots()
     {
         const auto area = rotaryArea();
         const auto radius = knobRadiusFor (knobBounds);
+        dotStrip.setMaxVisible ((int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch);
         const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
-        const auto x = (int) (area.getCentreX() + radius + 3.0f);
-        const auto y = (int) (area.getCentreY() - radius + 2.0f);
+        const auto x = (int) (area.getCentreX() + outerRingRadius() + 1.0f);
+        const auto y = (int) (area.getCentreY() - radius);
 
-        dotStrip.setBounds (juce::jmin (x, getWidth() - 12), y, 12, height);
+        dotStrip.setBounds (juce::jmin (x, getWidth() - ModDotStrip::stripWidth), juce::jmax (0, y), ModDotStrip::stripWidth, height);
         dotStrip.setVisible (! routings.empty() && ! compact);
+
+        ringOverlay.setBounds (getLocalBounds());
+        ringOverlay.setVisible (! routings.empty());
+        ringOverlay.toFront (false);
+        dotStrip.toFront (false);
     }
 
     // Re-reads which mod slots route into this knob. Cheap (raw parameter
@@ -963,14 +1270,16 @@ private:
         auto strongest = 0.0f;
         dominantSource = 0;
 
-        for (int i = 0; i < Mod::maxSlots && found.size() < 6; ++i)
+        for (int i = 0; i < Mod::maxSlots; ++i)
         {
             const auto slot = processorRef->readModSlot (i);
 
             if (slot.destination != ringConfig.destination || slot.source == Mod::Source::None)
                 continue;
 
-            found.push_back ({ i, (int) slot.source, slot.depth, slot.bypass });
+            const auto bipolar = slot.polarity == Mod::Polarity::Bipolar
+                                 || (slot.polarity == Mod::Polarity::Natural && Mod::isBipolarSource (slot.source));
+            found.push_back ({ i, (int) slot.source, slot.depth, slot.bypass, bipolar });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -983,9 +1292,10 @@ private:
                              || ! std::equal (found.begin(), found.end(), routings.begin(),
                                               [] (const auto& a, const auto& b)
                                               { return a.slot == b.slot && a.source == b.source && a.bypass == b.bypass
-                                                       && std::abs (a.depth - b.depth) < 1.0e-4f; });
+                                                       && a.bipolar == b.bipolar && std::abs (a.depth - b.depth) < 1.0e-4f; });
 
-        if (! changed)
+        // Mid-drag the ring keeps its own depth (the parameter catches up).
+        if (! changed || draggedRing >= 0)
             return;
 
         routings = std::move (found);
@@ -1003,23 +1313,8 @@ private:
 
         if (ringConfig.destination != 0)
         {
-            const auto sources = Mod::getSourceNames();
-            juce::PopupMenu sourceMenu, lfoMenu, envMenu, otherMenu;
-
-            for (int i = 1; i < sources.size(); ++i)
-            {
-                const auto source = (Mod::Source) i;
-                const auto isEnvelope = source == Mod::Source::AmpEnv || source == Mod::Source::FilterEnv
-                                        || source == Mod::Source::FilterEnv2 || source == Mod::Source::ModEnv
-                                        || source == Mod::Source::Env4
-                                        || (source >= Mod::Source::Env6 && source <= Mod::Source::Env16);
-                auto& target = Mod::lfoIndexFor (source) >= 0 ? lfoMenu : (isEnvelope ? envMenu : otherMenu);
-                target.addItem (i + 1, sources[i], true, routesFrom (i));
-            }
-
-            sourceMenu.addSubMenu ("LFOs", lfoMenu);
-            sourceMenu.addSubMenu ("Envelopes", envMenu);
-            sourceMenu.addSubMenu ("Performance and more", otherMenu);
+            juce::PopupMenu sourceMenu;
+            ModNames::fillSourceMenu (sourceMenu, processorRef, [this] (int source) { return routesFrom (source); });
             menu.addSubMenu ("Modulate with", sourceMenu);
 
             if (! routings.empty())
@@ -1027,7 +1322,7 @@ private:
                 juce::PopupMenu removeMenu;
 
                 for (const auto& dot : routings)
-                    removeMenu.addItem (5000 + dot.slot, sources[dot.source] + "  ("
+                    removeMenu.addItem (5000 + dot.slot, ModNames::source (dot.source, processorRef) + "  ("
                                                              + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
 
                 menu.addSubMenu ("Remove modulation", removeMenu);
@@ -1184,7 +1479,18 @@ private:
         }
 
         const auto highlighted = highlightedModSource() * 1000 + pinnedModSource();
-        const auto modValue = processorRef->getModDisplay (ringConfig.destination);
+        auto modValue = processorRef->getModDisplay (ringConfig.destination);
+
+        // Each ring's live stretch: its source now, shaped by the slot, times
+        // the depth.
+        liveValues.resize ((size_t) numRings());
+        for (int i = 0; i < numRings(); ++i)
+        {
+            const auto slot = processorRef->readModSlot (routings[(size_t) i].slot);
+            liveValues[(size_t) i] = slot.bypass ? 0.0f
+                                                 : Mod::shape (slot, processorRef->getSourceDisplayValue ((int) slot.source)) * slot.depth;
+            modValue += 3.0f * liveValues[(size_t) i] * (float) (i + 2);
+        }
 
         if (std::abs (modValue - lastModValue) > 0.002f || highlighted != lastHighlighted)
         {
@@ -1201,6 +1507,9 @@ private:
     juce::Slider slider;
     juce::Label label;
     ModDotStrip dotStrip;
+    RingOverlay ringOverlay { *this };
+    std::vector<float> liveValues;
+    int hoveredRing = -1, draggedRing = -1;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 
     IlanaSynthAudioProcessor* processorRef = nullptr;

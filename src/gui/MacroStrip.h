@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 #include "ParamControls.h"
 #include "AnimationUtils.h"
 
@@ -51,8 +52,8 @@ public:
             };
             addChildComponent (nameEditor);
 
-            setTooltip (title + "\nTurn to sweep everything this macro is routed to.  Drag its name onto any knob "
-                                "to route it there.  Double-click the name to rename it.");
+            setTooltip ("Turn to sweep everything this macro is routed to; rest on it to see where it goes.  "
+                        "Drag its name onto any knob to route it there.  Double-click the name to rename it.");
             setMouseCursor (juce::MouseCursor::DraggingHandCursor);
         }
 
@@ -89,9 +90,22 @@ public:
 
         if (! nameEditor.isBeingEdited())
         {
+            auto nameArea = text.removeFromTop (text.getHeight() / 2);
+
+            // A target whose module is off (a reverb mix with the reverb
+            // switched off) can't be heard: an amber mark says so, and the
+            // macro's card (rest on it) says which.
+            if (idleTargets > 0)
+            {
+                const auto mark = nameArea.removeFromRight (12).toFloat();
+                g.setColour (juce::Colour (0xffffb020));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.drawText ("!", mark, juce::Justification::bottomLeft, false);
+            }
+
             g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (title.toUpperCase(), text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft, true);
+            g.drawFittedText (title.toUpperCase(), nameArea, juce::Justification::bottomLeft, 1, 0.8f);
         }
         else
         {
@@ -122,9 +136,14 @@ public:
         repaint();
     }
 
-    void mouseExit (const juce::MouseEvent&) override
+    void mouseExit (const juce::MouseEvent& event) override
     {
+        // (Moving onto the knob inside isn't leaving.)
+        if (getLocalBounds().contains (event.getEventRelativeTo (this).getPosition()))
+            return;
+
         hover = false;
+        hoverRest = 0.0f;
 
         if (macroIndex >= 0 && highlightedModSource() == (int) Mod::macroSourceFor (macroIndex))
             highlightedModSource() = 0;
@@ -162,6 +181,18 @@ public:
     }
 
     KnobControl& getKnob() { return knob; }
+    int getMacroIndex() const { return macroIndex; }
+    // How many of the macro's targets can't be heard now (their module is
+    // off); the tests.
+    int getNumIdleTargets() const { return idleTargets; }
+
+    // Opens the macro's card: where it goes, with warnings (hover does it
+    // after a short rest).
+    void openCard()
+    {
+        if (macroIndex >= 0 && modHoverHooks().showSource != nullptr)
+            modHoverHooks().showSource (*this, (int) Mod::macroSourceFor (macroIndex));
+    }
 
 private:
     juce::Rectangle<int> textArea() const
@@ -169,6 +200,22 @@ private:
         auto area = getLocalBounds();
         area.removeFromLeft (juce::jmin (area.getHeight() + 4, 52) + 2);
         return area.reduced (0, 6);
+    }
+
+    int countIdleTargets() const
+    {
+        const auto source = Mod::macroSourceFor (macroIndex);
+        auto count = 0;
+
+        for (int i = 0; i < Mod::maxSlots; ++i)
+        {
+            const auto slot = processorRef.readModSlot (i);
+
+            if (slot.source == source && slot.isActive() && ModNames::whyDestinationIsIdle (processorRef, slot.destination).isNotEmpty())
+                ++count;
+        }
+
+        return count;
     }
 
     juce::String valueText() const
@@ -183,6 +230,28 @@ private:
     {
         if (nameEditor.isVisible() && ! nameEditor.isBeingEdited())
             nameEditor.setVisible (false);
+
+        if (macroIndex >= 0)
+        {
+            // Resting on the macro (not turning it) opens its card.
+            const auto resting = isMouseOver (true) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
+            if (resting && hoverRest < 0.35f && (hoverRest += frameSeconds()) >= 0.35f)
+                openCard();
+            else if (! resting)
+                hoverRest = 0.0f;
+
+            // Its idle targets, a few times a second.
+            if ((idleCheck += frameSeconds()) > 0.4f)
+            {
+                idleCheck = 0.0f;
+                const auto idle = countIdleTargets();
+                if (idle != idleTargets)
+                {
+                    idleTargets = idle;
+                    repaint();
+                }
+            }
+        }
 
         const auto value = parameter != nullptr ? parameter->getValue() : 0.0f;
 
@@ -200,5 +269,39 @@ private:
     juce::String defaultTitle;
     int macroIndex = -1;
     float lastValue = -1.0f;
+    float hoverRest = 0.0f, idleCheck = 1.0f;
+    int idleTargets = 0;
     bool hover = false;
+};
+
+// GLIDE as a row in the VOICES menu (it left the bottom strip to make room
+// for all eight macros): its name, a slider and the time. Turning it leaves
+// the menu open.
+class GlideMenuItem : public juce::PopupMenu::CustomComponent
+{
+public:
+    explicit GlideMenuItem (IlanaSynthAudioProcessor& p)
+        : juce::PopupMenu::CustomComponent (false),
+          slider (p.apvts, "glide")
+    {
+        addAndMakeVisible (slider);
+    }
+
+    void getIdealSize (int& idealWidth, int& idealHeight) override
+    {
+        idealWidth = 280;
+        idealHeight = 30;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        g.drawText ("Glide", getLocalBounds().withTrimmedLeft (12).withWidth (60), juce::Justification::centredLeft);
+    }
+
+    void resized() override { slider.setBounds (getLocalBounds().withTrimmedLeft (72).reduced (4, 4)); }
+
+private:
+    ValueSliderControl slider;
 };

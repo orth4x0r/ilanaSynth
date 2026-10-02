@@ -184,3 +184,44 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    4. Mod chip row: "E6" beside "ENV 5" when crowded; shorten consistently or not at all.
    5. A DX7 envelope editor (DX7 voices show oscillator AMP ENV menus that DX7 mode ignores).
    6. Help text: "+-48 st" to ±, Rössler, Hénon.
+14. **UI review 4 fixes** (the user, 2026-10-02: "add all these findings and fixes to the roadmap, then execute"). Two
+   adversarial reviews against Vital and Serum 2: `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-4-VITAL.md` (V1-V31) and
+   `UI-REVIEW-4-SERUM2.md` (S1-S29); merged report claude.ai/artifact/BWMkLJv7Ap8BtEw9ZQhkPL. Every finding is in one batch
+   below (V/S numbers point at the full text). Rules: no audio or preset change (fingerprints unchanged), parameter IDs and
+   choice orders untouched, each batch adds `--uitest` checks. Not done on purpose: a neutral Init (S18; step 6 left Init's
+   sound to the user), the header A/B and history (settled).
+   - **A. Undo and edit state** (V1, S1): one `beginEdit(name)` transaction per custom gesture (graphs, depth dots, card rows,
+     menus, dice, EQ); clip, LFO curve, steps, MSEG and remap edits as undoable actions; EDITED counts that data; a confirm
+     before a load replaces a modified patch; the tour stops promising more than undo does.
+   - **B. Modulation** (V2, V8, V9, V16, V17, V18, V24, S7, S12; with 13.4): depth-dot double-click zeroes (remove moves to
+     right-click); matrix rows numbered 1..n, duplicate source/destination pairs refused on drag and flagged, add button
+     pinned, sortable columns, compact rows, VIA collapsed until used, polarity Unipolar / Bipolar; one colour per source
+     (macros numbered, performance sources distinct, ENV 6-16 off a fixed palette, LFO 1 off the accent); pinned halo as a
+     ring; chip row follows the pool, no mixed abbreviations; remap editor docked with close, shapes and a live input dot;
+     MIDI learn on every control; "(35%)".
+   - **C. LFOs and envelopes** (V4, V10, V29, S5, S19, S21, S22): the first drag on any LFO shape converts it to Curve;
+     grid/snap on the panel; Steps reachable from the LFO, STEPS' hint a "Use on LFO n" button; MSEG grid, labels, playhead;
+     envelope time ticks and a playhead dot on the curve; one RATE knob that reads divisions when synced; a 1-16 index row
+     for the LFO and envelope pools.
+   - **D. FX rack** (V5, V6, V7, V20, V21, S2, S3, S6, S13, S24, S26): cards sized to their knobs; a display per family
+     (drive transfer curve, dynamics GR meters, delay taps, reverb decay); one MIX (Airwindows Dry/Wet pinned, slot blend in
+     the card header); type menu, solo and band selector in each card header, no invisible solo zone; types already in the
+     rack greyed out; names from one table (TAPE STOP), Airwindows display names, units out of labels; Airwindows category
+     modules listed by function; RACK A/B, the move arrows, COPY and DICE labelled and undoable; delay's tap grid hidden
+     while TAPS is off.
+   - **E. Oscillators, filter, PLAY** (V11, V12, V13, V14, V22, V23, V26, V30, S4, S8, S10, S14, S15, S16, S27): filter
+     graph draws the set cutoff (solid, dragged) and the modulated one (faint), markers kept inside the plot; columns
+     fold their last card instead of clipping, and a UI test fails on clipped knobs at 100 % and 75 %; one dimming rule
+     for controls with no effect; WAVE view without the phase playhead, frame as a readout; the same widget and order for a
+     parameter on every page; the oscillator × goes; three knob sizes by role; VECTOR greys dead corners and dims while
+     off; FM shows "DX7 ALG n", a CUSTOM state and ratio / level under each node; the physical card grouped by
+     STRING / EXCITER / BODY.
+   - **F. Browser, save, keys** (V3, V15, V25, V31, S11, S28, S29): SAVE overwrites the loaded user preset; SAVE AS is a
+     themed panel that asks before overwriting and keeps legal characters; Ctrl+S, Ctrl+Shift+S, Ctrl+Left/Right, Esc;
+     the browser sorts (name default), DX7 grouped by bank and out of "All", a star on each row, SURPRISE ME plain; the
+     table browser gets search and consistent names.
+   - **G. Clip sequencer** (S9): grid menu with triplets, velocity lane, Delete key, rubber-band selection with
+     copy / paste / duplicate, audition on click (undo comes from A).
+   - **H. Small things** (V19, V27, V28, S17, S20, S23, S25): tour content; 10 px minimum for interactive labels;
+     scope meters with a dB scale and clip light; CPU and OUT labelled; chaos LFO outputs spelled out; SEQ GENERATE on one
+     baseline per row, PROB SEQ's number row labelled.

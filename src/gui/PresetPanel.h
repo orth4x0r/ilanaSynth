@@ -5,25 +5,30 @@
 #include <map>
 
 #include "../PluginProcessor.h"
+#include "../PresetNames.h"
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
 
 // The preset browser. It drops down under the preset name: categories (with
-// counts) on the left, search and the list on the right.
+// counts) on the left, search, filter chips and the list on the right.
 //   click        load the preset and keep browsing
 //   double-click load it and close
 //   up / down    step through the list, loading as you go
 //   Enter        keep the selected preset and close
 //   Esc, or a click anywhere outside, closes
 // Clicking the star on a row makes it a favourite. The list is sorted by
-// name (SORT: by category, or favourites first). The DX7 ROM voices stay out
-// of All unless "Show DX7 voices" is ticked; under DX7, chips pick a bank
-// (ROM1A, ROM1B..., Dexed's and imported ones). Chips also filter by the tags
-// saved with user presets, when there are any (factory presets have none).
-// DOCK keeps it open at the side of the window instead (the window grows by
-// the panel's width, as Serum 2's browser does): categories above, rows of
-// two lines (name and tag, then the macro names), and loading never closes
-// it. FLOAT returns it to the drop-down, the cross closes it.
+// name (SORT: by category, or favourites first). "All" is every preset.
+// The 288 DX7 voices sit in the categories of what they sound like (Keys,
+// Bass, Pad...); the DX7 chip shows only them, with a chip per bank (ROM1A,
+// ROM1B..., Dexed's and imported ones). Each preset carries 3-6 descriptive
+// tags (factory ones from tools/tag_presets.py), shown as chips on its row
+// and above the list, where a click filters by them (several narrow it);
+// a tag chip on a row filters too. A row's tooltip names its macros.
+// DOCK opens the browser over the page area instead (the window keeps its
+// size): categories on the left, the list in the middle, and the selected
+// preset's details (author, comment, tags, macros) on the right; loading
+// never closes it, picking a tab does. FLOAT returns it to the drop-down,
+// the cross closes it.
 class PresetPanel : public juce::Component,
                     private juce::ListBoxModel,
                     private juce::KeyListener,
@@ -36,7 +41,7 @@ public:
     {
         setWantsKeyboardFocus (true);
 
-        search.setTextToShowWhenEmpty ("Search names, categories and tags", juce::Colours::white.withAlpha (0.35f));
+        search.setTextToShowWhenEmpty ("Search names, categories, tags and banks", juce::Colours::white.withAlpha (0.35f));
         search.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         search.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         search.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
@@ -60,7 +65,7 @@ public:
         list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
         list.setColour (juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
         list.setOutlineThickness (0);
-        list.setRowHeight (26);
+        list.setRowHeight (rowHeight);
         list.setModel (this);
         list.addKeyListener (this);
         addAndMakeVisible (list);
@@ -72,14 +77,22 @@ public:
         };
         deleteButton.onClick = [this] { deleteSelected(); };
         folderButton.onClick = [this] { processorRef.getUserPresetDirectory().revealToUser(); };
+        folderButton.setTooltip ("Open your user preset folder");
         surpriseButton.onClick = [this] { loadRandom(); };
         surpriseButton.setTooltip ("Load a random preset from the list shown");
+        importButton.onClick = [this]
+        {
+            if (onImportSyx != nullptr)
+                onImportSyx();
+        };
+        importButton.setTooltip ("Import a DX7 or Dexed bank (.syx): its voices become your presets, under the DX7 chip");
 
-        for (auto* button : { &surpriseButton, &saveAsButton, &deleteButton, &folderButton })
+        for (auto* button : { &surpriseButton, &saveAsButton, &deleteButton, &folderButton, &importButton })
             addAndMakeVisible (button);
 
         // SAVE AS is the main action; SURPRISE ME is an ordinary button.
         saveAsButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
+        updateDeleteButton();
 
         sortMode = settings != nullptr ? juce::jlimit (0, 2, settings->getIntValue ("presetSort", 0)) : 0;
         sortButton.setTooltip ("Sort the list by name, by category, or with favourites first");
@@ -87,17 +100,10 @@ public:
         addAndMakeVisible (sortButton);
         updateSortButton();
 
-        showDx7 = settings != nullptr && settings->getBoolValue ("presetShowDx7", false);
-        dx7Toggle.setButtonText ("Show DX7 voices");
-        dx7Toggle.setTooltip ("List the 288 DX7 ROM voices under All too (they are always under DX7)");
-        dx7Toggle.setToggleState (showDx7, juce::dontSendNotification);
-        dx7Toggle.onClick = [this] { setShowDx7 (dx7Toggle.getToggleState()); };
-        addAndMakeVisible (dx7Toggle);
-
         chips.onClick = [this] (const juce::String& key) { chipClicked (key); };
         addChildComponent (chips);
 
-        dockButton.setTooltip ("Keep the browser open at the side of the window");
+        dockButton.setTooltip ("Open the browser over the page, with each preset's details, and keep it open while you load");
         dockButton.onClick = [this]
         {
             if (onDockRequest != nullptr)
@@ -131,12 +137,14 @@ public:
     std::function<void()> onFavouriteChanged;
     // SAVE AS pressed (the editor opens its save panel).
     std::function<void()> onSaveAs;
-    // DOCK / FLOAT pressed (true: dock at the side), and the docked cross.
+    // IMPORT .SYX pressed (the editor asks for the file and imports it).
+    std::function<void()> onImportSyx;
+    // DOCK / FLOAT pressed (true: dock over the page), and the docked cross.
     std::function<void (bool)> onDockRequest;
     std::function<void()> onDockedClose;
 
-    // Docked: a side panel that stays open (no scrim, outside clicks and Esc
-    // leave it alone). Undocked: the drop-down.
+    // Docked: a panel over the page area that stays open (no scrim, outside
+    // clicks and Esc leave it alone). Undocked: the drop-down.
     void setDocked (bool shouldDock)
     {
         if (docked == shouldDock)
@@ -145,9 +153,8 @@ public:
         docked = shouldDock;
         dockButton.setButtonText (docked ? "FLOAT" : "DOCK");
         dockButton.setTooltip (docked ? "Back to the drop-down under the preset name"
-                                      : "Keep the browser open at the side of the window");
+                                      : "Open the browser over the page, with each preset's details, and keep it open while you load");
         closeDockButton.setVisible (docked);
-        list.setRowHeight (docked ? 40 : 26);
 
         if (docked)
         {
@@ -175,30 +182,17 @@ public:
     {
         names = processorRef.getAllPresetNames();
         macroTextCache.clear();
+        infoCache.clear();
         categories = processorRef.getAllPresetCategories();
         tags = processorRef.getAllPresetTags();
-        banks.clear();
-
-        // Factory DX7 voices are "NAME (ROM1A)"; imported banks sit in
-        // DX7/<bank>/ in the user folder.
-        const auto userFiles = processorRef.getUserPresetFiles();
+        banks = processorRef.getAllPresetBanks();
+        shownNames.clear();
+        tagLists.clear();
 
         for (int i = 0; i < names.size(); ++i)
         {
-            juce::String bank;
-
-            if (categories[i] == "DX7")
-            {
-                if (! isUserPreset (i))
-                    bank = names[i].fromLastOccurrenceOf ("(", false, false).upToFirstOccurrenceOf (")", false, false);
-                else if (const auto file = userFiles[i - factoryCount];
-                         file.getParentDirectory().getParentDirectory().getFileName() == "DX7")
-                    bank = file.getParentDirectory().getFileName();
-                else
-                    bank = "User";
-            }
-
-            banks.add (bank);
+            shownNames.add (banks[i].isNotEmpty() ? Presets::dx7DisplayName (names[i]) : names[i]);
+            tagLists.push_back (tagsOf (tags[i]));
         }
 
         rebuildSidebar();
@@ -216,6 +210,7 @@ public:
             setAlpha (1.0f);
             setTransform ({});
             setVisible (true);
+            toFront (false);
             showCurrentPreset();
             startTimerHz (20);
             return;
@@ -282,27 +277,22 @@ public:
 
     int getSortMode() const { return sortMode; }
 
-    // Whether All lists the DX7 ROM voices (kept in the settings).
-    void setShowDx7 (bool shouldShow)
+    // Shows only the DX7 voices, of one bank ("" for every bank); after an
+    // import, the editor opens the browser on the new bank this way.
+    void showDx7Bank (const juce::String& bank)
     {
-        showDx7 = shouldShow;
-        dx7Toggle.setToggleState (showDx7, juce::dontSendNotification);
-
-        if (settings != nullptr)
-        {
-            settings->setValue ("presetShowDx7", showDx7);
-            settings->saveIfNeeded();
-        }
-
-        rebuildSidebar();
+        filterKey = {};
+        sidebar.selected = {};
+        sidebar.repaint();
+        dx7Only = true;
+        bankFilter = bank;
         rebuild();
     }
 
-    bool isShowingDx7() const { return showDx7; }
-
     // For the tests: the sidebar's choice ("" is All, a category's name,
-    // or "*fav" / "*user"), the search, the names listed, the chips, and a
-    // click on a row at x (the star is the first 30 px).
+    // or "*fav" / "*user"), the search, the names listed (as saved, and as
+    // shown), the chips, and a click on a row at x (the star is the first
+    // 30 px; tag chips on the row filter).
     void selectFilter (const juce::String& key)
     {
         filterKey = key;
@@ -323,6 +313,26 @@ public:
         return shown;
     }
 
+    juce::StringArray getListedDisplayNames() const
+    {
+        juce::StringArray shown;
+
+        for (auto index : filtered)
+            shown.add (shownNames[index]);
+
+        return shown;
+    }
+
+    juce::StringArray getSidebarKeys() const
+    {
+        juce::StringArray keys;
+
+        for (const auto& entry : sidebar.entries)
+            keys.add (entry.key);
+
+        return keys;
+    }
+
     juce::StringArray getChipKeys() const
     {
         juce::StringArray keys;
@@ -333,13 +343,31 @@ public:
         return keys;
     }
 
+    // The tag chips drawn on a preset's row (in the list shown).
+    juce::StringArray getRowTags (int row) const
+    {
+        juce::StringArray shown;
+
+        if (juce::isPositiveAndBelow (row, filtered.size()))
+            for (const auto& box : rowTagBoxes (filtered[row], list.getVisibleRowWidth(), list.getRowHeight()))
+                shown.add (box.second);
+
+        return shown;
+    }
+
+    juce::String getRowTooltip (int row) { return getTooltipForRow (row); }
+    bool isDeleteEnabled() const { return deleteButton.isEnabled(); }
+    juce::String getDeleteTooltip() { return deleteButton.getTooltip(); }
+    juce::Rectangle<int> getListBounds() const { return list.getBounds(); }
+    int getListRowHeight() const { return list.getRowHeight(); }
+
     void clickChip (const juce::String& key) { chipClicked (key); }
 
     void clickRow (int row, int x)
     {
-        const juce::MouseEvent event (juce::Desktop::getInstance().getMainMouseSource(), { (float) x, 10.0f },
+        const juce::MouseEvent event (juce::Desktop::getInstance().getMainMouseSource(), { (float) x, (float) rowHeight * 0.5f },
                                       {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &list, &list, juce::Time::getCurrentTime(),
-                                      { (float) x, 10.0f }, juce::Time::getCurrentTime(), 1, false);
+                                      { (float) x, (float) rowHeight * 0.5f }, juce::Time::getCurrentTime(), 1, false);
         listBoxItemClicked (row, event);
     }
 
@@ -354,7 +382,7 @@ public:
             g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f + (float) i * 2.0f).reduced ((float) (3 - i)), 9.0f);
         }
 
-        IlanaTheme::paintCard (g, bounds, 9.0f, IlanaTheme::accent().withAlpha (docked ? 0.25f : 0.45f));
+        IlanaTheme::paintCard (g, bounds, 9.0f, IlanaTheme::accent().withAlpha (docked ? 0.3f : 0.45f));
 
         auto header = getLocalBounds().reduced (14, 0).removeFromTop (34);
         g.setColour (IlanaTheme::accent());
@@ -366,16 +394,17 @@ public:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         const auto count = juce::String (filtered.size()) + " of " + juce::String (names.size());
+        const auto keys = juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close"));
 
         if (docked)
         {
-            g.drawText (count, header.withTrimmedLeft (84).withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 10),
-                        juce::Justification::centredLeft);
+            g.drawText (count, header.withTrimmedLeft (84), juce::Justification::centredLeft);
+            g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  click loads  \xc2\xb7  a tab closes it")),
+                        header.withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 20), juce::Justification::centred);
         }
         else
         {
-            g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close")),
-                        header.withTrimmedRight (dockButton.getWidth() + 40), juce::Justification::centred);
+            g.drawText (keys, header.withTrimmedRight (dockButton.getWidth() + 40), juce::Justification::centred);
             g.drawText (count, header.withTrimmedRight (dockButton.getWidth() + 8), juce::Justification::centredRight);
         }
 
@@ -391,19 +420,20 @@ public:
         }
 
         IlanaTheme::paintRecessedPanel (g, sidebar.getBounds().toFloat().expanded (1.0f), 6.0f);
-        IlanaTheme::paintRecessedPanel (g, list.getBounds().toFloat().expanded (1.0f), 6.0f);
+        IlanaTheme::paintRecessedPanel (g, listFrame.toFloat(), 6.0f);
 
         if (filtered.isEmpty())
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawFittedText (filterKey == favouritesKey && search.isEmpty()
+            g.drawFittedText (filterKey == favouritesKey && search.isEmpty() && selectedTags.isEmpty()
                                   ? juce::String ("No favourites yet. Click the star on a preset to add it.")
-                                  : (hiddenDx7Matches > 0 ? "No presets match. " + juce::String (hiddenDx7Matches)
-                                                                + " DX7 voices do: tick Show DX7 voices, or pick DX7."
-                                                          : juce::String ("No presets match.")),
+                                  : juce::String ("No presets match. Clear the search or a chip to see more."),
                               list.getBounds().reduced (16, 0), juce::Justification::centred, 2);
         }
+
+        if (docked)
+            paintDetails (g);
     }
 
     void lookAndFeelChanged() override
@@ -441,9 +471,6 @@ public:
 
         auto left = area.removeFromLeft (150);
         area.removeFromLeft (10);
-        dx7Toggle.setBounds (left.removeFromBottom (22));
-        left.removeFromBottom (6);
-        sidebar.columns = 1;
         sidebar.setBounds (left.reduced (1));
 
         auto searchRow = area.removeFromTop (30);
@@ -452,14 +479,11 @@ public:
         search.setBounds (searchRow.reduced (1));
         area.removeFromTop (8);
         layoutChips (area);
-        list.setBounds (area.reduced (1));
+        layoutList (area);
 
         surpriseButton.setBounds (footer.removeFromLeft (150).reduced (1, 0));
         footer.removeFromLeft (10);
-        const auto buttonWidth = footer.getWidth() / 3;
-        saveAsButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
-        deleteButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
-        folderButton.setBounds (footer.reduced (2, 0));
+        layoutFooter (footer, { &saveAsButton, &deleteButton, &folderButton, &importButton });
     }
 
     bool keyPressed (const juce::KeyPress& key) override
@@ -510,35 +534,159 @@ public:
     }
 
 private:
+    static constexpr int rowHeight = 28;
+
+    // The list sits in a recessed frame; its height is a whole number of
+    // rows, so the last row is never cut in half (the frame keeps the
+    // spare few pixels under it).
+    void layoutList (juce::Rectangle<int> area)
+    {
+        listFrame = area.expanded (1);
+        auto inner = area.reduced (1);
+        const auto rows = juce::jmax (1, inner.getHeight() / rowHeight);
+        list.setBounds (inner.withHeight (rows * rowHeight));
+    }
+
+    static void layoutFooter (juce::Rectangle<int> footer, std::initializer_list<juce::Button*> buttons)
+    {
+        const auto width = footer.getWidth() / (int) buttons.size();
+
+        for (auto* button : buttons)
+            button->setBounds (footer.removeFromLeft (width).reduced (2, 0));
+    }
+
     void layoutDocked()
     {
-        auto area = getLocalBounds().reduced (10);
+        auto area = getLocalBounds().reduced (12);
         area.removeFromTop (26);
 
-        search.setBounds (area.removeFromTop (30).reduced (1));
-        area.removeFromTop (6);
+        auto footer = area.removeFromBottom (28);
+        area.removeFromBottom (8);
+
+        auto left = area.removeFromLeft (170);
+        area.removeFromLeft (10);
+        sidebar.setBounds (left.reduced (1));
+
+        detailsArea = area.removeFromRight (250);
+        area.removeFromRight (10);
+
+        auto searchRow = area.removeFromTop (30);
+        sortButton.setBounds (searchRow.removeFromRight (140).reduced (1, 2));
+        searchRow.removeFromRight (8);
+        search.setBounds (searchRow.reduced (1));
+        area.removeFromTop (8);
+        layoutChips (area);
+        layoutList (area);
+
+        surpriseButton.setBounds (footer.removeFromLeft (170).reduced (1, 0));
+        footer.removeFromLeft (10);
+        layoutFooter (footer, { &saveAsButton, &deleteButton, &folderButton, &importButton });
+    }
+
+    // Docked: the selected preset (or the one playing) in full on the right.
+    void paintDetails (juce::Graphics& g)
+    {
+        IlanaTheme::paintRecessedPanel (g, detailsArea.toFloat(), 6.0f);
+        const auto index = juce::isPositiveAndBelow (selectedPreset, names.size()) ? selectedPreset
+                                                                                  : names.indexOf (processorRef.getCurrentPresetName());
+
+        auto area = detailsArea.reduced (14, 12);
+
+        if (! juce::isPositiveAndBelow (index, names.size()))
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawFittedText ("Pick a preset to see who made it, its tags and what its macros do.", area,
+                              juce::Justification::centredTop, 3);
+            return;
+        }
+
+        const auto colour = categoryColour (categories[index]);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
+        g.drawFittedText (shownNames[index], area.removeFromTop (44), juce::Justification::topLeft, 2, 0.9f);
 
         {
-            auto row = area.removeFromTop (24);
-            sortButton.setBounds (row.removeFromRight (128).reduced (1, 1));
-            dx7Toggle.setBounds (row);
+            auto line = area.removeFromTop (20);
+            const auto text = (isUserPreset (index) ? juce::String (juce::CharPointer_UTF8 ("USER  \xc2\xb7  ")) : juce::String())
+                              + categories[index].toUpperCase();
+            g.setColour (colour);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText (text, line, juce::Justification::centredLeft);
+
+            if (banks[index].isNotEmpty())
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText ("DX7  " + banks[index], line, juce::Justification::centredRight);
+            }
         }
+
+        const auto& info = infoFor (index);
         area.removeFromTop (6);
 
-        sidebar.columns = 2;
-        sidebar.setBounds (area.removeFromTop (juce::jmin (sidebar.getPreferredHeight(), area.getHeight() / 3)).reduced (1));
-        area.removeFromTop (8);
+        if (info.author.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("by " + info.author, area.removeFromTop (18), juce::Justification::centredLeft, true);
+        }
 
-        auto footer = area.removeFromBottom (26);
-        area.removeFromBottom (8);
-        layoutChips (area);
-        list.setBounds (area.reduced (1));
+        if (info.comment.isNotEmpty())
+        {
+            area.removeFromTop (4);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawFittedText (info.comment, area.removeFromTop (64), juce::Justification::topLeft, 4, 1.0f);
+        }
 
-        const auto buttonWidth = footer.getWidth() / 4;
-        surpriseButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
-        saveAsButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
-        deleteButton.setBounds (footer.removeFromLeft (buttonWidth).reduced (2, 0));
-        folderButton.setBounds (footer.reduced (2, 0));
+        const auto heading = [&g, &area] (const juce::String& text)
+        {
+            area.removeFromTop (10);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (text, area.removeFromTop (16), juce::Justification::centredLeft);
+        };
+
+        if (! tagLists[(size_t) index].isEmpty())
+        {
+            heading ("TAGS");
+            const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            auto x = area.getX(), y = area.getY();
+
+            for (const auto& tag : tagLists[(size_t) index])
+            {
+                const auto w = juce::GlyphArrangement::getStringWidthInt (font, tag) + 14;
+
+                if (x > area.getX() && x + w > area.getRight())
+                {
+                    x = area.getX();
+                    y += 22;
+                }
+
+                paintTagChip (g, juce::Rectangle<int> (x, y, w, 18).toFloat(), tag, selectedTags.contains (tag, true));
+                x += w + 5;
+            }
+
+            area.setTop (y + 22);
+        }
+
+        const auto macros = macroListFor (index, names[index] == processorRef.getCurrentPresetName());
+
+        if (! macros.isEmpty())
+        {
+            heading ("MACROS");
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+
+            for (int m = 0; m < macros.size(); ++m)
+            {
+                auto line = area.removeFromTop (18);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (juce::String (m + 1), line.removeFromLeft (16), juce::Justification::centredLeft);
+                g.setColour (IlanaTheme::Ui::text2);
+                g.drawText (macros[m].isNotEmpty() ? macros[m] : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")),
+                            line, juce::Justification::centredLeft, true);
+            }
+        }
     }
 
     bool docked = false;
@@ -604,12 +752,11 @@ private:
             }
         }
 
-        void mouseMove (const juce::MouseEvent& event) override { mouseX = event.x; setHovered (rowAt (event.y)); }
+        void mouseMove (const juce::MouseEvent& event) override { setHovered (rowAt (event.y)); }
         void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
 
         void mouseDown (const juce::MouseEvent& event) override
         {
-            mouseX = event.x;
             const auto row = rowAt (event.y);
 
             if (juce::isPositiveAndBelow (row, (int) entries.size()))
@@ -622,27 +769,12 @@ private:
             }
         }
 
-        // Docked, the categories flow into two columns above the list.
-        int columns = 1;
-
-        int getPreferredHeight() const
-        {
-            return columns > 1 ? 8 + ((int) entries.size() + columns - 1) / columns * rowHeight
-                               : rowBounds ((int) entries.size() - 1).getBottom() + 6;
-        }
-
     private:
         static constexpr int rowHeight = 24;
         static constexpr int gap = 9;
 
         juce::Rectangle<int> rowBounds (int index) const
         {
-            if (columns > 1)
-            {
-                const auto columnWidth = (getWidth() - 8) / columns;
-                return { 4 + (index % columns) * columnWidth, 4 + (index / columns) * rowHeight, columnWidth - 2, rowHeight - 2 };
-            }
-
             auto y = 4;
 
             for (int i = 0; i <= index && i < (int) entries.size(); ++i)
@@ -660,14 +792,11 @@ private:
         int rowAt (int y) const
         {
             for (int i = 0; i < (int) entries.size(); ++i)
-                if (rowBounds (i).expanded (0, 1).contains (columns > 1 ? rowBounds (i).getCentreX() : getWidth() / 2, y)
-                    && (columns == 1 || std::abs (rowBounds (i).getCentreX() - mouseX) <= rowBounds (i).getWidth() / 2 + 1))
+                if (rowBounds (i).expanded (0, 1).contains (getWidth() / 2, y))
                     return i;
 
             return -1;
         }
-
-        int mouseX = 0;
 
         void setHovered (int row)
         {
@@ -681,41 +810,84 @@ private:
         int hovered = -1;
     };
 
-    // Filter chips: DX7 banks, or user preset tags. Click one to pick it.
+    // The filter chips above the list, in groups: the DX7 chip, then its
+    // banks while it is on, then the tags of the presets shown (most used
+    // first). Tags keep to the line the other chips end on; "+N" opens the
+    // rest, "Fewer" folds them again.
     class ChipRow : public juce::Component
     {
     public:
+        enum Kind { source, bank, tag };
+
         struct Entry
         {
             juce::String key, label;
             bool selected = false;
+            Kind kind = tag;
+            juce::Colour colour;
         };
 
         std::vector<Entry> entries;
+        bool expanded = false;
         std::function<void (const juce::String&)> onClick;
+        static constexpr const char* moreKey = "*more";
 
         int getPreferredHeight (int width) const
         {
             const auto boxes = layout (width);
-            return boxes.empty() ? 0 : boxes.back().getBottom();
+            auto bottom = 0;
+
+            for (const auto& box : boxes)
+                bottom = juce::jmax (bottom, box.bounds.getBottom());
+
+            return bottom;
+        }
+
+        // The keys of the chips drawn (tags folded away aren't).
+        juce::StringArray getShownKeys() const
+        {
+            juce::StringArray keys;
+
+            for (const auto& box : layout (getWidth()))
+                keys.add (box.key);
+
+            return keys;
         }
 
         void paint (juce::Graphics& g) override
         {
             const auto boxes = layout (getWidth());
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setFont (font());
 
-            for (size_t i = 0; i < entries.size(); ++i)
+            for (size_t i = 0; i < boxes.size(); ++i)
             {
-                const auto box = boxes[i].toFloat();
-                const auto& entry = entries[i];
-                g.setColour (entry.selected ? IlanaTheme::accent().withAlpha (0.3f)
-                                            : juce::Colours::white.withAlpha ((int) i == hovered ? 0.1f : 0.05f));
-                g.fillRoundedRectangle (box, box.getHeight() * 0.5f);
-                g.setColour (entry.selected ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.3f));
-                g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
+                const auto& box = boxes[i];
+                const auto bounds = box.bounds.toFloat();
+                const auto hover = (int) i == hovered;
+
+                if (box.entry == nullptr)
+                {
+                    // "+N" / "Fewer": a text link, not a filter.
+                    g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+                    g.drawText (box.label, box.bounds, juce::Justification::centred);
+                    continue;
+                }
+
+                const auto& entry = *box.entry;
+                const auto tint = entry.colour != juce::Colour() ? entry.colour : IlanaTheme::accent();
+
+                if (box.dividerBefore)
+                {
+                    g.setColour (IlanaTheme::Ui::line.brighter (0.4f));
+                    g.fillRect (juce::Rectangle<float> (1.0f, bounds.getHeight() - 6.0f).withCentre ({ bounds.getX() - 6.0f, bounds.getCentreY() }));
+                }
+
+                g.setColour (entry.selected ? tint.withAlpha (0.3f) : juce::Colours::white.withAlpha (hover ? 0.1f : 0.04f));
+                g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+                g.setColour (entry.selected ? tint : (entry.kind == tag ? IlanaTheme::Ui::line.brighter (0.3f) : tint.withAlpha (0.55f)));
+                g.drawRoundedRectangle (bounds.reduced (0.5f), bounds.getHeight() * 0.5f, 1.0f);
                 g.setColour (entry.selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-                g.drawText (entry.label, boxes[i], juce::Justification::centred);
+                g.drawText (entry.label, box.bounds, juce::Justification::centred);
             }
         }
 
@@ -724,33 +896,97 @@ private:
 
         void mouseDown (const juce::MouseEvent& event) override
         {
+            const auto boxes = layout (getWidth());
             const auto chip = chipAt (event.getPosition());
 
             if (chip >= 0 && onClick != nullptr)
-                onClick (entries[(size_t) chip].key);
+                onClick (boxes[(size_t) chip].key);
         }
 
     private:
-        static constexpr int chipHeight = 20, gap = 5;
+        static constexpr int chipHeight = 22, gap = 5, groupGap = 13;
 
-        std::vector<juce::Rectangle<int>> layout (int width) const
+        static juce::Font font() { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)); }
+
+        struct Box
         {
-            std::vector<juce::Rectangle<int>> boxes;
-            const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            juce::Rectangle<int> bounds;
+            juce::String key, label;
+            const Entry* entry = nullptr;
+            bool dividerBefore = false;
+        };
+
+        std::vector<Box> layout (int width) const
+        {
+            std::vector<Box> boxes;
+            const auto f = font();
+            const auto widthOf = [&f, width] (const juce::String& text)
+            {
+                return juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, text) + 20);
+            };
+
             auto x = 0, y = 0;
+            auto previousKind = -1;
+            auto tagCount = 0;
+
+            for (const auto& entry : entries)
+                tagCount += entry.kind == tag ? 1 : 0;
+
+            auto tagsPlaced = 0;
 
             for (const auto& entry : entries)
             {
-                const auto w = juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (font, entry.label) + 18);
+                const auto w = widthOf (entry.label);
+                const auto newGroup = previousKind >= 0 && previousKind != (int) entry.kind;
+                auto startX = x + (x > 0 ? (newGroup ? groupGap : gap) : 0);
 
-                if (x > 0 && x + w > width)
+                if (entry.kind == tag && ! expanded)
+                {
+                    // Folded: the tags stay on the line they start on, with
+                    // room kept for "+N" while more are left.
+                    const auto left = tagCount - tagsPlaced - 1;
+                    const auto moreWidth = left > 0 ? widthOf ("+" + juce::String (left)) + gap : 0;
+
+                    if (startX + w + moreWidth > width)
+                    {
+                        const auto label = "+" + juce::String (tagCount - tagsPlaced);
+                        const auto moreW = widthOf (label);
+
+                        if (startX + moreW > width)
+                        {
+                            startX = 0;
+                            y += chipHeight + gap;
+                        }
+
+                        boxes.push_back ({ { startX, y, moreW, chipHeight }, moreKey, label, nullptr, false });
+                        return boxes;
+                    }
+                }
+                else if (startX + w > width && x > 0)
                 {
                     x = 0;
                     y += chipHeight + gap;
+                    startX = 0;
                 }
 
-                boxes.push_back ({ x, y, w, chipHeight });
-                x += w + gap;
+                boxes.push_back ({ { startX, y, w, chipHeight }, entry.key, entry.label, &entry, newGroup && startX > 0 });
+                x = startX + w;
+                previousKind = (int) entry.kind;
+                tagsPlaced += entry.kind == tag ? 1 : 0;
+            }
+
+            if (expanded && tagCount > 0)
+            {
+                const auto w = widthOf ("Fewer");
+                auto startX = x + gap;
+
+                if (startX + w > width)
+                {
+                    startX = 0;
+                    y += chipHeight + gap;
+                }
+
+                boxes.push_back ({ { startX, y, w, chipHeight }, moreKey, "Fewer", nullptr, false });
             }
 
             return boxes;
@@ -761,7 +997,7 @@ private:
             const auto boxes = layout (getWidth());
 
             for (size_t i = 0; i < boxes.size(); ++i)
-                if (boxes[i].contains (position))
+                if (boxes[i].bounds.contains (position))
                     return (int) i;
 
             return -1;
@@ -792,9 +1028,11 @@ private:
         if (category == "Arp") return juce::Colour (0xffff7ac6);
         if (category == "Drums") return juce::Colour (0xffc9ced6);
         if (category == "Generative") return juce::Colour (0xff4fc3ff);
-        if (category == "DX7") return juce::Colour (0xffd9765f); // the DX7's membrane-panel red
         return IlanaTheme::Ui::text2;
     }
+
+    // The DX7's membrane-panel red, for the DX7 chip and bank text.
+    static juce::Colour dx7Colour() { return juce::Colour (0xffd9765f); }
 
     static bool isFavouriteName (juce::PropertiesFile* settingsFile, const juce::String& name)
     {
@@ -826,10 +1064,21 @@ private:
             g.strokePath (star, juce::PathStrokeType (1.1f));
     }
 
+    static void paintTagChip (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, bool selected)
+    {
+        g.setColour (selected ? IlanaTheme::accent().withAlpha (0.28f) : juce::Colours::white.withAlpha (0.045f));
+        g.fillRoundedRectangle (box, box.getHeight() * 0.5f);
+        g.setColour (selected ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.35f));
+        g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
+        g.setColour (selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (text, box.toNearestInt(), juce::Justification::centred);
+    }
+
     void rebuildSidebar()
     {
         static const juce::StringArray order { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
-                                               "Drone", "Drums", "FX", "FX Input", "Generative", "DX7", "Other" };
+                                               "Drone", "Drums", "FX", "FX Input", "Generative", "Other" };
         juce::StringArray present;
 
         // "User" has its own entry; the Init patch lives under All.
@@ -849,17 +1098,16 @@ private:
             if (! shownCategories.contains (category))
                 shownCategories.add (category);
 
-        auto favourites = 0, users = 0, all = 0;
+        auto favourites = 0, users = 0;
 
         for (int i = 0; i < names.size(); ++i)
         {
             favourites += isFavouriteName (settings, names[i]) ? 1 : 0;
             users += isUserPreset (i) ? 1 : 0;
-            all += showDx7 || categories[i] != "DX7" ? 1 : 0;
         }
 
         std::vector<Sidebar::Entry> entries;
-        entries.push_back ({ "", "All", all, IlanaTheme::accent(), false });
+        entries.push_back ({ "", "All", names.size(), IlanaTheme::accent(), false });
         entries.push_back ({ favouritesKey, "Favourites", favourites, juce::Colour (0xffffd447), false });
         entries.push_back ({ userKey, "User", users, juce::Colours::white.withAlpha (0.6f), false });
 
@@ -871,6 +1119,9 @@ private:
                                  categoryColour (category), first });
             first = false;
         }
+
+        if (! filterKey.isEmpty() && filterKey != favouritesKey && filterKey != userKey && ! shownCategories.contains (filterKey))
+            filterKey = {};
 
         sidebar.entries = std::move (entries);
         sidebar.selected = filterKey;
@@ -887,24 +1138,19 @@ private:
         return count;
     }
 
-    // "TONE  ·  MORPH  ·  DRIVE": the preset's macro names. The loaded one
-    // reads them from the patch (so an automatic mapping shows too); the
-    // others from the factory table. Cached until the list is rebuilt.
-    juce::String macroNamesFor (int presetIndex, bool loaded)
+    // The preset's macro names. The loaded one reads them from the patch
+    // (so an automatic mapping shows too); the others from the factory
+    // table. Cached until the list is rebuilt.
+    juce::StringArray macroListFor (int presetIndex, bool loaded)
     {
         if (loaded)
         {
             juce::StringArray live;
 
             for (int macro = 0; macro < 4; ++macro)
-            {
-                const auto name = processorRef.apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString();
+                live.add (processorRef.apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString());
 
-                if (name.isNotEmpty())
-                    live.add (name);
-            }
-
-            return live.joinIntoString (juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))).toUpperCase();
+            return live;
         }
 
         if (isUserPreset (presetIndex))
@@ -913,14 +1159,91 @@ private:
         if (const auto found = macroTextCache.find (presetIndex); found != macroTextCache.end())
             return found->second;
 
-        auto list = processorRef.getFactoryMacroNames (presetIndex);
-        list.removeEmptyStrings();
-        const auto text = list.joinIntoString (juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))).toUpperCase();
-        macroTextCache[presetIndex] = text;
-        return text;
+        const auto names4 = processorRef.getFactoryMacroNames (presetIndex);
+        macroTextCache[presetIndex] = names4;
+        return names4;
+    }
+
+    const IlanaSynthAudioProcessor::PresetInfo& infoFor (int presetIndex)
+    {
+        if (const auto found = infoCache.find (presetIndex); found != infoCache.end())
+            return found->second;
+
+        return infoCache[presetIndex] = processorRef.getPresetInfo (presetIndex);
     }
 
     int getNumRows() override { return filtered.size(); }
+
+    // Where a row's tag chips go: after the name (and its bank), at most
+    // three, as many as fit before the category pill.
+    std::vector<std::pair<juce::Rectangle<float>, juce::String>> rowTagBoxes (int presetIndex, int width, int height) const
+    {
+        std::vector<std::pair<juce::Rectangle<float>, juce::String>> boxes;
+
+        if (! juce::isPositiveAndBelow (presetIndex, names.size()))
+            return boxes;
+
+        const auto layout = rowLayout (presetIndex, width);
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        auto x = (float) layout.tagsLeft;
+
+        for (const auto& tag : tagLists[(size_t) presetIndex])
+        {
+            if (boxes.size() >= 3)
+                break;
+
+            const auto w = (float) juce::GlyphArrangement::getStringWidthInt (font, tag) + 14.0f;
+
+            if (x + w > (float) layout.tagsRight)
+                break;
+
+            boxes.push_back ({ { x, (float) height * 0.5f - 8.5f, w, 17.0f }, tag });
+            x += w + 4.0f;
+        }
+
+        return boxes;
+    }
+
+    struct RowLayout
+    {
+        int nameRight = 0, bankLeft = 0, tagsLeft = 0, tagsRight = 0;
+        juce::Rectangle<float> pill;
+        juce::String pillText;
+    };
+
+    RowLayout rowLayout (int presetIndex, int width) const
+    {
+        RowLayout layout;
+        const auto isUser = isUserPreset (presetIndex);
+        auto pillText = categories[presetIndex].toUpperCase();
+
+        if (isUser)
+            pillText = pillText.isEmpty() || pillText == "USER" ? juce::String ("USER")
+                                                                : juce::String (juce::CharPointer_UTF8 ("USER \xc2\xb7 ")) + pillText;
+
+        const juce::Font pillFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto pillWidth = pillText.isEmpty() ? 0.0f : (float) juce::GlyphArrangement::getStringWidthInt (pillFont, pillText) + 16.0f;
+        layout.pill = { (float) width - pillWidth - 10.0f, 0.0f, pillWidth, 16.0f };
+        layout.pillText = pillText;
+
+        const juce::Font nameFont (IlanaTheme::font (IlanaTheme::TextSize::title, true));
+        const auto nameWidth = juce::GlyphArrangement::getStringWidthInt (nameFont, shownNames[presetIndex]);
+        // Names share one column so the tags line up (long names push them).
+        const auto column = docked ? 300 : 230;
+        layout.nameRight = juce::jmin (32 + nameWidth, width - (int) pillWidth - 30);
+        layout.bankLeft = layout.nameRight + 8;
+        auto after = layout.nameRight;
+
+        if (banks[presetIndex].isNotEmpty())
+        {
+            const juce::Font bankFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            after = layout.bankLeft + juce::GlyphArrangement::getStringWidthInt (bankFont, banks[presetIndex]);
+        }
+
+        layout.tagsLeft = juce::jmax (after + 14, column);
+        layout.tagsRight = (int) layout.pill.getX() - 10;
+        return layout;
+    }
 
     void paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool selected) override
     {
@@ -960,91 +1283,58 @@ private:
             drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f,
                       juce::Colours::white.withAlpha (row == hoveredRow && hoveredX < 30 ? 0.75f : (row == hoveredRow ? 0.4f : 0.18f)), false);
 
-        if (docked)
-        {
-            paintDockedRow (g, presetIndex, width, height, selected, isCurrent);
-            return;
-        }
+        const auto layout = rowLayout (presetIndex, width);
 
         g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.8f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
-        g.drawText (name, juce::Rectangle<int> (32, 0, width - 170, height), juce::Justification::centredLeft);
-        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
-        const auto nameEnd = 32 + juce::GlyphArrangement::getStringWidthInt (nameFont, name);
+        g.drawText (shownNames[presetIndex], juce::Rectangle<int> (32, 0, layout.nameRight - 32, height), juce::Justification::centredLeft, true);
 
-        const auto isUser = isUserPreset (presetIndex);
-        const auto category = categories[presetIndex];
-        const auto colour = categoryColour (category);
-        auto tagText = category.toUpperCase();
-
-        if (isUser)
-            tagText = tagText.isEmpty() ? juce::String ("USER") : juce::String (juce::CharPointer_UTF8 ("USER \xc2\xb7 ")) + tagText;
-
-        const auto tagWidth = tagText.isEmpty() ? 0.0f : juce::jmax (40.0f, (float) tagText.length() * 6.4f + 14.0f);
-
-        // What this preset's macros are called, between the name and the tag.
+        // A DX7 voice's bank, dim beside its name.
+        if (banks[presetIndex].isNotEmpty())
         {
-            const auto macros = macroNamesFor (presetIndex, isCurrent);
-            const auto left = juce::jmax (nameEnd + 16, (int) ((float) width * 0.4f));
-            const auto right = width - (int) tagWidth - 20;
-
-            if (macros.isNotEmpty() && right - left > 40)
-            {
-                g.setColour (IlanaTheme::Ui::text2.withAlpha (selected ? 0.95f : 0.75f));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-                g.drawText (macros, juce::Rectangle<int> (left, 0, right - left, height), juce::Justification::centredLeft, true);
-            }
+            g.setColour (dx7Colour().withAlpha (selected ? 0.95f : 0.7f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (banks[presetIndex], juce::Rectangle<int> (layout.bankLeft, 0, 80, height), juce::Justification::centredLeft);
         }
 
-        if (tagText.isEmpty())
+        for (const auto& [box, tag] : rowTagBoxes (presetIndex, width, height))
+            paintTagChip (g, box, tag, selectedTags.contains (tag, true));
+
+        if (layout.pillText.isEmpty())
             return;
 
-        const auto tagBounds = juce::Rectangle<float> ((float) width - tagWidth - 10.0f,
-                                                       (float) height * 0.5f - 8.0f, tagWidth, 16.0f);
-
+        const auto colour = isUserPreset (presetIndex) && categories[presetIndex] == "User" ? IlanaTheme::Ui::text2
+                                                                                           : categoryColour (categories[presetIndex]);
+        const auto pill = layout.pill.withY ((float) height * 0.5f - 8.0f);
         g.setColour (colour.withAlpha (selected ? 0.30f : 0.16f));
-        g.fillRoundedRectangle (tagBounds, 8.0f);
+        g.fillRoundedRectangle (pill, 8.0f);
         g.setColour (colour.withAlpha (selected ? 1.0f : 0.85f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText (tagText, tagBounds.toNearestInt(), juce::Justification::centred);
+        g.drawText (layout.pillText, pill.toNearestInt(), juce::Justification::centred);
     }
 
-    // Docked rows: the name with its category tag, and the macro names
-    // on a second line.
-    void paintDockedRow (juce::Graphics& g, int presetIndex, int width, int height, bool selected, bool isCurrent)
+    // Hovering a row names its macros (and its author's comment).
+    juce::String getTooltipForRow (int row) override
     {
-        const auto name = names[presetIndex];
-        const auto category = categories[presetIndex];
-        const auto colour = categoryColour (category);
-        const auto isUser = isUserPreset (presetIndex);
-        const auto tagText = isUser ? juce::String ("USER") : category.toUpperCase();
-        const juce::Font tagFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto tagWidth = tagText.isEmpty() ? 0.0f : (float) juce::GlyphArrangement::getStringWidthInt (tagFont, tagText) + 14.0f;
-        const auto top = juce::Rectangle<int> (32, 3, width - 40, height / 2 - 1);
-        const auto bottom = juce::Rectangle<int> (32, height / 2, width - 40, height / 2 - 4);
+        if (! juce::isPositiveAndBelow (row, filtered.size()))
+            return {};
 
-        g.setColour (juce::Colours::white.withAlpha (selected || isCurrent ? 0.97f : 0.82f));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
-        g.drawText (name, top.withTrimmedRight ((int) tagWidth + 6), juce::Justification::centredLeft, true);
+        const auto presetIndex = filtered[row];
+        auto macros = macroListFor (presetIndex, names[presetIndex] == processorRef.getCurrentPresetName());
+        macros.removeEmptyStrings();
+        juce::String text = shownNames[presetIndex];
 
-        if (tagText.isNotEmpty())
-        {
-            const auto tagBounds = juce::Rectangle<float> ((float) top.getRight() - tagWidth, (float) top.getCentreY() - 7.5f, tagWidth, 15.0f);
-            g.setColour (colour.withAlpha (selected ? 0.30f : 0.16f));
-            g.fillRoundedRectangle (tagBounds, 7.5f);
-            g.setColour (colour.withAlpha (selected ? 1.0f : 0.85f));
-            g.setFont (tagFont);
-            g.drawText (tagText, tagBounds.toNearestInt(), juce::Justification::centred);
-        }
+        if (! macros.isEmpty())
+            text << "\nMacros: " << macros.joinIntoString (juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")));
 
-        const auto macros = macroNamesFor (presetIndex, isCurrent);
+        const auto& info = infoFor (presetIndex);
 
-        if (macros.isNotEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text2.withAlpha (selected ? 0.95f : 0.7f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (macros, bottom, juce::Justification::centredLeft, true);
-        }
+        if (info.comment.isNotEmpty())
+            text << "\n" << info.comment;
+        else if (info.author.isNotEmpty() && isUserPreset (presetIndex))
+            text << "\nby " << info.author;
+
+        return text;
     }
 
     void selectedRowsChanged (int lastRowSelected) override
@@ -1052,21 +1342,38 @@ private:
         if (suppressLoad || ! juce::isPositiveAndBelow (lastRowSelected, filtered.size()))
             return;
 
-        // A click on a row's star only toggles the favourite: the selection
-        // goes back to the preset that is loaded.
-        if (juce::ModifierKeys::currentModifiers.isLeftButtonDown() && list.getMouseXYRelative().x < 30)
+        // A click on a row's star or on one of its tag chips doesn't load:
+        // the selection goes back to the preset that is loaded.
+        if (juce::ModifierKeys::currentModifiers.isLeftButtonDown())
         {
-            juce::Component::SafePointer<PresetPanel> safeThis (this);
-            juce::MessageManager::callAsync ([safeThis]
+            const auto mouse = list.getMouseXYRelative();
+
+            if (mouse.x < 30 || tagAt (lastRowSelected, mouse.x).isNotEmpty())
             {
-                if (safeThis != nullptr)
-                    safeThis->showCurrentPreset();
-            });
-            return;
+                juce::Component::SafePointer<PresetPanel> safeThis (this);
+                juce::MessageManager::callAsync ([safeThis]
+                {
+                    if (safeThis != nullptr)
+                        safeThis->showCurrentPreset();
+                });
+                return;
+            }
         }
 
         loadedBySelection = true;
         loadRow (lastRowSelected, false);
+    }
+
+    juce::String tagAt (int row, int x) const
+    {
+        if (! juce::isPositiveAndBelow (row, filtered.size()))
+            return {};
+
+        for (const auto& [box, tag] : rowTagBoxes (filtered[row], list.getVisibleRowWidth(), list.getRowHeight()))
+            if (box.getX() <= (float) x && (float) x < box.getRight())
+                return tag;
+
+        return {};
     }
 
     void listBoxItemClicked (int row, const juce::MouseEvent& event) override
@@ -1091,13 +1398,20 @@ private:
             return;
         }
 
+        // A tag chip on the row filters by that tag.
+        if (const auto tag = tagAt (row, event.x); tag.isNotEmpty())
+        {
+            chipClicked ("tag:" + tag);
+            return;
+        }
+
         if (! justLoaded)
             loadRow (row, false);
     }
 
     void listBoxItemDoubleClicked (int row, const juce::MouseEvent& event) override
     {
-        if (event.x >= 30)
+        if (event.x >= 30 && tagAt (row, event.x).isEmpty())
             loadRow (row, true);
     }
 
@@ -1143,6 +1457,7 @@ private:
             onLoad (selectedPreset, closeAfter);
 
         list.repaint();
+        repaint (detailsArea);
     }
 
     void loadRandom()
@@ -1177,7 +1492,10 @@ private:
             list.deselectAllRows();
         }
 
+        selectedPreset = current;
+        updateDeleteButton();
         shownCurrentName = processorRef.getCurrentPresetName();
+        repaint (detailsArea);
     }
 
     void toggleFavourite (int presetIndex)
@@ -1246,7 +1564,8 @@ private:
             return;
 
         const auto name = names[presetIndex];
-        const auto file = processorRef.getUserPresetDirectory().getChildFile (name + ".ilanapreset");
+        const auto files = processorRef.getUserPresetFiles();
+        const auto file = files[presetIndex - factoryCount];
 
         if (! file.existsAsFile())
             return;
@@ -1270,7 +1589,7 @@ private:
                                             }));
     }
 
-    // The category (and DX7 visibility) filter, before search, bank and tags.
+    // The category filter (the sidebar), before search, chips and tags.
     bool passesCategory (int i) const
     {
         if (filterKey == favouritesKey)
@@ -1282,75 +1601,137 @@ private:
         if (filterKey.isNotEmpty())
             return categories[i] == filterKey;
 
-        return showDx7 || categories[i] != "DX7";
+        return true;
     }
 
     static juce::StringArray tagsOf (const juce::String& text)
     {
-        auto list = juce::StringArray::fromTokens (text, ",", "");
-        list.trim();
-        list.removeEmptyStrings();
-        return list;
+        auto tagList = juce::StringArray::fromTokens (text, ",", "");
+        tagList.trim();
+        tagList.removeEmptyStrings();
+        tagList.removeDuplicates (true);
+        return tagList;
     }
 
-    // Under DX7: a chip per bank. Elsewhere: a chip per tag the presets
-    // shown carry (only user presets have tags), when there are any.
-    void rebuildChips()
+    bool matchesSearch (int i, const juce::StringArray& words) const
+    {
+        // Every word must match the name (as saved or shown), category,
+        // tags or bank.
+        const auto haystack = (names[i] + " " + shownNames[i] + " " + categories[i] + " " + tags[i] + " " + banks[i]
+                               + (banks[i].isNotEmpty() ? " dx7" : ""))
+                                  .toLowerCase();
+
+        for (const auto& word : words)
+            if (! haystack.contains (word))
+                return false;
+
+        return true;
+    }
+
+    // The chips for what the sidebar and search leave: DX7 (when any DX7
+    // voice is among them) and its banks, then the tags by how many of the
+    // presets carry them.
+    void rebuildChips (const juce::Array<int>& candidates)
     {
         std::vector<ChipRow::Entry> entries;
+        auto dx7Count = 0;
+        juce::StringArray seenBanks;
 
-        if (filterKey == "DX7")
-        {
-            juce::StringArray seen;
+        for (auto i : candidates)
+            if (banks[i].isNotEmpty())
+            {
+                ++dx7Count;
 
-            for (int i = 0; i < names.size(); ++i)
-                if (categories[i] == "DX7" && banks[i].isNotEmpty() && ! seen.contains (banks[i]))
-                    seen.add (banks[i]);
+                if (! seenBanks.contains (banks[i]))
+                    seenBanks.add (banks[i]);
+            }
 
-            if (! seen.contains (bankFilter))
-                bankFilter = {};
+        if (dx7Count == 0)
+            dx7Only = false;
 
-            entries.push_back ({ "bank:", "All banks", bankFilter.isEmpty() });
-
-            for (const auto& bank : seen)
-                entries.push_back ({ "bank:" + bank, bank, bank == bankFilter });
-        }
-        else
-        {
+        if (! seenBanks.contains (bankFilter))
             bankFilter = {};
-            juce::StringArray seen;
 
-            for (int i = 0; i < names.size(); ++i)
-                if (passesCategory (i))
-                    for (const auto& tag : tagsOf (tags[i]))
-                        if (! seen.contains (tag, true))
-                            seen.add (tag);
+        if (dx7Count > 0)
+        {
+            entries.push_back ({ "pack:dx7", "DX7  " + juce::String (dx7Count), dx7Only, ChipRow::source, dx7Colour() });
 
-            seen.sortNatural();
-
-            for (int i = selectedTags.size(); --i >= 0;)
-                if (! seen.contains (selectedTags[i], true))
-                    selectedTags.remove (i);
-
-            for (const auto& tag : seen)
-                entries.push_back ({ "tag:" + tag, tag, selectedTags.contains (tag, true) });
+            if (dx7Only)
+                for (const auto& bank : seenBanks)
+                    entries.push_back ({ "bank:" + bank, bank, bank == bankFilter, ChipRow::bank, dx7Colour() });
         }
 
-        const auto wasShown = chips.isVisible();
-        const auto oldCount = chips.entries.size();
+        std::map<juce::String, int> counts;
+        std::map<juce::String, juce::String> spelling;
+
+        for (auto i : candidates)
+            if (! dx7Only || banks[i].isNotEmpty())
+                for (const auto& tag : tagLists[(size_t) i])
+                {
+                    const auto key = tag.toLowerCase();
+
+                    if (key == "dx7") // the DX7 chip already
+                        continue;
+
+                    ++counts[key];
+
+                    if (spelling.find (key) == spelling.end())
+                        spelling[key] = tag;
+                }
+
+        for (int i = selectedTags.size(); --i >= 0;)
+            if (counts.find (selectedTags[i].toLowerCase()) == counts.end())
+                selectedTags.remove (i);
+
+        std::vector<std::pair<juce::String, int>> ranked;
+
+        for (const auto& [key, count] : counts)
+            ranked.push_back ({ spelling[key], count });
+
+        std::stable_sort (ranked.begin(), ranked.end(), [this] (const auto& a, const auto& b)
+        {
+            const auto selectedA = selectedTags.contains (a.first, true), selectedB = selectedTags.contains (b.first, true);
+
+            if (selectedA != selectedB)
+                return selectedA;
+
+            if (a.second != b.second)
+                return a.second > b.second;
+
+            return a.first.compareNatural (b.first, false) < 0;
+        });
+
+        for (const auto& [tag, count] : ranked)
+            entries.push_back ({ "tag:" + tag, tag, selectedTags.contains (tag, true), ChipRow::tag, {} });
+
+        const auto oldHeight = chips.isVisible() ? chips.getHeight() : -1;
         chips.entries = std::move (entries);
         chips.setVisible (! chips.entries.empty());
         chips.repaint();
 
-        if (wasShown != chips.isVisible() || oldCount != chips.entries.size())
+        if (oldHeight != (chips.isVisible() ? chips.getPreferredHeight (chips.getWidth()) : -1))
             resized();
     }
 
     void chipClicked (const juce::String& key)
     {
-        if (key.startsWith ("bank:"))
+        if (key == ChipRow::moreKey)
         {
-            bankFilter = key.fromFirstOccurrenceOf ("bank:", false, false);
+            chips.expanded = ! chips.expanded;
+            resized();
+            chips.repaint();
+            return;
+        }
+
+        if (key == "pack:dx7")
+        {
+            dx7Only = ! dx7Only;
+            bankFilter = {};
+        }
+        else if (key.startsWith ("bank:"))
+        {
+            const auto bank = key.fromFirstOccurrenceOf ("bank:", false, false);
+            bankFilter = bankFilter == bank ? juce::String() : bank;
         }
         else if (key.startsWith ("tag:"))
         {
@@ -1379,7 +1760,7 @@ private:
     void sortFiltered()
     {
         static const juce::StringArray categoryOrder { "Init", "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
-                                                       "Drone", "Drums", "FX", "FX Input", "Generative", "DX7", "Other", "User" };
+                                                       "Drone", "Drums", "FX", "FX Input", "Generative", "Other", "User" };
         const auto rank = [] (const juce::String& category)
         {
             const auto index = categoryOrder.indexOf (category);
@@ -1404,7 +1785,9 @@ private:
                     return favA;
             }
 
-            return names[a].compareNatural (names[b], false) < 0;
+            // By the name shown; same names (a DX7 voice in two banks) by bank.
+            const auto byName = shownNames[a].compareNatural (shownNames[b], false);
+            return byName != 0 ? byName < 0 : banks[a].compareNatural (banks[b], false) < 0;
         });
 
         filtered.clearQuick();
@@ -1437,30 +1820,21 @@ private:
     void rebuild()
     {
         filtered.clear();
-        rebuildChips();
-        hiddenDx7Matches = 0;
 
         const auto query = search.getText().trim().toLowerCase();
         const auto words = juce::StringArray::fromTokens (query, " ", "");
+        juce::Array<int> candidates;
 
         for (int i = 0; i < names.size(); ++i)
+            if (passesCategory (i) && matchesSearch (i, words))
+                candidates.add (i);
+
+        rebuildChips (candidates);
+
+        for (auto i : candidates)
         {
-            // Every word must match the name, category, tags or bank.
-            const auto haystack = (names[i] + " " + categories[i] + " " + tags[i] + " " + banks[i]).toLowerCase();
-            auto matches = true;
-
-            for (const auto& word : words)
-                matches = matches && haystack.contains (word);
-
-            if (! matches)
+            if (dx7Only && banks[i].isEmpty())
                 continue;
-
-            if (! passesCategory (i))
-            {
-                // What All leaves out, for the empty list's hint.
-                hiddenDx7Matches += filterKey.isEmpty() && words.size() > 0 && categories[i] == "DX7" ? 1 : 0;
-                continue;
-            }
 
             if (bankFilter.isNotEmpty() && banks[i] != bankFilter)
                 continue;
@@ -1468,7 +1842,7 @@ private:
             auto hasTags = true;
 
             for (const auto& tag : selectedTags)
-                hasTags = hasTags && tagsOf (tags[i]).contains (tag, true);
+                hasTags = hasTags && tagLists[(size_t) i].contains (tag, true);
 
             if (hasTags)
                 filtered.add (i);
@@ -1484,7 +1858,10 @@ private:
             const auto row = filtered.indexOf (selectedPreset >= 0 ? selectedPreset
                                                                    : names.indexOf (processorRef.getCurrentPresetName()));
             if (row >= 0)
+            {
                 list.selectRow (row);
+                list.scrollToEnsureRowIsOnscreen (row);
+            }
             else
                 list.scrollToEnsureRowIsOnscreen (0); // a new filter starts at the top
         }
@@ -1541,6 +1918,7 @@ private:
         {
             shownCurrentName = processorRef.getCurrentPresetName();
             list.repaint();
+            repaint (detailsArea);
         }
 
         if (! closing && appear >= 0.999f && getTimerInterval() != 50)
@@ -1564,10 +1942,13 @@ private:
         watched = nullptr;
     }
 
+    // DELETE works on your own presets; the tooltip says why it is off.
     void updateDeleteButton()
     {
-        deleteButton.setEnabled (juce::isPositiveAndBelow (selectedPreset, names.size())
-                                 && isUserPreset (selectedPreset));
+        const auto canDelete = juce::isPositiveAndBelow (selectedPreset, names.size()) && isUserPreset (selectedPreset);
+        deleteButton.setEnabled (canDelete);
+        deleteButton.setTooltip (canDelete ? "Move '" + names[selectedPreset] + "' to the recycle bin"
+                                           : juce::String ("Factory presets can't be deleted: select one of your own (User) to delete it"));
     }
 
     void deleteSelected()
@@ -1580,25 +1961,27 @@ private:
     juce::PropertiesFile* settings = nullptr;
     bool isUserPreset (int index) const { return index >= factoryCount; }
 
-    juce::StringArray names, categories, tags, banks;
+    juce::StringArray names, shownNames, categories, tags, banks;
+    std::vector<juce::StringArray> tagLists;
     const int factoryCount = processorRef.getFactoryPresetNames().size();
-    std::map<int, juce::String> macroTextCache;
+    std::map<int, juce::StringArray> macroTextCache;
+    std::map<int, IlanaSynthAudioProcessor::PresetInfo> infoCache;
     juce::Array<int> filtered;
     juce::TextEditor search;
     Sidebar sidebar;
     juce::ListBox list { "presets", this };
+    juce::Rectangle<int> listFrame, detailsArea;
     juce::TextButton surpriseButton { "SURPRISE ME" };
     juce::TextButton saveAsButton { "SAVE AS" };
     juce::TextButton deleteButton { "DELETE" };
     juce::TextButton folderButton { "FOLDER" };
+    juce::TextButton importButton { "IMPORT .SYX" };
     juce::TextButton sortButton;
-    juce::ToggleButton dx7Toggle;
     ChipRow chips;
     int sortMode = sortByName;
-    bool showDx7 = false;
+    bool dx7Only = false;
     juce::String bankFilter;
     juce::StringArray selectedTags;
-    int hiddenDx7Matches = 0;
     int hoveredX = -1;
     juce::Component::SafePointer<juce::Component> anchor;
     juce::Component::SafePointer<juce::Component> watched;

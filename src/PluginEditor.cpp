@@ -54,8 +54,10 @@
 #include "gui/pages/FxPage.h"
 
 
-// The scope as a panel floating over the current page (bottom right), or
-// expanded over the whole page area.
+// The scope as a small panel floating over the current page (review 6): it
+// opens at the page's bottom right, drags anywhere in the page area by its
+// title bar, and EXPAND fills the page area with it. Engine quality and
+// oversampling live in the settings menu, not here.
 class ScopePanel : public juce::Component
 {
 public:
@@ -75,7 +77,6 @@ public:
                 onExpand();
         };
 
-        // A labelled close: the panel covers the right of the page.
         closeButton.setButtonText ("CLOSE");
         closeButton.setTooltip ("Close the scope (or click SCOPE in the tab row again)");
         closeButton.onClick = [this]
@@ -86,11 +87,30 @@ public:
 
         addAndMakeVisible (expandButton);
         addAndMakeVisible (closeButton);
+        setMouseCursor (juce::MouseCursor::NormalCursor);
     }
 
     std::function<void()> onClose, onExpand;
 
     bool isExpanded() const { return expandButton.getToggleState(); }
+
+    // Where the panel goes in the page area: all of it when expanded, else
+    // its own size where it was dragged (first at the bottom right), kept
+    // inside.
+    juce::Rectangle<int> placeIn (juce::Rectangle<int> area)
+    {
+        pageArea = area;
+
+        if (isExpanded())
+            return area;
+
+        const auto size = juce::Point<int> (juce::jmin (floatingWidth, area.getWidth() - 16), juce::jmin (floatingHeight, area.getHeight() - 16));
+
+        if (! placed)
+            topLeft = { area.getRight() - 8 - size.x, area.getBottom() - 8 - size.y };
+
+        return constrain ({ topLeft.x, topLeft.y, size.x, size.y });
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -108,10 +128,19 @@ public:
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (IlanaTheme::accent(), 0.4f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
 
-        IlanaTheme::paintTag (g, { bounds.getX() + 15.0f, bounds.getY() + 15.0f }, IlanaTheme::accent());
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText ("SCOPE", bounds.withTrimmedLeft (26).withHeight (30), juce::Justification::centredLeft);
+        g.drawText ("SCOPE", bounds.withTrimmedLeft (14).withHeight (30), juce::Justification::centredLeft);
+
+        // Grip dots: the title bar drags the panel.
+        if (! isExpanded())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            const auto x = bounds.getX() + 66.0f, y = bounds.getY() + 15.0f;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 2; ++j)
+                    g.fillEllipse (x + (float) i * 4.0f, y - 3.0f + (float) j * 5.0f, 2.0f, 2.0f);
+        }
     }
 
     void resized() override
@@ -124,9 +153,38 @@ public:
         scope.setBounds (area.reduced (6, 0).withTrimmedBottom (6));
     }
 
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        dragging = ! isExpanded() && event.y < 34;
+        dragStart = getPosition();
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! dragging)
+            return;
+
+        const auto moved = constrain (getBounds().withPosition (dragStart + event.getOffsetFromDragStart()));
+        topLeft = moved.getPosition();
+        placed = true;
+        setBounds (moved);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { dragging = false; }
+
 private:
+    static constexpr int floatingWidth = 440, floatingHeight = 300;
+
+    juce::Rectangle<int> constrain (juce::Rectangle<int> bounds) const
+    {
+        return pageArea.isEmpty() ? bounds : bounds.constrainedWithin (pageArea);
+    }
+
     ScopeDisplay scope;
     juce::TextButton expandButton, closeButton;
+    juce::Rectangle<int> pageArea;
+    juce::Point<int> topLeft, dragStart;
+    bool placed = false, dragging = false;
 };
 
 IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioProcessor& p)
@@ -164,12 +222,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     logo.isSounding = [this] { return processorRef.getActiveVoiceCount() > 0; };
     content.addAndMakeVisible (infoStrip);
 
+    // KEYS and ? sit at the right of the tab row, beside SCOPE (the status
+    // line they shared is now only a hover line over the chips).
     keysButton.setClickingTogglesState (true);
     keysButton.setTooltip ("Keyboard\nShow or hide the on-screen keyboard.  Hiding it gives the pages more room.");
     keysButton.onClick = [this] { setKeyboardVisible (keysButton.getToggleState()); };
-    infoStrip.setToolbarButton (&keysButton);
-
-    infoStrip.onHelp = [this]
+    helpButton.setTooltip ("Welcome tour\nThe one-minute tour: the essentials, the shortcuts and what's new.");
+    helpButton.onClick = [this]
     {
         tutorial.setVisible (true);
         tutorial.toFront (false);
@@ -253,6 +312,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         content.addChildComponent (section->switcher);
 
     content.addAndMakeVisible (scopeButton);
+    content.addAndMakeVisible (keysButton);
+    content.addAndMakeVisible (helpButton);
     content.addChildComponent (*scopePanel);
 
     // Bottom strip: macros, then performance controls, then master.
@@ -290,10 +351,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     content.addAndMakeVisible (headerScope);
 
-    voicesArea.setTooltip ("Voices\nThe dots light for each note sounding. Click for the voice mode, how many voices and the pitch-bend range.");
+    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice mode, how many voices and the pitch-bend range.");
     voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     voicesArea.onClick = [this] { showSettingsMenu (true); };
     content.addAndMakeVisible (voicesArea);
+
+    tuningArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    tuningArea.onClick = [this] { showSettingsMenu (false, true); };
+    content.addChildComponent (tuningArea);
 
     for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (masterKnob.get()) })
         content.addAndMakeVisible (*component);
@@ -324,8 +389,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     undoButton.onClick = [this] { undoOrRedo (false); };
     redoButton.onClick = [this] { undoOrRedo (true); };
     historyButton.onClick = [this] { showHistoryMenu(); };
-    abButton.setButtonText ("A/B:  A");
-    abButton.setTooltip ("Compare\nFlip between two versions of the patch (A and B) to compare them.");
+    abButton.setButtonText ("A");
+    abButton.setTooltip ("Compare A | B\nFlip between two versions of the patch to compare them; the lit letter is the one playing.");
     abButton.onClick = [this] { toggleAB(); };
     diceButton.onClick = [this] { showDiceMenu(); };
     settingsButton.onClick = [this] { showSettingsMenu(); };
@@ -414,7 +479,15 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.addAndMakeVisible (tutorial);
     content.addChildComponent (confirmOverlay);
     content.addChildComponent (saveOverlay);
-    saveOverlay.onSaved = [this] (const juce::File&) { presetSaved (false); };
+    saveOverlay.setSettings (settings.get());
+    saveOverlay.onSaved = [this] (const juce::File&)
+    {
+        presetSaved (false);
+
+        if (auto then = std::exchange (afterSave, nullptr))
+            then();
+    };
+    saveOverlay.onCancelled = [this] { afterSave = nullptr; };
 
     // Applied after adding: addAndMakeVisible forces the component visible.
     tutorial.setVisible (! settings->getBoolValue ("seenIntro", false));
@@ -440,19 +513,11 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     animator.onFrame = [this] { animate(); };
 
     presetDocked = settings->getBoolValue ("presetBrowserDocked", false);
-    addChildComponent (dockHolder);
-    dockHolder.onPaint = [] (juce::Graphics& g) { g.fillAll (IlanaTheme::Ui::bg); };
-
-    if (presetDocked && settings->getBoolValue ("presetBrowserDockOpen", false))
-    {
-        createPresetPanel();
-        presetPanel->setDocked (true);
-        dockHolder.addAndMakeVisible (*presetPanel);
-        presetDockShown = true;
-        presetPanel->open();
-    }
 
     applyUiZoom ((float) settings->getDoubleValue ("uiZoom", 1.0));
+
+    if (presetDocked && settings->getBoolValue ("presetBrowserDockOpen", false))
+        setPresetDockShown (true);
     displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
 
     setGpuRendering (settings->getBoolValue ("gpuRendering", true)
@@ -532,6 +597,10 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 
 void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    // Picking a tab shows its page: the docked browser over it steps aside.
+    if (presetDockShown)
+        setPresetDockShown (false);
+
     layoutTabRow();
 
     if (auto* page = tabs.getCurrentContentComponent())
@@ -807,8 +876,7 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     // "Edited" marker: cheap checksum of every parameter against the one
     // taken when the preset was loaded.
     if (presetLoadFlash <= 0.01f)
-        presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
-                                 parameterFingerprint() != loadedFingerprint);
+        presetDisplay.setPreset (presetDisplayName, shownCategory, isFavourite (shownPresetName), isPatchEdited());
 
     // Which sources the matrix uses, for the source chips' glow.
     updateChipVisibility();
@@ -832,12 +900,14 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
         const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
         const auto text = "Voices: " + juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + " of "
-                          + juce::String (maxVoices) + " playing\nA dot per voice; lit dots are sounding. "
+                          + juce::String (maxVoices) + " playing\nNotes sounding / the most that can sound. "
                           + "Click for the voice mode, how many voices and the pitch-bend range.";
 
         if (voicesArea.getTooltip() != text)
             voicesArea.setTooltip (text);
     }
+
+    updateTuningIndicator();
 
     if (transitionPage == nullptr)
     {
@@ -939,29 +1009,53 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         g.setColour (IlanaTheme::Ui::text3);
     }
 
-    const auto activeVoices = processorRef.getActiveVoiceCount();
+    // "3/32": notes sounding, of the most that can (review 6, was a row of
+    // 32 dots); the count lights while anything plays.
+    {
+        const auto activeVoices = getVoicesText().upToFirstOccurrenceOf ("/", false, false).getIntValue();
+        const auto maxVoices = getVoicesText().fromFirstOccurrenceOf ("/", false, false).getIntValue();
+        const auto area = juce::Rectangle<int> (designWidth - 232, statusY, 60, 14);
+        g.setColour (activeVoices > 0 ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
+        g.drawText (juce::String (activeVoices), area.withWidth (24), juce::Justification::centredRight);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText ("/" + juce::String (maxVoices), area.withTrimmedLeft (24), juce::Justification::centredLeft);
+    }
+
+    // TUNING while a Scala scale (or an MTS-ESP master) retunes the notes.
+    if (tuningText.isNotEmpty())
+    {
+        g.setColour (tuningArea.isMouseOver() ? IlanaTheme::Ui::text : IlanaTheme::accent().interpolatedWith (IlanaTheme::Ui::text2, 0.35f));
+        g.drawText (tuningText, tuningArea.getBounds(), juce::Justification::centredRight, true);
+    }
+}
+
+// The status line's TUNING tag: the scale's name while tuning is on, or the
+// MTS-ESP master's; hidden on 12-TET.
+juce::String IlanaSynthAudioProcessorEditor::getVoicesText() const
+{
     const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
     const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
-    // Up to 16 dots at full size; more share the same width at half size.
-    const auto spacing = maxVoices > 16 ? 4.0f : 8.0f;
-    const auto size = maxVoices > 16 ? 3.0f : 5.0f;
+    return juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + "/" + juce::String (maxVoices);
+}
 
-    for (int i = 0; i < maxVoices; ++i)
-    {
-        const auto lit = i < activeVoices;
-        const auto dot = juce::Rectangle<float> ((float) (designWidth - 232) + (float) i * spacing,
-                                                 (float) statusY + 4.5f + (5.0f - size) * 0.5f, size, size);
+void IlanaSynthAudioProcessorEditor::updateTuningIndicator()
+{
+    juce::String text;
 
-        // Playing voices light up with a halo.
-        if (lit)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.25f));
-            g.fillEllipse (dot.expanded (2.5f));
-        }
+    if (processorRef.isMtsEspConnected())
+        text = "TUNING: " + processorRef.getMtsEspScaleName() + " (MTS-ESP)";
+    else if (processorRef.getTuningState().hasScale() && processorRef.apvts.getRawParameterValue ("tuning_on")->load() > 0.5f)
+        text = "TUNING: " + processorRef.getTuningState().getDescription();
 
-        g.setColour (lit ? IlanaTheme::accent() : IlanaTheme::Ui::track);
-        g.fillEllipse (dot);
-    }
+    if (text == tuningText)
+        return;
+
+    tuningText = text;
+    tuningArea.setVisible (text.isNotEmpty());
+    tuningArea.setTooltip (text.isNotEmpty() ? "Tuning\nThe notes play " + text.fromFirstOccurrenceOf ("TUNING: ", false, false)
+                                                   + ", not 12-TET. Click to load another scale or switch back."
+                                             : juce::String());
+    content.repaint (0, 36, designWidth, 20);
 }
 
 void IlanaSynthAudioProcessorEditor::resized()
@@ -979,12 +1073,6 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     content.setBounds (0, 0, designWidth, designHeight);
     content.setTransform (juce::AffineTransform::scale (scale));
-    dockHolder.setBounds (designWidth, 0, dockWidth, designHeight);
-    dockHolder.setTransform (juce::AffineTransform::scale (scale));
-    dockHolder.setVisible (presetDockShown);
-
-    if (presetDockShown && presetPanel != nullptr)
-        presetPanel->setBounds (dockHolder.getLocalBounds().reduced (0, 8).withTrimmedRight (8));
 
     auto area = content.getLocalBounds();
 
@@ -1007,7 +1095,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     diceButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (groupGap);
     headerSeparatorX[1] = headerRow.getRight() + groupGap / 2;
-    abButton.setBounds (headerRow.removeFromRight (92));
+    abButton.setBounds (headerRow.removeFromRight (58));
     headerRow.removeFromRight (6);
     historyButton.setBounds (headerRow.removeFromRight (key));
     headerRow.removeFromRight (3);
@@ -1032,7 +1120,9 @@ void IlanaSynthAudioProcessorEditor::resized()
     // The status line (y 41-52): the live waveform under the preset name,
     // then tempo, VOICES and CPU at the right.
     headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), designWidth - 372) - prevButton.getX(), 14);
-    voicesArea.setBounds (designWidth - 284, 38, 190, 17);
+    voicesArea.setBounds (designWidth - 300, 38, 130, 17);
+    // TUNING sits left of the tempo, clear of the waveform strip.
+    tuningArea.setBounds (headerScope.getRight() + 8, 38, designWidth - 370 - headerScope.getRight() - 8, 17);
 
     // Bottom: source chips, the macro / performance strip, the info line and
     // the optional keyboard.
@@ -1044,7 +1134,6 @@ void IlanaSynthAudioProcessorEditor::resized()
             keyboard->setBounds (area.removeFromBottom (32).reduced (14, 2));
     }
 
-    infoStrip.setBounds (area.removeFromBottom (22).reduced (14, 2));
     tutorial.setBounds (content.getLocalBounds());
     confirmOverlay.setBounds (content.getLocalBounds());
     saveOverlay.setBounds (content.getLocalBounds());
@@ -1075,19 +1164,39 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     layoutChips (chipsRow);
 
+    // The hover line over the chips; it stays away while the mouse is on
+    // the chips or the macros below them.
+    infoStrip.setBounds (chipsRow.reduced (0, 1));
+    infoStrip.setQuietArea ({ 0, chipsRow.getY() - 6, designWidth, designHeight - chipsRow.getY() + 6 });
+    infoStrip.toFront (false);
+
     tabs.setBounds (area.reduced (14, 0).withTrimmedBottom (2));
     layoutTabRow();
 
     if (scopePanel != nullptr)
     {
-        auto pageArea = tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth());
-        const auto expanded = static_cast<ScopePanel*> (scopePanel.get())->isExpanded();
+        auto* panel = static_cast<ScopePanel*> (scopePanel.get());
         // A running fade-in would snap the panel back to its old bounds.
         juce::Desktop::getInstance().getAnimator().cancelAnimation (scopePanel.get(), false);
         scopePanel->setAlpha (1.0f);
-        scopePanel->setBounds (expanded ? pageArea
-                                        : pageArea.reduced (8).removeFromRight (476)); // inside the page's frame, full height so it never cuts a card in half
+        scopePanel->setBounds (panel->placeIn (pageArea()));
     }
+
+    if (presetDockShown && presetPanel != nullptr)
+    {
+        presetPanel->setBounds (pageArea().reduced (2, 0).withTrimmedBottom (2));
+        presetPanel->toFront (false);
+    }
+
+    for (auto* overlay : std::initializer_list<juce::Component*> { &tutorial, &confirmOverlay, &saveOverlay })
+        if (overlay->isVisible())
+            overlay->toFront (false);
+}
+
+// The pages' area: under the tab row, above the chips.
+juce::Rectangle<int> IlanaSynthAudioProcessorEditor::pageArea() const
+{
+    return tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth());
 }
 
 SectionPage* IlanaSynthAudioProcessorEditor::currentSection() const
@@ -1181,7 +1290,11 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
 {
     const auto bar = tabs.getBounds().withHeight (tabs.getTabBarDepth());
     auto row = bar.reduced (4, 5);
-    scopeButton.setBounds (row.removeFromRight (74));
+    helpButton.setBounds (row.removeFromRight (28));
+    row.removeFromRight (4);
+    keysButton.setBounds (row.removeFromRight (56));
+    row.removeFromRight (4);
+    scopeButton.setBounds (row.removeFromRight (70));
     row.removeFromRight (10);
 
     for (auto* section : sections)
@@ -1245,6 +1358,11 @@ void IlanaSynthAudioProcessorEditor::setAsksBeforeReplacingEdits (bool shouldAsk
 
 // Runs then (true) at once while the patch is unedited; otherwise asks.
 // Stepping through presets asks once: the patch it lands on is unedited.
+// The question and the header's EDITED badge read the same isPatchEdited,
+// and the badge is brought up to date before the question shows (it
+// otherwise follows on the editor's timer). "Save and load" saves first:
+// in place for your own preset, through SAVE AS otherwise (the load
+// waits for it, and a cancelled SAVE AS loads nothing).
 void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
                                                             std::function<void (bool confirmed)> then)
 {
@@ -1254,11 +1372,35 @@ void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& 
         return;
     }
 
+    presetDisplay.setPreset (presetDisplayName, shownCategory, isFavourite (shownPresetName), true);
+
     const auto current = processorRef.getCurrentPresetName();
+    ConfirmOverlay::Choices choices;
+    choices.confirmText = confirmText;
+    choices.alternativeText = confirmText.startsWith ("Roll") ? "Save and roll" : "Save and load";
+    choices.onAlternative = [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), then]
+    {
+        if (safeThis == nullptr)
+            return;
+
+        if (PresetFiles::loadedUserPreset (safeThis->processorRef).existsAsFile())
+        {
+            safeThis->savePreset();
+
+            if (! safeThis->isPatchEdited())
+                then (true);
+
+            return;
+        }
+
+        safeThis->afterSave = [then] { then (true); };
+        safeThis->savePresetAs();
+    };
+
     confirmOverlay.ask ("Replace your edits?",
-                        "'" + (current.isNotEmpty() ? current : juce::String ("Init")) + "' has changes that aren't saved. "
-                            + replacement + " replaces them.",
-                        confirmText,
+                        "'" + (current.isNotEmpty() ? (presetDisplayName.isNotEmpty() ? presetDisplayName : current) : juce::String ("Init"))
+                            + "' has changes that aren't saved. " + replacement + " replaces them.",
+                        choices,
                         [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), then] (bool confirmed, bool dontAsk)
                         {
                             if (safeThis == nullptr)
@@ -1393,7 +1535,8 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
     if (! juce::isPositiveAndBelow (index, names.size()))
         return;
 
-    confirmReplacingPatch ("Loading '" + names[index] + "'", "Load anyway",
+    const auto bank = processorRef.getAllPresetBanks()[index];
+    confirmReplacingPatch ("Loading '" + (bank.isNotEmpty() ? Presets::dx7DisplayName (names[index]) : names[index]) + "'", "Load anyway",
                            [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), index, name = names[index], then] (bool confirmed)
                            {
                                if (safeThis == nullptr)
@@ -1489,15 +1632,23 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
                         ? processorRef.getAllPresetCategories()[currentPresetIndex]
                         : juce::String();
 
+    // A DX7 voice shows its name in Title Case and its bank by the category
+    // ("KEYS  ·  DX7 ROM1A"); the saved name is unchanged.
+    const auto bank = juce::isPositiveAndBelow (currentPresetIndex, names.size()) ? processorRef.getAllPresetBanks()[currentPresetIndex]
+                                                                                   : juce::String();
+    presetDisplayName = bank.isNotEmpty() ? Presets::dx7DisplayName (shownPresetName) : shownPresetName;
+
+    if (bank.isNotEmpty())
+        shownCategory << juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  DX7 ")) << bank;
+
     if (nameChanged)
         adoptLoadedFingerprint();
 
-    presetDisplay.setPreset (shownPresetName, shownCategory, isFavourite (shownPresetName),
-                             parameterFingerprint() != loadedFingerprint);
+    presetDisplay.setPreset (presetDisplayName, shownCategory, isFavourite (shownPresetName), isPatchEdited());
     favButton.setToggleState (isFavourite (shownPresetName), juce::dontSendNotification);
     favButton.setIconColour (isFavourite (shownPresetName) ? std::optional<juce::Colour> (juce::Colour (0xffffd447))
                                                            : std::nullopt);
-    abButton.setButtonText (showingA ? "A/B:  A" : "A/B:  B");
+    abButton.setButtonText (showingA ? "A" : "B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);
 
     for (auto& knob : macroKnobs)
@@ -1558,7 +1709,7 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
     }
 
     showingA = ! showingA;
-    abButton.setButtonText (showingA ? "A/B:  A" : "A/B:  B");
+    abButton.setButtonText (showingA ? "A" : "B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);
 }
 
@@ -1602,25 +1753,7 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
                                 case 7: safeThis->savePresetAs(); break;
                                 case 3: safeThis->loadPreset(); break;
                                 case 5: safeThis->exportPreset(); break;
-                                case 6:
-                                {
-                                    // Each voice becomes a user preset under DX7/<bank>/.
-                                    safeThis->fileChooser = std::make_unique<juce::FileChooser> (
-                                        "Import DX7 bank", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.syx");
-                                    safeThis->fileChooser->launchAsync (
-                                        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                                        [safeThis] (const juce::FileChooser& chooser)
-                                        {
-                                            const auto file = chooser.getResult();
-                                            if (safeThis == nullptr || ! file.existsAsFile())
-                                                return;
-                                            juce::String message;
-                                            safeThis->processorRef.importDx7File (file, message);
-                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
-                                                                                    "Import DX7 bank", message);
-                                        });
-                                    break;
-                                }
+                                case 6: safeThis->chooseSyxFile(); break;
                                 case 4:
                                 {
                                     const auto directory = safeThis->processorRef.getUserPresetDirectory();
@@ -1688,7 +1821,7 @@ void IlanaSynthAudioProcessorEditor::showDiceMenu()
                         });
 }
 
-void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
+void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tuningOnly)
 {
     const char* const skinNames[] { "Ember", "Ice", "Acid", "Neon" };
     const float zoomChoices[] { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -1783,7 +1916,18 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
         menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
     }
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (voicesOnly ? static_cast<juce::Component*> (&voicesArea) : &settingsButton),
+    // The header's tuning indicator opens just the tuning items.
+    if (tuningOnly)
+    {
+        menu = juce::PopupMenu();
+        menu.addSectionHeader ("TUNING");
+        for (juce::PopupMenu::MenuItemIterator items (tuning); items.next();)
+            menu.addItem (items.getItem());
+    }
+
+    auto* target = voicesOnly ? static_cast<juce::Component*> (&voicesArea)
+                              : tuningOnly ? static_cast<juce::Component*> (&tuningArea) : &settingsButton;
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
                         [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
                         {
                             if (safeThis == nullptr || result == 0)
@@ -1921,6 +2065,7 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
     };
     presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
     presetPanel->onSaveAs = [this] { savePresetAs(); };
+    presetPanel->onImportSyx = [this] { chooseSyxFile(); };
     presetPanel->setAnchor (&presetDisplay);
     presetPanel->onDockRequest = [this] (bool dock)
     {
@@ -1949,6 +2094,9 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
     content.addChildComponent (*presetPanel);
 }
 
+// Docked, the browser covers the page area (the tab row, the chips, the
+// macros and the keyboard stay): the window keeps its size (review 6; it
+// used to grow by a column).
 void IlanaSynthAudioProcessorEditor::setPresetDockShown (bool shown)
 {
     createPresetPanel();
@@ -1956,21 +2104,14 @@ void IlanaSynthAudioProcessorEditor::setPresetDockShown (bool shown)
     if (shown == presetDockShown)
         return;
 
-    const auto scale = (float) getHeight() / (float) designHeight;
     presetDockShown = shown;
+    presetPanel->setVisible (false);
+    presetPanel->setDocked (shown);
 
     if (shown)
     {
-        presetPanel->setVisible (false);
-        presetPanel->setDocked (true);
-        dockHolder.addAndMakeVisible (*presetPanel);
+        presetPanel->setBounds (pageArea().reduced (2, 0).withTrimmedBottom (2));
         presetPanel->open();
-    }
-    else
-    {
-        presetPanel->setVisible (false);
-        presetPanel->setDocked (false);
-        content.addChildComponent (*presetPanel);
     }
 
     if (settings != nullptr)
@@ -1979,9 +2120,6 @@ void IlanaSynthAudioProcessorEditor::setPresetDockShown (bool shown)
         settings->saveIfNeeded();
     }
 
-    // Grow or shrink the window by the column, keeping the zoom.
-    applyAspectAndLimits();
-    setSize (juce::roundToInt ((float) currentDesignWidth() * scale), getHeight());
     resized();
 }
 
@@ -1997,9 +2135,9 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
 
     // Drop down under the preset name, kept inside the window.
     {
-        const auto width = 640;
+        const auto width = 660;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
-        presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 528);
+        presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 540);
         presetPanel->setScrimArea (content.getLocalBounds());
     }
 
@@ -2007,6 +2145,76 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
         presetPanel->close();
     else
         presetPanel->open();
+}
+
+// IMPORT .SYX (the browser) and the preset menu's import: each voice of the
+// bank becomes a user preset under DX7/<bank>/.
+void IlanaSynthAudioProcessorEditor::chooseSyxFile()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Import a DX7 or Dexed bank",
+                                                       juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.syx");
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (const juce::FileChooser& chooser)
+                              {
+                                  const auto file = chooser.getResult();
+
+                                  if (safeThis != nullptr && file.existsAsFile())
+                                      safeThis->importSyxFile (file);
+                              });
+}
+
+// Imports, then says so in the theme; "Show in browser" opens the browser
+// on the new bank.
+void IlanaSynthAudioProcessorEditor::importSyxFile (const juce::File& file)
+{
+    juce::String message;
+    const auto count = processorRef.importDx7File (file, message);
+    const auto bank = file.getFileNameWithoutExtension();
+
+    if (presetPanel != nullptr)
+        presetPanel->refresh();
+
+    ConfirmOverlay::Choices choices;
+    choices.confirmText = count > 0 ? "Show in browser" : "OK";
+    choices.cancelText = count > 0 ? "Close" : "Cancel";
+    choices.offerDontAsk = false;
+
+    confirmOverlay.ask (count > 0 ? "Imported " + bank : juce::String ("Nothing imported"),
+                        count > 0 ? juce::String (count) + (count == 1 ? " DX7 voice is" : " DX7 voices are")
+                                        + " now your presets, filed by sound with the bank " + bank + " under the browser's DX7 chip."
+                                  : message,
+                        choices,
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), count, bank] (bool show, bool)
+                        {
+                            if (safeThis == nullptr || ! show || count == 0)
+                                return;
+
+                            safeThis->createPresetPanel();
+
+                            if (! safeThis->presetPanel->isOpen())
+                                safeThis->togglePresetPanel();
+
+                            safeThis->presetPanel->showDx7Bank (bank);
+                        });
+}
+
+bool IlanaSynthAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& path : files)
+        if (path.endsWithIgnoreCase (".syx"))
+            return true;
+
+    return false;
+}
+
+void IlanaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    for (const auto& path : files)
+        if (path.endsWithIgnoreCase (".syx"))
+        {
+            importSyxFile (juce::File (path));
+            return; // one bank at a time: the confirm names it
+        }
 }
 
 void IlanaSynthAudioProcessorEditor::randomize()
@@ -2163,6 +2371,12 @@ bool IlanaSynthAudioProcessorEditor::closeTopPopup()
         return true;
     }
 
+    if (presetDockShown)
+    {
+        setPresetDockShown (false);
+        return true;
+    }
+
     {
         std::vector<KnobControl*> knobs;
         std::function<void (juce::Component&)> collect = [&] (juce::Component& parent)
@@ -2259,25 +2473,20 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
             return true;
         }
 
-        return false;
-    }
-
-    // Bare digits pick a tab, unless something is being typed.
-    if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr
-        || modifiers.isAltDown())
-        return false;
-
-    const auto code = key.getKeyCode();
-
-    if (code >= '1' && code <= '9')
-    {
-        const auto index = code - '1';
-
-        if (index < tabs.getNumTabs())
+        // Ctrl / Cmd + 1-7 pick a tab (bare digits are left to the host:
+        // DAWs play notes or run actions with them).
+        if (const auto digit = key.getKeyCode(); digit >= '1' && digit <= '9' && ! modifiers.isAltDown())
         {
-            tabs.setCurrentTabIndex (index);
-            return true;
+            const auto index = digit - '1';
+
+            if (index < tabs.getNumTabs())
+            {
+                tabs.setCurrentTabIndex (index);
+                return true;
+            }
         }
+
+        return false;
     }
 
     return false;

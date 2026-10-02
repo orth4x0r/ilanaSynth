@@ -38,6 +38,7 @@
 #include "gui/ModHoverPopup.h"
 #include "gui/ClipEditor.h"
 #include "gui/ConfirmOverlay.h"
+#include "Dx7Banks.h"
 #include "gui/LfoSimView.h"
 #include "gui/LogoComponent.h"
 #include "gui/LfoDisplay.h"
@@ -145,12 +146,16 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                 "the tour names the Felt Hammer Board, not the retired GRAND PIANO");
         expect (labels.contains (juce::String (FilterType::Count) + " FILTERS"), "the tour's filter count is the code's ("
                                                                                      + juce::String (FilterType::Count) + ")");
-        for (const auto* name : { "DX7 MODE + BANKS", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
+        for (const auto* name : { "DX7 BANKS + OPERATOR EG", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
             expect (labels.contains (name), juce::String ("the tour lists ") + name);
 
         auto* tutorial = findChild<TutorialOverlay> (editor);
         if (tutorial != nullptr)
         {
+            // UI review 6: three tips, the box unticked, no "DX7 MODE".
+            expect (tutorial->getTips().size() == 3 && ! tutorial->isDontShowTicked()
+                        && ! (labels.joinIntoString ("|") + tutorial->getTips().joinIntoString ("|")).contains ("DX7 MODE"),
+                    "the tour has three tips, \"Don't show this again\" unticked and no DX7 MODE");
             tutorial->setVisible (true);
             settle (600);
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
@@ -239,6 +244,14 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 
         if (scope != nullptr)
         {
+            // UI review 6: the scope floats over the page (not across it), and
+            // the engine quality settings live in the settings menu only.
+            std::vector<juce::ComboBox*> boxes;
+            findAll<juce::ComboBox> (*scope, boxes);
+            const auto* panel = scope->getParentComponent();
+            expect (boxes.empty() && panel != nullptr && panel->getWidth() < 600 && panel->getY() > 56,
+                    "the scope floats over the page, without quality or oversampling controls ("
+                        + (panel != nullptr ? panel->getBounds().toString() : juce::String()) + ")");
             scope->resetPeaks();
             juce::AudioBuffer<float> audio (2, 512);
             for (int block = 0; block < 24; ++block)
@@ -472,7 +485,7 @@ int runUiTests()
         for (auto* b : buttons)
         {
             keys = b->getButtonText() == "KEYS" ? b : keys;
-            compare = b->getButtonText().startsWith ("A/B") ? b : compare;
+            compare = dynamic_cast<ABButton*> (b) != nullptr ? b : compare;
         }
 
         auto* tabsComponent = findChild<juce::TabbedComponent> (*editor);
@@ -490,14 +503,75 @@ int runUiTests()
             expect (! visibleInTree (keyboard) && tabsComponent->getHeight() == pageHeight, "KEYS hides it again");
         }
 
+        expect (compare != nullptr && compare->getWidth() <= 64, "the header's compare is a compact A|B");
+
         if (compare != nullptr)
         {
             compare->triggerClick();
             settle (150);
-            expect (compare->getButtonText() == "A/B:  B" && compare->getToggleState(), "COMPARE flips to B and lights");
+            expect (compare->getButtonText() == "B" && compare->getToggleState(), "A|B flips to B and lights");
             compare->triggerClick();
             settle (150);
-            expect (compare->getButtonText() == "A/B:  A" && ! compare->getToggleState(), "COMPARE flips back to A");
+            expect (compare->getButtonText() == "A" && ! compare->getToggleState(), "A|B flips back to A");
+        }
+
+        // UI review 6, header and global: VOICES as "3/32", a tuning
+        // indicator while a scale retunes, MASTER at 0 dB on the factory
+        // presets (their level in the hidden trim), the hover line.
+        {
+            expect (pages->getVoicesText().matchesWildcard ("*/*", true)
+                        && pages->getVoicesText().fromFirstOccurrenceOf ("/", false, false).getIntValue() >= 1,
+                    "VOICES reads as a count of the most (" + pages->getVoicesText() + ")");
+
+            settle (400); // (the A|B swaps above land first: they restore the tuning too)
+            expect (pages->getTuningIndicatorText().isEmpty(), "no tuning indicator in 12-TET");
+            juce::String error;
+            const auto loaded = processor.loadTuningScale ("! test.scl\nQuarter tones\n 2\n!\n 150.0\n 2/1\n", error);
+            settle (200);
+            expect (loaded && pages->getTuningIndicatorText().startsWith ("TUNING: "),
+                    "a Scala scale shows the tuning indicator (" + pages->getTuningIndicatorText() + error + ", on "
+                        + juce::String (processor.apvts.getRawParameterValue ("tuning_on")->load()) + ", scale "
+                        + processor.getTuningState().getDescription() + ")");
+            if (auto* tuningOn = processor.apvts.getParameter ("tuning_on"))
+                tuningOn->setValueNotifyingHost (0.0f);
+            settle (200);
+            expect (pages->getTuningIndicatorText().isEmpty(), "switching the tuning off hides the indicator ("
+                                                                   + pages->getTuningIndicatorText() + ", on "
+                                                                   + juce::String (processor.apvts.getRawParameterValue ("tuning_on")->load()) + ")");
+
+            const auto factoryNames = processor.getFactoryPresetNames();
+            const auto presetBefore = factoryNames.indexOf (processor.getCurrentPresetName());
+            auto atZero = 0, checked = 0;
+            juce::String offender;
+            for (int index = 0; index < factoryNames.size(); index += 7)
+            {
+                processor.loadFactoryPreset (index);
+                const auto master = processor.apvts.getRawParameterValue ("master")->load();
+                ++checked;
+                if (std::abs (master) < 0.01f)
+                    ++atZero;
+                else if (offender.isEmpty())
+                    offender = factoryNames[index] + " " + juce::String (master, 2);
+            }
+            processor.loadFactoryPreset (0);
+            const auto initTrim = processor.apvts.getRawParameterValue ("output_trim")->load();
+            processor.loadFactoryPreset (juce::jmax (0, presetBefore));
+            settle (100);
+            expect (atZero == checked && std::abs (initTrim + 5.1f) < 0.05f,
+                    "MASTER reads 0 dB on the factory presets, the level in the hidden trim (" + juce::String (atZero) + "/"
+                        + juce::String (checked) + offender + ", Init trim " + juce::String (initTrim, 1) + " dB)");
+            const auto* trimParam = dynamic_cast<juce::AudioProcessorParameterWithID*> (processor.apvts.getParameter ("output_trim"));
+            expect (trimParam != nullptr && ! trimParam->isAutomatable(), "the preset trim is hidden from automation");
+
+            auto& hover = pages->getHoverLine();
+            hover.restOn (compare);
+            expect (compare == nullptr || (hover.isShowingLine() && hover.getShownTitle().isNotEmpty()),
+                    "the hover line shows while the mouse rests on a control (" + hover.getShownTitle() + ")");
+            hover.restOn (nullptr);
+            bool clicksHere = true, clicksBelow = true;
+            hover.getInterceptsMouseClicks (clicksHere, clicksBelow);
+            expect (! hover.isShowingLine() && ! clicksHere && ! clicksBelow,
+                    "the hover line is gone when the mouse leaves, and never takes a click");
         }
 
         pages->showPage ("ENV/LFO");
@@ -1491,6 +1565,28 @@ int runUiTests()
             settle (100);
             expect (confirm->isAsking() && processor.getCurrentPresetName() == loadedName,
                     "the next-preset button asks before replacing an edited patch");
+            // UI review 6: one dirty state. If the dialog asks, the header
+            // says EDITED; and it offers to save first.
+            expect (pages->isEditedBadgeShown(), "when the dialog asks, the header's EDITED badge shows");
+            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "Save and load",
+                    "the dialog offers Save and load (" + confirm->getAlternativeText() + ")");
+
+            // Save and load on a factory preset opens Save As; cancelling
+            // it keeps the edited patch.
+            if (auto* saveOverlay = findChild<SavePresetOverlay> (*editor))
+            {
+                confirm->chooseAlternative();
+                settle (200);
+                expect (saveOverlay->isShowing() && processor.getCurrentPresetName() == loadedName,
+                        "Save and load opens SAVE AS first");
+                saveOverlay->cancel();
+                settle (200);
+                expect (! saveOverlay->isShowing() && processor.getCurrentPresetName() == loadedName && pages->isPatchEdited(),
+                        "cancelling that SAVE AS keeps the edited patch");
+                nextButton->triggerClick();
+                settle (100);
+            }
+
             confirm->finish (false);
             settle (100);
             expect (processor.getCurrentPresetName() == loadedName && pages->isPatchEdited() && processor.getClipState().hasAny(),
@@ -2683,7 +2779,9 @@ int runUiTests()
             }
         }
 
-        // DOCK keeps the browser at the side: the window grows, loading doesn't close it, the name toggles it, FLOAT returns it.
+        // DOCK opens the browser over the page (UI review 6: inside the
+        // window, which keeps its size), loading doesn't close it, the name
+        // toggles it, FLOAT returns it.
         if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
         {
             processor.loadFactoryPreset (0);
@@ -2697,8 +2795,10 @@ int runUiTests()
             {
                 panel->onDockRequest (true);
                 settle (300);
-                expect (panel->isDocked() && panel->isVisible() && editor->getWidth() == baseWidth + 340 && editor->getHeight() == 720,
-                        "docking grows the window by the browser's column (" + juce::String (baseWidth) + " -> " + juce::String (editor->getWidth()) + ")");
+                expect (panel->isDocked() && panel->isVisible() && editor->getWidth() == baseWidth && editor->getHeight() == 720
+                            && panel->getWidth() >= 1000 && panel->getY() > 60 && panel->getBottom() <= 720,
+                        "docking opens the browser over the page, the window keeps its size (" + juce::String (baseWidth) + " -> "
+                            + juce::String (editor->getWidth()) + ", panel " + panel->getBounds().toString() + ")");
                 const auto start = processor.getCurrentPresetName();
                 panel->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
                 settle (150);
@@ -2708,10 +2808,10 @@ int runUiTests()
                         "the docked browser loads with the arrows and stays open on Enter");
                 display->onClick();
                 settle (300);
-                expect (! panel->isVisible() && editor->getWidth() == baseWidth, "the preset name closes the docked browser and the window shrinks back");
+                expect (! panel->isVisible() && editor->getWidth() == baseWidth, "the preset name closes the docked browser");
                 display->onClick();
                 settle (300);
-                expect (panel->isVisible() && panel->isDocked() && editor->getWidth() == baseWidth + 340, "the preset name reopens it docked");
+                expect (panel->isVisible() && panel->isDocked() && editor->getWidth() == baseWidth, "the preset name reopens it docked");
                 panel->onDockRequest (false);
                 settle (400);
                 expect (! panel->isDocked() && panel->isOpen() && editor->getWidth() == baseWidth, "FLOAT returns it to the drop-down");
@@ -2752,7 +2852,21 @@ int runUiTests()
             settle (100);
             expect (saveOverlay.getNote().contains (":") && saveOverlay.getNote().contains ("/") && saveOverlay.getNote().contains ("?"),
                     "SAVE AS says which characters a file name can't hold (" + saveOverlay.getNote() + ")");
+            // UI review 6: the note says what will happen (before the save),
+            // the panel takes an author and a comment, and suggests tags.
+            expect (saveOverlay.getNote().contains ("will be left out"), "SAVE AS says what will happen, in the future tense");
+            const auto suggested = saveOverlay.getSuggestedTags();
+            expect (suggested.size() >= 3, "SAVE AS suggests tags to tick (" + suggested.joinIntoString (", ") + ")");
+            if (! suggested.isEmpty())
+            {
+                saveOverlay.toggleSuggestedTag (suggested[0]);
+                expect (saveOverlay.getTagsField().getText().contains (suggested[0]), "a suggested tag goes into TAGS when clicked");
+                saveOverlay.toggleSuggestedTag (suggested[0]);
+                expect (! saveOverlay.getTagsField().getText().contains (suggested[0]), "and comes out when clicked again");
+            }
             saveOverlay.getTagsField().setText ("dark, wide", false);
+            saveOverlay.getAuthorField().setText ("Test Author", false);
+            saveOverlay.getCommentField().setText ("A note about the sound.", false);
             setCutoff (900.0f);
             saveOverlay.save();
             settle (100);
@@ -2760,6 +2874,11 @@ int runUiTests()
             const auto savedFile = tempDir.getChildFile (savedName + ".ilanapreset");
             expect (! saveOverlay.isShowing() && savedFile.existsAsFile() && processor.getCurrentPresetName() == savedName,
                     "SAVE AS keeps apostrophes, brackets and accents, dropping only : / ? (" + processor.getCurrentPresetName() + ")");
+            {
+                const auto info = processor.getPresetInfo (processor.getAllPresetNames().indexOf (savedName));
+                expect (info.author == "Test Author" && info.comment == "A note about the sound.",
+                        "SAVE AS stores the author and the comment (" + info.author + ", " + info.comment + ")");
+            }
             expect (! pages->isPatchEdited(), "a saved patch is no longer EDITED");
 
             setCutoff (2400.0f);
@@ -2824,14 +2943,20 @@ int runUiTests()
             processor.loadFactoryPreset (neuroWobble);
             settle (150);
 
-            // Digits pick tabs 1-9; there is no tenth tab for 0.
+            // Ctrl/Cmd + 1-9 pick tabs (UI review 6: bare digits are left
+            // to the host and the keyboard); there is no tenth tab for 0.
             if (auto* tabbed = findChild<juce::TabbedComponent> (*editor))
             {
                 const auto before = tabbed->getCurrentTabIndex();
-                editor->keyPressed (juce::KeyPress ('2'));
+                tabbed->setCurrentTabIndex (0);
+                const auto bareTaken = editor->keyPressed (juce::KeyPress ('2'));
+                const auto onBare = tabbed->getCurrentTabIndex();
+                editor->keyPressed (juce::KeyPress ('2', juce::ModifierKeys::commandModifier, 0));
                 const auto onTwo = tabbed->getCurrentTabIndex();
-                expect (onTwo == 1 && ! editor->keyPressed (juce::KeyPress ('0')) && tabbed->getCurrentTabIndex() == 1,
-                        "2 picks the second tab and 0 does nothing");
+                expect (! bareTaken && onBare == 0 && onTwo == 1
+                            && ! editor->keyPressed (juce::KeyPress ('0', juce::ModifierKeys::commandModifier, 0))
+                            && tabbed->getCurrentTabIndex() == 1,
+                        "Ctrl+2 picks the second tab, a bare 2 and Ctrl+0 do nothing");
                 tabbed->setCurrentTabIndex (before);
                 settle (150);
             }
@@ -2847,36 +2972,100 @@ int runUiTests()
                 if (panel != nullptr)
                 {
                     const auto sortBefore = panel->getSortMode();
-                    const auto dx7Before = panel->isShowingDx7();
                     panel->setSortMode (PresetPanel::sortByName);
-                    panel->setShowDx7 (false);
                     panel->selectFilter ("");
                     auto listed = panel->getListedNames();
                     auto sorted = true;
-                    for (int i = 1; i < listed.size(); ++i)
-                        sorted = sorted && listed[i - 1].compareNatural (listed[i], false) <= 0;
+                    const auto listedShown = panel->getListedDisplayNames();
+                    for (int i = 1; i < listedShown.size(); ++i)
+                        sorted = sorted && listedShown[i - 1].compareNatural (listedShown[i], false) <= 0;
                     auto dx7Shown = 0;
                     for (const auto& name : listed)
                         dx7Shown += name.endsWith ("(ROM1A)") || name.endsWith ("(DEXED01)") ? 1 : 0;
-                    expect (sorted && listed.size() > 100, "the browser sorts by name (" + listed[0] + ", " + listed[1] + ", " + listed[2] + "...)");
-                    expect (dx7Shown == 0 && listed.contains (savedName), "All leaves the DX7 ROM voices out by default ("
-                                                                          + juce::String (listed.size()) + " listed)");
+                    expect (sorted && listed.size() > 100, "the browser sorts by the names it shows (" + listedShown[0] + ", " + listedShown[1] + ", "
+                                                              + listedShown[2] + "...)");
+                    expect (dx7Shown >= 64 && listed.contains (savedName) && ! panel->getSidebarKeys().contains ("DX7"),
+                            "All means all: the DX7 voices are in it, with no DX7 folder (" + juce::String (listed.size()) + " listed)");
 
-                    panel->selectFilter ("DX7");
-                    const auto chipKeys = panel->getChipKeys();
+                    // UI review 6: the DX7 chip narrows to the voices, a chip
+                    // per bank; names show in Title Case without the bank.
+                    auto chipKeys = panel->getChipKeys();
+                    expect (chipKeys.contains ("pack:dx7") && ! chipKeys.contains ("bank:ROM1A") && ! chipKeys.contains ("tag:DX7"),
+                            "the DX7 chip leads the chip row, banks folded away (" + chipKeys.joinIntoString (" ").substring (0, 120) + ")");
+                    panel->clickChip ("pack:dx7");
+                    chipKeys = panel->getChipKeys();
                     expect (panel->getListedNames().size() >= 288 && chipKeys.contains ("bank:ROM1A") && chipKeys.contains ("bank:DEXED01"),
-                            "DX7 lists its voices with a chip per bank (" + chipKeys.joinIntoString (" ") + ")");
+                            "the DX7 chip lists the voices with a chip per bank (" + juce::String (panel->getListedNames().size()) + ")");
                     panel->clickChip ("bank:ROM1B");
                     listed = panel->getListedNames();
+                    const auto shown = panel->getListedDisplayNames();
                     auto allRom1B = listed.size() == 32;
                     for (const auto& name : listed)
                         allRom1B = allRom1B && name.endsWith ("(ROM1B)");
                     expect (allRom1B, "the ROM1B chip lists that bank's 32 voices");
+                    const auto piano = listed.indexOf ("E.PIANO 1 (ROM1B)") >= 0 ? listed.indexOf ("E.PIANO 1 (ROM1B)") : 0;
+                    expect (shown.joinIntoString ("|").indexOf ("(ROM1B)") < 0 && shown[piano] == Presets::dx7DisplayName (listed[piano])
+                                && Presets::dx7DisplayName ("E.PIANO 1 (ROM1A)") == "E.Piano 1"
+                                && Presets::dx7DisplayName ("SYN-LEAD 1 (ROM1A)") == "Syn-Lead 1",
+                            "DX7 names show in Title Case without the bank (" + shown[0] + ", " + shown[1] + ")");
+                    panel->clickChip ("bank:ROM1B");
+                    panel->clickChip ("pack:dx7");
+                    expect (panel->getListedNames().size() > 600, "the DX7 chip clicked again shows everything");
 
-                    panel->setShowDx7 (true);
+                    // DX7 voices are filed by sound, beside the factory sounds.
+                    panel->selectFilter ("Keys");
+                    listed = panel->getListedNames();
+                    expect (listed.contains ("E.PIANO 1 (ROM1A)") && listed.contains ("Init") == false,
+                            "the DX7 voices are filed by sound (E.Piano 1 under Keys)");
+                    panel->selectFilter ("Bass");
+                    expect (panel->getListedNames().contains ("PLUCK BASS (ROM3B)"), "PLUCK BASS is filed under Bass");
+                    panel->selectFilter ("FX");
+                    expect (panel->getListedNames().contains ("GRAND PRIX (ROM3A)") || ! processor.getAllPresetNames().contains ("GRAND PRIX (ROM3A)"),
+                            "GRAND PRIX is filed under FX");
+
+                    // Every factory preset carries 3-6 descriptive tags, shown
+                    // on its row and as chips; macro names only on hover.
+                    {
+                        const auto tags = processor.getAllPresetTags();
+                        const auto factoryCount = processor.getFactoryPresetNames().size();
+                        auto tagged = 0;
+                        juce::String untagged;
+                        for (int i = 0; i < factoryCount; ++i)
+                        {
+                            const auto count = juce::StringArray::fromTokens (tags[i], ",", "").size();
+                            if (count >= 3 && count <= 6)
+                                ++tagged;
+                            else if (untagged.isEmpty())
+                                untagged = processor.getAllPresetNames()[i] + " (" + tags[i] + ")";
+                        }
+                        expect (tagged == factoryCount, "every factory preset has 3-6 tags (" + juce::String (tagged) + "/"
+                                                            + juce::String (factoryCount) + " " + untagged + ")");
+
+                        panel->selectFilter ("");
+                        chipKeys = panel->getChipKeys();
+                        expect (chipKeys.contains ("tag:Bright") && chipKeys.contains ("tag:FM"), "the tags show as chips");
+                        panel->clickChip ("tag:Bell");
+                        listed = panel->getListedNames();
+                        auto allBells = listed.size() > 10;
+                        for (const auto& name : listed)
+                            allBells = allBells && tags[processor.getAllPresetNames().indexOf (name)].contains ("Bell");
+                        expect (allBells, "a tag chip lists the presets with that tag (" + juce::String (listed.size()) + " bells)");
+                        expect (panel->getRowTags (0).contains ("Bell") || panel->getRowTags (0).size() > 0,
+                                "a row shows its tags (" + panel->getRowTags (0).joinIntoString (", ") + ")");
+                        panel->clickChip ("tag:Bell");
+                        const auto rowTip = panel->getRowTooltip (panel->getListedNames().indexOf ("Rip Bass"));
+                        expect (rowTip.contains ("Macros:") && rowTip.contains ("TONE"), "the macro names show on hover: " + rowTip.replace ("\n", " / "));
+                    }
+
+                    // The list shows whole rows only: no clipped last row.
+                    expect (panel->getListBounds().getHeight() % panel->getListRowHeight() == 0,
+                            "the list ends on a whole row (" + juce::String (panel->getListBounds().getHeight()) + " px, rows of "
+                                + juce::String (panel->getListRowHeight()) + ")");
+
+                    // DELETE says why it can't delete a factory preset.
                     panel->selectFilter ("");
-                    expect (panel->getListedNames().size() > listed.size() + 288, "Show DX7 voices puts them back into All");
-                    panel->setShowDx7 (false);
+                    expect (! panel->isDeleteEnabled() && panel->getDeleteTooltip().containsIgnoreCase ("factory"),
+                            "DELETE explains itself on a factory preset: " + panel->getDeleteTooltip());
 
                     panel->setSortMode (PresetPanel::sortByCategory);
                     listed = panel->getListedNames();
@@ -2908,7 +3097,6 @@ int runUiTests()
 
                     panel->selectFilter ("");
                     panel->setSortMode (sortBefore);
-                    panel->setShowDx7 (dx7Before);
                     editor->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
                     settle (400);
                     expect (! panel->isOpen(), "Esc closes the browser");
@@ -2930,6 +3118,47 @@ int runUiTests()
                         "the table search filters (" + saws.joinIntoString (", ") + ")");
                 expect (all.contains ("Hard Sync") && ! all.contains ("DriveSaw") && ! all.contains ("Basic"),
                         "table names show as spaced Title Case, ANALOG's Basic as Analog Saw");
+            }
+
+            // UI review 6 (I6-35, I6-36): a .syx dropped on the window imports
+            // the bank, filed by sound, and "Show in browser" opens it there.
+            if (auto* confirm = findChild<ConfirmOverlay> (*editor); confirm != nullptr)
+            {
+                juce::MemoryOutputStream syx;
+                for (const auto byte : { 0xF0, 0x43, 0x00, 0x09, 0x20, 0x00 })
+                    syx.writeByte ((char) byte);
+                syx.write (Dx7Banks::banks[0].data, 4096);
+                auto sum = 0;
+                for (int i = 0; i < 4096; ++i)
+                    sum += Dx7Banks::banks[0].data[i];
+                syx.writeByte ((char) ((128 - (sum & 127)) & 127));
+                syx.writeByte ((char) 0xF7);
+                const auto syxFile = tempDir.getChildFile ("TESTBANK.syx");
+                syxFile.replaceWithData (syx.getData(), syx.getDataSize());
+
+                expect (pages->isInterestedInFileDrag ({ syxFile.getFullPathName() })
+                            && ! pages->isInterestedInFileDrag ({ tempDir.getChildFile ("x.wav").getFullPathName() }),
+                        "the window takes .syx drops (and leaves other files to the sample zones)");
+                pages->filesDropped ({ syxFile.getFullPathName() }, 10, 10);
+                settle (200);
+                expect (confirm->isAsking() && confirm->getTitle() == "Imported TESTBANK",
+                        "a dropped bank imports and says so (" + confirm->getTitle() + ")");
+                confirm->finish (true);
+                settle (500);
+                auto* panel = findChild<PresetPanel> (*editor);
+                const auto listed = panel != nullptr ? panel->getListedNames() : juce::StringArray();
+                const auto categories = processor.getAllPresetCategories();
+                const auto names = processor.getAllPresetNames();
+                const auto firstCategory = listed.isEmpty() ? juce::String() : categories[names.indexOf (listed[0])];
+                expect (panel != nullptr && panel->isOpen() && listed.size() == 32 && panel->getChipKeys().contains ("bank:TESTBANK")
+                            && firstCategory.isNotEmpty() && firstCategory != "DX7",
+                        "Show in browser opens the new bank's 32 voices, filed by sound (" + juce::String (listed.size()) + ", "
+                            + firstCategory + ")");
+                if (panel != nullptr)
+                {
+                    panel->close();
+                    settle (400);
+                }
             }
 
             IlanaSynthAudioProcessor::userPresetDirectoryOverride = juce::File();

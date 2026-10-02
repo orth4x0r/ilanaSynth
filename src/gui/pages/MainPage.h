@@ -899,16 +899,20 @@ private:
 
     void layoutSubCard()
     {
+        // Folded by hand (both off) or to fit: just the title line and the
+        // switch (UI review 6, V7 and S8: the fold to fit left the controls
+        // drawn over the title).
+        const auto folded = subFolded || subAutoFolded;
         auto inner = subCard.reduced (10, 8);
         inner.removeFromTop (18);
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard, subFolded)));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard, folded)));
         inner.removeFromTop (2);
 
         for (auto* control : { static_cast<juce::Component*> (subShape.get()), static_cast<juce::Component*> (subOctave.get()),
                                static_cast<juce::Component*> (subLevel.get()), static_cast<juce::Component*> (noiseLevel.get()) })
-            control->setVisible (! subFolded);
+            control->setVisible (! folded);
 
-        if (subFolded)
+        if (folded)
             return;
 
         // One row across the whole card: the sub's menus and level, and the

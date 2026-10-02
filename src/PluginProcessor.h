@@ -700,15 +700,9 @@ private:
     std::atomic<bool> exciterLevelMatch { true };
     void updateExciterLevelMatch (bool savedWithMatch);
 
-    // DX7 mode: the patch's DX7 voice (saved as a "Dx7" child). Every voice
-    // ever set is kept, so the audio thread's pointer always stays valid.
-    std::deque<std::unique_ptr<Dx7::Voice>> dx7Store;
-    std::atomic<const Dx7::Voice*> dx7Voice { nullptr };
-
 public:
-    void setDx7Voice (const Dx7::Voice* voice);
-    const Dx7::Voice* getDx7Voice() const { return dx7Voice.load(); }
-    // Loads one DX7 voice as the current patch (named after it).
+    // Loads one DX7 voice as the current patch (named after it): ordinary
+    // parameters, the operators on the Operator EG (Dx7Presets.h).
     void loadDx7Voice (const Dx7::Voice& voice, const juce::String& name);
     // A .syx bank (32 voices) or single voice, saved as user presets under
     // DX7/<file name>/. Returns how many were imported; message says why not.
@@ -766,6 +760,11 @@ private:
     // envelope choice and sample source.
     std::array<std::array<ParamRef, OscillatorIds::count>, OscillatorIds::count> fmMatrixIds;
     std::array<ParamRef, OscillatorIds::count> oscAmpEnvIds, sampleFactoryIds;
+    // The Operator EG's parameters, in OperatorEg::operatorFields() and
+    // voiceFields() order.
+    std::array<std::array<ParamRef, 17>, OscillatorIds::count> operatorEgIds;
+    std::array<ParamRef, 15> operatorEgVoiceIds;
+    ParamRef operatorEgKeyOffsetId { OperatorEg::keyOffsetId };
 
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();

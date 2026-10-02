@@ -22,6 +22,7 @@
 #include "Svf.h"
 #include "TensionAdsr.h"
 #include "Dx7Engine.h"
+#include "OperatorEgParams.h"
 #include "UnisonBank.h"
 #include "WavetableOscillator.h"
 
@@ -51,9 +52,11 @@ inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2"
 // How an operator's self-feedback (the matrix diagonal) is taken.
 namespace FmFeedback
 {
-enum { Plain = 0, Filtered, Cross, Count };
+// DX7 (appended): the plain average of the last two samples, the DX7's own
+// feedback (Filtered smooths that average further).
+enum { Plain = 0, Filtered, Cross, Dx7, Count };
 
-inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross" }; }
+inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross", "DX7" }; }
 
 // Cross feedback runs between the two oscillators of a pair: 1-2, 3-4, 5-6.
 inline int partnerOf (int osc) { return osc ^ 1; }
@@ -156,7 +159,7 @@ struct VoiceParams
         int warpMode = 0;
         float warpAmount = 0.0f;
         int route = 0; // FilterRoute
-        int ampEnv = 0; // 0..15, ENV 1..16; 16 = the MSEG as a one-shot envelope
+        int ampEnv = 0; // 0..15, ENV 1..16; 16 = the MSEG as a one-shot envelope; 17 = the Operator EG
 
         // M5 operator settings. Tuning: 0 = semitones (as before), 1 = a
         // frequency ratio of the note (already snapped), 2 = a fixed pitch.
@@ -164,7 +167,7 @@ struct VoiceParams
         double ratio = 1.0;
         double fixedHz = 440.0;
         float keyLevel = 0.0f;   // level key scaling: dB per octave from C3, x6
-        int feedbackType = 0;    // FmFeedback: plain, filtered, cross
+        int feedbackType = 0;    // FmFeedback: plain, filtered, cross, DX7
 
         // M6: the PD chain's second stage and the DCW-style warp envelope
         // (0 = off, 1..16 = ENV 1..16, 17 = MSEG).
@@ -342,9 +345,11 @@ struct VoiceParams
     // out ~8 dB over a plucked string. Off for patches saved before then that
     // use those exciters, so they keep their sound.
     bool exciterLevelMatch = false;
-    // DX7 mode (2026-10-01): the patch's DX7 voice, or null. Owned by the
-    // processor for at least the block.
-    const Dx7::Voice* dx7 = nullptr;
+    // The Operator EG (2026-10-02): its settings as a DX7 voice (only the
+    // envelope, scaling, pitch EG and LFO bytes are read), filled when an
+    // enabled oscillator's ENVELOPE is the Operator EG (operatorEgUsed).
+    Dx7::Voice operatorEg {};
+    bool operatorEgUsed = false;
 
     // M8.3: the west-coast voice (wavefolder into a low-pass gate).
     struct WestParams
@@ -673,17 +678,25 @@ private:
     const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
 
-    // DX7 mode: the note's control side and its operator gains, stepped
-    // every 64 samples and ramped in between (as msfa ramps them).
+    // The Operator EG: the note's control side and its operator gains,
+    // stepped every 64 samples and ramped in between (as msfa ramps them).
     Dx7::Note dx7Note;
     std::array<float, 6> dx7Previous {}, dx7Current {};
     int dx7Count = 0;
-    bool dx7Playing = false;
+    bool dx7Playing = false; // the note started with the Operator EG in use
     // Dexed's output is the carriers' sum / 16 (msfa's >> 4 then >> 9).
     static constexpr float dx7CarrierScale = 1.0f / 16.0f;
     // An operator's level knob at 0.5 gives the DX7's own gain (the
     // importer sets 0.5), leaving room to push a modulator deeper.
     static constexpr float dx7LevelScale = 2.0f;
+    // True while this oscillator plays the Operator EG.
+    bool usesOperatorEg (int osc) const
+    {
+        return dx7Playing && params.oscillators[osc].ampEnv == OperatorEg::envelopeChoice;
+    }
+    // Every enabled oscillator plays the Operator EG, so its carriers decide
+    // how long the voice lasts (as on the DX7).
+    bool operatorEgOwnsVoice() const;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;
     float randomValue = 0.0f;

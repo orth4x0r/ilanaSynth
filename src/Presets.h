@@ -35,9 +35,6 @@ struct FactoryPreset
         bool withFx = true;
     };
     std::vector<Bounce> bounces {};
-
-    // A DX7 voice played in DX7 mode (Dx7Presets.h), or null.
-    const Dx7::Voice* dx7 = nullptr;
 };
 
 inline const std::vector<FactoryPreset>& getLegacyPresets()

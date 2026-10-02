@@ -1,11 +1,14 @@
 #pragma once
 
-// DX7 mode: a voice's operator envelopes, keyboard and velocity scaling,
-// pitch envelope and LFO, computed exactly as the DX7 does, from a 156-byte
-// voice (VCED order, OP6 first, as Dexed keeps it). The sound itself still
-// comes from ilanaSynth's six oscillators and FM matrix (the importer sets
-// them up); this supplies each operator's gain in modulation cycles, which is
-// the same unit ilanaSynth's phase modulation uses.
+// The Operator EG: a voice's operator envelopes, keyboard and velocity
+// scaling, pitch envelope and LFO, computed exactly as the DX7 does, from a
+// 156-byte voice (VCED order, OP6 first, as Dexed keeps it). The processor
+// fills that voice from the oscillators' EG parameters (an oscillator whose
+// ENVELOPE is Operator EG); the sound itself comes from ilanaSynth's six
+// oscillators and FM matrix. This supplies each operator's gain in
+// modulation cycles, which is the same unit ilanaSynth's phase modulation
+// uses. .syx files and the DX7 banks are read into those parameters
+// (Dx7Presets.h).
 //
 // Ported from msfa (Dexed's engine): env.cc, dx7note.cc, pitchenv.cc and
 // lfo.cc. Copyright 2012 Google Inc., 2016-2025 Pascal Gauthier; Apache
@@ -485,7 +488,9 @@ private:
 class Note
 {
 public:
-    void start (const Voice& v, int midiNote, int velocity, double sampleRate)
+    // carriers: the operators heard (their envelopes decide when the note
+    // has ended).
+    void start (const Voice& v, int midiNote, int velocity, double sampleRate, const std::array<bool, 6>& carriers)
     {
         for (int k = 1; k <= 6; ++k)
         {
@@ -517,8 +522,7 @@ public:
         pitchModDepth = (v[139] * 165) >> 6;
         pitchModSensitivity = pitchModSens[v[143] & 7];
         ampModDepth = (v[140] * 165) >> 6;
-        const auto r0 = routing (v[134]);
-        carrier = r0.carrier;
+        carrier = carriers;
         lfo.init (v, sampleRate);
         lfo.keyDown();
         gains.fill (0.0f);

@@ -182,5 +182,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
       Stretched Glass Keys. Renames change fingerprint keys and saved sessions' preset names: update
       `tests/fingerprints-linux.csv` and keep the old names loadable.
    4. Mod chip row: "E6" beside "ENV 5" when crowded; shorten consistently or not at all.
-   5. A DX7 envelope editor (DX7 voices show oscillator AMP ENV menus that DX7 mode ignores).
+   5. A DX7 envelope editor (DX7 voices show oscillator AMP ENV menus that DX7 mode ignores). **Done** 2026-10-02 (the
+      user: fold DX7 mode into the synth): DX7 mode is gone; the Operator EG is an ENVELOPE choice any oscillator can use,
+      edited on the FM page (see HANDOFF).
    6. Help text: "+-48 st" to ±, Rössler, Hénon.

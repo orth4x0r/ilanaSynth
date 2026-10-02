@@ -118,6 +118,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                     for (const auto candidate : { min, max })
                         if (describeValue (id, (float) candidate).equalsIgnoreCase (text.trim()))
                             return candidate;
+                    // Any value's own text (the Operator EG's break point
+                    // shows a note name that isn't its number).
+                    if (max - min <= 256)
+                        for (auto candidate = min; candidate <= max; ++candidate)
+                            if (describeValue (id, (float) candidate).equalsIgnoreCase (text.trim()))
+                                return candidate;
 
                     // Note names ("C#3", C3 = 60) as well as plain numbers
                     // and numbered items ("#29").
@@ -739,6 +745,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "F2 Env"
                                 : env == 4 ? "Mod Env" : "Env " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
+    ampEnvelopeChoices.add ("Op EG"); // appended, index 17: the Operator EG (OperatorEgParams.h)
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -1017,6 +1024,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addBool ("clip_on", "Clip On", false);
     addChoice ("clip_index", "Clip", { "1", "2", "3", "4", "5", "6", "7", "8" }, 0);
     addChoice ("clip_mode", "Clip Mode", { "Key transpose", "Host play" }, 0);
+
+    // The Operator EG (an oscillator's ENVELOPE choice 17): the DX7's
+    // envelope generator, scaling and sensitivities per operator, and its
+    // pitch envelope and LFO for the voice. Defaults are the DX7 init voice.
+    const auto addEgField = [&] (const OperatorEg::Field& field, const juce::String& id, const juce::String& name)
+    {
+        if (field.choice)
+        {
+            juce::StringArray names;
+            if (field.maximum == 3)
+                for (const auto* curve : OperatorEg::curveNames)
+                    names.add (curve);
+            else
+                for (const auto* wave : OperatorEg::lfoWaveNames)
+                    names.add (wave);
+            addChoice (id, name, names, field.defaultValue);
+        }
+        else if (field.maximum == 1)
+            addBool (id, name, field.defaultValue != 0);
+        else
+            addInt (id, name, 0, field.maximum, field.defaultValue);
+    };
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        for (const auto& field : OperatorEg::operatorFields())
+            addEgField (field, juce::String (OscillatorIds::prefixes[(size_t) osc]) + field.suffix,
+                        "Osc" + juce::String (osc + 1) + " " + field.name);
+    for (const auto& field : OperatorEg::voiceFields())
+        addEgField (field, field.suffix, field.name);
+    addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
 
     return layout;
 }

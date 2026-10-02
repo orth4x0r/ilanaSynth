@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 #include "../dsp/OscillatorIds.h"
+#include "../dsp/OperatorEgParams.h"
 
 inline bool isOscParameter (const juce::String& id, const char* suffix, bool includeLegacyThird = true)
 {
@@ -195,6 +196,14 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                                                            : juce::String (std::round (value * 10.0f) / 10.0f, 1)) + " Hz";
     if (isOscParameter (id, "_key_level"))
         return (std::round (value * 60.0f) > 0.0f ? "+" : "") + describeFixed (value * 6.0f, 1) + " dB/oct";
+    // The Operator EG's 0-99 values are plain numbers (DELAY isn't seconds).
+    if (id == "opeg_lfo_delay" || id == "opeg_lfo_speed")
+        return juce::String (juce::roundToInt (value));
+    // DX7 break points: 0 is A-1, 39 is C3 (middle C).
+    if (isOscParameter (id, "_eg_break"))
+        return juce::MidiMessage::getMidiNoteName (juce::roundToInt (value) + 21, true, true, 3);
+    if (id == OperatorEg::keyOffsetId)
+        return (juce::roundToInt (value) > 0 ? "+" : "") + juce::String (juce::roundToInt (value)) + " st";
     if (isOscParameter (id, "_warp2_amt"))
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
@@ -356,7 +365,59 @@ inline juce::String describeParameter (const juce::String& id)
                "High averages two wavetable reads per sample for smoother highs.";
     if (isOscParameter (id, "_amp_env"))
         return "Envelope controlling this oscillator's level (as an FM operator, how deep it modulates). "
-               "ENV 1 is the original AMP envelope; MSEG runs the MSEG shape once per note.";
+               "ENV 1 is the original AMP envelope; MSEG runs the MSEG shape once per note; Op EG is the Operator EG, the "
+               "DX7's envelope generator, set on the FM page (rates, levels, keyboard scaling, velocity).";
+
+    // The Operator EG (FM page), DX7 style: 0-99 values as on a DX7.
+    for (int stage = 1; stage <= 4; ++stage)
+    {
+        if (isOscParameter (id, ("_eg_r" + juce::String (stage)).toRawUTF8()))
+            return "Operator EG rate " + juce::String (stage) + " (0-99): how fast it moves to level " + juce::String (stage)
+                   + (stage == 4 ? ", after the key is released" : "") + ". 99 is instant, 0 never moves.";
+        if (isOscParameter (id, ("_eg_l" + juce::String (stage)).toRawUTF8()))
+            return "Operator EG level " + juce::String (stage) + " (0-99, about 0.75 dB a step near the top)"
+                   + (stage == 3 ? ": held while the key is down." : stage == 4 ? ": where the release ends." : ".");
+        if (id == "opeg_pitch_r" + juce::String (stage))
+            return "Operator EG pitch envelope rate " + juce::String (stage) + " (0-99)"
+                   + (stage == 4 ? ", after the key is released." : ".");
+        if (id == "opeg_pitch_l" + juce::String (stage))
+            return "Operator EG pitch envelope level " + juce::String (stage) + ": 50 is the note, 0 and 99 about four "
+                   "octaves down and up. Moves every ratio oscillator on the Operator EG.";
+    }
+    if (isOscParameter (id, "_eg_out"))
+        return "Operator EG output level (0-99, as on a DX7): how loud a carrier is, how deep a modulator modulates. "
+               "LEVEL scales it on top (0.5 is this level).";
+    if (isOscParameter (id, "_eg_break"))
+        return "Keyboard scaling break point: the key where LEFT and RIGHT DEPTH start (39 is C3, as on a DX7).";
+    if (isOscParameter (id, "_eg_ldepth"))
+        return "How much the level changes below the break point, along L CURVE.";
+    if (isOscParameter (id, "_eg_rdepth"))
+        return "How much the level changes above the break point, along R CURVE.";
+    if (isOscParameter (id, "_eg_lcurve") || isOscParameter (id, "_eg_rcurve"))
+        return "Keyboard scaling curve away from the break point: -LIN and -EXP get quieter, +EXP and +LIN louder.";
+    if (isOscParameter (id, "_eg_rate_key"))
+        return "Rate scaling (0-7): higher notes run this operator's envelope faster.";
+    if (isOscParameter (id, "_eg_vel"))
+        return "Velocity sensitivity (0-7): how much softer playing lowers this operator's level.";
+    if (isOscParameter (id, "_eg_ams"))
+        return "Amp modulation sensitivity (0-3): how much the Operator EG LFO's AMP DEPTH moves this operator.";
+    if (id == "opeg_lfo_speed")
+        return "Operator EG LFO speed (0-99, about 0.06 to 49 Hz), the DX7's LFO.";
+    if (id == "opeg_lfo_delay")
+        return "Operator EG LFO delay (0-99): how long after the key the LFO fades in.";
+    if (id == "opeg_lfo_pmd")
+        return "Operator EG LFO pitch depth: vibrato on every ratio oscillator on the Operator EG (scaled by PITCH SENS).";
+    if (id == "opeg_lfo_amd")
+        return "Operator EG LFO amp depth: tremolo or wah on the oscillators whose AMS is above 0.";
+    if (id == "opeg_lfo_sync")
+        return "Operator EG LFO key sync: each note starts the LFO from the top of its cycle.";
+    if (id == "opeg_lfo_wave")
+        return "Operator EG LFO wave: triangle, saw down, saw up, square, sine or sample and hold.";
+    if (id == "opeg_lfo_pms")
+        return "Operator EG LFO pitch sensitivity (0-7): how far PITCH DEPTH bends the pitch.";
+    if (id == OperatorEg::keyOffsetId)
+        return "Moves the key the Operator EG's keyboard and rate scaling follow, in semitones (a DX7 voice's "
+               "transpose; the pitch itself is in each oscillator's SEMI).";
     if (isOscParameter (id, "_tune"))
         return "How the operator is tuned: in semitones (as before), as a ratio of the played note, "
                "or at a fixed frequency that ignores the keyboard (for drums and formants). SEMI and FINE still apply.";
@@ -372,7 +433,8 @@ inline juce::String describeParameter (const juce::String& id)
                "up to 6 dB per octave from C3. On a modulator it keeps FM brightness even across the keys.";
     if (isOscParameter (id, "_fb_type"))
         return "Feedback style for this operator's FB cell: Plain, Filtered (smoothed like a DX7, calmer at high "
-               "amounts), or Cross (the amount runs between this oscillator and its pair: 1-2, 3-4, 5-6).";
+               "amounts), Cross (the amount runs between this oscillator and its pair: 1-2, 3-4, 5-6), or DX7 "
+               "(the DX7's own: the average of the last two samples).";
     if (isOscParameter (id, "_warp2"))
         return "The second stage of the PD chain: a second warp applied after the first.";
     if (isOscParameter (id, "_warp2_amt"))

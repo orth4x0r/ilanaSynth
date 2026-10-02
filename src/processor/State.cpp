@@ -92,14 +92,9 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     tuningState.saveTo (state);
     clipState.saveTo (state);
 
-    // DX7 mode: the voice as its 156 bytes (Dexed's layout), base64.
+    // (The old DX7 mode's "Dx7" child is never written: a DX7 voice is
+    // ordinary parameters now.)
     state.removeChild (state.getChildWithName ("Dx7"), nullptr);
-    if (const auto* voice = dx7Voice.load())
-    {
-        juce::ValueTree dx7 ("Dx7");
-        dx7.setProperty ("voice", juce::Base64::toBase64 (voice->data(), voice->size()), nullptr);
-        state.appendChild (dx7, nullptr);
-    }
 
     return state;
 }
@@ -553,7 +548,11 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
         state.removeChild (samples, nullptr);
 
-        // DX7 mode: a saved DX7 voice comes back; without one the mode is off.
+        // A patch saved in the old DX7 mode (2026-10-01) carries its DX7
+        // voice as a "Dx7" child: it becomes the Operator EG's parameters,
+        // with every oscillator on the Operator EG and Filtered feedback as
+        // the DX7 type (DX7 mode played Filtered as the DX7's average), which
+        // is what that mode played.
         {
             const auto dx7 = state.getChildWithName ("Dx7");
             juce::MemoryOutputStream bytes;
@@ -564,10 +563,27 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                 Dx7::Voice voice {};
                 std::memcpy (voice.data(), bytes.getData(), voice.size());
                 Dx7::clampRanges (voice);
-                setDx7Voice (&voice);
+
+                const auto paramNode = [&state] (const juce::String& id)
+                {
+                    for (int i = 0; i < state.getNumChildren(); ++i)
+                        if (state.getChild (i).hasType ("PARAM") && state.getChild (i).getProperty ("id").toString() == id)
+                            return state.getChild (i);
+                    juce::ValueTree child ("PARAM");
+                    child.setProperty ("id", id, nullptr);
+                    state.appendChild (child, nullptr);
+                    return child;
+                };
+                for (const auto& value : Presets::Dx7Import::egValues (voice))
+                    paramNode (value.id).setProperty ("value", value.value, nullptr);
+                for (const auto* prefix : OscillatorIds::prefixes)
+                {
+                    paramNode (juce::String (prefix) + "_amp_env").setProperty ("value", (float) OperatorEg::envelopeChoice, nullptr);
+                    auto feedback = paramNode (juce::String (prefix) + "_fb_type");
+                    if ((int) feedback.getProperty ("value", 0) == FmFeedback::Filtered)
+                        feedback.setProperty ("value", (float) FmFeedback::Dx7, nullptr);
+                }
             }
-            else
-                setDx7Voice (nullptr);
             state.removeChild (dx7, nullptr);
         }
 

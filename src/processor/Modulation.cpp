@@ -117,7 +117,85 @@ void IlanaSynthAudioProcessor::triggerPreviewNote (int midiNote, bool isOn, floa
 
 void IlanaSynthAudioProcessor::startMacroLearn (int macroIndex)
 {
+    paramLearn.store (-1);
     macroLearn.store (juce::jlimit (0, Mod::numMacros - 1, macroIndex));
+}
+
+namespace
+{
+juce::String parameterIdOf (const juce::AudioProcessorParameter* parameter)
+{
+    if (const auto* withId = dynamic_cast<const juce::AudioProcessorParameterWithID*> (parameter))
+        return withId->paramID;
+
+    return {};
+}
+} // namespace
+
+void IlanaSynthAudioProcessor::startParamLearn (const juce::String& parameterId)
+{
+    if (auto* parameter = apvts.getParameter (parameterId))
+    {
+        macroLearn.store (-1);
+        paramLearn.store (parameter->getParameterIndex());
+    }
+}
+
+void IlanaSynthAudioProcessor::cancelParamLearn()
+{
+    paramLearn.store (-1);
+}
+
+juce::String IlanaSynthAudioProcessor::getParamLearnTarget() const
+{
+    const auto index = paramLearn.load();
+    return juce::isPositiveAndBelow (index, getParameters().size()) ? parameterIdOf (getParameters()[index]) : juce::String();
+}
+
+int IlanaSynthAudioProcessor::getParamCc (const juce::String& parameterId) const
+{
+    if (const auto* parameter = apvts.getParameter (parameterId))
+        for (int cc = 0; cc < (int) ccParameter.size(); ++cc)
+            if (ccParameter[(size_t) cc].load() == parameter->getParameterIndex())
+                return cc;
+
+    return -1;
+}
+
+void IlanaSynthAudioProcessor::clearParamCc (const juce::String& parameterId)
+{
+    if (const auto* parameter = apvts.getParameter (parameterId))
+        for (auto& mapped : ccParameter)
+            if (mapped.load() == parameter->getParameterIndex())
+                mapped.store (-1);
+}
+
+// "cc=parameterId" pairs, comma-separated.
+juce::String IlanaSynthAudioProcessor::getParamCcMapText() const
+{
+    juce::StringArray pairs;
+    const auto& parameters = getParameters();
+
+    for (int cc = 0; cc < (int) ccParameter.size(); ++cc)
+        if (const auto index = ccParameter[(size_t) cc].load(); juce::isPositiveAndBelow (index, parameters.size()))
+            pairs.add (juce::String (cc) + "=" + parameterIdOf (parameters[index]));
+
+    return pairs.joinIntoString (",");
+}
+
+void IlanaSynthAudioProcessor::setParamCcMapText (const juce::String& text)
+{
+    for (auto& mapped : ccParameter)
+        mapped.store (-1);
+
+    for (const auto& pair : juce::StringArray::fromTokens (text, ",", ""))
+    {
+        const auto cc = pair.upToFirstOccurrenceOf ("=", false, false).getIntValue();
+
+        if (const auto* parameter = apvts.getParameter (pair.fromFirstOccurrenceOf ("=", false, false));
+            parameter != nullptr && juce::isPositiveAndBelow (cc, (int) ccParameter.size()))
+            ccParameter[(size_t) cc].store (parameter->getParameterIndex());
+    }
 }
 
 void IlanaSynthAudioProcessor::cancelMacroLearn()
@@ -127,6 +205,9 @@ void IlanaSynthAudioProcessor::cancelMacroLearn()
 
 juce::File IlanaSynthAudioProcessor::getUserPresetDirectory() const
 {
+    if (userPresetDirectoryOverride != juce::File())
+        return userPresetDirectoryOverride;
+
     return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
         .getChildFile ("ilanaSynth Presets");
 }
@@ -397,7 +478,29 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                 if (macroCc[macro].load() == controllerNumber)
                 {
                     pendingMacros[macro].store (controllerValue);
+                    macroPendingFlags[macro].store (true);
                     macrosPending.store (true);
+                    triggerAsyncUpdate();
+                }
+            }
+
+            // Any other parameter's learned CC (one CC per parameter).
+            if (juce::isPositiveAndBelow (controllerNumber, (int) ccParameter.size()))
+            {
+                if (const auto learning = paramLearn.exchange (-1); learning >= 0)
+                {
+                    for (auto& mapped : ccParameter)
+                        if (mapped.load() == learning)
+                            mapped.store (-1);
+
+                    ccParameter[(size_t) controllerNumber].store (learning);
+                }
+
+                if (ccParameter[(size_t) controllerNumber].load() >= 0)
+                {
+                    pendingCcValues[(size_t) controllerNumber].store (controllerValue);
+                    ccValuePending[(size_t) controllerNumber].store (true);
+                    ccPending.store (true);
                     triggerAsyncUpdate();
                 }
             }
@@ -759,6 +862,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     expressionDisplay.store (expressionValue);
     clockShDisplay.store (clockShValue);
     msegDisplay.store (numSamples > 0 ? msegBuffer[numSamples - 1] : 0.0f);
+    msegPhaseDisplay.store ((float) mseg.getPhase());
 }
 
 // Pedal resonance, the soundboard and mechanical noises: after the voices,

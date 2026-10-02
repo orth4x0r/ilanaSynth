@@ -6,6 +6,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 3, nullptr);
+    state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -28,6 +29,11 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
+
+    if (const auto ccMap = getParamCcMapText(); ccMap.isNotEmpty())
+        state.setProperty ("midiCcMap", ccMap, nullptr);
+    else
+        state.removeProperty ("midiCcMap", nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
     state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
@@ -90,6 +96,10 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
     tuningState.saveTo (state);
     clipState.saveTo (state);
+
+    // (The old DX7 mode's "Dx7" child is never written: a DX7 voice is
+    // ordinary parameters now.)
+    state.removeChild (state.getChildWithName ("Dx7"), nullptr);
 
     return state;
 }
@@ -302,12 +312,19 @@ juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
 {
     switch (index)
     {
-        case 0: return juce::Colour (0xffff8a3b);
+        // LFO 1 is rose, not the UI accent's orange (a lit knob read as a
+        // selected control).
+        case 0: return juce::Colour (0xffff5c9a);
         case 1: return juce::Colour (0xff35c8ff);
         case 2: return juce::Colour (0xff6fe3c1);
         case 3: return juce::Colour (0xffdde35a);
-        default: return juce::Colour::fromHSV ((float) (index - 4) / 12.0f + 0.04f, 0.5f, 0.95f, 1.0f);
+        default: break;
     }
+
+    // LFO 5-16: pastels at fixed hues clear of LFO 1-4, the main envelopes
+    // and the macros' yellows (ENV 6-16 use deeper tones of similar hues).
+    static constexpr float hues[] { 0.045f, 0.215f, 0.31f, 0.36f, 0.41f, 0.50f, 0.585f, 0.68f, 0.73f, 0.82f, 0.87f, 0.97f };
+    return juce::Colour::fromHSV (hues[juce::jlimit (0, 11, index - 4)], 0.5f, 1.0f, 1.0f);
 }
 
 void IlanaSynthAudioProcessor::addOscillator (int index)
@@ -483,6 +500,10 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
             macroCc[macro].store (juce::jlimit (0, 127, (int) state.getProperty (property)));
     }
 
+    // Learned parameter CCs; older states have none and keep the current map.
+    if (state.hasProperty ("midiCcMap"))
+        setParamCcMapText (state.getProperty ("midiCcMap").toString());
+
     auto asyncNeeded = false;
 
     // M7.4 patch tables: recipe, then embedded frames, then the file (see
@@ -542,6 +563,45 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
             }
         }
         state.removeChild (samples, nullptr);
+
+        // A patch saved in the old DX7 mode (2026-10-01) carries its DX7
+        // voice as a "Dx7" child: it becomes the Operator EG's parameters,
+        // with every oscillator on the Operator EG and Filtered feedback as
+        // the DX7 type (DX7 mode played Filtered as the DX7's average), which
+        // is what that mode played.
+        {
+            const auto dx7 = state.getChildWithName ("Dx7");
+            juce::MemoryOutputStream bytes;
+            if (dx7.isValid() && juce::Base64::convertFromBase64 (bytes, dx7.getProperty ("voice").toString())
+                && bytes.getDataSize() == (size_t) Dx7::voiceBytes)
+            {
+                // Range-checked: a damaged state can't index past a table.
+                Dx7::Voice voice {};
+                std::memcpy (voice.data(), bytes.getData(), voice.size());
+                Dx7::clampRanges (voice);
+
+                const auto paramNode = [&state] (const juce::String& id)
+                {
+                    for (int i = 0; i < state.getNumChildren(); ++i)
+                        if (state.getChild (i).hasType ("PARAM") && state.getChild (i).getProperty ("id").toString() == id)
+                            return state.getChild (i);
+                    juce::ValueTree child ("PARAM");
+                    child.setProperty ("id", id, nullptr);
+                    state.appendChild (child, nullptr);
+                    return child;
+                };
+                for (const auto& value : Presets::Dx7Import::egValues (voice))
+                    paramNode (value.id).setProperty ("value", value.value, nullptr);
+                for (const auto* prefix : OscillatorIds::prefixes)
+                {
+                    paramNode (juce::String (prefix) + "_amp_env").setProperty ("value", (float) OperatorEg::envelopeChoice, nullptr);
+                    auto feedback = paramNode (juce::String (prefix) + "_fb_type");
+                    if ((int) feedback.getProperty ("value", 0) == FmFeedback::Filtered)
+                        feedback.setProperty ("value", (float) FmFeedback::Dx7, nullptr);
+                }
+            }
+            state.removeChild (dx7, nullptr);
+        }
 
         for (int i = 0; i < numSampleOscs; ++i)
             if (! restoredSamples[(size_t) i] && isSampleEmbedded (i))
@@ -641,6 +701,26 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
     apvts.replaceState (state);
+    updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
+}
+
+// A patch saved with the matched exciter levels keeps them; one saved before
+// (or a factory preset) gets them only if it plays none of the trimmed
+// exciters, so nothing that was already made changes its level.
+void IlanaSynthAudioProcessor::updateExciterLevelMatch (bool savedWithMatch)
+{
+    auto usesTrimmed = false;
+
+    for (const auto* prefix : OscillatorIds::prefixes)
+    {
+        const auto* mode = apvts.getRawParameterValue (juce::String (prefix) + "_mode");
+        const auto* excite = apvts.getRawParameterValue (juce::String (prefix) + "_excite");
+        if (mode != nullptr && excite != nullptr && juce::roundToInt (mode->load()) == 1
+            && Voice::exciterTrim (juce::roundToInt (excite->load())) != 1.0f)
+            usesTrimmed = true;
+    }
+
+    exciterLevelMatch = savedWithMatch || ! usesTrimmed;
 }
 
 bool IlanaSynthAudioProcessor::loadTuningScale (const juce::String& sclText, juce::String& error)
@@ -681,10 +761,218 @@ void IlanaSynthAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     ++dataEpoch; // what the editor draws changes
+
+    // getXmlFromBinary decodes the text as UTF-8 without checking it, and a
+    // damaged state (the fuzz test's bit flips) read past the end and
+    // crashed. Same header as copyXmlToBinary: magic, length, text.
+    if (data != nullptr && sizeInBytes > 8)
+    {
+        const auto* bytes = static_cast<const char*> (data);
+        if (juce::ByteOrder::littleEndianInt (bytes) == 0x21324356)
+        {
+            const auto length = (int) juce::ByteOrder::littleEndianInt (bytes + 4);
+            if (length < 0 || length > sizeInBytes - 8 || ! juce::CharPointer_UTF8::isValidString (bytes + 8, length))
+                return;
+        }
+    }
+
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
 
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
         return;
 
     applyFullState (juce::ValueTree::fromXml (*xml));
+}
+
+// ---- Undo for gestures and for data that isn't a parameter ----------------
+
+IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData() const
+{
+    PatchData data;
+
+    {
+        const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
+        data.draws = lfoCustom;
+        data.curves = lfoCurves;
+    }
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        data.remaps[(size_t) slot] = getModRemap (slot);
+
+    data.clips = clipState.getAll();
+    return data;
+}
+
+namespace
+{
+bool sameCurve (const LfoCurve& a, const LfoCurve& b)
+{
+    if (a.points.size() != b.points.size())
+        return false;
+
+    for (size_t i = 0; i < a.points.size(); ++i)
+        if (a.points[i].x != b.points[i].x || a.points[i].y != b.points[i].y || a.points[i].tension != b.points[i].tension)
+            return false;
+
+    return true;
+}
+
+bool sameClips (const std::shared_ptr<const ClipState::Clips>& a, const std::shared_ptr<const ClipState::Clips>& b)
+{
+    if (a == b)
+        return true;
+
+    if (a == nullptr || b == nullptr)
+        return false;
+
+    for (size_t i = 0; i < a->size(); ++i)
+        if (! ClipState::sameClip ((*a)[i], (*b)[i]))
+            return false;
+
+    return true;
+}
+} // namespace
+
+bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchData& b)
+{
+    if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
+        return false;
+
+    for (size_t i = 0; i < a.curves.size(); ++i)
+        if (! sameCurve (a.curves[i], b.curves[i]))
+            return false;
+
+    for (size_t i = 0; i < a.remaps.size(); ++i)
+        if (! sameCurve (a.remaps[i], b.remaps[i]))
+            return false;
+
+    return true;
+}
+
+void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const PatchData& reference)
+{
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        if (data.draws[(size_t) lfo] != reference.draws[(size_t) lfo])
+            for (int i = 0; i < lfoDrawSteps; ++i)
+                setLfoCustomPoint (lfo, i, data.draws[(size_t) lfo][(size_t) i]);
+
+        if (! sameCurve (data.curves[(size_t) lfo], reference.curves[(size_t) lfo]))
+            setLfoCurve (lfo, data.curves[(size_t) lfo]);
+    }
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        if (! sameCurve (data.remaps[(size_t) slot], reference.remaps[(size_t) slot]))
+            setModRemap (slot, data.remaps[(size_t) slot]);
+
+    if (! sameClips (data.clips, reference.clips))
+    {
+        clipState.setAll (data.clips);
+        clipsEdited();
+    }
+}
+
+// One gesture's change to the data: undo puts back what it was before,
+// redo what it was after, each only where the gesture changed it.
+struct IlanaSynthAudioProcessor::PatchDataEdit : public juce::UndoableAction
+{
+    PatchDataEdit (IlanaSynthAudioProcessor& p, PatchData b, PatchData a)
+        : processor (p), before (std::move (b)), after (std::move (a)) {}
+
+    bool perform() override
+    {
+        // The first perform is the gesture itself, already done.
+        if (std::exchange (done, true))
+            processor.restorePatchData (after, before);
+        return true;
+    }
+
+    bool undo() override
+    {
+        processor.restorePatchData (before, after);
+        return true;
+    }
+
+    int getSizeInUnits() override { return 100; }
+
+    IlanaSynthAudioProcessor& processor;
+    PatchData before, after;
+    bool done = false;
+};
+
+void IlanaSynthAudioProcessor::beginEdit (const juce::String& name)
+{
+    if (pendingEditData.has_value()) // a gesture that never saw its mouse-up
+        endEdit();
+
+    // Parameter changes still waiting for the tree go to the step before
+    // (copyState flushes them; the tree otherwise catches up on a timer).
+    apvts.copyState();
+    undoManager.beginNewTransaction (name);
+    pendingEditData = capturePatchData();
+}
+
+void IlanaSynthAudioProcessor::endEdit()
+{
+    if (! pendingEditData.has_value())
+        return;
+
+    apvts.copyState(); // this gesture's parameter changes join its step now
+    auto before = std::move (*pendingEditData);
+    pendingEditData.reset();
+    auto after = capturePatchData();
+
+    if (! samePatchData (before, after))
+        undoManager.perform (new PatchDataEdit (*this, std::move (before), std::move (after)));
+}
+
+juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
+{
+    const auto epoch = dataEpoch.load();
+
+    if (epoch == hashedDataEpoch)
+        return cachedDataHash;
+
+    // FNV-1a over the values (the remaps that are off all hash alike).
+    juce::uint64 hash = 14695981039346656037ull;
+    const auto add = [&hash] (const void* bytes, size_t size)
+    {
+        for (size_t i = 0; i < size; ++i)
+            hash = (hash ^ static_cast<const juce::uint8*> (bytes)[i]) * 1099511628211ull;
+    };
+    const auto addCurve = [&add] (const LfoCurve& curve)
+    {
+        for (const auto& point : curve.points)
+            add (&point, sizeof (point));
+
+        const auto count = curve.points.size();
+        add (&count, sizeof (count));
+    };
+
+    const auto data = capturePatchData();
+    add (data.draws.data(), sizeof (data.draws));
+
+    for (const auto& curve : data.curves)
+        addCurve (curve);
+
+    for (const auto& curve : data.remaps)
+        addCurve (curve);
+
+    if (data.clips != nullptr)
+    {
+        for (const auto& clip : *data.clips)
+        {
+            add (&clip.bars, sizeof (clip.bars));
+
+            for (const auto& note : clip.notes)
+                add (&note, sizeof (note));
+
+            const auto count = clip.notes.size();
+            add (&count, sizeof (count));
+        }
+    }
+
+    hashedDataEpoch = epoch;
+    cachedDataHash = (juce::int64) hash;
+    return cachedDataHash;
 }

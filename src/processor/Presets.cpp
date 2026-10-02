@@ -38,7 +38,8 @@ juce::Array<juce::File> IlanaSynthAudioProcessor::getUserPresetFiles() const
 
     if (directory.isDirectory())
     {
-        for (const auto& entry : juce::RangedDirectoryIterator (directory, false, "*.ilanapreset"))
+        // Recursive: imported DX7 banks sit in DX7/<bank>/.
+        for (const auto& entry : juce::RangedDirectoryIterator (directory, true, "*.ilanapreset"))
             files.add (entry.getFile());
     }
 
@@ -158,8 +159,11 @@ const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUse
         entry.category = "User";
         entry.tags.clear();
 
-        // Only the root element's attributes are needed.
-        if (auto xml = juce::XmlDocument (file).getDocumentElementIfTagMatches (apvts.state.getType().toString()))
+        // Only the root element's attributes are needed, but they don't fit
+        // in the 8 KB that JUCE's outer-element-only read takes (the drawn
+        // LFOs alone are longer), so the whole file is parsed (once per
+        // change: the cache is keyed by the modification time).
+        if (auto xml = juce::XmlDocument::parse (file); xml != nullptr && xml->hasTagName (apvts.state.getType().toString()))
         {
             const auto category = xml->getStringAttribute ("presetCategory").trim();
 
@@ -254,14 +258,29 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
             loadFactoryPreset (program % (int) count);
     }
 
+    // Only the macros whose CC moved (all eight; the others keep their
+    // values).
     if (macrosPending.exchange (false))
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < Mod::numMacros; ++i)
         {
+            if (! macroPendingFlags[i].exchange (false))
+                continue;
+
             if (auto* parameter = apvts.getParameter ("macro" + juce::String (i + 1)))
                 parameter->setValueNotifyingHost (
                     parameter->convertTo0to1 (pendingMacros[i].load()));
         }
+    }
+
+    if (ccPending.exchange (false))
+    {
+        const auto& parameters = getParameters();
+
+        for (size_t cc = 0; cc < ccParameter.size(); ++cc)
+            if (ccValuePending[cc].exchange (false))
+                if (const auto index = ccParameter[cc].load(); juce::isPositiveAndBelow (index, parameters.size()))
+                    parameters[index]->setValueNotifyingHost (pendingCcValues[cc].load());
     }
 
     bool reloadSamples = false;
@@ -714,9 +733,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     // The rest of the per-patch state a factory preset doesn't carry goes
     // back to its default too, as applyFullState does for a state without it:
-    // macro CCs, drawn LFO shapes, loaded samples and user tables.
+    // macro CCs, drawn LFO shapes, clips, loaded samples and user tables.
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         macroCc[macro].store (20 + macro);
+
+    if (clipState.hasAny())
+        clipState.reset();
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
         for (int i = 0; i < lfoDrawSteps; ++i)
@@ -757,15 +779,18 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     // carry none): tuning_on keeps its value across the reset to defaults.
     const auto tuningWasOn = getParam (tuningOnRef) > 0.5f;
 
+    // The preset's values over the defaults, worked out first and then set
+    // once each, and only where they change: every set reaches the host, and
+    // Live took seconds per click over the ~2,200 a reset-then-apply sent.
+    // (Bounce renderers above build their own processor and are unaffected.)
+    std::vector<float> targets;
+    targets.reserve ((size_t) getParameters().size());
     for (auto* parameter : getParameters())
-    {
-        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
-            ranged->setValueNotifyingHost (ranged->getDefaultValue());
-    }
+        targets.push_back (parameter->getDefaultValue());
 
     if (tuningWasOn)
         if (auto* parameter = apvts.getParameter ("tuning_on"))
-            parameter->setValueNotifyingHost (1.0f);
+            targets[(size_t) parameter->getParameterIndex()] = 1.0f;
 
     // The original 80 presets predate the separate sub; move them over.
     std::vector<std::pair<juce::String, float>> values;
@@ -806,13 +831,24 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     applyPresetTrims (presets[(size_t) index].name, getFactoryPresetCategories()[index], values);
 
+    for (const auto& value : values)
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
+            targets[(size_t) ranged->getParameterIndex()] = ranged->convertTo0to1 (value.second);
+
+    for (auto* parameter : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+        {
+            const auto target = targets[(size_t) ranged->getParameterIndex()];
+            if (ranged->getValue() != target)
+                ranged->setValueNotifyingHost (target);
+        }
+
     const auto applyValues = [this, &values]
     {
         for (const auto& value : values)
             if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
                 ranged->setValueNotifyingHost (ranged->convertTo0to1 (value.second));
     };
-    applyValues();
 
     // M10: resampled presets render their bounces now (synchronously, so a
     // preset sounds the same the moment it is loaded), then their own
@@ -825,9 +861,11 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             const auto source = names.indexOf (juce::String (recipe.source));
             if (source < 0 || source == index)
                 continue;
-            IlanaSynthAudioProcessor renderer;
-            renderer.loadFactoryPreset (source);
-            renderer.flushAsyncUpdates();
+            // On the heap: a processor is too big for a stack frame (MSVC's
+            // 1 MB stack overflowed at loadFactoryPreset's entry).
+            auto renderer = std::make_unique<IlanaSynthAudioProcessor>();
+            renderer->loadFactoryPreset (source);
+            renderer->flushAsyncUpdates();
             BounceRequest request;
             request.targetOsc = juce::jlimit (0, OscillatorIds::count - 1, recipe.osc - 1);
             request.toTable = recipe.toTable;
@@ -837,7 +875,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             request.holdSeconds = recipe.hold;
             request.tailSeconds = recipe.tail;
             juce::String message;
-            applyBounce (request, renderBounce (renderer.buildFullState(), request), message);
+            applyBounce (request, renderBounce (renderer->buildFullState(), request), message);
         }
         applyValues();
     }
@@ -919,6 +957,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             keep[macro] = voicedMacroNames[macro].isNotEmpty();
         applyDefaultMacros (keep);
     }
+
+    updateExciterLevelMatch (false);
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

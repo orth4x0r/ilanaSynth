@@ -10,6 +10,7 @@
 #include "../PluginProcessor.h"
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
+#include "ScopeDisplay.h"
 
 // A small live view of the synth's output for the PLAY page: the waveform on
 // top, the spectrum under it (log frequency, auto-gained). Click to switch
@@ -172,48 +173,28 @@ private:
 
         fft.perform (fftInput.data(), fftOutput.data(), false);
 
-        // The frequency grid, named.
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-
-        for (const auto& [frequency, name] : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
-        {
-            const auto x = area.getX() + (float) (std::log (frequency / 20.0) / std::log (1000.0)) * area.getWidth();
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
-            g.fillRect (juce::Rectangle<float> (1.0f, area.getHeight()).withX (x).withY (area.getY()));
-            g.setColour (IlanaTheme::Ui::text3);
-            g.drawText (name, juce::Rectangle<float> (x + 3.0f, area.getBottom() - 12.0f, 30.0f, 11.0f),
-                        juce::Justification::centredLeft);
-        }
+        // The frequency names on a band under the plot.
+        const auto band = area.removeFromBottom (13.0f);
+        SpectrumColumns::paintFrequencyBand (g, area, band);
 
         const auto width = juce::jmax (2, (int) area.getWidth());
 
         if ((int) smoothed.size() != width)
             smoothed.assign ((size_t) width, 0.0f);
 
-        std::vector<float> buckets ((size_t) width, 0.0f);
+        std::vector<float> buckets;
+        SpectrumColumns::fill (fftOutput.data(), fftSize, sampleRate, buckets, width);
         auto peakNormalized = 0.0f;
 
-        for (int x = 0; x < width; ++x)
-        {
-            const auto low = 20.0 * std::pow (1000.0, (double) x / (double) width);
-            const auto high = 20.0 * std::pow (1000.0, (double) (x + 1) / (double) width);
-            const auto binLow = juce::jlimit (1, fftSize / 2 - 1, (int) (low * (double) fftSize / sampleRate));
-            const auto binHigh = juce::jlimit (1, fftSize / 2 - 1, (int) (high * (double) fftSize / sampleRate));
-            auto magnitude = 0.0f;
-
-            for (int bin = binLow; bin <= binHigh; ++bin)
-                magnitude = juce::jmax (magnitude, std::abs (fftOutput[(size_t) bin]));
-
-            buckets[(size_t) x] = magnitude / (float) fftSize * 4.0f;
-            peakNormalized = juce::jmax (peakNormalized, buckets[(size_t) x]);
-        }
+        for (const auto value : buckets)
+            peakNormalized = juce::jmax (peakNormalized, value);
 
         if (peakNormalized > 0.01f)
             gain = IlanaAnim::approach (gain, juce::jlimit (0.25f, 8.0f, 0.9f / peakNormalized), 0.12f, paintTicks);
 
         juce::Path fill, line;
         fill.startNewSubPath (area.getX(), area.getBottom());
-        const auto usable = area.getHeight() - 14.0f;
+        const auto usable = area.getHeight() - 2.0f;
 
         for (int x = 0; x < width; ++x)
         {

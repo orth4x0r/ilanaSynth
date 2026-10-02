@@ -257,6 +257,24 @@ public:
         repaint();
     }
 
+    // A word in place of the category for a moment ("SAVED").
+    void showNotice (const juce::String& text)
+    {
+        notice = text;
+        repaint();
+        const auto shown = ++noticeCount;
+        juce::Timer::callAfterDelay (1800, [safeThis = juce::Component::SafePointer<PresetDisplay> (this), shown]
+        {
+            if (safeThis != nullptr && safeThis->noticeCount == shown)
+            {
+                safeThis->notice.clear();
+                safeThis->repaint();
+            }
+        });
+    }
+
+    juce::String getNotice() const { return notice; }
+
     void setFlash (float amount)
     {
         if (std::abs (amount - flash) > 0.005f)
@@ -301,10 +319,10 @@ public:
                                                                                                 : juce::String ("PRESET");
         auto categoryRow = text.removeFromTop (12);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText (categoryText, categoryRow, juce::Justification::centredLeft);
+        g.setColour (notice.isNotEmpty() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
+        g.drawText (notice.isNotEmpty() ? notice : categoryText, categoryRow, juce::Justification::centredLeft);
 
-        if (isModified)
+        if (isModified && notice.isEmpty())
         {
             const auto width = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), categoryText);
             const auto dot = juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) categoryRow.getX() + width + 9.0f, (float) categoryRow.getCentreY() });
@@ -346,6 +364,8 @@ private:
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;
+    juce::String notice;
+    int noticeCount = 0;
     bool hover = false;
     float flash = 0.0f;
 };

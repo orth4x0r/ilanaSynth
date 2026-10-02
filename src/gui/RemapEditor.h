@@ -9,8 +9,9 @@
 // shape is: the source's range runs left to right, the amount it sends from
 // bottom to top. Click empty space to add a point, drag points, drag a
 // segment's middle dot to bend it, double-click to remove a point or
-// straighten a segment, right-click for shapes. The live source shows as a
-// line across the plot.
+// straighten a segment; SHAPES (or a right-click) for presets, flip and
+// reverse. The live source shows as a line across the plot and a dot where
+// it meets the curve. The matrix docks it under its row; X closes it.
 class RemapEditor : public juce::Component,
                     private juce::Timer
 {
@@ -19,8 +20,56 @@ public:
         : processorRef (p), slotIndex (slotIndexIn), colour (colourIn)
     {
         curve = processorRef.getModRemap (slotIndex);
+
+        shapesButton.setButtonText (juce::String::fromUTF8 ("SHAPES  \xe2\x96\xbe"));
+        shapesButton.setTooltip ("Curve presets, flip and reverse");
+        shapesButton.onClick = [this] { showMenu (&shapesButton); };
+        addAndMakeVisible (shapesButton);
+
+        closeButton.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
+        closeButton.setTooltip ("Close the remap editor");
+        closeButton.onClick = [this]
+        {
+            if (onClose != nullptr)
+                onClose();
+        };
+        // Only an editor someone can close shows the X.
+        addChildComponent (closeButton);
+
         setSize (300, 220);
         startTimerHz (30);
+    }
+
+    // Set by the owner (the matrix); shows the close button.
+    void setOnClose (std::function<void()> callback)
+    {
+        onClose = std::move (callback);
+        closeButton.setVisible (onClose != nullptr);
+    }
+
+    int getSlotIndex() const { return slotIndex; }
+
+    // Esc in the editor: closes it as X does, when its owner lets it close.
+    bool close()
+    {
+        if (onClose == nullptr)
+            return false;
+
+        auto callback = onClose; // the owner may delete us
+        callback();
+        return true;
+    }
+
+    // The live input's position along the curve (0..1), or -1 with no source.
+    float getLiveInput() const { return liveInput; }
+
+    void resized() override
+    {
+        auto top = getLocalBounds().removeFromTop (22).reduced (4, 2);
+        if (closeButton.isVisible() || onClose != nullptr)
+            closeButton.setBounds (top.removeFromRight (22));
+        top.removeFromRight (4);
+        shapesButton.setBounds (top.removeFromRight (78));
     }
 
     static juce::StringArray getShapeNames()
@@ -57,7 +106,7 @@ public:
         g.fillRoundedRectangle (bounds, 6.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText ("REMAP  " + juce::String (slotIndex + 1), bounds.removeFromTop (18.0f).reduced (4.0f, 0.0f),
+        g.drawText ("REMAP  " + titleSuffix, bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f),
                     juce::Justification::centredLeft);
 
         const auto plot = plotArea();
@@ -85,8 +134,13 @@ public:
             else if (slot.polarity == Mod::Polarity::Bipolar && ! Mod::isBipolarSource (slot.source))
                 raw = 2.0f * raw - 1.0f;
             const auto x = juce::jlimit (0.0f, 1.0f, bipolar ? 0.5f * (raw + 1.0f) : raw);
+            liveInput = x;
             g.setColour (colour.withAlpha (0.35f));
             g.drawVerticalLine (juce::roundToInt (plot.getX() + x * plot.getWidth()), plot.getY(), plot.getBottom());
+        }
+        else
+        {
+            liveInput = -1.0f;
         }
 
         juce::Path path;
@@ -116,17 +170,43 @@ public:
             g.setColour (colour);
             g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (pointToScreen (point)));
         }
+
+        // The live input where it meets the curve: what the routing sends now.
+        if (liveInput >= 0.0f)
+        {
+            const juce::Point<float> at (plot.getX() + liveInput * plot.getWidth(), yToScreen (curve.valueAt ((double) liveInput)));
+            g.setColour (IlanaTheme::Ui::bg);
+            g.fillEllipse (juce::Rectangle<float> (11.0f, 11.0f).withCentre (at));
+            g.setColour (juce::Colours::white);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (at));
+        }
+
+        // Axis ends: the source's range left to right, what it sends bottom to top.
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawText ("IN", juce::Rectangle<float> (plot.getRight() - 30.0f, plot.getBottom() + 1.0f, 30.0f, 10.0f), juce::Justification::centredRight);
+        g.drawText ("OUT", juce::Rectangle<float> (plot.getX() - 10.0f, plot.getY() - 12.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
+    }
+
+    // The title's slot or row label ("6", or "ROW 3  ·  slot 6").
+    void setTitle (const juce::String& text)
+    {
+        titleSuffix = text;
+        repaint();
     }
 
     void mouseDown (const juce::MouseEvent& event) override
     {
         dragPoint = dragTension = -1;
+        curve = processorRef.getModRemap (slotIndex); // an undo may have changed it
 
         if (event.mods.isPopupMenu())
         {
             showMenu();
             return;
         }
+
+        processorRef.beginEdit (editName());
 
         dragPoint = hitPoint (event.position);
         if (dragPoint < 0)
@@ -174,26 +254,45 @@ public:
         }
     }
 
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        dragPoint = dragTension = -1;
+        processorRef.endEdit();
+    }
+
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
-        const auto hit = hitPoint (event.position);
+        processorRef.performEdit (editName(), [this, &event]
+        {
+            curve = processorRef.getModRemap (slotIndex);
+            const auto hit = hitPoint (event.position);
 
-        if (hit > 0 && hit < (int) curve.points.size() - 1)
-        {
-            curve.points.erase (curve.points.begin() + hit);
-            commit();
-        }
-        else if (const auto segment = hitTension (event.position); segment >= 0)
-        {
-            curve.points[(size_t) segment].tension = 0.0f;
-            commit();
-        }
+            if (hit > 0 && hit < (int) curve.points.size() - 1)
+            {
+                curve.points.erase (curve.points.begin() + hit);
+                commit();
+            }
+            else if (const auto segment = hitTension (event.position); segment >= 0)
+            {
+                curve.points[(size_t) segment].tension = 0.0f;
+                commit();
+            }
+        });
     }
 
 private:
-    void timerCallback() override { repaint(); }
+    juce::String editName() const { return "Remap curve " + juce::String (slotIndex + 1); }
 
-    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().withTrimmedTop (24.0f).reduced (12.0f, 10.0f); }
+    void timerCallback() override
+    {
+        // Follows undo and redo between gestures.
+        if (! isMouseButtonDown())
+            curve = processorRef.getModRemap (slotIndex);
+
+        repaint();
+    }
+
+    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().withTrimmedTop (24.0f).reduced (14.0f, 12.0f); }
 
     float yToScreen (float y) const
     {
@@ -246,7 +345,7 @@ private:
         repaint();
     }
 
-    void showMenu()
+    void showMenu (juce::Component* target = nullptr)
     {
         juce::PopupMenu menu;
         const auto names = getShapeNames();
@@ -257,12 +356,14 @@ private:
         menu.addItem (301, "Reverse");
 
         juce::Component::SafePointer<RemapEditor> safeThis (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis] (int result)
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target != nullptr ? target : this), [safeThis] (int result)
         {
             if (safeThis == nullptr || result == 0)
                 return;
 
             auto& self = *safeThis;
+            self.processorRef.beginEdit (self.editName());
+
             if (result >= 100 && result < 200)
             {
                 self.curve = shape (result - 100);
@@ -289,6 +390,7 @@ private:
                 self.curve = reversed;
             }
             self.commit();
+            self.processorRef.endEdit();
         });
     }
 
@@ -298,4 +400,8 @@ private:
     LfoCurve curve;
     int dragPoint = -1, dragTension = -1;
     float dragStartTension = 0.0f;
+    float liveInput = -1.0f;
+    juce::String titleSuffix { juce::String (slotIndex + 1) };
+    juce::TextButton shapesButton, closeButton;
+    std::function<void()> onClose;
 };

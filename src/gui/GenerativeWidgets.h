@@ -229,7 +229,9 @@ public:
         const auto playingStep = current >= 0 ? current % length : -1;
 
         const auto lanes = laneBounds();
-        const char* const names[] { "CHANCE", "RANGE", "RATCHET" };
+        // RANGE's numbers are semitones above the held note, printed inside
+        // their own lane.
+        const char* const names[] { "CHANCE", "RANGE  +st", "RATCHET" };
 
         for (int lane = 0; lane < 3; ++lane)
         {
@@ -272,9 +274,9 @@ public:
                 {
                     g.setColour (colour.withMultipliedSaturation (0.6f).withAlpha (0.55f * alpha));
                     g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - (float) range / 24.0f)), 2.0f);
-                    g.setColour (juce::Colours::white.withAlpha (0.8f * alpha));
+                    g.setColour (juce::Colours::white.withAlpha (0.85f * alpha));
                     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                    g.drawText (juce::String (range), cell.toNearestInt(), juce::Justification::centredTop);
+                    g.drawText ("+" + juce::String (range), cell.toNearestInt(), juce::Justification::centred);
                 }
             }
 
@@ -339,7 +341,7 @@ public:
     }
 
 private:
-    static constexpr float labelWidth = 50.0f;
+    static constexpr float labelWidth = 66.0f;
 
     std::array<juce::Rectangle<float>, 3> laneBounds() const
     {

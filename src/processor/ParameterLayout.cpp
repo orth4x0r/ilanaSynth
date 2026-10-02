@@ -118,6 +118,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                     for (const auto candidate : { min, max })
                         if (describeValue (id, (float) candidate).equalsIgnoreCase (text.trim()))
                             return candidate;
+                    // Any value's own text (the Operator EG's break point
+                    // shows a note name that isn't its number).
+                    if (max - min <= 256)
+                        for (auto candidate = min; candidate <= max; ++candidate)
+                            if (describeValue (id, (float) candidate).equalsIgnoreCase (text.trim()))
+                                return candidate;
 
                     // Note names ("C#3", C3 = 60) as well as plain numbers
                     // and numbered items ("#29").
@@ -376,26 +382,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     for (const auto* prefix : { "osc1", "osc2", "sub" })
     {
-        addFloat (juce::String (prefix) + "_bow_pressure", juce::String (prefix) + " Bow Pressure", 0.0f, 1.0f, 0.5f);
-        addFloat (juce::String (prefix) + "_bow_speed", juce::String (prefix) + " Bow Speed", 0.0f, 1.0f, 0.5f);
-        addFloat (juce::String (prefix) + "_bridge_buzz", juce::String (prefix) + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
-        addFloat (juce::String (prefix) + "_fret_rattle", juce::String (prefix) + " Fret Rattle", 0.0f, 1.0f, 0.0f);
+        const juce::String oscLabel = juce::String (prefix) == "sub" ? juce::String ("Osc3") : juce::String (prefix).replace ("osc", "Osc");
+        addFloat (juce::String (prefix) + "_bow_pressure", oscLabel + " Bow Pressure", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bow_speed", oscLabel + " Bow Speed", 0.0f, 1.0f, 0.5f);
+        addFloat (juce::String (prefix) + "_bridge_buzz", oscLabel + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
+        addFloat (juce::String (prefix) + "_fret_rattle", oscLabel + " Fret Rattle", 0.0f, 1.0f, 0.0f);
         const auto id = juce::String (prefix);
 
-        addBool (id + "_sample_tuned", id + " Sample Tuned", true);
-        addBool (id + "_sample_loop", id + " Sample Loop", false);
-        addBool (id + "_sample_reverse", id + " Sample Reverse", false);
-        addFloat (id + "_sample_start", id + " Sample Start", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_sample_end", id + " Sample End", 0.0f, 1.0f, 1.0f);
-        addFloat (id + "_sample_fade_in", id + " Sample Fade In", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_sample_fade_out", id + " Sample Fade Out", 0.0f, 1.0f, 0.0f);
+        addBool (id + "_sample_tuned", oscLabel + " Sample Tuned", true);
+        addBool (id + "_sample_loop", oscLabel + " Sample Loop", false);
+        addBool (id + "_sample_reverse", oscLabel + " Sample Reverse", false);
+        addFloat (id + "_sample_start", oscLabel + " Sample Start", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_sample_end", oscLabel + " Sample End", 0.0f, 1.0f, 1.0f);
+        addFloat (id + "_sample_fade_in", oscLabel + " Sample Fade In", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_sample_fade_out", oscLabel + " Sample Fade Out", 0.0f, 1.0f, 0.0f);
 
         // Granular mode reads the same sample; its position is Sample Start.
-        addFloat (id + "_grain_size", id + " Grain Size", 10.0f, 500.0f, 80.0f, 0.4f);
-        addFloat (id + "_grain_density", id + " Grain Density", 0.0f, 1.0f, 0.5f);
-        addFloat (id + "_grain_spray", id + " Grain Spray", 0.0f, 1.0f, 0.15f);
-        addFloat (id + "_grain_pitch", id + " Grain Pitch Spray", 0.0f, 1.0f, 0.0f);
-        addFloat (id + "_grain_spread", id + " Grain Stereo Spread", 0.0f, 1.0f, 0.6f);
+        addFloat (id + "_grain_size", oscLabel + " Grain Size", 10.0f, 500.0f, 80.0f, 0.4f);
+        addFloat (id + "_grain_density", oscLabel + " Grain Density", 0.0f, 1.0f, 0.5f);
+        addFloat (id + "_grain_spray", oscLabel + " Grain Spray", 0.0f, 1.0f, 0.15f);
+        addFloat (id + "_grain_pitch", oscLabel + " Grain Pitch Spray", 0.0f, 1.0f, 0.0f);
+        addFloat (id + "_grain_spread", oscLabel + " Grain Stereo Spread", 0.0f, 1.0f, 0.6f);
     }
 
     // Arpeggiator
@@ -469,7 +476,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_dst", name + " Dst", destinationNames, 0);
         addFloat (prefix + "_amt", name + " Amt", -1.0f, 1.0f, 0.0f);
         addFloat (prefix + "_curve", name + " Curve", -1.0f, 1.0f, 0.0f);
-        addChoice (prefix + "_pol", name + " Polarity", { "Natural", "Unipolar", "Bipolar" }, 0);
+        addChoice (prefix + "_pol", name + " Polarity", { "Auto", "Unipolar", "Bipolar" }, 0);
         addChoice (prefix + "_aux", name + " Via", sourceNames, 0);
         addBool (prefix + "_byp", name + " Bypass", false);
     };
@@ -487,7 +494,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Chorus", "Haas", "Delay", "Stutter", "Smear", "Freeze", "Reverb",
                                       "Flanger", "Dimension", "Trance Gate", "TapeStop", "Tilt", "Utility",
                                       "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
-                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder" };
+                                      "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder",
+                                      // 32-41: the Airwindows category modules (append only)
+                                      "AW Tape", "AW Saturation", "AW Reverb", "AW Delay", "AW Modulation",
+                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -735,6 +745,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "F2 Env"
                                 : env == 4 ? "Mod Env" : "Env " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
+    ampEnvelopeChoices.add ("Op EG"); // appended, index 17: the Operator EG (OperatorEgParams.h)
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -971,6 +982,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat ("fx_aw_mix", "Airwindows Mix", 0.0f, 1.0f, 1.0f);
     }
 
+    // The Airwindows category modules (types 32-41, airwindows/Categories.h):
+    // each picks from its own few effects; knobs default to its first one's.
+    for (const auto& category : airwindows::categoryModules())
+    {
+        const juce::String prefix = juce::String ("fx_") + category.id;
+        const juce::String name (category.label);
+        juce::StringArray names;
+        for (auto algorithm : category.algorithms)
+            names.add (airwindows::registry()[(size_t) algorithm].name);
+        addChoice (prefix + "_algo", name + " Effect", names, 0);
+        const auto& first = airwindows::registry()[(size_t) category.algorithms.front()];
+        for (int knob = 0; knob < airwindows::Module::numKnobs; ++knob)
+            addFloat (prefix + "_p" + juce::String (knob + 1), name + " " + juce::String (knob + 1), 0.0f, 1.0f,
+                      knob < first.numKnobs ? first.knobs[knob].defaultValue : 0.5f);
+        addFloat (prefix + "_mix", name + " Mix", 0.0f, 1.0f, 1.0f);
+    }
+
     // FX splitters: which part of the signal each slot works on (Full keeps
     // the whole signal, as before), and the two crossover frequencies.
     for (int slot = 0; slot < numFxSlots; ++slot)
@@ -996,6 +1024,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addBool ("clip_on", "Clip On", false);
     addChoice ("clip_index", "Clip", { "1", "2", "3", "4", "5", "6", "7", "8" }, 0);
     addChoice ("clip_mode", "Clip Mode", { "Key transpose", "Host play" }, 0);
+
+    // The Operator EG (an oscillator's ENVELOPE choice 17): the DX7's
+    // envelope generator, scaling and sensitivities per operator, and its
+    // pitch envelope and LFO for the voice. Defaults are the DX7 init voice.
+    const auto addEgField = [&] (const OperatorEg::Field& field, const juce::String& id, const juce::String& name)
+    {
+        if (field.choice)
+        {
+            juce::StringArray names;
+            if (field.maximum == 3)
+                for (const auto* curve : OperatorEg::curveNames)
+                    names.add (curve);
+            else
+                for (const auto* wave : OperatorEg::lfoWaveNames)
+                    names.add (wave);
+            addChoice (id, name, names, field.defaultValue);
+        }
+        else if (field.maximum == 1)
+            addBool (id, name, field.defaultValue != 0);
+        else
+            addInt (id, name, 0, field.maximum, field.defaultValue);
+    };
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        for (const auto& field : OperatorEg::operatorFields())
+            addEgField (field, juce::String (OscillatorIds::prefixes[(size_t) osc]) + field.suffix,
+                        "Osc" + juce::String (osc + 1) + " " + field.name);
+    for (const auto& field : OperatorEg::voiceFields())
+        addEgField (field, field.suffix, field.name);
+    addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
 
     return layout;
 }

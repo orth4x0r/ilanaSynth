@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 #include "../dsp/OscillatorIds.h"
+#include "../dsp/OperatorEgParams.h"
 
 inline bool isOscParameter (const juce::String& id, const char* suffix, bool includeLegacyThird = true)
 {
@@ -17,6 +18,13 @@ inline bool isOscParameter (const juce::String& id, const char* suffix, bool inc
 // one, else none), judged after rounding, so 0.998 shows as "1.0" like 1.0
 // does and typed text reads back the same.
 // A value rounded to a fixed number of decimals, never "-0.0".
+// fx_aw_p1..p5 (the all-in-one) and fx_awsat_p1.. (the category modules).
+inline bool isAirwindowsKnob (const juce::String& id)
+{
+    const auto tail = id.fromLastOccurrenceOf ("_", false, false);
+    return id.startsWith ("fx_aw") && tail.length() == 2 && tail[0] == 'p' && juce::CharacterFunctions::isDigit (tail[1]);
+}
+
 inline juce::String describeFixed (float value, int decimals)
 {
     const auto scale = std::pow (10.0f, (float) decimals);
@@ -188,6 +196,14 @@ inline juce::String describeValue (const juce::String& id, float value)
                                                                                            : juce::String (std::round (value * 10.0f) / 10.0f, 1)) + " Hz";
     if (isOscParameter (id, "_key_level"))
         return (std::round (value * 60.0f) > 0.0f ? "+" : "") + describeFixed (value * 6.0f, 1) + " dB/oct";
+    // The Operator EG's 0-99 values are plain numbers (DELAY isn't seconds).
+    if (id == "opeg_lfo_delay" || id == "opeg_lfo_speed")
+        return juce::String (juce::roundToInt (value));
+    // DX7 break points: 0 is A-1, 39 is C3 (middle C).
+    if (isOscParameter (id, "_eg_break"))
+        return juce::MidiMessage::getMidiNoteName (juce::roundToInt (value) + 21, true, true, 3);
+    if (id == OperatorEg::keyOffsetId)
+        return (juce::roundToInt (value) > 0 ? "+" : "") + juce::String (juce::roundToInt (value)) + " st";
     if (isOscParameter (id, "_warp2_amt"))
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
@@ -256,7 +272,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_frame") || id.endsWith ("_start") || id.endsWith ("_end")
         || id.endsWith ("_fade_in") || id.endsWith ("_fade_out") || id == "drift" || id == "ring_mod"
         || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
-        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || id.startsWith ("fx_aw_p")
+        || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || isAirwindowsKnob (id)
         || id == "noise_level" || id == "unison_random" || id == "voice_spread"
         || id == "body_material" || id == "body_size" || id == "body_coupling"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
@@ -294,12 +310,13 @@ inline juce::String describeParameter (const juce::String& id)
             return "What restarts a simulated shape: Note (each note), Free (never), Beat (each DIVISION of the host's "
                    "beat) or Generative (Euclid's hits, else the probability sequencer's steps). FIRE triggers it by hand.";
         if (suffix == "axis")
-            return "Which axis of the attractor is output A; output B is the next one. Mix blends X and Z.";
+            return "Which axis of the attractor output A carries; output B carries the next one (X then Y, Y then Z, "
+                   "Z then X). Mix puts X and Z together on A, and Y on B. The graph names both.";
         if (suffix == "loop")
             return "Physics objects: start again once settled, instead of resting until the next trigger.";
         if (suffix == "seed")
-            return "0: every voice and every note gets its own random sequence. 1-999: the same repeatable sequence "
-                   "everywhere, restarting on each trigger.";
+            return "Which random sequence the shape plays. Free (0): every voice and every note gets its own. "
+                   "1-999: the same repeatable sequence everywhere, restarting on each trigger (or FIRE).";
         if (suffix == "stereo")
             return "Random shapes: how far output B departs from A (route B to the other side, or another target).";
         if (suffix == "fire")
@@ -349,7 +366,59 @@ inline juce::String describeParameter (const juce::String& id)
                "High averages two wavetable reads per sample for smoother highs.";
     if (isOscParameter (id, "_amp_env"))
         return "Envelope controlling this oscillator's level (as an FM operator, how deep it modulates). "
-               "ENV 1 is the original AMP envelope; MSEG runs the MSEG shape once per note.";
+               "ENV 1 is the original AMP envelope; MSEG runs the MSEG shape once per note; Op EG is the Operator EG, the "
+               "DX7's envelope generator, set on the FM page (rates, levels, keyboard scaling, velocity).";
+
+    // The Operator EG (FM page), DX7 style: 0-99 values as on a DX7.
+    for (int stage = 1; stage <= 4; ++stage)
+    {
+        if (isOscParameter (id, ("_eg_r" + juce::String (stage)).toRawUTF8()))
+            return "Operator EG rate " + juce::String (stage) + " (0-99): how fast it moves to level " + juce::String (stage)
+                   + (stage == 4 ? ", after the key is released" : "") + ". 99 is instant, 0 never moves.";
+        if (isOscParameter (id, ("_eg_l" + juce::String (stage)).toRawUTF8()))
+            return "Operator EG level " + juce::String (stage) + " (0-99, about 0.75 dB a step near the top)"
+                   + (stage == 3 ? ": held while the key is down." : stage == 4 ? ": where the release ends." : ".");
+        if (id == "opeg_pitch_r" + juce::String (stage))
+            return "Operator EG pitch envelope rate " + juce::String (stage) + " (0-99)"
+                   + (stage == 4 ? ", after the key is released." : ".");
+        if (id == "opeg_pitch_l" + juce::String (stage))
+            return "Operator EG pitch envelope level " + juce::String (stage) + ": 50 is the note, 0 and 99 about four "
+                   "octaves down and up. Moves every ratio oscillator on the Operator EG.";
+    }
+    if (isOscParameter (id, "_eg_out"))
+        return "Operator EG output level (0-99, as on a DX7): how loud a carrier is, how deep a modulator modulates. "
+               "LEVEL scales it on top (0.5 is this level).";
+    if (isOscParameter (id, "_eg_break"))
+        return "Keyboard scaling break point: the key where LEFT and RIGHT DEPTH start (39 is C3, as on a DX7).";
+    if (isOscParameter (id, "_eg_ldepth"))
+        return "How much the level changes below the break point, along L CURVE.";
+    if (isOscParameter (id, "_eg_rdepth"))
+        return "How much the level changes above the break point, along R CURVE.";
+    if (isOscParameter (id, "_eg_lcurve") || isOscParameter (id, "_eg_rcurve"))
+        return "Keyboard scaling curve away from the break point: -LIN and -EXP get quieter, +EXP and +LIN louder.";
+    if (isOscParameter (id, "_eg_rate_key"))
+        return "Rate scaling (0-7): higher notes run this operator's envelope faster.";
+    if (isOscParameter (id, "_eg_vel"))
+        return "Velocity sensitivity (0-7): how much softer playing lowers this operator's level.";
+    if (isOscParameter (id, "_eg_ams"))
+        return "Amp modulation sensitivity (0-3): how much the Operator EG LFO's AMP DEPTH moves this operator.";
+    if (id == "opeg_lfo_speed")
+        return "Operator EG LFO speed (0-99, about 0.06 to 49 Hz), the DX7's LFO.";
+    if (id == "opeg_lfo_delay")
+        return "Operator EG LFO delay (0-99): how long after the key the LFO fades in.";
+    if (id == "opeg_lfo_pmd")
+        return "Operator EG LFO pitch depth: vibrato on every ratio oscillator on the Operator EG (scaled by PITCH SENS).";
+    if (id == "opeg_lfo_amd")
+        return "Operator EG LFO amp depth: tremolo or wah on the oscillators whose AMS is above 0.";
+    if (id == "opeg_lfo_sync")
+        return "Operator EG LFO key sync: each note starts the LFO from the top of its cycle.";
+    if (id == "opeg_lfo_wave")
+        return "Operator EG LFO wave: triangle, saw down, saw up, square, sine or sample and hold.";
+    if (id == "opeg_lfo_pms")
+        return "Operator EG LFO pitch sensitivity (0-7): how far PITCH DEPTH bends the pitch.";
+    if (id == OperatorEg::keyOffsetId)
+        return "Moves the key the Operator EG's keyboard and rate scaling follow, in semitones (a DX7 voice's "
+               "transpose; the pitch itself is in each oscillator's SEMI).";
     if (isOscParameter (id, "_tune"))
         return "How the operator is tuned: in semitones (as before), as a ratio of the played note, "
                "or at a fixed frequency that ignores the keyboard (for drums and formants). SEMI and FINE still apply.";
@@ -365,7 +434,8 @@ inline juce::String describeParameter (const juce::String& id)
                "up to 6 dB per octave from C3. On a modulator it keeps FM brightness even across the keys.";
     if (isOscParameter (id, "_fb_type"))
         return "Feedback style for this operator's FB cell: Plain, Filtered (smoothed like a DX7, calmer at high "
-               "amounts), or Cross (the amount runs between this oscillator and its pair: 1-2, 3-4, 5-6).";
+               "amounts), Cross (the amount runs between this oscillator and its pair: 1-2, 3-4, 5-6), or DX7 "
+               "(the DX7's own: the average of the last two samples).";
     if (isOscParameter (id, "_warp2"))
         return "The second stage of the PD chain: a second warp applied after the first.";
     if (isOscParameter (id, "_warp2_amt"))
@@ -383,18 +453,18 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_hold"))
         return "DAHDSR: how long the envelope holds at the peak before the decay.";
     if (id.endsWith ("_keyrate"))
-        return "Rate key scaling: every stage gets shorter up the keyboard (at 100 %, half as long per octave above C3).";
+        return "Rate key scaling: every stage gets shorter up the keyboard (at 100%, half as long per octave above C3).";
     if (id.startsWith ("env") && juce::isPositiveAndBelow (id.substring (3).getIntValue() - 6, 11))
     {
         if (id.endsWith ("_velocity")) return "How strongly note velocity scales this envelope when used as a source.";
         if (id.endsWith ("_curve")) return "Envelope tension: positive reaches the target early, negative reaches it late.";
         return "ADSR stage for this per-voice envelope. Drag its chip onto a knob, route it in MATRIX, or pick it as an oscillator amp envelope.";
     }
-    if (id == "sym_on") return "Enable the shared drone strings after the voices and before effects.";
+    if (id == "sym_on") return "Turns on the shared drone strings after the voices and before effects.";
     if (id == "sym_amount") return "How much the shared strings ring in the mix.";
     if (id == "sym_decay") return "How long the sympathetic strings ring after the excitation stops: from a quarter second to 12 seconds.";
     if (id == "sym_count") return "Number of shared drone strings, from one to six.";
-    if (id == "sym_manual") return "Tune the strings note by note instead of from the GENERATE scale and root. "
+    if (id == "sym_manual") return "Tunes the strings note by note instead of from the GENERATE scale and root. "
                                    "With no scale set they use an open tuning on the root (root, fifth, octave, third).";
     if (id.startsWith ("sym_note")) return "Manual tuning for this drone string, used when MANUAL is on.";
     if (id.endsWith ("_bow_pressure")) return "Bow grip on the string. MPE pressure and channel aftertouch add to it.";
@@ -434,11 +504,11 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "sb_on") return "A soundboard body after the voices: wooden modes driven by the strings.";
     if (id == "west_on") return "The west-coast voice: a wavefolder into a low-pass gate (a vactrol-driven filter and amplifier in one).";
     if (id == "west_pos") return "After Filters: WEST processes the filters' output. Replace Filter 2: WEST takes Filter 2's place.";
-    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100 % folds about a dozen times.";
+    if (id == "west_fold") return "How hard the wavefolder folds: 0 is almost clean, 100% folds about a dozen times.";
     if (id == "west_sym") return "Offsets the fold: even harmonics, a hollower or reedier tone.";
     if (id == "west_stages") return "Folders in a row: more stages, denser harmonics.";
     if (id == "west_mode") return "Combo: filter and amplifier together (the classic bongo). Low Pass: the filter only. VCA: the level only.";
-    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63 %, slower as it darkens).";
+    if (id == "west_decay") return "How long the vactrol takes to go dark, as a multiple of its own (about 250 ms to 63%, slower as it darkens).";
     if (id == "west_res") return "Resonance of the gate's filter.";
     if (id == "west_strike") return "How hard the gate is struck (times velocity for a note strike, or the chosen source's level).";
     if (id == "west_open") return "Holds the gate partly open, so notes sustain under the strikes.";
@@ -566,7 +636,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Random stereo position per voice - instant width for pads.";
 
     if (id == "unison_random")
-        return "Randomizes unison start phases for a softer, phasey attack.";
+        return "Randomises unison start phases for a softer, phasey attack.";
 
     if (id == "mpe_mode")
         return "Per-note bend and pressure via MIDI channels, +-48 st bend range.";
@@ -609,7 +679,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far the filter envelope moves the cutoff, in octaves (negative closes it).";
 
     if (id == "f1_keytrack" || id == "f2_keytrack")
-        return "Cutoff follows the played note (100 % = full tracking: an octave up the keyboard moves it an octave).";
+        return "Cutoff follows the played note (100% = full tracking: an octave up the keyboard moves it an octave).";
 
     if (id == "fm_mode")
         return "Phase: classic FM. Through-Zero: bends the pitch, even backwards. Exponential: pitch FM in octaves.";
@@ -787,7 +857,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Mod matrix (patterned)
     if (id.startsWith ("mod") && id.endsWith ("_pol"))
-        return "Polarity: Natural uses the source as it comes; Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
+        return "Polarity: Auto keeps the source's own range (LFOs, key, random and MSEG swing both ways; envelopes, velocity, macros and the wheel push one way); Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
     if (id.startsWith ("mod") && id.endsWith ("_aux"))
         return "Via: a second source that scales this route (e.g. the mod wheel fading in an LFO). None = always full.";
     if (id.startsWith ("mod") && id.endsWith ("_byp"))
@@ -881,7 +951,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // BODY
     if (id == "res_on")
-        return "Enable the BODY section. Classic keeps the original three-comb resonator.";
+        return "Turns the BODY section on. Classic keeps the original three-comb resonator.";
 
     if (id == "body_type")
         return "Classic, bar, plate, bell or shell. Material bodies use the oscillator mix as their exciter.";
@@ -1054,10 +1124,16 @@ inline juce::String describeParameter (const juce::String& id)
         return "Tempo-synced trance gate with shaped patterns and smoothing.";
 
     if (id == "fx_tape_stop_trigger")
-        return "Trigger the tape-stop: the signal pitches down and halts.";
+        return "Triggers the tape stop: the signal pitches down and halts.";
 
     if (id == "fx_tape_stop_time" || id == "fx_tape_stop_mix")
         return "Tape stop timing and blend.";
+
+    if (id.startsWith ("fx_aw") && id.endsWith ("_algo") && id != "fx_aw_algo")
+        return "An Airwindows category module: pick one of its effects (Chris Johnson's, MIT). Changing it sets the knobs to that effect's own defaults.";
+
+    if (isAirwindowsKnob (id) && ! id.startsWith ("fx_aw_"))
+        return "An Airwindows knob: what it does follows the chosen effect (its name is the knob's label).";
 
     if (id.startsWith ("fx_aw_"))
     {

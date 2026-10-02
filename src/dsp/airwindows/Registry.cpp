@@ -41,6 +41,21 @@
 #include "Inflamer.h"
 #include "Flutter.h"
 #include "ChorusEnsemble.h"
+#include "ToTape8.h"
+#include "TapeHack2.h"
+#include "Density3.h"
+#include "TapeDelay2.h"
+#include "PitchDelay.h"
+#include "StarChild2.h"
+#include "PurestEcho.h"
+#include "Doublelay.h"
+#include "Ensemble.h"
+#include "Chorus.h"
+#include "Vibrato.h"
+#include "Desk4.h"
+#include "TapeDust.h"
+#include "Dirt.h"
+#include "StereoFX.h"
 
 namespace airwindows
 {
@@ -83,4 +98,19 @@ std::unique_ptr<Algorithm> createDrumSlam() { return std::make_unique<DrumSlam>(
 std::unique_ptr<Algorithm> createInflamer() { return std::make_unique<Inflamer>(); }
 std::unique_ptr<Algorithm> createFlutter() { return std::make_unique<Flutter>(); }
 std::unique_ptr<Algorithm> createChorusEnsemble() { return std::make_unique<ChorusEnsemble>(); }
+std::unique_ptr<Algorithm> createToTape8() { return std::make_unique<ToTape8>(); }
+std::unique_ptr<Algorithm> createTapeHack2() { return std::make_unique<TapeHack2>(); }
+std::unique_ptr<Algorithm> createDensity3() { return std::make_unique<Density3>(); }
+std::unique_ptr<Algorithm> createTapeDelay2() { return std::make_unique<TapeDelay2>(); }
+std::unique_ptr<Algorithm> createPitchDelay() { return std::make_unique<PitchDelay>(); }
+std::unique_ptr<Algorithm> createStarChild2() { return std::make_unique<StarChild2>(); }
+std::unique_ptr<Algorithm> createPurestEcho() { return std::make_unique<PurestEcho>(); }
+std::unique_ptr<Algorithm> createDoublelay() { return std::make_unique<Doublelay>(); }
+std::unique_ptr<Algorithm> createEnsemble() { return std::make_unique<Ensemble>(); }
+std::unique_ptr<Algorithm> createChorus() { return std::make_unique<Chorus>(); }
+std::unique_ptr<Algorithm> createVibrato() { return std::make_unique<Vibrato>(); }
+std::unique_ptr<Algorithm> createDesk4() { return std::make_unique<Desk4>(); }
+std::unique_ptr<Algorithm> createTapeDust() { return std::make_unique<TapeDust>(); }
+std::unique_ptr<Algorithm> createDirt() { return std::make_unique<Dirt>(); }
+std::unique_ptr<Algorithm> createStereoFX() { return std::make_unique<StereoFX>(); }
 } // namespace airwindows

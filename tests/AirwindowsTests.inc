@@ -90,7 +90,7 @@ std::array<float, 5> defaultsOf (int algorithm)
 void runRegistryTests()
 {
     const auto& list = airwindows::registry();
-    check (list.size() >= 30 && list.size() <= 40, "Airwindows: 30-40 algorithms ported (" + juce::String ((int) list.size()) + ")");
+    check (list.size() >= 50 && list.size() <= 60, "Airwindows: 50-60 algorithms ported (" + juce::String ((int) list.size()) + ")");
 
     std::set<juce::String> names;
     auto knobsOk = true;
@@ -141,8 +141,10 @@ void runAlgorithmTests()
                 if (! result.finite || result.peak >= 4.0f)
                     unbounded.add (what + " (peak " + juce::String (result.peak, 2) + ")");
 
-                // -80 dBFS; Deckwrecka's Wreck is noise by design (-78 dB at full).
-                const auto floor = juce::String (list[(size_t) a].name) == "Deckwrecka" ? 3.0e-4f : 1.0e-4f;
+                // -80 dBFS; Deckwrecka's Wreck is noise by design (-78 dB at
+                // full), and TapeDust is a dust generator (-40 dB at full).
+                const auto name = juce::String (list[(size_t) a].name);
+                const auto floor = name == "Deckwrecka" ? 3.0e-4f : name == "TapeDust" ? 2.0e-2f : 1.0e-4f;
                 if (input == Input::silence && result.peak >= floor)
                     noisy.add (what + " (" + juce::String (juce::Decibels::gainToDecibels (result.peak), 1) + " dB)");
             }
@@ -255,6 +257,11 @@ void runSlotTests()
         setParam (processor, "fx_aw_algo", (float) a);
         for (int k = 1; k <= 5; ++k)
             setParam (processor, "fx_aw_p" + juce::String (k), 0.3f);
+        // The tape delays' Time runs the tape faster as it rises: at 0.3 the echo
+        // lands after the half-second note, at 1 within it.
+        const auto algorithmName = juce::String (airwindows::registry()[(size_t) a].name);
+        if (algorithmName == "TapeDelay2" || algorithmName == "PitchDelay")
+            setParam (processor, "fx_aw_p1", 1.0f);
         const auto wet = renderNote (processor);
 
         auto difference = 0.0f;
@@ -271,6 +278,40 @@ void runSlotTests()
         else if (difference < 1.0e-3f)
             unchanged.add (name + " (" + juce::String (difference, 6) + ")");
     }
+
+    // The category modules (types 32-41): each of their effects, in a slot.
+    juce::StringArray categoryUnchanged;
+    for (int c = 0; c < (int) airwindows::categoryModules().size(); ++c)
+    {
+        const auto& category = airwindows::categoryModules()[(size_t) c];
+        const juce::String prefix = juce::String ("fx_") + category.id;
+        for (int choice = 0; choice < (int) category.algorithms.size(); ++choice)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.assignFxSlot (1, airwindows::firstCategoryFxType + c);
+            setParam (processor, prefix + "_algo", (float) choice);
+            for (int k = 1; k <= 5; ++k)
+                setParam (processor, prefix + "_p" + juce::String (k), 0.3f);
+            const auto algorithmName = juce::String (airwindows::registry()[(size_t) category.algorithms[(size_t) choice]].name);
+            if (algorithmName == "TapeDelay2" || algorithmName == "PitchDelay")
+                setParam (processor, prefix + "_p1", 1.0f);
+            const auto wet = renderNote (processor);
+            auto difference = 0.0f;
+            auto finite = true;
+            for (size_t i = 0; i < wet.size(); ++i)
+            {
+                finite = finite && std::isfinite (wet[i]);
+                difference = std::max (difference, std::abs (wet[i] - dry[i]));
+            }
+            const auto what = juce::String (category.label) + "/" + algorithmName;
+            if (! finite)
+                broken.add (what);
+            else if (difference < 1.0e-3f)
+                categoryUnchanged.add (what);
+        }
+    }
+    check (categoryUnchanged.isEmpty(), "Airwindows: every category module's effect changes the sound ("
+                                            + categoryUnchanged.joinIntoString (", ") + ")");
 
     check (broken.isEmpty(), "Airwindows: every algorithm in a slot stays finite (" + broken.joinIntoString (", ") + ")");
     check (unchanged.isEmpty(), "Airwindows: every algorithm in a slot changes the sound at knobs 0.3 ("

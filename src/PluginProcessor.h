@@ -8,6 +8,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/SpectralCache.h"
@@ -52,7 +54,7 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 31; // 30: Airwindows, 31: Vocoder
+    static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -69,12 +71,17 @@ public:
         return modDisplayValues[(size_t) destination].load() * depth;
     }
     float getCompGainReduction() const { return compGainReduction.load(); }
+    // Display only (the FX cards' meters): the limiter's deepest gain in the
+    // last block, and OTT's LOW / MID / HIGH gains at the block's end.
+    float getLimiterGainReduction() const { return limiterGainReduction.load(); }
+    float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
     void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
+    void preloadAirwindowsCategory (int category, int choice);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
     bool loadFxChainFromFile (const juce::File& file);
@@ -178,6 +185,25 @@ public:
     double getCurrentSampleRate() const { return displaySampleRate.load(); }
 
     juce::UndoManager& getUndoManager() { return undoManager; }
+
+    // Undo (UI review 4): every edit made by a gesture other than a knob
+    // drag (JUCE's attachments start those) is one named undo step.
+    // beginEdit starts the step at the gesture's start; endEdit closes it at
+    // its end. Edits to data that isn't a parameter (drawn LFO steps and
+    // curves, remap curves, clips) made in between join the step as one
+    // action that puts the data back through the same setters. performEdit
+    // wraps a one-shot edit (a menu item, a double-click). Message thread only.
+    void beginEdit (const juce::String& name);
+    void endEdit();
+    void performEdit (const juce::String& name, const std::function<void()>& edit)
+    {
+        beginEdit (name);
+        edit();
+        endEdit();
+    }
+    // A hash of that data, for the editor's EDITED marker (cached until the
+    // data epoch moves).
+    juce::int64 getPatchDataHash() const;
 
     juce::StringArray getFactoryPresetNames() const;
     juce::StringArray getFactoryPresetCategories() const;
@@ -332,13 +358,30 @@ public:
     void cancelMacroLearn();
     int getMacroLearnTarget() const { return macroLearn.load(); }
     int getMacroCc (int macroIndex) const { return macroCc[juce::jlimit (0, Mod::numMacros - 1, macroIndex)].load(); }
+    // MIDI learn for any automatable parameter (macros keep their own CCs
+    // above): the next controller moved drives it, one CC per parameter.
+    // Saved with the patch as "midiCcMap"; a state without it (and a factory
+    // preset) leaves the current map alone, as it belongs to the controller.
+    void startParamLearn (const juce::String& parameterId);
+    void cancelParamLearn();
+    juce::String getParamLearnTarget() const;
+    int getParamCc (const juce::String& parameterId) const; // -1: none
+    void clearParamCc (const juce::String& parameterId);
     juce::File getUserPresetDirectory() const;
+    // Points the user preset folder elsewhere (the UI test's temporary
+    // folder, so it never touches the user's own presets). Empty: the default.
+    static inline juce::File userPresetDirectoryOverride;
     float getEnvMonitorAmp() const { return envMonitorAmp.load(); }
     float getEnvMonitorFilter() const { return envMonitorFilter.load(); }
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
+    // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
+    // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
+    float getEnvMonitorPosition (int env) const { return envMonitorPositions[(size_t) juce::jlimit (0, 15, env)].load(); }
+    // The MSEG's place in its cycle (0..1), for its playhead.
+    float getMsegPhase() const { return msegPhaseDisplay.load(); }
 
     // Which optional modules the patch shows, Phase Plant style: a few by
     // default and a "+" to add more. Saved with the patch; the UI also always
@@ -463,6 +506,26 @@ public:
 private:
     TuningState tuningState;
     ClipState clipState;
+
+    // The patch data that isn't a parameter, as one undo action sees it
+    // (beginEdit / endEdit; State.cpp). Remaps that are off hold the
+    // straight line.
+    struct PatchData
+    {
+        std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> draws {};
+        std::array<LfoCurve, (size_t) numLfos> curves;
+        std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
+        std::shared_ptr<const ClipState::Clips> clips;
+    };
+    struct PatchDataEdit;
+    PatchData capturePatchData() const;
+    // Puts back the parts of data that differ from reference.
+    void restorePatchData (const PatchData& data, const PatchData& reference);
+    static bool samePatchData (const PatchData& a, const PatchData& b);
+    std::optional<PatchData> pendingEditData; // between beginEdit and endEdit
+    mutable unsigned hashedDataEpoch = ~0u;
+    mutable juce::int64 cachedDataHash = 0;
+
     MtsEspClient mtsEsp;
     Tuning mtsTuning; // filled from the master each block while one is connected
     void handleAsyncUpdate() override;
@@ -649,6 +712,25 @@ private:
     std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
         ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
     std::vector<float> airwindowsMonoRight;
+    // The Airwindows category modules (FX types 32-41), one engine each;
+    // their refs: algo, p1..p5, mix.
+    static constexpr int numAwCategories = 10;
+    std::array<airwindows::Module, numAwCategories> awCategoryModules;
+    static std::array<std::array<ParamRef, 7>, numAwCategories> makeAwCategoryRefs()
+    {
+        std::array<std::array<ParamRef, 7>, numAwCategories> refs;
+        for (int c = 0; c < numAwCategories; ++c)
+        {
+            const auto prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
+            refs[(size_t) c][0] = ParamRef (prefix + "_algo");
+            for (int k = 0; k < 5; ++k)
+                refs[(size_t) c][(size_t) k + 1] = ParamRef (prefix + "_p" + juce::String (k + 1));
+            refs[(size_t) c][6] = ParamRef (prefix + "_mix");
+        }
+        return refs;
+    }
+    std::array<std::array<ParamRef, 7>, numAwCategories> awCategoryRefs = makeAwCategoryRefs();
+    void processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category);
     // The vocoder (FX type 31).
     Vocoder vocoder;
     std::vector<float> vocoderModulator;
@@ -674,6 +756,19 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
+    std::atomic<bool> exciterLevelMatch { true };
+    void updateExciterLevelMatch (bool savedWithMatch);
+
+public:
+    // Loads one DX7 voice as the current patch (named after it): ordinary
+    // parameters, the operators on the Operator EG (Dx7Presets.h).
+    void loadDx7Voice (const Dx7::Voice& voice, const juce::String& name);
+    // A .syx bank (32 voices) or single voice, saved as user presets under
+    // DX7/<file name>/. Returns how many were imported; message says why not.
+    int importDx7File (const juce::File& file, juce::String& message);
+
+private:
     float lastOutput[2] {}, declick[2] {};
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();
@@ -725,6 +820,11 @@ private:
     // envelope choice and sample source.
     std::array<std::array<ParamRef, OscillatorIds::count>, OscillatorIds::count> fmMatrixIds;
     std::array<ParamRef, OscillatorIds::count> oscAmpEnvIds, sampleFactoryIds;
+    // The Operator EG's parameters, in OperatorEg::operatorFields() and
+    // voiceFields() order.
+    std::array<std::array<ParamRef, 17>, OscillatorIds::count> operatorEgIds;
+    std::array<ParamRef, 15> operatorEgVoiceIds;
+    ParamRef operatorEgKeyOffsetId { OperatorEg::keyOffsetId };
 
     std::array<LfoIds, (size_t) numLfos> lfoIds;
     std::array<int, (size_t) numLfos> lfoPreviousShapes = [] { std::array<int, (size_t) numLfos> shapes {}; shapes.fill (-1); return shapes; }();
@@ -805,6 +905,7 @@ private:
     std::atomic<float> expressionDisplay { 1.0f };
     std::atomic<float> clockShDisplay { 0.0f };
     std::atomic<float> msegDisplay { 0.0f };
+    std::atomic<float> msegPhaseDisplay { 0.0f };
 
     double currentSampleRate = 44100.0;
     double baseSampleRate = 44100.0;
@@ -884,13 +985,24 @@ private:
 
     std::atomic<int> pendingProgramChange { -1 };
     std::atomic<float> pendingMacros[Mod::numMacros] {};
+    std::atomic<bool> macroPendingFlags[Mod::numMacros] {};
     std::atomic<bool> macrosPending { false };
+    // Parameter MIDI learn: CC -> index into getParameters() (-1: none), the
+    // parameter waiting for a CC, and values queued for the message thread.
+    std::array<std::atomic<int>, 128> ccParameter;
+    std::atomic<int> paramLearn { -1 };
+    std::array<std::atomic<float>, 128> pendingCcValues;
+    std::array<std::atomic<bool>, 128> ccValuePending;
+    std::atomic<bool> ccPending { false };
+    juce::String getParamCcMapText() const;
+    void setParamCcMapText (const juce::String& text);
     std::atomic<float> envMonitorAmp { 0.0f };
     std::atomic<float> envMonitorFilter { 0.0f };
     std::atomic<float> envMonitorFilter2 { 0.0f };
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
+    std::array<std::atomic<float>, 16> envMonitorPositions {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
 
@@ -1032,6 +1144,8 @@ private:
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
     std::atomic<float> compGainReduction { 1.0f };
+    std::atomic<float> limiterGainReduction { 1.0f };
+    std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessor)
 };

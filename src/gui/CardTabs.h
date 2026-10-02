@@ -40,12 +40,7 @@ public:
     // Width the pills need, so a card can right-align them.
     int getIdealWidth() const
     {
-        auto width = 0;
-
-        for (int i = 0; i < names.size(); ++i)
-            width += pillWidth (i) + gap;
-
-        return width + (hasOpen ? openWidth : 0);
+        return widthWith (idealPadding);
     }
 
     void paint (juce::Graphics& g) override
@@ -107,14 +102,38 @@ private:
     static constexpr int gap = 4;
     static constexpr int openWidth = 24;
 
-    int pillWidth (int index) const
+    static constexpr int idealPadding = 16;
+
+    int textWidth (int index) const
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), names[index]) + 16;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index]);
     }
+
+    int widthWith (int padding) const
+    {
+        auto width = 0;
+
+        for (int i = 0; i < names.size(); ++i)
+            width += textWidth (i) + padding + gap;
+
+        return width + (hasOpen ? openWidth : 0);
+    }
+
+    // A row given less than its ideal width tightens the pills' padding
+    // (down to 6 px) rather than running off the left.
+    int padding() const
+    {
+        if (names.isEmpty() || getWidth() >= widthWith (idealPadding))
+            return idealPadding;
+
+        return juce::jlimit (6, idealPadding, (getWidth() - widthWith (0)) / names.size());
+    }
+
+    int pillWidth (int index) const { return textWidth (index) + padding(); }
 
     juce::Rectangle<float> pillBounds (int index) const
     {
-        auto x = (float) (getWidth() - getIdealWidth());
+        auto x = (float) juce::jmax (0, getWidth() - widthWith (padding()));
 
         for (int i = 0; i < index; ++i)
             x += (float) (pillWidth (i) + gap);

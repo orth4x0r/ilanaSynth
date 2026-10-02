@@ -241,20 +241,25 @@ public:
         for (const auto* id : { "sym_on", "sym_manual", "sym_count", "sb_on", "subosc_on" })
             processorRef.apvts.addParameterListener (id, this);
 
-        // Phase Plant style: remove any oscillator, add the next hidden one.
+        // Controls that do nothing in the oscillator's current settings dim
+        // (one rule for every page, EffectRules).
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
-            removeButtons[(size_t) i] = std::make_unique<juce::TextButton> (juce::String::fromUTF8 ("\xc3\x97"));
-            removeButtons[(size_t) i]->setTooltip ("Remove this oscillator (switches it off and hides it)");
-            removeButtons[(size_t) i]->onClick = [this, i]
-            {
-                processorRef.removeOscillator (i);
-                updateModeVisibility();
-                updateEnabled();
-            };
-            addAndMakeVisible (*removeButtons[(size_t) i]);
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
+            auto& osc = *controls[(size_t) i];
+            effectRules.add (osc.spectralAmt, effectRules.choiceIsNot (prefix + "_spectral", 0), "SPECTRAL is Off");
+            effectRules.add (osc.warpAmt, effectRules.choiceIsNot (prefix + "_warp", 0), "WARP is Off");
+
+            for (auto* knob : { &osc.uniBlend, &osc.spread, &osc.detune })
+                effectRules.add (*knob, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+
+            // A hand on the switch keeps the card open when the page folds
+            // cards to fit.
+            osc.on.addMouseListener (this, true);
         }
 
+        // Phase Plant style: remove any oscillator (its title's right-click
+        // menu), add the next hidden one.
         addButton.setButtonText ("+  ADD OSCILLATOR");
         addButton.setTooltip ("Add the next oscillator, switched on");
         addButton.onClick = [this]
@@ -263,6 +268,7 @@ public:
                 if (! processorRef.isOscillatorShown (i))
                 {
                     processorRef.addOscillator (i);
+                    pinnedCard = i;
                     break;
                 }
 
@@ -312,11 +318,63 @@ public:
             updateModeVisibility();
             updateEnabled();
         }
+
+        effectRules.apply();
     }
 
-    // The viewport's height: cards are sized as if three fill it, and more
-    // than that scroll.
-    void setAvailableHeight (int height) { availableHeight = height; }
+    // The viewport's height: cards fold to their title lines until the page
+    // fits it (only then does it scroll).
+    void setAvailableHeight (int height)
+    {
+        if (height == availableHeight)
+            return;
+
+        availableHeight = height;
+        updateModeVisibility();
+    }
+
+    // The card under a title line: an oscillator opens when the page folded
+    // it to fit (another folds instead); right-click an oscillator's title
+    // for its menu (switch, remove).
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (event.eventComponent != this || event.mouseWasDraggedSinceMouseDown())
+            return;
+
+        const auto point = event.getPosition();
+
+        for (int band = 0; band < OscillatorIds::count; ++band)
+        {
+            if (! shown[(size_t) band])
+                continue;
+
+            const auto bounds = bandBounds (band);
+
+            if (! bounds.contains (point) || std::abs (point.y - headerCentreY (band, bounds)) > 12)
+                continue;
+
+            if (event.mods.isPopupMenu())
+                showOscMenu (band);
+            else if (autoFolded[(size_t) band])
+                pin (band);
+
+            return;
+        }
+
+        for (const auto& [card, id, folded] : { std::tuple<juce::Rectangle<int>, int, bool> { subStrip.getUnion (voiceStrip), stripCardId, stripFolded },
+                                                 { symCard, symCardId, symFolded }, { keysCard, keysCardId, keysFolded } })
+            if (folded && card.contains (point) && point.y < card.getY() + symHeaderHeight && ! event.mods.isPopupMenu())
+                pin (id);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        // A hand on an off oscillator's switch: that card stays open once
+        // it turns on.
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (auto& toggle = controls[(size_t) i]->on; (event.eventComponent == &toggle || toggle.isParentOf (event.eventComponent)) && isOff (i))
+                pinnedCard = i;
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -349,14 +407,23 @@ public:
                         juce::Justification::centredLeft);
 
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (isFolded (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch on to edit"
-                                        : juce::String (modeNames[(size_t) mode]),
-                        juce::Rectangle<int> (bounds.getX() + 80, headerY - 7, 400, 14),
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive));
+            g.drawText (isOff (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch on to edit"
+                                     : autoFolded[(size_t) band] ? juce::String (modeNames[(size_t) mode]) + "  -  folded to fit  -  click to open"
+                                                                 : juce::String (modeNames[(size_t) mode]),
+                        juce::Rectangle<int> (bounds.getX() + 80, headerY - 9, 400, 18),
                         juce::Justification::centredLeft);
 
             if (! controlBay[(size_t) band].isEmpty())
                 IlanaTheme::paintRecessedPanel (g, controlBay[(size_t) band].toFloat(), 6.0f);
+
+            // A Physical card's rows, each named at its left.
+            for (const auto& [area, name] : physicalRowLabels[(size_t) band])
+            {
+                g.setColour (tint.withAlpha (0.8f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.drawFittedText (name, area, juce::Justification::centredLeft, 2);
+            }
 
             if (! chainLabel[(size_t) band].isEmpty())
             {
@@ -392,30 +459,36 @@ public:
             }
         };
 
+        // A card folded to fit says so in place of its subtitle.
+        const juce::String foldedNote ("folded to fit  -  click to open");
+
         if (! subStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, subStrip.toFloat(), 6.0f);
-            cardTitle (subStrip.withHeight (symHeaderHeight), "SUB + NOISE", "a sub an octave or two under the oscillators, and noise", IlanaTheme::accent());
+            cardTitle (subStrip.withHeight (symHeaderHeight), "SUB + NOISE",
+                       stripFolded ? foldedNote : juce::String ("a sub an octave or two under the oscillators, and noise"), IlanaTheme::accent());
         }
 
         if (! voiceStrip.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, voiceStrip.toFloat(), 6.0f);
-            cardTitle (voiceStrip.withHeight (symHeaderHeight), "VOICE", "how the unison voices spread and drift", IlanaTheme::Ui::text2);
+            cardTitle (voiceStrip.withHeight (symHeaderHeight), "VOICE",
+                       stripFolded ? foldedNote : juce::String ("how the unison voices spread and drift"), IlanaTheme::Ui::text2);
         }
 
         if (! symCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, symCard.toFloat(), 6.0f);
             cardTitle (symCard.withHeight (symHeaderHeight), "SYMPATHETIC STRINGS",
-                       "shared drone strings that ring with everything you play", IlanaTheme::Ui::text2);
+                       symFolded ? foldedNote : juce::String ("shared drone strings that ring with everything you play"), IlanaTheme::Ui::text2);
         }
 
         if (! keysCard.isEmpty())
         {
             IlanaTheme::paintRecessedPanel (g, keysCard.toFloat(), 6.0f);
             cardTitle (keysCard.withHeight (symHeaderHeight), "ACOUSTIC KEYS",
-                       "soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer",
+                       keysFolded ? foldedNote
+                                  : juce::String ("soundboard, tuning, sustain pedal (CC64) and the action's noises; for Physical oscillators with the Hammer"),
                        IlanaTheme::Ui::text2);
         }
     }
@@ -426,21 +499,17 @@ public:
     // card has an extra row of knobs, so it gets extra height.
     int getMinimumHeight() const
     {
-        auto height = pageMargin * 2 + bandGap * 2 + stripHeight + symCardHeight();
+        auto height = pageMargin * 2 + bandGap * 2 + heightOfStrip() + heightOfSym();
 
         for (int band = 0; band < OscillatorIds::count; ++band)
             if (shown[(size_t) band])
                 height += heightOfBand (band) + bandGap;
 
-        return height + (anyHidden() ? addCardHeight + bandGap : 0) + keysCardHeight + bandGap;
+        return height + (anyHidden() ? addCardHeight + bandGap : 0) + heightOfKeys() + bandGap;
     }
 
     void resized() override
     {
-        // Size cards as the three-oscillator page did; extra ones scroll.
-        const auto fitHeight = availableHeight > 0 ? availableHeight : getHeight();
-        bandHeight = juce::jlimit (minBandHeight, 176,
-                                   (fitHeight - pageMargin * 2 - bandGap * 4 - bandFitStripHeight - symCardHeight()) / 3);
         auto area = getLocalBounds().reduced (12, pageMargin);
 
         for (int band = 0; band < OscillatorIds::count; ++band)
@@ -460,7 +529,7 @@ public:
         }
 
         // One strip: the sub and noise on the left, voice settings on the right.
-        auto strip = area.removeFromTop (stripHeight);
+        auto strip = area.removeFromTop (heightOfStrip());
         // Sub and voice share the page's eight-column grid (four each), as
         // do the sympathetic strings below.
         subStrip = strip.removeFromLeft (strip.getWidth() / 2 - 4);
@@ -481,14 +550,14 @@ public:
         // The shared sympathetic strings: a one-line header with their switch,
         // which opens into their settings (and the notes, in MANUAL).
         area.removeFromTop (bandGap);
-        symCard = area.removeFromTop (symCardHeight());
+        symCard = area.removeFromTop (heightOfSym());
         auto symArea = symCard;
         auto header = symArea.removeFromTop (symHeaderHeight);
         // ToggleControl keeps 13 px above its button for a label; place it so
         // the button itself sits centred on the header line.
         symOn.setBounds (IlanaTheme::cardSwitchBounds (symCard, header.getCentreY()));
 
-        if (readBool ("sym_on"))
+        if (readBool ("sym_on") && ! symFolded)
         {
             symArea.reduce (10, 0);
             // Exactly on the SUB card's four columns above.
@@ -503,19 +572,22 @@ public:
         }
 
         area.removeFromTop (bandGap);
-        keysCard = area.removeFromTop (keysCardHeight);
+        keysCard = area.removeFromTop (heightOfKeys());
         auto keysArea = keysCard.withTrimmedTop (symHeaderHeight).reduced (10, 0);
         layoutSlots (keysArea.removeFromTop (symRowHeight),
                      { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal });
     }
 
 private:
-    int bandHeight = 137;
+    // An open card: its title, the menus and one row of main-size knobs
+    // (as large as PLAY's: UI review 4, V22), with each slot's 3 px margin.
+    static constexpr int knobRowHeight = 13 + IlanaTheme::KnobSize::main + 16 + 6;
+    static constexpr int bandHeight = 16 + 20 + 38 + 3 + knobRowHeight;
     int availableHeight = 0;
     int lastRevealVersion = -1;
     std::array<bool, OscillatorIds::count> shown { true, true, true };
     static constexpr int bandGap = 6;
-    static constexpr int addCardHeight = 40;
+    static constexpr int addCardHeight = 30;
 
     bool anyHidden() const
     {
@@ -525,9 +597,6 @@ private:
     int numShown() const { return (int) std::count (shown.begin(), shown.end(), true); }
     // Dials the size of the oscillator cards' above.
     static constexpr int stripHeight = 28 + 13 + 42 + 16 + 12;
-    // The oscillator cards are sized as when the sub and voice were a 50 px
-    // strip; the taller cards just scroll a little further.
-    static constexpr int bandFitStripHeight = 50;
     static constexpr int pageMargin = 6;
     static constexpr int symHeaderHeight = 28;
     static constexpr int symRowHeight = 64;
@@ -542,8 +611,137 @@ private:
 
         return symHeaderHeight + 6 + symRowHeight * (readBool ("sym_manual") ? 2 : 1);
     }
-    static constexpr int minBandHeight = 124;
-    static constexpr int physicalExtra = 140;
+
+    // The cards under the oscillators, as folded now.
+    int heightOfStrip() const { return stripFolded ? symHeaderHeight : stripHeight; }
+    int heightOfSym() const { return symFolded ? symHeaderHeight : symCardHeight(); }
+    int heightOfKeys() const { return keysFolded ? symHeaderHeight : keysCardHeight; }
+
+    // A Physical card has three more rows above VOICE, one per part of the
+    // instrument (STRING, EXCITER, BODY & BUZZ).
+    static constexpr int physicalExtra = 3 * knobRowHeight;
+    static constexpr int physicalLabelWidth = 84;
+
+    // No card is cut mid-knob (UI review 4, V13 and S8): while the page is
+    // taller than the viewport, its lowest open card folds to its title line
+    // (ACOUSTIC KEYS, SYMPATHETIC STRINGS, SUB + NOISE and VOICE, then the
+    // oscillators from the last; the first stays open, as does the card last
+    // opened by hand). Only when nothing more can fold does the page scroll.
+    void updateFolds()
+    {
+        autoFolded.fill (false);
+        stripFolded = symFolded = keysFolded = false;
+
+        if (availableHeight <= 0)
+            return;
+
+        std::vector<int> candidates { keysCardId };
+
+        if (readBool ("sym_on"))
+            candidates.push_back (symCardId);
+
+        candidates.push_back (stripCardId);
+
+        auto first = -1;
+        for (int band = 0; band < OscillatorIds::count && first < 0; ++band)
+            if (shown[(size_t) band] && ! isOff (band))
+                first = band;
+
+        for (int band = OscillatorIds::count - 1; band > first; --band)
+            if (shown[(size_t) band] && ! isOff (band))
+                candidates.push_back (band);
+
+        const auto setFolded = [this] (int card, bool folded)
+        {
+            if (card == keysCardId) keysFolded = folded;
+            else if (card == symCardId) symFolded = folded;
+            else if (card == stripCardId) stripFolded = folded;
+            else autoFolded[(size_t) card] = folded;
+        };
+
+        std::vector<int> folded;
+
+        for (const auto card : candidates)
+        {
+            if (getMinimumHeight() <= availableHeight)
+                break;
+
+            if (card == pinnedCard)
+                continue;
+
+            setFolded (card, true);
+            folded.push_back (card);
+        }
+
+        // A card folded early may fit again in the room a later one left.
+        for (auto card = folded.rbegin(); card != folded.rend(); ++card)
+        {
+            setFolded (*card, false);
+
+            if (getMinimumHeight() > availableHeight)
+                setFolded (*card, true);
+        }
+    }
+
+    void pin (int card)
+    {
+        pinnedCard = card;
+        updateModeVisibility();
+        updateEnabled();
+    }
+
+    // An oscillator title's right-click menu (it took the place of the
+    // small remove button beside the switch).
+    void showOscMenu (int band)
+    {
+        const auto on = ! isOff (band);
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("OSC " + juce::String (band + 1));
+        menu.addItem (1, on ? "Switch off" : "Switch on");
+        menu.addItem (2, "Remove oscillator", numShown() > 1);
+        juce::Component::SafePointer<OscPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                            [safe, band, on] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+
+                                auto& p = safe->processorRef;
+                                const auto name = "OSC " + juce::String (band + 1);
+
+                                if (result == 2)
+                                    p.performEdit ("Remove " + name, [&p, band] { p.removeOscillator (band); });
+                                else if (auto* parameter = p.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) band]) + "_on"))
+                                    p.performEdit (name + (on ? " off" : " on"), [parameter, on]
+                                    {
+                                        parameter->beginChangeGesture();
+                                        parameter->setValueNotifyingHost (on ? 0.0f : 1.0f);
+                                        parameter->endChangeGesture();
+                                    });
+
+                                if (result == 1 && ! on)
+                                    safe->pinnedCard = band;
+
+                                safe->updateModeVisibility();
+                                safe->updateEnabled();
+                            });
+    }
+
+public:
+    // The UI test reads the menu's items and folds.
+    juce::StringArray getOscMenuItems (int band) const
+    {
+        return { isOff (band) ? "Switch on" : "Switch off", "Remove oscillator" };
+    }
+
+    bool isCardFolded (int band) const { return isFolded (band); }
+
+private:
+    std::array<bool, OscillatorIds::count> autoFolded {};
+    bool stripFolded = false, symFolded = false, keysFolded = false;
+    static constexpr int stripCardId = 100, symCardId = 101, keysCardId = 102;
+    int pinnedCard = -1;
+    std::array<std::vector<std::pair<juce::Rectangle<int>, juce::String>>, OscillatorIds::count> physicalRowLabels;
 
     static constexpr int warpChainExtra = 58;
 
@@ -560,13 +758,19 @@ private:
         return (warp != nullptr && warp->load() > 0.5f) || (warp2 != nullptr && warp2->load() > 0.5f);
     }
 
-    // A switched-off oscillator folds to its title line.
-    bool isFolded (int index) const
+    bool isOff (int index) const
     {
         return ! readBool (juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)]) + "_on");
     }
 
-    static constexpr int foldedHeight = 40;
+    // A switched-off oscillator folds to its title line, as does one the
+    // page folded to fit.
+    bool isFolded (int index) const
+    {
+        return isOff (index) || autoFolded[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)];
+    }
+
+    static constexpr int foldedHeight = 34;
 
     int heightOfBand (int index) const
     {
@@ -660,13 +864,12 @@ private:
     void layoutBand (juce::Rectangle<int> band, int index)
     {
         auto titleStrip = band.reduced (8, 0).withHeight (18).withY (headerCentreY (index, band) - 9);
-        removeButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (22).withSizeKeepingCentre (20, 15));
-        titleStrip.removeFromRight (6);
-        // The on switch keeps one place, left of the remove button, whether
-        // the card is folded or open (it used to jump into the controls when
-        // switched on); the card's buttons come before it.
-        controls[(size_t) index]->on.setBounds (IlanaTheme::cardSwitchBounds (band, headerCentreY (index, band), true));
-        titleStrip.removeFromRight (56 + 12);
+        // The on switch keeps one place, at the right like every card's,
+        // whether the card is folded or open; the card's buttons come before
+        // it. (Remove is on the title's right-click menu: UI review 4, S16.)
+        const auto switchBounds = IlanaTheme::cardSwitchBounds (band, headerCentreY (index, band));
+        controls[(size_t) index]->on.setBounds (switchBounds);
+        titleStrip.setRight (switchBounds.getX() - 8);
         loadButton (index).setBounds (titleStrip.removeFromRight (86).withSizeKeepingCentre (86, 15));
         titleStrip.removeFromRight (4);
         if (getMode (index) == 0)
@@ -675,6 +878,8 @@ private:
             titleStrip.removeFromRight (4);
         }
         bounceButtons[(size_t) index]->setBounds (titleStrip.removeFromRight (bounceButtonWide == index ? 92 : 58).withSizeKeepingCentre (bounceButtonWide == index ? 92 : 58, 15));
+
+        physicalRowLabels[(size_t) index].clear();
 
         if (isFolded (index))
         {
@@ -744,57 +949,34 @@ private:
             return;
         }
 
-        if (isString && isElectric (index))
-        {
-            // M7.3 Tine / Reed: the pickup and the hammer; the string's own
-            // controls don't apply.
-            auto& physicalControls = *physical[(size_t) index];
-            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
-            controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.mode, &osc.excite, &osc.uniMode, &osc.chord, &osc.ampEnv });
-            layoutSlots (middleRow, { &osc.stringDecay, &osc.stringDamp, &physicalControls.epDistance,
-                                      &physicalControls.epPosition, &physicalControls.hammer, &physicalControls.damper });
-            layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
-                                      &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
-            return;
-        }
-
         if (isString)
         {
+            // Rows named for the part of the instrument they shape (UI review
+            // 4, V30): each row's controls flow from its label with no holes,
+            // on the same eight columns as VOICE at the bottom.
             auto& physicalControls = *physical[(size_t) index];
-            auto middleRow = bottomRow.removeFromTop (bottomRow.getHeight() / 3);
-            auto extraRow = bottomRow.removeFromTop (bottomRow.getHeight() / 2);
             controlBay[(size_t) index] = topRow.getUnion (bottomRow).expanded (4, 0);
-            layoutSlots (topRow, { &osc.mode, &osc.excite, &physicalControls.slap,
-                                   &osc.uniMode, &osc.chord, &osc.ampEnv });
-            // The string's controls that apply to this exciter flow left to
-            // right over two rows on the same eight columns as the row below,
-            // so no row starts with holes where hidden controls would be.
-            const auto feedbackExcite = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_excite")->load() == 10.0f;
-            std::vector<juce::Component*> flow;
+            layoutSlots (topRow, isElectric (index)
+                                     ? std::vector<juce::Component*> { &osc.mode, &osc.excite, &osc.uniMode, &osc.chord, &osc.ampEnv }
+                                     : std::vector<juce::Component*> { &osc.mode, &osc.excite, &physicalControls.slap,
+                                                                       &osc.uniMode, &osc.chord, &osc.ampEnv });
 
-            for (juce::Component* control : { (juce::Component*) &osc.stringDecay, (juce::Component*) &osc.stringDamp,
-                                              (juce::Component*) &osc.stringSustain, (juce::Component*) &physicalControls.stiffness,
-                                              (juce::Component*) &physicalControls.pickup, (juce::Component*) &physicalControls.excitePos,
-                                              (juce::Component*) &physicalControls.hardness, (juce::Component*) &physicalControls.pickPos,
-                                              (juce::Component*) &physicalControls.hammer,
-                                              feedbackExcite ? (juce::Component*) &physicalControls.fbGain : (juce::Component*) &physicalControls.bowPressure,
-                                              feedbackExcite ? (juce::Component*) &physicalControls.fbDistance : (juce::Component*) &physicalControls.bowSpeed,
-                                              (juce::Component*) &physicalControls.bridgeBuzz, (juce::Component*) &physicalControls.fretRattle,
-                                              (juce::Component*) &physicalControls.couple, (juce::Component*) &physicalControls.damper,
-                                              (juce::Component*) &physicalControls.registerMap })
-                if (control->isVisible())
-                    flow.push_back (control);
+            auto& labels = physicalRowLabels[(size_t) index];
+            const auto rowHeight = bottomRow.getHeight() / 4;
 
-            std::vector<juce::Component*> first (8, nullptr), second (8, nullptr);
+            for (const auto& [name, items] : physicalRows (index))
+            {
+                auto row = bottomRow.removeFromTop (name == "VOICE" ? bottomRow.getHeight() : rowHeight);
+                labels.push_back ({ row.removeFromLeft (physicalLabelWidth).reduced (4, 0), name });
+                std::vector<juce::Component*> slots (8, nullptr);
 
-            for (size_t i = 0; i < flow.size() && i < 16; ++i)
-                (i < 8 ? first[i] : second[i - 8]) = flow[i];
+                for (size_t i = 0, slot = 0; i < items.size() && slot < slots.size(); ++i)
+                    if (items[i]->isVisible())
+                        slots[slot++] = items[i];
 
-            layoutSlots (middleRow, first);
-            layoutSlots (extraRow, second);
-            layoutSlots (bottomRow, { &osc.level, &osc.pan, &osc.semi, &osc.fine,
-                                      &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread });
+                layoutSlots (row, slots);
+            }
+
             return;
         }
 
@@ -919,13 +1101,18 @@ private:
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
-                 removeButtons[(size_t) i].get(), bounceButtons[(size_t) i].get() };
+                 bounceButtons[(size_t) i].get() };
     }
 
     void updateModeVisibility()
     {
         for (int i = 0; i < OscillatorIds::count; ++i)
             shown[(size_t) i] = processorRef.isOscillatorShown (i);
+
+        if (pinnedCard >= 0 && pinnedCard < OscillatorIds::count && (! shown[(size_t) pinnedCard] || isOff (pinnedCard)))
+            pinnedCard = -1;
+
+        updateFolds();
 
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
@@ -935,13 +1122,10 @@ private:
             if (! shown[(size_t) i])
                 continue;
 
-            // Keep one oscillator on the page.
-            removeButtons[(size_t) i]->setVisible (numShown() > 1);
-
             if (isFolded (i))
             {
                 for (auto* component : componentsOf (i))
-                    if (component != &controls[(size_t) i]->on && component != removeButtons[(size_t) i].get())
+                    if (component != &controls[(size_t) i]->on)
                         component->setVisible (false);
 
                 continue;
@@ -1004,6 +1188,9 @@ private:
 
             auto& osc = *controls[(size_t) i];
             editButtons[(size_t) i]->setVisible (mode == 0);
+            // LOAD .WAV loads a wavetable: only a WAVETABLE oscillator has one
+            // (UI review 4, V30).
+            loadButton (i).setVisible (mode == 0);
             osc.table.setVisible (mode == 0);
             osc.frame.setVisible (mode == 0);
             osc.excite.setVisible (mode == 1);
@@ -1053,10 +1240,56 @@ private:
         for (auto& note : symNotes)
             note->setVisible (manual);
 
+        // A folded card shows its title line only (and its switch).
+        for (auto* control : { (juce::Component*) &subShape, (juce::Component*) &subOctave, (juce::Component*) subOscLevel.get(),
+                               (juce::Component*) noiseStrip.get(), (juce::Component*) voiceSpread.get(),
+                               (juce::Component*) unisonRandom.get(), (juce::Component*) drift.get() })
+            if (control != nullptr)
+                control->setVisible (! stripFolded);
+
+        if (symFolded)
+        {
+            for (auto* control : { (juce::Component*) &symAmount, (juce::Component*) &symDecay,
+                                   (juce::Component*) &symCount, (juce::Component*) &symManual })
+                control->setVisible (false);
+
+            for (auto& note : symNotes)
+                note->setVisible (false);
+        }
+
+        for (auto* control : { (juce::Component*) &sbOn, (juce::Component*) &sbModel, (juce::Component*) &sbMix, (juce::Component*) &sbTone,
+                               (juce::Component*) &sbSize, (juce::Component*) &stretch, (juce::Component*) &pedalRes,
+                               (juce::Component*) &mechKey, (juce::Component*) &mechDamper, (juce::Component*) &mechPedal })
+            control->setVisible (! keysFolded);
+
         resized();
         repaint();
         if (onModeChanged != nullptr)
             onModeChanged();
+    }
+
+    // A Physical card's four rows: the string, what excites it, the body
+    // and its rattles, then the voice (an electric piano's hammer and
+    // pickup take the middle two).
+    std::vector<std::pair<juce::String, std::vector<juce::Component*>>> physicalRows (int index)
+    {
+        auto& osc = *controls[(size_t) index];
+        auto& phys = *physical[(size_t) index];
+        std::vector<juce::Component*> voice { &osc.level, &osc.pan, &osc.semi, &osc.fine,
+                                              &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread };
+
+        if (isElectric (index))
+            return { { "STRING", { &osc.stringDecay, &osc.stringDamp, &phys.damper } },
+                     { "HAMMER", { &phys.hammer } },
+                     { "PICKUP", { &phys.epDistance, &phys.epPosition } },
+                     { "VOICE", voice } };
+
+        return { { "STRING", { &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &phys.stiffness,
+                               &phys.registerMap, &phys.damper } },
+                 { "EXCITER", { &phys.excitePos, &phys.hardness, &phys.pickPos, &phys.hammer,
+                                &phys.bowPressure, &phys.bowSpeed, &phys.fbGain, &phys.fbDistance } },
+                 { "BODY & BUZZ", { &phys.pickup, &phys.bridgeBuzz, &phys.fretRattle, &phys.couple } },
+                 { "VOICE", voice } };
     }
 
     // M7.3: the Tine and Reed excites (7, 8) have their own controls.
@@ -1135,6 +1368,8 @@ private:
             editButtons[(size_t) index]->setEnabled (enabled);
             editButtons[(size_t) index]->setAlpha (alpha);
         }
+
+        effectRules.apply();
     }
 
     int readChoice (const juce::String& id) const
@@ -1213,6 +1448,8 @@ public:
         button.setButtonText ("BOUNCE");
         for (auto& other : bounceButtons)
             other->setEnabled (true);
+        if (state == IlanaSynthAudioProcessor::BounceState::Done)
+            pinnedCard = bouncingOsc; // the bounced card stays open
         bouncingOsc = -1;
         bounceButtonWide = -1;
         resized();
@@ -1266,11 +1503,12 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    EffectRules effectRules { processorRef }; // after processorRef, which it reads
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waveDisplays;
     std::array<juce::Rectangle<int>, OscillatorIds::count> controlBay {};
     std::array<juce::Rectangle<int>, OscillatorIds::count> chainLabel {}, chainBay {};
 
-    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, removeButtons, editButtons, bounceButtons;
+    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
     IlanaSynthAudioProcessor::BounceRequest bounceRequest;
     int bouncingOsc = -1, bounceButtonWide = -1;
     juce::TextButton addButton;

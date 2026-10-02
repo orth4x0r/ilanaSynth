@@ -2,12 +2,22 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+// macOS and Linux draw the UI through OpenGL (CMake links juce_opengl there);
+// Windows already draws with Direct2D.
+#if JUCE_MODULE_AVAILABLE_juce_opengl && ! JUCE_WINDOWS
+ #include <juce_opengl/juce_opengl.h>
+ #define ILANA_GPU_UI 1
+#else
+ #define ILANA_GPU_UI 0
+#endif
+
 #include <functional>
 #include <memory>
 #include <vector>
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
+#include "gui/ConfirmOverlay.h"
 #include "gui/IlanaLookAndFeel.h"
 #include "gui/InfoStrip.h"
 #include "gui/KeyboardStrip.h"
@@ -18,6 +28,7 @@
 #include "gui/OutputMeter.h"
 #include "gui/OutputView.h"
 #include "gui/PresetPanel.h"
+#include "gui/SavePresetOverlay.h"
 #include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
 
@@ -52,6 +63,27 @@ public:
     void setScopeOpen (bool shouldBeOpen);
     bool isScopeOpen() const;
 
+    // UI review 4 (S1): EDITED covers parameters and the patch's other data
+    // (drawn curves, remaps, clips); a load or random patch that would
+    // replace an edited patch asks first, unless the user ticked "Don't ask
+    // again" (settings file, also in the settings menu).
+    bool isPatchEdited() const;
+    bool asksBeforeReplacingEdits() const;
+    void setAsksBeforeReplacingEdits (bool shouldAsk);
+
+    // UI review 4 (V3): SAVE (Ctrl+S) writes the loaded user preset in
+    // place; a factory or never-saved patch goes to SAVE AS (Ctrl+Shift+S),
+    // the themed panel that asks before overwriting.
+    void savePreset();
+    void savePresetAs();
+    SavePresetOverlay& getSaveOverlay() { return saveOverlay; }
+
+    // GPU drawing on macOS and Linux (settings menu > GPU rendering, saved as
+    // "gpuRendering", on by default; ILANA_NO_GPU=1 turns it off for a run).
+    // Windows always draws with Direct2D, so these do nothing there.
+    void setGpuRendering (bool shouldUseGpu);
+    bool isGpuRendering() const;
+
 private:
     struct Content : public juce::Component
     {
@@ -65,7 +97,8 @@ private:
     };
 
     void paintHeader (juce::Graphics& g);
-    void savePreset();
+    void presetSaved (bool inPlace);
+    bool closeTopPopup();
     void exportPreset();
     void loadPreset();
     void togglePresetPanel();
@@ -81,7 +114,11 @@ private:
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);
-    void loadPresetIndex (int index);
+    // Asks first when the patch is edited (see isPatchEdited).
+    void loadPresetIndex (int index, std::function<void (bool loaded)> then = {});
+    void confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
+                                std::function<void (bool confirmed)> then);
+    void undoOrRedo (bool redo);
     void updateHeaderButtons();
     void updateUndoButtons();
     void showHistoryMenu();
@@ -114,6 +151,8 @@ private:
     LogoComponent logo;
     InfoStrip infoStrip;
     TutorialOverlay tutorial;
+    ConfirmOverlay confirmOverlay;
+    SavePresetOverlay saveOverlay { processorRef };
 
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     std::vector<SectionPage*> sections; // owned by tabs
@@ -157,14 +196,22 @@ private:
     bool presetDockShown = false;  // the docked browser is open
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
-    // LFO 5-16 and ENV 6-16: a chip each, shown while that module is added
-    // (or the matrix uses it). Parallel to chips; kind -1 for fixed chips.
+    // Every LFO and envelope has a chip, shown while that module is in the
+    // pool (or the matrix uses it). Parallel to chips; kind -1 for the
+    // performance sources, which always show.
     std::vector<std::pair<int, int>> chipReveal;
     std::vector<bool> chipWanted;
-    // "+N" when the added LFOs and envelopes don't all fit in the row.
+    // "+": a picker for the LFOs and envelopes not in the pool yet.
     juce::TextButton moreChipsButton;
     void updateChipVisibility();
     void layoutChips (juce::Rectangle<int> row);
+    void showChipPicker();
+
+public:
+    // Adds chip chipIndex's LFO or envelope to the pool (the "+" picker).
+    void addPoolSource (int chipIndex);
+
+private:
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip
@@ -205,6 +252,10 @@ private:
     void* previousDpiContext = nullptr;
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;
+
+   #if ILANA_GPU_UI
+    std::unique_ptr<juce::OpenGLContext> openGL;
+   #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessorEditor)
 };

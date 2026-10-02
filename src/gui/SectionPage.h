@@ -73,7 +73,7 @@ public:
         g.setColour (accent().withAlpha (0.8f));
         g.drawRoundedRectangle (lit, lit.getHeight() * 0.5f, 1.0f);
 
-        g.setFont (font (TextSize::label, true));
+        g.setFont (font (TextSize::minInteractive, true));
 
         for (int i = 0; i < items.size(); ++i)
         {
@@ -121,7 +121,7 @@ public:
 private:
     static int segmentWidth (const juce::String& item)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), item) + 26;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)), item) + 26;
     }
 
     juce::Rectangle<float> segmentBounds (int index) const

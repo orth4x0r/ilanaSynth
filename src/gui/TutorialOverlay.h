@@ -4,11 +4,49 @@
 
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
+#include "../dsp/FilterUnit.h"
 
 class TutorialOverlay : public juce::Component,
+                        public juce::TooltipClient,
                         private IlanaAnim::FrameTimer
 {
 public:
+    // What's new, for the tour's chips: one per feature, with the page a
+    // click opens (an id for the editor's showPage) and a line for its
+    // tooltip. Update the list and its version together with the changelog;
+    // the UI test checks the version against the header's and that every
+    // page exists.
+    static constexpr const char* whatsNewVersion = "1.3";
+
+    struct NewFeature
+    {
+        juce::String label, page, tip;
+    };
+
+    static const std::vector<NewFeature>& whatsNew()
+    {
+        static const std::vector<NewFeature> list {
+            { "DX7 MODE + BANKS", "FM", "Load DX7 voices and banks (.syx): the FM page plays them with their own envelopes." },
+            { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters on the FILTER page." },
+            { juce::String (FilterType::Count) + " FILTERS", "FILTER", "The filter list, grouped by family on the FILTER page." },
+            { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
+            { "SF2 / SFZ", "OSC", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },
+            { "VOCODER", "FX", "A vocoder effect module." },
+            { "PHYSICAL PAGE", "PHYSICAL", "Strings, plates and tubes struck, plucked or bowed." },
+            { "FELT HAMMER BOARD", "PHYSICAL", "The reworked piano exciter: try the Felt Hammer Board preset." },
+            { "FEEDBACK GUITAR", "PHYSICAL", "A string that feeds back through its amp." },
+            { "CHAOS LFO SHAPES", "ENV/LFO", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
+            { "WEST COAST", "FILTER", "A wavefolder and low-pass gate after (or in place of) the filters." },
+            { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad, or let EVOLVE move them." },
+            { "BOUNCE", "OSC", "Resample the whole patch into an oscillator." },
+            { "WAVETABLE EDITOR", "OSC", "Draw and edit wavetables from an oscillator's table." }
+        };
+        return list;
+    }
+
+    // A chip's click: the editor shows that page (the tour closes first).
+    std::function<void (const juce::String& pageId)> onShowPage;
+
     // The shortcut modifier as the platform names it.
     static juce::String commandKey()
     {
@@ -58,7 +96,7 @@ public:
     // The panel is as tall as its content (one line per tip), centred.
     juce::Rectangle<int> panelBounds() const
     {
-        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 5 * 36 + 10 + 58 + 12 + 18 + 44 + 28;
+        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 5 * 36 + 10 + newBandHeight + 12 + 18 + 44 + 28;
         const auto area = getLocalBounds().reduced (70);
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
@@ -141,37 +179,39 @@ public:
             // Shortcuts, then what's new, along the bottom; the tips fill the rest.
             auto shortcuts = area.removeFromBottom (18);
             area.removeFromBottom (12);
-            auto newBand = area.removeFromBottom (58);
+            auto newBand = area.removeFromBottom (newBandHeight);
             area.removeFromBottom (10);
 
             {
                 g.setColour (IlanaTheme::accent());
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                g.drawText ("NEW SINCE 1.2", newBand.removeFromTop (22), juce::Justification::centredLeft);
+                const auto heading = newBand.removeFromTop (22);
+                const auto title = "NEW IN " + juce::String (whatsNewVersion);
+                g.drawText (title, heading, juce::Justification::centredLeft);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText ("click one to open its page",
+                            heading.withTrimmedLeft (juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), title) + 12),
+                            juce::Justification::centredLeft);
 
-                const juce::StringArray features { "PHYSICAL PAGE", "GRAND PIANO", "CHAOS LFO SHAPES", "WEST COAST", "25 FILTERS",
-                                                   "FEEDBACK GUITAR", "VECTOR + EVOLVE", "BOUNCE", "WAVETABLE EDITOR" };
                 const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-                auto x = (float) newBand.getX();
+                const auto& features = whatsNew();
+                const auto chips = chipBounds();
 
-                for (int i = 0; i < features.size(); ++i)
+                for (size_t i = 0; i < chips.size(); ++i)
                 {
-                    const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, features[i]) + 22.0f;
-                    const auto chip = juce::Rectangle<float> (x, (float) newBand.getY() + 4.0f, width, 26.0f);
-
-                    if (chip.getRight() > (float) newBand.getRight())
-                        break;
+                    const auto chip = chips[i];
+                    const auto hover = (int) i == hoverChip;
 
                     // Neutral chips with an accent edge (source colours
-                    // mean sources everywhere else).
-                    g.setColour (IlanaTheme::Ui::raised);
-                    g.fillRoundedRectangle (chip, 13.0f);
-                    g.setColour (IlanaTheme::accent().withAlpha (0.6f));
-                    g.drawRoundedRectangle (chip.reduced (0.5f), 13.0f, 1.0f);
+                    // mean sources everywhere else); a hovered one lights.
+                    g.setColour (hover ? IlanaTheme::Ui::raised.brighter (0.15f) : IlanaTheme::Ui::raised);
+                    g.fillRoundedRectangle (chip, chip.getHeight() * 0.5f);
+                    g.setColour (IlanaTheme::accent().withAlpha (hover ? 1.0f : 0.6f));
+                    g.drawRoundedRectangle (chip.reduced (0.5f), chip.getHeight() * 0.5f, 1.0f);
                     g.setColour (IlanaTheme::Ui::text);
                     g.setFont (font);
-                    g.drawText (features[i], chip, juce::Justification::centred);
-                    x = chip.getRight() + 8.0f;
+                    g.drawText (features[i].label, chip, juce::Justification::centred);
                 }
             }
 
@@ -180,8 +220,8 @@ public:
                 "PLAY has the essentials on one screen; the other tabs hold the detail.",
                 "Drag a source chip (bottom row) onto any knob to modulate it, then drag its coloured dot to set the depth.",
                 "Each oscillator can be a wavetable, a physical string, a sample or grains: pick it in MODE. TABLE opens the browser.",
-                "The FX rack starts empty: click an effect to add it, drag slots to reorder, switch a module off in its header.",
-                "The dice rolls a fresh patch and " + commandKey() + "+Z undoes anything; " + juce::String (presetCount) + " factory presets are one click away in the name box."
+                "FX: \"+ add effect\" in the chain list puts a module in; drag a row to reorder it, click its light to switch it off.",
+                "The dice rolls a fresh patch; " + commandKey() + "+Z steps back through knob, graph, curve and clip edits and preset loads. " + juce::String (presetCount) + " factory presets are one click away in the name box."
             };
 
             drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", tips);
@@ -193,7 +233,101 @@ public:
         }
     }
 
+    // The chips, packed in rows under the NEW IN heading (as many as fit).
+    std::vector<juce::Rectangle<float>> chipBounds() const
+    {
+        auto area = panelBounds().reduced (28);
+        area.removeFromTop (34 + 18 + 14);
+        area.removeFromBottom (44 + 18 + 12);
+        auto band = area.removeFromBottom (newBandHeight);
+        band.removeFromTop (22);
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        std::vector<juce::Rectangle<float>> chips;
+        auto x = (float) band.getX();
+        auto y = (float) band.getY() + 3.0f;
+
+        for (const auto& feature : whatsNew())
+        {
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, feature.label) + 22.0f;
+
+            if (x + width > (float) band.getRight())
+            {
+                x = (float) band.getX();
+                y += chipHeight + chipGap;
+            }
+
+            if (y + chipHeight > (float) band.getBottom())
+                break;
+
+            chips.push_back ({ x, y, width, chipHeight });
+            x += width + 8.0f;
+        }
+
+        return chips;
+    }
+
+    int chipAt (juce::Point<float> position) const
+    {
+        const auto chips = chipBounds();
+
+        for (size_t i = 0; i < chips.size(); ++i)
+            if (chips[i].contains (position))
+                return (int) i;
+
+        return -1;
+    }
+
+    // What a chip's click does (the UI test calls it too).
+    void openChip (int index)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) whatsNew().size()))
+            return;
+
+        const auto page = whatsNew()[(size_t) index].page;
+        dismiss();
+
+        if (onShowPage != nullptr)
+            onShowPage (page);
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto chip = chipAt (event.position);
+
+        if (chip != hoverChip)
+        {
+            hoverChip = chip;
+            setMouseCursor (chip >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoverChip >= 0)
+        {
+            hoverChip = -1;
+            repaint();
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (const auto chip = chipAt (event.position); chip >= 0 && appear >= 1.0f)
+            openChip (chip);
+    }
+
+    juce::String getTooltip() override
+    {
+        const auto chip = chipAt (getMouseXYRelative().toFloat());
+        return chip >= 0 ? whatsNew()[(size_t) chip].tip : juce::String();
+    }
+
 private:
+    static constexpr float chipHeight = 26.0f, chipGap = 6.0f;
+    static constexpr int newBandHeight = 22 + 3 + 2 * 26 + 6 + 2; // two rows of chips
+
     static void drawTipColumn (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& heading,
                                const juce::StringArray& tips)
     {
@@ -239,6 +373,7 @@ private:
     juce::ToggleButton dontShowAgain;
     float appear = 0.0f;
     int presetCount = 0;
+    int hoverChip = -1;
     bool captureAttempted = false;
     juce::Image backdrop;
 };

@@ -21,6 +21,8 @@
 #include "Tuning.h"
 #include "Svf.h"
 #include "TensionAdsr.h"
+#include "Dx7Engine.h"
+#include "OperatorEgParams.h"
 #include "UnisonBank.h"
 #include "WavetableOscillator.h"
 
@@ -50,9 +52,11 @@ inline juce::StringArray getNames() { return { "Default", "Filter 1", "Filter 2"
 // How an operator's self-feedback (the matrix diagonal) is taken.
 namespace FmFeedback
 {
-enum { Plain = 0, Filtered, Cross, Count };
+// DX7 (appended): the plain average of the last two samples, the DX7's own
+// feedback (Filtered smooths that average further).
+enum { Plain = 0, Filtered, Cross, Dx7, Count };
 
-inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross" }; }
+inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross", "DX7" }; }
 
 // Cross feedback runs between the two oscillators of a pair: 1-2, 3-4, 5-6.
 inline int partnerOf (int osc) { return osc ^ 1; }
@@ -155,7 +159,7 @@ struct VoiceParams
         int warpMode = 0;
         float warpAmount = 0.0f;
         int route = 0; // FilterRoute
-        int ampEnv = 0; // 0..15, ENV 1..16; 16 = the MSEG as a one-shot envelope
+        int ampEnv = 0; // 0..15, ENV 1..16; 16 = the MSEG as a one-shot envelope; 17 = the Operator EG
 
         // M5 operator settings. Tuning: 0 = semitones (as before), 1 = a
         // frequency ratio of the note (already snapped), 2 = a fixed pitch.
@@ -163,7 +167,7 @@ struct VoiceParams
         double ratio = 1.0;
         double fixedHz = 440.0;
         float keyLevel = 0.0f;   // level key scaling: dB per octave from C3, x6
-        int feedbackType = 0;    // FmFeedback: plain, filtered, cross
+        int feedbackType = 0;    // FmFeedback: plain, filtered, cross, DX7
 
         // M6: the PD chain's second stage and the DCW-style warp envelope
         // (0 = off, 1..16 = ENV 1..16, 17 = MSEG).
@@ -337,6 +341,15 @@ struct VoiceParams
     const float* liveInput = nullptr;
     const float* inputEnv = nullptr;
     float inputToBody = 0.0f, inputToStrings = 0.0f;
+    // Physical exciters at matched loudness (2026-10-01): Bow and Tine came
+    // out ~8 dB over a plucked string. Off for patches saved before then that
+    // use those exciters, so they keep their sound.
+    bool exciterLevelMatch = false;
+    // The Operator EG (2026-10-02): its settings as a DX7 voice (only the
+    // envelope, scaling, pitch EG and LFO bytes are read), filled when an
+    // enabled oscillator's ENVELOPE is the Operator EG (operatorEgUsed).
+    Dx7::Voice operatorEg {};
+    bool operatorEgUsed = false;
 
     // M8.3: the west-coast voice (wavefolder into a low-pass gate).
     struct WestParams
@@ -387,6 +400,19 @@ public:
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     float getLastAmpValue() const { return lastAmpValue; }
+    // Gain bringing each exciter's first-second RMS within ~2 dB of a plucked
+    // string (Burst) at C3-C5 on Init (`ilanaSnapshot --exciters`).
+    static float exciterTrim (int excite) noexcept
+    {
+        switch (excite)
+        {
+            case 4:  return 0.376f; // Bow, -8.5 dB
+            case 5:  return 0.708f; // Hammer (classic), -3 dB
+            case 7:  return 0.398f; // Tine, -8 dB
+            case 8:  return 0.708f; // Reed, -3 dB
+            default: return 1.0f;
+        }
+    }
     float getWestGateLevel() const { return params.west.on && isVoiceActive() ? westGateL.getConductance() : 0.0f; }
     float getLastLifetimeValue() const { return lastLifetimeValue; }
     float getLastExtraEnvValue (int index) const { return extraEnvValues[(size_t) juce::jlimit (0, 10, index)]; }
@@ -403,6 +429,20 @@ public:
     float getLastFilter2Value() const { return lastFilter2Value; }
     float getLastModValue() const { return lastModValue; }
     float getLastEnv4Value() const { return lastEnv4Value; }
+    // ENV 1-16's stage and progress (TensionAdsr::getDisplayPosition), for
+    // the envelope graphs' playhead.
+    float getEnvelopePosition (int env) const
+    {
+        switch (env)
+        {
+            case 0: return ampEnv.getDisplayPosition();
+            case 1: return filterEnv.getDisplayPosition();
+            case 2: return filter2Env.getDisplayPosition();
+            case 3: return modEnv.getDisplayPosition();
+            case 4: return env4.getDisplayPosition();
+            default: return extraEnvs[(size_t) juce::jlimit (0, 10, env - 5)].getDisplayPosition();
+        }
+    }
     float getVelocity() const { return velocityLevel; }
     float getKeyTrack() const { return keyTrackValue; }
     float getRandomValue() const { return randomValue; }
@@ -651,6 +691,26 @@ private:
     int lastNote = 60, lastVelocity = 100;
     const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
+
+    // The Operator EG: the note's control side and its operator gains,
+    // stepped every 64 samples and ramped in between (as msfa ramps them).
+    Dx7::Note dx7Note;
+    std::array<float, 6> dx7Previous {}, dx7Current {};
+    int dx7Count = 0;
+    bool dx7Playing = false; // the note started with the Operator EG in use
+    // Dexed's output is the carriers' sum / 16 (msfa's >> 4 then >> 9).
+    static constexpr float dx7CarrierScale = 1.0f / 16.0f;
+    // An operator's level knob at 0.5 gives the DX7's own gain (the
+    // importer sets 0.5), leaving room to push a modulator deeper.
+    static constexpr float dx7LevelScale = 2.0f;
+    // True while this oscillator plays the Operator EG.
+    bool usesOperatorEg (int osc) const
+    {
+        return dx7Playing && params.oscillators[osc].ampEnv == OperatorEg::envelopeChoice;
+    }
+    // Every enabled oscillator plays the Operator EG, so its carriers decide
+    // how long the voice lasts (as on the DX7).
+    bool operatorEgOwnsVoice() const;
     float keyTrackValue = 0.0f;
     float keyTrackOctaves = 0.0f;
     float randomValue = 0.0f;

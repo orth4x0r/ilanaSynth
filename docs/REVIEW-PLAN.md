@@ -171,4 +171,70 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    knob keeps the card open while the mouse is on it, `modHoverHooks().engaged`); mod arcs get a dark underlay and a
    source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
    draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
-11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+11. ~~Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.~~ **Done** 2026-10-01: the self-hosted gate
+   workflow, `tools/setup-runner.ps1` and `tools/verify.ps1` (the user still has to register her PC:
+   `docs/SELF-HOSTED-RUNNER.md`); the editor draws through OpenGL on macOS and Linux (HANDOFF, "GPU UI").
+12. **Final detail review** (the user's ask, 2026-09-30): **done** 2026-10-01 (cloud, branch `claude/project-thread-mxim47`); fixes and what is left
+   in `/mnt/project-files/ilanasynth/ui-review/DETAIL-REVIEW.md`. Biggest item left: generic automatic macro names (content).
+13. **Detail review leftovers** (the user, 2026-10-01), in order:
+   1. Per-preset macro names for the presets on automatic macros (BRIGHT / DARKEN, MORPH, DRIVE, SPACE from
+      `applyDefaultMacros`): voicing lines in `src/PresetVoicing.h` with names and targets that fit each patch.
+   2. DX7 names: a display-only formatter (Title Case, trailing `\` `^` junk trimmed) that keeps the saved names.
+   3. Name pairs: Hypersaw / Supersaw, Self-Osc / Self Osc, Vocal Chop / Vocal Chops, Formant Scream II, Glass Keys /
+      Stretched Glass Keys. Renames change fingerprint keys and saved sessions' preset names: update
+      `tests/fingerprints-linux.csv` and keep the old names loadable.
+   4. Mod chip row: "E6" beside "ENV 5" when crowded; shorten consistently or not at all.
+   5. A DX7 envelope editor (DX7 voices show oscillator AMP ENV menus that DX7 mode ignores). **Done** 2026-10-02 (the
+      user: fold DX7 mode into the synth): DX7 mode is gone; the Operator EG is an ENVELOPE choice any oscillator can use,
+      edited on the FM page (see HANDOFF).
+   6. Help text: "+-48 st" to ±, Rössler, Hénon.
+14. **UI review 4 fixes** (the user, 2026-10-02: "add all these findings and fixes to the roadmap, then execute"). Two
+   adversarial reviews against Vital and Serum 2: `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-4-VITAL.md` (V1-V31) and
+   `UI-REVIEW-4-SERUM2.md` (S1-S29); merged report claude.ai/artifact/BWMkLJv7Ap8BtEw9ZQhkPL. Every finding is in one batch
+   below (V/S numbers point at the full text). Rules: no audio or preset change (fingerprints unchanged), parameter IDs and
+   choice orders untouched, each batch adds `--uitest` checks. Not done on purpose: a neutral Init (S18; step 6 left Init's
+   sound to the user), the header A/B and history (settled).
+   - **A. Undo and edit state** (V1, S1): one `beginEdit(name)` transaction per custom gesture (graphs, depth dots, card rows,
+     menus, dice, EQ); clip, LFO curve, steps, MSEG and remap edits as undoable actions; EDITED counts that data; a confirm
+     before a load replaces a modified patch; the tour stops promising more than undo does.
+   - **B. Modulation** (V2, V8, V9, V16, V17, V18, V24, S7, S12; with 13.4): depth-dot double-click zeroes (remove moves to
+     right-click); matrix rows numbered 1..n, duplicate source/destination pairs refused on drag and flagged, add button
+     pinned, sortable columns, compact rows, VIA collapsed until used, polarity Unipolar / Bipolar; one colour per source
+     (macros numbered, performance sources distinct, ENV 6-16 off a fixed palette, LFO 1 off the accent); pinned halo as a
+     ring; chip row follows the pool, no mixed abbreviations; remap editor docked with close, shapes and a live input dot;
+     MIDI learn on every control; "(35%)".
+   - **C. LFOs and envelopes** (V4, V10, V29, S5, S19, S21, S22): the first drag on any LFO shape converts it to Curve;
+     grid/snap on the panel; Steps reachable from the LFO, STEPS' hint a "Use on LFO n" button; MSEG grid, labels, playhead;
+     envelope time ticks and a playhead dot on the curve; one RATE knob that reads divisions when synced; a 1-16 index row
+     for the LFO and envelope pools.
+   - **D. FX rack** (V5, V6, V7, V20, V21, S2, S3, S6, S13, S24, S26): cards sized to their knobs; a display per family
+     (drive transfer curve, dynamics GR meters, delay taps, reverb decay); one MIX (Airwindows Dry/Wet pinned, slot blend in
+     the card header); type menu, solo and band selector in each card header, no invisible solo zone; types already in the
+     rack greyed out; names from one table (TAPE STOP), Airwindows display names, units out of labels; Airwindows category
+     modules listed by function; RACK A/B, the move arrows, COPY and DICE labelled and undoable; delay's tap grid hidden
+     while TAPS is off.
+   - **E. Oscillators, filter, PLAY** (V11, V12, V13, V14, V22, V23, V26, V30, S4, S8, S10, S14, S15, S16, S27): filter
+     graph draws the set cutoff (solid, dragged) and the modulated one (faint), markers kept inside the plot; columns
+     fold their last card instead of clipping, and a UI test fails on clipped knobs at 100 % and 75 %; one dimming rule
+     for controls with no effect; WAVE view without the phase playhead, frame as a readout; the same widget and order for a
+     parameter on every page; the oscillator × goes; three knob sizes by role; VECTOR greys dead corners and dims while
+     off; FM shows "DX7 ALG n", a CUSTOM state and ratio / level under each node; the physical card grouped by
+     STRING / EXCITER / BODY.
+   - **F. Browser, save, keys** (V3, V15, V25, V31, S11, S28, S29): SAVE overwrites the loaded user preset; SAVE AS is a
+     themed panel that asks before overwriting and keeps legal characters; Ctrl+S, Ctrl+Shift+S, Ctrl+Left/Right, Esc;
+     the browser sorts (name default), DX7 grouped by bank and out of "All", a star on each row, SURPRISE ME plain; the
+     table browser gets search and consistent names.
+   - **G. Clip sequencer** (S9): grid menu with triplets, velocity lane, Delete key, rubber-band selection with
+     copy / paste / duplicate, audition on click (undo comes from A).
+   - **H. Small things** (V19, V27, V28, S17, S20, S23, S25): tour content; 10 px minimum for interactive labels;
+     scope meters with a dB scale and clip light; CPU and OUT labelled; chaos LFO outputs spelled out; SEQ GENERATE on one
+     baseline per row, PROB SEQ's number row labelled.
+   **Done** 2026-10-02 (cloud, branch `claude/project-thread-poh95j`, on top of PR #9's branch; one commit or merge per batch).
+   Gate clean on Linux (unit, FX and UI tests, 0 of 698 fingerprints changed, pluginval 10 on both plugins). Each batch's
+   `--uitest` checks are in `tools/Snapshot.cpp`. Notable choices: factory loads now clear clips (as user loads did); the
+   mod polarity choice reads "Auto" (was "Natural"; display only); MIDI learn on every control saves as `midiCcMap` and
+   factory loads keep it; macro CCs now drive all 8 macros and move only the macro that moved (was 1-4, others reset);
+   user presets' category and tags are read back (JUCE's 8 KB header read had dropped them); text floors are 12.5 / 11 in
+   the theme's font-height units (about 9.2 / 8 px em), not a global type-scale bump. Left: offering to merge duplicate
+   routes (they are flagged), quantise and zoom buttons in the clip editor, a "Recent" sort (nothing records it), a live
+   input dot on the FX transfer curves, the scope as a dock, DX7 rows still carry "(ROM1A)" (13.2).

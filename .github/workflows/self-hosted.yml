@@ -1,0 +1,67 @@
+# The gate on a self-hosted runner (the account has no GitHub-hosted minutes
+# left). Set up once with tools/setup-runner.ps1 on the Windows PC
+# (docs/SELF-HOSTED-RUNNER.md); then Actions > Self-hosted gate > Run
+# workflow, or an agent dispatches it through the GitHub API. The build tree
+# is kept between runs, so only the first run builds JUCE.
+name: Self-hosted gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Which runner (its label)
+        type: choice
+        options: [windows, linux, macos]
+        default: windows
+      quick:
+        description: Skip pluginval
+        type: boolean
+        default: false
+      jobs:
+        description: Build parallelism (the Windows PC runs out of memory above 1-2)
+        type: string
+        default: "1"
+
+concurrency:
+  group: self-hosted-${{ inputs.os }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Gate (${{ inputs.os }})
+    runs-on: [self-hosted, "${{ inputs.os }}"]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Keep build/ (ignored by git) so the next run is incremental.
+          clean: false
+
+      - name: Gate (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          ILANA_JOBS: ${{ inputs.jobs }}
+          ILANA_QUICK: ${{ inputs.quick }}
+        run: |
+          & tools\verify.ps1 -Jobs ([int] $env:ILANA_JOBS) -Quick:($env:ILANA_QUICK -eq "true")
+
+      - name: Gate (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ILANA_JOBS: ${{ inputs.jobs }}
+          ILANA_QUICK: ${{ inputs.quick }}
+        run: |
+          if [ "$ILANA_QUICK" = "true" ]; then tools/verify.sh --quick; else tools/verify.sh; fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-${{ inputs.os }}
+          path: |
+            build/table-test.txt
+            build/fingerprints.csv
+            build/pluginval.txt
+          if-no-files-found: ignore

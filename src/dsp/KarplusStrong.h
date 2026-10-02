@@ -698,6 +698,20 @@ private:
             return;
 
         const auto& tuning = PianoTuning::get();
+
+        // The voice calls this every sub-block; the 80 bisection steps below
+        // were half a Hammered Strings voice's CPU. Same inputs, same answer.
+        const std::array<double, 10> inputs { frequency, sampleRate, (double) decay, (double) damping,
+                                              (double) tuning.t60Scale, (double) tuning.t60Range, (double) tuning.t60Register,
+                                              (double) tuning.lossTop, (double) tuning.lossBottom, (double) tuning.promptRatio };
+        if (hammerDesignValid && inputs == hammerDesignInputs)
+        {
+            lowpassCoefficient = hammerDesign[0];
+            feedback = hammerDesign[1];
+            horizontalLowpass = hammerDesign[2];
+            horizontalFeedback = hammerDesign[3];
+            return;
+        }
         const auto t60Middle = (double) tuning.t60Scale * std::pow ((double) tuning.t60Range, (double) decay);
         const auto t60 = juce::jlimit (0.05, 40.0, t60Middle * std::pow (261.63 / frequency, (double) tuning.t60Register));
 
@@ -744,7 +758,15 @@ private:
         // the aftersound; the prompt sound lasts promptRatio of it.
         design (juce::jmax (0.05, t60 * (double) tuning.promptRatio), lowpassCoefficient, feedback);
         design (t60, horizontalLowpass, horizontalFeedback);
+
+        hammerDesignInputs = inputs;
+        hammerDesign = { lowpassCoefficient, feedback, horizontalLowpass, horizontalFeedback };
+        hammerDesignValid = true;
     }
+
+    std::array<double, 10> hammerDesignInputs {};
+    std::array<float, 4> hammerDesign {};
+    bool hammerDesignValid = false;
 
     // The horizontal polarisation: the same string (same stiffness filter),
     // in the upper half of the buffer, taking aftersound's share of the

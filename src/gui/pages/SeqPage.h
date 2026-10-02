@@ -32,8 +32,10 @@ public:
           genRoot (p.apvts, "gen_root", "ROOT"),
           genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
           sprayOn (p.apvts, "spray_on", "ON"),
-          sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
-          sprayStrum (p.apvts, "spray_strum", "MODE"),
+          // The strum's Off / Up / Down is its DIRECTION; the spray's own
+          // direction (up, down or both from the played note) is its PITCH.
+          sprayDirection (p.apvts, "spray_direction", "PITCH"),
+          sprayStrum (p.apvts, "spray_strum", "DIRECTION"),
           engineTabs ({ "ARP", "EUCLID", "PROB SEQ", "CLIP" }, { arpColour(), euclidColour(), pseqColour(), clipColour() }, false),
           euclidDisplay (p, euclidColour()),
           eucOn (p.apvts, "euc_on", "ON"),
@@ -52,7 +54,8 @@ public:
           clipOn (p.apvts, "clip_on", "ON"),
           clipIndex (p.apvts, "clip_index", "CLIP"),
           clipMode (p.apvts, "clip_mode", "MODE"),
-          clipBars (p, "LENGTH")
+          clipBars (p, "LENGTH"),
+          clipGrid (clipEditor, "GRID")
     {
         sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), true);
         sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), true);
@@ -66,8 +69,8 @@ public:
         // The Generative card: ARP, EUCLID and PROB SEQ share one card.
         addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
                 pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate, clipEditor, clipOn, clipIndex, clipMode, clipBars,
-                clipImport);
-        clipImport.setButtonText ("Import MIDI...");
+                clipGrid, clipImport);
+        clipImport.setButtonText ("IMPORT MIDI");
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
         clipImport.onClick = [this] { importMidiFile(); };
@@ -96,6 +99,15 @@ public:
             }
         }
 
+        // A row whose LFO plays another shape offers to switch it to Steps
+        // (UI review 4, S21): one click, one undo step.
+        for (int row = 0; row < 2; ++row)
+        {
+            auto& button = useButtons[(size_t) row];
+            button.onClick = [this, row] { useSteps (row); };
+            addChildComponent (button);
+        }
+
         showLfo (0, 0);
         showLfo (1, 1);
 
@@ -122,11 +134,42 @@ public:
             for (auto* control : std::initializer_list<juce::Component*> {
                      &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
                      &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                     &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
+                     &clipGrid, &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
                      sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
                 control->setVisible (false);
         }
+
+        // What doesn't act right now dims (one rule for every page: UI review
+        // 4, V26): the arp's card body, display included, while it is off;
+        // each engine's settings while it is off; the spray's while SPRAY is
+        // off; ROOT and SNAP PLAYED while there is no scale (ROOT still tunes
+        // the sympathetic strings).
+        const auto arpOnNow = effectRules.isOn ("arp_on");
+        for (juce::Component* control : { static_cast<juce::Component*> (&arpDisplay), static_cast<juce::Component*> (&arpMode),
+                                          static_cast<juce::Component*> (&arpDiv), static_cast<juce::Component*> (&arpOctaves),
+                                          static_cast<juce::Component*> (&arpGate), static_cast<juce::Component*> (&arpChance) })
+            effectRules.add (*control, arpOnNow, "the ARP is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&eucTarget), static_cast<juce::Component*> (&eucDiv),
+                                          static_cast<juce::Component*> (&eucSteps), static_cast<juce::Component*> (&eucHits),
+                                          static_cast<juce::Component*> (&eucRotate), static_cast<juce::Component*> (&eucGate) })
+            effectRules.add (*control, effectRules.isOn ("euc_on"), "EUCLID is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&pseqDiv), static_cast<juce::Component*> (&pseqLength),
+                                          static_cast<juce::Component*> (&pseqGate) })
+            effectRules.add (*control, effectRules.isOn ("pseq_on"), "the sequencer is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&clipIndex), static_cast<juce::Component*> (&clipMode),
+                                          static_cast<juce::Component*> (&clipBars), static_cast<juce::Component*> (&clipGrid),
+                                          static_cast<juce::Component*> (&clipImport) })
+            effectRules.add (*control, effectRules.isOn ("clip_on"), "CLIP is off");
+        effectRules.add (*strumTime, effectRules.choiceIsNot ("spray_strum", 0), "STRUM is Off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
+                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
+                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
+            effectRules.add (*control, effectRules.isOn ("spray_on"), "SPRAY is off");
+        const auto hasScale = effectRules.choiceIsNot ("gen_scale", 0);
+        const auto tunesStrings = [this] { return readOn ("sym_on") && ! readOn ("sym_manual"); };
+        effectRules.add (genSnap, hasScale, "SCALE is Off");
+        effectRules.add (genRoot, [hasScale, tunesStrings] { return hasScale() || tunesStrings(); }, "SCALE is Off");
 
         startTimerHz (8);
     }
@@ -158,17 +201,18 @@ public:
             // edits; the subtitle says whether that LFO plays its steps.
             const auto stepNote = [this] (int lfo)
             {
-                const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
-                return shape != nullptr && juce::roundToInt (shape->load()) == LfoShapes::Steps
-                           ? juce::String ("LFO ") + juce::String (lfo + 1)
-                           : juce::String ("LFO ") + juce::String (lfo + 1) + " isn't playing these: set its SHAPE to Steps";
+                return playsSteps (lfo) ? juce::String ("LFO ") + juce::String (lfo + 1) + " plays these steps"
+                                        : juce::String ("LFO ") + juce::String (lfo + 1) + " isn't playing these";
             };
+            // The pills, and the Use button left of them while it shows.
             const auto pillsWidth = [this] (int rowIndex)
             {
                 auto left = 100000;
                 for (auto& button : lfoButtons[(size_t) rowIndex])
                     if (button.isVisible())
                         left = juce::jmin (left, button.getX());
+                if (useButtons[(size_t) rowIndex].isVisible())
+                    left = juce::jmin (left, useButtons[(size_t) rowIndex].getX());
                 return left < 100000 ? stepTitle1.getRight() - left + 12 : 0;
             };
             IlanaTheme::paintCardHeader (g, stepTitle1, "STEPS A", stepNote (step1.getLfoIndex()),
@@ -204,13 +248,14 @@ public:
             else if (tab == 2)
                 hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
             else
-                hint = (int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, other keys transpose it"
-                                                          : "plays in sync with the host transport";
+                hint = juce::String ("double-click adds a note, drag selects; ")
+                     + ((int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, others transpose it"
+                                                           : "plays in sync with the host transport");
 
             if ((tab == 1 && ! euclidOnNow) || (tab == 3 && ! clipOnNow))
                 hint = "switch it on (top right) to use it";
 
-            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "GENERATIVE", hint, tabColour,
+            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "PATTERN", hint, tabColour,
                                          arpCard.getRight() - engineTabs.getX() + 80);
         }
         // Generate's group headings: the label, then a hairline to the end
@@ -224,11 +269,13 @@ public:
 
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
             const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+            // NOTE SPRAY's rule stops short of its switch.
+            const auto end = area == sprayDivider ? sprayOn.getX() - 8 : area.getRight() - 6;
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (font);
             g.drawText (text, area, juce::Justification::centredLeft);
             g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, area.getWidth() - width - 16), 1);
+            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, end - area.getX() - width - 10), 1);
         }
 
 
@@ -253,6 +300,12 @@ public:
             for (auto& button : buttons)
                 if (button.isVisible())
                     button.setBounds (strip.removeFromLeft (width).reduced (2, 0));
+
+            header.removeFromRight (8);
+            auto& use = useButtons[(size_t) rowIndex];
+            const auto useWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true),
+                                                                              use.getButtonText()) + 24;
+            use.setBounds (header.removeFromRight (useWidth).reduced (0, 3));
         };
 
         // MOD: the two step rows and the MSEG. SEQ: arp and generate side
@@ -317,25 +370,33 @@ public:
         arpDisplay.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
-        clipEditor.setBounds (display);
 
         // Every engine's row on one six-column grid, packed from the left,
         // and the same grid runs through Generate below.
         layoutRow (arpArea, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, nullptr });
         layoutRow (arpArea, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
         layoutRow (arpArea, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
-        layoutRow (arpArea, { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
+        // The clip's row is menus only: the piano roll takes the height the
+        // other engines' knobs need.
+        {
+            const auto spare = juce::jmax (0, arpArea.getHeight() - (13 + 24 + 6) - 4);
+            clipEditor.setBounds (display.withHeight (display.getHeight() + spare));
+            layoutRow (arpArea.withTrimmedTop (spare), { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
+        }
         // LENGTH and the import button continue the row on its grid.
         {
             const auto column = arpArea.getWidth() / 6;
             clipBars.setBounds (clipMode.getBounds().translated (column, 0));
             clipImport.setBounds (clipMode.getBounds().translated (column * 2, 0).withTrimmedTop (13));
+            clipGrid.setBounds (clipMode.getBounds().translated (column * 3, 0));
         }
 
-        // Generate: three groups side by side, each under its own heading:
-        // SCALE (two columns), STRUM (one) and NOTE SPRAY (three, its
-        // switch on the heading's line at the card switch place), rows of
-        // full-size controls on the shared grid.
+        // Generate: three groups side by side, each under its own heading
+        // and rule: SCALE (two columns), STRUM (one) and NOTE SPRAY (three,
+        // its switch at the end of its own rule: it switches the spray only,
+        // so the card has no master switch to contradict STRUM's Off). Two
+        // rows of full-size controls on the shared grid, every name in a row
+        // on one line.
         auto generate = generateCard.reduced (10, 0);
         generate.removeFromTop (26);
         generate.removeFromBottom (6);
@@ -351,17 +412,12 @@ public:
         scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
         strumDivider = headings.withTrimmedLeft (column * 2).withWidth (column).reduced (3, 0);
         sprayDivider = headings.withTrimmedLeft (column * 3).reduced (3, 0);
-        // The spray's switch in the card's header, at the card switch place.
-        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, generateCard.getY() + 13));
+        // The spray's switch closes its heading's line (a bare switch: the
+        // heading names it).
+        sprayOn.setBounds (juce::Rectangle<int> (40, 13 + 20).withCentre ({ sprayDivider.getRight() - 20, sprayDivider.getCentreY() - 6 }));
 
-        layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() });
-        layoutRow (second, { nullptr, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
-        // SNAP PLAYED centred under the SCALE group, level with the dials.
-        {
-            const auto dialDrop = juce::jlimit (28, 58, column - 6) / 2 - 12;
-            const auto rowBand = second.withSizeKeepingCentre (second.getWidth(), juce::jmin (second.getHeight(), preferredControlHeight (strumTime.get(), column - 6) + 6));
-            genSnap.setBounds (rowBand.withWidth (column * 2).withSizeKeepingCentre (column, rowBand.getHeight()).reduced (3).withTrimmedTop (dialDrop));
-        }
+        layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() }, true);
+        layoutRow (second, { &genSnap, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() }, true);
     }
 
     void visibilityChanged() override
@@ -413,8 +469,81 @@ private:
 
         editor.setLfoIndex (lfo);
         lfoButtons[(size_t) row][(size_t) lfo].setToggleState (true, juce::dontSendNotification);
+        updateUseButtons();
         repaint (stepTitle1.getUnion (stepTitle2)); // the titles name the LFOs
     }
+
+    bool playsSteps (int lfo) const
+    {
+        const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+        return shape != nullptr && juce::roundToInt (shape->load()) == LfoShapes::Steps;
+    }
+
+    // Sets the row's LFO to the Steps shape.
+    void useSteps (int row)
+    {
+        const auto lfo = (row == 0 ? step1 : step2).getLfoIndex();
+
+        if (auto* shape = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_shape"))
+            processorRef.performEdit ("LFO " + juce::String (lfo + 1) + " shape", [shape]
+            {
+                shape->beginChangeGesture();
+                shape->setValueNotifyingHost (shape->convertTo0to1 ((float) LfoShapes::Steps));
+                shape->endChangeGesture();
+            });
+
+        updateUseButtons();
+    }
+
+    // Each row's Use button shows while its LFO plays another shape, and
+    // the steps step back until they play.
+    void updateUseButtons()
+    {
+        if (part != Part::modulators)
+            return;
+
+        auto relayout = false;
+
+        for (int row = 0; row < 2; ++row)
+        {
+            auto& editor = row == 0 ? step1 : step2;
+            auto& button = useButtons[(size_t) row];
+            const auto lfo = editor.getLfoIndex();
+            const auto playing = playsSteps (lfo);
+            const auto text = "Use on LFO " + juce::String (lfo + 1);
+
+            if (button.getButtonText() != text)
+            {
+                button.setButtonText (text);
+                button.setTooltip ("Set LFO " + juce::String (lfo + 1) + "'s SHAPE to Steps, so it plays this row");
+                relayout = true;
+            }
+
+            if (button.isVisible() == playing)
+            {
+                button.setVisible (! playing);
+                relayout = true;
+            }
+
+            const auto alpha = playing ? 1.0f : IlanaTheme::dimmedAlpha;
+
+            if (editor.getAlpha() != alpha)
+                editor.setAlpha (alpha);
+        }
+
+        if (relayout && ! getLocalBounds().isEmpty())
+        {
+            resized();
+            repaint (stepTitle1.getUnion (stepTitle2));
+        }
+    }
+
+public:
+    // The UI test reaches the rows through these.
+    juce::TextButton& getUseButton (int row) { return useButtons[(size_t) juce::jlimit (0, 1, row)]; }
+    juce::Component& getStepRow (int row) { return row == 0 ? static_cast<juce::Component&> (step1) : step2; }
+
+private:
 
     // Arp controls step back while the arp is off.
     void timerCallback() override
@@ -436,40 +565,20 @@ private:
         if (pickersChanged)
             resized();
 
-        const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
-        const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
+        updateUseButtons();
 
-        for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
-                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
-                                          static_cast<juce::Component*> (&arpChance) })
-            if (control->getAlpha() != alpha)
-                control->setAlpha (alpha);
-
-        const auto dim = [] (std::initializer_list<juce::Component*> controls, bool on)
-        {
-            for (auto* control : controls)
-                if (control->getAlpha() != (on ? 1.0f : IlanaTheme::dimmedAlpha))
-                    control->setAlpha (on ? 1.0f : IlanaTheme::dimmedAlpha);
-        };
-
-        dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
-        dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
-        dim ({ &clipIndex, &clipMode, &clipBars, &clipImport }, readOn ("clip_on"));
+        effectRules.apply();
         clipBars.refresh();
-        dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
         repaint (engineHint);
         repaint (stepTitle1); // their notes follow the LFOs' shapes
         repaint (stepTitle2);
-
-        const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
-        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
-
-        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
-                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
-                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
-            if (control->getAlpha() != sprayAlpha)
-                control->setAlpha (sprayAlpha);
     }
+
+public:
+    // The UI test counts the dimmed controls.
+    int getNumInactive() const { return effectRules.numInactive(); }
+
+private:
 
     float readValue (const char* id) const
     {
@@ -498,7 +607,7 @@ private:
             control->setVisible (tab == 2);
 
         for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                                                                        &clipImport })
+                                                                        &clipGrid, &clipImport })
             control->setVisible (tab == 3);
 
         repaint();
@@ -531,8 +640,11 @@ private:
 
                                       auto& processor = safeThis->processorRef;
                                       const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) safeThis->readValue ("clip_index"));
-                                      processor.getClipState().setClip (index, std::move (imported));
-                                      processor.clipsEdited();
+                                      processor.performEdit ("Import MIDI clip", [&]
+                                      {
+                                          processor.getClipState().setClip (index, std::move (imported));
+                                          processor.clipsEdited();
+                                      });
                                       safeThis->clipEditor.reload (true);
                                       safeThis->clipBars.refresh();
                                   });
@@ -566,11 +678,14 @@ private:
     ToggleControl clipOn;
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
+    ClipGridControl clipGrid;
     juce::TextButton clipImport;
     std::unique_ptr<juce::FileChooser> clipChooser;
     juce::Rectangle<int> engineHint;
     juce::Rectangle<int> sprayDivider, scaleDivider, strumDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
+    std::array<juce::TextButton, 2> useButtons;
     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
+    EffectRules effectRules { processorRef };
 };
 } // namespace

@@ -66,7 +66,8 @@ It all sits in a hardware-inspired interface with 371 factory presets.
   - **16 algorithms** in one click, from a 2-operator stack to DX7 layouts
   - operators tuned by ratio (snapping to harmonic, inharmonic or bell ratios) or at a fixed frequency
   - level and rate key scaling
-  - Plain, Filtered (DX7-style) or Cross feedback
+  - Plain, Filtered (DX7-style), Cross or DX7 feedback
+  - the **Operator EG**: the DX7's own envelope generator for any oscillator (4 rates and 4 levels, break-point keyboard scaling, velocity and rate scaling, a pitch envelope and LFO), so the DX7 ROM banks and imported .syx voices are ordinary, editable patches
   - a **noise operator**
 - **Phase distortion**: the Casio CZ's Saw, Square, Pulse and Resonance I–III waves as warp modes, a second warp stage (the PD chain), and a warp envelope like the CZ's DCW. The wave display draws the warped cycle.
 - **16 envelopes**, now DAHDSR (delay and hold), with key-rate scaling. Any oscillator can also use the MSEG as its envelope.
@@ -171,8 +172,9 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Algorithms**: 16 one-click routings, from a 2-operator stack to seven DX7 algorithms. Click one to route the operators (it adds the ones it needs); the amounts stay editable, and the one the patch matches is lit.
 - **Operator panel** (OP 1–6):
   - **TUNING**: Semitones, Ratio (with **SNAP** to harmonic, inharmonic or bell ratios) or Fixed Hz.
-  - **FB TYPE**: Plain, Filtered (smoothed like a DX7: calm even at high amounts) or Cross (between the pairs 1-2, 3-4, 5-6).
-  - **ENVELOPE** (any of the 16, or the MSEG), LEVEL and **KEY LVL** (level key scaling).
+  - **FB TYPE**: Plain, Filtered (smoothed like a DX7: calm even at high amounts), Cross (between the pairs 1-2, 3-4, 5-6) or DX7 (the DX7's own two-sample average).
+  - **ENVELOPE** (any of the 16, the MSEG, or Op EG: the Operator EG), LEVEL and **KEY LVL** (level key scaling).
+  - With **Op EG**, the card adds the envelope's graph, R1-R4 and L1-L4, OUTPUT, the keyboard scaling (BREAK, L/R DEPTH, L/R CURVE), RATE KEY, VEL and AMS; the **PITCH / LFO** tab holds the pitch envelope and the LFO they share.
 - **Noise operator**: a NOISE row that frequency-modulates any oscillator with noise, with a colour control.
 - Ring mod and hard sync (1 > 2).
 - Every route is a modulation destination.
@@ -215,7 +217,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.
 - **The Generative card** has three tabs:
   - **ARP**: the arpeggiator above.
-  - **CLIP**: the clip sequencer: choose a clip (1–8), draw notes in the piano roll (click to add, drag to move or resize, right-click to delete) or import a .mid file. KEY TRANSPOSE plays it while a key is held, transposed from C3; HOST PLAY runs it with the host's transport.
+  - **CLIP**: the clip sequencer: choose a clip (1–8), draw notes in the piano roll or import a .mid file. Double-click adds a note on the GRID (1/4 to 1/32, straight or triplet) at the last velocity set; click selects (shift adds), a drag on empty space selects a group; drag to move or resize, right-click or Delete removes; Ctrl+A / C / V / D select all, copy, paste (at the playhead, else after the selection) and duplicate; arrows nudge (shift: octave / bar). The lane under the roll sets velocities, Ctrl+wheel zooms in time, and a placed or picked note plays briefly (except in KEY TRANSPOSE while the clip is on). KEY TRANSPOSE plays it while a key is held, transposed from C3; HOST PLAY runs it with the host's transport.
   - **EUCLID**: a Euclidean rhythm. STEPS (2–32), HITS spread as evenly as possible over them, ROTATE, RATE and GATE. The ring shows the pattern and the step playing; drag on it to change the hits (up/down) or rotate (sideways). TARGET picks what it drives:
     - **Notes**: rests the arp's steps between hits. With the arp off, it plays the held chord on each hit.
     - **Exciter**: re-strikes the Physical strings of the notes held, on each hit, sample-accurately.

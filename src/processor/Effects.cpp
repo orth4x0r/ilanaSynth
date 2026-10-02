@@ -241,7 +241,10 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
         case 29: processEq (buffer); break;
         case 30: processAirwindows (buffer); break;
         case 31: processVocoder (buffer); break;
-        default: break;
+        default:
+            if (const auto category = airwindows::categoryForFxType (type); category >= 0)
+                processAirwindowsCategory (buffer, category);
+            break;
     }
 }
 
@@ -851,6 +854,7 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
     const auto makeup = juce::Decibels::decibelsToGain (getParam ("fx_comp_makeup"));
     const auto mix = getParam ("fx_comp_mix");
+    auto deepestGain = 1.0f; // for the card's meter only
 
     for (int channel = 0; channel < numChannels; ++channel)
     {
@@ -868,12 +872,15 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
             if (envelope > threshold)
                 gain = std::pow (envelope / threshold, 1.0f / ratio - 1.0f);
 
+            deepestGain = juce::jmin (deepestGain, gain);
             const auto processed = data[i] * gain * makeup;
             data[i] = data[i] + (processed - data[i]) * mix;
         }
 
         compEnvelope[channel] = envelope;
     }
+
+    compGainReduction.store (deepestGain);
 }
 
 void IlanaSynthAudioProcessor::processHaas (juce::AudioBuffer<float>& buffer)
@@ -1245,6 +1252,44 @@ void IlanaSynthAudioProcessor::processAirwindows (juce::AudioBuffer<float>& buff
     airwindowsModule.process (left, right, numSamples, (int) getParam (awAlgoRef), knobs, getParam (awMixRef));
 }
 
+// An Airwindows category module (types 32-41): its chosen effect, as above.
+void IlanaSynthAudioProcessor::processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category)
+{
+    const auto numSamples = buffer.getNumSamples();
+    if (numSamples <= 0 || buffer.getNumChannels() == 0)
+        return;
+
+    const auto& info = airwindows::categoryModules()[(size_t) category];
+    const auto& refs = awCategoryRefs[(size_t) category];
+    std::array<float, airwindows::Module::numKnobs> knobs {};
+    for (size_t knob = 0; knob < knobs.size(); ++knob)
+        knobs[knob] = getParam (refs[knob + 1]);
+    const auto choice = juce::jlimit (0, (int) info.algorithms.size() - 1, (int) getParam (refs[0]));
+
+    auto* left = buffer.getWritePointer (0);
+    auto* right = left;
+    if (buffer.getNumChannels() > 1)
+        right = buffer.getWritePointer (1);
+    else
+    {
+        if ((int) airwindowsMonoRight.size() < numSamples)
+            airwindowsMonoRight.resize ((size_t) numSamples);
+        std::copy (left, left + numSamples, airwindowsMonoRight.begin());
+        right = airwindowsMonoRight.data();
+    }
+
+    awCategoryModules[(size_t) category].process (left, right, numSamples, info.algorithms[(size_t) choice], knobs,
+                                                  getParam (refs[6]));
+}
+
+void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choice)
+{
+    if (category < 0 || category >= numAwCategories)
+        return;
+    const auto& info = airwindows::categoryModules()[(size_t) category];
+    awCategoryModules[(size_t) category].preload (info.algorithms[(size_t) juce::jlimit (0, (int) info.algorithms.size() - 1, choice)]);
+}
+
 void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
@@ -1279,6 +1324,7 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
     const auto lowCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 200.0 / currentSampleRate);
     const auto highCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 2000.0 / currentSampleRate);
     const auto envelopeCoefficient = (float) std::exp (-1.0 / (0.01 * currentSampleRate));
+    float bandGains[3] { 1.0f, 1.0f, 1.0f }; // for the card's meters only
 
     for (int channel = 0; channel < channels; ++channel)
     {
@@ -1305,11 +1351,15 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
 
                 const auto gain = juce::jlimit (0.25f, 4.0f, std::pow (envelope + 0.001f, -0.6f * amount));
                 output += bands[band] * gain;
+                bandGains[band] = gain;
             }
 
             data[i] = input + (output - input) * mix;
         }
     }
+
+    for (int band = 0; band < 3; ++band)
+        ottBandGain[(size_t) band].store (bandGains[band]);
 }
 
 void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
@@ -1319,6 +1369,8 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
     const auto ceiling = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 0.0f, getParam ("fx_limit_ceiling")));
     const auto releaseMs = juce::jmax (1.0f, getParam ("fx_limit_release"));
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
+
+    auto deepestGain = 1.0f; // for the card's meter only
 
     for (int channel = 0; channel < channels; ++channel)
     {
@@ -1334,9 +1386,12 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
                 limiterEnvelope[channel] = magnitude + (limiterEnvelope[channel] - magnitude) * releaseCoefficient;
 
             const auto gain = limiterEnvelope[channel] > ceiling ? ceiling / limiterEnvelope[channel] : 1.0f;
+            deepestGain = juce::jmin (deepestGain, gain);
             data[i] *= gain;
         }
     }
+
+    limiterGainReduction.store (deepestGain);
 }
 
 void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)
@@ -1565,6 +1620,8 @@ void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
     // Airwindows: its algorithm is made here, off the audio thread.
     if (type == 30)
         airwindowsModule.preload ((int) getParam (awAlgoRef));
+    if (const auto category = airwindows::categoryForFxType (type); category >= 0)
+        preloadAirwindowsCategory (category, (int) getParam (awCategoryRefs[(size_t) category][0]));
 }
 
 void IlanaSynthAudioProcessor::randomizeFxChain()

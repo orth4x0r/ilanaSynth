@@ -1665,7 +1665,11 @@ void runPresetTuningTest()
     {
         // Sound effects (noise sweeps, sirens, risers) are not meant to be in tune.
         // Drums sweep their pitch and generative patches spray extra notes by design.
-        if (categories[presetIndex] == "FX" || categories[presetIndex] == "Drums" || categories[presetIndex] == "Generative")
+        // The DX7 banks are the cartridges as they were (their FX voices,
+        // drums and detuned layers included); dx7_mode_check.py compares
+        // them with Dexed instead.
+        if (categories[presetIndex] == "FX" || categories[presetIndex] == "Drums" || categories[presetIndex] == "Generative"
+            || categories[presetIndex] == "DX7")
             continue;
 
         processor.loadFactoryPreset (presetIndex);
@@ -3884,8 +3888,10 @@ void runFactoryLibraryTest()
             if (peak < 0.15f || peak > 2.0f)
                 drumLevels.add (names[index] + " (peak " + juce::String (peak, 2) + ")");
         }
-        else
+        else if (categories[index] != "DX7")
         {
+            // The DX7 banks keep the cartridges' own levels (quiet FX voices
+            // and all); they're imported, not voiced for this library.
             levels.push_back ({ rms, names[index] });
         }
 
@@ -8449,6 +8455,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "PolishTests.inc"
 #include "PlanTests.inc"
 #include "TuningTests.inc"
+#include "OperatorEgTests.inc"
 #include "AirwindowsTests.inc"
 #include "VocoderTests.inc"
 #include "FilterTests.inc"
@@ -8795,6 +8802,11 @@ void runNullCheck()
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    juce::SystemStats::setApplicationCrashHandler ([] (void*)
+    {
+        std::cout << "CRASH" << std::endl;
+        std::cout << juce::SystemStats::getStackBacktrace() << std::endl;
+    });
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEN_FILTER_CHECK", "").isNotEmpty())
     {
@@ -8900,6 +8912,13 @@ int main()
     {
         runPlanTests();
         std::cout << (failures == 0 ? "PLAN TESTS PASSED" : "PLAN TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEG_TEST", "").isNotEmpty())
+    {
+        runOperatorEgTests();
+        std::cout << (failures == 0 ? "OPERATOR EG TESTS PASSED" : "OPERATOR EG TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -9318,6 +9337,7 @@ int main()
     timedRun ("runPolishTests", [] { runPolishTests(); });
     timedRun ("runPlanTests", [] { runPlanTests(); });
     timedRun ("runTuningTests", [] { runTuningTests(); });
+    timedRun ("runOperatorEgTests", [] { runOperatorEgTests(); });
     timedRun ("runAirwindowsTests", [] { runAirwindowsTests(); });
     timedRun ("runVocoderTests", [] { runVocoderTests(); });
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });

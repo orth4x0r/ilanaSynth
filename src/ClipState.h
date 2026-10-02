@@ -75,6 +75,28 @@ public:
 
     void reset() { publish (std::make_shared<const Clips>()); }
 
+    // Message thread: every clip at once, for undo (the snapshot is shared
+    // and never changed, so keeping it costs nothing).
+    std::shared_ptr<const Clips> getAll() const { return get(); }
+    void setAll (std::shared_ptr<const Clips> clips) { publish (clips != nullptr ? std::move (clips) : std::make_shared<const Clips>()); }
+
+    static bool sameClip (const Clip& a, const Clip& b)
+    {
+        if (a.bars != b.bars || a.notes.size() != b.notes.size())
+            return false;
+
+        for (size_t i = 0; i < a.notes.size(); ++i)
+        {
+            const auto& x = a.notes[i];
+            const auto& y = b.notes[i];
+
+            if (x.start != y.start || x.length != y.length || x.note != y.note || x.velocity != y.velocity)
+                return false;
+        }
+
+        return true;
+    }
+
     bool hasAny() const
     {
         const auto snapshot = get();

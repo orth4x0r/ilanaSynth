@@ -87,6 +87,37 @@ public:
 
     void trigger (const LfoSimSettings& settings) { sim.trigger (settings, 7); }
 
+    // What outputs A and B carry, spelled out ("X axis", "impacts"), following
+    // OUTPUT A's axis on the attractors (B is the next axis; Mix puts X and Z
+    // on A, Y on B).
+    static std::pair<juce::String, juce::String> outputNames (const LfoSimInfo::Shape& info, int axis)
+    {
+        const auto spell = [] (const juce::String& name)
+        {
+            if (name == "STEREO") return juce::String ("stereo twin of A");
+            if (name == "IMPACT") return juce::String ("impacts");
+            if (name == "SLIP") return juce::String ("slips");
+            if (name == "PREVIOUS") return juce::String ("previous value");
+            if (name == "X" || name == "Y") return name + " axis";
+            return name.toLowerCase();
+        };
+
+        if (! info.usesAxis)
+            return { spell (info.outA), spell (info.outB) };
+
+        // Duffing's three outputs have names of their own; the attractors'
+        // are their axes.
+        const auto duffing = juce::String (info.outA) == "POSITION";
+        const juce::StringArray axes = duffing ? juce::StringArray { "position", "velocity", "drive phase" }
+                                               : juce::StringArray { "X axis", "Y axis", "Z axis" };
+        axis = juce::jlimit (0, 3, axis);
+
+        if (axis == 3)
+            return { axes[0] + " + " + axes[2] + " mix", axes[1] };
+
+        return { axes[axis], axes[(axis + 1) % 3] };
+    }
+
     void paint (juce::Graphics& g, juce::Rectangle<float> area, const LfoSimSettings& settings, juce::Colour colour) const
     {
         const auto& info = LfoSimInfo::get (settings.shape);
@@ -115,11 +146,12 @@ private:
     void paintScope (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, const LfoSimInfo::Shape& info) const
     {
         const auto labels = area.removeFromTop (14.0f);
+        const auto names = outputNames (info, lastAxis);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (colour);
-        g.drawText ("A  " + juce::String (info.outA), labels, juce::Justification::centredLeft);
+        g.drawText ("Output A: " + names.first, labels, juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text2);
-        g.drawText ("B  " + juce::String (info.outB), labels, juce::Justification::centredRight);
+        g.drawText ("Output B: " + names.second, labels, juce::Justification::centredRight);
 
         const auto centre = area.getCentreY();
         const auto half = area.getHeight() * 0.45f;

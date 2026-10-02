@@ -67,6 +67,11 @@ public:
         repaint();
     }
 
+    // For the pool's index row: whether a mod slot uses this LFO, and a
+    // relayout after it adds a card.
+    bool isLfoRouted (int lfo) const { return isRouted (lfo); }
+    void refreshLayout() { layoutChanged(); }
+
     void paint (juce::Graphics& g) override
     {
         const auto visible = visibleLfos();

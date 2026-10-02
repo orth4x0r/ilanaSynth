@@ -54,6 +54,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Presets.cpp
     src/processor/State.cpp
     src/processor/Bounce.cpp
+    src/processor/Dx7.cpp
 )
 
 juce_add_binary_data(ilanaFonts SOURCES
@@ -195,11 +196,20 @@ target_link_libraries(ilanaTableTest
 # Symbols for the optimised test build, so ILANA_PROFILE can name lines.
 if (MSVC)
     target_compile_options(ilanaTableTest PRIVATE /Zi)
-    target_link_options(ilanaTableTest PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    # 16 MB stack: the tests keep whole processors on the stack, which outgrew
+    # MSVC's 1 MB default (Linux gives 8 MB).
+    target_link_options(ilanaTableTest PRIVATE /DEBUG /OPT:REF /OPT:ICF /STACK:16777216)
     target_link_libraries(ilanaTableTest PRIVATE dbghelp winmm)
 endif()
 
 add_test(NAME table_tests COMMAND ilanaTableTest)
+
+# The same stack for the dev tools below, which also build processors on the stack.
+function (ilana_big_stack target)
+    if (MSVC)
+        target_link_options(${target} PRIVATE /STACK:16777216)
+    endif()
+endfunction()
 
 # Dev tool: offscreen PNG snapshots of every editor tab (not shipped).
 juce_add_console_app(ilanaSnapshot PRODUCT_NAME "ilanaSnapshot")
@@ -238,6 +248,15 @@ target_link_libraries(ilanaSnapshot
 )
 
 add_test(NAME ui_tests COMMAND ilanaSnapshot --uitest)
+
+# GPU UI on macOS and Linux: the editor paints through an OpenGL context
+# (Windows already draws with Direct2D). The snapshot tool links it too, so
+# its --fps and --idlecpu probes measure the GPU path.
+if (NOT WIN32)
+    foreach(target ilanaSynth ilanaSynthFX ilanaSnapshot)
+        target_link_libraries(${target} PRIVATE juce::juce_opengl)
+    endforeach()
+endif()
 
 # Dev tool: per-preset render fingerprints for regression checks (not shipped).
 juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
@@ -375,3 +394,7 @@ if (MSVC)
 endif()
 
 add_test(NAME fx_tests COMMAND ilanaFxTest)
+
+foreach (tool ilanaSnapshot ilanaFingerprint ilanaPresetRender ilanaFxTest)
+    ilana_big_stack (${tool})
+endforeach()

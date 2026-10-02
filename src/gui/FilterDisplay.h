@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <complex>
 #include <vector>
 
@@ -26,7 +27,8 @@ public:
         fftOutput.assign (fftSize, {});
 
         setMouseCursor (juce::MouseCursor::UpDownLeftRightResizeCursor);
-        setTooltip ("Drag a marker (or anywhere on the graph): left / right sets the cutoff, up / down the resonance.");
+        setTooltip ("Drag a marker (or anywhere on the graph): left / right sets the cutoff, up / down the resonance. "
+                    "The solid curve and markers are the settings; the faint ones follow the modulation.");
         startTimerHz (30);
     }
 
@@ -86,15 +88,112 @@ public:
         }
 
         drawSpectrum (g, plot);
-        drawCurve (g, plot, 1, juce::Colour (0xff8f9dff));
-        drawCurve (g, plot, 0, juce::Colour (0xffc86bff));
-        drawMarker (g, plot, 1, juce::Colour (0xff8f9dff));
-        drawMarker (g, plot, 0, juce::Colour (0xffc86bff));
+
+        // The modulated response, faint, under the set one (UI review 4,
+        // V23 and S4): the curve and markers you drag stay where the knobs
+        // are, and modulation shows as a moving shadow.
+        if (isModulated (0) || isModulated (1))
+        {
+            drawCurve (g, plot, 1, filterColour (1), true);
+            drawCurve (g, plot, 0, filterColour (0), true);
+        }
+
+        drawCurve (g, plot, 1, filterColour (1), false);
+        drawCurve (g, plot, 0, filterColour (0), false);
+
+        const auto markers = markerCentres (plot);
+
+        for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
+            if (isModulated (filterIndex))
+                drawModMarker (g, plot, filterIndex, markers[(size_t) filterIndex], filterColour (filterIndex));
+
+        drawMarker (g, plot, markers[1], 1, filterColour (1));
+        drawMarker (g, plot, markers[0], 0, filterColour (0));
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
 
+    // Where the two set-value markers are drawn (and grabbed): inside the
+    // plot, and fanned apart when they would overlap (both at 20 kHz on
+    // Init). Component coordinates; the UI test reads them.
+    std::array<juce::Point<float>, 2> getMarkerCentres() const { return markerCentres (plotBounds()); }
+
+    // The filter a click here drags: the nearest set marker, else the
+    // nearest cutoff across, so a click anywhere picks a filter.
+    int filterAt (juce::Point<float> position) const
+    {
+        const auto markers = getMarkerCentres();
+        auto best = -1;
+        auto bestDistance = 1.0e9f;
+
+        for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
+        {
+            const auto marker = markers[(size_t) filterIndex];
+            const auto distance = marker.getDistanceFrom (position) < 24.0f
+                                      ? marker.getDistanceFrom (position)
+                                      : 24.0f + std::abs (marker.x - position.x);
+
+            if (distance < bestDistance - 0.5f)
+            {
+                bestDistance = distance;
+                best = filterIndex;
+            }
+        }
+
+        return best;
+    }
+
 private:
+    static constexpr float markerSize = 10.0f;
+
+    static juce::Colour filterColour (int filterIndex) { return filterIndex == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
+
+    juce::Rectangle<float> plotBounds() const { return getLocalBounds().toFloat().reduced (10.0f, 12.0f); }
+
+    // A marker's place before it is kept inside the plot: x from the cutoff
+    // (as set, or with the live modulation), y from the resonance.
+    juce::Point<float> rawMarker (juce::Rectangle<float> plot, int filterIndex, bool withMod) const
+    {
+        return { plot.getX() + (float) frequencyToX (cutoffOf (filterIndex, withMod)) * plot.getWidth(),
+                 resoToY (plot, readParam (filterIndex == 0 ? "f1_reso" : "f2_reso")) };
+    }
+
+    std::array<juce::Point<float>, 2> markerCentres (juce::Rectangle<float> plot) const
+    {
+        const auto inside = plot.reduced (markerSize * 0.5f + 1.0f);
+        std::array<juce::Point<float>, 2> centres;
+
+        for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
+        {
+            const auto raw = rawMarker (plot, filterIndex, false);
+            centres[(size_t) filterIndex] = { juce::jlimit (inside.getX(), inside.getRight(), raw.x),
+                                              juce::jlimit (inside.getY(), inside.getBottom(), raw.y) };
+        }
+
+        // Overlapping markers fan apart across (filter 1 on the left when
+        // the cutoffs are equal), the pair kept inside the plot.
+        auto& a = centres[0];
+        auto& b = centres[1];
+        const auto gap = markerSize + 3.0f;
+
+        if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap)
+        {
+            const auto firstLeft = cutoffOf (0, false) <= cutoffOf (1, false);
+            const auto middle = juce::jlimit (inside.getX() + gap * 0.5f, inside.getRight() - gap * 0.5f, (a.x + b.x) * 0.5f);
+            a.x = middle + (firstLeft ? -gap : gap) * 0.5f;
+            b.x = middle + (firstLeft ? gap : -gap) * 0.5f;
+        }
+
+        return centres;
+    }
+
+    bool isModulated (int filterIndex) const
+    {
+        return std::abs (cutoffOf (filterIndex, true) / cutoffOf (filterIndex, false) - 1.0) > 0.005
+               || std::abs (processorRef.getModDisplay (filterIndex == 0 ? Mod::Destination::Filter1Morph
+                                                                         : Mod::Destination::Filter2Morph)) > 0.002f;
+    }
+
     void timerCallback() override
     {
         // The glow pulses only while notes sound.
@@ -134,25 +233,28 @@ private:
         return 0.0f;
     }
 
-    double cutoffWithMod (int filterIndex) const
+    // The cutoff as set, or with the live modulation on top.
+    double cutoffOf (int filterIndex, bool withMod) const
     {
         const auto base = (double) readParam (filterIndex == 0 ? "f1_cutoff" : "f2_cutoff");
-        const auto mod = (double) processorRef.getModDisplay (
-            filterIndex == 0 ? Mod::Destination::Filter1Cutoff : Mod::Destination::Filter2Cutoff);
+        const auto mod = withMod ? (double) processorRef.getModDisplay (
+                                       filterIndex == 0 ? Mod::Destination::Filter1Cutoff : Mod::Destination::Filter2Cutoff)
+                                 : 0.0;
 
         return juce::jlimit (20.0, 20000.0, base * std::exp2 (mod * 6.0));
     }
 
-    std::complex<double> response (int filterIndex, double frequency) const
+    std::complex<double> response (int filterIndex, double frequency, bool withMod) const
     {
-        const auto cutoff = cutoffWithMod (filterIndex);
+        const auto cutoff = cutoffOf (filterIndex, withMod);
         const auto reso = (double) readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
         const auto type = (int) readParam (filterIndex == 0 ? "f1_type" : "f2_type");
         const auto slope24 = readParam (filterIndex == 0 ? "f1_slope" : "f2_slope") > 0.5f;
 
         const auto morph = (double) readParam (filterIndex == 0 ? "f1_morph" : "f2_morph")
-                           + (double) processorRef.getModDisplay (filterIndex == 0 ? Mod::Destination::Filter1Morph
-                                                                                    : Mod::Destination::Filter2Morph);
+                           + (withMod ? (double) processorRef.getModDisplay (filterIndex == 0 ? Mod::Destination::Filter1Morph
+                                                                                              : Mod::Destination::Filter2Morph)
+                                      : 0.0);
 
         return FilterType::response (type, slope24, reso, std::complex<double> (0.0, frequency / cutoff),
                                      juce::jlimit (0.0, 1.0, morph), cutoff);
@@ -170,7 +272,8 @@ private:
         return juce::jlimit (0.0f, 1.0f, ((plot.getBottom() - y) / plot.getHeight() - 0.08f) / 0.8f);
     }
 
-    void drawCurve (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Colour colour)
+    // The response as set (solid, glowing), or with the modulation (faint).
+    void drawCurve (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Colour colour, bool withMod)
     {
         const auto width = juce::jmax (2, (int) plot.getWidth());
         const auto parallel = readParam ("filters_parallel") > 0.5f;
@@ -181,15 +284,15 @@ private:
         {
             const auto frequency = xToFrequency ((double) x / (double) (width - 1));
 
-            auto h = response (filterIndex, frequency);
+            auto h = response (filterIndex, frequency, withMod);
 
             if (parallel)
             {
-                h = (response (0, frequency) + response (1, frequency)) * 0.707;
+                h = (response (0, frequency, withMod) + response (1, frequency, withMod)) * 0.707;
             }
             else if (filterIndex == 1)
             {
-                h = response (0, frequency) * response (1, frequency);
+                h = response (0, frequency, withMod) * response (1, frequency, withMod);
             }
 
             const auto db = 20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)));
@@ -200,6 +303,13 @@ private:
                 path.startNewSubPath (px, y);
             else
                 path.lineTo (px, y);
+        }
+
+        if (withMod)
+        {
+            g.setColour (colour.withAlpha (parallel ? 0.22f : 0.3f));
+            g.strokePath (path, juce::PathStrokeType (1.2f));
+            return;
         }
 
         g.setColour (colour.withAlpha ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse))));
@@ -276,25 +386,40 @@ private:
         g.fillPath (path);
     }
 
-    void drawMarker (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Colour colour)
+    // The set value: a solid, numbered marker (the one you drag; its height
+    // is the resonance), with a faint line at its cutoff to the curve's
+    // corner.
+    void drawMarker (juce::Graphics& g, juce::Rectangle<float> plot, juce::Point<float> centre, int filterIndex, juce::Colour colour) const
     {
-        const auto cutoff = cutoffWithMod (filterIndex);
-        const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
-
-        const auto x = plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth();
-        const auto y = resoToY (plot, reso);
-
-        // A faint line at the cutoff ties the marker (its height is the
-        // resonance) to the curve's corner.
         g.setColour (colour.withAlpha (0.25f));
-        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (x - 0.5f).withY (plot.getY()));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (centre.x - 0.5f).withY (plot.getY()));
 
+        const auto dot = juce::Rectangle<float> (markerSize, markerSize).withCentre (centre);
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.8f));
+        g.fillEllipse (dot.expanded (1.5f));
         g.setColour (colour);
-        g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }));
+        g.fillEllipse (dot);
         g.setColour (juce::Colours::black.withAlpha (0.7f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText (juce::String (filterIndex + 1), juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ x, y }),
-                    juce::Justification::centred);
+        g.drawText (juce::String (filterIndex + 1), dot, juce::Justification::centred);
+    }
+
+    // Where the modulation has the cutoff right now: a faint ring on the set
+    // marker's line, tied to it by a thin stroke.
+    void drawModMarker (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Point<float> setCentre,
+                        juce::Colour colour) const
+    {
+        const auto inside = plot.reduced (markerSize * 0.5f + 1.0f);
+        const juce::Point<float> live (juce::jlimit (inside.getX(), inside.getRight(), rawMarker (plot, filterIndex, true).x),
+                                       setCentre.y);
+
+        if (live.getDistanceFrom (setCentre) < 2.0f)
+            return;
+
+        g.setColour (colour.withAlpha (0.35f));
+        g.drawLine ({ setCentre, live }, 1.0f);
+        g.setColour (colour.withAlpha (0.55f));
+        g.drawEllipse (juce::Rectangle<float> (markerSize - 1.0f, markerSize - 1.0f).withCentre (live), 1.3f);
     }
 
     // Drag anywhere on the graph: the nearest filter's marker follows the
@@ -304,32 +429,18 @@ private:
     void mouseDown (const juce::MouseEvent& event) override
     {
         endGestures();
-        draggingFilter = -1;
-
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 12.0f);
-        auto bestDistance = 1.0e9f;
-
-        for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
-        {
-            const auto cutoff = cutoffWithMod (filterIndex);
-            const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
-            const juce::Point<float> marker (plot.getX() + (float) frequencyToX (cutoff) * plot.getWidth(),
-                                             resoToY (plot, reso));
-            // Near a marker: the plain distance. Elsewhere the horizontal
-            // distance decides, so a click anywhere picks a filter.
-            const auto distance = marker.getDistanceFrom (event.position) < 24.0f
-                                      ? marker.getDistanceFrom (event.position)
-                                      : 24.0f + std::abs (marker.x - event.position.x);
-
-            if (distance < bestDistance - 0.5f)
-            {
-                bestDistance = distance;
-                draggingFilter = filterIndex;
-            }
-        }
+        draggingFilter = filterAt (event.position);
+        dragOffset = {};
 
         if (draggingFilter >= 0)
         {
+            // A grabbed marker moves on from where it is (one drawn inset at
+            // the plot's edge, or fanned apart, doesn't jump on the click);
+            // a click elsewhere brings the cutoff to the mouse.
+            if (getMarkerCentres()[(size_t) draggingFilter].getDistanceFrom (event.position) < markerSize)
+                dragOffset = rawMarker (plotBounds(), draggingFilter, false) - event.position;
+
+            processorRef.beginEdit ("Filter " + juce::String (draggingFilter + 1) + " graph");
             beginGestures (draggingFilter);
             applyDrag (event.position);
         }
@@ -341,11 +452,16 @@ private:
             applyDrag (event.position);
     }
 
-    void mouseUp (const juce::MouseEvent&) override { endGestures(); }
-
-    void applyDrag (juce::Point<float> position)
+    void mouseUp (const juce::MouseEvent&) override
     {
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 12.0f);
+        endGestures();
+        processorRef.endEdit();
+    }
+
+    void applyDrag (juce::Point<float> mouse)
+    {
+        const auto plot = plotBounds();
+        const auto position = mouse + dragOffset;
         const auto proportion = (double) juce::jlimit (0.0f, 1.0f, (position.x - plot.getX()) / plot.getWidth());
         const auto frequency = juce::jlimit (20.0, 20000.0, xToFrequency (proportion));
         const auto reso = yToReso (plot, position.y);
@@ -382,6 +498,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int draggingFilter = -1;
+    juce::Point<float> dragOffset; // a grabbed marker's set place minus the mouse
     float pulse = 0.0f;
     float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
     double lastPaintMs = 0.0, lastLiveMs = 0.0;

@@ -64,6 +64,11 @@ public:
         return juce::jmax (viewWidth, (int) std::ceil ((float) count * (cardWidth() + gap) - gap));
     }
 
+    // For the pool's index row: whether the envelope plays a part, and a
+    // relayout after it adds a card.
+    bool isEnvelopeInUse (int env) const { return isInUse (env); }
+    void refreshLayout() { layoutChanged(); }
+
     void setSelected (int index)
     {
         selected = index;

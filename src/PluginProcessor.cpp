@@ -100,6 +100,13 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     for (int i = 0; i < Mod::numMacros; ++i)
         macroCc[i].store (20 + i);
 
+    for (size_t cc = 0; cc < ccParameter.size(); ++cc)
+    {
+        ccParameter[cc].store (-1);
+        pendingCcValues[cc].store (0.0f);
+        ccValuePending[cc].store (false);
+    }
+
     scopeLeft.assign ((size_t) scopeSize, 0.0f);
     scopeRight.assign ((size_t) scopeSize, 0.0f);
 
@@ -187,11 +194,15 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
         oscAmpEnvIds[(size_t) osc] = prefix + "_amp_env";
+        for (size_t field = 0; field < OperatorEg::operatorFields().size(); ++field)
+            operatorEgIds[(size_t) osc][field] = prefix + OperatorEg::operatorFields()[field].suffix;
         sampleFactoryIds[(size_t) osc] = prefix + "_sample_factory";
 
         for (int target = 0; target < OscillatorIds::count; ++target)
             fmMatrixIds[(size_t) osc][(size_t) target] = fmRouteId (osc, target);
     }
+    for (size_t field = 0; field < OperatorEg::voiceFields().size(); ++field)
+        operatorEgVoiceIds[field] = OperatorEg::voiceFields()[field].suffix;
 
     buildParamCache();
 
@@ -633,6 +644,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     reverb.setSampleRate (sampleRate);
     reverb.reset();
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
+    for (auto& module : awCategoryModules)
+        module.prepare (sampleRate, samplesPerBlock);
     vocoder.prepare (sampleRate);
     vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
     chunkMidi.ensureSize (4096);
@@ -685,6 +698,8 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     combLine.reset();
     reverb.reset();
     airwindowsModule.reset();
+    for (auto& module : awCategoryModules)
+        module.reset();
     vocoder.reset();
 
     // The effects' own LFOs and followers restart too (a Dimension or flanger
@@ -1181,7 +1196,33 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         p.extraEnvVelocity[(size_t) (env - 6)] = getParam (ids.velocity);
     }
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
-        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, 16, (int) getParam (oscAmpEnvIds[(size_t) osc]));
+        p.oscillators[(size_t) osc].ampEnv = juce::jlimit (0, OperatorEg::envelopeChoice, (int) getParam (oscAmpEnvIds[(size_t) osc]));
+
+    // The Operator EG's settings as the DX7 voice its engine reads, only
+    // while an enabled oscillator plays it.
+    p.operatorEgUsed = false;
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        p.operatorEgUsed = p.operatorEgUsed
+                           || (p.oscillatorEnabled[(size_t) osc] && p.oscillators[(size_t) osc].ampEnv == OperatorEg::envelopeChoice);
+    if (p.operatorEgUsed)
+    {
+        auto& voice = p.operatorEg;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            for (size_t field = 0; field < OperatorEg::operatorFields().size(); ++field)
+            {
+                const auto& info = OperatorEg::operatorFields()[field];
+                // Operator k (1-6) lives at (6 - k) * 21 in the voice.
+                voice[(size_t) ((5 - osc) * 21 + info.offset)]
+                    = (std::uint8_t) juce::jlimit (0, info.maximum, juce::roundToInt (getParam (operatorEgIds[(size_t) osc][field])));
+            }
+        for (size_t field = 0; field < OperatorEg::voiceFields().size(); ++field)
+        {
+            const auto& info = OperatorEg::voiceFields()[field];
+            voice[(size_t) info.offset] = (std::uint8_t) juce::jlimit (0, info.maximum, juce::roundToInt (getParam (operatorEgVoiceIds[field])));
+        }
+        voice[(size_t) OperatorEg::keyOffsetByte]
+            = (std::uint8_t) (24 + juce::jlimit (-24, 24, juce::roundToInt (getParam (operatorEgKeyOffsetId))));
+    }
     p.quality = juce::jlimit (0, 2, (int) getParam ("quality"));
 
     p.ampVelocity = getParam ("amp_velocity");
@@ -1499,6 +1540,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
     processClip (midiForSynth, buffer.getNumSamples());
 
+    p.exciterLevelMatch = exciterLevelMatch.load();
+
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.
     if (isEffectBuild)
@@ -1562,6 +1605,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         auto bestAmp = 0.0f;
         auto bestActivity = 0.0f;
         std::array<float, 11> extraEnvValues {};
+        std::array<float, 16> envPositions;
+        envPositions.fill (-1.0f);
         auto filterValue = 0.0f;
         auto filter2Value = 0.0f;
         auto modValue = 0.0f;
@@ -1598,6 +1643,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     }
                     for (int env = 0; env < 11; ++env)
                         extraEnvValues[(size_t) env] = voice->getLastExtraEnvValue (env);
+                    for (int env = 0; env < 16; ++env)
+                        envPositions[(size_t) env] = voice->getEnvelopePosition (env);
                     monitorVelocity.store (voice->getVelocity());
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
@@ -1620,6 +1667,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         }
         for (int env = 0; env < 11; ++env)
             envMonitorExtra[(size_t) env].store (extraEnvValues[(size_t) env]);
+        for (int env = 0; env < 16; ++env)
+            envMonitorPositions[(size_t) env].store (envPositions[(size_t) env]);
     }
 
     processAcousticKeys (buffer, midiForSynth);

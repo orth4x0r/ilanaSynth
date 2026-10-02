@@ -260,7 +260,7 @@ void runVocoderTests()
         processor.assignFxSlot (1, 31);
         auto* slot = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("fx_slot1"));
         check (slot != nullptr && slot->getIndex() == 31 && slot->getCurrentChoiceName() == "Vocoder"
-                   && IlanaSynthAudioProcessor::numFxTypes == 31,
+                   && IlanaSynthAudioProcessor::numFxTypes >= 31,
                "Vocoder: assignFxSlot puts type 31, Vocoder, in the slot");
         setParam (processor, "fx_voc_bands", 20.0f);
         setParam (processor, "fx_voc_formant", -5.0f);

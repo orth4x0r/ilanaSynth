@@ -36,6 +36,18 @@ Updated 2026-10-01. The source tree is the source of truth. Work on `main` (clou
 - **UI review 4 fixes (2026-10-02, branch `claude/project-thread-poh95j`):** REVIEW-PLAN step 14, all eight batches done (undo for every gesture and the drawn data via `beginEdit`/`endEdit`/`performEdit`, a confirm before replacing an edited patch, FX displays and card headers, matrix numbering/sorting/duplicates, one colour per source, MIDI learn everywhere, drawable LFO shapes, envelope time axis, one RATE knob, set-vs-modulated filter markers, cards fold instead of clipping, `EffectRules` dimming, SAVE in place and a themed SAVE AS, sorted browser without DX7 in All, clip editor selection/velocity/grid, tour, text floors, scope meters). Details and what is left: REVIEW-PLAN step 14. Next: a fresh adversarial UI review (the user asked for one after these fixes).
 - **Preset voicing** (`src/PresetVoicing.h`): one line per preset, parameter changes and macro rewiring over the recipe, applied at load before the trims. Iterate with `ILANA_PRESET_VOICING=<file>` and `ILANA_RENDER_CATEGORY=<cat> ilanaPresetRender` (which also writes `params.txt` per preset), measure with `preset_critic.py`, `clap_score.py` (`pip install torch transformers`), `preset_diversity.py --refs content/analysis/critic-refs --refs content/analysis/critic-refs-surge`, bake with `tools/bake_voicing.py`, then re-level with `tune_presets.py` (two passes, the last `--final`).
 
+## In progress: UI review 6 fixes (2026-10-02, PAUSED at the user's usage limit)
+- All PRs (#6, #8, #9, #10, #11) are merged into main via #12 (gate clean, 0 of 698 fingerprints changed).
+- Reviews: `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-6-{VITAL,SERUM2,INTEGRATION}.md`; plan and package split (P1-P7): `.../ui-review/REVIEW-6-WORKPLAN.md`. The user wants every finding fixed (plus review 5's and a global ~10 % text scale-up), then a second review-and-fix cycle (review 7), which she put on hold until her limits reset.
+- Unfinished work of the seven packages is saved as patches against main e9eaf10 in `docs/wip-review6/pN.patch` (snapshot 2026-10-02 17:39; NOT built or gated together; they overlap in PluginEditor.cpp, PluginProcessor.h, ParameterLayout.cpp, ParamInfo.h and tools/Snapshot.cpp). Resume: `git apply --3way docs/wip-review6/pN.patch` one package at a time on a branch, build, fix, `--uitest`, fingerprints.
+  - P1 modulation (rings, chip bar, matrix, macros): early, nothing committed; new ModNames.h, ModSourceChip.h, MacroStrip.h.
+  - P2 FM/DX7: most done: all 32 DX7 algorithms, stacked diagram, draggable Operator Env graph, units/names, Op LFO / Op Pitch sources and destinations, wheel and pressure on DX7 voices. Left: pool cards, matrix dots/FB glyph, copy.
+  - P3 PLAY/OSC/PHYSICAL/VECTOR: folded SUB + NOISE leak fixed; fixed layout, operator view, wave display, PHYSICAL/VECTOR in progress.
+  - P4 MOD pools / LFOs / envelopes / Steps: in progress, nothing committed (CardTabs.h, LfoShapeMenu.h, LfoSimView.h new).
+  - P5 filter/FX: filter side done (type picker, WEST card, markers, BALANCE, signal flow); FX rack in progress.
+  - P6 browser/header: factory tags (tools/tag_presets.py, PresetTags.h), DX7 by sound in Title Case, hidden per-preset trim so MASTER reads 0 dB; header, Save As, tutorial, scope in progress.
+  - P7 clip/arp/generate: in progress, nothing committed.
+
 ## Demos
 `ILANA_RENDER_DEMO=build/demo ilanaTableTest` writes the keys demos, `build/demo/fm-pd/` and one folder per M8 milestone (`m81/`...); `ILANA_DEMO_ONLY=m81` renders one milestone's. `ILANA_RENDER_DEMO=build/demo/fx ilanaFxTest` writes the FX presets over drums, plucks and a voice. The EP references are in `build/reference/ep/` and the fitted notes in `build/fit-ep/<model>/base/`.
 

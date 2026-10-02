@@ -1,0 +1,2780 @@
+diff --git a/src/PluginProcessor.cpp b/src/PluginProcessor.cpp
+index 425af98..331c2c1 100644
+--- a/src/PluginProcessor.cpp
++++ b/src/PluginProcessor.cpp
+@@ -78,6 +78,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
+         pseqChanceIds[(size_t) step] = "pseq_chance" + n;
+         pseqRangeIds[(size_t) step] = "pseq_range" + n;
+         pseqRatchetIds[(size_t) step] = "pseq_ratchet" + n;
++        arpVelocityIds[(size_t) step] = "arp_vel" + n;
++        arpLengthIds[(size_t) step] = "arp_len" + n;
++        arpPitchIds[(size_t) step] = "arp_pitch" + n;
+     }
+ 
+     for (auto* parameter : getParameters())
+diff --git a/src/PluginProcessor.h b/src/PluginProcessor.h
+index 99b0065..2848443 100644
+--- a/src/PluginProcessor.h
++++ b/src/PluginProcessor.h
+@@ -652,6 +652,11 @@ private:
+     juce::Random pseqRandom { 16180 };
+     long long engineStepCount = 0;
+     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
++    // The arp's step lanes (review 6): velocity, gate and transpose per step
++    // over ARP STEPS steps. At their defaults (100, 100 %, 0) every step plays
++    // as before.
++    std::array<ParamRef, 16> arpVelocityIds, arpLengthIds, arpPitchIds;
++    ParamRef arpStepsRef { "arp_steps" };
+     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
+     // Clip sequencer: plays the current clip into the synth's MIDI.
+     void processClip (juce::MidiBuffer& midi, int numSamples);
+diff --git a/src/gui/CardTabs.h b/src/gui/CardTabs.h
+index b4c0e55..b94c733 100644
+--- a/src/gui/CardTabs.h
++++ b/src/gui/CardTabs.h
+@@ -37,6 +37,31 @@ public:
+             onSelect (selected);
+     }
+ 
++    // A lit dot in a tab whose part is switched on (review 6, I6-15): cards
++    // whose tabs are separate engines (SEQ's PATTERN) show which are on, not
++    // only which is shown. Tabs that never get a state draw no dot.
++    void setTabOn (int index, bool on)
++    {
++        if (! juce::isPositiveAndBelow (index, names.size()))
++            return;
++
++        if (tabOn.empty())
++            tabOn.assign ((size_t) names.size(), -1);
++
++        const auto state = on ? 1 : 0;
++
++        if (tabOn[(size_t) index] == state)
++            return;
++
++        tabOn[(size_t) index] = state;
++        repaint();
++    }
++
++    bool isTabOn (int index) const
++    {
++        return juce::isPositiveAndBelow (index, (int) tabOn.size()) && tabOn[(size_t) index] == 1;
++    }
++
+     // Width the pills need, so a card can right-align them.
+     int getIdealWidth() const
+     {
+@@ -54,7 +79,33 @@ public:
+             const auto colour = colourFor (i);
+             const auto hovered = isMouseOver() && pill.contains (mouse);
+ 
+-            IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
++            if (! hasDots())
++            {
++                IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
++                continue;
++            }
++
++            // The name shifts right of its dot: lit while on, a quiet ring
++            // while off.
++            const auto hover = hovered ? 1.0f : 0.0f;
++            IlanaTheme::paintPill (g, pill, {}, colour, active, hover);
++            g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
++            g.setFont (IlanaTheme::pillFont());
++            g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace), juce::Justification::centred);
++            const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() });
++
++            if (isTabOn (i))
++            {
++                g.setColour (colour.withAlpha (0.3f));
++                g.fillEllipse (dot.expanded (2.5f));
++                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
++                g.fillEllipse (dot);
++            }
++            else
++            {
++                g.setColour (juce::Colours::white.withAlpha (0.28f));
++                g.drawEllipse (dot.reduced (0.5f), 1.0f);
++            }
+         }
+ 
+         if (hasOpen)
+@@ -104,9 +155,14 @@ private:
+ 
+     static constexpr int idealPadding = 16;
+ 
++    static constexpr int dotSpace = 10;
++
++    bool hasDots() const { return ! tabOn.empty(); }
++
+     int textWidth (int index) const
+     {
+-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index]);
++        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index])
++             + (hasDots() ? dotSpace : 0);
+     }
+ 
+     int widthWith (int padding) const
+@@ -155,4 +211,5 @@ private:
+     std::vector<juce::Colour> colours;
+     bool hasOpen = false;
+     int selected = 0;
++    std::vector<int> tabOn; // per tab: -1 no dot, 0 off, 1 on
+ };
+diff --git a/src/gui/ClipEditor.h b/src/gui/ClipEditor.h
+index ee97b1e..5c36b0e 100644
+--- a/src/gui/ClipEditor.h
++++ b/src/gui/ClipEditor.h
+@@ -7,15 +7,19 @@
+ #include "AnimationUtils.h"
+ #include "GenerativeWidgets.h"
+ 
+-// The clip sequencer's piano roll: the notes of the clip chosen by CLIP,
+-// with a velocity lane under it. Double-click empty space to add a note (on
+-// the GRID, at the last velocity set), click a note to select it (shift-click
+-// adds), drag on empty space to select a group, drag notes to move them and
+-// a note's right edge to resize, right-click to delete. Keys: Ctrl+A, Delete,
+-// Ctrl+C / V / D, arrows nudge (shift: an octave or a bar). The wheel
+-// scrolls the pitches, Ctrl+wheel zooms in time, shift+wheel scrolls it.
+-// Edits go straight to the patch's clips (ClipState), one undo step per
+-// click, drag or key; a note placed or picked plays briefly.
++// The clip sequencer's piano roll (review 6, after Serum 2's): a keyboard
++// column (black and white keys, every C named; click a key to hear it, drag
++// it to scroll), a bar / beat ruler with the playhead (drag it to scroll,
++// double-click to fit the clip), the note grid, and a velocity lane under
++// it. Double-click empty space to add a note (on the GRID, at the last
++// velocity set), click a note to select it (shift-click adds), drag on empty
++// space to select a group, drag notes to move them and a note's right edge
++// to resize, right-click to delete. Keys: Ctrl+A, Delete, Ctrl+C / V / D,
++// Q quantises, arrows nudge (shift: an octave or a bar). The wheel scrolls
++// the pitches, Alt+wheel zooms them, Ctrl+wheel zooms in time, shift+wheel
++// scrolls it. Edits go
++// straight to the patch's clips (ClipState), one undo step per click, drag
++// or key; a note placed or picked plays briefly.
+ class ClipEditor : public juce::Component,
+                    public juce::SettableTooltipClient,
+                    private IlanaAnim::FrameTimer
+@@ -43,7 +47,8 @@ public:
+     {
+         setTooltip ("Clip piano roll. Double-click to add a note, click to select (shift adds), drag empty space to select "
+                     "several. Drag to move, drag the right edge to resize, right-click to delete. Delete, Ctrl+C / V / D, "
+-                    "arrows nudge (shift: octave / bar). Drag the lane below for velocity. Wheel: pitch, Ctrl+wheel: zoom.");
++                    "Q quantises, arrows nudge (shift: octave / bar). Drag the lane below for velocity. Wheel: pitch, "
++                    "Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to scroll. Click a key to hear it.");
+         setWantsKeyboardFocus (true);
+         reload (true);
+         startTimerHz (30);
+@@ -69,6 +74,44 @@ public:
+         repaint();
+     }
+ 
++    // Zoom in time around the view's centre (the zoom buttons); 1 shows the
++    // whole clip.
++    void zoomBy (float factor)
++    {
++        const auto centre = viewStart + viewBeats() * 0.5f;
++        zoom *= factor;
++        clampView();
++        viewStart = centre - viewBeats() * 0.5f;
++        clampView();
++        repaint();
++    }
++
++    void zoomToFit()
++    {
++        zoom = 1.0f;
++        viewStart = 0.0f;
++        repaint();
++    }
++
++    // Where the view shows: the UI test and the zoom buttons' state.
++    float getViewStart() const { return viewStart; }
++    float getViewBeats() const { return viewBeats(); }
++
++    // Geometry for the UI test: a beat's x, a note row's centre y, a
++    // velocity's y in the lane, and the areas.
++    float xForBeat (float beat) const { return beatToX (beat); }
++    float yForNote (int note) const { return noteBounds ({ 0.0f, 1.0f, note, 100 }).getCentreY(); }
++    float yForVelocity (int velocity) const
++    {
++        const auto lane = laneBounds();
++        return lane.getBottom() - (lane.getHeight() - headSize) * (float) velocity / 127.0f;
++    }
++    juce::Rectangle<float> getGridArea() const { return gridBounds(); }
++    juce::Rectangle<float> getKeysArea() const { return keysBounds(); }
++    juce::Rectangle<float> getRulerArea() const { return rulerBounds(); }
++    int getLowestShownNote() const { return lowNote; }
++    int getNumShownRows() const { return visibleRows(); }
++
+     void paint (juce::Graphics& g) override
+     {
+         const auto bounds = getLocalBounds().toFloat();
+@@ -77,37 +120,54 @@ public:
+         const auto on = GenerativeWidgets::read (processorRef, "clip_on") > 0.5f;
+         const auto grid = gridBounds();
+         const auto lane = laneBounds();
++        const auto keys = keysBounds();
++        const auto ruler = rulerBounds();
+         const auto rows = visibleRows();
+         const auto rowHeight = grid.getHeight() / (float) rows;
+         const auto viewEnd = viewStart + viewBeats();
++        const auto playhead = processorRef.getClipPlayhead();
++        const auto playing = on && playhead >= 0.0f;
++        const auto mouse = getMouseXYRelative().toFloat();
++        const auto hoverNote = isMouseOver() && (grid.contains (mouse) || keys.contains (mouse)) && dragMode == Drag::none
++                                   ? yToNote (mouse.y) : -1;
++
++        // The notes sounding under the playhead light their keys.
++        std::array<bool, 128> sounding {};
++        if (playing)
++            for (const auto& n : clip.notes)
++                if (playhead >= n.start && playhead < n.start + n.length)
++                    sounding[(size_t) juce::jlimit (0, 127, n.note)] = true;
+ 
+-        // Rows: black keys darker, C rows labelled on the keyboard strip.
++        // Rows: black keys' rows darker, every C a line; the row under the
++        // pointer faintly lit.
+         for (int row = 0; row < rows; ++row)
+         {
+             const auto note = lowNote + row;
+             const auto y = grid.getBottom() - (float) (row + 1) * rowHeight;
+             const auto black = juce::MidiMessage::isMidiNoteBlack (note);
+-            g.setColour (juce::Colours::white.withAlpha (black ? 0.0f : 0.035f));
++            g.setColour (juce::Colours::white.withAlpha (note == hoverNote ? 0.07f : black ? 0.0f : 0.035f));
+             g.fillRect (juce::Rectangle<float> (grid.getX(), y, grid.getWidth(), rowHeight));
+ 
+             if (note % 12 == 0)
+             {
+-                g.setColour (juce::Colours::white.withAlpha (0.08f));
++                g.setColour (juce::Colours::white.withAlpha (0.1f));
++                g.fillRect (grid.getX(), y + rowHeight - 0.5f, grid.getWidth(), 1.0f);
++            }
++            else if (note % 12 == 5)
++            {
++                g.setColour (juce::Colours::white.withAlpha (0.04f)); // E | F
+                 g.fillRect (grid.getX(), y + rowHeight - 0.5f, grid.getWidth(), 1.0f);
+-                g.setColour (IlanaTheme::Ui::text3);
+-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
+-                            juce::Rectangle<float> (bounds.getX() + 4.0f, y, keyWidth - 6.0f, rowHeight).toNearestInt(),
+-                            juce::Justification::centredLeft);
+             }
+         }
+ 
++        paintKeys (g, keys, rows, rowHeight, hoverNote, sounding);
++
+         // The velocity lane's floor and label.
+         g.setColour (juce::Colours::black.withAlpha (0.18f));
+         g.fillRect (lane);
+         g.setColour (IlanaTheme::Ui::text3);
+         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-        g.drawText ("VEL", juce::Rectangle<float> (bounds.getX() + 4.0f, lane.getY(), keyWidth - 6.0f, lane.getHeight()).toNearestInt(),
++        g.drawText ("VEL", juce::Rectangle<float> (bounds.getX() + 6.0f, lane.getY(), keys.getWidth() - 6.0f, lane.getHeight()).toNearestInt(),
+                     juce::Justification::centredLeft);
+ 
+         // Grid lines (when they are far enough apart), beats, the bars stronger.
+@@ -115,7 +175,7 @@ public:
+ 
+         if (beatToX (step) - beatToX (0.0f) >= 5.0f)
+         {
+-            g.setColour (juce::Colours::white.withAlpha (0.025f));
++            g.setColour (juce::Colours::white.withAlpha (0.03f));
+ 
+             for (auto k = std::ceil (viewStart / step - 1.0e-4f); k * step <= viewEnd + 1.0e-4f; k += 1.0f)
+                 g.fillRect (beatToX (k * step), grid.getY(), 1.0f, grid.getHeight());
+@@ -124,11 +184,14 @@ public:
+         for (auto beat = (int) std::ceil (viewStart - 1.0e-4f); (float) beat <= viewEnd + 1.0e-4f; ++beat)
+         {
+             const auto x = juce::jmin (grid.getRight() - 1.0f, beatToX ((float) beat));
+-            g.setColour (juce::Colours::white.withAlpha (beat % ClipState::beatsPerBar == 0 ? 0.16f : 0.06f));
+-            g.fillRect (x, grid.getY(), 1.0f, grid.getHeight());
++            const auto bar = beat % ClipState::beatsPerBar == 0;
++            g.setColour (juce::Colours::white.withAlpha (bar ? 0.18f : 0.07f));
++            g.fillRect (x, grid.getY(), bar ? 1.5f : 1.0f, grid.getHeight());
+             g.fillRect (x, lane.getY(), 1.0f, lane.getHeight());
+         }
+ 
++        paintRuler (g, ruler, playing ? playhead : -1.0f);
++
+         // The root note (C3) plays the clip as written.
+         if (ClipState::rootNote >= lowNote && ClipState::rootNote < lowNote + rows)
+         {
+@@ -136,53 +199,33 @@ public:
+             g.fillRect (grid.getX(), grid.getBottom() - (float) (ClipState::rootNote - lowNote) * rowHeight - 0.5f, grid.getWidth(), 1.0f);
+         }
+ 
++        const auto anySelected = getNumSelected() > 0;
++
+         {
+             juce::Graphics::ScopedSaveState clipToGrid (g);
+             juce::RectangleList<int> region (grid.toNearestInt());
+             region.add (lane.expanded (3.0f, 3.0f).withRight (lane.getRight()).toNearestInt()); // a velocity head on beat 0 or at 127
+             g.reduceClipRegion (region);
+ 
+-            for (size_t i = 0; i < clip.notes.size(); ++i)
+-            {
+-                const auto& n = clip.notes[i];
+-                const auto isSelected = i < selected.size() && selected[i];
+-                const auto shade = 0.45f + 0.55f * (float) n.velocity / 127.0f;
+-                const auto fill = (isSelected ? colour.interpolatedWith (juce::Colours::white, 0.3f) : colour)
+-                                      .withAlpha (shade * (on ? 1.0f : 0.6f));
+-
+-                // Its velocity: a stem with a head at the level.
+-                const auto x = beatToX (n.start);
+-
+-                if (x >= grid.getX() - 4.0f && x <= grid.getRight())
++            // Unselected notes first, the selection over them.
++            for (const auto drawSelected : { false, true })
++                for (size_t i = 0; i < clip.notes.size(); ++i)
+                 {
+-                    const auto top = lane.getBottom() - (lane.getHeight() - headSize) * (float) n.velocity / 127.0f;
+-                    g.setColour (fill);
+-                    g.fillRect (x, top, 1.5f, lane.getBottom() - top);
+-                    g.fillEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize);
+-
+-                    if (isSelected)
+-                    {
+-                        g.setColour (juce::Colours::white.withAlpha (0.9f));
+-                        g.drawEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize, 1.0f);
+-                    }
+-                }
++                    const auto isSelected = i < selected.size() && selected[i];
+ 
+-                const auto r = noteBounds (n);
+-
+-                if (! r.intersects (grid))
+-                    continue;
+-
+-                g.setColour (fill);
+-                g.fillRoundedRectangle (r.reduced (0.0f, 0.5f), 2.0f);
+-                g.setColour (juce::Colours::white.withAlpha (isSelected ? 0.95f : 0.25f));
+-                g.drawRoundedRectangle (r.reduced (0.0f, 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
+-            }
++                    if (isSelected == drawSelected)
++                        paintNote (g, clip.notes[i], isSelected, anySelected, on, grid, lane, rowHeight);
++                }
+         }
+ 
+-        if (const auto playhead = processorRef.getClipPlayhead(); on && playhead >= viewStart && playhead <= viewEnd)
++        if (playing && playhead >= viewStart && playhead <= viewEnd)
+         {
+-            g.setColour (juce::Colours::white.withAlpha (0.8f));
+-            g.fillRect (beatToX (playhead), grid.getY(), 1.5f, grid.getHeight());
++            const auto x = beatToX (playhead);
++            g.setColour (colour.withAlpha (0.12f));
++            g.fillRect (x - 5.0f, grid.getY(), 5.0f, lane.getBottom() - grid.getY());
++            g.setColour (juce::Colours::white.withAlpha (0.9f));
++            g.fillRect (x - 0.75f, grid.getY(), 1.5f, grid.getHeight());
++            g.fillRect (x - 0.75f, lane.getY(), 1.5f, lane.getHeight());
+         }
+ 
+         if (dragMode == Drag::select)
+@@ -194,43 +237,45 @@ public:
+             g.drawRect (band, 1.0f);
+         }
+ 
+-        // Zoomed in: where the view sits in the clip, along the top edge.
+-        if (zoom > 1.001f)
+-        {
+-            const auto length = (float) lengthBeats();
+-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+-            g.fillRect (grid.getX(), bounds.getY() + 1.0f, grid.getWidth(), 2.0f);
+-            g.setColour (colour.withAlpha (0.8f));
+-            g.fillRect (grid.getX() + grid.getWidth() * viewStart / length, bounds.getY() + 1.0f,
+-                        grid.getWidth() * viewBeats() / length, 2.0f);
+-        }
+-
+-        // The keyboard strip's edge.
++        // The keyboard's and the ruler's edges.
+         g.setColour (IlanaTheme::Ui::line);
+-        g.fillRect (grid.getX() - 1.0f, grid.getY(), 1.0f, lane.getBottom() - grid.getY());
++        g.fillRect (grid.getX() - 1.0f, ruler.getY(), 1.0f, lane.getBottom() - ruler.getY());
++        g.fillRect (keys.getX(), grid.getY() - 1.0f, grid.getRight() - keys.getX(), 1.0f);
+ 
+-        if (! on)
+-        {
+-            g.setColour (IlanaTheme::Ui::text3);
+-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-            g.drawText ("CLIP OFF", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
+-        }
+-        else if (clip.notes.empty())
++        // What the roll is waiting for, on a plate in the grid.
++        const auto message = ! on ? juce::String ("CLIP OFF: switch CLIP on to play these notes")
++                           : clip.notes.empty() ? juce::String ("EMPTY: double-click to add a note, or IMPORT MIDI")
++                                                : juce::String();
++
++        if (message.isNotEmpty() && dragMode == Drag::none)
+         {
+-            g.setColour (IlanaTheme::Ui::text3);
+-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-            g.drawText ("EMPTY: double-click to add notes", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
++            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
++            const auto plate = juce::Rectangle<float> ((float) juce::GlyphArrangement::getStringWidthInt (font, message) + 24.0f, 22.0f)
++                                   .withPosition (grid.getRight() - 8.0f - ((float) juce::GlyphArrangement::getStringWidthInt (font, message) + 24.0f),
++                                                  grid.getY() + 6.0f);
++            g.setColour (IlanaTheme::Ui::well.withAlpha (0.9f));
++            g.fillRoundedRectangle (plate, 11.0f);
++            g.setColour (IlanaTheme::Ui::line);
++            g.drawRoundedRectangle (plate.reduced (0.5f), 11.0f, 1.0f);
++            g.setColour (IlanaTheme::Ui::text2);
++            g.setFont (font);
++            g.drawText (message, plate.toNearestInt(), juce::Justification::centred);
+         }
+     }
+ 
+     void mouseMove (const juce::MouseEvent& event) override
+     {
+         const auto hit = noteAt (event.position);
+-        setMouseCursor (laneBounds().contains (event.position)          ? juce::MouseCursor::UpDownResizeCursor
++        setMouseCursor (laneBounds().contains (event.position)            ? juce::MouseCursor::UpDownResizeCursor
++                        : rulerBounds().contains (event.position)         ? juce::MouseCursor::LeftRightResizeCursor
++                        : keysBounds().contains (event.position)          ? juce::MouseCursor::PointingHandCursor
+                         : hit >= 0 && onResizeEdge (hit, event.position) ? juce::MouseCursor::LeftRightResizeCursor
+-                                                                          : juce::MouseCursor::NormalCursor);
++                                                                           : juce::MouseCursor::NormalCursor);
++        repaint(); // the row under the pointer
+     }
+ 
++    void mouseExit (const juce::MouseEvent&) override { repaint(); }
++
+     void mouseDown (const juce::MouseEvent& event) override
+     {
+         reload (false);
+@@ -242,6 +287,29 @@ public:
+         const auto position = event.position;
+         const auto grid = gridBounds();
+ 
++        // The ruler: drag to scroll in time, double-click to fit the clip.
++        if (rulerBounds().contains (position))
++        {
++            if (event.getNumberOfClicks() >= 2)
++            {
++                zoomToFit();
++                return;
++            }
++
++            dragMode = Drag::scroll;
++            scrollOrigin = viewStart;
++            return;
++        }
++
++        // A key: plays its note; dragging scrolls the pitches.
++        if (keysBounds().contains (position))
++        {
++            dragMode = Drag::keys;
++            scrollOrigin = (float) lowNote;
++            audition (yToNote (position.y), lastVelocity);
++            return;
++        }
++
+         // The velocity lane: drag across the bars to set them (only the
+         // selected notes when the bar grabbed is one of them).
+         if (laneBounds().expanded (0.0f, 2.0f).contains (position) && position.x >= grid.getX())
+@@ -344,6 +412,23 @@ public:
+     {
+         const auto position = event.position;
+ 
++        if (dragMode == Drag::scroll)
++        {
++            viewStart = scrollOrigin - (float) event.getDistanceFromDragStartX() / gridBounds().getWidth() * viewBeats();
++            clampView();
++            repaint();
++            return;
++        }
++
++        if (dragMode == Drag::keys)
++        {
++            const auto rowHeight = gridBounds().getHeight() / (float) visibleRows();
++            lowNote = juce::jlimit (0, 128 - visibleRows(),
++                                    juce::roundToInt (scrollOrigin + (float) event.getDistanceFromDragStartY() / rowHeight));
++            repaint();
++            return;
++        }
++
+         if (dragMode == Drag::velocity)
+         {
+             paintVelocity (lastVelocityX, position.x, position.y);
+@@ -423,7 +508,17 @@ public:
+         const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+         const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
+ 
+-        if (event.mods.isCommandDown() || event.mods.isCtrlDown())
++        if (event.mods.isAltDown())
++        {
++            // Zoom the pitches (taller or shorter rows) around the pointer's note.
++            const auto anchor = yToNote (event.position.y);
++            const auto fromBottom = anchor - lowNote;
++            const auto before = visibleRows();
++            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * (direction > 0 ? 1.2f : direction < 0 ? 1.0f / 1.2f : 1.0f));
++            const auto rows = visibleRows();
++            lowNote = juce::jlimit (0, 128 - rows, anchor - juce::roundToInt ((float) fromBottom * (float) rows / (float) before));
++        }
++        else if (event.mods.isCommandDown() || event.mods.isCtrlDown())
+         {
+             // Zoom in time around the pointer.
+             const auto anchor = xToBeat (event.position.x);
+@@ -484,6 +579,9 @@ public:
+             return true;
+         }
+ 
++        if (letter == 'Q' && ! modifiers.isAltDown())
++            return quantise();
++
+         const auto shift = modifiers.isShiftDown();
+ 
+         if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
+@@ -595,6 +693,36 @@ public:
+         insert (notes, range.second, "Duplicate clip notes");
+     }
+ 
++    // QUANTISE: moves the selected notes' starts (every note's, with none
++    // selected) to the nearest GRID line, as one undo step. False when
++    // nothing moved.
++    bool quantise()
++    {
++        reload (false);
++        const auto all = getNumSelected() == 0;
++        auto changed = false;
++
++        for (size_t i = 0; i < clip.notes.size(); ++i)
++            changed = changed || ((all || selected[i]) && std::abs (snap (clip.notes[i].start) - clip.notes[i].start) > 1.0e-4f);
++
++        if (! changed)
++            return false;
++
++        processorRef.performEdit ("Quantise clip notes", [this, all]
++        {
++            for (size_t i = 0; i < clip.notes.size(); ++i)
++                if (all || selected[i])
++                {
++                    clip.notes[i].start = snap (clip.notes[i].start);
++                    constrain (clip.notes[i]);
++                }
++
++            commit();
++        });
++
++        return true;
++    }
++
+     // Moves the selection by beats and semitones, as far as it fits.
+     bool nudge (float beats, int notes)
+     {
+@@ -631,10 +759,11 @@ public:
+     }
+ 
+ private:
+-    static constexpr float keyWidth = 34.0f;
++    static constexpr float keyWidth = 46.0f;
++    static constexpr float rulerHeight = 18.0f;
+     static constexpr float headSize = 5.0f; // a velocity stem's head
+     static constexpr int auditionMs = 250;
+-    enum class Drag { none, move, resize, velocity, select };
++    enum class Drag { none, move, resize, velocity, select, scroll, keys };
+ 
+     struct Clipboard
+     {
+@@ -649,6 +778,202 @@ private:
+         return shared;
+     }
+ 
++    // The keyboard: white keys light, black keys dark and shorter, each C
++    // named on its key; the key under the pointer and the keys the playhead
++    // is sounding lit.
++    void paintKeys (juce::Graphics& g, juce::Rectangle<float> keys, int rows, float rowHeight, int hoverNote,
++                    const std::array<bool, 128>& sounding) const
++    {
++        juce::Graphics::ScopedSaveState state (g);
++        g.reduceClipRegion (keys.toNearestInt());
++
++        const auto whiteKey = juce::Colour (0xffb9bec6);
++        const auto blackKey = juce::Colour (0xff1c1e22);
++        const auto lit = [this, hoverNote, &sounding] (int note, juce::Colour base)
++        {
++            return sounding[(size_t) juce::jlimit (0, 127, note)] ? colour.interpolatedWith (base, 0.15f)
++                 : note == hoverNote                               ? base.interpolatedWith (colour, 0.45f)
++                                                                   : base;
++        };
++
++        g.setColour (whiteKey);
++        g.fillRect (keys);
++
++        for (int row = 0; row < rows; ++row)
++        {
++            const auto note = lowNote + row;
++            const auto y = keys.getBottom() - (float) (row + 1) * rowHeight;
++            const auto key = juce::Rectangle<float> (keys.getX(), y, keys.getWidth(), rowHeight);
++
++            if (juce::MidiMessage::isMidiNoteBlack (note))
++                continue;
++
++            g.setColour (lit (note, whiteKey));
++            g.fillRect (key);
++
++            // The line under a white key that has a white key below it
++            // (C over B, F over E); the others sit on a black key.
++            if (note % 12 == 0 || note % 12 == 5)
++            {
++                g.setColour (juce::Colours::black.withAlpha (0.35f));
++                g.fillRect (key.getX(), key.getBottom() - 0.5f, key.getWidth(), 1.0f);
++            }
++
++            if ((note % 12 == 0 || note == hoverNote) && rowHeight >= 7.0f)
++            {
++                g.setColour (juce::Colour (0xff2a2d33));
++                g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, rowHeight + 1.0f), true));
++                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
++                            key.withTrimmedRight (4.0f).toNearestInt(), juce::Justification::centredRight, false);
++            }
++        }
++
++        // Black keys over the white ones, short of the column's right edge,
++        // with a faint line through their middle where the white keys meet.
++        for (int row = 0; row < rows; ++row)
++        {
++            const auto note = lowNote + row;
++
++            if (! juce::MidiMessage::isMidiNoteBlack (note))
++                continue;
++
++            const auto y = keys.getBottom() - (float) (row + 1) * rowHeight;
++            g.setColour (juce::Colours::black.withAlpha (0.3f));
++            g.fillRect (keys.getX(), y + rowHeight * 0.5f - 0.5f, keys.getWidth(), 1.0f);
++            const auto key = juce::Rectangle<float> (keys.getX(), y, keys.getWidth() * 0.62f, rowHeight).reduced (0.0f, 0.5f);
++            g.setColour (lit (note, blackKey));
++            g.fillRoundedRectangle (key, 1.5f);
++
++            // The key under the pointer names itself (white keys do above).
++            if (note == hoverNote && rowHeight >= 7.0f)
++            {
++                g.setColour (juce::Colour (0xff2a2d33));
++                g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, rowHeight + 1.0f), true));
++                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
++                            juce::Rectangle<float> (keys.getX(), y, keys.getWidth(), rowHeight).withTrimmedRight (4.0f).toNearestInt(),
++                            juce::Justification::centredRight, false);
++            }
++        }
++    }
++
++    // The ruler: bar numbers, beat ticks (and beat numbers when there is
++    // room), where the view sits in the clip while zoomed, and the playhead.
++    void paintRuler (juce::Graphics& g, juce::Rectangle<float> ruler, float playhead) const
++    {
++        const auto grid = gridBounds();
++        const auto strip = ruler.withLeft (grid.getX()).withRight (grid.getRight());
++        g.setColour (juce::Colours::white.withAlpha (0.04f));
++        g.fillRect (strip);
++
++        const auto beatWidth = beatToX (1.0f) - beatToX (0.0f);
++        const auto viewEnd = viewStart + viewBeats();
++        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
++
++        for (auto beat = (int) std::ceil (viewStart - 1.0e-4f); (float) beat <= viewEnd + 1.0e-4f; ++beat)
++        {
++            const auto x = beatToX ((float) beat);
++            const auto bar = beat % ClipState::beatsPerBar == 0;
++            const auto barNumber = beat / ClipState::beatsPerBar + 1;
++            g.setColour (juce::Colours::white.withAlpha (bar ? 0.4f : 0.18f));
++            g.fillRect (x, bar ? strip.getY() + 3.0f : strip.getBottom() - 5.0f, 1.0f, bar ? strip.getHeight() - 3.0f : 5.0f);
++
++            if (bar && beat < (int) lengthBeats())
++            {
++                g.setColour (IlanaTheme::Ui::text2);
++                g.drawText (juce::String (barNumber), juce::Rectangle<float> (x + 4.0f, strip.getY(), 30.0f, strip.getHeight() - 2.0f).toNearestInt(),
++                            juce::Justification::centredLeft, false);
++            }
++            else if (! bar && beatWidth >= 34.0f)
++            {
++                g.setColour (IlanaTheme::Ui::text3);
++                g.drawText (juce::String (barNumber) + "." + juce::String (beat % ClipState::beatsPerBar + 1),
++                            juce::Rectangle<float> (x + 3.0f, strip.getY(), 30.0f, strip.getHeight() - 2.0f).toNearestInt(),
++                            juce::Justification::centredLeft, false);
++            }
++        }
++
++        // Zoomed in: where the view sits in the clip, along the ruler's foot.
++        if (zoom > 1.001f)
++        {
++            const auto length = (float) lengthBeats();
++            g.setColour (juce::Colours::white.withAlpha (0.08f));
++            g.fillRect (strip.getX(), strip.getBottom() - 2.0f, strip.getWidth(), 2.0f);
++            g.setColour (colour.withAlpha (0.8f));
++            g.fillRect (strip.getX() + strip.getWidth() * viewStart / length, strip.getBottom() - 2.0f,
++                        strip.getWidth() * viewBeats() / length, 2.0f);
++        }
++
++        // The playhead: a marker on the ruler.
++        if (playhead >= viewStart && playhead <= viewEnd)
++        {
++            const auto x = beatToX (playhead);
++            juce::Path marker;
++            marker.addTriangle (x - 5.0f, strip.getY() + 2.0f, x + 5.0f, strip.getY() + 2.0f, x, strip.getBottom() - 1.0f);
++            g.setColour (juce::Colours::white.withAlpha (0.95f));
++            g.fillPath (marker);
++        }
++
++        // The corner over the keys: the grid in use.
++        g.setColour (IlanaTheme::Ui::text3);
++        g.drawText (gridName (gridIndex), ruler.withRight (grid.getX() - 4.0f).withTrimmedLeft (4.0f).toNearestInt(),
++                    juce::Justification::centredLeft, false);
++    }
++
++    // One note: a block in its row (velocity sets its strength), a stem in
++    // the velocity lane, and its name when it is wide enough. The selection
++    // is drawn bright with a white outline; with a selection made, the other
++    // notes step back.
++    void paintNote (juce::Graphics& g, const ClipNote& n, bool isSelected, bool anySelected, bool on,
++                    juce::Rectangle<float> grid, juce::Rectangle<float> lane, float rowHeight) const
++    {
++        const auto shade = 0.5f + 0.5f * (float) n.velocity / 127.0f;
++        const auto strength = (on ? 1.0f : 0.6f) * (anySelected && ! isSelected ? 0.55f : 1.0f);
++        const auto fill = isSelected ? colour.interpolatedWith (juce::Colours::white, 0.4f)
++                                     : colour.withAlpha (shade * strength);
++
++        // Its velocity: a stem with a head at the level.
++        const auto x = beatToX (n.start);
++
++        if (x >= grid.getX() - 4.0f && x <= grid.getRight())
++        {
++            const auto top = lane.getBottom() - (lane.getHeight() - headSize) * (float) n.velocity / 127.0f;
++            g.setColour (fill);
++            g.fillRect (x, top, 1.5f, lane.getBottom() - top);
++            g.fillEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize);
++
++            if (isSelected)
++            {
++                g.setColour (juce::Colours::white);
++                g.drawEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize, 1.2f);
++            }
++        }
++
++        const auto r = noteBounds (n).reduced (0.0f, rowHeight >= 8.0f ? 1.0f : 0.5f);
++
++        if (! r.intersects (grid))
++            return;
++
++        if (isSelected)
++        {
++            g.setColour (colour.withAlpha (0.35f));
++            g.fillRoundedRectangle (r.expanded (2.0f), 3.5f);
++        }
++
++        g.setColour (fill);
++        g.fillRoundedRectangle (r, 2.0f);
++        g.setColour (isSelected ? juce::Colours::white : juce::Colours::black.withAlpha (0.45f));
++        g.drawRoundedRectangle (r.reduced (isSelected ? 0.75f : 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
++
++        // A wide enough note names itself.
++        if (r.getWidth() >= 30.0f && r.getHeight() >= 9.0f)
++        {
++            g.setColour (juce::Colours::black.withAlpha (isSelected ? 0.85f : 0.7f * strength));
++            g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, r.getHeight() + 1.0f), true));
++            g.drawText (juce::MidiMessage::getMidiNoteName (n.note, true, true, 3), r.withTrimmedLeft (4.0f).toNearestInt(),
++                        juce::Justification::centredLeft, false);
++        }
++    }
++
+     void timerCallback() override
+     {
+         if (auditionNote >= 0 && juce::Time::getMillisecondCounter() >= auditionEnd)
+@@ -678,21 +1003,35 @@ private:
+         viewStart = juce::jlimit (0.0f, length - viewBeats(), viewStart);
+     }
+ 
+-    float laneHeight() const { return juce::jlimit (18.0f, 44.0f, ((float) getHeight() - 8.0f) * 0.22f); }
++    float laneHeight() const { return juce::jlimit (18.0f, 48.0f, ((float) getHeight() - 8.0f) * 0.18f); }
++
++    juce::Rectangle<float> rulerBounds() const
++    {
++        return getLocalBounds().toFloat().reduced (0.0f, 3.0f).removeFromTop (rulerHeight).withTrimmedRight (6.0f);
++    }
+ 
+     juce::Rectangle<float> gridBounds() const
+     {
+-        auto area = getLocalBounds().toFloat().reduced (0.0f, 4.0f);
+-        return area.withTrimmedLeft (keyWidth).withTrimmedRight (6.0f).withTrimmedBottom (laneHeight() + 4.0f);
++        auto area = getLocalBounds().toFloat().reduced (0.0f, 3.0f);
++        area.removeFromTop (rulerHeight + 1.0f);
++        return area.withTrimmedLeft (keyWidth).withTrimmedRight (6.0f).withTrimmedBottom (laneHeight() + 5.0f);
++    }
++
++    juce::Rectangle<float> keysBounds() const
++    {
++        const auto grid = gridBounds();
++        return { 1.0f, grid.getY(), keyWidth - 2.0f, grid.getHeight() };
+     }
+ 
+     juce::Rectangle<float> laneBounds() const
+     {
+         const auto grid = gridBounds();
+-        return { grid.getX(), grid.getBottom() + 4.0f, grid.getWidth(), laneHeight() };
++        return { grid.getX(), grid.getBottom() + 5.0f, grid.getWidth(), laneHeight() };
+     }
+ 
+-    int visibleRows() const { return juce::jlimit (12, 48, juce::roundToInt (gridBounds().getHeight() / 7.0f)); }
++    // Rows of about 12 px (Alt+wheel makes them taller or shorter), 8 to 72
++    // of them.
++    int visibleRows() const { return juce::jlimit (8, 72, juce::roundToInt (gridBounds().getHeight() / (12.0f * rowScale))); }
+ 
+     void centreOnNotes()
+     {
+@@ -914,17 +1253,18 @@ private:
+     unsigned shownEpoch = 0;
+     int lowNote = 48;
+     int gridIndex = defaultGrid;
+-    float zoom = 1.0f, viewStart = 0.0f;
++    float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
+     Drag dragMode = Drag::none;
+     bool editOpen = false, onlySelected = false;
+     int dragHit = -1, dragNote = -1;
+-    float grabBeat = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f;
++    float grabBeat = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f, scrollOrigin = 0.0f;
+     int lastVelocity = 100;
+     juce::Point<float> bandStart, bandEnd;
+     int auditionNote = -1;
+     juce::uint32 auditionEnd = 0;
+ };
+ 
++
+ // GRID: the piano roll's snap, a menu like the parameter combos (a view
+ // setting of the roll, not part of the patch).
+ class ClipGridControl : public juce::Component,
+@@ -1038,3 +1378,60 @@ private:
+     juce::Label label;
+     bool updating = false;
+ };
++
++// ZOOM: the piano roll's zoom in time, out / fit / in, under a label like the
++// menus beside it (the wheel with Ctrl does the same around the pointer).
++class ClipZoomControl : public juce::Component,
++                        private juce::Timer
++{
++public:
++    ClipZoomControl (ClipEditor& editorIn, const juce::String& labelText)
++        : editor (editorIn)
++    {
++        label.setText (labelText, juce::dontSendNotification);
++        label.setJustificationType (juce::Justification::centredLeft);
++        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
++        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
++        addAndMakeVisible (label);
++
++        out.setButtonText (juce::CharPointer_UTF8 ("\xe2\x88\x92"));
++        in.setButtonText ("+");
++        fit.setButtonText ("FIT");
++        out.setTooltip ("Zoom out in time (Ctrl+wheel over the roll zooms around the pointer)");
++        in.setTooltip ("Zoom in in time (Ctrl+wheel over the roll zooms around the pointer)");
++        fit.setTooltip ("Show the whole clip (or double-click the roll's ruler)");
++        out.onClick = [this] { editor.zoomBy (0.5f); refresh(); };
++        in.onClick = [this] { editor.zoomBy (2.0f); refresh(); };
++        fit.onClick = [this] { editor.zoomToFit(); refresh(); };
++
++        for (auto* button : { &out, &fit, &in })
++            addAndMakeVisible (button);
++
++        refresh();
++        startTimerHz (8);
++    }
++
++    void resized() override
++    {
++        auto area = getLocalBounds();
++        label.setBounds (area.removeFromTop (13));
++        auto row = area.removeFromTop (24);
++        const auto small = juce::jmin (28, row.getWidth() / 4);
++        out.setBounds (row.removeFromLeft (small));
++        in.setBounds (row.removeFromRight (small));
++        fit.setBounds (row.reduced (3, 0));
++    }
++
++private:
++    void refresh()
++    {
++        fit.setEnabled (editor.getZoom() > 1.001f);
++        out.setEnabled (editor.getZoom() > 1.001f);
++    }
++
++    void timerCallback() override { refresh(); }
++
++    ClipEditor& editor;
++    juce::Label label;
++    juce::TextButton out, fit, in;
++};
+diff --git a/src/gui/GenerativeWidgets.h b/src/gui/GenerativeWidgets.h
+index 1c4ba89..93b2961 100644
+--- a/src/gui/GenerativeWidgets.h
++++ b/src/gui/GenerativeWidgets.h
+@@ -34,8 +34,98 @@ inline void write (IlanaSynthAudioProcessor& processor, const juce::String& id,
+         parameter->endChangeGesture();
+     }
+ }
++
++// Why a pattern display steps back (its engine is off...), on a plate centred
++// in `area`: the same words in the same place on every engine's tab.
++inline void paintOffPlate (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text)
++{
++    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
++    const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 24.0f;
++    const auto plate = juce::Rectangle<float> (juce::jmin (width, area.getWidth()), 22.0f).withCentre (area.getCentre());
++    g.setColour (IlanaTheme::Ui::well.withAlpha (0.92f));
++    g.fillRoundedRectangle (plate, 11.0f);
++    g.setColour (IlanaTheme::Ui::line);
++    g.drawRoundedRectangle (plate.reduced (0.5f), 11.0f, 1.0f);
++    g.setColour (IlanaTheme::Ui::text2);
++    g.setFont (font);
++    g.drawText (text, plate.toNearestInt(), juce::Justification::centred, true);
++}
+ } // namespace GenerativeWidgets
+ 
++// An on switch for a part whose off is a choice (review 6, I6-30):
++// GENERATE's SNAP TO KEY (SCALE Off) and STRUM (DIRECTION Off). Off sets
++// the choice to its first entry; on brings back the last other entry (or
++// `firstOn`). One undo step per click; the menu stays the way to pick.
++class ChoiceSwitch : public juce::Component,
++                     public juce::SettableTooltipClient,
++                     private juce::Timer
++{
++public:
++    ChoiceSwitch (IlanaSynthAudioProcessor& processor, const juce::String& parameterId, int firstOn, const juce::String& what)
++        : processorRef (processor), id (parameterId), remembered (firstOn), name (what)
++    {
++        button.getProperties().set ("switch", true);
++        button.onClick = [this] { toggle(); };
++        button.setTooltip (what + " on / off");
++        setTooltip (button.getTooltip());
++        addAndMakeVisible (button);
++        sync();
++        startTimerHz (10);
++    }
++
++    bool isOn() const { return current() > 0; }
++
++    juce::TextButton& getButton() { return button; }
++
++    void toggle()
++    {
++        const auto now = current();
++
++        if (now > 0)
++            remembered = now;
++
++        processorRef.performEdit (name + (now > 0 ? " off" : " on"),
++                                  [this, now] { GenerativeWidgets::write (processorRef, id, now > 0 ? 0.0f : (float) remembered); });
++        sync();
++    }
++
++    // Laid out like a ToggleControl's bare switch: 13 px of label space,
++    // then the pill.
++    void resized() override
++    {
++        auto area = getLocalBounds();
++        area.removeFromTop (13);
++        button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
++    }
++
++private:
++    int current() const { return juce::roundToInt (GenerativeWidgets::read (processorRef, id)); }
++
++    void sync()
++    {
++        const auto now = current();
++
++        if (now > 0)
++            remembered = now;
++
++        const auto amount = now > 0 ? 1.0f : 0.0f;
++
++        if ((float) button.getProperties()["switchAmount"] != amount || ! button.getProperties().contains ("switchAmount"))
++        {
++            button.getProperties().set ("switchAmount", amount);
++            button.repaint();
++        }
++    }
++
++    void timerCallback() override { sync(); }
++
++    IlanaSynthAudioProcessor& processorRef;
++    juce::String id;
++    int remembered = 1;
++    juce::String name;
++    juce::TextButton button;
++};
++
+ // The Euclidean rhythm as a ring: one dot per step, hits lit, the step
+ // playing now ringed, and E(hits, steps) in the middle. Drag up or down on
+ // the ring to change the hits; drag sideways to rotate.
+@@ -140,10 +230,27 @@ public:
+                         juce::Justification::centred);
+         }
+ 
+-        // The strip: every step in a row, hits tall.
+-        const auto strip = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 46.0f));
++        // The strip: every step in a row, hits tall, numbered under it
++        // (every fourth) when there is room.
++        const auto strip = area.withSizeKeepingCentre (area.getWidth(), juce::jlimit (juce::jmin (area.getHeight(), 46.0f),
++                                                                                     juce::jmax (0.0f, area.getHeight() - 22.0f),
++                                                                                     area.getHeight() * 0.42f));
+         const auto width = strip.getWidth() / (float) steps;
+ 
++        if (strip.getBottom() + 16.0f <= area.getBottom())
++        {
++            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
++
++            for (int step = 0; step < steps; step += 4)
++            {
++                g.setColour (step == current && on ? colour : IlanaTheme::Ui::text3);
++                g.drawText (juce::String (step + 1),
++                            juce::Rectangle<float> (strip.getX() + (float) step * width, strip.getBottom() + 3.0f, juce::jmax (width, 24.0f), 13.0f)
++                                .toNearestInt(),
++                            juce::Justification::centredLeft);
++            }
++        }
++
+         for (int step = 0; step < steps; ++step)
+         {
+             const auto cell = juce::Rectangle<float> (strip.getX() + (float) step * width, strip.getY(), width, strip.getHeight())
+@@ -158,11 +265,8 @@ public:
+         }
+ 
+         if (! on)
+-        {
+-            g.setColour (IlanaTheme::Ui::text3);
+-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-            g.drawText ("EUCLID OFF", bounds.reduced (8.0f, 5.0f), juce::Justification::topRight);
+-        }
++            GenerativeWidgets::paintOffPlate (g, strip.withHeight (22.0f).withY (bounds.getY() + 8.0f),
++                                              "EUCLID OFF: the rhythm plays once it is on");
+     }
+ 
+     void mouseDown (const juce::MouseEvent&) override
+@@ -296,11 +400,8 @@ public:
+         }
+ 
+         if (! on)
+-        {
+-            g.setColour (IlanaTheme::Ui::text3);
+-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+-            g.drawText ("SEQ OFF", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
+-        }
++            GenerativeWidgets::paintOffPlate (g, lanes[0].getUnion (lanes[2]).withTrimmedLeft (labelWidth),
++                                              "PROB SEQ OFF: the steps play once it is on");
+     }
+ 
+     void mouseDown (const juce::MouseEvent& event) override
+@@ -413,3 +514,534 @@ private:
+     juce::Colour colour;
+     int dragLane = -1;
+ };
++
++// The arp's step lanes (review 6, S6-23): VELOCITY, GATE (a share of the
++// GATE knob; 0 rests the step, 200 % ties it into the next) and PITCH
++// (semitones) for up to 16 steps, over a numbered step ruler. Click a step
++// number to set how many steps loop; drag in a lane to draw across steps;
++// double-click a step to reset it. The held notes' order (MODE, OCTAVES)
++// runs on by itself; the lanes shape each step it lands on. While the arp
++// is off the lanes stay editable but step back.
++class ArpLanesEditor : public juce::Component,
++                       public juce::SettableTooltipClient,
++                       private IlanaAnim::FrameTimer
++{
++public:
++    enum Lane { velocity, gate, pitch, numLanes };
++
++    ArpLanesEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
++        : processorRef (processor), colour (colourIn)
++    {
++        setTooltip ("Arp step lanes. Drag in VELOCITY, GATE and PITCH to draw; double-click a step to reset it. "
++                    "Click a step number to set how many steps loop.");
++        startTimerHz (30);
++    }
++
++    static juce::String idFor (int lane, int step)
++    {
++        const auto n = juce::String (step + 1);
++        return lane == velocity ? "arp_vel" + n : lane == gate ? "arp_len" + n : "arp_pitch" + n;
++    }
++
++    // Each lane's value as 0..1 of its height, and back (PITCH is
++    // bipolar: 0.5 is no transpose).
++    static float toUnit (int lane, float value)
++    {
++        return lane == velocity ? (value - 1.0f) / 126.0f : lane == gate ? value / 2.0f : (value + 12.0f) / 24.0f;
++    }
++
++    static float fromUnit (int lane, float unit)
++    {
++        unit = juce::jlimit (0.0f, 1.0f, unit);
++        return lane == velocity ? (float) juce::roundToInt (1.0f + unit * 126.0f)
++             : lane == gate     ? std::round (unit * 40.0f) / 20.0f // 5 % steps
++                                : (float) juce::roundToInt (unit * 24.0f - 12.0f);
++    }
++
++    static float defaultFor (int lane) { return lane == velocity ? 100.0f : lane == gate ? 1.0f : 0.0f; }
++
++    static juce::String textFor (int lane, float value)
++    {
++        if (lane == velocity)
++            return juce::String (juce::roundToInt (value));
++
++        if (lane == gate)
++            return value < 0.005f ? juce::String ("rest") : juce::String (juce::roundToInt (value * 100.0f)) + "%";
++
++        const auto semitones = juce::roundToInt (value);
++        return semitones > 0 ? "+" + juce::String (semitones) : juce::String (semitones);
++    }
++
++    void paint (juce::Graphics& g) override
++    {
++        using GenerativeWidgets::read;
++        const auto bounds = getLocalBounds().toFloat();
++        IlanaTheme::paintWell (g, bounds, 6.0f);
++
++        const auto on = read (processorRef, "arp_on") > 0.5f;
++        const auto replaced = read (processorRef, "pseq_on") > 0.5f;
++        const auto steps = numSteps();
++        const auto engineStep = processorRef.getEngineDisplayStep();
++        const auto playingStep = on && ! replaced && engineStep >= 0 ? engineStep % steps : -1;
++        // Off (or played over by PROB SEQ): the lanes step back.
++        const auto alpha = on && ! replaced ? 1.0f : 0.32f;
++        const auto ruler = rulerBounds();
++        const auto lanes = laneBounds();
++        const char* const names[] { "VELOCITY", "GATE", "PITCH  st" };
++
++        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
++
++        for (int lane = 0; lane < numLanes; ++lane)
++        {
++            g.setColour (IlanaTheme::Ui::text3);
++            g.drawText (names[lane], lanes[(size_t) lane].withWidth (labelWidth).toNearestInt(), juce::Justification::centredLeft);
++        }
++
++        g.setColour (IlanaTheme::Ui::text3);
++        g.drawText ("STEP", ruler.withWidth (labelWidth).toNearestInt(), juce::Justification::centredLeft);
++
++        for (int step = 0; step < 16; ++step)
++        {
++            const auto active = step < steps;
++            const auto cellAlpha = alpha * (active ? 1.0f : 0.3f);
++            const auto playing = step == playingStep;
++            const auto column = columnFor (step, ruler.getUnion (lanes[2]));
++
++            if (playing)
++            {
++                g.setColour (colour.withAlpha (0.14f));
++                g.fillRect (column);
++            }
++
++            // The step ruler: numbers in their own strip (never behind the
++            // bars), every fourth stronger, the loop's end marked.
++            {
++                const auto cell = columnFor (step, ruler);
++                g.setColour (step == steps - 1 ? colour.withAlpha (alpha) : juce::Colours::white.withAlpha ((step % 4 == 0 ? 0.6f : 0.32f) * (active ? 1.0f : 0.5f)));
++                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, step % 4 == 0 || step == steps - 1));
++                g.drawText (juce::String (step + 1), cell.toNearestInt(), juce::Justification::centred);
++
++                if (step == steps - 1)
++                {
++                    g.setColour (colour.withAlpha (0.8f * alpha));
++                    g.fillRect (cell.getRight() - 1.0f, cell.getY() + 2.0f, 2.0f, lanes[2].getBottom() - cell.getY() - 2.0f);
++                }
++            }
++
++            for (int lane = 0; lane < numLanes; ++lane)
++            {
++                const auto cell = columnFor (step, lanes[(size_t) lane]).reduced (1.5f, 0.0f);
++                const auto value = read (processorRef, idFor (lane, step));
++                const auto unit = juce::jlimit (0.0f, 1.0f, toUnit (lane, value));
++                const auto edited = std::abs (value - defaultFor (lane)) > 1.0e-3f;
++
++                g.setColour (juce::Colours::white.withAlpha (0.045f * (active ? 1.0f : 0.6f)));
++                g.fillRoundedRectangle (cell, 2.0f);
++                const auto fill = colour.withAlpha ((playing ? 1.0f : 0.78f) * cellAlpha);
++
++                if (lane == pitch)
++                {
++                    // From the centre line, up or down.
++                    const auto mid = cell.getCentreY();
++                    const auto y = cell.getBottom() - unit * cell.getHeight();
++                    g.setColour (juce::Colours::white.withAlpha (0.12f * cellAlpha));
++                    g.fillRect (cell.getX(), mid - 0.5f, cell.getWidth(), 1.0f);
++                    if (edited)
++                    {
++                        g.setColour (fill);
++                        g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX(), juce::jmin (mid, y), cell.getWidth(),
++                                                                        juce::jmax (2.0f, std::abs (y - mid))), 2.0f);
++                    }
++                }
++                else if (lane == gate && value < 0.005f)
++                {
++                    // A rest: a small cross where the bar would be.
++                    const auto mark = juce::Rectangle<float> (7.0f, 7.0f).withCentre (cell.getCentre());
++                    g.setColour (juce::Colours::white.withAlpha (0.45f * cellAlpha));
++                    g.drawLine ({ mark.getTopLeft(), mark.getBottomRight() }, 1.3f);
++                    g.drawLine ({ mark.getBottomLeft(), mark.getTopRight() }, 1.3f);
++                }
++                else
++                {
++                    g.setColour (fill);
++                    g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
++
++                    // GATE's 100 % line: where the GATE knob's length is.
++                    if (lane == gate)
++                    {
++                        g.setColour (juce::Colours::white.withAlpha (0.22f * cellAlpha));
++                        g.fillRect (cell.getX(), cell.getCentreY() - 0.5f, cell.getWidth(), 1.0f);
++                    }
++                }
++
++                // A value moved off its default, or being drawn, reads out.
++                const auto dragging = lane == dragLane && step == dragStep;
++
++                if ((edited && lane == pitch) || dragging)
++                {
++                    g.setColour (juce::Colours::white.withAlpha ((dragging ? 1.0f : 0.85f) * (active ? 1.0f : 0.5f)));
++                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
++                    g.drawText (textFor (lane, value), cell.toNearestInt(), juce::Justification::centred);
++                }
++            }
++        }
++
++        // Why the lanes step back, on a plate over them.
++        if (! on || replaced)
++            GenerativeWidgets::paintOffPlate (g, lanes[0].getUnion (lanes[2]).withTrimmedLeft (labelWidth),
++                                              replaced && on ? "PROB SEQ is playing instead of the ARP"
++                                                             : "ARP OFF: the lanes play once it is on");
++    }
++
++    void mouseDown (const juce::MouseEvent& event) override
++    {
++        dragLane = laneAt (event.position);
++        dragStep = -1;
++
++        // A step number sets the loop's length.
++        if (dragLane < 0)
++        {
++            if (const auto step = stepAt (event.position.x); step >= 0)
++                processorRef.performEdit ("Arp steps", [this, step] { GenerativeWidgets::write (processorRef, "arp_steps", (float) (step + 1)); });
++
++            return;
++        }
++
++        processorRef.beginEdit (juce::String ("Arp ") + (dragLane == velocity ? "velocity" : dragLane == gate ? "gate" : "transpose"));
++        editOpen = true;
++        lastPosition = event.position;
++        drawAt (event.position, event.position);
++    }
++
++    void mouseDrag (const juce::MouseEvent& event) override
++    {
++        if (! editOpen)
++            return;
++
++        drawAt (lastPosition, event.position);
++        lastPosition = event.position;
++    }
++
++    void mouseUp (const juce::MouseEvent&) override
++    {
++        if (editOpen)
++            processorRef.endEdit();
++
++        editOpen = false;
++        dragLane = dragStep = -1;
++        repaint();
++    }
++
++    void mouseDoubleClick (const juce::MouseEvent& event) override
++    {
++        const auto step = stepAt (event.position.x);
++
++        if (step < 0 || laneAt (event.position) < 0)
++            return;
++
++        processorRef.performEdit ("Reset arp step", [this, step]
++        {
++            for (int lane = 0; lane < numLanes; ++lane)
++                GenerativeWidgets::write (processorRef, idFor (lane, step), defaultFor (lane));
++        });
++    }
++
++    // The UI test reaches the cells through these.
++    juce::Point<float> cellCentre (int lane, int step) const
++    {
++        return columnFor (step, lane < 0 ? rulerBounds() : laneBounds()[(size_t) lane]).getCentre();
++    }
++
++    juce::Rectangle<float> laneArea (int lane) const { return laneBounds()[(size_t) juce::jlimit (0, 2, lane)]; }
++
++private:
++    static constexpr float labelWidth = 66.0f;
++    static constexpr float rulerHeight = 15.0f;
++
++    int numSteps() const { return juce::jlimit (1, 16, juce::roundToInt (GenerativeWidgets::read (processorRef, "arp_steps"))); }
++
++    juce::Rectangle<float> rulerBounds() const
++    {
++        return getLocalBounds().toFloat().reduced (6.0f, 4.0f).removeFromTop (rulerHeight);
++    }
++
++    std::array<juce::Rectangle<float>, numLanes> laneBounds() const
++    {
++        auto area = getLocalBounds().toFloat().reduced (6.0f, 4.0f);
++        area.removeFromTop (rulerHeight + 2.0f);
++        const auto height = area.getHeight();
++        std::array<juce::Rectangle<float>, numLanes> lanes;
++        lanes[0] = area.removeFromTop (height * 0.4f).withTrimmedBottom (4.0f);
++        lanes[1] = area.removeFromTop (height * 0.3f).withTrimmedBottom (4.0f);
++        lanes[2] = area;
++        return lanes;
++    }
++
++    static juce::Rectangle<float> columnFor (int step, juce::Rectangle<float> lane)
++    {
++        const auto grid = lane.withTrimmedLeft (labelWidth);
++        const auto width = grid.getWidth() / 16.0f;
++        return { grid.getX() + (float) step * width, lane.getY(), width, lane.getHeight() };
++    }
++
++    int stepAt (float x) const
++    {
++        const auto grid = rulerBounds().withTrimmedLeft (labelWidth);
++
++        if (x < grid.getX() || x > grid.getRight())
++            return -1;
++
++        return juce::jlimit (0, 15, (int) ((x - grid.getX()) / (grid.getWidth() / 16.0f)));
++    }
++
++    // -1 for the ruler (and the label column), else the lane under y.
++    int laneAt (juce::Point<float> position) const
++    {
++        if (position.y < rulerBounds().getBottom() + 1.0f || position.x < rulerBounds().getX() + labelWidth)
++            return -1;
++
++        const auto lanes = laneBounds();
++
++        for (int lane = 0; lane < numLanes; ++lane)
++            if (position.y <= lanes[(size_t) lane].getBottom() + 2.0f)
++                return lane;
++
++        return pitch;
++    }
++
++    // Draws the dragged lane between two points, so a fast stroke leaves
++    // no step out.
++    void drawAt (juce::Point<float> from, juce::Point<float> to)
++    {
++        if (dragLane < 0)
++            return;
++
++        const auto lane = laneBounds()[(size_t) dragLane];
++        const auto first = stepAt (juce::jlimit (lane.getX() + labelWidth, lane.getRight(), juce::jmin (from.x, to.x)));
++        const auto last = stepAt (juce::jlimit (lane.getX() + labelWidth, lane.getRight(), juce::jmax (from.x, to.x)));
++
++        for (auto step = first; step >= 0 && step <= last; ++step)
++        {
++            const auto centreX = columnFor (step, lane).getCentreX();
++            const auto t = std::abs (to.x - from.x) < 1.0f ? 1.0f : juce::jlimit (0.0f, 1.0f, (centreX - from.x) / (to.x - from.x));
++            const auto y = from.y + (to.y - from.y) * t;
++            const auto unit = (lane.getBottom() - y) / juce::jmax (1.0f, lane.getHeight());
++            GenerativeWidgets::write (processorRef, idFor (dragLane, step), fromUnit (dragLane, unit));
++        }
++
++        dragStep = stepAt (juce::jlimit (lane.getX() + labelWidth, lane.getRight(), to.x));
++        repaint();
++    }
++
++    void timerCallback() override
++    {
++        const auto signature = processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
++                             ^ ((juce::uint64) (processorRef.getEngineDisplayStep() + 1) << 44);
++
++        if (isShowing() && changeGate.check (signature))
++            repaint();
++    }
++
++    IlanaAnim::ChangeGate changeGate;
++    IlanaSynthAudioProcessor& processorRef;
++    juce::Colour colour;
++    int dragLane = -1, dragStep = -1;
++    bool editOpen = false;
++    juce::Point<float> lastPosition;
++};
++
++// The note path at a glance (review 6, I6-15): which note stages are on and
++// in what order the played keys pass through them, KEYS > SNAP > STRUM >
++// SPRAY > the pattern engine > CLIP > VOICES, with how they combine (PROB
++// SEQ playing instead of the ARP, EUCLID resting its steps, the pattern
++// transposing the clip). A stage of the PATTERN card is a chip that opens
++// its tab.
++class NoteChainView : public juce::Component,
++                      public juce::SettableTooltipClient,
++                      private IlanaAnim::FrameTimer
++{
++public:
++    explicit NoteChainView (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
++        : processorRef (processor), colour (colourIn)
++    {
++        startTimerHz (8);
++    }
++
++    // The engine tab a chip opens (0 ARP, 1 EUCLID, 2 PROB SEQ, 3 CLIP).
++    std::function<void (int)> onOpenEngine;
++
++    struct Stage
++    {
++        juce::String name;
++        int engine = -1;        // the PATTERN tab it opens, or -1
++        bool waiting = false;   // on, but another stage plays instead
++        bool quiet = false;     // KEYS and VOICES: the ends, not stages
++    };
++
++    // The stages that act now, in order, and one line on how they combine.
++    std::vector<Stage> stages (juce::String& note) const
++    {
++        const auto read = [this] (const char* id) { return GenerativeWidgets::read (processorRef, id); };
++        const auto arpOn = read ("arp_on") > 0.5f, seqOn = read ("pseq_on") > 0.5f, clipOn = read ("clip_on") > 0.5f;
++        const auto euclidOn = read ("euc_on") > 0.5f;
++        const auto euclidTarget = juce::roundToInt (read ("euc_target"));
++        const auto euclidNotes = euclidOn && euclidTarget == 0;
++        const auto scaleOn = juce::roundToInt (read ("gen_scale")) > 0;
++        const auto clipHost = juce::roundToInt (read ("clip_mode")) == 1;
++
++        std::vector<Stage> list;
++        list.push_back ({ "KEYS", -1, false, true });
++
++        if (scaleOn && read ("gen_snap") > 0.5f)
++            list.push_back ({ "SNAP TO KEY" });
++        if (juce::roundToInt (read ("spray_strum")) > 0)
++            list.push_back ({ "STRUM" });
++        if (read ("spray_on") > 0.5f)
++            list.push_back ({ "SPRAY" });
++
++        if (seqOn && arpOn)
++            list.push_back ({ "ARP", 0, true });
++        if (seqOn)
++            list.push_back ({ "PROB SEQ", 2 });
++        else if (arpOn)
++            list.push_back ({ "ARP", 0 });
++        if (euclidNotes)
++            list.push_back ({ "EUCLID", 1 });
++        if (clipOn)
++            list.push_back ({ clipHost ? "CLIP + HOST" : "CLIP", 3 });
++
++        list.push_back ({ "VOICES", -1, false, true });
++
++        if (euclidOn && euclidTarget != 0)
++            list.push_back ({ euclidTarget == 1 ? "EUCLID: STRINGS" : "EUCLID: GATE", 1 });
++
++        const auto engine = seqOn ? juce::String ("PROB SEQ") : arpOn ? juce::String ("ARP") : juce::String();
++
++        if (seqOn && arpOn)
++            note = "PROB SEQ plays instead of the ARP";
++        else if (euclidNotes && engine.isNotEmpty())
++            note = "EUCLID rests " + engine + "'s steps between its hits";
++        else if (euclidNotes)
++            note = "EUCLID plays the held chord on each hit";
++        else if (clipOn && ! clipHost && engine.isNotEmpty())
++            note = engine + "'s notes transpose the clip";
++        else if (clipOn && ! clipHost)
++            note = "a held key plays the clip (C3 as written)";
++        else if (clipOn)
++            note = "the clip plays with the host; keys play over it";
++        else if (euclidOn && euclidTarget == 1)
++            note = "EUCLID re-strikes the Physical strings";
++        else if (euclidOn)
++            note = "EUCLID drives the Trance Gate effect";
++        else if (engine.isEmpty())
++            note = "no pattern engine on: keys play the voices";
++        else if (seqOn)
++            note = "hold keys: each step rolls its chance";
++        else
++            note = "hold keys: the ARP plays them in MODE's order";
++
++        return list;
++    }
++
++    void paint (juce::Graphics& g) override
++    {
++        juce::String note;
++        const auto list = stages (note);
++        chips.clear();
++        const auto font = IlanaTheme::pillFont();
++        const auto height = juce::jmin (18.0f, (float) getHeight() - 4.0f);
++        auto x = 0.0f;
++        const auto centreY = (float) getHeight() * 0.5f;
++        const auto mouse = getMouseXYRelative().toFloat();
++
++        for (size_t i = 0; i < list.size(); ++i)
++        {
++            const auto& stage = list[i];
++
++            // The arrow before every stage after the first; an engine
++            // switched to Strings / Gate hangs off VOICES with a plus.
++            if (i > 0)
++            {
++                const auto side = stage.name.startsWith ("EUCLID:");
++                const auto arrow = side ? juce::String ("+") : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba"));
++                g.setColour (IlanaTheme::Ui::text3);
++                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
++                g.drawText (arrow, juce::Rectangle<float> (x, 0.0f, 14.0f, (float) getHeight()).toNearestInt(), juce::Justification::centred);
++                x += 14.0f;
++            }
++
++            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, stage.name) + 4.0f;
++
++            if (x + width > (float) getWidth())
++                break;
++
++            const auto chip = juce::Rectangle<float> (x, centreY - height * 0.5f, width, height);
++            g.setFont (font);
++
++            if (stage.quiet)
++            {
++                g.setColour (IlanaTheme::Ui::text2);
++                g.drawText (stage.name, chip.toNearestInt(), juce::Justification::centred);
++            }
++            else
++            {
++                // A stage reads as a word in the accent (the tabs are the
++                // pills): bold, underlined while the pointer is on one that
++                // opens a tab; one waiting for another is grey, struck through.
++                const auto hovered = stage.engine >= 0 && isMouseOver() && chip.contains (mouse);
++                g.setColour (stage.waiting ? IlanaTheme::Ui::text3 : colour.interpolatedWith (juce::Colours::white, hovered ? 0.45f : 0.2f));
++                g.drawText (stage.name, chip.toNearestInt(), juce::Justification::centred);
++                const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (font, stage.name);
++                const auto line = juce::Rectangle<float> (textWidth, 1.0f).withCentre ({ chip.getCentreX(), centreY });
++
++                if (stage.waiting)
++                    g.fillRect (line);
++                else if (hovered)
++                    g.fillRect (line.withY (centreY + 7.0f));
++            }
++
++            chips.push_back ({ chip, stage.engine });
++            x += width;
++        }
++
++        if (note.isNotEmpty() && x + 40.0f < (float) getWidth())
++        {
++            g.setColour (IlanaTheme::Ui::text3);
++            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
++            g.drawText (note, juce::Rectangle<float> (x + 10.0f, 0.0f, (float) getWidth() - x - 10.0f, (float) getHeight()).toNearestInt(),
++                        juce::Justification::centredLeft, true);
++        }
++
++        // The whole path in words, for the tooltip.
++        juce::StringArray names;
++        for (const auto& stage : list)
++            names.add (stage.waiting ? "(" + stage.name + ", waiting)" : stage.name);
++        setTooltip ("The note path: " + names.joinIntoString (" > ") + (note.isNotEmpty() ? ".\n" + note + "." : ".")
++                    + "\nClick a pattern engine to open its tab.");
++    }
++
++    void mouseUp (const juce::MouseEvent& event) override
++    {
++        for (const auto& [chip, engine] : chips)
++            if (engine >= 0 && chip.contains (event.position) && onOpenEngine != nullptr)
++            {
++                onOpenEngine (engine);
++                return;
++            }
++    }
++
++    void mouseMove (const juce::MouseEvent&) override { repaint(); }
++    void mouseExit (const juce::MouseEvent&) override { repaint(); }
++
++private:
++    void timerCallback() override
++    {
++        if (isShowing() && changeGate.check (processorRef.getUiEpoch()))
++            repaint();
++    }
++
++    IlanaAnim::ChangeGate changeGate;
++    IlanaSynthAudioProcessor& processorRef;
++    juce::Colour colour;
++    std::vector<std::pair<juce::Rectangle<float>, int>> chips;
++};
+diff --git a/src/gui/ParamInfo.h b/src/gui/ParamInfo.h
+index a02bbd6..64c845e 100644
+--- a/src/gui/ParamInfo.h
++++ b/src/gui/ParamInfo.h
+@@ -159,6 +159,13 @@ inline juce::String describeValue (const juce::String& id, float value)
+         return juce::roundToInt (value) == 0 ? juce::String ("root") : "+" + juce::String (juce::roundToInt (value)) + " st";
+     if (id.startsWith ("pseq_ratchet"))
+         return juce::String (juce::roundToInt (value)) + "x";
++    if (id == "arp_steps")
++        return juce::String (juce::roundToInt (value)) + " steps";
++    if (id.startsWith ("arp_len"))
++        return value < 0.005f ? juce::String ("rest") : asPercent();
++    if (id.startsWith ("arp_pitch"))
++        return juce::roundToInt (value) == 0 ? juce::String ("0 st")
++                                             : (value > 0.0f ? "+" : "") + juce::String (juce::roundToInt (value)) + " st";
+     if (id == "spray_strum_time")
+         return asMilliseconds();
+ 
+@@ -356,6 +363,14 @@ inline juce::String describeParameter (const juce::String& id)
+         return "How far above the held note this step may land, in semitones, snapped to the scale.";
+     if (id.startsWith ("pseq_ratchet"))
+         return "Repeats within the step: 1 plays once, 4 plays four quick notes.";
++    if (id == "arp_steps")
++        return "How many of the arp's 16 step lanes loop (the note order runs on by itself).";
++    if (id.startsWith ("arp_vel"))
++        return "This arp step's velocity.";
++    if (id.startsWith ("arp_len"))
++        return "This arp step's note length, as a share of GATE (0 rests the step, 200% ties it into the next).";
++    if (id.startsWith ("arp_pitch"))
++        return "Transposes this arp step, in semitones.";
+     if (id == "spray_strum")
+         return "Strums chords (and sprayed notes): notes starting together are spread out, lowest first (Up) or highest first (Down).";
+     if (id == "spray_strum_time")
+@@ -694,10 +709,11 @@ inline juce::String describeParameter (const juce::String& id)
+         return "How hard one oscillator frequency-modulates another. Try whole-number pitch ratios for bells and keys.";
+ 
+     if (id == "gen_scale")
+-        return "Scale that sprayed notes and the Scale Random arp snap to.";
++        return "SNAP TO KEY: the scale sprayed notes, PROB SEQ and the Scale Random arp snap to (in 12-TET steps, "
++               "also under a Scala tuning). Off: no snapping.";
+ 
+     if (id == "gen_snap")
+-        return "Also snap the notes you play to the scale.";
++        return "Also snap the notes you play to SNAP TO KEY's scale.";
+ 
+     if (id == "spray_on")
+         return "Each played note throws extra notes around itself.";
+@@ -935,10 +951,11 @@ inline juce::String describeParameter (const juce::String& id)
+ 
+     // Arp
+     if (id == "arp_on")
+-        return "Plays held notes as a pattern. Off = normal playing.";
++        return "Plays held notes as a pattern. Off = normal playing. While PROB SEQ is on it plays instead.";
+ 
+     if (id == "arp_mode")
+-        return "Up, Down, UpDown or Random.";
++        return "The order held notes play in: up, down, both ways, random, converging, a random walk, all at once "
++               "(Chord), or random notes of SNAP TO KEY's scale (Scale Random).";
+ 
+     if (id == "arp_div")
+         return "Step size, synced to host tempo.";
+diff --git a/src/gui/pages/SeqPage.h b/src/gui/pages/SeqPage.h
+index fc0b6c4..50e158f 100644
+--- a/src/gui/pages/SeqPage.h
++++ b/src/gui/pages/SeqPage.h
+@@ -21,24 +21,28 @@ public:
+           msegRate (p.apvts, "mseg_rate", "RATE", msegColour(), false),
+           clockDiv (p.apvts, "clock_div", "S&H CLOCK", msegColour(), false),
+           processorRef (p),
+-          arpDisplay (p, arpColour()),
+-          arpOn (p.apvts, "arp_on", "ON"),
++          arpLanes (p, arpColour()),
++          // Each engine's switch is named and sits in its own controls row
++          // (review 6, I6-15): one header switch read as the whole card's.
++          arpOn (p.apvts, "arp_on", "ARP"),
+           arpMode (p.apvts, "arp_mode", "MODE"),
+           arpDiv (p.apvts, "arp_div", "RATE"),
+           arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), true),
+           arpGate (p.apvts, "arp_gate", "GATE", arpColour(), true),
+           arpChance (p.apvts, "arp_chance", "CHANCE", arpColour(), true),
+-          genScale (p.apvts, "gen_scale", "SCALE"),
++          // GENERATE's scale is SNAP TO KEY's KEY (review 6, I6-30): not the
++          // tuning's Scala scale.
++          genScale (p.apvts, "gen_scale", "KEY"),
+           genRoot (p.apvts, "gen_root", "ROOT"),
+           genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
+           sprayOn (p.apvts, "spray_on", "ON"),
+-          // The strum's Off / Up / Down is its DIRECTION; the spray's own
+-          // direction (up, down or both from the played note) is its PITCH.
+-          sprayDirection (p.apvts, "spray_direction", "PITCH"),
++          // Each in its own box (STRUM, SPRAY), so both are DIRECTION: the
++          // strum's order, the spray's side of the played note.
++          sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
+           sprayStrum (p.apvts, "spray_strum", "DIRECTION"),
+           engineTabs ({ "ARP", "EUCLID", "PROB SEQ", "CLIP" }, { arpColour(), euclidColour(), pseqColour(), clipColour() }, false),
+           euclidDisplay (p, euclidColour()),
+-          eucOn (p.apvts, "euc_on", "ON"),
++          eucOn (p.apvts, "euc_on", "EUCLID"),
+           eucTarget (p.apvts, "euc_target", "TARGET"),
+           eucDiv (p.apvts, "euc_div", "RATE"),
+           eucSteps (p.apvts, "euc_steps", "STEPS", euclidColour(), true),
+@@ -46,22 +50,28 @@ public:
+           eucRotate (p.apvts, "euc_rotate", "ROTATE", euclidColour(), true),
+           eucGate (p.apvts, "euc_gate", "GATE", euclidColour(), true),
+           pseqEditor (p, pseqColour()),
+-          pseqOn (p.apvts, "pseq_on", "ON"),
++          pseqOn (p.apvts, "pseq_on", "PROB SEQ"),
+           pseqDiv (p.apvts, "pseq_div", "RATE"),
+           pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), true),
+           pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), true),
+           clipEditor (p, clipColour()),
+-          clipOn (p.apvts, "clip_on", "ON"),
+-          clipIndex (p.apvts, "clip_index", "CLIP"),
++          clipOn (p.apvts, "clip_on", "CLIP"),
++          clipIndex (p.apvts, "clip_index", "SLOT"),
+           clipMode (p.apvts, "clip_mode", "MODE"),
+           clipBars (p, "LENGTH"),
+-          clipGrid (clipEditor, "GRID")
++          clipGrid (clipEditor, "GRID"),
++          arpSteps (p.apvts, "arp_steps", "STEPS", arpColour(), true),
++          noteChain (p, IlanaTheme::accent()),
++          scaleSwitch (p, "gen_scale", 1, "SNAP TO KEY"),
++          strumSwitch (p, "spray_strum", 1, "STRUM"),
++          clipZoom (clipEditor, "ZOOM")
+     {
+         sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), true);
+         sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), true);
+         spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), true);
+         strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "TIME", generateColour(), true);
+-        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), true);
++        // Not a second bare CHANCE on the page (the arp has one).
++        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "SPRAY %", generateColour(), true);
+         sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), true);
+         addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
+                 *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity, sprayStrum, *strumTime);
+@@ -74,6 +84,15 @@ public:
+         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
+                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
+         clipImport.onClick = [this] { importMidiFile(); };
++        clipQuantise.setButtonText ("QUANTISE");
++        clipQuantise.setTooltip ("Quantise\nMoves the selected notes' starts (every note's, with none selected) to the nearest "
++                                 "GRID line, in one undo step. Q in the roll does the same.");
++        clipQuantise.onClick = [this] { clipEditor.quantise(); };
++        clipExpand.setTooltip ("Expand\nGives the piano roll the page: GENERATE folds to its title line until you collapse "
++                               "the roll again (or click GENERATE's title).");
++        clipExpand.onClick = [this] { setClipExpanded (! clipExpanded); };
++        addAll (*this, arpSteps, noteChain, scaleSwitch, strumSwitch, clipZoom, clipQuantise, clipExpand);
++        noteChain.onOpenEngine = [this] (int engine) { engineTabs.setSelected (engine, true); };
+         engineTabs.onSelect = [this] (int) { showEngineTab(); };
+ 
+         addAndMakeVisible (step1);
+@@ -114,7 +133,7 @@ public:
+         msegLoop.showAsSwitch();
+         genSnap.showAsSwitch();
+         addAll (*this, mseg, msegLoop, msegRate, clockDiv,
+-                arpDisplay, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
++                arpLanes, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
+ 
+         // Open on whichever part of the card is switched on.
+         engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : readOn ("clip_on") ? 3 : 0, false);
+@@ -134,22 +153,25 @@ public:
+             for (auto* control : std::initializer_list<juce::Component*> {
+                      &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
+                      &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
+-                     &clipGrid, &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
++                     &clipGrid, &clipImport, &arpLanes, &arpOn, &arpMode, &arpDiv,
+                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
+-                     sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
++                     sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get(),
++                     &arpSteps, &noteChain, &scaleSwitch, &strumSwitch, &clipZoom, &clipQuantise, &clipExpand })
+                 control->setVisible (false);
+         }
+ 
+         // What doesn't act right now dims (one rule for every page: UI review
+-        // 4, V26): the arp's card body, display included, while it is off;
+-        // each engine's settings while it is off; the spray's while SPRAY is
+-        // off; ROOT and SNAP PLAYED while there is no scale (ROOT still tunes
+-        // the sympathetic strings).
+-        const auto arpOnNow = effectRules.isOn ("arp_on");
+-        for (juce::Component* control : { static_cast<juce::Component*> (&arpDisplay), static_cast<juce::Component*> (&arpMode),
+-                                          static_cast<juce::Component*> (&arpDiv), static_cast<juce::Component*> (&arpOctaves),
+-                                          static_cast<juce::Component*> (&arpGate), static_cast<juce::Component*> (&arpChance) })
+-            effectRules.add (*control, arpOnNow, "the ARP is off");
++        // 4, V26): the arp's settings while it is off or PROB SEQ plays
++        // instead (its lanes step back by themselves); each engine's settings
++        // while it is off; the spray's while SPRAY is off; ROOT and SNAP
++        // PLAYED while there is no key (ROOT still tunes the sympathetic
++        // strings). The clip's editing tools stay lit: they edit the clip
++        // whether it plays or not.
++        const auto arpPlays = [this] { return readOn ("arp_on") && ! readOn ("pseq_on"); };
++        for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
++                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
++                                          static_cast<juce::Component*> (&arpChance), static_cast<juce::Component*> (&arpSteps) })
++            effectRules.add (*control, arpPlays, "the ARP isn't playing (it is off, or PROB SEQ plays instead)");
+         for (juce::Component* control : { static_cast<juce::Component*> (&eucTarget), static_cast<juce::Component*> (&eucDiv),
+                                           static_cast<juce::Component*> (&eucSteps), static_cast<juce::Component*> (&eucHits),
+                                           static_cast<juce::Component*> (&eucRotate), static_cast<juce::Component*> (&eucGate) })
+@@ -157,19 +179,16 @@ public:
+         for (juce::Component* control : { static_cast<juce::Component*> (&pseqDiv), static_cast<juce::Component*> (&pseqLength),
+                                           static_cast<juce::Component*> (&pseqGate) })
+             effectRules.add (*control, effectRules.isOn ("pseq_on"), "the sequencer is off");
+-        for (juce::Component* control : { static_cast<juce::Component*> (&clipIndex), static_cast<juce::Component*> (&clipMode),
+-                                          static_cast<juce::Component*> (&clipBars), static_cast<juce::Component*> (&clipGrid),
+-                                          static_cast<juce::Component*> (&clipImport) })
+-            effectRules.add (*control, effectRules.isOn ("clip_on"), "CLIP is off");
+-        effectRules.add (*strumTime, effectRules.choiceIsNot ("spray_strum", 0), "STRUM is Off");
++        effectRules.add (clipMode, effectRules.isOn ("clip_on"), "CLIP is off");
++        effectRules.add (*strumTime, effectRules.choiceIsNot ("spray_strum", 0), "STRUM is off");
+         for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
+                                           static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
+                                           static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
+             effectRules.add (*control, effectRules.isOn ("spray_on"), "SPRAY is off");
+         const auto hasScale = effectRules.choiceIsNot ("gen_scale", 0);
+         const auto tunesStrings = [this] { return readOn ("sym_on") && ! readOn ("sym_manual"); };
+-        effectRules.add (genSnap, hasScale, "SCALE is Off");
+-        effectRules.add (genRoot, [hasScale, tunesStrings] { return hasScale() || tunesStrings(); }, "SCALE is Off");
++        effectRules.add (genSnap, hasScale, "SNAP TO KEY is off");
++        effectRules.add (genRoot, [hasScale, tunesStrings] { return hasScale() || tunesStrings(); }, "SNAP TO KEY is off");
+ 
+         startTimerHz (8);
+     }
+@@ -230,55 +249,72 @@ public:
+         const auto tabColour = tab == 1 ? euclidColour() : tab == 2 ? pseqColour() : tab == 3 ? clipColour() : arpColour();
+         IlanaTheme::paintCard (g, arpCard.toFloat(), 7.0f, tabColour.withAlpha (0.35f));
+         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
+-        IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (26), "GENERATE",
+-                                     "snap to a scale, spray and strum the notes", generateColour(), 0);
+ 
++        // PATTERN's header: the title, then the note path (NoteChainView),
++        // then the engines' tabs, each lit while its engine is on.
++        IlanaTheme::paintCardTitle (g, arpCard.reduced (12, 0).removeFromTop (26), "PATTERN", tabColour);
++
++        const auto summary = generateSummary();
++
++        if (generateFolded())
+         {
+-            // The subtitle says what the tab shown does right now.
+-            const auto arpOnNow = readOn ("arp_on"), seqOnNow = readOn ("pseq_on"), euclidOnNow = readOn ("euc_on");
+-            const auto clipOnNow = readOn ("clip_on");
+-            juce::String hint;
+-
+-            if (tab == 0)
+-                hint = seqOnNow && arpOnNow ? "the probability sequencer is playing instead" : "hold notes to play the pattern";
+-            else if (tab == 1)
+-                hint = (int) readValue ("euc_target") == 0 ? (arpOnNow || seqOnNow ? "rests the steps between hits" : "plays the held chord on each hit")
+-                     : (int) readValue ("euc_target") == 1 ? "re-strikes Physical strings on each hit"
+-                                                           : "drives the Trance Gate effect (add it in FX)";
+-            else if (tab == 2)
+-                hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
+-            else
+-                hint = juce::String ("double-click adds a note, drag selects; ")
+-                     + ((int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, others transpose it"
+-                                                           : "plays in sync with the host transport");
+-
+-            if ((tab == 1 && ! euclidOnNow) || (tab == 3 && ! clipOnNow))
+-                hint = "switch it on (top right) to use it";
+-
+-            IlanaTheme::paintCardHeader (g, arpCard.reduced (12, 0).removeFromTop (26), "PATTERN", hint, tabColour,
+-                                         arpCard.getRight() - engineTabs.getX() + 80);
++            IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (generateCard.getHeight()), "GENERATE",
++                                         summary + "   (folded while the roll is expanded: click to show)", generateColour(), 12);
++            return;
+         }
+-        // Generate's group headings: the label, then a hairline to the end
+-        // of the group.
+-        for (const auto& [area, text] : { std::pair<juce::Rectangle<int>, const char*> { scaleDivider, "SCALE" },
+-                                          std::pair<juce::Rectangle<int>, const char*> { strumDivider, "STRUM" },
+-                                          std::pair<juce::Rectangle<int>, const char*> { sprayDivider, "NOTE SPRAY" } })
++
++        IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (26), "GENERATE",
++                                     "shapes the keys you play before the pattern plays them", generateColour(), 12);
++
++        // Three boxes, each a part with its own switch: its title, a quiet
++        // note on what it does now, the switch at the right.
++        const auto tuningOn = readOn ("tuning_on");
++        const struct { juce::Rectangle<int> box; const char* title; bool on; juce::String note; } boxes[] {
++            { snapBox, "SNAP TO KEY", scaleSwitch.isOn(),
++              ! scaleSwitch.isOn() ? "off" : tuningOn ? "snaps in 12-TET steps" : readOn ("gen_snap") ? "snaps every note" : "snaps generated notes" },
++            { strumBox, "STRUM", strumSwitch.isOn(), strumSwitch.isOn() ? "spreads chords" : "off" },
++            { sprayBox, "SPRAY", readOn ("spray_on"), readOn ("spray_on") ? "throws extra notes" : "off" }
++        };
++
++        for (const auto& part : boxes)
+         {
+-            if (area.isEmpty())
++            if (part.box.isEmpty())
+                 continue;
+ 
+-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+-            const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+-            // NOTE SPRAY's rule stops short of its switch.
+-            const auto end = area == sprayDivider ? sprayOn.getX() - 8 : area.getRight() - 6;
+-            g.setColour (IlanaTheme::Ui::text2);
++            IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
++            auto header = part.box.reduced (10, 0).removeFromTop (boxHeaderHeight);
++            header.removeFromRight (44); // the switch
++            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
++            const auto width = juce::GlyphArrangement::getStringWidthInt (font, part.title);
++            g.setColour (part.on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+             g.setFont (font);
+-            g.drawText (text, area, juce::Justification::centredLeft);
+-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+-            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, end - area.getX() - width - 10), 1);
++            g.drawText (part.title, header, juce::Justification::centredLeft);
++            g.setColour (IlanaTheme::Ui::text3);
++            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
++            g.drawText (part.note, header.withTrimmedLeft (width + 8), juce::Justification::centredLeft, true);
+         }
++    }
+ 
++    // GENERATE in one line, for its folded title.
++    juce::String generateSummary() const
++    {
++        const auto choiceText = [this] (const char* id)
++        {
++            if (auto* parameter = processorRef.apvts.getParameter (id))
++                return parameter->getCurrentValueAsText();
++            return juce::String();
++        };
++        const auto middleDot = juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "));
++        return "SNAP TO KEY " + (scaleSwitch.isOn() ? choiceText ("gen_root") + " " + choiceText ("gen_scale") : juce::String ("off"))
++             + middleDot + "STRUM " + (strumSwitch.isOn() ? choiceText ("spray_strum") : juce::String ("off"))
++             + middleDot + "SPRAY " + (readOn ("spray_on") ? juce::String ("on") : juce::String ("off"));
++    }
+ 
++    void mouseUp (const juce::MouseEvent& event) override
++    {
++        // A folded GENERATE opens again from its title line.
++        if (generateFolded() && generateCard.contains (event.getPosition()))
++            setClipExpanded (false);
+     }
+ 
+     void resized() override
+@@ -344,80 +380,126 @@ public:
+ 
+     void layoutNotes (juce::Rectangle<int> right)
+     {
+-        // The Generative card (arp, Euclid, probability sequencer) above
+-        // generate, both full width.
+-        // Generate gets the height for two rows of full-size knobs (as big
+-        // as the arp's), the pattern display above takes the rest.
++        // PATTERN (the note engines) above GENERATE, both full width.
++        // GENERATE takes one row of full-size knobs in its three boxes;
++        // PATTERN the rest, and while the clip roll is expanded GENERATE
++        // folds to its title line and the roll takes the page.
+         constexpr int knobRowHeight = 13 + 58 + 16 + 6;
+-        const auto generateHeight = juce::jlimit (160, (right.getHeight() - 8) / 2, 26 + knobRowHeight * 2 + 18 + 12);
++        const auto folded = generateFolded();
++        const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + (13 + 48 + 16) + 16;
+         generateCard = right.removeFromBottom (generateHeight);
+         right.removeFromBottom (8);
+         arpCard = right;
+ 
+         auto arpArea = arpCard.reduced (10, 0);
+         auto header = arpArea.removeFromTop (26);
+-        // The shown engine's on switch in the header's switch place, its tabs
+-        // just left of it.
+-        const auto engineSwitch = IlanaTheme::cardSwitchBounds (arpCard, header.getCentreY());
+-        for (auto* toggle : { &arpOn, &eucOn, &pseqOn, &clipOn })
+-            toggle->setBounds (engineSwitch);
+-        header.setRight (engineSwitch.getX() - 8);
++        // The tabs at the header's right (the switches are in the engines'
++        // rows), the note path between them and the title.
++        header.removeFromRight (2);
+         engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
+-        engineHint = arpCard.reduced (12, 0).withHeight (26);
++        noteChain.setBounds (header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("PATTERN") - 4).withTrimmedRight (12).reduced (0, 3));
++
++        arpArea.removeFromBottom (6);
++        const auto controls = arpArea.removeFromBottom (knobRowHeight);
+         arpArea.removeFromBottom (6);
+-        const auto display = arpArea.removeFromTop (juce::jmax (36, arpArea.getHeight() - knobRowHeight - 8)).reduced (0, 2);
+-        arpArea.removeFromTop (8);
+-        arpDisplay.setBounds (display);
++        const auto display = arpArea.reduced (0, 2);
++        arpLanes.setBounds (display);
+         euclidDisplay.setBounds (display);
+         pseqEditor.setBounds (display);
+ 
+-        // Every engine's row on one six-column grid, packed from the left,
+-        // and the same grid runs through Generate below.
+-        layoutRow (arpArea, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, nullptr });
+-        layoutRow (arpArea, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
+-        layoutRow (arpArea, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
+-        // The clip's row is menus only: the piano roll takes the height the
+-        // other engines' knobs need.
++        // Every engine's row on one seven-column grid: its switch first, then
++        // its settings, packed from the left.
++        layoutRow (controls, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, &arpSteps });
++        layoutRow (controls, { &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
++        layoutRow (controls, { &pseqOn, &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
++
++        // The clip's row is menus and buttons only (nine columns): the
++        // piano roll takes the height the other engines' knobs need.
+         {
+-            const auto spare = juce::jmax (0, arpArea.getHeight() - (13 + 24 + 6) - 4);
+-            clipEditor.setBounds (display.withHeight (display.getHeight() + spare));
+-            layoutRow (arpArea.withTrimmedTop (spare), { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
++            constexpr int menuHeight = 13 + 24;
++            const auto clipRow = controls.withTrimmedTop (controls.getHeight() - menuHeight - 6);
++            clipEditor.setBounds (display.withBottom (clipRow.getY() - 6));
++            layoutRow (clipRow, { &clipOn, &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr });
++
++            // The buttons line up with the menus' boxes.
++            const auto column = clipRow.getWidth() / 9;
++            auto cell = clipGrid.getBounds().translated (column * 2, 0).withTrimmedTop (13).withHeight (24);
++            clipQuantise.setBounds (cell);
++            clipImport.setBounds (cell.translated (column, 0));
++            clipExpand.setBounds (cell.translated (column * 2, 0));
+         }
+-        // LENGTH and the import button continue the row on its grid.
++
++        layoutGenerate();
++    }
++
++    // GENERATE: three boxes side by side, SNAP TO KEY (ROOT, KEY, SNAP
++    // PLAYED), STRUM (DIRECTION, TIME) and SPRAY (DIRECTION and five knobs),
++    // each with its switch on its own title line and its controls inside.
++    // Every name in the row on one line; menus get a little more width.
++    void layoutGenerate()
++    {
++        const auto folded = generateFolded();
++
++        for (auto* control : generateControls())
++            control->setVisible (! folded && part == Part::notes);
++
++        if (folded)
+         {
+-            const auto column = arpArea.getWidth() / 6;
+-            clipBars.setBounds (clipMode.getBounds().translated (column, 0));
+-            clipImport.setBounds (clipMode.getBounds().translated (column * 2, 0).withTrimmedTop (13));
+-            clipGrid.setBounds (clipMode.getBounds().translated (column * 3, 0));
++            snapBox = strumBox = sprayBox = {};
++            return;
+         }
+ 
+-        // Generate: three groups side by side, each under its own heading
+-        // and rule: SCALE (two columns), STRUM (one) and NOTE SPRAY (three,
+-        // its switch at the end of its own rule: it switches the spray only,
+-        // so the card has no master switch to contradict STRUM's Off). Two
+-        // rows of full-size controls on the shared grid, every name in a row
+-        // on one line.
+-        auto generate = generateCard.reduced (10, 0);
+-        generate.removeFromTop (26);
+-        generate.removeFromBottom (6);
+-
+-        const auto column = generate.getWidth() / 6;
+-        const auto rowHeight = juce::jmin (knobRowHeight, (generate.getHeight() - 22 - 6) / 2);
+-        auto block = generate.withSizeKeepingCentre (generate.getWidth(), juce::jmin (generate.getHeight(), 22 + rowHeight * 2 + 6));
+-        const auto headings = block.removeFromTop (22);
+-        const auto first = block.removeFromTop (rowHeight);
+-        block.removeFromTop (6);
+-        const auto second = block.removeFromTop (rowHeight);
+-
+-        scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
+-        strumDivider = headings.withTrimmedLeft (column * 2).withWidth (column).reduced (3, 0);
+-        sprayDivider = headings.withTrimmedLeft (column * 3).reduced (3, 0);
+-        // The spray's switch closes its heading's line (a bare switch: the
+-        // heading names it).
+-        sprayOn.setBounds (juce::Rectangle<int> (40, 13 + 20).withCentre ({ sprayDivider.getRight() - 20, sprayDivider.getCentreY() - 6 }));
+-
+-        layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() }, true);
+-        layoutRow (second, { &genSnap, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() }, true);
++        auto area = generateCard.reduced (10, 0);
++        area.removeFromTop (26);
++        area.removeFromBottom (8);
++
++        struct Item { juce::Component* control; float weight; };
++        const std::vector<std::vector<Item>> groups {
++            { { &genRoot, 0.8f }, { &genScale, 1.45f }, { &genSnap, 1.0f } },
++            { { &sprayStrum, 1.05f }, { strumTime.get(), 0.9f } },
++            { { &sprayDirection, 1.05f }, { sprayCount.get(), 1.0f }, { sprayRange.get(), 1.0f },
++              { spraySpread.get(), 1.0f }, { sprayChance.get(), 1.0f }, { sprayVelocity.get(), 1.0f } }
++        };
++        constexpr int gap = 8, padding = 6;
++        auto total = 0.0f;
++        for (const auto& group : groups)
++            for (const auto& item : group)
++                total += item.weight;
++
++        const auto unit = (float) (area.getWidth() - gap * 2 - padding * 2 * 3) / total;
++        std::array<juce::Rectangle<int>*, 3> boxes { &snapBox, &strumBox, &sprayBox };
++        std::array<juce::Component*, 3> switches { &scaleSwitch, &strumSwitch, &sprayOn };
++        auto x = (float) area.getX();
++
++        for (size_t g = 0; g < groups.size(); ++g)
++        {
++            auto weight = 0.0f;
++            for (const auto& item : groups[g])
++                weight += item.weight;
++
++            const auto width = weight * unit + (float) padding * 2.0f;
++            auto& box = *boxes[g];
++            box = juce::Rectangle<int> (juce::roundToInt (x), area.getY(), juce::roundToInt (width), area.getHeight());
++            x += width + (float) gap;
++
++            // The switch closes the box's title line (a bare switch: the
++            // title names it).
++            const auto title = box.withHeight (boxHeaderHeight);
++            switches[g]->setBounds (juce::Rectangle<int> (title.getRight() - 8 - 40, title.getCentreY() - 23, 40, 13 + 20));
++
++            // The controls: names on one line at the band's top.
++            auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight).withTrimmedBottom (4);
++            auto left = (float) row.getX();
++
++            for (const auto& item : groups[g])
++            {
++                const auto cell = juce::Rectangle<int> (juce::roundToInt (left), row.getY(), juce::roundToInt (item.weight * unit),
++                                                        row.getHeight()).reduced (3, 0);
++                left += item.weight * unit;
++                const auto preferred = preferredControlHeight (item.control, cell.getWidth());
++                item.control->setBounds (cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight()));
++            }
++        }
+     }
+ 
+     void visibilityChanged() override
+@@ -569,7 +651,25 @@ private:
+ 
+         effectRules.apply();
+         clipBars.refresh();
+-        repaint (engineHint);
++
++        // The engine tabs light while their engine is on (review 6, I6-15).
++        if (part == Part::notes)
++        {
++            const char* const engineSwitches[] { "arp_on", "euc_on", "pseq_on", "clip_on" };
++            for (int engine = 0; engine < 4; ++engine)
++                engineTabs.setTabOn (engine, readOn (engineSwitches[engine]));
++
++            // The boxes' titles and notes follow their switches.
++            const auto signature = (scaleSwitch.isOn() ? 1 : 0) | (strumSwitch.isOn() ? 2 : 0) | (readOn ("spray_on") ? 4 : 0)
++                                 | (readOn ("tuning_on") ? 8 : 0) | (readOn ("gen_snap") ? 1 << 20 : 0) | (juce::roundToInt (readValue ("gen_scale")) << 4)
++                                 | (juce::roundToInt (readValue ("gen_root")) << 9) | (juce::roundToInt (readValue ("spray_strum")) << 14);
++            if (signature != boxSignature)
++            {
++                boxSignature = signature;
++                repaint (generateCard);
++            }
++        }
++
+         repaint (stepTitle1); // their notes follow the LFOs' shapes
+         repaint (stepTitle2);
+     }
+@@ -595,8 +695,8 @@ private:
+ 
+         const auto tab = engineTabs.getSelected();
+ 
+-        for (auto* control : std::initializer_list<juce::Component*> { &arpDisplay, &arpOn, &arpMode, &arpDiv, &arpOctaves,
+-                                                                        &arpGate, &arpChance })
++        for (auto* control : std::initializer_list<juce::Component*> { &arpLanes, &arpOn, &arpMode, &arpDiv, &arpOctaves,
++                                                                        &arpGate, &arpChance, &arpSteps })
+             control->setVisible (tab == 0);
+ 
+         for (auto* control : std::initializer_list<juce::Component*> { &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps,
+@@ -607,12 +707,36 @@ private:
+             control->setVisible (tab == 2);
+ 
+         for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
+-                                                                        &clipGrid, &clipImport })
++                                                                        &clipGrid, &clipImport, &clipZoom, &clipQuantise, &clipExpand })
+             control->setVisible (tab == 3);
+ 
++        // An expanded roll folds GENERATE only while CLIP is shown.
++        if (! getLocalBounds().isEmpty())
++            resized();
++
++        repaint();
++    }
++
++    // The clip roll's EXPAND: GENERATE folds to its title line (a view
++    // setting, not saved).
++    void setClipExpanded (bool expanded)
++    {
++        clipExpanded = expanded;
++        clipExpand.setButtonText (expanded ? "COLLAPSE" : "EXPAND");
++        resized();
+         repaint();
+     }
+ 
++    bool generateFolded() const { return part == Part::notes && clipExpanded && engineTabs.getSelected() == 3; }
++
++    std::vector<juce::Component*> generateControls()
++    {
++        return { &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum, sprayCount.get(), sprayRange.get(),
++                 spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get(), &scaleSwitch, &strumSwitch };
++    }
++
++
++
+     // Reads a .mid file into the chosen clip (IMPORT MIDI).
+     void importMidiFile()
+     {
+@@ -657,7 +781,7 @@ private:
+     KnobControl msegRate;
+     KnobControl clockDiv;
+     IlanaSynthAudioProcessor& processorRef;
+-    ArpDisplay arpDisplay;
++    ArpLanesEditor arpLanes;
+     ToggleControl arpOn;
+     ComboControl arpMode, arpDiv;
+     KnobControl arpOctaves, arpGate, arpChance;
+@@ -680,9 +804,16 @@ private:
+     ClipBarsControl clipBars;
+     ClipGridControl clipGrid;
+     juce::TextButton clipImport;
++    KnobControl arpSteps;
++    NoteChainView noteChain;
++    ChoiceSwitch scaleSwitch, strumSwitch;
++    ClipZoomControl clipZoom;
++    juce::TextButton clipQuantise, clipExpand { "EXPAND" };
++    bool clipExpanded = false;
++    int boxSignature = -1;
++    static constexpr int boxHeaderHeight = 24;
++    juce::Rectangle<int> snapBox, strumBox, sprayBox;
+     std::unique_ptr<juce::FileChooser> clipChooser;
+-    juce::Rectangle<int> engineHint;
+-    juce::Rectangle<int> sprayDivider, scaleDivider, strumDivider;
+     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
+     std::array<juce::TextButton, 2> useButtons;
+     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
+diff --git a/src/processor/ParameterLayout.cpp b/src/processor/ParameterLayout.cpp
+index c02f31b..c98ac96 100644
+--- a/src/processor/ParameterLayout.cpp
++++ b/src/processor/ParameterLayout.cpp
+@@ -412,8 +412,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
+     addFloat ("arp_chance", "Arp Chance", 0.0f, 1.0f, 1.0f);
+ 
+     // Generative: scale snapping and note spray
+-    addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
+-    addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
++    // Named apart from the Scala tuning's scale (review 6, I6-30); the IDs stay.
++    addChoice ("gen_scale", "Snap To Key", Scales::getNames(), 0);
++    addChoice ("gen_root", "Key Root", Scales::getRootNames(), 0);
+     addBool ("sym_on", "Sympathetic Strings", false);
+     addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.5f);
+     addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);
+@@ -1054,5 +1055,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
+         addEgField (field, field.suffix, field.name);
+     addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
+ 
++    // The arp's step lanes (review 6): how many steps loop, and each step's
++    // velocity, gate (a share of GATE; 0 rests) and transpose. The defaults
++    // play every step as before.
++    addInt ("arp_steps", "Arp Steps", 1, 16, 16);
++    for (int step = 1; step <= 16; ++step)
++    {
++        const auto n = juce::String (step);
++        addInt ("arp_vel" + n, "Arp Velocity " + n, 1, 127, 100);
++        addFloat ("arp_len" + n, "Arp Step Gate " + n, 0.0f, 2.0f, 1.0f);
++        addInt ("arp_pitch" + n, "Arp Transpose " + n, -12, 12, 0);
++    }
++
+     return layout;
+ }
+diff --git a/src/processor/Sequencers.cpp b/src/processor/Sequencers.cpp
+index 07cc6c7..a567507 100644
+--- a/src/processor/Sequencers.cpp
++++ b/src/processor/Sequencers.cpp
+@@ -270,7 +270,26 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
+         }
+ 
+         const auto note = selectArpNote (mode, octaves);
+-        const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
++        auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
++
++        // The arp's step lanes (Euclid alone plays plain hits): this step's
++        // velocity, transpose and gate (a share of GATE; 0 rests). At their
++        // defaults the step plays exactly as it did before the lanes.
++        auto velocity = 100, transpose = 0;
++        auto stepGate = gateSamples;
++
++        if (arpOn)
++        {
++            const auto steps = juce::jlimit (1, 16, juce::roundToInt (getParam (arpStepsRef)));
++            const auto lane = (size_t) (((number % steps) + steps) % steps);
++            const auto length = getParam (arpLengthIds[lane]);
++            velocity = juce::jlimit (1, 127, juce::roundToInt (getParam (arpVelocityIds[lane])));
++            transpose = juce::jlimit (-12, 12, juce::roundToInt (getParam (arpPitchIds[lane])));
++            rest = rest || length < 0.005f;
++
++            if (length != 1.0f)
++                stepGate = juce::jmax (8, (int) ((float) samplesPerStep * gate * length));
++        }
+ 
+         if (! rest)
+         {
+@@ -278,18 +297,22 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
+             {
+                 for (auto chordNote : arpChordNotes)
+                 {
+-                    output.addEvent (juce::MidiMessage::noteOn (1, chordNote, (juce::uint8) 100), position);
++                    if (transpose != 0)
++                        chordNote = juce::jlimit (0, 127, chordNote + transpose);
++
++                    output.addEvent (juce::MidiMessage::noteOn (1, chordNote, (juce::uint8) velocity), position);
+                     arpChordActive.add (chordNote);
+                 }
+             }
+             else
+             {
+-                output.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), position);
+-                arpActiveNote = note;
++                const auto played = transpose != 0 ? juce::jlimit (0, 127, note + transpose) : note;
++                output.addEvent (juce::MidiMessage::noteOn (1, played, (juce::uint8) velocity), position);
++                arpActiveNote = played;
+             }
+         }
+ 
+-        arpGateRemaining = gateSamples;
++        arpGateRemaining = stepGate;
+         arpCounter = samplesToNextStep (position);
+     };
+ 
+diff --git a/tests/TableTest.cpp b/tests/TableTest.cpp
+index 4923062..090a28f 100644
+--- a/tests/TableTest.cpp
++++ b/tests/TableTest.cpp
+@@ -3597,6 +3597,77 @@ void runArpHostStopTests()
+                                     + juce::String (silentBlocks + loudBlocks) + " blocks without voices)");
+     }
+ }
++// Review 6: the arp's step lanes. At their defaults a render is the same as
++// without them; GATE 0 rests a step, a lower VELOCITY plays softer, ARP
++// STEPS 1 repeats the first step's lane values.
++void runArpLaneTests()
++{
++    const auto render = [] (const std::function<void (IlanaSynthAudioProcessor&)>& setUp, double& energy, int& silentBlocks)
++    {
++        IlanaSynthAudioProcessor processor;
++        processor.prepareToPlay (48000.0, 256);
++        const auto set = [&processor] (const char* id, float value)
++        {
++            if (auto* parameter = processor.apvts.getParameter (id))
++                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
++        };
++        set ("arp_on", 1.0f);
++        set ("arp_div", 4.0f);
++        setUp (processor);
++
++        juce::AudioBuffer<float> buffer (2, 256);
++        energy = 0.0;
++        silentBlocks = 0;
++
++        for (int block = 0; block < 400; ++block)
++        {
++            juce::MidiBuffer midi;
++
++            if (block == 0)
++                for (auto note : { 60, 64, 67 })
++                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
++
++            buffer.clear();
++            processor.processBlock (buffer, midi);
++
++            if (block > 20)
++            {
++                energy += buffer.getRMSLevel (0, 0, 256);
++                silentBlocks += buffer.getMagnitude (0, 256) < 1.0e-5f ? 1 : 0;
++            }
++        }
++    };
++    const auto setAll = [] (IlanaSynthAudioProcessor& processor, const char* prefix, float value)
++    {
++        for (int step = 1; step <= 16; ++step)
++            if (auto* parameter = processor.apvts.getParameter (prefix + juce::String (step)))
++                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
++    };
++
++    double plain = 0.0, defaults = 0.0, rests = 0.0, soft = 0.0, firstRest = 0.0;
++    int silentPlain = 0, silentDefaults = 0, silentRests = 0, silentSoft = 0, silentFirst = 0;
++    render ([] (IlanaSynthAudioProcessor&) {}, plain, silentPlain);
++    render ([&setAll] (IlanaSynthAudioProcessor& processor)
++            {
++                setAll (processor, "arp_vel", 100.0f);
++                setAll (processor, "arp_len", 1.0f);
++                setAll (processor, "arp_pitch", 0.0f);
++            }, defaults, silentDefaults);
++    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_len", 0.0f); }, rests, silentRests);
++    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_vel", 15.0f); }, soft, silentSoft);
++    render ([] (IlanaSynthAudioProcessor& processor)
++            {
++                processor.apvts.getParameter ("arp_steps")->setValueNotifyingHost (processor.apvts.getParameter ("arp_steps")->convertTo0to1 (1.0f));
++                processor.apvts.getParameter ("arp_len1")->setValueNotifyingHost (0.0f);
++            }, firstRest, silentFirst);
++
++    check (plain > 0.1 && std::abs (plain - defaults) < 1.0e-9 * plain,
++           "the arp's lanes at their defaults render the same as before (" + juce::String (plain, 4) + ")");
++    check (rests < plain * 1.0e-3, "GATE 0 on every arp step rests them all (" + juce::String (rests, 6) + ")");
++    check (soft < plain * 0.9 && soft > 0.0, "a low arp VELOCITY lane plays softer (" + juce::String (soft / plain, 3) + " of the level)");
++    check (firstRest < plain * 1.0e-3, "ARP STEPS 1 repeats step 1's lane values: its rest silences every step");
++}
++
+ // Releasing every key must silence the Scale Random arpeggiator, including
+ // with note spray, chords, high notes and releases mid-step.
+ void runScaleRandomReleaseTest()
+@@ -9182,6 +9253,7 @@ int main()
+     {
+         runScaleRandomReleaseTest();
+         runArpHostStopTests();
++        runArpLaneTests();
+         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+         return failures == 0 ? 0 : 1;
+     }
+@@ -9316,6 +9388,7 @@ int main()
+     timedRun ("runPhysicalPatchMigrationTest", [] { runPhysicalPatchMigrationTest(); });
+     timedRun ("runScaleRandomReleaseTest", [] { runScaleRandomReleaseTest(); });
+     timedRun ("runArpHostStopTests", [] { runArpHostStopTests(); });
++    timedRun ("runArpLaneTests", [] { runArpLaneTests(); });
+     timedRun ("runM4Tests", [] { runM4Tests(); });
+     timedRun ("runM5DeepFmTests", [] { runM5DeepFmTests(); });
+     timedRun ("runM6PhaseDistortionTests", [] { runM6PhaseDistortionTests(); });
+diff --git a/tools/Snapshot.cpp b/tools/Snapshot.cpp
+index 1251afe..c0d6282 100644
+--- a/tools/Snapshot.cpp
++++ b/tools/Snapshot.cpp
+@@ -301,9 +301,10 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
+         expect (bounce.first == "height" && bounce.second == "impacts", "the bounce LFO's outputs read height / impacts");
+     }
+ 
+-    // SEQ GENERATE (S20): one name line per row, the strum's DIRECTION under
+-    // STRUM, SNAP PLAYED on the grid, and the spray's switch on its own
+-    // heading rather than the card's.
++    // SEQ GENERATE (review 6: V5-21, S5-17, S6-24, I6-30): three boxes,
++    // SNAP TO KEY, STRUM and SPRAY, each with its own switch on its title
++    // line and its controls inside, every name on one line; SNAP TO KEY's
++    // and STRUM's switches turn their choice Off and back, one undo step.
+     {
+         editor.showPage ("ARP/SEQ");
+         settle (400);
+@@ -327,30 +328,88 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
+             }
+             return nullptr;
+         };
+-        const auto topOf = [&editor] (juce::Component* component)
++        const auto switchFor = [&editor] (const juce::String& what) -> ChoiceSwitch*
+         {
+-            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getY() : -1;
++            std::vector<ChoiceSwitch*> switches;
++            findAll<ChoiceSwitch> (editor, switches);
++            for (auto* candidate : switches)
++                if (visibleInTree (candidate) && candidate->getTooltip().startsWith (what))
++                    return candidate;
++            return nullptr;
+         };
+-        const auto xOf = [&editor] (juce::Component* component)
++        const auto boundsOf = [&editor] (juce::Component* component)
+         {
+-            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getCentreX() : -1;
++            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()) : juce::Rectangle<int>();
+         };
++        const auto topOf = [&boundsOf] (juce::Component* component) { return component != nullptr ? boundsOf (component).getY() : -1; };
++        const auto xOf = [&boundsOf] (juce::Component* component) { return component != nullptr ? boundsOf (component).getCentreX() : -1; };
+         auto* scale = controlFor ("gen_scale");
++        auto* root = controlFor ("gen_root");
++        auto* snap = controlFor ("gen_snap");
+         auto* strum = controlFor ("spray_strum");
+         auto* strumTime = controlFor ("spray_strum_time");
++        auto* pitch = controlFor ("spray_direction");
+         auto* count = controlFor ("spray_count");
+-        auto* snap = controlFor ("gen_snap");
+         auto* spread = controlFor ("spray_spread");
++        auto* velocity = controlFor ("spray_velocity");
+         auto* sprayOn = controlFor ("spray_on");
+-        auto* pitch = controlFor ("spray_direction");
+-        expect (scale != nullptr && strum != nullptr && count != nullptr && topOf (scale) == topOf (count) && topOf (strum) == topOf (count),
+-                "GENERATE's first row puts every name on one line (menus and knobs)");
+-        expect (snap != nullptr && strumTime != nullptr && spread != nullptr && topOf (snap) == topOf (spread) && topOf (strumTime) == topOf (spread),
+-                "GENERATE's second row: SNAP PLAYED on the grid, level with the knobs");
+-        expect (strum != nullptr && strumTime != nullptr && std::abs (xOf (strum) - xOf (strumTime)) <= 1,
+-                "the strum's DIRECTION sits over its TIME, under STRUM");
+-        expect (sprayOn != nullptr && pitch != nullptr && topOf (sprayOn) < topOf (pitch) && xOf (sprayOn) > xOf (count),
+-                "the spray's switch sits on NOTE SPRAY's heading, not the card's");
++        auto* scaleSwitch = switchFor ("SNAP TO KEY");
++        auto* strumSwitch = switchFor ("STRUM");
++        const auto found = scale != nullptr && root != nullptr && snap != nullptr && strum != nullptr && strumTime != nullptr
++                        && pitch != nullptr && count != nullptr && spread != nullptr && velocity != nullptr && sprayOn != nullptr
++                        && scaleSwitch != nullptr && strumSwitch != nullptr;
++        expect (found, "GENERATE shows SNAP TO KEY, STRUM and SPRAY with a switch each");
++
++        if (found)
++        {
++            const auto row = topOf (count);
++            expect (topOf (scale) == row && topOf (root) == row && topOf (snap) == row && topOf (strum) == row
++                        && topOf (strumTime) == row && topOf (pitch) == row && topOf (spread) == row,
++                    "GENERATE's controls are one row, every name on one line");
++            expect (xOf (root) < xOf (scale) && xOf (scale) < xOf (snap) && xOf (snap) < xOf (strum) && xOf (strum) < xOf (strumTime)
++                        && xOf (strumTime) < xOf (pitch) && xOf (pitch) < xOf (count) && xOf (spread) < xOf (velocity),
++                    "SNAP TO KEY's, STRUM's and SPRAY's controls sit together, in that order");
++            expect (topOf (scaleSwitch) < row && topOf (strumSwitch) < row && topOf (sprayOn) < row
++                        && xOf (scaleSwitch) > xOf (snap) - 60 && xOf (scaleSwitch) < xOf (strum)
++                        && xOf (strumSwitch) > xOf (strum) && xOf (strumSwitch) < xOf (pitch) && xOf (sprayOn) > xOf (spread),
++                    "each box's switch closes its own title line, over its controls");
++
++            // SNAP TO KEY's switch: Off, then back to the key it had.
++            if (auto* parameter = processor.apvts.getParameter ("gen_scale"))
++            {
++                parameter->setValueNotifyingHost (parameter->convertTo0to1 (3.0f));
++                settle (150);
++                processor.apvts.copyState();
++                processor.getUndoManager().clearUndoHistory();
++                const auto onBefore = scaleSwitch->isOn();
++                scaleSwitch->getButton().triggerClick();
++                settle (50);
++                const auto off = juce::roundToInt (processor.apvts.getRawParameterValue ("gen_scale")->load()) == 0 && ! scaleSwitch->isOn();
++                processor.apvts.copyState();
++                const auto steps = processor.getUndoManager().getUndoDescriptions();
++                scaleSwitch->getButton().triggerClick();
++                settle (50);
++                const auto back = juce::roundToInt (processor.apvts.getRawParameterValue ("gen_scale")->load());
++                expect (onBefore && off && back == 3 && steps.size() == 1 && steps[0] == "SNAP TO KEY off",
++                        "SNAP TO KEY's switch sets the key Off in one undo step ('" + steps.joinIntoString ("', '")
++                            + "') and on again brings back Dorian (" + juce::String (back) + ")");
++                parameter->setValueNotifyingHost (parameter->getDefaultValue());
++            }
++
++            // STRUM's switch: on from Off is Up.
++            if (auto* parameter = processor.apvts.getParameter ("spray_strum"))
++            {
++                parameter->setValueNotifyingHost (parameter->getDefaultValue());
++                settle (150);
++                strumSwitch->getButton().triggerClick();
++                settle (50);
++                const auto up = juce::roundToInt (processor.apvts.getRawParameterValue ("spray_strum")->load());
++                strumSwitch->getButton().triggerClick();
++                settle (50);
++                expect (up == 1 && juce::roundToInt (processor.apvts.getRawParameterValue ("spray_strum")->load()) == 0,
++                        "STRUM's switch turns the strum on (Up) and off");
++            }
++        }
+     }
+ }
+ 
+@@ -1529,8 +1588,8 @@ int runUiTests()
+ 
+     // UI review 4 (S9): the clip piano roll's grid menu, velocity lane,
+     // selection and copy / paste / duplicate / nudge keys, each edit one
+-    // undo step. A 400 x 200 roll on a 2-bar clip: 45 px a beat from x = 34,
+-    // the velocity lane from y = 154 to 196.
++    // undo step. A 400 x 200 roll on a 2-bar clip, reached through its own
++    // geometry (beat to x, note to y, velocity to y).
+     {
+         const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks,
+                                juce::ModifierKeys mods)
+@@ -1547,7 +1606,6 @@ int runUiTests()
+             component.mouseUp (event (component, to, true, clicks, mods));
+         };
+         const auto command = [] (char letter) { return juce::KeyPress (letter, juce::ModifierKeys::commandModifier, 0); };
+-        const auto x = [] (float beat) { return 34.0f + 45.0f * beat; };
+         const auto starts = [] (const Clip& clip)
+         {
+             juce::StringArray list;
+@@ -1560,6 +1618,8 @@ int runUiTests()
+         settle (100);
+         ClipEditor roll (processor, juce::Colours::orange);
+         roll.setSize (400, 200);
++        const auto x = [&roll] (float beat) { return roll.xForBeat (beat); };
++        const auto gridY = [&roll] (float fraction) { return roll.getGridArea().getY() + roll.getGridArea().getHeight() * fraction; };
+ 
+         // GRID: 1/32 puts a dragged note on 32nds (1/16 would give 2.5).
+         roll.setGrid (3);
+@@ -1576,7 +1636,7 @@ int runUiTests()
+ 
+         // Velocity: a drag in the lane sets the bar under it; new notes take it.
+         clearHistory();
+-        gesture (roll, { x (2.625f) + 1.0f, 190.0f }, { x (2.625f) + 1.0f, 160.0f });
++        gesture (roll, { x (2.625f) + 1.0f, roll.yForVelocity (30) }, { x (2.625f) + 1.0f, roll.yForVelocity (118) });
+         steps = undoSteps();
+         const auto velocity = processor.getClipState().getClip (0).notes[0].velocity;
+         processor.getUndoManager().undo();
+@@ -1609,7 +1669,7 @@ int runUiTests()
+         roll.setGrid (ClipEditor::defaultGrid);
+         roll.reload (true);
+         clearHistory();
+-        gesture (roll, { x (1.2f), 30.0f }, { x (2.5f), 145.0f });
++        gesture (roll, { x (1.2f), gridY (0.05f) }, { x (2.5f), gridY (0.95f) });
+         const auto banded = roll.getNumSelected();
+         const auto bandSteps = undoSteps().size();
+         roll.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey));
+@@ -1623,7 +1683,7 @@ int runUiTests()
+ 
+         // A click picks one note, shift-click adds one; neither edits.
+         roll.reload (false);
+-        const auto noteY = [] (int note) { return 4.0f + 145.76f - ((float) (note - 52) + 0.5f) * (145.76f / 21.0f); };
++        const auto noteY = [&roll] (int note) { return roll.yForNote (note); };
+         clearHistory();
+         gesture (roll, { x (0.5f), noteY (60) }, { x (0.5f), noteY (60) });
+         gesture (roll, { x (3.5f), noteY (65) }, { x (3.5f), noteY (65) }, 1, juce::ModifierKeys::shiftModifier);
+@@ -1679,6 +1739,35 @@ int runUiTests()
+         expect (zoomed > 1.1f && std::abs (roll.getZoom() - zoomed) < 1.0e-6f,
+                 "Ctrl+wheel zooms the clip roll in time, the wheel alone doesn't");
+ 
++        // Review 6 (V5-22, S6-10): a keyboard column left of the grid and a
++        // bar ruler over it; zoom buttons' calls; QUANTISE snaps starts to
++        // the grid in one undo step (every note with none selected).
++        roll.zoomToFit();
++        roll.zoomBy (2.0f);
++        const auto zoomedIn = roll.getZoom();
++        roll.zoomToFit();
++        expect (roll.getKeysArea().getWidth() >= 40.0f && roll.getKeysArea().getRight() <= roll.getGridArea().getX()
++                    && roll.getRulerArea().getBottom() <= roll.getGridArea().getY() && roll.getRulerArea().getHeight() >= 16.0f,
++                "the clip roll has a keyboard column left of the grid and a ruler over it");
++        expect (std::abs (zoomedIn - 2.0f) < 1.0e-4f && roll.getZoom() == 1.0f,
++                "the roll's zoom in doubles the zoom and FIT shows the whole clip again");
++        {
++            Clip loose;
++            loose.bars = 2;
++            loose.notes.push_back ({ 0.1f, 0.5f, 60, 100 });
++            loose.notes.push_back ({ 1.37f, 0.5f, 62, 100 });
++            processor.getClipState().setClip (0, loose);
++            processor.clipsEdited();
++        }
++        roll.reload (true);
++        clearHistory();
++        const auto moved = roll.quantise();
++        steps = undoSteps();
++        shown = processor.getClipState().getClip (0);
++        expect (moved && shown.notes.size() == 2 && std::abs (shown.notes[0].start) < 1.0e-4f && std::abs (shown.notes[1].start - 1.25f) < 1.0e-4f
++                    && steps.size() == 1 && steps[0] == "Quantise clip notes" && ! roll.quantise(),
++                "QUANTISE puts every note's start on the 1/16 grid in one undo step, and then has nothing to do (" + starts (shown) + ")");
++
+         processor.loadFactoryPreset (0);
+         settle (100);
+     }
+@@ -1786,6 +1875,119 @@ int runUiTests()
+             expect (visibleWith ("pseq_length") && ! visibleWith ("euc_hits"), "the PROB SEQ tab shows the sequencer");
+             expect (visibleWith ("spray_strum_time"), "the GENERATE card has STRUM TIME");
+             engineTabs->setSelected (0, true);
++
++            // Review 6 (I6-15): a tab lights while its engine is on, and the
++            // note path says PROB SEQ plays instead of the ARP.
++            const auto set = [&processor] (const juce::String& id, float value)
++            {
++                if (auto* parameter = processor.apvts.getParameter (id))
++                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
++            };
++            set ("arp_on", 1.0f);
++            set ("pseq_on", 1.0f);
++            settle (400);
++            auto* chain = findChild<NoteChainView> (*editor);
++            juce::String note;
++            const auto stages = chain != nullptr ? chain->stages (note) : std::vector<NoteChainView::Stage> {};
++            auto arpWaits = false, seqPlays = false;
++            for (const auto& stage : stages)
++            {
++                arpWaits = arpWaits || (stage.name == "ARP" && stage.waiting);
++                seqPlays = seqPlays || (stage.name == "PROB SEQ" && ! stage.waiting);
++            }
++            expect (engineTabs->isTabOn (0) && engineTabs->isTabOn (2) && ! engineTabs->isTabOn (1) && ! engineTabs->isTabOn (3),
++                    "the ARP and PROB SEQ tabs light while they are on, EUCLID's and CLIP's don't");
++            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ plays instead of the ARP",
++                    "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
++
++            // The arp's settings step back while PROB SEQ plays instead.
++            KnobControl* arpGate = nullptr;
++            {
++                std::vector<KnobControl*> knobs;
++                findAll<KnobControl> (*editor, knobs);
++                for (auto* knob : knobs)
++                    if (knob->getParameterId() == "arp_gate")
++                        arpGate = knob;
++            }
++            expect (arpGate != nullptr && arpGate->getAlpha() < 0.99f, "the ARP's GATE dims while PROB SEQ plays instead");
++            set ("pseq_on", 0.0f);
++            settle (300);
++            expect (arpGate != nullptr && arpGate->getAlpha() > 0.99f && ! engineTabs->isTabOn (2), "and lights again once PROB SEQ is off");
++
++            // The arp's lanes (S6-23): a drag down VELOCITY over steps 3-5
++            // draws them in one undo step; the defaults leave every step as
++            // it was.
++            if (auto* lanes = findChild<ArpLanesEditor> (*editor); lanes != nullptr && visibleInTree (lanes))
++            {
++                const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged)
++                {
++                    return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, {}, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
++                                             &component, &component, juce::Time::getCurrentTime(), position, juce::Time::getCurrentTime(),
++                                             1, dragged);
++                };
++                const auto lane = lanes->laneArea (ArpLanesEditor::velocity);
++                const auto low = lane.getBottom() - lane.getHeight() * 0.25f;
++                processor.apvts.copyState();
++                processor.getUndoManager().clearUndoHistory();
++                lanes->mouseDown (event (*lanes, { lanes->cellCentre (0, 2).x, low }, false));
++                lanes->mouseDrag (event (*lanes, { lanes->cellCentre (0, 4).x, low }, true));
++                lanes->mouseUp (event (*lanes, { lanes->cellCentre (0, 4).x, low }, true));
++                processor.apvts.copyState();
++                const auto steps = processor.getUndoManager().getUndoDescriptions();
++                const auto read = [&processor] (const char* id) { return juce::roundToInt (processor.apvts.getRawParameterValue (id)->load()); };
++                expect (read ("arp_vel3") < 50 && read ("arp_vel4") < 50 && read ("arp_vel5") < 50 && read ("arp_vel6") == 100
++                            && read ("arp_vel2") == 100 && steps.size() == 1 && steps[0] == "Arp velocity",
++                        "dragging across the arp's VELOCITY lane draws steps 3-5 (" + juce::String (read ("arp_vel4"))
++                            + ") in one undo step ('" + steps.joinIntoString ("', '") + "')");
++                lanes->mouseDoubleClick (event (*lanes, lanes->cellCentre (0, 3), false));
++                expect (read ("arp_vel4") == 100, "a double-click puts an arp step back to its defaults");
++
++                // A click on a step number sets how many steps loop.
++                lanes->mouseDown (event (*lanes, lanes->cellCentre (-1, 11), false));
++                lanes->mouseUp (event (*lanes, lanes->cellCentre (-1, 11), false));
++                expect (read ("arp_steps") == 12, "clicking step 12's number loops 12 arp steps");
++                for (const auto* id : { "arp_steps", "arp_vel3", "arp_vel5" })
++                    set (id, processor.apvts.getParameter (id)->convertFrom0to1 (processor.apvts.getParameter (id)->getDefaultValue()));
++            }
++            else
++            {
++                expect (false, "the ARP tab shows the arp's step lanes");
++            }
++            set ("arp_on", 0.0f);
++
++            // EXPAND (S6-10): the clip roll takes the page, GENERATE folds to
++            // its title line; COLLAPSE brings it back.
++            engineTabs->setSelected (3, true);
++            settle (200);
++            juce::TextButton* expandButton = nullptr;
++            {
++                std::vector<juce::TextButton*> buttons;
++                findAll<juce::TextButton> (*editor, buttons);
++                for (auto* button : buttons)
++                    if (button->getButtonText() == "EXPAND" && visibleInTree (button))
++                        expandButton = button;
++            }
++            auto* roll = findChild<ClipEditor> (*editor);
++            expect (expandButton != nullptr && roll != nullptr, "the CLIP tab has the roll and an EXPAND button");
++
++            if (expandButton != nullptr && roll != nullptr)
++            {
++                const auto before = roll->getHeight();
++                expandButton->triggerClick();
++                settle (200);
++                const auto expanded = roll->getHeight();
++                const auto generateHidden = ! visibleWith ("spray_count") && ! visibleWith ("spray_strum_time");
++                const auto collapseText = expandButton->getButtonText();
++                expandButton->triggerClick();
++                settle (200);
++                expect (expanded > before + 80 && generateHidden && collapseText == "COLLAPSE",
++                        "EXPAND gives the clip roll the page (" + juce::String (before) + " -> " + juce::String (expanded)
++                            + " px) and folds GENERATE away");
++                expect (roll->getHeight() == before && visibleWith ("spray_count") && expandButton->getButtonText() == "EXPAND",
++                        "COLLAPSE brings GENERATE back");
++            }
++
++            engineTabs->setSelected (0, true);
+         }
+     }
+ 
+@@ -4732,6 +4934,37 @@ int main (int argc, char** argv)
+ 
+             settle (200);
+             save (*editor, outDir.getChildFile ("gen-clip.png"));
++
++            // Review 6: the roll expanded over a folded GENERATE.
++            {
++                std::vector<juce::TextButton*> buttons;
++                findAll<juce::TextButton> (*editor, buttons);
++                for (auto* button : buttons)
++                    if (button->getButtonText() == "EXPAND" && visibleInTree (button))
++                    {
++                        button->triggerClick();
++                        settle (300);
++                        save (*editor, outDir.getChildFile ("gen-clip-expanded.png"));
++                        button->triggerClick();
++                        settle (100);
++                        break;
++                    }
++            }
++
++            // Review 6: the arp's step lanes, drawn, with the arp on.
++            set ("clip_on", 0.0f);
++            set ("euc_on", 0.0f);
++            set ("arp_on", 1.0f);
++            set ("arp_steps", 12.0f);
++            for (int step = 1; step <= 16; ++step)
++            {
++                set ("arp_vel" + juce::String (step), (float) (step % 4 == 1 ? 120 : 60 + (step * 23) % 50));
++                set ("arp_len" + juce::String (step), step % 6 == 0 ? 0.0f : step % 4 == 3 ? 1.6f : 0.6f + 0.1f * (float) (step % 3));
++                set ("arp_pitch" + juce::String (step), (float) (step % 8 == 5 ? 12 : step % 8 == 7 ? -5 : step % 4 == 2 ? 7 : 0));
++            }
++            engineTabs->setSelected (0, true);
++            settle (400);
++            save (*editor, outDir.getChildFile ("gen-arp-lanes.png"));
+             engineTabs->setSelected (0, true);
+         }
+ 

@@ -1173,17 +1173,17 @@ int runUiTests()
     // one gesture at a time, EDITED sees it, and a load over an edited patch
     // asks once.
     {
-        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged)
+        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks = 1)
         {
             return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(),
                                      1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
-                                     position, juce::Time::getCurrentTime(), 1, dragged);
+                                     position, juce::Time::getCurrentTime(), clicks, dragged);
         };
-        const auto gesture = [&event] (juce::Component& component, juce::Point<float> from, juce::Point<float> to)
+        const auto gesture = [&event] (juce::Component& component, juce::Point<float> from, juce::Point<float> to, int clicks = 1)
         {
-            component.mouseDown (event (component, from, false));
-            component.mouseDrag (event (component, to, true));
-            component.mouseUp (event (component, to, true));
+            component.mouseDown (event (component, from, false, clicks));
+            component.mouseDrag (event (component, to, true, clicks));
+            component.mouseUp (event (component, to, true, clicks));
         };
         const auto sameCurve = [] (const LfoCurve& a, const LfoCurve& b) { return a.toString() == b.toString(); };
 
@@ -1238,7 +1238,7 @@ int runUiTests()
             ClipEditor clips (processor, juce::Colours::orange);
             clips.setSize (400, 200);
             clearHistory();
-            gesture (clips, { 80.0f, 100.0f }, { 80.0f, 100.0f });
+            gesture (clips, { 80.0f, 100.0f }, { 80.0f, 100.0f }, 2); // a double-click adds a note
             settle (50);
             const auto steps = undoSteps();
             const auto edited = pages->isPatchEdited();
@@ -1289,6 +1289,162 @@ int runUiTests()
         {
             expect (false, "the editor has the confirm overlay and the next button");
         }
+    }
+
+    // UI review 4 (S9): the clip piano roll's grid menu, velocity lane,
+    // selection and copy / paste / duplicate / nudge keys, each edit one
+    // undo step. A 400 x 200 roll on a 2-bar clip: 45 px a beat from x = 34,
+    // the velocity lane from y = 154 to 196.
+    {
+        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks,
+                               juce::ModifierKeys mods)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, mods,
+                                     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                     position, juce::Time::getCurrentTime(), clicks, dragged);
+        };
+        const auto gesture = [&event] (juce::Component& component, juce::Point<float> from, juce::Point<float> to,
+                                       int clicks = 1, juce::ModifierKeys mods = {})
+        {
+            component.mouseDown (event (component, from, false, clicks, mods));
+            component.mouseDrag (event (component, to, true, clicks, mods));
+            component.mouseUp (event (component, to, true, clicks, mods));
+        };
+        const auto command = [] (char letter) { return juce::KeyPress (letter, juce::ModifierKeys::commandModifier, 0); };
+        const auto x = [] (float beat) { return 34.0f + 45.0f * beat; };
+        const auto starts = [] (const Clip& clip)
+        {
+            juce::StringArray list;
+            for (const auto& n : clip.notes)
+                list.add (juce::String (n.start, 3) + "/" + juce::String (n.note) + "/" + juce::String (n.velocity));
+            return list.joinIntoString (" ");
+        };
+
+        processor.loadFactoryPreset (0);
+        settle (100);
+        ClipEditor roll (processor, juce::Colours::orange);
+        roll.setSize (400, 200);
+
+        // GRID: 1/32 puts a dragged note on 32nds (1/16 would give 2.5).
+        roll.setGrid (3);
+        clearHistory();
+        gesture (roll, { x (1.3f), 100.0f }, { x (2.62f), 100.0f }, 2);
+        auto steps = undoSteps();
+        auto shown = processor.getClipState().getClip (0);
+        expect (roll.getGrid() == 3 && shown.notes.size() == 1 && std::abs (shown.notes[0].start - 2.625f) < 1.0e-4f
+                    && shown.notes[0].velocity == 100 && steps.size() == 1,
+                "the clip grid set to 1/32 snaps a placed and dragged note to 32nds, in one undo step (" + starts (shown) + ")");
+        expect (std::abs (ClipEditor::gridBeats (5) - 1.0f / 3.0f) < 1.0e-5f && std::abs (ClipEditor::gridBeats (3) - 0.125f) < 1.0e-6f
+                    && ClipEditor::numGrids == 8 && ClipEditor::defaultGrid == 2,
+                "the clip grid has 1/4 to 1/32 straight and triplet, 1/16 by default");
+
+        // Velocity: a drag in the lane sets the bar under it; new notes take it.
+        clearHistory();
+        gesture (roll, { x (2.625f) + 1.0f, 190.0f }, { x (2.625f) + 1.0f, 160.0f });
+        steps = undoSteps();
+        const auto velocity = processor.getClipState().getClip (0).notes[0].velocity;
+        processor.getUndoManager().undo();
+        const auto undoneVelocity = processor.getClipState().getClip (0).notes[0].velocity;
+        processor.getUndoManager().redo();
+        roll.reload (false);
+        expect (velocity > 110 && velocity < 127 && steps.size() == 1 && steps[0] == "Clip velocity" && undoneVelocity == 100,
+                "dragging a clip note's velocity bar sets it (" + juce::String (velocity) + ") in one undo step; undo puts back 100");
+        gesture (roll, { x (5.1f), 100.0f }, { x (5.1f), 100.0f }, 2);
+        shown = processor.getClipState().getClip (0);
+        expect (shown.notes.size() == 2 && shown.notes[1].velocity == velocity && std::abs (shown.notes[1].start - 5.0f) < 1.0e-4f,
+                "a note added after a velocity drag takes that velocity (" + starts (shown) + ")");
+
+        // A single click on empty space no longer writes a note.
+        clearHistory();
+        gesture (roll, { x (6.6f), 60.0f }, { x (6.6f), 60.0f });
+        expect (processor.getClipState().getClip (0).notes.size() == 2 && undoSteps().isEmpty() && roll.getNumSelected() == 0,
+                "a single click on an empty clip row writes nothing and clears the selection");
+
+        // Rubber band: notes on beats 0-3 (60, 62, 64, 65); a band over
+        // beats 1.2-2.5 picks the second and third; Delete removes them.
+        {
+            Clip four;
+            four.bars = 2;
+            for (const auto& [start, note] : { std::pair<float, int> { 0.0f, 60 }, { 1.0f, 62 }, { 2.0f, 64 }, { 3.0f, 65 } })
+                four.notes.push_back ({ start, 1.0f, note, 100 });
+            processor.getClipState().setClip (0, four);
+            processor.clipsEdited();
+        }
+        roll.setGrid (ClipEditor::defaultGrid);
+        roll.reload (true);
+        clearHistory();
+        gesture (roll, { x (1.2f), 30.0f }, { x (2.5f), 145.0f });
+        const auto banded = roll.getNumSelected();
+        const auto bandSteps = undoSteps().size();
+        roll.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey));
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (banded == 2 && bandSteps == 0 && shown.notes.size() == 2 && shown.notes[0].note == 60 && shown.notes[1].note == 65
+                    && steps.size() == 1 && steps[0] == "Delete clip notes",
+                "a rubber band over two clip notes selects them (no undo step) and Delete removes both in one step (" + starts (shown) + ")");
+        processor.getUndoManager().undo();
+        expect (processor.getClipState().getClip (0).notes.size() == 4, "undoing the delete brings both notes back");
+
+        // A click picks one note, shift-click adds one; neither edits.
+        roll.reload (false);
+        const auto noteY = [] (int note) { return 4.0f + 145.76f - ((float) (note - 52) + 0.5f) * (145.76f / 21.0f); };
+        clearHistory();
+        gesture (roll, { x (0.5f), noteY (60) }, { x (0.5f), noteY (60) });
+        gesture (roll, { x (3.5f), noteY (65) }, { x (3.5f), noteY (65) }, 1, juce::ModifierKeys::shiftModifier);
+        const auto shiftPicked = roll.getNumSelected();
+        gesture (roll, { x (1.5f), noteY (62) }, { x (1.5f), noteY (62) });
+        expect (shiftPicked == 2 && roll.getNumSelected() == 1 && undoSteps().isEmpty(),
+                "clicking a clip note selects it, shift-click adds one, neither changes the clip");
+
+        // Copy and paste after the selection; duplicate; each one step.
+        clearHistory();
+        roll.keyPressed (command ('a'));
+        const auto all = roll.getNumSelected();
+        roll.keyPressed (command ('c'));
+        roll.keyPressed (command ('v'));
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        const auto pasted = shown.notes.size() == 8 && std::abs (shown.notes[4].start - 4.0f) < 1.0e-4f
+                         && std::abs (shown.notes[7].start - 7.0f) < 1.0e-4f;
+        expect (all == 4 && pasted && steps.size() == 1 && steps[0] == "Paste clip notes" && roll.getNumSelected() == 4,
+                "Ctrl+A, Ctrl+C, Ctrl+V pastes the four notes after them in one undo step, selected (" + starts (shown) + ")");
+        processor.getUndoManager().undo();
+        roll.reload (false);
+        clearHistory();
+        roll.keyPressed (command ('a'));
+        roll.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)); // already at the start: stays
+        roll.keyPressed (command ('d'));
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (shown.notes.size() == 8 && std::abs (shown.notes[4].start - 4.0f) < 1.0e-4f && steps.size() == 1
+                    && steps[0] == "Duplicate clip notes",
+                "Ctrl+D duplicates the selection after itself in one undo step ('" + steps.joinIntoString ("', '") + "')");
+        processor.getUndoManager().undo();
+        expect (processor.getClipState().getClip (0).notes.size() == 4, "undoing the duplicate leaves the four notes");
+
+        // Arrows nudge: up a semitone, shift+right a bar.
+        roll.reload (false);
+        clearHistory();
+        roll.keyPressed (command ('a'));
+        roll.keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+        roll.keyPressed (juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier, 0));
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (shown.notes.size() == 4 && shown.notes[0].note == 61 && std::abs (shown.notes[0].start - 4.0f) < 1.0e-4f
+                    && steps.size() == 2 && steps[0] == "Nudge clip notes",
+                "up nudges the selected notes a semitone and shift+right a bar, a step each (" + starts (shown) + ")");
+
+        // Ctrl+wheel zooms in time; the plain wheel still scrolls pitch.
+        juce::MouseWheelDetails wheel {};
+        wheel.deltaY = 0.5f;
+        roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, juce::ModifierKeys::commandModifier), wheel);
+        const auto zoomed = roll.getZoom();
+        roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), wheel);
+        expect (zoomed > 1.1f && std::abs (roll.getZoom() - zoomed) < 1.0e-6f,
+                "Ctrl+wheel zooms the clip roll in time, the wheel alone doesn't");
+
+        processor.loadFactoryPreset (0);
+        settle (100);
     }
 
     // Init puts the modules back to three each and forgets the old patch's
@@ -4285,6 +4441,36 @@ int main (int argc, char** argv)
             engineTabs->setSelected (2, true);
             settle (400);
             save (*editor, outDir.getChildFile ("gen-probseq.png"));
+
+            // The CLIP tab with a short riff and chords at mixed velocities.
+            {
+                Clip riff;
+                riff.bars = 2;
+                const int pitches[] = { 48, 55, 60, 58, 55, 51, 53, 55 };
+                for (int i = 0; i < 8; ++i)
+                    riff.notes.push_back ({ (float) i * 0.75f, 0.5f, pitches[i], 60 + (i * 37) % 67 });
+                for (const auto& [start, root] : { std::pair<float, int> { 0.0f, 63 }, { 4.0f, 65 } })
+                    for (const auto interval : { 0, 4, 7 })
+                        riff.notes.push_back ({ start, 3.5f, root + interval, 90 });
+                processor.getClipState().setClip (0, riff);
+                processor.clipsEdited();
+            }
+            set ("pseq_on", 0.0f);
+            set ("clip_on", 1.0f);
+            engineTabs->setSelected (3, true);
+            settle (200);
+
+            if (auto* roll = findChild<ClipEditor> (*editor))
+            {
+                roll->reload (true);
+                roll->keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));
+                settle (200);
+                save (*editor, outDir.getChildFile ("gen-clip-selected.png"));
+                roll->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+            }
+
+            settle (200);
+            save (*editor, outDir.getChildFile ("gen-clip.png"));
             engineTabs->setSelected (0, true);
         }
 

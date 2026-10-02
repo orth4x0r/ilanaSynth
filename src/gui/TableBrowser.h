@@ -238,9 +238,12 @@ private:
 
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
         {
-            parameter->beginChangeGesture();
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) choice));
-            parameter->endChangeGesture();
+            processorRef.performEdit (parameter->getName (64), [parameter, choice]
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) choice));
+                parameter->endChangeGesture();
+            });
         }
 
         if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())

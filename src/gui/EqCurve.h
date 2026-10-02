@@ -101,9 +101,13 @@ public:
         dragBand = bandAt (event.position);
 
         if (dragBand >= 0)
+        {
+            processorRef.beginEdit ("EQ band " + juce::String (dragBand + 1));
+
             for (auto* parameter : bandParameters (dragBand))
                 if (parameter != nullptr)
                     parameter->beginChangeGesture();
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
@@ -131,6 +135,7 @@ public:
                 if (parameter != nullptr)
                     parameter->endChangeGesture();
 
+        processorRef.endEdit();
         dragBand = -1;
     }
 
@@ -140,7 +145,8 @@ public:
 
         if (band >= 0)
             if (auto* gain = bandParameters (band)[1])
-                gain->setValueNotifyingHost (gain->convertTo0to1 (0.0f));
+                processorRef.performEdit ("Reset EQ band " + juce::String (band + 1) + " gain",
+                                          [gain] { gain->setValueNotifyingHost (gain->convertTo0to1 (0.0f)); });
     }
 
 private:

@@ -181,7 +181,7 @@ public:
                 "Drag a source chip (bottom row) onto any knob to modulate it, then drag its coloured dot to set the depth.",
                 "Each oscillator can be a wavetable, a physical string, a sample or grains: pick it in MODE. TABLE opens the browser.",
                 "The FX rack starts empty: click an effect to add it, drag slots to reorder, switch a module off in its header.",
-                "The dice rolls a fresh patch and " + commandKey() + "+Z undoes anything; " + juce::String (presetCount) + " factory presets are one click away in the name box."
+                "The dice rolls a fresh patch; " + commandKey() + "+Z steps back through knob, graph, curve and clip edits and preset loads. " + juce::String (presetCount) + " factory presets are one click away in the name box."
             };
 
             drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", tips);

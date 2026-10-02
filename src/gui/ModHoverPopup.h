@@ -81,11 +81,18 @@ public:
         if (slot < 0)
             return;
 
-        if (action == RowAction::remove)
-            processorRef.clearModSlot (slot);
-        else
-            withGesture (slot, "byp", [&] (juce::RangedAudioParameter& p)
-                         { p.setValueNotifyingHost (p.convertTo0to1 (rows[(size_t) row].bypass ? 0.0f : 1.0f)); });
+        const auto bypassed = rows[(size_t) row].bypass;
+        processorRef.performEdit (action == RowAction::remove ? "Remove modulation"
+                                  : bypassed                  ? "Enable modulation"
+                                                              : "Bypass modulation",
+                                  [&]
+                                  {
+                                      if (action == RowAction::remove)
+                                          processorRef.clearModSlot (slot);
+                                      else
+                                          withGesture (slot, "byp", [&] (juce::RangedAudioParameter& p)
+                                                       { p.setValueNotifyingHost (p.convertTo0to1 (bypassed ? 0.0f : 1.0f)); });
+                                  });
 
         refresh();
     }
@@ -112,7 +119,10 @@ public:
         dragParameter = processorRef.apvts.getParameter (processorRef.getModSlotParamId (dragSlot, "amt"));
 
         if (dragParameter != nullptr)
+        {
+            processorRef.beginEdit (Mod::getSourceNames()[rows[(size_t) row].source] + " depth");
             dragParameter->beginChangeGesture();
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
@@ -129,7 +139,10 @@ public:
     void mouseUp (const juce::MouseEvent&) override
     {
         if (dragParameter != nullptr)
+        {
             dragParameter->endChangeGesture();
+            processorRef.endEdit();
+        }
 
         dragParameter = nullptr;
         dragRow = -1;
@@ -143,8 +156,11 @@ public:
         if (row < 0 || event.mods.isPopupMenu())
             return;
 
-        withGesture (rows[(size_t) row].slot, "amt", [] (juce::RangedAudioParameter& p)
-                     { p.setValueNotifyingHost (p.convertTo0to1 (0.0f)); });
+        processorRef.performEdit ("Zero " + Mod::getSourceNames()[rows[(size_t) row].source] + " depth", [&]
+        {
+            withGesture (rows[(size_t) row].slot, "amt", [] (juce::RangedAudioParameter& p)
+                         { p.setValueNotifyingHost (p.convertTo0to1 (0.0f)); });
+        });
         refresh();
     }
 
@@ -260,7 +276,10 @@ private:
     void dismiss()
     {
         if (dragParameter != nullptr)
+        {
             dragParameter->endChangeGesture();
+            processorRef.endEdit();
+        }
 
         dragParameter = nullptr;
         dragRow = -1;

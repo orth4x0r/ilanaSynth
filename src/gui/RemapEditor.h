@@ -121,12 +121,15 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         dragPoint = dragTension = -1;
+        curve = processorRef.getModRemap (slotIndex); // an undo may have changed it
 
         if (event.mods.isPopupMenu())
         {
             showMenu();
             return;
         }
+
+        processorRef.beginEdit (editName());
 
         dragPoint = hitPoint (event.position);
         if (dragPoint < 0)
@@ -174,24 +177,43 @@ public:
         }
     }
 
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        dragPoint = dragTension = -1;
+        processorRef.endEdit();
+    }
+
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
-        const auto hit = hitPoint (event.position);
+        processorRef.performEdit (editName(), [this, &event]
+        {
+            curve = processorRef.getModRemap (slotIndex);
+            const auto hit = hitPoint (event.position);
 
-        if (hit > 0 && hit < (int) curve.points.size() - 1)
-        {
-            curve.points.erase (curve.points.begin() + hit);
-            commit();
-        }
-        else if (const auto segment = hitTension (event.position); segment >= 0)
-        {
-            curve.points[(size_t) segment].tension = 0.0f;
-            commit();
-        }
+            if (hit > 0 && hit < (int) curve.points.size() - 1)
+            {
+                curve.points.erase (curve.points.begin() + hit);
+                commit();
+            }
+            else if (const auto segment = hitTension (event.position); segment >= 0)
+            {
+                curve.points[(size_t) segment].tension = 0.0f;
+                commit();
+            }
+        });
     }
 
 private:
-    void timerCallback() override { repaint(); }
+    juce::String editName() const { return "Remap curve " + juce::String (slotIndex + 1); }
+
+    void timerCallback() override
+    {
+        // Follows undo and redo between gestures.
+        if (! isMouseButtonDown())
+            curve = processorRef.getModRemap (slotIndex);
+
+        repaint();
+    }
 
     juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().withTrimmedTop (24.0f).reduced (12.0f, 10.0f); }
 
@@ -263,6 +285,8 @@ private:
                 return;
 
             auto& self = *safeThis;
+            self.processorRef.beginEdit (self.editName());
+
             if (result >= 100 && result < 200)
             {
                 self.curve = shape (result - 100);
@@ -289,6 +313,7 @@ private:
                 self.curve = reversed;
             }
             self.commit();
+            self.processorRef.endEdit();
         });
     }
 

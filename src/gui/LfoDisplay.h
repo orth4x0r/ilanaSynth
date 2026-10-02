@@ -267,6 +267,10 @@ private:
     {
         const auto shape = (int) readParam ("_shape");
 
+        // One undo step per stroke (the curve's right-click menu makes its own).
+        if (shape == 6 || shape == 7 || (shape == IlanaSynthAudioProcessor::curveShape && ! event.mods.isPopupMenu()))
+            processorRef.beginEdit (editName (shape));
+
         if (shape == IlanaSynthAudioProcessor::curveShape)
             curveMouseDown (event);
         else if (shape == 6)
@@ -292,20 +296,30 @@ private:
         if ((int) readParam ("_shape") != IlanaSynthAudioProcessor::curveShape)
             return;
 
-        curve = processorRef.getLfoCurve (index);
-        const auto hit = hitPoint (event.position);
+        processorRef.performEdit (editName (IlanaSynthAudioProcessor::curveShape), [this, &event]
+        {
+            curve = processorRef.getLfoCurve (index);
+            const auto hit = hitPoint (event.position);
 
-        // Double-click removes a point (the ends stay) or straightens a segment.
-        if (hit > 0 && hit < (int) curve.points.size() - 1)
-        {
-            curve.points.erase (curve.points.begin() + hit);
-            commitCurve();
-        }
-        else if (const auto segment = hitTension (event.position); segment >= 0)
-        {
-            curve.points[(size_t) segment].tension = 0.0f;
-            commitCurve();
-        }
+            // Double-click removes a point (the ends stay) or straightens a segment.
+            if (hit > 0 && hit < (int) curve.points.size() - 1)
+            {
+                curve.points.erase (curve.points.begin() + hit);
+                commitCurve();
+            }
+            else if (const auto segment = hitTension (event.position); segment >= 0)
+            {
+                curve.points[(size_t) segment].tension = 0.0f;
+                commitCurve();
+            }
+        });
+    }
+
+    // The undo step's name for an edit of this LFO's shape.
+    juce::String editName (int shape) const
+    {
+        return "LFO " + juce::String (index + 1) + (shape == IlanaSynthAudioProcessor::curveShape ? " curve"
+                                                    : shape == 6 ? " drawing" : " steps");
     }
 
     void lookAndFeelChanged() override
@@ -470,12 +484,19 @@ private:
                                     return;
 
                                 auto& self = *safeThis;
+
+                                if (result >= 200 && result < 300)
+                                {
+                                    self.gridDivisions = result - 200;
+                                    self.repaint();
+                                    return;
+                                }
+
+                                self.processorRef.beginEdit (self.editName (IlanaSynthAudioProcessor::curveShape));
                                 self.curve = self.processorRef.getLfoCurve (self.index);
 
                                 if (result >= 100 && result < 200)
                                     self.curve = LfoCurve::preset (result - 100);
-                                else if (result >= 200 && result < 300)
-                                    self.gridDivisions = result - 200;
                                 else if (result == 300)
                                     for (auto& point : self.curve.points)
                                         point.y = -point.y;
@@ -496,6 +517,7 @@ private:
                                 }
 
                                 self.commitCurve();
+                                self.processorRef.endEdit();
                             });
     }
 
@@ -640,6 +662,8 @@ private:
             gestureParameter->endChangeGesture();
             gestureParameter = nullptr;
         }
+
+        processorRef.endEdit();
     }
 
     void timerCallback() override

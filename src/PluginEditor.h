@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "gui/HeaderWidgets.h"
+#include "gui/ConfirmOverlay.h"
 #include "gui/IlanaLookAndFeel.h"
 #include "gui/InfoStrip.h"
 #include "gui/KeyboardStrip.h"
@@ -52,6 +53,14 @@ public:
     void setScopeOpen (bool shouldBeOpen);
     bool isScopeOpen() const;
 
+    // UI review 4 (S1): EDITED covers parameters and the patch's other data
+    // (drawn curves, remaps, clips); a load or random patch that would
+    // replace an edited patch asks first, unless the user ticked "Don't ask
+    // again" (settings file, also in the settings menu).
+    bool isPatchEdited() const;
+    bool asksBeforeReplacingEdits() const;
+    void setAsksBeforeReplacingEdits (bool shouldAsk);
+
 private:
     struct Content : public juce::Component
     {
@@ -81,7 +90,11 @@ private:
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);
-    void loadPresetIndex (int index);
+    // Asks first when the patch is edited (see isPatchEdited).
+    void loadPresetIndex (int index, std::function<void (bool loaded)> then = {});
+    void confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
+                                std::function<void (bool confirmed)> then);
+    void undoOrRedo (bool redo);
     void updateHeaderButtons();
     void updateUndoButtons();
     void showHistoryMenu();
@@ -114,6 +127,7 @@ private:
     LogoComponent logo;
     InfoStrip infoStrip;
     TutorialOverlay tutorial;
+    ConfirmOverlay confirmOverlay;
 
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     std::vector<SectionPage*> sections; // owned by tabs

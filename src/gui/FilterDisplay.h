@@ -330,6 +330,7 @@ private:
 
         if (draggingFilter >= 0)
         {
+            processorRef.beginEdit ("Filter " + juce::String (draggingFilter + 1) + " graph");
             beginGestures (draggingFilter);
             applyDrag (event.position);
         }
@@ -341,7 +342,11 @@ private:
             applyDrag (event.position);
     }
 
-    void mouseUp (const juce::MouseEvent&) override { endGestures(); }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        endGestures();
+        processorRef.endEdit();
+    }
 
     void applyDrag (juce::Point<float> position)
     {

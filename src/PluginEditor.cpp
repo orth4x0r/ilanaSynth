@@ -316,8 +316,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     saveButton.setEmphasis (true);
     saveButton.onClick = [this] { savePreset(); };
     moreButton.onClick = [this] { showPresetMenu(); };
-    undoButton.onClick = [this] { processorRef.getUndoManager().undo(); };
-    redoButton.onClick = [this] { processorRef.getUndoManager().redo(); };
+    undoButton.onClick = [this] { undoOrRedo (false); };
+    redoButton.onClick = [this] { undoOrRedo (true); };
     historyButton.onClick = [this] { showHistoryMenu(); };
     abButton.setButtonText ("A/B:  A");
     abButton.setTooltip ("Compare\nFlip between two versions of the patch (A and B) to compare them.");
@@ -403,6 +403,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     tutorial.setPresetCount (processorRef.getFactoryPresetNames().size());
     content.addAndMakeVisible (tutorial);
+    content.addChildComponent (confirmOverlay);
 
     // Applied after adding: addAndMakeVisible forces the component visible.
     tutorial.setVisible (! settings->getBoolValue ("seenIntro", false));
@@ -941,6 +942,7 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     infoStrip.setBounds (area.removeFromBottom (22).reduced (14, 2));
     tutorial.setBounds (content.getLocalBounds());
+    confirmOverlay.setBounds (content.getLocalBounds());
 
     auto strip = area.removeFromBottom (52).reduced (14, 1);
     outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, 48));
@@ -1101,6 +1103,8 @@ void IlanaSynthAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
     resized();
 }
 
+// Every parameter, plus the patch data that isn't a parameter (drawn LFO
+// steps and curves, remap curves, clips), so drawing lights EDITED too.
 juce::int64 IlanaSynthAudioProcessorEditor::parameterFingerprint() const
 {
     juce::int64 hash = 0;
@@ -1112,7 +1116,67 @@ juce::int64 IlanaSynthAudioProcessorEditor::parameterFingerprint() const
         ++index;
     }
 
-    return hash;
+    return hash ^ processorRef.getPatchDataHash();
+}
+
+bool IlanaSynthAudioProcessorEditor::isPatchEdited() const
+{
+    return parameterFingerprint() != loadedFingerprint;
+}
+
+bool IlanaSynthAudioProcessorEditor::asksBeforeReplacingEdits() const
+{
+    return settings == nullptr || settings->getBoolValue ("confirmReplaceEdited", true);
+}
+
+void IlanaSynthAudioProcessorEditor::setAsksBeforeReplacingEdits (bool shouldAsk)
+{
+    if (settings != nullptr)
+    {
+        settings->setValue ("confirmReplaceEdited", shouldAsk);
+        settings->saveIfNeeded();
+    }
+}
+
+// Runs then (true) at once while the patch is unedited; otherwise asks.
+// Stepping through presets asks once: the patch it lands on is unedited.
+void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
+                                                            std::function<void (bool confirmed)> then)
+{
+    if (! isPatchEdited() || ! asksBeforeReplacingEdits())
+    {
+        then (true);
+        return;
+    }
+
+    const auto current = processorRef.getCurrentPresetName();
+    confirmOverlay.ask ("Replace your edits?",
+                        "'" + (current.isNotEmpty() ? current : juce::String ("Init")) + "' has changes that aren't saved. "
+                            + replacement + " replaces them.",
+                        confirmText,
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), then] (bool confirmed, bool dontAsk)
+                        {
+                            if (safeThis == nullptr)
+                                return;
+
+                            if (confirmed && dontAsk)
+                                safeThis->setAsksBeforeReplacingEdits (false);
+
+                            then (confirmed);
+                        });
+}
+
+// Edits still open (a gesture without its mouse-up, parameter changes not
+// yet in the tree) join their own step before it is undone.
+void IlanaSynthAudioProcessorEditor::undoOrRedo (bool redo)
+{
+    processorRef.endEdit();
+    processorRef.apvts.copyState();
+
+    if (redo)
+        processorRef.getUndoManager().redo();
+    else
+        processorRef.getUndoManager().undo();
 }
 
 void IlanaSynthAudioProcessorEditor::savePreset()
@@ -1176,22 +1240,53 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
                               {
                                   const auto file = chooser.getResult();
 
-                                  if (file.existsAsFile() && safeThis != nullptr)
-                                      safeThis->processorRef.loadPresetFromFile (file);
+                                  if (! file.existsAsFile() || safeThis == nullptr)
+                                      return;
+
+                                  safeThis->confirmReplacingPatch ("Loading '" + file.getFileNameWithoutExtension() + "'", "Load anyway",
+                                                                   [safeThis, file] (bool confirmed)
+                                                                   {
+                                                                       if (! confirmed || safeThis == nullptr)
+                                                                           return;
+
+                                                                       auto& processor = safeThis->processorRef;
+                                                                       processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
+                                                                       processor.loadPresetFromFile (file);
+                                                                       processor.endEdit();
+                                                                   });
                               });
 }
 
-void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index)
+void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<void (bool loaded)> then)
 {
-    // One undo step for the whole preset, apart from the last edit.
     const auto names = processorRef.getAllPresetNames();
-    processorRef.getUndoManager().beginNewTransaction ("Load " + names[index]);
-    processorRef.loadPresetByIndex (index);
-    presetLoadFlash = 1.0f;
-    animator.startTimerHz (60);
 
-    updateHeaderButtons();
-    rememberLoadedFingerprint();
+    if (! juce::isPositiveAndBelow (index, names.size()))
+        return;
+
+    confirmReplacingPatch ("Loading '" + names[index] + "'", "Load anyway",
+                           [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), index, name = names[index], then] (bool confirmed)
+                           {
+                               if (safeThis == nullptr)
+                                   return;
+
+                               if (confirmed)
+                               {
+                                   // One undo step for the whole preset, its data included.
+                                   auto& self = *safeThis;
+                                   self.processorRef.beginEdit ("Load " + name);
+                                   self.processorRef.loadPresetByIndex (index);
+                                   self.processorRef.endEdit();
+                                   self.presetLoadFlash = 1.0f;
+                                   self.animator.startTimerHz (60);
+
+                                   self.updateHeaderButtons();
+                                   self.rememberLoadedFingerprint();
+                               }
+
+                               if (then != nullptr)
+                                   then (confirmed);
+                           });
 }
 
 void IlanaSynthAudioProcessorEditor::showHistoryMenu()
@@ -1239,17 +1334,15 @@ void IlanaSynthAudioProcessorEditor::showHistoryMenu()
                             if (safeThis == nullptr || result < 1000)
                                 return;
 
-                            auto& manager = safeThis->processorRef.getUndoManager();
-
                             if (result < 2000)
                             {
                                 for (int i = 0; i <= result - 1000; ++i)
-                                    manager.undo();
+                                    safeThis->undoOrRedo (false);
                             }
                             else
                             {
                                 for (int i = 0; i <= result - 2000; ++i)
-                                    manager.redo();
+                                    safeThis->undoOrRedo (true);
                             }
 
                             safeThis->updateHeaderButtons();
@@ -1430,16 +1523,37 @@ void IlanaSynthAudioProcessorEditor::showDiceMenu()
                             if (safeThis == nullptr || result == 0)
                                 return;
 
+                            // Each roll is one named undo step.
+                            const juce::String names[] { {}, "Random patch", "Random oscillators", "Random filters",
+                                                         "Random envelopes", "Random modulation", "Random effects" };
+                            const auto name = result <= 6 ? names[result] : juce::String (result == 10 ? "Nudge" : "Shake");
+                            const auto roll = [safeThis, result, name]
+                            {
+                                if (safeThis == nullptr)
+                                    return;
+
+                                auto& self = *safeThis;
+                                self.processorRef.performEdit (name, [&self, result]
+                                {
+                                    if (result == 1)
+                                        self.randomize();
+                                    else if (result == 6)
+                                        self.processorRef.randomizeFxChain();
+                                    else if (result == 10)
+                                        self.mutate (0.06f);
+                                    else if (result == 11)
+                                        self.mutate (0.18f);
+                                    else
+                                        self.randomizeGroup (result);
+                                });
+                            };
+
+                            // A whole new patch replaces the edited one: ask first.
                             if (result == 1)
-                                safeThis->randomize();
-                            else if (result == 6)
-                                safeThis->processorRef.randomizeFxChain();
-                            else if (result == 10)
-                                safeThis->mutate (0.06f);
-                            else if (result == 11)
-                                safeThis->mutate (0.18f);
+                                safeThis->confirmReplacingPatch ("A random patch", "Roll anyway",
+                                                                 [roll] (bool confirmed) { if (confirmed) roll(); });
                             else
-                                safeThis->randomizeGroup (result);
+                                roll();
                         });
 }
 
@@ -1521,6 +1635,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
+    menu.addItem (410, "Ask before replacing an edited patch", true, asksBeforeReplacingEdits());
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
 
@@ -1601,6 +1716,10 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly)
                                 safeThis->tutorial.setVisible (true);
                                 safeThis->tutorial.toFront (false);
                             }
+                            else if (result == 410)
+                            {
+                                safeThis->setAsksBeforeReplacingEdits (! safeThis->asksBeforeReplacingEdits());
+                            }
                             else if (result == 800)
                             {
                                 if (auto* on = safeThis->processorRef.apvts.getParameter ("tuning_on"))
@@ -1646,10 +1765,16 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
     presetPanel = std::make_unique<PresetPanel> (processorRef, settings.get());
     presetPanel->onLoad = [this] (int index, bool closeAfter)
     {
-        loadPresetIndex (index);
+        loadPresetIndex (index, [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), closeAfter] (bool loaded)
+        {
+            if (safeThis == nullptr || safeThis->presetPanel == nullptr)
+                return;
 
-        if (closeAfter && presetPanel != nullptr)
-            presetPanel->close();
+            if (! loaded)
+                safeThis->presetPanel->selectLoadedPreset(); // back to the patch still playing
+            else if (closeAfter)
+                safeThis->presetPanel->close();
+        });
     };
     presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
     presetPanel->setAnchor (&presetDisplay);
@@ -1873,6 +1998,9 @@ void IlanaSynthAudioProcessorEditor::mutate (float amount)
 
 bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
+    if (confirmOverlay.isAsking())
+        return confirmOverlay.keyPressed (key);
+
     if (tutorial.isVisible() && key.getKeyCode() == juce::KeyPress::escapeKey)
     {
         tutorial.dismiss();
@@ -1887,17 +2015,13 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
         if (code == 'Z')
         {
-            if (modifiers.isShiftDown())
-                processorRef.getUndoManager().redo();
-            else
-                processorRef.getUndoManager().undo();
-
+            undoOrRedo (modifiers.isShiftDown());
             return true;
         }
 
         if (code == 'Y')
         {
-            processorRef.getUndoManager().redo();
+            undoOrRedo (true);
             return true;
         }
 

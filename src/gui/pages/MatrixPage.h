@@ -226,7 +226,7 @@ private:
 
     void addStarter (const Starter& starter)
     {
-        processorRef.getUndoManager().beginNewTransaction ("Add " + juce::String (starter.label));
+        processorRef.beginEdit ("Add " + juce::String (starter.label));
         auto next = 0;
 
         for (const auto destination : starter.destinations)
@@ -250,6 +250,7 @@ private:
             ++next;
         }
 
+        processorRef.endEdit();
         updateRows();
     }
 
@@ -263,9 +264,12 @@ private:
             {
                 // A new row starts from LFO 1 with no destination yet, so it
                 // shows up but does nothing until a target is picked.
-                processorRef.clearModSlot (i);
-                processorRef.setModSlotValue (i, "src", (float) Mod::Source::Lfo1);
-                processorRef.setModSlotValue (i, "amt", 0.5f);
+                processorRef.performEdit ("Add routing", [this, i]
+                {
+                    processorRef.clearModSlot (i);
+                    processorRef.setModSlotValue (i, "src", (float) Mod::Source::Lfo1);
+                    processorRef.setModSlotValue (i, "amt", 0.5f);
+                });
                 updateRows();
                 viewport.setViewPosition (0, list.getHeight());
                 return;

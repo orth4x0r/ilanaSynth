@@ -403,6 +403,7 @@ private:
             if (dragParameter != nullptr)
             {
                 dragNormalised = dragParameter->getValue();
+                processorRef.beginEdit (dragParameter->getName (64));
                 dragParameter->beginChangeGesture();
 
                 // The decay handle also sets sustain.
@@ -429,6 +430,7 @@ private:
             sustainGesture = nullptr;
         }
 
+        processorRef.endEdit();
         dragHandle = -1;
         readout.clear();
         repaint();
@@ -501,9 +503,12 @@ private:
 
         if (auto* parameter = parameterFor (suffixForHandle (handle)))
         {
-            parameter->beginChangeGesture();
-            parameter->setValueNotifyingHost (parameter->getDefaultValue());
-            parameter->endChangeGesture();
+            processorRef.performEdit ("Reset " + parameter->getName (64), [parameter]
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                parameter->endChangeGesture();
+            });
         }
     }
 

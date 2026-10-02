@@ -715,9 +715,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     // The rest of the per-patch state a factory preset doesn't carry goes
     // back to its default too, as applyFullState does for a state without it:
-    // macro CCs, drawn LFO shapes, loaded samples and user tables.
+    // macro CCs, drawn LFO shapes, clips, loaded samples and user tables.
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         macroCc[macro].store (20 + macro);
+
+    if (clipState.hasAny())
+        clipState.reset();
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
         for (int i = 0; i < lfoDrawSteps; ++i)

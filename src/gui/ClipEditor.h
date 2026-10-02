@@ -10,7 +10,8 @@
 // The clip sequencer's piano roll: the notes of the clip chosen by CLIP.
 // Click empty space to add a note, drag a note to move it, drag its right
 // edge to resize it, right-click to delete; the wheel scrolls the pitches.
-// Edits go straight to the patch's clips (ClipState).
+// Edits go straight to the patch's clips (ClipState), one undo step per
+// click or drag.
 class ClipEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    private IlanaAnim::FrameTimer
@@ -116,6 +117,12 @@ public:
         dragIndex = -1;
         const auto hit = noteAt (event.position);
 
+        // The whole click or drag is one undo step (ended in mouseUp).
+        processorRef.beginEdit (event.mods.isPopupMenu() ? "Delete clip note"
+                                : hit < 0               ? "Add clip note"
+                                : event.position.x > noteBounds (clip.notes[(size_t) hit]).getRight() - 6.0f ? "Resize clip note"
+                                                                                                              : "Move clip note");
+
         if (event.mods.isPopupMenu())
         {
             if (hit >= 0)
@@ -176,7 +183,11 @@ public:
         commit();
     }
 
-    void mouseUp (const juce::MouseEvent&) override { dragIndex = -1; }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        dragIndex = -1;
+        processorRef.endEdit();
+    }
 
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
     {
@@ -340,10 +351,13 @@ public:
             if (updating)
                 return;
 
-            auto clip = processorRef.getClipState().getClip (currentIndex());
-            clip.bars = combo.getSelectedId();
-            processorRef.getClipState().setClip (currentIndex(), clip);
-            processorRef.clipsEdited();
+            processorRef.performEdit ("Clip length", [this]
+            {
+                auto clip = processorRef.getClipState().getClip (currentIndex());
+                clip.bars = combo.getSelectedId();
+                processorRef.getClipState().setClip (currentIndex(), clip);
+                processorRef.clipsEdited();
+            });
         };
         setTooltip ("Length\nHow many bars (of four beats) the clip lasts before it loops.");
         combo.setTooltip (getTooltip());

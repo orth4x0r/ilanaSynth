@@ -141,6 +141,9 @@ public:
     // The preset name box: clicks on it are left to it (it toggles us).
     void setAnchor (juce::Component* anchorComponent) { anchor = anchorComponent; }
 
+    // Back to the preset that is loaded (a load the user cancelled).
+    void selectLoadedPreset() { showCurrentPreset(); list.repaint(); }
+
     void refresh()
     {
         names = processorRef.getAllPresetNames();

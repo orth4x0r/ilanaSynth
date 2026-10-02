@@ -531,8 +531,11 @@ private:
 
                                       auto& processor = safeThis->processorRef;
                                       const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) safeThis->readValue ("clip_index"));
-                                      processor.getClipState().setClip (index, std::move (imported));
-                                      processor.clipsEdited();
+                                      processor.performEdit ("Import MIDI clip", [&]
+                                      {
+                                          processor.getClipState().setClip (index, std::move (imported));
+                                          processor.clipsEdited();
+                                      });
                                       safeThis->clipEditor.reload (true);
                                       safeThis->clipBars.refresh();
                                   });

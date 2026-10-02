@@ -1054,5 +1054,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addEgField (field, field.suffix, field.name);
     addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
 
+    // Review 6 (appended): the DX7 algorithm the FM routing came from (a
+    // .syx voice, or a click on the grid's DX7 page), 0 for none. Display
+    // only: DX7 algorithms 1-2, 3-4 and 5-6 share a routing here and differ
+    // only in where the feedback goes, so this names the one it was.
+    {
+        juce::StringArray algorithmNames { "None" };
+        for (int algorithm = 1; algorithm <= 32; ++algorithm)
+            algorithmNames.add ("DX7 " + juce::String (algorithm));
+        addChoice (OperatorEg::dx7AlgorithmId, "DX7 Algorithm", algorithmNames, 0);
+    }
+
     return layout;
 }

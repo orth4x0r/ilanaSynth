@@ -81,4 +81,8 @@ inline const std::array<Field, 15>& voiceFields()
 // the played note (a DX7 voice's TRANSPOSE; its pitch is in each SEMI knob).
 inline constexpr const char* keyOffsetId = "opeg_key_offset";
 inline constexpr int keyOffsetByte = 144; // stored as offset + 24
+
+// The DX7 algorithm (1-32, 0 for none) the FM routing was set from: shown on
+// the FM page, never read by the sound.
+inline constexpr const char* dx7AlgorithmId = "fm_dx7_algorithm";
 } // namespace OperatorEg

@@ -258,7 +258,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::String (std::round (value * 10.0f) / 10.0f, std::round (value * 10.0f) == 10.0f * std::round (value) ? 0 : 1)
                + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 
-    if (id == "master" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
+    if (id == "master" || id == "output_trim" || id == "master_clip_gain" || id == "fx_limit_ceiling" || id == "fx_tilt_level"
         || id == "fx_comp_makeup" || id == "fx_comp_threshold" || id == "fx_util_gain"
         || (id.startsWith ("fx_eq_") && id.endsWith ("_gain")))
         return describeFixed (value, 1) + " dB";
@@ -1241,6 +1241,9 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "master")
         return "Final output level.";
+
+    if (id == "output_trim")
+        return "The preset's own level, set when a factory preset loads (MASTER stays yours).";
 
     if (id == "master_clip")
         return "Soft-clips the output so extreme patches can't hard-clip.";

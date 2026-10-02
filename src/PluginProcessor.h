@@ -71,6 +71,10 @@ public:
         return modDisplayValues[(size_t) destination].load() * depth;
     }
     float getCompGainReduction() const { return compGainReduction.load(); }
+    // Display only (the FX cards' meters): the limiter's deepest gain in the
+    // last block, and OTT's LOW / MID / HIGH gains at the block's end.
+    float getLimiterGainReduction() const { return limiterGainReduction.load(); }
+    float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
@@ -1073,6 +1077,8 @@ private:
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
     std::atomic<float> compGainReduction { 1.0f };
+    std::atomic<float> limiterGainReduction { 1.0f };
+    std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessor)
 };

@@ -34,6 +34,18 @@ public:
         for (const auto hz : { 100.0f, 1000.0f, 10000.0f })
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (frequencyToX (hz), plot.getY()));
 
+        // The scale: dB at the left, frequency under the plot.
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (const auto db : { -12.0f, 0.0f, 12.0f })
+            g.drawText ((db > 0.0f ? "+" : "") + juce::String ((int) db),
+                        juce::Rectangle<float> (bounds.getX() + 2.0f, dbToY (db) - 6.0f, plot.getX() - bounds.getX() - 4.0f, 12.0f),
+                        juce::Justification::centredRight);
+        for (const auto hz : { 100.0f, 1000.0f, 10000.0f })
+            g.drawText (hz >= 1000.0f ? juce::String ((int) (hz / 1000.0f)) + "k" : juce::String ((int) hz),
+                        juce::Rectangle<float> (frequencyToX (hz) - 20.0f, plot.getBottom() + 1.0f, 40.0f, 10.0f),
+                        juce::Justification::centred);
+
         const auto settings = processorRef.getEqSettings();
         Biquad::Coefficients bands[3];
         settings.makeCoefficients (sampleRate, bands);
@@ -147,7 +159,8 @@ private:
     static constexpr double sampleRate = 48000.0;
     static constexpr float maxDb = 18.0f;
 
-    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().reduced (10.0f, 8.0f); }
+    // (Room at the left and below for the scale.)
+    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().reduced (8.0f, 6.0f).withTrimmedLeft (18.0f).withTrimmedBottom (10.0f); }
 
     float frequencyToX (float hz) const
     {

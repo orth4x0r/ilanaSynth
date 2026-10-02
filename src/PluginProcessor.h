@@ -652,6 +652,11 @@ private:
     juce::Random pseqRandom { 16180 };
     long long engineStepCount = 0;
     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
+    // The arp's step lanes (review 6): velocity, gate and transpose per step
+    // over ARP STEPS steps. At their defaults (100, 100 %, 0) every step plays
+    // as before.
+    std::array<ParamRef, 16> arpVelocityIds, arpLengthIds, arpPitchIds;
+    ParamRef arpStepsRef { "arp_steps" };
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
     // Clip sequencer: plays the current clip into the synth's MIDI.
     void processClip (juce::MidiBuffer& midi, int numSamples);

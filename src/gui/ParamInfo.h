@@ -159,6 +159,13 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::roundToInt (value) == 0 ? juce::String ("root") : "+" + juce::String (juce::roundToInt (value)) + " st";
     if (id.startsWith ("pseq_ratchet"))
         return juce::String (juce::roundToInt (value)) + "x";
+    if (id == "arp_steps")
+        return juce::String (juce::roundToInt (value)) + " steps";
+    if (id.startsWith ("arp_len"))
+        return value < 0.005f ? juce::String ("rest") : asPercent();
+    if (id.startsWith ("arp_pitch"))
+        return juce::roundToInt (value) == 0 ? juce::String ("0 st")
+                                             : (value > 0.0f ? "+" : "") + juce::String (juce::roundToInt (value)) + " st";
     if (id == "spray_strum_time")
         return asMilliseconds();
 
@@ -356,6 +363,14 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far above the held note this step may land, in semitones, snapped to the scale.";
     if (id.startsWith ("pseq_ratchet"))
         return "Repeats within the step: 1 plays once, 4 plays four quick notes.";
+    if (id == "arp_steps")
+        return "How many of the arp's 16 step lanes loop (the note order runs on by itself).";
+    if (id.startsWith ("arp_vel"))
+        return "This arp step's velocity.";
+    if (id.startsWith ("arp_len"))
+        return "This arp step's note length, as a share of GATE (0 rests the step, 200% ties it into the next).";
+    if (id.startsWith ("arp_pitch"))
+        return "Transposes this arp step, in semitones.";
     if (id == "spray_strum")
         return "Strums chords (and sprayed notes): notes starting together are spread out, lowest first (Up) or highest first (Down).";
     if (id == "spray_strum_time")
@@ -694,10 +709,11 @@ inline juce::String describeParameter (const juce::String& id)
         return "How hard one oscillator frequency-modulates another. Try whole-number pitch ratios for bells and keys.";
 
     if (id == "gen_scale")
-        return "Scale that sprayed notes and the Scale Random arp snap to.";
+        return "SNAP TO KEY: the scale sprayed notes, PROB SEQ and the Scale Random arp snap to (in 12-TET steps, "
+               "also under a Scala tuning). Off: no snapping.";
 
     if (id == "gen_snap")
-        return "Also snap the notes you play to the scale.";
+        return "Also snap the notes you play to SNAP TO KEY's scale.";
 
     if (id == "spray_on")
         return "Each played note throws extra notes around itself.";
@@ -935,10 +951,11 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Arp
     if (id == "arp_on")
-        return "Plays held notes as a pattern. Off = normal playing.";
+        return "Plays held notes as a pattern. Off = normal playing. While PROB SEQ is on it plays instead.";
 
     if (id == "arp_mode")
-        return "Up, Down, UpDown or Random.";
+        return "The order held notes play in: up, down, both ways, random, converging, a random walk, all at once "
+               "(Chord), or random notes of SNAP TO KEY's scale (Scale Random).";
 
     if (id == "arp_div")
         return "Step size, synced to host tempo.";

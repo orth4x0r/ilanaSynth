@@ -78,6 +78,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         pseqChanceIds[(size_t) step] = "pseq_chance" + n;
         pseqRangeIds[(size_t) step] = "pseq_range" + n;
         pseqRatchetIds[(size_t) step] = "pseq_ratchet" + n;
+        arpVelocityIds[(size_t) step] = "arp_vel" + n;
+        arpLengthIds[(size_t) step] = "arp_len" + n;
+        arpPitchIds[(size_t) step] = "arp_pitch" + n;
     }
 
     for (auto* parameter : getParameters())

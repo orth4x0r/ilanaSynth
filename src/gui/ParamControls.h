@@ -679,6 +679,8 @@ public:
         }
     }
 
+    bool isModCardOpen() const { return modCardOpen; }
+
     void closeModCard()
     {
         if (modCardOpen && modHoverHooks().hide != nullptr)

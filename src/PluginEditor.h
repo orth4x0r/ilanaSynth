@@ -19,6 +19,7 @@
 #include "gui/OutputMeter.h"
 #include "gui/OutputView.h"
 #include "gui/PresetPanel.h"
+#include "gui/SavePresetOverlay.h"
 #include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
 
@@ -61,6 +62,13 @@ public:
     bool asksBeforeReplacingEdits() const;
     void setAsksBeforeReplacingEdits (bool shouldAsk);
 
+    // UI review 4 (V3): SAVE (Ctrl+S) writes the loaded user preset in
+    // place; a factory or never-saved patch goes to SAVE AS (Ctrl+Shift+S),
+    // the themed panel that asks before overwriting.
+    void savePreset();
+    void savePresetAs();
+    SavePresetOverlay& getSaveOverlay() { return saveOverlay; }
+
 private:
     struct Content : public juce::Component
     {
@@ -74,7 +82,8 @@ private:
     };
 
     void paintHeader (juce::Graphics& g);
-    void savePreset();
+    void presetSaved (bool inPlace);
+    bool closeTopPopup();
     void exportPreset();
     void loadPreset();
     void togglePresetPanel();
@@ -128,6 +137,7 @@ private:
     InfoStrip infoStrip;
     TutorialOverlay tutorial;
     ConfirmOverlay confirmOverlay;
+    SavePresetOverlay saveOverlay { processorRef };
 
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     std::vector<SectionPage*> sections; // owned by tabs

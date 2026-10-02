@@ -15,7 +15,11 @@
 //   up / down    step through the list, loading as you go
 //   Enter        keep the selected preset and close
 //   Esc, or a click anywhere outside, closes
-// Clicking the star on a row makes it a favourite.
+// Clicking the star on a row makes it a favourite. The list is sorted by
+// name (SORT: by category, or favourites first). The DX7 ROM voices stay out
+// of All unless "Show DX7 voices" is ticked; under DX7, chips pick a bank
+// (ROM1A, ROM1B..., Dexed's and imported ones). Chips also filter by the tags
+// saved with user presets, when there are any (factory presets have none).
 // DOCK keeps it open at the side of the window instead (the window grows by
 // the panel's width, as Serum 2's browser does): categories above, rows of
 // two lines (name and tag, then the macro names), and loading never closes
@@ -61,7 +65,11 @@ public:
         list.addKeyListener (this);
         addAndMakeVisible (list);
 
-        saveAsButton.onClick = [this] { saveCurrentAs(); };
+        saveAsButton.onClick = [this]
+        {
+            if (onSaveAs != nullptr)
+                onSaveAs();
+        };
         deleteButton.onClick = [this] { deleteSelected(); };
         folderButton.onClick = [this] { processorRef.getUserPresetDirectory().revealToUser(); };
         surpriseButton.onClick = [this] { loadRandom(); };
@@ -70,7 +78,24 @@ public:
         for (auto* button : { &surpriseButton, &saveAsButton, &deleteButton, &folderButton })
             addAndMakeVisible (button);
 
-        surpriseButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
+        // SAVE AS is the main action; SURPRISE ME is an ordinary button.
+        saveAsButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
+
+        sortMode = settings != nullptr ? juce::jlimit (0, 2, settings->getIntValue ("presetSort", 0)) : 0;
+        sortButton.setTooltip ("Sort the list by name, by category, or with favourites first");
+        sortButton.onClick = [this] { showSortMenu(); };
+        addAndMakeVisible (sortButton);
+        updateSortButton();
+
+        showDx7 = settings != nullptr && settings->getBoolValue ("presetShowDx7", false);
+        dx7Toggle.setButtonText ("Show DX7 voices");
+        dx7Toggle.setTooltip ("List the 288 DX7 ROM voices under All too (they are always under DX7)");
+        dx7Toggle.setToggleState (showDx7, juce::dontSendNotification);
+        dx7Toggle.onClick = [this] { setShowDx7 (dx7Toggle.getToggleState()); };
+        addAndMakeVisible (dx7Toggle);
+
+        chips.onClick = [this] (const juce::String& key) { chipClicked (key); };
+        addChildComponent (chips);
 
         dockButton.setTooltip ("Keep the browser open at the side of the window");
         dockButton.onClick = [this]
@@ -104,6 +129,8 @@ public:
     // Called with the preset index, and whether the browser should close.
     std::function<void (int, bool)> onLoad;
     std::function<void()> onFavouriteChanged;
+    // SAVE AS pressed (the editor opens its save panel).
+    std::function<void()> onSaveAs;
     // DOCK / FLOAT pressed (true: dock at the side), and the docked cross.
     std::function<void (bool)> onDockRequest;
     std::function<void()> onDockedClose;
@@ -150,6 +177,30 @@ public:
         macroTextCache.clear();
         categories = processorRef.getAllPresetCategories();
         tags = processorRef.getAllPresetTags();
+        banks.clear();
+
+        // Factory DX7 voices are "NAME (ROM1A)"; imported banks sit in
+        // DX7/<bank>/ in the user folder.
+        const auto userFiles = processorRef.getUserPresetFiles();
+
+        for (int i = 0; i < names.size(); ++i)
+        {
+            juce::String bank;
+
+            if (categories[i] == "DX7")
+            {
+                if (! isUserPreset (i))
+                    bank = names[i].fromLastOccurrenceOf ("(", false, false).upToFirstOccurrenceOf (")", false, false);
+                else if (const auto file = userFiles[i - factoryCount];
+                         file.getParentDirectory().getParentDirectory().getFileName() == "DX7")
+                    bank = file.getParentDirectory().getFileName();
+                else
+                    bank = "User";
+            }
+
+            banks.add (bank);
+        }
+
         rebuildSidebar();
         rebuild();
     }
@@ -212,6 +263,86 @@ public:
 
     bool isOpen() const { return isVisible() && ! closing; }
 
+    // Sort orders (kept in the settings).
+    enum SortMode { sortByName = 0, sortByCategory, sortFavouritesFirst };
+
+    void setSortMode (int mode)
+    {
+        sortMode = juce::jlimit (0, 2, mode);
+
+        if (settings != nullptr)
+        {
+            settings->setValue ("presetSort", sortMode);
+            settings->saveIfNeeded();
+        }
+
+        updateSortButton();
+        rebuild();
+    }
+
+    int getSortMode() const { return sortMode; }
+
+    // Whether All lists the DX7 ROM voices (kept in the settings).
+    void setShowDx7 (bool shouldShow)
+    {
+        showDx7 = shouldShow;
+        dx7Toggle.setToggleState (showDx7, juce::dontSendNotification);
+
+        if (settings != nullptr)
+        {
+            settings->setValue ("presetShowDx7", showDx7);
+            settings->saveIfNeeded();
+        }
+
+        rebuildSidebar();
+        rebuild();
+    }
+
+    bool isShowingDx7() const { return showDx7; }
+
+    // For the tests: the sidebar's choice ("" is All, a category's name,
+    // or "*fav" / "*user"), the search, the names listed, the chips, and a
+    // click on a row at x (the star is the first 30 px).
+    void selectFilter (const juce::String& key)
+    {
+        filterKey = key;
+        sidebar.selected = key;
+        sidebar.repaint();
+        rebuild();
+    }
+
+    void setSearchText (const juce::String& text) { search.setText (text, true); }
+
+    juce::StringArray getListedNames() const
+    {
+        juce::StringArray shown;
+
+        for (auto index : filtered)
+            shown.add (names[index]);
+
+        return shown;
+    }
+
+    juce::StringArray getChipKeys() const
+    {
+        juce::StringArray keys;
+
+        for (const auto& chip : chips.entries)
+            keys.add (chip.key);
+
+        return keys;
+    }
+
+    void clickChip (const juce::String& key) { chipClicked (key); }
+
+    void clickRow (int row, int x)
+    {
+        const juce::MouseEvent event (juce::Desktop::getInstance().getMainMouseSource(), { (float) x, 10.0f },
+                                      {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &list, &list, juce::Time::getCurrentTime(),
+                                      { (float) x, 10.0f }, juce::Time::getCurrentTime(), 1, false);
+        listBoxItemClicked (row, event);
+    }
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
@@ -266,17 +397,19 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (filterKey == favouritesKey && search.isEmpty()
-                            ? "No favourites yet. Click the star on a preset to add it."
-                            : "No presets match.",
-                        list.getBounds(), juce::Justification::centred);
+            g.drawFittedText (filterKey == favouritesKey && search.isEmpty()
+                                  ? juce::String ("No favourites yet. Click the star on a preset to add it.")
+                                  : (hiddenDx7Matches > 0 ? "No presets match. " + juce::String (hiddenDx7Matches)
+                                                                + " DX7 voices do: tick Show DX7 voices, or pick DX7."
+                                                          : juce::String ("No presets match.")),
+                              list.getBounds().reduced (16, 0), juce::Justification::centred, 2);
         }
     }
 
     void lookAndFeelChanged() override
     {
         search.setColour (juce::TextEditor::highlightColourId, IlanaTheme::accent().withAlpha (0.35f));
-        surpriseButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
+        saveAsButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
         repaint();
     }
 
@@ -308,10 +441,17 @@ public:
 
         auto left = area.removeFromLeft (150);
         area.removeFromLeft (10);
+        dx7Toggle.setBounds (left.removeFromBottom (22));
+        left.removeFromBottom (6);
+        sidebar.columns = 1;
         sidebar.setBounds (left.reduced (1));
 
-        search.setBounds (area.removeFromTop (30).reduced (1));
+        auto searchRow = area.removeFromTop (30);
+        sortButton.setBounds (searchRow.removeFromRight (128).reduced (1, 2));
+        searchRow.removeFromRight (8);
+        search.setBounds (searchRow.reduced (1));
         area.removeFromTop (8);
+        layoutChips (area);
         list.setBounds (area.reduced (1));
 
         surpriseButton.setBounds (footer.removeFromLeft (150).reduced (1, 0));
@@ -376,7 +516,14 @@ private:
         area.removeFromTop (26);
 
         search.setBounds (area.removeFromTop (30).reduced (1));
-        area.removeFromTop (8);
+        area.removeFromTop (6);
+
+        {
+            auto row = area.removeFromTop (24);
+            sortButton.setBounds (row.removeFromRight (128).reduced (1, 1));
+            dx7Toggle.setBounds (row);
+        }
+        area.removeFromTop (6);
 
         sidebar.columns = 2;
         sidebar.setBounds (area.removeFromTop (juce::jmin (sidebar.getPreferredHeight(), area.getHeight() / 3)).reduced (1));
@@ -384,6 +531,7 @@ private:
 
         auto footer = area.removeFromBottom (26);
         area.removeFromBottom (8);
+        layoutChips (area);
         list.setBounds (area.reduced (1));
 
         const auto buttonWidth = footer.getWidth() / 4;
@@ -533,6 +681,104 @@ private:
         int hovered = -1;
     };
 
+    // Filter chips: DX7 banks, or user preset tags. Click one to pick it.
+    class ChipRow : public juce::Component
+    {
+    public:
+        struct Entry
+        {
+            juce::String key, label;
+            bool selected = false;
+        };
+
+        std::vector<Entry> entries;
+        std::function<void (const juce::String&)> onClick;
+
+        int getPreferredHeight (int width) const
+        {
+            const auto boxes = layout (width);
+            return boxes.empty() ? 0 : boxes.back().getBottom();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto boxes = layout (getWidth());
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                const auto box = boxes[i].toFloat();
+                const auto& entry = entries[i];
+                g.setColour (entry.selected ? IlanaTheme::accent().withAlpha (0.3f)
+                                            : juce::Colours::white.withAlpha ((int) i == hovered ? 0.1f : 0.05f));
+                g.fillRoundedRectangle (box, box.getHeight() * 0.5f);
+                g.setColour (entry.selected ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.3f));
+                g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
+                g.setColour (entry.selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+                g.drawText (entry.label, boxes[i], juce::Justification::centred);
+            }
+        }
+
+        void mouseMove (const juce::MouseEvent& event) override { setHovered (chipAt (event.getPosition())); }
+        void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            const auto chip = chipAt (event.getPosition());
+
+            if (chip >= 0 && onClick != nullptr)
+                onClick (entries[(size_t) chip].key);
+        }
+
+    private:
+        static constexpr int chipHeight = 20, gap = 5;
+
+        std::vector<juce::Rectangle<int>> layout (int width) const
+        {
+            std::vector<juce::Rectangle<int>> boxes;
+            const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            auto x = 0, y = 0;
+
+            for (const auto& entry : entries)
+            {
+                const auto w = juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (font, entry.label) + 18);
+
+                if (x > 0 && x + w > width)
+                {
+                    x = 0;
+                    y += chipHeight + gap;
+                }
+
+                boxes.push_back ({ x, y, w, chipHeight });
+                x += w + gap;
+            }
+
+            return boxes;
+        }
+
+        int chipAt (juce::Point<int> position) const
+        {
+            const auto boxes = layout (getWidth());
+
+            for (size_t i = 0; i < boxes.size(); ++i)
+                if (boxes[i].contains (position))
+                    return (int) i;
+
+            return -1;
+        }
+
+        void setHovered (int chip)
+        {
+            if (chip != hovered)
+            {
+                hovered = chip;
+                repaint();
+            }
+        }
+
+        int hovered = -1;
+    };
+
     static juce::Colour categoryColour (const juce::String& category)
     {
         if (category == "Bass") return juce::Colour (0xffff6b4a);
@@ -603,16 +849,17 @@ private:
             if (! shownCategories.contains (category))
                 shownCategories.add (category);
 
-        auto favourites = 0, users = 0;
+        auto favourites = 0, users = 0, all = 0;
 
         for (int i = 0; i < names.size(); ++i)
         {
             favourites += isFavouriteName (settings, names[i]) ? 1 : 0;
             users += isUserPreset (i) ? 1 : 0;
+            all += showDx7 || categories[i] != "DX7" ? 1 : 0;
         }
 
         std::vector<Sidebar::Entry> entries;
-        entries.push_back ({ "", "All", names.size(), IlanaTheme::accent(), false });
+        entries.push_back ({ "", "All", all, IlanaTheme::accent(), false });
         entries.push_back ({ favouritesKey, "Favourites", favourites, juce::Colour (0xffffd447), false });
         entries.push_back ({ userKey, "User", users, juce::Colours::white.withAlpha (0.6f), false });
 
@@ -706,10 +953,12 @@ private:
 
         const auto favourite = isFavouriteName (settings, name);
 
+        // Every row shows its star (a click on it toggles the favourite).
         if (favourite)
             drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f, juce::Colour (0xffffd447), true);
-        else if (row == hoveredRow)
-            drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f, juce::Colours::white.withAlpha (0.35f), false);
+        else
+            drawStar (g, { 17.0f, (float) height * 0.5f }, 5.5f,
+                      juce::Colours::white.withAlpha (row == hoveredRow && hoveredX < 30 ? 0.75f : (row == hoveredRow ? 0.4f : 0.18f)), false);
 
         if (docked)
         {
@@ -802,6 +1051,19 @@ private:
     {
         if (suppressLoad || ! juce::isPositiveAndBelow (lastRowSelected, filtered.size()))
             return;
+
+        // A click on a row's star only toggles the favourite: the selection
+        // goes back to the preset that is loaded.
+        if (juce::ModifierKeys::currentModifiers.isLeftButtonDown() && list.getMouseXYRelative().x < 30)
+        {
+            juce::Component::SafePointer<PresetPanel> safeThis (this);
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr)
+                    safeThis->showCurrentPreset();
+            });
+            return;
+        }
 
         loadedBySelection = true;
         loadRow (lastRowSelected, false);
@@ -1008,40 +1270,211 @@ private:
                                             }));
     }
 
+    // The category (and DX7 visibility) filter, before search, bank and tags.
+    bool passesCategory (int i) const
+    {
+        if (filterKey == favouritesKey)
+            return isFavouriteName (settings, names[i]);
+
+        if (filterKey == userKey)
+            return isUserPreset (i);
+
+        if (filterKey.isNotEmpty())
+            return categories[i] == filterKey;
+
+        return showDx7 || categories[i] != "DX7";
+    }
+
+    static juce::StringArray tagsOf (const juce::String& text)
+    {
+        auto list = juce::StringArray::fromTokens (text, ",", "");
+        list.trim();
+        list.removeEmptyStrings();
+        return list;
+    }
+
+    // Under DX7: a chip per bank. Elsewhere: a chip per tag the presets
+    // shown carry (only user presets have tags), when there are any.
+    void rebuildChips()
+    {
+        std::vector<ChipRow::Entry> entries;
+
+        if (filterKey == "DX7")
+        {
+            juce::StringArray seen;
+
+            for (int i = 0; i < names.size(); ++i)
+                if (categories[i] == "DX7" && banks[i].isNotEmpty() && ! seen.contains (banks[i]))
+                    seen.add (banks[i]);
+
+            if (! seen.contains (bankFilter))
+                bankFilter = {};
+
+            entries.push_back ({ "bank:", "All banks", bankFilter.isEmpty() });
+
+            for (const auto& bank : seen)
+                entries.push_back ({ "bank:" + bank, bank, bank == bankFilter });
+        }
+        else
+        {
+            bankFilter = {};
+            juce::StringArray seen;
+
+            for (int i = 0; i < names.size(); ++i)
+                if (passesCategory (i))
+                    for (const auto& tag : tagsOf (tags[i]))
+                        if (! seen.contains (tag, true))
+                            seen.add (tag);
+
+            seen.sortNatural();
+
+            for (int i = selectedTags.size(); --i >= 0;)
+                if (! seen.contains (selectedTags[i], true))
+                    selectedTags.remove (i);
+
+            for (const auto& tag : seen)
+                entries.push_back ({ "tag:" + tag, tag, selectedTags.contains (tag, true) });
+        }
+
+        const auto wasShown = chips.isVisible();
+        const auto oldCount = chips.entries.size();
+        chips.entries = std::move (entries);
+        chips.setVisible (! chips.entries.empty());
+        chips.repaint();
+
+        if (wasShown != chips.isVisible() || oldCount != chips.entries.size())
+            resized();
+    }
+
+    void chipClicked (const juce::String& key)
+    {
+        if (key.startsWith ("bank:"))
+        {
+            bankFilter = key.fromFirstOccurrenceOf ("bank:", false, false);
+        }
+        else if (key.startsWith ("tag:"))
+        {
+            const auto tag = key.fromFirstOccurrenceOf ("tag:", false, false);
+
+            if (selectedTags.contains (tag, true))
+                selectedTags.removeString (tag, true);
+            else
+                selectedTags.add (tag);
+        }
+
+        rebuild();
+    }
+
+    // The chips above the list, wrapping onto more lines when they need to.
+    void layoutChips (juce::Rectangle<int>& area)
+    {
+        if (! chips.isVisible())
+            return;
+
+        const auto height = chips.getPreferredHeight (area.getWidth());
+        chips.setBounds (area.removeFromTop (height));
+        area.removeFromTop (6);
+    }
+
+    void sortFiltered()
+    {
+        static const juce::StringArray categoryOrder { "Init", "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
+                                                       "Drone", "Drums", "FX", "FX Input", "Generative", "DX7", "Other", "User" };
+        const auto rank = [] (const juce::String& category)
+        {
+            const auto index = categoryOrder.indexOf (category);
+            return index >= 0 ? index : categoryOrder.size();
+        };
+
+        std::vector<int> order (filtered.begin(), filtered.end());
+
+        std::stable_sort (order.begin(), order.end(), [&] (int a, int b)
+        {
+            if (sortMode == sortByCategory && categories[a] != categories[b])
+            {
+                const auto rankA = rank (categories[a]), rankB = rank (categories[b]);
+                return rankA != rankB ? rankA < rankB : categories[a].compareNatural (categories[b], false) < 0;
+            }
+
+            if (sortMode == sortFavouritesFirst)
+            {
+                const auto favA = isFavouriteName (settings, names[a]), favB = isFavouriteName (settings, names[b]);
+
+                if (favA != favB)
+                    return favA;
+            }
+
+            return names[a].compareNatural (names[b], false) < 0;
+        });
+
+        filtered.clearQuick();
+
+        for (auto index : order)
+            filtered.add (index);
+    }
+
+    void updateSortButton()
+    {
+        static const char* labels[] { "SORT: NAME", "SORT: CATEGORY", "SORT: FAVOURITES" };
+        sortButton.setButtonText (juce::String (labels[sortMode]) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
+    }
+
+    void showSortMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "Name (A-Z)", true, sortMode == sortByName);
+        menu.addItem (2, "Category, then name", true, sortMode == sortByCategory);
+        menu.addItem (3, "Favourites first", true, sortMode == sortFavouritesFirst);
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&sortButton),
+                            [safeThis = juce::Component::SafePointer<PresetPanel> (this)] (int result)
+                            {
+                                if (safeThis != nullptr && result > 0)
+                                    safeThis->setSortMode (result - 1);
+                            });
+    }
+
     void rebuild()
     {
         filtered.clear();
+        rebuildChips();
+        hiddenDx7Matches = 0;
 
         const auto query = search.getText().trim().toLowerCase();
         const auto words = juce::StringArray::fromTokens (query, " ", "");
 
         for (int i = 0; i < names.size(); ++i)
         {
-            if (filterKey == favouritesKey)
-            {
-                if (! isFavouriteName (settings, names[i]))
-                    continue;
-            }
-            else if (filterKey == userKey)
-            {
-                if (! isUserPreset (i))
-                    continue;
-            }
-            else if (filterKey.isNotEmpty() && categories[i] != filterKey)
-            {
-                continue;
-            }
-
-            // Every word must match the name, category or tags.
-            const auto haystack = (names[i] + " " + categories[i] + " " + tags[i]).toLowerCase();
+            // Every word must match the name, category, tags or bank.
+            const auto haystack = (names[i] + " " + categories[i] + " " + tags[i] + " " + banks[i]).toLowerCase();
             auto matches = true;
 
             for (const auto& word : words)
                 matches = matches && haystack.contains (word);
 
-            if (matches)
+            if (! matches)
+                continue;
+
+            if (! passesCategory (i))
+            {
+                // What All leaves out, for the empty list's hint.
+                hiddenDx7Matches += filterKey.isEmpty() && words.size() > 0 && categories[i] == "DX7" ? 1 : 0;
+                continue;
+            }
+
+            if (bankFilter.isNotEmpty() && banks[i] != bankFilter)
+                continue;
+
+            auto hasTags = true;
+
+            for (const auto& tag : selectedTags)
+                hasTags = hasTags && tagsOf (tags[i]).contains (tag, true);
+
+            if (hasTags)
                 filtered.add (i);
         }
+
+        sortFiltered();
 
         {
             const juce::ScopedValueSetter<bool> quiet (suppressLoad, true);
@@ -1052,6 +1485,8 @@ private:
                                                                    : names.indexOf (processorRef.getCurrentPresetName()));
             if (row >= 0)
                 list.selectRow (row);
+            else
+                list.scrollToEnsureRowIsOnscreen (0); // a new filter starts at the top
         }
 
         list.repaint();
@@ -1094,9 +1529,10 @@ private:
                                  ? list.getRowContainingPosition (relative.x, relative.y)
                                  : -1;
 
-        if (hovered != hoveredRow)
+        if (hovered != hoveredRow || (hovered >= 0 && (relative.x < 30) != (hoveredX < 30)))
         {
             hoveredRow = hovered;
+            hoveredX = relative.x;
             list.repaint();
         }
 
@@ -1134,85 +1570,6 @@ private:
                                  && isUserPreset (selectedPreset));
     }
 
-    void saveCurrentAs()
-    {
-        juce::Component::SafePointer<PresetPanel> safeThis (this);
-        showSaveDialog (processorRef, [safeThis]
-        {
-            if (safeThis != nullptr)
-                safeThis->refresh();
-        });
-    }
-
-public:
-    // Name, category and tags, then writes into the user preset folder.
-    // Shared by the browser's SAVE AS and the header's save button.
-    static void showSaveDialog (IlanaSynthAudioProcessor& processor, std::function<void()> onSaved)
-    {
-        auto* window = new juce::AlertWindow ("Save preset", "Saves to your user preset folder.",
-                                              juce::AlertWindow::NoIcon);
-
-        auto currentName = processor.getCurrentPresetName();
-
-        if (currentName.isEmpty() || currentName == "Init")
-            currentName = "My Preset";
-
-        auto choices = IlanaSynthAudioProcessor::getPresetCategoryChoices();
-        auto currentCategory = choices.indexOf (processor.getPresetCategory());
-
-        if (currentCategory < 0)
-            currentCategory = choices.size() - 1;
-
-        window->addTextEditor ("name", currentName, "Name");
-        window->addComboBox ("category", choices, "Category");
-        window->getComboBoxComponent ("category")->setSelectedItemIndex (currentCategory, juce::dontSendNotification);
-        window->addTextEditor ("tags", processor.getPresetTags(), "Tags (comma separated)");
-        window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
-        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-        auto* processorPointer = &processor;
-
-        window->enterModalState (true, juce::ModalCallbackFunction::create (
-            [processorPointer, window, onSaved] (int result)
-            {
-                std::unique_ptr<juce::AlertWindow> owner (window);
-
-                if (result != 1)
-                    return;
-
-                auto name = window->getTextEditorContents ("name").trim()
-                                .retainCharacters ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_");
-
-                if (name.isEmpty())
-                    name = "Preset";
-
-                const auto category = window->getComboBoxComponent ("category")->getText();
-                auto tagList = juce::StringArray::fromTokens (window->getTextEditorContents ("tags"), ",", "");
-                tagList.trim();
-                tagList.removeEmptyStrings();
-
-                // Names stay unique across factory and user presets:
-                // favourites and the browser find presets by name.
-                const auto factoryNames = processorPointer->getFactoryPresetNames();
-                const auto directory = processorPointer->getUserPresetDirectory();
-                directory.createDirectory();
-                auto finalName = name;
-                auto suffix = 1;
-
-                while ((directory.getChildFile (finalName + ".ilanapreset").existsAsFile()
-                        || factoryNames.contains (finalName, true))
-                       && suffix < 1000)
-                    finalName = name + " " + juce::String (++suffix);
-
-                processorPointer->setPresetMeta (category, tagList.joinIntoString (", "));
-                processorPointer->savePresetToFile (directory.getChildFile (finalName + ".ilanapreset"));
-
-                if (onSaved != nullptr)
-                    onSaved();
-            }), true);
-    }
-
-private:
     void deleteSelected()
     {
         if (juce::isPositiveAndBelow (selectedPreset, names.size()) && isUserPreset (selectedPreset))
@@ -1223,7 +1580,7 @@ private:
     juce::PropertiesFile* settings = nullptr;
     bool isUserPreset (int index) const { return index >= factoryCount; }
 
-    juce::StringArray names, categories, tags;
+    juce::StringArray names, categories, tags, banks;
     const int factoryCount = processorRef.getFactoryPresetNames().size();
     std::map<int, juce::String> macroTextCache;
     juce::Array<int> filtered;
@@ -1234,6 +1591,15 @@ private:
     juce::TextButton saveAsButton { "SAVE AS" };
     juce::TextButton deleteButton { "DELETE" };
     juce::TextButton folderButton { "FOLDER" };
+    juce::TextButton sortButton;
+    juce::ToggleButton dx7Toggle;
+    ChipRow chips;
+    int sortMode = sortByName;
+    bool showDx7 = false;
+    juce::String bankFilter;
+    juce::StringArray selectedTags;
+    int hiddenDx7Matches = 0;
+    int hoveredX = -1;
     juce::Component::SafePointer<juce::Component> anchor;
     juce::Component::SafePointer<juce::Component> watched;
     juce::String filterKey;

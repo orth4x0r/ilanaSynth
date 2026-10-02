@@ -49,6 +49,17 @@ public:
 
     int getSlotIndex() const { return slotIndex; }
 
+    // Esc in the editor: closes it as X does, when its owner lets it close.
+    bool close()
+    {
+        if (onClose == nullptr)
+            return false;
+
+        auto callback = onClose; // the owner may delete us
+        callback();
+        return true;
+    }
+
     // The live input's position along the curve (0..1), or -1 with no source.
     float getLiveInput() const { return liveInput; }
 

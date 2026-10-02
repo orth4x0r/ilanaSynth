@@ -159,8 +159,11 @@ const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUse
         entry.category = "User";
         entry.tags.clear();
 
-        // Only the root element's attributes are needed.
-        if (auto xml = juce::XmlDocument (file).getDocumentElementIfTagMatches (apvts.state.getType().toString()))
+        // Only the root element's attributes are needed, but they don't fit
+        // in the 8 KB that JUCE's outer-element-only read takes (the drawn
+        // LFOs alone are longer), so the whole file is parsed (once per
+        // change: the cache is keyed by the modification time).
+        if (auto xml = juce::XmlDocument::parse (file); xml != nullptr && xml->hasTagName (apvts.state.getType().toString()))
         {
             const auto category = xml->getStringAttribute ("presetCategory").trim();
 

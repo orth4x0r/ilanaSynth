@@ -5,10 +5,11 @@
 #include "IlanaLookAndFeel.h"
 
 // A small confirm over the whole window, in the theme (UI review 4, S1):
-// a title, one line of text, a "Don't ask again" tick and two buttons.
-// Return confirms, Esc or a click outside the panel cancels. The editor
-// shows it before a preset load or a new random patch replaces an edited
-// patch.
+// a title, one line of text, a "Don't ask again" tick and two buttons, or
+// three with an alternative ("Save and load", review 6). Return confirms,
+// Esc or a click outside the panel cancels. The editor shows it before a
+// preset load or a new random patch replaces an edited patch, and to report
+// a DX7 bank import.
 class ConfirmOverlay : public juce::Component
 {
 public:
@@ -17,12 +18,24 @@ public:
         confirmButton.onClick = [this] { finish (true); };
         cancelButton.onClick = [this] { finish (false); };
         cancelButton.setButtonText ("Cancel");
+        alternativeButton.onClick = [this]
+        {
+            auto done = std::move (alternative);
+            alternative = nullptr;
+            callback = nullptr;
+            setVisible (false);
+
+            if (done != nullptr)
+                done();
+        };
 
         dontAskAgain.setButtonText ("Don't ask again");
         dontAskAgain.setColour (juce::ToggleButton::textColourId, IlanaTheme::Ui::text2);
 
         for (auto* component : std::initializer_list<juce::Component*> { &confirmButton, &cancelButton, &dontAskAgain })
             addAndMakeVisible (component);
+
+        addChildComponent (alternativeButton);
 
         setWantsKeyboardFocus (true);
         setVisible (false);
@@ -36,14 +49,34 @@ public:
     void ask (const juce::String& titleText, const juce::String& messageText, const juce::String& confirmText,
               Callback callbackIn)
     {
+        ask (titleText, messageText, { confirmText }, std::move (callbackIn));
+    }
+
+    // The buttons: what confirms, what cancels, and an optional third
+    // choice (with what it does) between them; offerDontAsk shows the tick.
+    struct Choices
+    {
+        juce::String confirmText, cancelText = "Cancel", alternativeText;
+        std::function<void()> onAlternative;
+        bool offerDontAsk = true;
+    };
+
+    void ask (const juce::String& titleText, const juce::String& messageText, const Choices& choices, Callback callbackIn)
+    {
         if (callback != nullptr)
             finish (false);
 
         title = titleText;
         message = messageText;
         callback = std::move (callbackIn);
-        confirmButton.setButtonText (confirmText);
+        alternative = choices.onAlternative;
+        confirmButton.setButtonText (choices.confirmText);
+        cancelButton.setButtonText (choices.cancelText);
+        alternativeButton.setButtonText (choices.alternativeText);
+        alternativeButton.setVisible (choices.alternativeText.isNotEmpty() && alternative != nullptr);
+        dontAskAgain.setVisible (choices.offerDontAsk);
         dontAskAgain.setToggleState (false, juce::dontSendNotification);
+        resized();
 
         // The way on, solid in the accent as the tour's GOT IT is.
         confirmButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
@@ -65,6 +98,7 @@ public:
     {
         auto done = std::move (callback);
         callback = nullptr;
+        alternative = nullptr;
         setVisible (false);
 
         if (done != nullptr)
@@ -73,9 +107,18 @@ public:
 
     void setDontAskAgain (bool shouldTick) { dontAskAgain.setToggleState (shouldTick, juce::dontSendNotification); }
 
+    // The third choice, for the tests (does what its button does).
+    bool hasAlternative() const { return alternativeButton.isVisible(); }
+    juce::String getAlternativeText() const { return alternativeButton.getButtonText(); }
+    void chooseAlternative() { alternativeButton.onClick(); }
+    juce::String getTitle() const { return title; }
+
     juce::Rectangle<int> panelBounds() const
     {
-        return getLocalBounds().withSizeKeepingCentre (juce::jmin (420, getWidth() - 32), 150);
+        // Three buttons need the tick on a line of its own.
+        const auto three = alternativeButton.isVisible();
+        return getLocalBounds().withSizeKeepingCentre (juce::jmin (three ? 470 : 420, getWidth() - 32),
+                                                       three && dontAskAgain.isVisible() ? 180 : 150);
     }
 
     void resized() override
@@ -84,8 +127,22 @@ public:
         auto bottom = area.removeFromBottom (30);
         confirmButton.setBounds (bottom.removeFromRight (124));
         bottom.removeFromRight (8);
+
+        if (alternativeButton.isVisible())
+        {
+            alternativeButton.setBounds (bottom.removeFromRight (124));
+            bottom.removeFromRight (8);
+        }
+
         cancelButton.setBounds (bottom.removeFromRight (90));
-        dontAskAgain.setBounds (bottom.withTrimmedRight (8));
+
+        if (alternativeButton.isVisible())
+        {
+            area.removeFromBottom (8);
+            dontAskAgain.setBounds (area.removeFromBottom (24).withWidth (200));
+        }
+        else
+            dontAskAgain.setBounds (bottom.withTrimmedRight (8));
     }
 
     void paint (juce::Graphics& g) override
@@ -126,8 +183,9 @@ public:
     }
 
 private:
-    juce::TextButton confirmButton, cancelButton;
+    juce::TextButton confirmButton, cancelButton, alternativeButton;
     juce::ToggleButton dontAskAgain;
     juce::String title, message;
     Callback callback;
+    std::function<void()> alternative;
 };

@@ -249,6 +249,15 @@ target_link_libraries(ilanaSnapshot
 
 add_test(NAME ui_tests COMMAND ilanaSnapshot --uitest)
 
+# GPU UI on macOS and Linux: the editor paints through an OpenGL context
+# (Windows already draws with Direct2D). The snapshot tool links it too, so
+# its --fps and --idlecpu probes measure the GPU path.
+if (NOT WIN32)
+    foreach(target ilanaSynth ilanaSynthFX ilanaSnapshot)
+        target_link_libraries(${target} PRIVATE juce::juce_opengl)
+    endforeach()
+endif()
+
 # Dev tool: per-preset render fingerprints for regression checks (not shipped).
 juce_add_console_app(ilanaFingerprint PRODUCT_NAME "ilanaFingerprint")
 

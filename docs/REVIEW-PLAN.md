@@ -171,7 +171,9 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    knob keeps the card open while the mouse is on it, `modHoverHooks().engaged`); mod arcs get a dark underlay and a
    source close in hue to the knob (macro yellow on OSC 1 gold) is drawn paler (`modArcColour`); PHYSICAL without a body
    draws only a dashed outline. Macro names were the preset rework's. Still open: log-harmonic SPEC, narrower dock.
-11. Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.
+11. ~~Lowest: a self-hosted CI runner; a GPU renderer for macOS and Linux.~~ **Done** 2026-10-01: the self-hosted gate
+   workflow, `tools/setup-runner.ps1` and `tools/verify.ps1` (the user still has to register her PC:
+   `docs/SELF-HOSTED-RUNNER.md`); the editor draws through OpenGL on macOS and Linux (HANDOFF, "GPU UI").
 12. **Final detail review** (the user's ask, 2026-09-30): **done** 2026-10-01 (cloud, branch `claude/project-thread-mxim47`); fixes and what is left
    in `/mnt/project-files/ilanasynth/ui-review/DETAIL-REVIEW.md`. Biggest item left: generic automatic macro names (content).
 13. **Detail review leftovers** (the user, 2026-10-01), in order:

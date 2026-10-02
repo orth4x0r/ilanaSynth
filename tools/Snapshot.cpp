@@ -3682,6 +3682,9 @@ int runFps()
         std::cout << "renderer: " << engines[peer->getCurrentRenderingEngine()] << " (of " << engines.joinIntoString (", ") << ")" << std::endl;
     }
 
+    if (auto* ilanaEditor = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get()))
+        std::cout << "GPU (OpenGL) UI: " << (ilanaEditor->isGpuRendering() ? "on" : "off") << std::endl;
+
     if (auto* tutorial = findChild<TutorialOverlay> (*editor))
         tutorial->setVisible (false);
 

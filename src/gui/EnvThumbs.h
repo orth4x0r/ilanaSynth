@@ -4,19 +4,77 @@
 
 #include <array>
 #include <algorithm>
+#include <functional>
 #include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
 #include "AnimationUtils.h"
+#include "LfoThumbs.h"
 
-// The patch's envelopes at a glance, Phase Plant style: the added and the
-// assigned ones, then a "+" card for the next. Cards keep one size (five fit
-// the view) and the bar scrolls sideways when there are more. Each card draws
-// its ADSR shape and marks whether the envelope is doing anything in the patch.
-// Click to edit; drag a card onto a knob to route it there; right-click to remove.
+// ENV 1-16 (0-based: amp, filter, filter 2, mod, ENV 5, ENV 6-16): their mod
+// sources, and whether one plays a part in the patch. Shared by the MOD
+// page's pool and PLAY's envelope tabs, so both list the same envelopes.
+inline Mod::Source envelopeSource (int env)
+{
+    const Mod::Source fixed[] { Mod::Source::AmpEnv, Mod::Source::FilterEnv, Mod::Source::FilterEnv2, Mod::Source::ModEnv, Mod::Source::Env4 };
+    return env < 5 ? fixed[juce::jlimit (0, 4, env)] : (Mod::Source) ((int) Mod::Source::Env6 + juce::jlimit (0, 10, env - 5));
+}
+
+// The amp envelope always plays; the filter envelopes count when their
+// filter's env amount is set; any envelope counts when an oscillator plays
+// it or warps with it, or when it is routed in the matrix.
+inline bool envelopeInUse (const IlanaSynthAudioProcessor& processor, int env)
+{
+    const auto read = [&processor] (const juce::String& id)
+    {
+        const auto* value = processor.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto source = envelopeSource (env);
+
+    if (source == Mod::Source::AmpEnv)
+        return true;
+
+    if (source == Mod::Source::FilterEnv && std::abs (read ("f1_env")) > 0.001f)
+        return true;
+
+    if (source == Mod::Source::FilterEnv2 && std::abs (read ("f2_env")) > 0.001f)
+        return true;
+
+    // As an oscillator's amp envelope or its warp (DCW) envelope, whose
+    // choices start with Off.
+    for (const auto* prefix : OscillatorIds::prefixes)
+        if ((int) read (juce::String (prefix) + "_amp_env") == env
+            || (int) read (juce::String (prefix) + "_pd_env") == env + 1)
+            return true;
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = processor.readModSlot (slot);
+
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+            return true;
+    }
+
+    return false;
+}
+
+// A card in the pool: added to the patch, or doing something in it.
+inline bool envelopeShown (const IlanaSynthAudioProcessor& processor, int env)
+{
+    return processor.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env) || envelopeInUse (processor, env);
+}
+
+// The patch's envelopes at a glance, Phase Plant style: one card per
+// envelope in the patch (added or in use), then a slim "+" for the next.
+// Cards keep one size (four to the view, narrower before they scroll). Each
+// card draws its shape and says what the envelope drives. Click to edit;
+// drag a card onto a knob to route it there; the "x" on a hovered card
+// removes it (asking first when it is in use).
 class EnvThumbBar : public juce::Component,
+                    public juce::SettableTooltipClient,
                     private IlanaAnim::FrameTimer
 {
 public:
@@ -42,32 +100,57 @@ public:
         startTimerHz (10);
     }
 
+    // An envelope edited beside these but not one of ENV 1-16 (the FM page's
+    // Operator EG, say). Its card follows the "+"; selecting it calls
+    // onSelect with envs.size() + its position in the order added.
+    struct ExtraCard
+    {
+        juce::String title;
+        Mod::Source source {};                                     // what dragging the card routes (None: no drag)
+        juce::Colour colour;
+        std::function<bool()> isShown;                             // null: always
+        std::function<void (juce::Graphics&, juce::Rectangle<float>, bool active)> paintShape;
+        std::function<juce::String()> targets;                     // what it drives, for the title row
+    };
+
+    void addExtraCard (ExtraCard card) { extras.push_back (std::move (card)); }
+
     std::function<void (int)> onSelect;
     std::function<void()> onLayoutChanged;
+
+    static constexpr int plusId = -2;
 
     // Where an envelope's card sits, for scrolling it into view.
     juce::Rectangle<int> boundsOfCard (int env) const
     {
-        const auto visible = visibleEnvelopes();
-        const auto position = std::find (visible.begin(), visible.end(), env);
-        if (position == visible.end())
-            return {};
-        return cardBounds ((int) (position - visible.begin())).toNearestInt();
+        for (const auto& item : layoutItems())
+            if (item.id == env)
+                return item.bounds.toNearestInt();
+
+        return {};
     }
 
-    // The width the bar is seen through: five cards fill it.
+    // The width the bar is seen through: four cards fill it.
     void setViewWidth (int width) { viewWidth = width; }
 
     int getPreferredWidth() const
     {
-        const auto count = numCards();
-        return juce::jmax (viewWidth, (int) std::ceil ((float) count * (cardWidth() + gap) - gap));
+        const auto items = layoutItems();
+        return items.empty() ? viewWidth : juce::jmax (viewWidth, (int) std::ceil (items.back().bounds.getRight()));
     }
 
-    // For the pool's index row: whether the envelope plays a part, and a
-    // relayout after it adds a card.
+    // Whether the envelope plays a part, and a relayout after a card is added.
     bool isEnvelopeInUse (int env) const { return isInUse (env); }
     void refreshLayout() { layoutChanged(); }
+    bool isCardShown (int env) const { return ! boundsOfCard (env).isEmpty(); }
+
+    // For the UI test: what a click on a card's "x" does, and where it is
+    // (empty for a card that can't be removed).
+    void requestRemove (int env) { removeEnvelope (env); }
+    juce::Rectangle<int> removeButtonOf (int env) const
+    {
+        return canRemove (env) ? PoolCards::removeBounds (boundsOfCard (env).toFloat()).toNearestInt() : juce::Rectangle<int>();
+    }
 
     void setSelected (int index)
     {
@@ -77,17 +160,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto visible = visibleEnvelopes();
-        const auto count = numCards();
-        for (int position = 0; position < (int) visible.size(); ++position)
-            paintCard (g, visible[(size_t) position], cardBounds (position));
-        if (count > (int) visible.size())
+        for (const auto& item : layoutItems())
         {
-            const auto card = cardBounds (count - 1);
-            IlanaTheme::paintWell (g, card, 6.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
-            g.drawText ("+", card, juce::Justification::centred);
+            if (item.id == plusId)
+                PoolCards::paintPlus (g, item.bounds, hoverIndex == plusId);
+            else if (item.id >= (int) envs.size())
+                paintExtraCard (g, item.id - (int) envs.size(), item.bounds);
+            else
+                paintCard (g, item.id, item.bounds);
         }
     }
 
@@ -100,17 +180,17 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
-        if (index >= 0 && event.mods.isPopupMenu())
+        if (index >= 0 && index < (int) envs.size()
+            && (event.mods.isPopupMenu() || (canRemove (index) && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position))))
         {
-            showCardMenu (index);
+            removeEnvelope (index);
             return;
         }
 
-        if (index == -2)
+        if (index == plusId)
         {
-            const auto visible = visibleEnvelopes();
             for (int env = 0; env < (int) envs.size(); ++env)
-                if (std::find (visible.begin(), visible.end(), env) == visible.end())
+                if (! envelopeShown (processorRef, env))
                 {
                     processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
                     selected = env;
@@ -136,16 +216,18 @@ public:
         if (index < 0 || event.getDistanceFromDragStart() < 6)
             return;
 
+        const auto source = index < (int) envs.size() ? envs[(size_t) index].source : extras[(size_t) (index - (int) envs.size())].source;
+
+        if (source == Mod::Source::None)
+            return;
+
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
             if (! container->isDragAndDropActive())
             {
-                const auto visible = visibleEnvelopes();
-                const auto position = (int) (std::find (visible.begin(), visible.end(), index) - visible.begin());
-                auto image = createComponentSnapshot (cardBounds (position).toNearestInt(), true, 1.0f);
+                auto image = createComponentSnapshot (boundsOfCard (index), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
-                container->startDragging ("modsource:" + juce::String ((int) envs[(size_t) index].source), this,
-                                          juce::ScaledImage (image), true);
+                container->startDragging ("modsource:" + juce::String ((int) source), this, juce::ScaledImage (image), true);
             }
         }
     }
@@ -153,11 +235,17 @@ public:
     void mouseMove (const juce::MouseEvent& event) override
     {
         const auto index = indexAt (event.getPosition());
+        const auto overRemove = index >= 0 && index < (int) envs.size() && canRemove (index)
+                                && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position);
 
-        if (index != hoverIndex)
+        if (index != hoverIndex || overRemove != hoverRemove)
         {
             hoverIndex = index;
-            highlightedModSource() = index >= 0 ? (int) envs[(size_t) index].source : 0;
+            hoverRemove = overRemove;
+            highlightedModSource() = index >= 0 && index < (int) envs.size() ? (int) envs[(size_t) index].source
+                                     : index >= (int) envs.size()           ? (int) extras[(size_t) (index - (int) envs.size())].source
+                                                                            : 0;
+            setTooltip (tooltipFor (index));
             repaint();
         }
     }
@@ -165,12 +253,19 @@ public:
     void mouseExit (const juce::MouseEvent&) override
     {
         hoverIndex = -1;
+        hoverRemove = false;
         highlightedModSource() = 0;
         repaint();
     }
 
 private:
-    static constexpr float gap = 8.0f;
+    static constexpr float gap = PoolCards::gap;
+
+    struct Item
+    {
+        int id = -1;  // an envelope, envs.size() + an extra card, or plusId
+        juce::Rectangle<float> bounds;
+    };
 
     std::vector<int> visibleEnvelopes() const
     {
@@ -181,34 +276,65 @@ private:
         return visible;
     }
 
-    int numCards() const
+    std::vector<Item> layoutItems() const
     {
-        const auto visible = visibleEnvelopes().size();
-        return (int) visible + (visible < envs.size() ? 1 : 0);
+        const auto visible = visibleEnvelopes();
+        std::vector<int> shownExtras;
+        for (int extra = 0; extra < (int) extras.size(); ++extra)
+            if (extras[(size_t) extra].isShown == nullptr || extras[(size_t) extra].isShown())
+                shownExtras.push_back (extra);
+
+        const auto withPlus = visible.size() < envs.size();
+        const auto width = PoolCards::cardWidth (viewWidth > 0 ? viewWidth : getWidth(), (int) (visible.size() + shownExtras.size()), withPlus);
+        const auto height = (float) getHeight();
+        std::vector<Item> items;
+        auto x = 0.0f;
+
+        for (const auto env : visible)
+        {
+            items.push_back ({ env, { x, 0.0f, width, height } });
+            x += width + gap;
+        }
+
+        if (withPlus)
+        {
+            items.push_back ({ plusId, { x, 0.0f, PoolCards::plusWidth, height } });
+            x += PoolCards::plusWidth + gap;
+        }
+
+        for (const auto extra : shownExtras)
+        {
+            items.push_back ({ (int) envs.size() + extra, { x, 0.0f, width, height } });
+            x += width + gap;
+        }
+
+        return items;
     }
 
-    float cardWidth() const
-    {
-        // Four to a view, like the LFO cards above, so the two rows share
-        // their columns; more scroll.
-        const auto width = viewWidth > 0 ? viewWidth : getWidth();
-        return ((float) width - gap * 3.0f) / 4.0f;
-    }
-
-    juce::Rectangle<float> cardBounds (int position) const
-    {
-        return { (float) position * (cardWidth() + gap), 0.0f, cardWidth(), (float) getHeight() };
-    }
+    int numCards() const { return (int) layoutItems().size(); }
 
     int indexAt (juce::Point<int> position) const
     {
-        const auto visible = visibleEnvelopes();
-        const auto count = numCards();
-        for (int i = 0; i < count; ++i)
-            if (cardBounds (i).contains (position.toFloat()))
-                return i < (int) visible.size() ? visible[(size_t) i] : -2;
+        for (const auto& item : layoutItems())
+            if (item.bounds.contains (position.toFloat()))
+                return item.id;
 
         return -1;
+    }
+
+    juce::String tooltipFor (int index) const
+    {
+        if (index == plusId)
+            return "Add an envelope";
+        if (index < 0)
+            return {};
+        if (index >= (int) envs.size())
+            return extras[(size_t) (index - (int) envs.size())].title + "\nClick to edit it below.";
+        const auto& title = envs[(size_t) index].title;
+        if (hoverRemove)
+            return isInUse (index) ? "Remove " + title + " (asks first: it is in use)" : "Remove " + title;
+        return title + "\nClick to edit it below; drag it onto a knob to modulate that knob."
+               + (canRemove (index) ? juce::String (" The x removes it.") : juce::String());
     }
 
     void layoutChanged()
@@ -219,26 +345,101 @@ private:
         repaint();
     }
 
-    void showCardMenu (int env)
+    // The amp envelope is the default every oscillator plays: it stays
+    // while it is in use.
+    bool canRemove (int env) const
     {
-        juce::PopupMenu menu;
-        const auto inUse = isInUse (env);
-        menu.addItem (1, inUse ? "Remove (unassign it first)" : "Remove " + envs[(size_t) env].title, ! inUse);
+        return env >= 0 && env < (int) envs.size() && ! (envs[(size_t) env].source == Mod::Source::AmpEnv && isInUse (env));
+    }
+
+    // The "x": an unused envelope goes at once; one in use asks first, then
+    // lets go of everything it does (its filter's env amount, oscillators
+    // playing or warping with it, its routes) in one undo step.
+    void removeEnvelope (int env)
+    {
+        if (! canRemove (env))
+            return;
+
+        const auto& info = envs[(size_t) env];
+        const auto slots = modSlotsUsing (processorRef, { info.source });
+        juce::StringArray ties;
+
+        if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
+            ties.add ("Filter 1's ENV AMT goes to 0");
+        if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
+            ties.add ("Filter 2's ENV AMT goes to 0");
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+            if (env > 0 && (int) readParam (prefix + "_amp_env") == env)
+                ties.add ("OSC " + juce::String (osc + 1) + " goes back to AMP ENV");
+            if ((int) readParam (prefix + "_pd_env") == env + 1)
+                ties.add ("OSC " + juce::String (osc + 1) + "'s warp envelope goes Off");
+        }
+
+        if (! slots.empty())
+            ties.add (slots.size() == 1 ? juce::String ("its route goes") : juce::String ((int) slots.size()) + " routes go");
 
         juce::Component::SafePointer<EnvThumbBar> safeThis (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis, env] (int result)
+        const auto remove = [safeThis, env]
         {
-            if (safeThis == nullptr || result != 1)
+            if (safeThis == nullptr)
                 return;
 
-            safeThis->processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
-            if (safeThis->selected == env && safeThis->onSelect != nullptr)
+            auto& self = *safeThis;
+            const auto& entry = self.envs[(size_t) env];
+
+            if (self.isInUse (env))
+                self.processorRef.performEdit ("Remove " + entry.title, [&self, env, &entry]
+                {
+                    const auto set = [&self] (const juce::String& id, float value)
+                    {
+                        if (auto* parameter = self.processorRef.apvts.getParameter (id))
+                            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                    };
+
+                    if (entry.source == Mod::Source::FilterEnv)
+                        set ("f1_env", 0.0f);
+                    if (entry.source == Mod::Source::FilterEnv2)
+                        set ("f2_env", 0.0f);
+
+                    for (const auto* prefix : OscillatorIds::prefixes)
+                    {
+                        if (env > 0 && (int) self.readParam (juce::String (prefix) + "_amp_env") == env)
+                            set (juce::String (prefix) + "_amp_env", 0.0f);
+                        if ((int) self.readParam (juce::String (prefix) + "_pd_env") == env + 1)
+                            set (juce::String (prefix) + "_pd_env", 0.0f);
+                    }
+
+                    removeModRoutes (self.processorRef, { entry.source });
+                });
+
+            self.processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
+
+            if (self.selected == env && self.onSelect != nullptr)
             {
-                safeThis->selected = 0;
-                safeThis->onSelect (0);
+                // The neighbour on the left, else the first card left.
+                const auto remaining = self.visibleEnvelopes();
+                auto next = remaining.empty() ? 0 : remaining.front();
+                for (const auto other : remaining)
+                    if (other < env)
+                        next = other;
+                self.selected = next;
+                self.onSelect (next);
             }
-            safeThis->layoutChanged();
-        });
+            self.layoutChanged();
+        };
+
+        if (ties.isEmpty())
+        {
+            remove();
+            return;
+        }
+
+        const auto drives = targetsText (env);
+        confirmPoolRemoval (*this, info.title + (drives.isNotEmpty() ? " drives " + drives : juce::String (" is in use")),
+                            "Remove " + info.title + " (" + ties.joinIntoString (", ") + ")", remove);
     }
 
     float readParam (const juce::String& id) const
@@ -249,47 +450,10 @@ private:
         return 0.0f;
     }
 
-    // The amp envelope always plays; the filter envelopes count when their
-    // filter's env amount is set; any envelope counts when routed in the matrix.
-    bool isInUse (int env) const
+    bool isInUse (int env) const { return envelopeInUse (processorRef, env); }
+
+    void paintFrame (juce::Graphics& g, juce::Rectangle<float> card, juce::Colour colour, bool active, bool hovered) const
     {
-        const auto& info = envs[(size_t) env];
-
-        if (info.source == Mod::Source::AmpEnv)
-            return true;
-
-        if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
-            return true;
-
-        if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
-            return true;
-
-        // As an oscillator's amp envelope or its warp (DCW) envelope, whose
-        // choices start with Off.
-        for (const auto* prefix : OscillatorIds::prefixes)
-            if ((int) readParam (juce::String (prefix) + "_amp_env") == env
-                || (int) readParam (juce::String (prefix) + "_pd_env") == env + 1)
-                return true;
-
-        for (int slot = 0; slot < Mod::maxSlots; ++slot)
-        {
-            const auto routing = processorRef.readModSlot (slot);
-
-            if (routing.destination != 0 && (routing.source == info.source || routing.aux == info.source))
-                return true;
-        }
-
-        return false;
-    }
-
-    void paintCard (juce::Graphics& g, int env, juce::Rectangle<float> card)
-    {
-        const auto& info = envs[(size_t) env];
-        const auto colour = info.colour;
-        const auto active = env == selected;
-        const auto hovered = env == hoverIndex;
-        const auto inUse = isInUse (env);
-
         IlanaTheme::paintWell (g, card, 6.0f);
 
         if (active)
@@ -304,21 +468,43 @@ private:
             g.setColour (colour.withAlpha (0.4f));
             g.drawRoundedRectangle (card.reduced (0.5f), 6.0f, 1.0f);
         }
+    }
 
-        auto inner = card.reduced (8.0f, 5.0f);
-        auto titleRow = inner.removeFromTop (14.0f);
+    void paintTitle (juce::Graphics& g, juce::Rectangle<float> titleRow, const juce::String& title, const juce::String& targets,
+                     juce::Colour colour, bool active, bool inUse) const
+    {
+        const auto titleFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
 
         g.setColour (active ? colour : juce::Colours::white.withAlpha (inUse ? 0.75f : 0.45f));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawText (info.title, titleRow, juce::Justification::centredLeft);
+        g.setFont (titleFont);
+        g.drawText (title, titleRow, juce::Justification::centredLeft);
 
         if (inUse)
         {
-            const auto titleWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)),
-                                                                            info.title);
             g.setColour (colour);
             g.fillEllipse (titleRow.getX() + titleWidth + 6.0f, titleRow.getCentreY() - 2.5f, 5.0f, 5.0f);
         }
+
+        // What it drives, on the title line (in the lower corner it sat on
+        // the curve).
+        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 16.0f), targets, colour);
+    }
+
+    void paintCard (juce::Graphics& g, int env, juce::Rectangle<float> card)
+    {
+        const auto& info = envs[(size_t) env];
+        const auto colour = info.colour;
+        const auto active = env == selected;
+        const auto hovered = env == hoverIndex;
+        const auto inUse = isInUse (env);
+
+        paintFrame (g, card, colour, active, hovered);
+
+        auto inner = card.reduced (8.0f, 5.0f);
+        auto titleRow = inner.removeFromTop (14.0f);
+        const auto removable = hovered && canRemove (env);
+        paintTitle (g, removable ? titleRow.withTrimmedRight (18.0f) : titleRow, info.title, cachedTargets (env), colour, active, inUse);
 
         // ADSR outline on a compressed time axis so long and short stages
         // both stay readable.
@@ -353,10 +539,23 @@ private:
         g.setColour (colour.withAlpha (active ? 0.95f : (inUse ? 0.6f : 0.35f)));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // What it drives, on the title line (in the lower corner it sat on
-        // the curve).
-        const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), info.title);
-        paintTargetTag (g, titleRow.withTrimmedLeft (nameWidth + 16.0f), cachedTargets (env), colour);
+        if (removable)
+            PoolCards::paintRemoveButton (g, PoolCards::removeBounds (card), hoverRemove);
+    }
+
+    void paintExtraCard (juce::Graphics& g, int extra, juce::Rectangle<float> card)
+    {
+        const auto& info = extras[(size_t) extra];
+        const auto id = (int) envs.size() + extra;
+        const auto active = id == selected;
+        const auto targets = info.targets != nullptr ? info.targets() : juce::String();
+
+        paintFrame (g, card, info.colour, active, id == hoverIndex);
+        auto inner = card.reduced (8.0f, 5.0f);
+        paintTitle (g, inner.removeFromTop (14.0f), info.title, targets, info.colour, active, targets.isNotEmpty());
+
+        if (info.paintShape != nullptr)
+            info.paintShape (g, inner.reduced (0.0f, 3.0f), active);
     }
 
     // The cards repaint often; what they drive is re-read four times a second.
@@ -420,8 +619,10 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     std::vector<Env> envs;
+    std::vector<ExtraCard> extras;
     int selected = 0;
     int hoverIndex = -1;
+    bool hoverRemove = false;
     int viewWidth = 0;
     int lastCardCount = -1;
 };

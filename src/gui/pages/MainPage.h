@@ -18,8 +18,7 @@ public:
           filterDisplay (p),
           lfoThumbs (p, [] (int index) { return lfoColour (index); }),
           filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
-          envTabs ({ "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" },
-                   { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
+          envTabs ({ envelopeTitle (0) }, { envColour (0) }, true),
           lfoTabs ({}, {}, true)
     {
         const auto colours = [] (int osc) { return IlanaTheme::oscColour (osc); };
@@ -240,12 +239,13 @@ public:
             filterSets.push_back (std::move (set));
         }
 
-        // Envelopes: graph plus ADSR per envelope, swapped by the tabs.
+        // Envelopes: graph plus ADSR per envelope, swapped by the tabs (one
+        // per envelope the MOD page's pool shows: UI review 6, S6-34).
         const char* const envPrefixes[] { "amp", "fe", "f2e", "me", "e4" };
 
-        for (int e = 0; e < 5; ++e)
+        for (int e = 0; e < 16; ++e)
         {
-            const juce::String prefix (envPrefixes[e]);
+            const juce::String prefix (e < 5 ? juce::String (envPrefixes[e]) : "env" + juce::String (e + 1));
             auto set = std::make_unique<ControlSet>();
             set->display = std::make_unique<EnvelopeDisplay> (p, prefix, envColour (e), e == 0);
 
@@ -288,7 +288,7 @@ public:
         lfoThumbs.onLayoutChanged = [this] { resized(); };
 
         filterTabs.onSelect = [this] (int) { updateVisibility(); };
-        envTabs.onSelect = [this] (int) { updateVisibility(); };
+        envTabs.onSelect = [this] (int index) { envTabPicked (index); };
         lfoTabs.onSelect = [this] (int index)
         {
             lfoThumbs.setSelected (index);
@@ -296,10 +296,11 @@ public:
         };
 
         filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
-        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (envTabs.getSelected()); };
+        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (selectedEnv); };
         lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
 
         addAll (*this, filterTabs, envTabs, lfoTabs);
+        refreshEnvTabs();
         updateVisibility();
         updateStrips();
 
@@ -327,16 +328,93 @@ public:
 
     static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
 
-    static juce::Colour envColour (int index)
+    static juce::Colour envColour (int index) { return EnvSection::colourOf (index); }
+
+    // The envelope PLAY shows (ENV 1-16, 0-based).
+    int getSelectedEnvelope() const { return selectedEnv; }
+
+    // PLAY's envelope tabs: the envelopes the MOD page's pool shows, as
+    // many as fit the card's header, the selected one always among them,
+    // and "+N" for the rest (a menu).
+    void refreshEnvTabs()
     {
-        switch (index)
+        std::vector<int> shown;
+        for (int env = 0; env < (int) envSets.size(); ++env)
+            if (envelopeShown (processorRef, env))
+                shown.push_back (env);
+        if (shown.empty())
+            shown.push_back (0);
+        if (std::find (shown.begin(), shown.end(), selectedEnv) == shown.end())
+            selectedEnv = shown.front();
+
+        const auto room = envCard.isEmpty() ? 1000 : envCard.getWidth() - 16 - 110 /* the card's title */;
+        const auto namesFor = [] (const std::vector<int>& envs, int hidden)
         {
-            case 1: return juce::Colour (0xffc86bff);
-            case 2: return juce::Colour (0xff8f9dff);
-            case 3: return juce::Colour (0xff8fff3b);
-            case 4: return juce::Colour (0xff5b8cff);
-            default: return modSourceColour ((int) Mod::Source::AmpEnv);
+            juce::StringArray names;
+            for (const auto env : envs)
+                names.add (envelopeTitle (env));
+            if (hidden > 0)
+                names.add ("+" + juce::String (hidden));
+            return names;
+        };
+
+        auto tabs = shown;
+        auto hidden = 0;
+        while (tabs.size() > 1)
+        {
+            CardTabs probe (namesFor (tabs, hidden), {}, true);
+            if (probe.getIdealWidth() <= room)
+                break;
+            // Drop the last one that isn't selected.
+            for (auto it = tabs.rbegin(); it != tabs.rend(); ++it)
+                if (*it != selectedEnv)
+                {
+                    tabs.erase (std::next (it).base());
+                    ++hidden;
+                    break;
+                }
         }
+
+        std::vector<juce::Colour> colours;
+        for (const auto env : tabs)
+            colours.push_back (envColour (env));
+        if (hidden > 0)
+            colours.push_back (IlanaTheme::Ui::text3);
+
+        envTabEnvs = tabs;
+        envHiddenEnvs.clear();
+        for (const auto env : shown)
+            if (std::find (tabs.begin(), tabs.end(), env) == tabs.end())
+                envHiddenEnvs.push_back (env);
+
+        envTabs.setNames (namesFor (tabs, hidden), colours);
+        envTabs.setSelected ((int) (std::find (tabs.begin(), tabs.end(), selectedEnv) - tabs.begin()), false);
+    }
+
+    void envTabPicked (int index)
+    {
+        if (index < (int) envTabEnvs.size())
+        {
+            selectedEnv = envTabEnvs[(size_t) index];
+            updateVisibility();
+            return;
+        }
+
+        // "+N": the envelopes that didn't fit.
+        envTabs.setSelected ((int) (std::find (envTabEnvs.begin(), envTabEnvs.end(), selectedEnv) - envTabEnvs.begin()), false);
+        juce::PopupMenu menu;
+        for (const auto env : envHiddenEnvs)
+            menu.addItem (env + 1, envelopeTitle (env));
+        juce::Component::SafePointer<MainPage> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&envTabs), [safeThis] (int id)
+        {
+            if (safeThis == nullptr || id <= 0)
+                return;
+            safeThis->selectedEnv = id - 1;
+            safeThis->refreshEnvTabs();
+            safeThis->resized();
+            safeThis->updateVisibility();
+        });
     }
 
     void paint (juce::Graphics& g) override
@@ -344,7 +422,7 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
-        paintCard (g, envCard, "ENVELOPE", envColour (envTabs.getSelected()));
+        paintCard (g, envCard, "ENVELOPE", envColour (selectedEnv));
         paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
     }
 
@@ -454,6 +532,7 @@ public:
         };
 
         placeTabs (filterTabs, filterCard);
+        refreshEnvTabs();
         placeTabs (envTabs, envCard);
         placeTabs (lfoTabs, lfoCard);
 
@@ -802,7 +881,7 @@ private:
         };
 
         showSets (filterSets, filterTabs.getSelected());
-        showSets (envSets, envTabs.getSelected());
+        showSets (envSets, selectedEnv);
         showSets (lfoSets, lfoTabs.getSelected());
         for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
             lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
@@ -813,6 +892,20 @@ private:
     {
         if (processorRef.getRevealVersion() != lastRevealVersion)
             updateStrips();
+
+        // The envelope tabs follow the pool (an envelope added, removed, or
+        // put to use by a route or an oscillator).
+        {
+            auto shownEnvs = 0u;
+            for (int env = 0; env < (int) envSets.size(); ++env)
+                shownEnvs |= envelopeShown (processorRef, env) ? (1u << env) : 0u;
+            if (shownEnvs != lastShownEnvs)
+            {
+                lastShownEnvs = shownEnvs;
+                resized();
+                updateVisibility();
+            }
+        }
 
         // SUB + NOISE folds to one line while both are off (and opens again the
         // moment either is used).
@@ -938,6 +1031,11 @@ private:
     static constexpr int patchMinHeight = 90;
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1;
+    // PLAY's envelope: which one, the envelopes on its tabs, those behind
+    // "+N", and the pool last seen.
+    int selectedEnv = 0;
+    std::vector<int> envTabEnvs { 0 }, envHiddenEnvs;
+    unsigned int lastShownEnvs = 0;
     static constexpr int foldedHeight = 36;
     // An open oscillator card: title, menus and a row of main-size knobs.
     static constexpr int openOscHeight = 8 + 18 + 2 + 40 + 13 + IlanaTheme::KnobSize::main + 16 + 10;

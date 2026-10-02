@@ -4,7 +4,9 @@
 
 namespace
 {
-// One filter: its type grid, slope switch and only the knobs its model uses.
+// One filter: its type picker and slope in the header, then only the knobs
+// its model uses (UI review 6: the type is a compact menu with arrows, not a
+// 12-button grid, so the card is one row of knobs).
 class FilterPanel : public juce::Component,
                     private juce::Timer
 {
@@ -14,7 +16,7 @@ public:
           prefix (index == 1 ? "f1" : "f2"),
           title ("FILTER " + juce::String (index)),
           colour (colourIn),
-          grid (p.apvts, prefix + "_type", colourIn),
+          picker (p, prefix + "_type", colourIn, "Filter " + juce::String (index) + " type"),
           slope (p.apvts, prefix + "_slope", colourIn),
           cutoff (p.apvts, prefix + "_cutoff", "CUTOFF", colourIn, false),
           reso (p.apvts, prefix + "_reso", "RESO", colourIn, false),
@@ -24,7 +26,7 @@ public:
           fm (p.apvts, prefix + "_fm", "AUDIO FM", colourIn, false),
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
-        addAll (*this, grid, slope, cutoff, reso, drive, env, key, fm, morph);
+        addAll (*this, picker, slope, cutoff, reso, drive, env, key, fm, morph);
         refreshType();
         startTimerHz (8);
     }
@@ -33,25 +35,37 @@ public:
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour.withAlpha (0.35f));
 
-        auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardTitle (g, header, title, colour);
-        header.removeFromLeft (14);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        const auto header = getLocalBounds().reduced (12, 0).removeFromTop (headerHeight);
+        IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : colour);
+    }
 
-        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)), title);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText (FilterType::getNames()[type], header.withTrimmedLeft (titleWidth + 10), juce::Justification::centredLeft);
+    // WEST in Filter 2's place: a note over the dimmed knobs says so.
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! replaced)
+            return;
+
+        const auto note = getLocalBounds().withTrimmedTop (headerHeight).reduced (24, 0).withSizeKeepingCentre (getWidth() - 48, 40);
+        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.92f));
+        g.fillRoundedRectangle (note.toFloat(), 6.0f);
+        g.setColour (FilterColours::west().withAlpha (0.6f));
+        g.drawRoundedRectangle (note.toFloat().reduced (0.5f), 6.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawFittedText ("Replaced by WEST: its PLACE is Replace Filter 2.\nThese settings come back when WEST runs after the filters.",
+                          note.reduced (10, 2), juce::Justification::centred, 2);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (10, 0);
-        auto header = area.removeFromTop (28);
-        slope.setBounds (header.removeFromRight (96).reduced (0, 5));
+        auto header = area.removeFromTop (headerHeight);
+        slope.setBounds (header.removeFromRight (96).reduced (0, 6));
+        header.removeFromRight (8);
+        // The picker after the title, as wide as it likes up to the slope.
+        header.removeFromLeft (IlanaTheme::cardTitleWidth (title) - 4);
+        picker.setBounds (header.removeFromLeft (juce::jmin (FilterTypePicker::idealWidth, header.getWidth())).reduced (0, 5));
 
-        grid.setBounds (area.removeFromTop (juce::jlimit (52, 64, getHeight() / 4) + FilterTypeGrid::labelHeight));
-        area.removeFromTop (4);
         area.removeFromBottom (6);
 
         std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
@@ -60,6 +74,14 @@ public:
             knobs.push_back (&morph);
 
         layoutRow (area, knobs);
+    }
+
+    static constexpr int headerHeight = 34;
+
+    // The height the card wants at a width: the header and one knob row.
+    int preferredHeight (int width) const
+    {
+        return headerHeight + preferredControlHeight (const_cast<KnobControl*> (&cutoff), (width - 20) / 7 - 6) + 18;
     }
 
 private:
@@ -77,25 +99,44 @@ private:
         repaint();
     }
 
+    float read (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
     void timerCallback() override
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue (prefix + "_type"))
             if ((int) value->load() != type)
                 refreshType();
+
+        // Filter 2's card while WEST takes its place: dimmed, and says why
+        // (UI review 6, I6-16).
+        const auto replacedNow = prefix == "f2" && read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1;
+        if (replacedNow != replaced)
+        {
+            replaced = replacedNow;
+            for (auto* child : getChildren())
+                child->setAlpha (replaced ? IlanaTheme::dimmedAlpha * 0.6f : 1.0f);
+            repaint();
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix, title;
     juce::Colour colour;
-    FilterTypeGrid grid;
+    FilterTypePicker picker;
     SlopeSwitch slope;
     KnobControl cutoff, reso, drive, env, key, fm, morph;
     int type = -1;
+    bool replaced = false;
 };
 
-// M8.3: the WEST card: a wavefolder into a low-pass gate. It sits where
-// Filter 2's card is (the FILTER 2 / WEST tabs), and runs after the filters
-// or in Filter 2's place.
+// M8.3: the WEST card: a wavefolder into a low-pass gate, after the filters
+// or in Filter 2's place. Its own card on the FILTER page, beside BODY (UI
+// review 6, I6-15 / I6-16: it was a tab of Filter 2's card), in its own
+// colour.
 class WestPanel : public juce::Component,
                   private IlanaAnim::FrameTimer
 {
@@ -118,14 +159,16 @@ public:
         startTimerHz (30);
     }
 
-    // Not a modulation source: the accent, not a source's colour.
-    static juce::Colour colour() { return IlanaTheme::accent(); }
+    // Its own colour (not a source's, nor the accent the BODY wears).
+    static juce::Colour colour() { return FilterColours::west(); }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "WEST", "wavefolder into a low-pass gate", colour());
+        IlanaTheme::paintCardHeader (g, header, "WEST", juce::roundToInt (read ("west_pos")) == 1 ? "wavefolder and low-pass gate, in Filter 2's place"
+                                                                                                    : "wavefolder and low-pass gate, after the filters",
+                                     colour(), 60);
 
         // The fold's transfer curve and the gate's vactrol, lit by its level.
         const auto plot = picture.toFloat();
@@ -153,40 +196,39 @@ public:
         g.strokePath (curve, juce::PathStrokeType (1.6f));
 
         // How open the gate is right now: a level meter (a lit dot read as
-        // an on/off switch).
+        // an on/off switch), named above it.
         const auto level = juce::jlimit (0.0f, 1.0f, processorRef.getWestGateLevel());
-        const auto cell = plot.withTrimmedLeft (plot.getWidth() * 0.66f).reduced (10.0f, 8.0f);
-        auto meter = cell.withSizeKeepingCentre (8.0f, juce::jmin (cell.getHeight() - 20.0f, 64.0f)).withX (cell.getX() + 10.0f);
+        auto cell = plot.withTrimmedLeft (plot.getWidth() * 0.66f).reduced (8.0f, 6.0f);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText ("GATE", cell.removeFromTop (14.0f), juce::Justification::centredLeft);
+        const auto meter = cell.withSizeKeepingCentre (cell.getWidth(), 7.0f);
         g.setColour (IlanaTheme::Ui::track);
         g.fillRoundedRectangle (meter, 3.0f);
-        const auto lit = meter.withTop (meter.getBottom() - meter.getHeight() * level);
+        const auto lit = meter.withWidth (meter.getWidth() * level);
         if (level > 0.001f)
         {
             IlanaTheme::paintGlow (g, lit, 3.0f, colour(), 0.4f + 0.6f * level);
             g.setColour (colour());
             g.fillRoundedRectangle (lit, 3.0f);
         }
-        g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("GATE", cell.withTrimmedLeft (26.0f), juce::Justification::centredLeft);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (10, 0);
         area.removeFromTop (30);
-        auto top = area.removeFromTop (area.getHeight() * 2 / 5);
-        auto options = top.removeFromLeft (top.getWidth() / 2);
-        picture = top.reduced (4, 2);
-        const auto optionHeight = options.getHeight() / 2;
-        auto row1 = options.removeFromTop (optionHeight);
+        area.removeFromBottom (4);
         // Its on switch in the header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 14));
-        position.setBounds (row1.reduced (3, 1));
-        auto row2 = options;
-        mode.setBounds (row2.removeFromLeft (row2.getWidth() / 2).reduced (3, 1));
-        source.setBounds (row2.reduced (3, 1));
-        area.removeFromTop (4);
+
+        // The menus in a row with the picture beside them, then the knobs.
+        auto top = area.removeFromTop (juce::jmin (52, area.getHeight() / 3));
+        picture = top.removeFromRight (top.getWidth() * 2 / 5).reduced (4, 2);
+        const auto menuWidth = top.getWidth() / 3;
+        for (auto* menu : { &position, &mode, &source })
+            menu->setBounds (top.removeFromLeft (menuWidth).reduced (3, 2));
+        area.removeFromTop (2);
         layoutRow (area, { &fold, &symmetry, &stages, &decay, &resonance, &strike, &open });
     }
 
@@ -211,8 +253,9 @@ private:
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
+        // (The header says where WEST sits, so a change repaints it all.)
         if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
-            repaint (picture);
+            repaint();
     }
 
     IlanaSynthAudioProcessor& processorRef;

@@ -1919,79 +1919,172 @@ int runUiTests()
         settle (200);
     }
 
-    // M8.4: the type grid turns to the page holding a new model.
+    // (Plain-value parameter access for the review-6 FILTER checks below.)
+    const auto setParam = [&processor] (const juce::String& id, float plain)
     {
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Steiner));
-        pages->showPage ("FILTER");
-        settle (200);
-        std::vector<FilterTypeGrid*> grids;
-        findAll<FilterTypeGrid> (*editor, grids);
-        auto onSecond = false;
-        for (auto* grid : grids)
-        {
-            grid->repaint();
-            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
-            juce::Graphics g (image);
-            grid->paintEntireComponent (g, false);
-            onSecond = onSecond || grid->getPage() == 1;
-        }
-        expect (! grids.empty() && onSecond, "the filter type grid shows the page with the new models");
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+    const auto readParam = [&processor] (const juce::String& id)
+    {
+        const auto* value = processor.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
 
-        // Every type has a short name, and an Airwindows model opens its page.
-        expect (FilterTypeGrid::shortNames().size() == FilterType::Count, "every filter type has a short name in the grid");
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Disperser));
-        settle (200);
-        auto onAirwindows = false;
-        for (auto* grid : grids)
+    // UI review 6 (V5-17, S5-12, S6-20): the filter type is one compact
+    // picker per filter (no 12-button grids), every model once in its menu,
+    // the analogue models under ANALOG, and arrows that step through it as
+    // one undo step each.
+    {
+        processor.loadFactoryPreset (0);
+        pages->showPage ("FILTER");
+        settle (300);
+        std::vector<FilterTypePicker*> pickers;
+        findAll<FilterTypePicker> (*editor, pickers);
+        auto shownPickers = 0;
+        for (auto* picker : pickers)
+            shownPickers += visibleInTree (picker) && picker->getHeight() <= 30 ? 1 : 0;
+        expect (shownPickers == 2, "FILTER shows one compact type picker per filter (" + juce::String (shownPickers) + ")");
+
+        auto order = FilterTypes::order();
+        std::sort (order.begin(), order.end());
+        expect ((int) order.size() == FilterType::Count && std::adjacent_find (order.begin(), order.end()) == order.end()
+                    && order.front() == 0 && order.back() == FilterType::Count - 1,
+                "the type menu lists every filter model exactly once");
+        expect (FilterTypes::shortNames().size() == FilterType::Count, "every filter type has a short name");
+        auto analogue = true;
+        for (const auto type : { FilterType::LadderLow, FilterType::LadderHigh, FilterType::DiodeLow, FilterType::Ms20Low,
+                                 FilterType::MoogDrive, FilterType::Acid303, FilterType::Sem })
+            analogue = analogue && FilterTypes::getPageName (FilterTypes::pageOf (type)) == "ANALOG";
+        expect (analogue, "Ladder, Diode, MS-20, Moog, 303 and SEM are under ANALOG");
+        expect (FilterTypes::displayName (FilterType::AwZLow).startsWith ("Smooth") && FilterTypes::shortNames()[FilterType::AwYNotLow] == "RESO LP",
+                "the Airwindows filters are named by what they do");
+
+        if (! pickers.empty())
         {
-            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
-            juce::Graphics g (image);
-            grid->paintEntireComponent (g, false);
-            onAirwindows = onAirwindows || grid->getPage() == 3;
+            auto* picker = pickers.front();
+            const auto before = juce::roundToInt (readParam ("f1_type"));
+            clearHistory();
+            const juce::Point<float> nextArrow ((float) picker->getWidth() - 6.0f, (float) picker->getHeight() * 0.5f);
+            static_cast<juce::Component*> (picker)->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), nextArrow,
+                                                                                 juce::ModifierKeys(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, picker, picker,
+                                                                                 juce::Time::getCurrentTime(), nextArrow, juce::Time::getCurrentTime(), 1, false));
+            settle (100);
+            const auto after = juce::roundToInt (readParam ("f1_type"));
+            const auto steps = undoSteps();
+            expect (after == FilterTypes::stepFrom (before, 1) && after != before && steps.size() == 1 && steps[0] == "Filter 1 type",
+                    "the picker's next arrow steps Filter 1 to the next model, one undo step (" + juce::String (before) + " -> "
+                        + juce::String (after) + ")");
+            processor.getUndoManager().undo();
+            settle (100);
+            expect (juce::roundToInt (readParam ("f1_type")) == before, "undo brings the filter type back");
         }
-        expect (onAirwindows, "the filter type grid shows the AIRWINDOWS page for the Disperser");
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (0.0f);
     }
 
-    // M8.3: the FILTER page's WEST tab shows the west-coast card.
+    // UI review 6 (I6-15, I6-16): WEST is its own card, shown beside Filter 2
+    // (not a hidden tab); with PLACE Replace Filter 2, Filter 2's card dims
+    // and the graph and flow drop Filter 2.
     {
         pages->showPage ("FILTER");
         settle (200);
+        const auto visibleKnob = [&editor] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob))
+                    return knob;
+            return (KnobControl*) nullptr;
+        };
         std::vector<CardTabs*> cardTabs;
         findAll<CardTabs> (*editor, cardTabs);
-        CardTabs* westTabs = nullptr;
+        auto westTabs = false;
         for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                westTabs = bar;
-        expect (westTabs != nullptr, "the FILTER page has FILTER 2 / WEST tabs");
-        if (westTabs != nullptr)
+            westTabs = westTabs || (visibleInTree (bar) && bar->getNames().contains ("WEST"));
+        expect (! westTabs && visibleKnob ("west_fold") != nullptr && visibleKnob ("west_decay") != nullptr && visibleKnob ("f2_cutoff") != nullptr,
+                "FILTER shows WEST as its own card beside Filter 2, no FILTER 2 / WEST tabs");
+
+        auto* f2Cutoff = visibleKnob ("f2_cutoff");
+        const auto litBefore = f2Cutoff != nullptr && f2Cutoff->getAlpha() > 0.99f;
+        setParam ("west_on", 1.0f);
+        setParam ("west_pos", 1.0f);
+        settle (400);
+        const auto dimmed = f2Cutoff != nullptr && f2Cutoff->getAlpha() < 0.6f;
+        auto markerFor2 = 1;
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr)
+            markerFor2 = display->filterAt (display->getMarkerCentres()[1]);
+        setParam ("west_pos", 0.0f);
+        setParam ("west_on", 0.0f);
+        settle (400);
+        expect (litBefore && dimmed && markerFor2 == 0 && f2Cutoff->getAlpha() > 0.99f,
+                "WEST in Filter 2's place dims Filter 2's card and the graph stops offering Filter 2's marker");
+    }
+
+    // UI review 6 (V6-18, S6-21): the graph's markers sit on their filter's
+    // response, 8 px inside the plot: Init's two filters, open at 20 kHz,
+    // are high on the right (not in the bottom corner) and fanned apart.
+    {
+        processor.loadFactoryPreset (0);
+        pages->showPage ("FILTER");
+        settle (300);
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr && visibleInTree (display))
         {
-            const auto visibleKnob = [&editor] (const juce::String& id)
-            {
-                std::vector<KnobControl*> knobs;
-                findAll<KnobControl> (*editor, knobs);
-                for (auto* knob : knobs)
-                    if (knob->getParameterId() == id)
-                    {
-                        auto shown = true;
-                        for (juce::Component* c = knob; c != nullptr && c->getParentComponent() != nullptr; c = c->getParentComponent())
-                            shown = shown && c->isVisible();
-                        if (shown)
-                            return true;
-                    }
-                return false;
-            };
-            westTabs->setSelected (1, true);
-            settle (200);
-            expect (visibleKnob ("west_fold") && visibleKnob ("west_decay") && ! visibleKnob ("f2_cutoff"),
-                    "the WEST tab shows FOLD and DECAY in Filter 2's place");
-            westTabs->setSelected (0, true);
-            settle (200);
-            expect (visibleKnob ("f2_cutoff") && ! visibleKnob ("west_fold"), "the FILTER 2 tab brings Filter 2 back");
+            const auto markers = display->getMarkerCentres();
+            const auto plot = display->getLocalBounds().toFloat().reduced (10.0f, 12.0f);
+            const auto inset = plot.reduced (8.0f);
+            expect (inset.contains (markers[0]) && inset.contains (markers[1]) && markers[0].getDistanceFrom (markers[1]) >= 10.0f
+                        && markers[0].y < plot.getCentreY() && markers[1].y < plot.getCentreY(),
+                    "Init: the open filters' markers sit high on the response, inside the plot, apart ("
+                        + markers[0].toString() + " / " + markers[1].toString() + ")");
         }
+        else
+            expect (false, "FILTER shows the response graph");
+
+        // BALANCE does nothing in serial: dimmed and disabled (V6-18).
+        setParam ("filters_parallel", 0.0f);
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* balance = nullptr;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "filter_balance" && visibleInTree (knob))
+                balance = knob;
+        const auto serialOff = balance != nullptr && ! balance->isEnabled() && balance->getAlpha() < 0.99f;
+        setParam ("filters_parallel", 1.0f);
+        settle (300);
+        expect (serialOff && balance->isEnabled(), "BALANCE is disabled in serial and enabled in parallel");
+        setParam ("filters_parallel", 0.0f);
+        settle (200);
+    }
+
+    // UI review 6 (S6-16): in SIGNAL FLOW an oscillator with OUT off is an
+    // FM modulator, not a source into the filters (checked through its
+    // tooltip, which names what it modulates).
+    {
+        setParam ("osc2_on", 1.0f);
+        setParam ("osc2_out", 0.0f);
+        setParam ("fm_amount", 0.5f); // OSC 2 > OSC 1
+        pages->showPage ("FILTER");
+        settle (400);
+        std::vector<SignalFlow*> flows;
+        findAll<SignalFlow> (*editor, flows);
+        juce::String tip;
+        for (auto* flow : flows)
+        {
+            if (! visibleInTree (flow))
+                continue;
+            for (int y = 2; y < flow->getHeight() && tip.isEmpty(); y += 2)
+            {
+                const juce::Point<float> at (16.0f, (float) y);
+                flow->mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f, 0.0f,
+                                                   0.0f, 0.0f, flow, flow, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false));
+                if (flow->getTooltip().startsWith ("OSC 2"))
+                    tip = flow->getTooltip();
+            }
+        }
+        expect (tip.contains ("isn't heard") && tip.contains ("OSC 1"), "SIGNAL FLOW shows OSC 2 (OUT off) as OSC 1's FM modulator ('" + tip + "')");
+        processor.loadFactoryPreset (0);
+        settle (200);
     }
 
     // Knobs, chips, the filter graph, the browser and SUB + NOISE (UI review 1 fixes).
@@ -4456,22 +4549,20 @@ int main (int argc, char** argv)
         settle (200);
     }
 
-    // M8.3: the WEST card (FILTER page, FILTER 2 / WEST tabs).
+    // M8.3: the WEST card (its own card on the FILTER page), after the
+    // filters, then in Filter 2's place.
     {
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (1.0f);
         pages->showPage ("FILTER");
-        std::vector<CardTabs*> cardTabs;
-        if (auto* page = pages->getCurrentPage())
-            findAll<CardTabs> (*page, cardTabs);
-        for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                bar->setSelected (1, true);
         settle (500);
         save (*editor, outDir.getChildFile ("filter-west.png"));
-        for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                bar->setSelected (0, true);
+        if (auto* parameter = processor.apvts.getParameter ("west_pos"))
+            parameter->setValueNotifyingHost (1.0f);
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-west-replace.png"));
+        if (auto* parameter = processor.apvts.getParameter ("west_pos"))
+            parameter->setValueNotifyingHost (0.0f);
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (0.0f);
     }

@@ -13,10 +13,9 @@ public:
     explicit FilterPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           filterDisplay (p),
-          panel1 (p, 1, juce::Colour (0xffc86bff)),
-          panel2 (p, 2, juce::Colour (0xff8f9dff)),
+          panel1 (p, 1, FilterColours::filter (0)),
+          panel2 (p, 2, FilterColours::filter (1)),
           westPanel (p),
-          secondTabs ({ "FILTER 2", "WEST" }, { juce::Colour (0xff8f9dff), WestPanel::colour() }, false),
           flow (p),
           balance (p.apvts, "filter_balance", "BALANCE", IlanaTheme::accent(), true),
           resOn (p.apvts, "res_on", "ON"),
@@ -30,17 +29,10 @@ public:
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
           bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), true)
     {
-        addChildComponent (westPanel);
-        addAndMakeVisible (secondTabs);
-        secondTabs.onSelect = [this] (int index)
-        {
-            panel2.setVisible (index == 0);
-            westPanel.setVisible (index == 1);
-        };
-        // Open on WEST when a patch uses it in Filter 2's place.
-        if (const auto* west = p.apvts.getRawParameterValue ("west_on"); west != nullptr && west->load() > 0.5f)
-            secondTabs.setSelected (1, false);
-        addAll (*this, filterDisplay, panel1, panel2, flow, balance,
+        // The page (UI review 6): the response beside the signal flow, the
+        // two filters side by side, then WEST and BODY, each its own card,
+        // so nothing that shapes the sound hides behind a tab (I6-15/16).
+        addAll (*this, filterDisplay, panel1, panel2, westPanel, flow, balance,
                 resOn, resAmount, resDecay, resOffset, resKeytrack,
                 bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
 
@@ -52,6 +44,7 @@ public:
         const auto resonating = effectRules.isOn ("res_on");
         const auto modal = [this, resonating] { return resonating() && readValue ("body_type") > 0.5f; };
         const auto couplingMode = [this] { return juce::roundToInt (readValue ("body_coupling_mode")); };
+        // (BALANCE is also disabled in serial, below: V6-18, S6-21.)
         effectRules.add (balance, effectRules.isOn ("filters_parallel"), "the filters are in SERIAL");
         for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
             effectRules.add (*knob, resonating, "BODY is off");
@@ -72,7 +65,8 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintSectionTitle (g, "RESPONSE", { headingX, 12, 700, headingHeight }, "drag the markers to set cutoff and resonance");
+        paintSectionTitle (g, "RESPONSE", { headingX, 12, juce::jmax (0, filterDisplay.getRight() - headingX), headingHeight },
+                           "drag across for cutoff, up and down for resonance");
 
         // Signal flow: a card like BODY beside it, the diagram and the
         // BALANCE knob inside; the subtitle says what BALANCE does now.
@@ -81,7 +75,7 @@ public:
             const auto active = parallel != nullptr && parallel->load() > 0.5f;
             IlanaTheme::paintCard (g, flowCard.toFloat(), 7.0f, IlanaTheme::Ui::text2.withAlpha (0.2f));
             IlanaTheme::paintCardHeader (g, flowCard.reduced (12, 0).removeFromTop (26), "SIGNAL FLOW",
-                                         active ? "parallel: BALANCE mixes F1 and F2" : "serial: F1 into F2 (BALANCE is for parallel)",
+                                         active ? "parallel: BALANCE mixes F1 and F2" : "serial: F1 into F2",
                                          IlanaTheme::Ui::text2, 0);
         }
 
@@ -97,39 +91,35 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
-        area.removeFromTop (headingHeight);
 
-        const auto panelHeight = juce::jlimit (200, 260, area.getHeight() * 9 / 20);
-        const auto bottomHeight = juce::jlimit (160, 180, area.getHeight() / 4);
-        const auto displayHeight = juce::jmax (90, area.getHeight() - panelHeight - bottomHeight - 16);
+        const auto panelHeight = juce::jlimit (128, 156, panel1.preferredHeight ((area.getWidth() - 10) / 2));
+        const auto bottomHeight = juce::jlimit (166, 186, area.getHeight() * 9 / 25);
+        const auto topHeight = juce::jmax (120, area.getHeight() - panelHeight - bottomHeight - 16);
 
-        filterDisplay.setBounds (area.removeFromTop (displayHeight));
+        // Top: the response (under its heading) and, beside it, the flow.
+        auto top = area.removeFromTop (topHeight);
+        flowCard = top.removeFromRight (juce::jlimit (330, 440, top.getWidth() * 2 / 5));
+        top.removeFromRight (10);
+        top.removeFromTop (headingHeight);
+        filterDisplay.setBounds (top);
+        {
+            auto flowArea = flowCard.reduced (8, 0).withTrimmedTop (26).withTrimmedBottom (8);
+            auto balanceArea = flowArea.removeFromRight (78);
+            const auto balanceHeight = preferredControlHeight (&balance, balanceArea.getWidth() - 6);
+            balance.setBounds (balanceArea.withSizeKeepingCentre (balanceArea.getWidth(), juce::jmin (balanceArea.getHeight(), balanceHeight)));
+            flowArea.removeFromRight (4);
+            flow.setBounds (flowArea);
+        }
         area.removeFromTop (8);
 
         auto panels = area.removeFromTop (panelHeight);
         panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - 10) / 2));
         panels.removeFromLeft (10);
         panel2.setBounds (panels);
-        westPanel.setBounds (panels);
-        // The FILTER 2 / WEST tabs, top right of that card, left of the
-        // slope switch (96 px from the right).
-        const auto tabWidth = secondTabs.getIdealWidth();
-        secondTabs.setBounds (panels.getRight() - tabWidth - 118, panels.getY() + 5, tabWidth, 18);
-        panel2.setVisible (secondTabs.getSelected() == 0);
-        westPanel.setVisible (secondTabs.getSelected() == 1);
-        secondTabs.toFront (false);
 
         area.removeFromTop (8);
         auto bottom = area.removeFromTop (bottomHeight);
-
-        // A card level with BODY's, so the titles line up.
-        flowCard = bottom.removeFromLeft (bottom.getWidth() / 2 - 5);
-        auto flowArea = flowCard.reduced (8, 0).withTrimmedTop (26).withTrimmedBottom (8);
-        auto balanceArea = flowArea.removeFromRight (92);
-        const auto balanceHeight = preferredControlHeight (&balance, balanceArea.getWidth() - 6);
-        balance.setBounds (balanceArea.withSizeKeepingCentre (balanceArea.getWidth(), juce::jmin (balanceArea.getHeight(), balanceHeight)));
-        flowArea.removeFromRight (6);
-        flow.setBounds (flowArea);
+        westPanel.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2 - 5));
 
         bottom.removeFromLeft (10);
         resonatorCard = bottom;
@@ -150,7 +140,8 @@ public:
     }
 
 private:
-    // Balance only acts in parallel; resonator knobs only when it is on.
+    // Balance only acts in parallel (disabled in serial, so it can't be
+    // set by mistake); resonator knobs only when it is on.
     void timerCallback() override
     {
         const auto parallelNow = readValue ("filters_parallel") > 0.5f;
@@ -161,7 +152,12 @@ private:
             repaint (flowCard);
         }
 
+        // (A rule dims it first, while it is still enabled.)
         effectRules.apply();
+
+        // (Its tooltip keeps the rule's "no effect now" note.)
+        if (balance.isEnabled() != parallelNow)
+            balance.setEnabled (parallelNow);
     }
 
     float readValue (const char* id) const
@@ -174,7 +170,6 @@ private:
     FilterDisplay filterDisplay;
     FilterPanel panel1, panel2;
     WestPanel westPanel;
-    CardTabs secondTabs;
     SignalFlow flow;
     KnobControl balance;
     bool wasParallel = false;

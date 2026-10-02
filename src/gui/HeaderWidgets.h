@@ -274,6 +274,7 @@ public:
     }
 
     juce::String getNotice() const { return notice; }
+    bool isShowingModified() const { return isModified; }
 
     void setFlash (float amount)
     {
@@ -369,3 +370,36 @@ private:
     bool hover = false;
     float flash = 0.0f;
 };
+
+// The header's compare switch (A/B stays in the header, a settled
+// decision), drawn compact as "A | B" with the version playing lit. The
+// button's text is the side shown ("A" or "B"); a click flips it.
+class ABButton : public juce::TextButton
+{
+public:
+    ABButton() : juce::TextButton ("A") {}
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        g.setColour (IlanaTheme::Ui::raised.brighter (isDown ? 0.12f : (isHighlighted ? 0.06f : 0.0f)));
+        g.fillRoundedRectangle (bounds, radius);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+
+        const auto onB = getButtonText() == "B";
+        auto left = bounds.reduced (3.0f);
+        const auto right = left.removeFromRight (left.getWidth() * 0.5f);
+        const auto lit = onB ? right : left;
+        g.setColour (IlanaTheme::accent().withAlpha (0.85f));
+        g.fillRoundedRectangle (lit.reduced (1.0f, 0.0f), radius - 1.5f);
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        g.setColour (onB ? IlanaTheme::Ui::text2 : juce::Colours::white);
+        g.drawText ("A", left.toNearestInt(), juce::Justification::centred);
+        g.setColour (onB ? juce::Colours::white : IlanaTheme::Ui::text2);
+        g.drawText ("B", right.toNearestInt(), juce::Justification::centred);
+    }
+};
+

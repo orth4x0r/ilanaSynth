@@ -56,7 +56,14 @@ namespace FmFeedback
 // feedback (Filtered smooths that average further).
 enum { Plain = 0, Filtered, Cross, Dx7, Count };
 
-inline juce::StringArray getNames() { return { "Plain", "Filtered", "Cross", "DX7" }; }
+// Shown names (the index is what's saved): Filtered is "Smooth" and Cross
+// "Cross Pair" (UI review 6, I6-10: two of them both claimed the DX7).
+inline juce::StringArray getNames() { return { "Plain", "Smooth", "Cross Pair", "DX7" }; }
+// A short tag for the matrix's feedback cells.
+inline juce::String getTag (int type)
+{
+    return type == Filtered ? "SMOOTH" : type == Cross ? "CROSS" : type == Dx7 ? "DX7" : "PLAIN";
+}
 
 // Cross feedback runs between the two oscillators of a pair: 1-2, 3-4, 5-6.
 inline int partnerOf (int osc) { return osc ^ 1; }
@@ -446,6 +453,14 @@ public:
     float getVelocity() const { return velocityLevel; }
     float getKeyTrack() const { return keyTrackValue; }
     float getRandomValue() const { return randomValue; }
+    // The Operator Env's LFO and pitch envelope (sources Op LFO and Op Pitch
+    // Env), 0 while the note doesn't play the Operator Env.
+    float getOpLfoValue() const { return dx7Playing ? dx7Note.getLfoOutput() : 0.0f; }
+    float getOpPitchValue() const { return dx7Playing ? dx7Note.getPitchShape() : 0.0f; }
+    // Seconds since the note began and since its key was let go (-1: held;
+    // both -1 while the note doesn't play the Operator Env).
+    float getOpEnvSeconds() const { return dx7Playing ? dx7Note.getSecondsPlayed() : -1.0f; }
+    float getOpEnvReleaseSeconds() const { return dx7Playing ? dx7Note.getSecondsReleased() : -1.0f; }
     float getLfoPhase (int lfo) const { return (float) lfoPhases[(size_t) juce::jlimit (0, 3, lfo)]; }
 
     bool canPlaySound (juce::SynthesiserSound*) override { return true; }
@@ -695,6 +710,7 @@ private:
     // The Operator EG: the note's control side and its operator gains,
     // stepped every 64 samples and ramped in between (as msfa ramps them).
     Dx7::Note dx7Note;
+    Dx7::Voice dx7Settings {}; // what the note last read (edits follow live)
     std::array<float, 6> dx7Previous {}, dx7Current {};
     int dx7Count = 0;
     bool dx7Playing = false; // the note started with the Operator EG in use

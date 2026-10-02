@@ -1648,6 +1648,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     monitorVelocity.store (voice->getVelocity());
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
+                    monitorOpLfo.store (voice->getOpLfoValue());
+                    monitorOpPitch.store (voice->getOpPitchValue());
+                    monitorOpEnvSeconds.store (voice->getOpEnvSeconds());
+                    monitorOpEnvRelease.store (voice->getOpEnvReleaseSeconds());
                 }
             }
         }
@@ -1655,6 +1659,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
 
         activeVoiceCount.store (activeVoices);
+        if (activeVoices == 0)
+        {
+            monitorOpLfo.store (0.0f);
+            monitorOpPitch.store (0.0f);
+            monitorOpEnvSeconds.store (-1.0f);
+            monitorOpEnvRelease.store (-1.0f);
+        }
         envMonitorAmp.store (bestAmp);
         envMonitorFilter.store (filterValue);
         envMonitorFilter2.store (filter2Value);

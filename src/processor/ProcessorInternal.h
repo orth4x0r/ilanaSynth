@@ -7,6 +7,8 @@
 #include "../PluginProcessor.h"
 #include "../dsp/MultiSample.h"
 #include "../Presets.h"
+#include "../PresetNames.h"
+#include "../PresetTags.h"
 #include "../PresetTrims.h"
 #include "../PresetVoicing.h"
 #include "../gui/ParamInfo.h"

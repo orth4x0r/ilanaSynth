@@ -4294,6 +4294,21 @@ int main (int argc, char** argv)
                 bars[b]->onSelect (0);
         }
 
+        // The FM page's Operator EG PITCH / LFO tab (shown while an
+        // oscillator uses the Operator EG, as a DX7 preset's do).
+        if (auto* page = pages->getCurrentPage())
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*page, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == "PITCH / LFO" && button->isVisible() && button->onClick != nullptr)
+                {
+                    button->onClick();
+                    settle (300);
+                    save (*editor, outDir.getChildFile (stem + "-pitch-lfo.png"));
+                }
+        }
+
         // Every envelope card on the ENV/LFO page.
         if (auto* page = pages->getCurrentPage())
         {

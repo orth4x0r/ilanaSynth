@@ -66,7 +66,8 @@ It all sits in a hardware-inspired interface with 371 factory presets.
   - **16 algorithms** in one click, from a 2-operator stack to DX7 layouts
   - operators tuned by ratio (snapping to harmonic, inharmonic or bell ratios) or at a fixed frequency
   - level and rate key scaling
-  - Plain, Filtered (DX7-style) or Cross feedback
+  - Plain, Filtered (DX7-style), Cross or DX7 feedback
+  - the **Operator EG**: the DX7's own envelope generator for any oscillator (4 rates and 4 levels, break-point keyboard scaling, velocity and rate scaling, a pitch envelope and LFO), so the DX7 ROM banks and imported .syx voices are ordinary, editable patches
   - a **noise operator**
 - **Phase distortion**: the Casio CZ's Saw, Square, Pulse and Resonance I–III waves as warp modes, a second warp stage (the PD chain), and a warp envelope like the CZ's DCW. The wave display draws the warped cycle.
 - **16 envelopes**, now DAHDSR (delay and hold), with key-rate scaling. Any oscillator can also use the MSEG as its envelope.
@@ -171,8 +172,9 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - **Algorithms**: 16 one-click routings, from a 2-operator stack to seven DX7 algorithms. Click one to route the operators (it adds the ones it needs); the amounts stay editable, and the one the patch matches is lit.
 - **Operator panel** (OP 1–6):
   - **TUNING**: Semitones, Ratio (with **SNAP** to harmonic, inharmonic or bell ratios) or Fixed Hz.
-  - **FB TYPE**: Plain, Filtered (smoothed like a DX7: calm even at high amounts) or Cross (between the pairs 1-2, 3-4, 5-6).
-  - **ENVELOPE** (any of the 16, or the MSEG), LEVEL and **KEY LVL** (level key scaling).
+  - **FB TYPE**: Plain, Filtered (smoothed like a DX7: calm even at high amounts), Cross (between the pairs 1-2, 3-4, 5-6) or DX7 (the DX7's own two-sample average).
+  - **ENVELOPE** (any of the 16, the MSEG, or Op EG: the Operator EG), LEVEL and **KEY LVL** (level key scaling).
+  - With **Op EG**, the card adds the envelope's graph, R1-R4 and L1-L4, OUTPUT, the keyboard scaling (BREAK, L/R DEPTH, L/R CURVE), RATE KEY, VEL and AMS; the **PITCH / LFO** tab holds the pitch envelope and the LFO they share.
 - **Noise operator**: a NOISE row that frequency-modulates any oscillator with noise, with a colour control.
 - Ring mod and hard sync (1 > 2).
 - Every route is a modulation destination.

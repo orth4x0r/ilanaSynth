@@ -8455,6 +8455,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "PolishTests.inc"
 #include "PlanTests.inc"
 #include "TuningTests.inc"
+#include "OperatorEgTests.inc"
 #include "AirwindowsTests.inc"
 #include "VocoderTests.inc"
 #include "FilterTests.inc"
@@ -8914,6 +8915,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEG_TEST", "").isNotEmpty())
+    {
+        runOperatorEgTests();
+        std::cout << (failures == 0 ? "OPERATOR EG TESTS PASSED" : "OPERATOR EG TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_TUNING_TEST", "").isNotEmpty())
     {
         runTuningTests();
@@ -9329,6 +9337,7 @@ int main()
     timedRun ("runPolishTests", [] { runPolishTests(); });
     timedRun ("runPlanTests", [] { runPlanTests(); });
     timedRun ("runTuningTests", [] { runTuningTests(); });
+    timedRun ("runOperatorEgTests", [] { runOperatorEgTests(); });
     timedRun ("runAirwindowsTests", [] { runAirwindowsTests(); });
     timedRun ("runVocoderTests", [] { runVocoderTests(); });
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });

@@ -2,22 +2,9 @@
 
 #include "../Presets.h"
 
-// DX7 mode: storing the patch's DX7 voice, loading one, and importing .syx
-// banks as user presets (see dsp/Dx7Engine.h and Dx7Presets.h).
-
-void IlanaSynthAudioProcessor::setDx7Voice (const Dx7::Voice* voice)
-{
-    if (voice == nullptr)
-    {
-        dx7Voice.store (nullptr);
-        return;
-    }
-    if (const auto* current = dx7Voice.load(); current != nullptr && *current == *voice)
-        return;
-    dx7Store.push_back (std::make_unique<Dx7::Voice> (*voice));
-    dx7Voice.store (dx7Store.back().get());
-    ++dataEpoch;
-}
+// DX7 voices: loading one as an ordinary patch (its operators on the
+// Operator EG) and importing .syx banks as user presets (see
+// dsp/Dx7Engine.h and Dx7Presets.h).
 
 void IlanaSynthAudioProcessor::loadDx7Voice (const Dx7::Voice& voice, const juce::String& name)
 {
@@ -28,7 +15,6 @@ void IlanaSynthAudioProcessor::loadDx7Voice (const Dx7::Voice& voice, const juce
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value.value));
     for (int macro = 0; macro < 4; ++macro)
         setMacroName (macro, Presets::Dx7Import::macroNames[macro]);
-    setDx7Voice (&voice);
     setCurrentPresetName (name);
     setPresetMeta ("DX7", {});
 }

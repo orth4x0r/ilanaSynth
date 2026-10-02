@@ -959,7 +959,6 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     }
 
     updateExciterLevelMatch (false);
-    setDx7Voice (presets[(size_t) index].dx7);
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

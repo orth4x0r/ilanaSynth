@@ -1,4 +1,4 @@
-"""Checks DX7 mode against the msfa (Dexed) engine, voice by voice.
+"""Checks the DX7 presets (oscillators on the Operator EG) against the msfa (Dexed) engine, voice by voice.
 
     python tools/dx7_mode_check.py <bank.syx> <first preset index> [--voices 1-32]
 

@@ -1742,13 +1742,14 @@ int runUiTests()
         // Review 6 (V5-22, S6-10): a keyboard column left of the grid and a
         // bar ruler over it; zoom buttons' calls; QUANTISE snaps starts to
         // the grid in one undo step (every note with none selected).
+        roll.zoomToFit();
         roll.zoomBy (2.0f);
         const auto zoomedIn = roll.getZoom();
         roll.zoomToFit();
         expect (roll.getKeysArea().getWidth() >= 40.0f && roll.getKeysArea().getRight() <= roll.getGridArea().getX()
                     && roll.getRulerArea().getBottom() <= roll.getGridArea().getY() && roll.getRulerArea().getHeight() >= 16.0f,
                 "the clip roll has a keyboard column left of the grid and a ruler over it");
-        expect (std::abs (zoomedIn - roll.getZoom() * 2.0f) < 1.0e-4f && roll.getZoom() == 1.0f,
+        expect (std::abs (zoomedIn - 2.0f) < 1.0e-4f && roll.getZoom() == 1.0f,
                 "the roll's zoom in doubles the zoom and FIT shows the whole clip again");
         {
             Clip loose;
@@ -4939,7 +4940,7 @@ int main (int argc, char** argv)
                 std::vector<juce::TextButton*> buttons;
                 findAll<juce::TextButton> (*editor, buttons);
                 for (auto* button : buttons)
-                    if (button->getButtonText() == "EXPAND" && button->isShowing())
+                    if (button->getButtonText() == "EXPAND" && visibleInTree (button))
                     {
                         button->triggerClick();
                         settle (300);

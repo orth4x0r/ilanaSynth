@@ -932,6 +932,10 @@ public:
             note = "EUCLID drives the Trance Gate effect";
         else if (engine.isEmpty())
             note = "no pattern engine on: keys play the voices";
+        else if (seqOn)
+            note = "hold keys: each step rolls its chance";
+        else
+            note = "hold keys: the ARP plays them in MODE's order";
 
         return list;
     }

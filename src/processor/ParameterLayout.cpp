@@ -412,8 +412,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("arp_chance", "Arp Chance", 0.0f, 1.0f, 1.0f);
 
     // Generative: scale snapping and note spray
-    addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
-    addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
+    // Named apart from the Scala tuning's scale (review 6, I6-30); the IDs stay.
+    addChoice ("gen_scale", "Snap To Key", Scales::getNames(), 0);
+    addChoice ("gen_root", "Key Root", Scales::getRootNames(), 0);
     addBool ("sym_on", "Sympathetic Strings", false);
     addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.5f);
     addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);

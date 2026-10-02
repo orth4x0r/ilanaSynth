@@ -12,6 +12,7 @@
 #include <functional>
 #include <typeinfo>
 #include <map>
+#include <set>
 #include <thread>
 
 #include "PluginProcessor.h"
@@ -333,8 +334,9 @@ int runUiTests()
             strips[0]->onDepthChange (routed, -0.6f);
             expect (std::abs (processor.readModSlot (routed).depth + 0.6f) < 1.0e-3f, "dragging the dot sets the depth");
 
-            // UI review 4: removing it with a double-click is one named undo
-            // step, and undo brings the routing back.
+            // UI review 4 (V2): a double-click zeroes the depth (as knobs and
+            // the source card do), keeps the routing, is one named undo
+            // step, and undo brings the depth back.
             auto& strip = static_cast<juce::Component&> (*strips[0]);
             const juce::Point<float> at ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
             const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f,
@@ -343,14 +345,40 @@ int runUiTests()
             clearHistory();
             strip.mouseDoubleClick (click);
             settle (100);
-            const auto removed = processor.readModSlot (routed).source == Mod::Source::None;
+            const auto zeroed = processor.readModSlot (routed).source == Mod::Source::Lfo2
+                                && std::abs (processor.readModSlot (routed).depth) < 1.0e-4f;
             const auto steps = undoSteps();
             processor.getUndoManager().undo();
             settle (100);
-            expect (removed && steps.size() == 1 && steps[0] == "Remove modulation"
+            expect (zeroed && steps.size() == 1 && steps[0] == "Zero LFO 2 depth"
                         && processor.readModSlot (routed).source == Mod::Source::Lfo2
                         && std::abs (processor.readModSlot (routed).depth + 0.6f) < 1.0e-3f,
-                    "double-clicking a depth dot is one undo step ('" + steps.joinIntoString ("', '") + "') and undo restores the routing");
+                    "double-clicking a depth dot zeroes it, keeps the routing, is one undo step ('" + steps.joinIntoString ("', '")
+                        + "') and undo restores the depth");
+
+            // Removal and bypass are on the dot's right-click menu.
+            expect (strips[0]->onRemove != nullptr && strips[0]->onBypass != nullptr, "a depth dot offers Remove and Bypass");
+            if (strips[0]->onBypass != nullptr)
+            {
+                strips[0]->onBypass (routed, true);
+                const auto bypassed = processor.readModSlot (routed).bypass;
+                strips[0]->onBypass (routed, false);
+                expect (bypassed && ! processor.readModSlot (routed).bypass, "the dot's Bypass switches the routing off and on");
+            }
+
+            // Dropping the same source again is refused: it points at the
+            // existing routing instead of adding a second.
+            reso->itemDropped (details);
+            settle (100);
+            auto copies = 0;
+            for (int i = 0; i < Mod::maxSlots; ++i)
+            {
+                const auto slot = processor.readModSlot (i);
+                copies += slot.source == Mod::Source::Lfo2 && slot.destination == (int) Mod::Destination::Filter1Reso ? 1 : 0;
+            }
+            expect (copies == 1 && reso->getNumRoutings() == 1,
+                    "dropping a source on a knob it already drives adds no second routing (" + juce::String (copies) + ")");
+            reso->closeModCard();
         }
         else
         {
@@ -1596,6 +1624,286 @@ int runUiTests()
             expect (pinnedModSource() == 0 && lit().first == 0, "clicking the chip again clears the highlight");
         }
 
+        // UI review 4, batch B (V8, V9, V17, V18, V24, S7, S12): modulation.
+        {
+            using Module = IlanaSynthAudioProcessor::Module;
+            const auto usedSource = [&processor] (int source)
+            {
+                for (int i = 0; i < Mod::maxSlots; ++i)
+                {
+                    const auto slot = processor.readModSlot (i);
+                    if (slot.destination != 0 && ((int) slot.source == source || (int) slot.aux == source))
+                        return true;
+                }
+                return false;
+            };
+            const auto poolKindOf = [] (int source) -> std::pair<int, int>
+            {
+                if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) source); lfo >= 0)
+                    return { (int) Module::Lfo, lfo };
+                using S = Mod::Source;
+                const S fixedEnvs[] { S::AmpEnv, S::FilterEnv, S::FilterEnv2, S::ModEnv, S::Env4 };
+                for (int i = 0; i < 5; ++i)
+                    if ((S) source == fixedEnvs[i])
+                        return { (int) Module::Envelope, i };
+                if (source >= (int) S::Env6 && source <= (int) S::Env16)
+                    return { (int) Module::Envelope, 5 + source - (int) S::Env6 };
+                return { -1, 0 };
+            };
+            const auto chipState = [&]
+            {
+                std::vector<ModSourceChip*> found;
+                findAll<ModSourceChip> (*editor, found);
+                auto shown = 0, compact = 0, strays = 0;
+                juce::StringArray strayNames;
+                for (auto* chip : found)
+                {
+                    if (! chip->isVisible() || chip->getParentComponent() == nullptr)
+                        continue;
+                    ++shown;
+                    compact += chip->isCompact() ? 1 : 0;
+                    const auto [kind, index] = poolKindOf (chip->getSourceIndex());
+                    if (kind >= 0 && ! processor.isRevealed ((Module) kind, index) && ! usedSource (chip->getSourceIndex()))
+                    {
+                        ++strays;
+                        strayNames.add (chip->getSourceName());
+                    }
+                }
+                return std::make_tuple (shown, compact, strays, strayNames.joinIntoString (", "));
+            };
+
+            // The chip row follows the pool, and abbreviates all chips or none.
+            {
+                const auto [shown, compact, strays, strayNames] = chipState();
+                expect (shown > 0 && strays == 0, "the chip row shows only sources in the pool or in use (" + juce::String (shown)
+                                                      + " shown" + (strays > 0 ? "; not in the pool: " + strayNames : juce::String()) + ")");
+                expect (compact == 0 || compact == shown, "no chip is abbreviated unless all are (" + juce::String (compact) + " of "
+                                                              + juce::String (shown) + ")");
+            }
+
+            // "+" adds a source to the pool: LFO 9 (chip index 8) gets a chip.
+            const auto lfoMask = processor.isRevealed (Module::Lfo, 8);
+            pages->addPoolSource (8);
+            settle (100);
+            {
+                std::vector<ModSourceChip*> found;
+                findAll<ModSourceChip> (*editor, found);
+                auto lfo9 = false;
+                for (auto* chip : found)
+                    lfo9 = lfo9 || (chip->isVisible() && chip->getSourceIndex() == (int) Mod::lfoSourceFor (8));
+                expect (processor.isRevealed (Module::Lfo, 8) && lfo9, "the chip picker adds LFO 9 to the pool and the row");
+            }
+            processor.setRevealed (Module::Lfo, 8, lfoMask);
+
+            // A full pool: every chip shown, all shortened alike.
+            std::vector<bool> lfoBefore, envBefore;
+            for (int i = 0; i < 16; ++i)
+            {
+                lfoBefore.push_back (processor.isRevealed (Module::Lfo, i));
+                envBefore.push_back (processor.isRevealed (Module::Envelope, i));
+                processor.setRevealed (Module::Lfo, i, true);
+                processor.setRevealed (Module::Envelope, i, true);
+            }
+            settle (200);
+            {
+                const auto [shown, compact, strays, strayNames] = chipState();
+                expect (shown >= 32 + 6 && (compact == 0 || compact == shown),
+                        "a full pool shows every chip, none hidden behind '+N', shortened all alike (" + juce::String (shown)
+                            + " shown, " + juce::String (compact) + " short)");
+            }
+            for (int i = 0; i < 16; ++i)
+            {
+                processor.setRevealed (Module::Lfo, i, lfoBefore[(size_t) i]);
+                processor.setRevealed (Module::Envelope, i, envBefore[(size_t) i]);
+            }
+            settle (200);
+
+            // One colour per source: eight macros, the performance sources,
+            // and LFO 1 off the accent.
+            {
+                using S = Mod::Source;
+                std::vector<int> sources;
+                for (int m = 0; m < Mod::numMacros; ++m)
+                    sources.push_back ((int) Mod::macroSourceFor (m));
+                for (const auto s : { S::Velocity, S::KeyTrack, S::Random, S::ClockSh, S::ModWheel, S::Aftertouch, S::Expression,
+                                      S::Lfo1, S::Lfo2, S::Lfo3, S::Lfo4, S::AmpEnv, S::FilterEnv, S::FilterEnv2, S::ModEnv, S::Env4 })
+                    sources.push_back ((int) s);
+                for (int s = (int) S::Env6; s <= (int) S::Env16; ++s)
+                    sources.push_back (s);
+                for (int s = (int) S::Lfo5; s <= (int) S::Lfo16; ++s)
+                    sources.push_back (s);
+
+                auto clashes = 0;
+                juce::String example;
+                for (size_t a = 0; a < sources.size(); ++a)
+                    for (size_t b = a + 1; b < sources.size(); ++b)
+                    {
+                        const auto ca = modSourceColour (sources[a]), cb = modSourceColour (sources[b]);
+                        const auto distance = std::abs (ca.getFloatRed() - cb.getFloatRed()) + std::abs (ca.getFloatGreen() - cb.getFloatGreen())
+                                              + std::abs (ca.getFloatBlue() - cb.getFloatBlue());
+                        if (distance < 0.06f)
+                        {
+                            ++clashes;
+                            example = Mod::getSourceNames()[sources[a]] + " / " + Mod::getSourceNames()[sources[b]];
+                        }
+                    }
+                expect (clashes == 0, "every source has its own colour (" + juce::String (clashes) + " clashes"
+                                          + (example.isNotEmpty() ? ", e.g. " + example : juce::String()) + ")");
+
+                std::set<juce::uint32> macroColours;
+                for (int m = 0; m < Mod::numMacros; ++m)
+                    macroColours.insert (modSourceColour ((int) Mod::macroSourceFor (m)).getARGB());
+                expect (macroColours.size() == (size_t) Mod::numMacros, "the eight macros have eight colours");
+
+                auto hueGap = std::abs (modSourceColour ((int) S::Lfo1).getHue() - IlanaTheme::accent().getHue());
+                hueGap = juce::jmin (hueGap, 1.0f - hueGap);
+                expect (hueGap > 0.08f, "LFO 1 is not the accent's orange");
+            }
+
+            // MATRIX: rows numbered 1..n as shown, repeats flagged, sortable,
+            // the remap editor docked under its row.
+            pages->showPage ("MATRIX");
+            settle (400);
+            const auto shownRows = [&]
+            {
+                std::vector<MatrixRow*> found, visible;
+                findAll<MatrixRow> (*editor, found);
+                for (auto* row : found)
+                    if (row->isVisible())
+                        visible.push_back (row);
+                std::sort (visible.begin(), visible.end(), [] (auto* a, auto* b) { return a->getY() < b->getY(); });
+                return visible;
+            };
+            {
+                const auto visible = shownRows();
+                auto numbered = ! visible.empty();
+                auto duplicates = 0;
+                for (size_t i = 0; i < visible.size(); ++i)
+                {
+                    numbered = numbered && visible[i]->getDisplayNumber() == (int) i + 1;
+                    duplicates += visible[i]->isDuplicate() ? 1 : 0;
+                }
+                const auto lastSlot = visible.empty() ? 0 : visible.back()->getSlotIndex() + 1;
+                expect (numbered && lastSlot > (int) visible.size(),
+                        "matrix rows are numbered 1.." + juce::String (visible.size()) + " as shown (the last is slot " + juce::String (lastSlot) + ")");
+                expect (duplicates >= 2, "Neuro Wobble's repeated LFO 1 > Filter1 Cutoff routing is flagged on both rows ("
+                                             + juce::String (duplicates) + ")");
+                if (! visible.empty())
+                    expect (visible[0]->getHeight() <= 30, "matrix rows are compact (" + juce::String (visible[0]->getHeight()) + " px)");
+            }
+
+            if (auto* page = pages->getCurrentPage())
+            {
+                // The add button is pinned in the header, outside the scrolling list.
+                std::vector<juce::TextButton*> buttons;
+                findAll<juce::TextButton> (*page, buttons);
+                juce::TextButton* add = nullptr;
+                for (auto* button : buttons)
+                    if (button->getButtonText().contains ("ADD MODULATION"))
+                        add = button;
+                expect (add != nullptr && add->getParentComponent() == page && add->getY() < 40,
+                        "+ ADD MODULATION is pinned in the matrix header");
+
+                // A click on SOURCE sorts by source name; on # goes back to slot order.
+                const auto clickAt = [&] (juce::Point<float> at)
+                {
+                    page->mouseUp (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f,
+                                                     0.0f, 0.0f, 0.0f, 0.0f, page, page, juce::Time::getCurrentTime(), at,
+                                                     juce::Time::getCurrentTime(), 1, false));
+                    settle (100);
+                };
+                using C = MatrixRow::Columns;
+                const auto headingY = 6.0f + 32.0f + 9.0f;
+                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap + C::meter + C::gap) + 20.0f, headingY });
+                auto bySource = true;
+                {
+                    const auto visible = shownRows();
+                    for (size_t i = 1; i < visible.size(); ++i)
+                    {
+                        const auto a = Mod::getSourceNames()[(int) processor.readModSlot (visible[i - 1]->getSlotIndex()).source];
+                        const auto b = Mod::getSourceNames()[(int) processor.readModSlot (visible[i]->getSlotIndex()).source];
+                        bySource = bySource && a.compareNatural (b) <= 0;
+                    }
+                    bySource = bySource && ! visible.empty() && visible[0]->getDisplayNumber() == 1;
+                }
+                clickAt ({ 20.0f, headingY });
+                auto bySlot = true;
+                {
+                    const auto visible = shownRows();
+                    for (size_t i = 1; i < visible.size(); ++i)
+                        bySlot = bySlot && visible[i - 1]->getSlotIndex() < visible[i]->getSlotIndex();
+                }
+                expect (bySource && bySlot, "clicking SOURCE sorts the matrix by source, # goes back to slot order");
+
+                // The remap editor opens under its row, covers no other row, and closes with its X.
+                const auto visible = shownRows();
+                if (visible.size() >= 3)
+                {
+                    auto* row = visible[1];
+                    row->getCurve().openRemapEditor();
+                    settle (200);
+                    auto* remap = findChild<RemapEditor> (*page);
+                    auto covers = 0;
+                    if (remap != nullptr)
+                        for (auto* other : shownRows())
+                            if (page->getLocalArea (other, other->getLocalBounds()).intersects (page->getLocalArea (remap, remap->getLocalBounds())))
+                                ++covers;
+                    const auto below = remap != nullptr && page->getLocalArea (remap, remap->getLocalBounds()).getY()
+                                                               >= page->getLocalArea (row, row->getLocalBounds()).getBottom();
+                    expect (remap != nullptr && covers == 0 && below, "the remap editor opens docked under its row and covers no row ("
+                                                                          + juce::String (covers) + ")");
+                    if (remap != nullptr)
+                    {
+                        remap->createComponentSnapshot (remap->getLocalBounds());
+                        expect (remap->getLiveInput() >= 0.0f, "the remap editor shows the live input on the curve");
+                        std::vector<juce::TextButton*> tools;
+                        findAll<juce::TextButton> (*remap, tools);
+                        juce::TextButton* close = nullptr;
+                        auto shapes = false;
+                        for (auto* button : tools)
+                        {
+                            close = button->getButtonText() == juce::String::fromUTF8 ("\xc3\x97") && button->isVisible() ? button : close;
+                            shapes = shapes || (button->getButtonText().startsWith ("SHAPES") && button->isVisible());
+                        }
+                        expect (close != nullptr && shapes, "the remap editor has a close button and a shapes button");
+                        if (close != nullptr)
+                        {
+                            close->triggerClick();
+                            settle (200);
+                            expect (findChild<RemapEditor> (*page) == nullptr, "the remap editor's X closes it");
+                        }
+                    }
+                }
+            }
+
+            // MIDI learn on any automatable knob: the next CC drives it, and
+            // the map is saved with the patch.
+            {
+                processor.startParamLearn ("f1_cutoff");
+                const auto learning = processor.getParamLearnTarget() == "f1_cutoff";
+                juce::AudioBuffer<float> buffer (2, 512);
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 74, 100), 0);
+                processor.processBlock (buffer, midi);
+                settle (100);
+                auto* cutoff = processor.apvts.getParameter ("f1_cutoff");
+                const auto mapped = processor.getParamCc ("f1_cutoff") == 74 && processor.getParamLearnTarget().isEmpty();
+                const auto moved = cutoff != nullptr && std::abs (cutoff->getValue() - 100.0f / 127.0f) < 0.01f;
+                expect (learning && mapped && moved, "MIDI learn on a knob maps the next CC (74) and the CC moves it");
+
+                juce::MemoryBlock saved;
+                processor.getStateInformation (saved);
+                processor.clearParamCc ("f1_cutoff");
+                const auto cleared = processor.getParamCc ("f1_cutoff") < 0;
+                processor.setStateInformation (saved.getData(), (int) saved.getSize());
+                settle (100);
+                expect (cleared && processor.getParamCc ("f1_cutoff") == 74, "a learned CC is saved and restored with the patch");
+                processor.clearParamCc ("f1_cutoff");
+                processor.loadFactoryPreset (neuroWobble);
+                settle (200);
+            }
+        }
+
         // The macro names the browser lists match what the preset loads with.
         {
             const auto listed = processor.getFactoryMacroNames (neuroWobble);
@@ -2739,13 +3047,11 @@ int main (int argc, char** argv)
                 processor.setModRemap (slot, RemapEditor::shape (4));
                 settle (300);
                 save (*editor, outDir.getChildFile ("remap-matrix.png"));
-                // The pop-up's content, placed where the call-out would be.
-                RemapEditor remap (processor, slot, IlanaTheme::accent());
-                editor->addAndMakeVisible (remap);
-                remap.setTopLeftPosition (editor->getLocalArea (curve, curve->getLocalBounds()).getBottomLeft().translated (-120, 8));
+                // The editor, docked under its row.
+                curve->openRemapEditor();
                 settle (500);
                 save (*editor, outDir.getChildFile ("remap-editor.png"));
-                editor->removeChildComponent (&remap);
+                curve->openRemapEditor(); // closes it again
                 break;
             }
         return 0;

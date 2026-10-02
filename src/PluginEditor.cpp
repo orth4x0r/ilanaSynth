@@ -256,7 +256,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     {
         auto knob = std::make_unique<StripKnob> (p, "macro" + juce::String (macro + 1),
                                                  "Macro " + juce::String (macro + 1), macro,
-                                                 juce::Colour (0xffffd447), false);
+                                                 modSourceColour ((int) Mod::macroSourceFor (macro)), false);
         content.addChildComponent (*knob);
         macroKnobs.push_back (std::move (knob));
     }
@@ -336,31 +336,36 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     setWantsKeyboardFocus (true);
 
     // Macros are dragged from their own names in the strip, so they have no
-    // chip here.
+    // chip here. Every LFO and envelope chip follows the MOD page's pool:
+    // shown while that module is added (or the matrix uses it), with the
+    // rest one click away behind "+". The performance sources always show.
     struct ChipSpec
     {
-        juce::String name;
+        juce::String name, shortName;
         Mod::Source source;
         int revealKind = -1, revealIndex = 0;
     };
-    std::vector<ChipSpec> chipSpecs {
-        { "LFO 1", Mod::Source::Lfo1 }, { "LFO 2", Mod::Source::Lfo2 }, { "LFO 3", Mod::Source::Lfo3 },
-        { "LFO 4", Mod::Source::Lfo4 }
-    };
-    // The LFO pool and ENV 6-16 after their fixed neighbours, shown once added.
-    for (int lfo = 4; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-        chipSpecs.push_back ({ "LFO " + juce::String (lfo + 1), Mod::lfoSourceFor (lfo),
+    std::vector<ChipSpec> chipSpecs;
+    for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+        chipSpecs.push_back ({ "LFO " + juce::String (lfo + 1), "L" + juce::String (lfo + 1), Mod::lfoSourceFor (lfo),
                                (int) IlanaSynthAudioProcessor::Module::Lfo, lfo });
-    for (const auto& spec : { ChipSpec { "MOD ENV", Mod::Source::ModEnv }, ChipSpec { "FILT ENV", Mod::Source::FilterEnv },
-                              ChipSpec { "FILT 2 ENV", Mod::Source::FilterEnv2 }, ChipSpec { "ENV 5", Mod::Source::Env4 } })
-        chipSpecs.push_back (spec);
-    for (int env = 6; env <= 16; ++env)
-        chipSpecs.push_back ({ "ENV " + juce::String (env), (Mod::Source) ((int) Mod::Source::Env6 + env - 6),
-                               (int) IlanaSynthAudioProcessor::Module::Envelope, env - 1 });
-    for (const auto& spec : { ChipSpec { "MSEG", Mod::Source::Mseg }, ChipSpec { "VELOCITY", Mod::Source::Velocity },
-                              ChipSpec { "KEY", Mod::Source::KeyTrack }, ChipSpec { "RANDOM", Mod::Source::Random },
-                              ChipSpec { "WHEEL", Mod::Source::ModWheel }, ChipSpec { "PRESSURE", Mod::Source::Aftertouch },
-                              ChipSpec { "INPUT", Mod::Source::InputEnv } })
+    {
+        const auto envelope = (int) IlanaSynthAudioProcessor::Module::Envelope;
+        // The pool's order: AMP, FILT, FILT 2, MOD, ENV 5, then ENV 6-16.
+        for (const auto& spec : { ChipSpec { "AMP ENV", "AMP", Mod::Source::AmpEnv, envelope, 0 },
+                                  ChipSpec { "FILT ENV", "FLT", Mod::Source::FilterEnv, envelope, 1 },
+                                  ChipSpec { "FILT 2 ENV", "FLT2", Mod::Source::FilterEnv2, envelope, 2 },
+                                  ChipSpec { "MOD ENV", "MOD", Mod::Source::ModEnv, envelope, 3 },
+                                  ChipSpec { "ENV 5", "E5", Mod::Source::Env4, envelope, 4 } })
+            chipSpecs.push_back (spec);
+        for (int env = 6; env <= 16; ++env)
+            chipSpecs.push_back ({ "ENV " + juce::String (env), "E" + juce::String (env),
+                                   (Mod::Source) ((int) Mod::Source::Env6 + env - 6), envelope, env - 1 });
+    }
+    for (const auto& spec : { ChipSpec { "MSEG", "MSEG", Mod::Source::Mseg }, ChipSpec { "VELOCITY", "VEL", Mod::Source::Velocity },
+                              ChipSpec { "KEY", "KEY", Mod::Source::KeyTrack }, ChipSpec { "RANDOM", "RND", Mod::Source::Random },
+                              ChipSpec { "WHEEL", "WHL", Mod::Source::ModWheel }, ChipSpec { "PRESSURE", "AT", Mod::Source::Aftertouch },
+                              ChipSpec { "INPUT", "IN", Mod::Source::InputEnv } })
         chipSpecs.push_back (spec);
 
     for (const auto& spec : chipSpecs)
@@ -387,9 +392,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
             return processorRef.getSourceDisplayValue ((int) source);
         };
-        if (spec.revealKind >= 0)
-            chip->setShortName ((spec.revealKind == (int) IlanaSynthAudioProcessor::Module::Lfo ? "L" : "E")
-                                + juce::String (spec.revealIndex + 1));
+        chip->setShortName (spec.shortName);
         content.addAndMakeVisible (*chip);
         chip->setVisible (spec.revealKind < 0);
         chips.push_back (std::move (chip));
@@ -397,8 +400,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         chipWanted.push_back (spec.revealKind < 0);
     }
 
-    moreChipsButton.setTooltip ("More added LFOs and envelopes than fit here: drag them from their cards on MOD > ENV / LFO.");
-    moreChipsButton.onClick = [this] { showPage ("ENV/LFO"); };
+    moreChipsButton.setButtonText ("+");
+    moreChipsButton.setTooltip ("Add an LFO or envelope: it joins the pool on MOD > ENV / LFO and gets a chip here to drag.");
+    moreChipsButton.onClick = [this] { showChipPicker(); };
     content.addChildComponent (moreChipsButton);
 
     tutorial.setPresetCount (processorRef.getFactoryPresetNames().size());
@@ -634,66 +638,103 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
         resized();
 }
 
-// Every chip at its name's width with the spare shared out. When the added
-// LFOs and envelopes crowd the row they shorten to "L5" / "E6", and any that
-// still don't fit wait behind a "+N" (their cards drag just the same).
+// Every shown chip at its name's width with the spare shared out, then the
+// "+" picker. A crowded row shortens every chip at once ("L5", "E6", "VEL"),
+// never some and not others, and only then narrows them; none is hidden.
 void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
 {
     if (chips.empty())
         return;
 
     const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-    const auto widthOf = [&font] (const juce::String& text) { return (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 34.0f; };
-    const auto isPool = [this] (size_t i) { return chipReveal[i].first >= 0; };
-
-    std::vector<bool> shown (chipWanted.begin(), chipWanted.end());
-    auto compact = false;
-    const auto total = [&]
+    // A full chip has its colour dot beside the name; a short one has it
+    // under the name and needs less room.
+    const auto widthOf = [&font] (const juce::String& text, bool compact)
     {
-        auto sum = 0.0f;
+        return (float) juce::GlyphArrangement::getStringWidthInt (font, text) + (compact ? 12.0f : 34.0f);
+    };
+    const auto picker = std::find (chipWanted.begin(), chipWanted.end(), false) != chipWanted.end();
+    const auto pickerWidth = picker ? 34.0f : 0.0f;
+    const auto total = [&] (bool compact)
+    {
+        auto sum = pickerWidth;
         for (size_t i = 0; i < chips.size(); ++i)
-            if (shown[i])
-                sum += isPool (i) && compact ? widthOf (chips[i]->getShortName()) : widthOf (chips[i]->getSourceName());
+            if (chipWanted[i])
+                sum += widthOf (compact ? chips[i]->getShortName() : chips[i]->getSourceName(), compact);
         return sum;
     };
 
     const auto available = (float) row.getWidth();
-    compact = total() > available;
-    auto hidden = 0;
-    const auto moreWidth = 44.0f;
-
-    for (auto i = (int) chips.size() - 1; i >= 0 && compact && total() + (hidden > 0 ? moreWidth : 0.0f) > available; --i)
-        if (shown[(size_t) i] && isPool ((size_t) i))
-        {
-            shown[(size_t) i] = false;
-            ++hidden;
-        }
-
-    const auto used = total() + (hidden > 0 ? moreWidth : 0.0f);
-    const auto count = (float) std::count (shown.begin(), shown.end(), true) + (hidden > 0 ? 1.0f : 0.0f);
+    const auto compact = total (false) > available;
+    const auto used = total (compact);
+    const auto count = (float) std::count (chipWanted.begin(), chipWanted.end(), true);
     const auto spare = juce::jmax (0.0f, (available - used) / juce::jmax (1.0f, count));
     const auto squeeze = juce::jmin (1.0f, available / juce::jmax (1.0f, used));
     auto x = (float) row.getX();
 
     for (size_t i = 0; i < chips.size(); ++i)
     {
-        chips[i]->setVisible (shown[i]);
-        chips[i]->setCompact (compact && isPool (i));
+        chips[i]->setVisible (chipWanted[i]);
+        chips[i]->setCompact (compact);
 
-        if (! shown[i])
+        if (! chipWanted[i])
             continue;
 
-        const auto natural = compact && isPool (i) ? widthOf (chips[i]->getShortName()) : widthOf (chips[i]->getSourceName());
+        const auto natural = widthOf (compact ? chips[i]->getShortName() : chips[i]->getSourceName(), compact);
         const auto width = (natural + spare) * squeeze;
         chips[i]->setBounds (juce::Rectangle<float> (x, (float) row.getY(), width, (float) row.getHeight()).toNearestInt().reduced (2, 1));
         x += width;
     }
 
-    moreChipsButton.setVisible (hidden > 0);
-    moreChipsButton.setButtonText ("+" + juce::String (hidden));
-    if (hidden > 0)
-        moreChipsButton.setBounds (juce::Rectangle<float> (x, (float) row.getY(), (moreWidth + spare) * squeeze, (float) row.getHeight())
+    moreChipsButton.setVisible (picker);
+    if (picker)
+        moreChipsButton.setBounds (juce::Rectangle<float> (x, (float) row.getY(), pickerWidth * squeeze, (float) row.getHeight())
                                        .toNearestInt().reduced (2, 1));
+}
+
+// The "+" after the chips: the LFOs and envelopes not in the pool yet.
+// Picking one adds it (its tile on MOD > ENV / LFO and its chip here).
+void IlanaSynthAudioProcessorEditor::showChipPicker()
+{
+    juce::PopupMenu lfos, envelopes;
+
+    for (size_t i = 0; i < chips.size() && i < chipReveal.size(); ++i)
+    {
+        const auto [kind, index] = chipReveal[i];
+
+        if (kind < 0 || chipWanted[i])
+            continue;
+
+        auto& menu = kind == (int) IlanaSynthAudioProcessor::Module::Lfo ? lfos : envelopes;
+        menu.addItem ((int) i + 1, chips[i]->getSourceName());
+    }
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Add a source");
+    if (lfos.getNumItems() > 0)
+        menu.addSubMenu ("LFOs", lfos);
+    if (envelopes.getNumItems() > 0)
+        menu.addSubMenu ("Envelopes", envelopes);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreChipsButton),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
+                        {
+                            if (safeThis != nullptr && result > 0)
+                                safeThis->addPoolSource (result - 1);
+                        });
+}
+
+void IlanaSynthAudioProcessorEditor::addPoolSource (int chipIndex)
+{
+    if (! juce::isPositiveAndBelow (chipIndex, (int) chipReveal.size()))
+        return;
+
+    const auto [kind, index] = chipReveal[(size_t) chipIndex];
+
+    if (kind >= 0)
+        processorRef.setRevealed ((IlanaSynthAudioProcessor::Module) kind, index, true);
+
+    updateChipVisibility();
 }
 
 void IlanaSynthAudioProcessorEditor::timerCallback()

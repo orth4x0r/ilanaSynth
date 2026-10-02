@@ -171,14 +171,22 @@ private:
     bool presetDockShown = false;  // the docked browser is open
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
-    // LFO 5-16 and ENV 6-16: a chip each, shown while that module is added
-    // (or the matrix uses it). Parallel to chips; kind -1 for fixed chips.
+    // Every LFO and envelope has a chip, shown while that module is in the
+    // pool (or the matrix uses it). Parallel to chips; kind -1 for the
+    // performance sources, which always show.
     std::vector<std::pair<int, int>> chipReveal;
     std::vector<bool> chipWanted;
-    // "+N" when the added LFOs and envelopes don't all fit in the row.
+    // "+": a picker for the LFOs and envelopes not in the pool yet.
     juce::TextButton moreChipsButton;
     void updateChipVisibility();
     void layoutChips (juce::Rectangle<int> row);
+    void showChipPicker();
+
+public:
+    // Adds chip chipIndex's LFO or envelope to the pool (the "+" picker).
+    void addPoolSource (int chipIndex);
+
+private:
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip

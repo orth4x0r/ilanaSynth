@@ -100,6 +100,13 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     for (int i = 0; i < Mod::numMacros; ++i)
         macroCc[i].store (20 + i);
 
+    for (size_t cc = 0; cc < ccParameter.size(); ++cc)
+    {
+        ccParameter[cc].store (-1);
+        pendingCcValues[cc].store (0.0f);
+        ccValuePending[cc].store (false);
+    }
+
     scopeLeft.assign ((size_t) scopeSize, 0.0f);
     scopeRight.assign ((size_t) scopeSize, 0.0f);
 

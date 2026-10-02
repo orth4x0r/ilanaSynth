@@ -162,6 +162,10 @@ inline int& pinnedModSource()
 
 // One colour per modulation source, used by its chip, its card (LFO and
 // envelope pages), its tabs, the matrix and the rings on knobs it moves.
+// Every source has its own: macros step from yellow to amber (and carry
+// their number on the knob's dot), the performance sources each take a soft
+// hue of their own, and ENV 6-16 come from a fixed list that keeps clear of
+// the main envelopes' and LFO 1-4's hues.
 inline juce::Colour modSourceColour (int sourceIndex)
 {
     // Every LFO (A and B outputs) in the LFO palette.
@@ -171,6 +175,15 @@ inline juce::Colour modSourceColour (int sourceIndex)
     if (sourceIndex >= (int) Mod::Source::Lfo1B && sourceIndex <= (int) Mod::Source::Lfo16B)
         return IlanaSynthAudioProcessor::lfoColour (sourceIndex - (int) Mod::Source::Lfo1B);
 
+    if (const auto macro = Mod::macroIndexFor ((Mod::Source) sourceIndex); macro >= 0)
+    {
+        // Yellow (macro 1) to amber (macro 8), alternately lighter and
+        // deeper so neighbours differ by more than the hue step.
+        const auto t = (float) macro / (float) (Mod::numMacros - 1);
+        return juce::Colour::fromHSV (0.155f - 0.07f * t, 0.70f + 0.12f * t + (macro % 2 == 0 ? 0.0f : 0.06f),
+                                      macro % 2 == 0 ? 1.0f : 0.90f, 1.0f);
+    }
+
     switch ((Mod::Source) sourceIndex)
     {
         case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
@@ -178,29 +191,29 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case Mod::Source::FilterEnv2: return juce::Colour (0xff8f9dff);
         case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
         case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
-        case Mod::Source::Velocity:
-        case Mod::Source::KeyTrack:
-        case Mod::Source::Random:
-        case Mod::Source::ClockSh:    return IlanaTheme::Ui::text2;
-        case Mod::Source::ModWheel:
-        case Mod::Source::Aftertouch:
-        case Mod::Source::Expression: return juce::Colour (0xff9fb3c8);
-        case Mod::Source::Macro1:
-        case Mod::Source::Macro2:
-        case Mod::Source::Macro3:
-        case Mod::Source::Macro4:
-        case Mod::Source::Macro5:
-        case Mod::Source::Macro6:
-        case Mod::Source::Macro7:
-        case Mod::Source::Macro8:     return juce::Colour (0xffffd447);
+        // The performance sources: soft tints, each its own hue.
+        case Mod::Source::Velocity:   return juce::Colour::fromHSV (0.03f, 0.34f, 0.97f, 1.0f); // peach
+        case Mod::Source::KeyTrack:   return juce::Colour::fromHSV (0.31f, 0.34f, 0.92f, 1.0f); // sage
+        case Mod::Source::Random:     return juce::Colour::fromHSV (0.85f, 0.34f, 0.95f, 1.0f); // orchid
+        case Mod::Source::ClockSh:    return juce::Colour::fromHSV (0.70f, 0.30f, 0.97f, 1.0f); // lavender
+        case Mod::Source::ModWheel:   return juce::Colour::fromHSV (0.52f, 0.34f, 0.93f, 1.0f); // pale aqua
+        case Mod::Source::Aftertouch: return juce::Colour::fromHSV (0.95f, 0.30f, 0.97f, 1.0f); // blush
+        case Mod::Source::Expression: return juce::Colour::fromHSV (0.21f, 0.38f, 0.92f, 1.0f); // pale lime
         case Mod::Source::Mseg:       return juce::Colour (0xffe0e6f0);
+        case Mod::Source::InputEnv:   return juce::Colour (0xffc9b79c); // sand
+        case Mod::Source::VectorX:    return juce::Colour (0xff7fe0d8);
+        case Mod::Source::VectorY:    return juce::Colour (0xff6fb8ff);
         default: break;
     }
 
-    // ENV 6-16 spread from red to violet, short of the pinks the accent and
-    // AMP ENV use.
+    // ENV 6-16: a fixed list, deeper than the LFO pool's pastels, with hues
+    // between AMP (red), MOD (lime), ENV 5 / FILT 2 (blues), FILT (violet)
+    // and LFO 1-4 (rose, cyan, teal, yellow-green).
     if (sourceIndex >= (int) Mod::Source::Env6 && sourceIndex <= (int) Mod::Source::Env16)
-        return juce::Colour::fromHSV (0.04f + 0.7f * (float) (sourceIndex - (int) Mod::Source::Env6) / 10.0f, 0.55f, 0.95f, 1.0f);
+    {
+        static constexpr float hues[] { 0.05f, 0.22f, 0.32f, 0.37f, 0.42f, 0.50f, 0.70f, 0.74f, 0.84f, 0.89f, 0.975f };
+        return juce::Colour::fromHSV (hues[sourceIndex - (int) Mod::Source::Env6], 0.80f, 0.86f, 1.0f);
+    }
 
     return IlanaTheme::accent();
 }
@@ -230,7 +243,9 @@ inline juce::String& knobClipboard()
 
 // The coloured dots beside a modulated knob: one per routing into it.
 // Drag a dot up or down to change that routing's depth, double-click it to
-// remove the routing. Hovering shows which source it is.
+// zero the depth (as knobs and the source card do), right-click it to
+// bypass or remove the routing. Hovering shows which source it is; a
+// macro's dot carries the macro's number.
 class ModDotStrip : public juce::Component,
                     public juce::SettableTooltipClient
 {
@@ -240,10 +255,15 @@ public:
         int slot = -1;
         int source = 0;
         float depth = 0.0f;
+        bool bypass = false;
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
+    // Double-click: the depth to zero, one undo step.
+    std::function<void (int slot)> onZero;
+    // The right-click menu's choices.
     std::function<void (int slot)> onRemove;
+    std::function<void (int slot, bool bypass)> onBypass;
     // A depth drag's start and end (one undo step).
     std::function<void (int source)> onDragStart;
     std::function<void()> onDragEnd;
@@ -258,8 +278,8 @@ public:
         repaint();
     }
 
-    static constexpr int dotSize = 8;
-    static constexpr int dotPitch = 11;
+    static constexpr int dotSize = 10;
+    static constexpr int dotPitch = 13;
 
     int getPreferredHeight() const { return (int) dots.size() * dotPitch; }
 
@@ -286,8 +306,23 @@ public:
             g.setColour (colour);
             g.fillPath (pie);
 
-            g.setColour (colour.withAlpha (0.9f));
+            g.setColour (colour.withAlpha (dot.bypass ? 0.4f : 0.9f));
             g.drawEllipse (area, 1.0f);
+
+            // A macro's number, white with a dark outline so it reads on
+            // both the yellow and the dark part of the pie.
+            if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0)
+            {
+                juce::GlyphArrangement digit;
+                digit.addFittedText (juce::Font (IlanaTheme::font (8.5f, true)), juce::String (macro + 1), area.getX(), area.getY() + 0.5f,
+                                     area.getWidth(), area.getHeight(), juce::Justification::centred, 1);
+                juce::Path glyph;
+                digit.createPath (glyph);
+                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+                g.strokePath (glyph, juce::PathStrokeType (1.6f));
+                g.setColour (juce::Colours::white);
+                g.fillPath (glyph);
+            }
         }
     }
 
@@ -311,6 +346,12 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        if (event.mods.isPopupMenu())
+        {
+            showDotMenu (indexAt (event.position));
+            return;
+        }
+
         dragIndex = indexAt (event.position);
 
         if (dragIndex >= 0)
@@ -349,11 +390,48 @@ public:
     {
         const auto index = indexAt (event.position);
 
-        if (index >= 0 && onRemove != nullptr)
-            onRemove (dots[(size_t) index].slot);
+        if (index >= 0 && ! event.mods.isPopupMenu() && onZero != nullptr)
+            onZero (dots[(size_t) index].slot);
+    }
+
+    // Rings one routing's dot (a source dropped on a knob it already drives
+    // points at the existing routing instead of adding a second).
+    void flashSlot (int slot)
+    {
+        for (int i = 0; i < (int) dots.size(); ++i)
+            if (dots[(size_t) i].slot == slot)
+            {
+                hoverIndex = i;
+                updateTooltip();
+                repaint();
+            }
     }
 
 private:
+    void showDotMenu (int index)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) dots.size()))
+            return;
+
+        const auto dot = dots[(size_t) index];
+        juce::PopupMenu menu;
+        menu.addSectionHeader (Mod::getSourceNames()[dot.source] + "  (" + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+        menu.addItem (1, "Bypass", true, dot.bypass);
+        menu.addItem (2, "Remove");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                                .withTargetScreenArea (localAreaToGlobal (dotBounds (index).expanded (2.0f).getSmallestIntegerContainer())),
+                            [safeThis = juce::Component::SafePointer<ModDotStrip> (this), dot] (int result)
+                            {
+                                if (safeThis == nullptr)
+                                    return;
+
+                                if (result == 1 && safeThis->onBypass != nullptr)
+                                    safeThis->onBypass (dot.slot, ! dot.bypass);
+                                else if (result == 2 && safeThis->onRemove != nullptr)
+                                    safeThis->onRemove (dot.slot);
+                            });
+    }
+
     juce::Rectangle<float> dotBounds (int index) const
     {
         return juce::Rectangle<float> ((float) dotSize, (float) dotSize)
@@ -375,13 +453,14 @@ private:
 
         if (! juce::isPositiveAndBelow (index, (int) dots.size()))
         {
-            setTooltip ("Modulation\nDrag a dot to set its depth, double-click it to remove the routing.");
+            setTooltip ("Modulation\nDrag a dot to set its depth, double-click it to zero it, right-click to bypass or remove.");
             return;
         }
 
         const auto& dot = dots[(size_t) index];
         setTooltip (Mod::getSourceNames()[dot.source] + "  " + juce::String (juce::roundToInt (dot.depth * 100.0f))
-                    + " %\nDrag up or down to set the depth (Shift for fine), double-click to remove.");
+                    + "%" + (dot.bypass ? "  (bypassed)" : "")
+                    + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
     }
 
     std::vector<Dot> dots;
@@ -398,6 +477,37 @@ inline juce::Colour modArcColour (juce::Colour source, juce::Colour knob)
     hueGap = juce::jmin (hueGap, 1.0f - hueGap);
     const auto bothColoured = source.getSaturation() > 0.3f && knob.getSaturation() > 0.3f;
     return bothColoured && hueGap < 0.06f ? source.interpolatedWith (juce::Colours::white, 0.6f) : source;
+}
+
+// MIDI learn for any automatable control (macros keep their own CC slots):
+// the next controller moved drives the parameter; saved with the patch.
+// Menu item IDs 4001-4003 are taken by these.
+inline void addMidiLearnItems (juce::PopupMenu& menu, const IlanaSynthAudioProcessor& processor, const juce::String& parameterId)
+{
+    const auto cc = processor.getParamCc (parameterId);
+
+    if (processor.getParamLearnTarget() == parameterId)
+        menu.addItem (4003, "Cancel MIDI Learn  (waiting for a controller)");
+    else
+        menu.addItem (4001, cc >= 0 ? "MIDI Learn  (CC " + juce::String (cc) + ")" : juce::String ("MIDI Learn"));
+
+    if (cc >= 0)
+        menu.addItem (4002, "Clear MIDI  (CC " + juce::String (cc) + ")");
+}
+
+// True when the menu result was one of addMidiLearnItems' (and is done).
+inline bool handleMidiLearnResult (int result, IlanaSynthAudioProcessor& processor, const juce::String& parameterId)
+{
+    if (result == 4001)
+        processor.startParamLearn (parameterId);
+    else if (result == 4002)
+        processor.clearParamCc (parameterId);
+    else if (result == 4003)
+        processor.cancelParamLearn();
+    else
+        return false;
+
+    return true;
 }
 
 class KnobControl : public juce::Component,
@@ -434,10 +544,26 @@ public:
             if (processorRef != nullptr)
                 processorRef->setModSlotValue (slot, "amt", depth);
         };
+        dotStrip.onZero = [this] (int slot)
+        {
+            if (processorRef != nullptr)
+                processorRef->performEdit ("Zero " + Mod::getSourceNames()[(int) processorRef->readModSlot (slot).source] + " depth",
+                                           [this, slot] { processorRef->setModSlotValue (slot, "amt", 0.0f); });
+
+            refreshRoutings();
+        };
         dotStrip.onRemove = [this] (int slot)
         {
             if (processorRef != nullptr)
                 processorRef->performEdit ("Remove modulation", [this, slot] { processorRef->clearModSlot (slot); });
+
+            refreshRoutings();
+        };
+        dotStrip.onBypass = [this] (int slot, bool bypass)
+        {
+            if (processorRef != nullptr)
+                processorRef->performEdit (bypass ? "Bypass modulation" : "Enable modulation",
+                                           [this, slot, bypass] { processorRef->setModSlotValue (slot, "byp", bypass ? 1.0f : 0.0f); });
 
             refreshRoutings();
         };
@@ -587,16 +713,18 @@ public:
             }
         }
 
-        // A hovered source lights up every knob it modulates.
+        // A hovered or pinned source lights up every knob it modulates: a
+        // thin ring just outside the mod arc, with no fill, so the knob's
+        // label and value stay readable.
         const auto pinned = pinnedModSource();
         const auto highlighted = highlightedModSource() != 0 ? highlightedModSource() : pinned;
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
-            const auto radius = knobRadius + 5.0f;
-            g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.3f : 0.22f));
-            g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
-            g.setColour (modSourceColour (highlighted).withAlpha (0.85f));
+            const auto radius = knobRadius + 3.0f;
+            const juce::Graphics::ScopedSaveState clip (g);
+            g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+            g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
             g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), highlighted == pinned ? 2.0f : 1.5f);
         }
 
@@ -711,9 +839,25 @@ public:
                                      .fromFirstOccurrenceOf ("modsource:", false, false)
                                      .getIntValue();
 
-        processorRef->assignModSlot (sourceIndex, ringConfig.destination, 0.35f);
+        // One routing per source and knob: a source that already drives
+        // this knob points at its routing (dot and card) instead of adding
+        // a second one.
+        if (! showExistingRouting (sourceIndex))
+            processorRef->performEdit ("Add modulation",
+                                       [this, sourceIndex] { processorRef->assignModSlot (sourceIndex, ringConfig.destination, 0.35f); });
+
         refreshRoutings();
         repaint();
+    }
+
+    // The slot already routing this source into the knob, or -1.
+    int findRoutingFrom (int source) const
+    {
+        for (const auto& dot : routings)
+            if (dot.source == source)
+                return dot.slot;
+
+        return -1;
     }
 
 private:
@@ -737,13 +881,21 @@ private:
         return area;
     }
 
-    bool routesFrom (int source) const
-    {
-        for (const auto& dot : routings)
-            if (dot.source == source)
-                return true;
+    bool routesFrom (int source) const { return findRoutingFrom (source) >= 0; }
 
-        return false;
+    // A source that already drives this knob: ring its dot and open the
+    // knob's card so its depth can be set there. False when it doesn't.
+    bool showExistingRouting (int source)
+    {
+        refreshRoutings();
+        const auto slot = findRoutingFrom (source);
+
+        if (slot < 0)
+            return false;
+
+        dotStrip.flashSlot (slot);
+        openModCard();
+        return true;
     }
 
     void layoutDots()
@@ -776,7 +928,7 @@ private:
             if (slot.destination != ringConfig.destination || slot.source == Mod::Source::None)
                 continue;
 
-            found.push_back ({ i, (int) slot.source, slot.depth });
+            found.push_back ({ i, (int) slot.source, slot.depth, slot.bypass });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -788,7 +940,7 @@ private:
         const auto changed = found.size() != routings.size()
                              || ! std::equal (found.begin(), found.end(), routings.begin(),
                                               [] (const auto& a, const auto& b)
-                                              { return a.slot == b.slot && a.source == b.source
+                                              { return a.slot == b.slot && a.source == b.source && a.bypass == b.bypass
                                                        && std::abs (a.depth - b.depth) < 1.0e-4f; });
 
         if (! changed)
@@ -834,7 +986,7 @@ private:
 
                 for (const auto& dot : routings)
                     removeMenu.addItem (5000 + dot.slot, sources[dot.source] + "  ("
-                                                             + juce::String (juce::roundToInt (dot.depth * 100.0f)) + " %)");
+                                                             + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
 
                 menu.addSubMenu ("Remove modulation", removeMenu);
                 menu.addItem (1000, "Clear all modulation to this knob");
@@ -852,12 +1004,19 @@ private:
         if (knobClipboard().isNotEmpty())
             menu.addItem (3001, "Paste value");
 
-        if (parameterId.startsWith ("macro"))
+        const auto isMacro = parameterId.startsWith ("macro") && ! parameterId.containsChar ('_');
+
+        if (isMacro)
         {
             const auto macroIndex = parameterId.getTrailingIntValue() - 1;
 
             menu.addSeparator();
             menu.addItem (4000, "MIDI Learn  (CC " + juce::String (processorRef->getMacroCc (macroIndex)) + ")");
+        }
+        else if (parameter != nullptr && parameter->isAutomatable())
+        {
+            menu.addSeparator();
+            addMidiLearnItems (menu, *processorRef, parameterId);
         }
 
         juce::Component::SafePointer<KnobControl> safeThis (this);
@@ -876,6 +1035,14 @@ private:
                                                   : result == 3001 ? "Paste " + safeThis->label.getText()
                                                   : result >= 5000 ? juce::String ("Remove modulation")
                                                                    : juce::String ("Add modulation");
+
+                                if (handleMidiLearnResult (result, processor, safeThis->parameterId))
+                                    return;
+
+                                // "Modulate with" a source that already drives
+                                // the knob edits that routing instead.
+                                if (result > 0 && result < 1000 && safeThis->showExistingRouting (result - 1))
+                                    return;
 
                                 if (result != 3000 && result != 4000)
                                     processor.beginEdit (name);
@@ -1121,7 +1288,10 @@ class ToggleControl : public juce::Component,
 public:
     ToggleControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
                    const juce::String& labelText)
+        : parameterId (parameterID)
     {
+        processorRef = dynamic_cast<IlanaSynthAudioProcessor*> (&state.processor);
+        button.onPopupMenu = [this] { showMenu(); };
         button.setButtonText (labelText);
         button.setClickingTogglesState (true);
         button.setColour (juce::TextButton::buttonOnColourId, IlanaTheme::accent().withAlpha (0.85f));
@@ -1244,8 +1414,47 @@ private:
         ticked = true;
     }
 
-    juce::TextButton button;
+    // Right-click opens the switch's menu (MIDI learn) instead of flipping it.
+    struct SwitchButton : public juce::TextButton
+    {
+        std::function<void()> onPopupMenu;
+
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            if (event.mods.isPopupMenu() && onPopupMenu != nullptr)
+                onPopupMenu();
+            else
+                juce::TextButton::mouseDown (event);
+        }
+
+        void mouseUp (const juce::MouseEvent& event) override
+        {
+            if (! (event.mods.isPopupMenu() && onPopupMenu != nullptr))
+                juce::TextButton::mouseUp (event);
+        }
+    };
+
+    void showMenu()
+    {
+        auto* parameter = processorRef != nullptr ? processorRef->apvts.getParameter (parameterId) : nullptr;
+
+        if (parameter == nullptr || ! parameter->isAutomatable())
+            return;
+
+        juce::PopupMenu menu;
+        addMidiLearnItems (menu, *processorRef, parameterId);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&button),
+                            [safeThis = juce::Component::SafePointer<ToggleControl> (this)] (int result)
+                            {
+                                if (safeThis != nullptr && safeThis->processorRef != nullptr)
+                                    handleMidiLearnResult (result, *safeThis->processorRef, safeThis->parameterId);
+                            });
+    }
+
+    SwitchButton button;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> attachment;
+    IlanaSynthAudioProcessor* processorRef = nullptr;
+    juce::String parameterId;
     static constexpr float breathSeconds = 2.2f;
     float litSeconds = breathSeconds;
     float hover = 0.0f;

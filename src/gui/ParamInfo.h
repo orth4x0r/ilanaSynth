@@ -794,7 +794,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Mod matrix (patterned)
     if (id.startsWith ("mod") && id.endsWith ("_pol"))
-        return "Polarity: Natural uses the source as it comes; Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
+        return "Polarity: Auto keeps the source's own range (LFOs, key, random and MSEG swing both ways; envelopes, velocity, macros and the wheel push one way); Unipolar moves 0 to +depth; Bipolar moves either side of the knob.";
     if (id.startsWith ("mod") && id.endsWith ("_aux"))
         return "Via: a second source that scales this route (e.g. the mod wheel fading in an LFO). None = always full.";
     if (id.startsWith ("mod") && id.endsWith ("_byp"))

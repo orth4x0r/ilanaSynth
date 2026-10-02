@@ -354,6 +354,15 @@ public:
     void cancelMacroLearn();
     int getMacroLearnTarget() const { return macroLearn.load(); }
     int getMacroCc (int macroIndex) const { return macroCc[juce::jlimit (0, Mod::numMacros - 1, macroIndex)].load(); }
+    // MIDI learn for any automatable parameter (macros keep their own CCs
+    // above): the next controller moved drives it, one CC per parameter.
+    // Saved with the patch as "midiCcMap"; a state without it (and a factory
+    // preset) leaves the current map alone, as it belongs to the controller.
+    void startParamLearn (const juce::String& parameterId);
+    void cancelParamLearn();
+    juce::String getParamLearnTarget() const;
+    int getParamCc (const juce::String& parameterId) const; // -1: none
+    void clearParamCc (const juce::String& parameterId);
     juce::File getUserPresetDirectory() const;
     float getEnvMonitorAmp() const { return envMonitorAmp.load(); }
     float getEnvMonitorFilter() const { return envMonitorFilter.load(); }
@@ -964,7 +973,17 @@ private:
 
     std::atomic<int> pendingProgramChange { -1 };
     std::atomic<float> pendingMacros[Mod::numMacros] {};
+    std::atomic<bool> macroPendingFlags[Mod::numMacros] {};
     std::atomic<bool> macrosPending { false };
+    // Parameter MIDI learn: CC -> index into getParameters() (-1: none), the
+    // parameter waiting for a CC, and values queued for the message thread.
+    std::array<std::atomic<int>, 128> ccParameter;
+    std::atomic<int> paramLearn { -1 };
+    std::array<std::atomic<float>, 128> pendingCcValues;
+    std::array<std::atomic<bool>, 128> ccValuePending;
+    std::atomic<bool> ccPending { false };
+    juce::String getParamCcMapText() const;
+    void setParamCcMapText (const juce::String& text);
     std::atomic<float> envMonitorAmp { 0.0f };
     std::atomic<float> envMonitorFilter { 0.0f };
     std::atomic<float> envMonitorFilter2 { 0.0f };

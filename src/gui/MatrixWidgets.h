@@ -124,8 +124,8 @@ inline void fillDestinations (juce::ComboBox& combo)
 } // namespace MatrixMenus
 
 // Curve control: drag up or down to bend the response; click to draw the
-// slot's remap curve (in a pop-up). Draws the resulting transfer curve, the
-// bend and the remap together.
+// slot's remap curve (docked under the row by the matrix, else a pop-up).
+// Draws the resulting transfer curve, the bend and the remap together.
 class CurveControl : public juce::Component,
                      public juce::SettableTooltipClient
 {
@@ -249,8 +249,18 @@ public:
 
     int getSlotIndex() const { return slotIndex; }
 
+    // Set by the matrix to open the editor under the row instead of in a
+    // call-out over the other rows.
+    std::function<void (int slot)> onOpenRemap;
+
     void openRemapEditor()
     {
+        if (onOpenRemap != nullptr)
+        {
+            onOpenRemap (slotIndex);
+            return;
+        }
+
         auto editor = std::make_unique<RemapEditor> (processorRef, slotIndex, colour);
         auto* parent = getTopLevelComponent();
         juce::CallOutBox::launchAsynchronously (std::move (editor),
@@ -301,7 +311,8 @@ private:
 };
 
 // One row of the modulation matrix, bound to one slot's parameters.
-class MatrixRow : public juce::Component
+class MatrixRow : public juce::Component,
+                  public juce::SettableTooltipClient
 {
 public:
     void setMacroNames (const juce::StringArray& names)
@@ -335,14 +346,31 @@ public:
         source.addItemList (Mod::getSourceNames(), 1);
         via.addItemList (Mod::getSourceNames(), 1);
         via.setTextWhenNothingSelected ("-");
-        polarity.addItemList ({ "Natural", "Unipolar", "Bipolar" }, 1);
+        // Choice 0 (Polarity::Natural, "Auto" in the parameter) follows the
+        // source's own range; it is shown as what that range is (refresh renames it).
+        polarity.addItemList ({ "Auto", "Unipolar", "Bipolar" }, 1);
         MatrixMenus::fillDestinations (destination);
 
         source.setTooltip ("Source\nWhat moves the destination.");
         via.setTooltip ("Via\nA second source that scales this routing: e.g. the mod wheel fading an LFO in.  "
                         "None leaves the amount as set.");
-        polarity.setTooltip ("Polarity\nNatural uses the source's own range.  Unipolar only pushes one way.  "
-                             "Bipolar swings either side of the knob.");
+        polarity.setTooltip ("Polarity\nAuto keeps the source's own range: LFOs, key, random and MSEG swing both ways (bipolar), "
+                             "envelopes, velocity, macros and the wheel only push one way (unipolar).  "
+                             "Unipolar only pushes one way.  Bipolar swings either side of the knob.");
+
+        // Until a via source is set, VIA is a small button that opens the
+        // same list.
+        viaButton.setButtonText ("+");
+        viaButton.setTooltip ("Via\nScale this routing by a second source (the mod wheel fading an LFO in, say).");
+        viaButton.onClick = [this]
+        {
+            via.getRootMenu()->showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&viaButton),
+                                              [safeThis = juce::Component::SafePointer<MatrixRow> (this)] (int result)
+                                              {
+                                                  if (safeThis != nullptr && result > 0)
+                                                      safeThis->via.setSelectedId (result, juce::sendNotificationSync);
+                                              });
+        };
         destination.setTooltip ("Destination\nWhat gets modulated.");
 
         amount.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -358,7 +386,7 @@ public:
         remove.setTooltip ("Remove this routing");
         remove.onClick = [this] { processorRef.performEdit ("Remove modulation", [this] { processorRef.clearModSlot (slotIndex); }); };
 
-        for (auto* component : std::initializer_list<juce::Component*> { &bypass, &source, &via, &amount, &curve,
+        for (auto* component : std::initializer_list<juce::Component*> { &bypass, &source, &via, &viaButton, &amount, &curve,
                                                                           &polarity, &destination, &remove })
             addAndMakeVisible (component);
 
@@ -372,10 +400,53 @@ public:
     }
 
     int getSlotIndex() const { return slotIndex; }
+    int getDisplayNumber() const { return displayNumber; }
+    bool isDuplicate() const { return duplicateOf.isNotEmpty(); }
+    CurveControl& getCurve() { return curve; }
+
+    // The row's number in the list (1..n as shown; the slot stays in the
+    // tooltip) and the other rows with the same source and destination.
+    void setDisplayNumber (int number, const juce::String& duplicateRows)
+    {
+        if (number == displayNumber && duplicateRows == duplicateOf)
+            return;
+
+        displayNumber = number;
+        duplicateOf = duplicateRows;
+        setTooltip ("Slot " + juce::String (slotIndex + 1)
+                    + (duplicateOf.isNotEmpty() ? "\nSame source and destination as row " + duplicateOf
+                                                      + ": the two add up.  Remove one, or set the depth in one row."
+                                                : juce::String()));
+        repaint();
+    }
+
+    // VIA takes its full width only while some row uses it.
+    void setViaExpanded (bool shouldExpand)
+    {
+        if (viaExpanded != shouldExpand)
+        {
+            viaExpanded = shouldExpand;
+            resized();
+        }
+    }
 
     void refresh()
     {
         const auto slot = processorRef.readModSlot (slotIndex);
+        const auto hasVia = slot.aux != Mod::Source::None;
+
+        via.setVisible (hasVia);
+        viaButton.setVisible (! hasVia);
+
+        // "Auto" says which range it gives this source.
+        const auto autoText = juce::String ("Auto (") + (Mod::isBipolarSource (slot.source) ? "Bipolar" : "Unipolar") + ")";
+
+        if (polarity.getItemText (0) != autoText)
+        {
+            const auto selected = polarity.getSelectedId();
+            polarity.changeItemText (1, autoText);
+            polarity.setSelectedId (selected, juce::dontSendNotification);
+        }
         const auto colour = slot.source != Mod::Source::None ? modSourceColour ((int) slot.source) : IlanaTheme::accent();
 
         if (colour != lastColour)
@@ -403,12 +474,26 @@ public:
         g.setColour (lastColour.withAlpha (active ? 0.9f : 0.3f));
         g.fillRoundedRectangle (bounds.withWidth (3.0f).reduced (0.0f, 6.0f).translated (1.0f, 0.0f), 1.5f);
 
-        g.setColour (active ? lastColour : IlanaTheme::Ui::text3);
+        // The row number; a second routing of the same source to the same
+        // destination is marked in amber.
+        const auto numberArea = juce::Rectangle<int> (4, 0, 22, getHeight());
+
+        if (isDuplicate())
+        {
+            g.setColour (juce::Colour (0xffffb020).withAlpha (0.22f));
+            g.fillRoundedRectangle (numberArea.toFloat().reduced (1.0f, 5.0f), 4.0f);
+            g.setColour (juce::Colour (0xffffb020));
+        }
+        else
+        {
+            g.setColour (active ? lastColour : IlanaTheme::Ui::text3);
+        }
+
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (juce::String (slotIndex + 1), juce::Rectangle<int> (4, 0, 22, getHeight()), juce::Justification::centred);
+        g.drawText (juce::String (displayNumber) + (isDuplicate() ? "!" : ""), numberArea, juce::Justification::centred);
 
         // Live source meter, bipolar around the middle.
-        const auto meter = juce::Rectangle<float> (meterX, 7.0f, 6.0f, (float) getHeight() - 14.0f);
+        const auto meter = juce::Rectangle<float> (meterX, 5.0f, 5.0f, (float) getHeight() - 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.08f));
         g.fillRoundedRectangle (meter, 2.0f);
 
@@ -427,24 +512,30 @@ public:
         g.fillPath (arrow);
     }
 
-    // Column layout shared with the header labels.
+    // Column layout shared with the header labels. VIA is narrow (a "+")
+    // until some row uses it.
     struct Columns
     {
-        static constexpr int number = 28, bypass = 36, meter = 12, source = 142, via = 116, amount = 202,
-                             curve = 54, polarity = 96, destination = 220, remove = 26, gap = 6;
+        static constexpr int number = 28, bypass = 34, meter = 10, source = 142, viaWide = 116, viaNarrow = 26,
+                             amount = 190, curve = 50, polarity = 116, destination = 220, remove = 24, gap = 6;
+        static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
     };
+
+    static constexpr int rowHeight = 28;
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (0, 5);
+        auto area = getLocalBounds().reduced (0, 3);
         area.removeFromLeft (Columns::number);
-        bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (34, 20));
+        bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (32, 18));
         area.removeFromLeft (Columns::gap);
         meterX = (float) area.getX() + 2.0f;
         area.removeFromLeft (Columns::meter + Columns::gap);
         source.setBounds (area.removeFromLeft (Columns::source));
         area.removeFromLeft (Columns::gap);
-        via.setBounds (area.removeFromLeft (Columns::via));
+        const auto viaArea = area.removeFromLeft (Columns::via (viaExpanded));
+        via.setBounds (viaArea);
+        viaButton.setBounds (viaArea.withWidth (Columns::viaNarrow));
         area.removeFromLeft (Columns::gap * 2);
         amount.setBounds (area.removeFromLeft (Columns::amount));
         area.removeFromLeft (Columns::gap);
@@ -477,7 +568,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove;
+    juce::TextButton bypass, remove, viaButton;
     juce::ComboBox source, via, polarity, destination;
     juce::Slider amount;
     CurveControl curve;
@@ -490,4 +581,7 @@ private:
     float meterValue = 0.0f;
     float meterX = 0.0f;
     bool active = false;
+    bool viaExpanded = false;
+    int displayNumber = 0;
+    juce::String duplicateOf;
 };

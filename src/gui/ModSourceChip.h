@@ -37,6 +37,7 @@ public:
     // full one.
     void setShortName (const juce::String& text) { shortName = text; }
     const juce::String& getShortName() const { return shortName.isNotEmpty() ? shortName : name; }
+    bool isCompact() const { return compact; }
     void setCompact (bool shouldBeCompact)
     {
         if (compact != shouldBeCompact)
@@ -69,6 +70,22 @@ public:
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius, pinned ? 2.0f : 1.0f);
 
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+
+        // A crowded row's short chips carry their colour as a bar under the
+        // name instead of a dot beside it, so the name keeps the width.
+        if (compact)
+        {
+            const auto bar = juce::Rectangle<float> (bounds.getWidth() - 10.0f, 2.5f)
+                                 .withCentre ({ bounds.getCentreX(), bounds.getBottom() - 3.5f });
+            g.setColour (colour.withAlpha (0.7f + 0.3f * glow));
+            g.fillRoundedRectangle (bar, 1.25f);
+            g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
+            g.drawFittedText (getShortName(), getLocalBounds().reduced (2, 0).withTrimmedBottom (2),
+                              juce::Justification::centred, 1, 0.8f);
+            return;
+        }
+
         const auto gripX = bounds.getX() + 1.0f;
         const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ gripX + 14.0f, bounds.getCentreY() });
         g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
@@ -77,8 +94,7 @@ public:
         g.fillEllipse (dot);
 
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawFittedText (compact ? getShortName() : name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
+        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
                           juce::Justification::centred, 1, 0.85f);
     }
 

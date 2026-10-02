@@ -29,6 +29,11 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
+
+    if (const auto ccMap = getParamCcMapText(); ccMap.isNotEmpty())
+        state.setProperty ("midiCcMap", ccMap, nullptr);
+    else
+        state.removeProperty ("midiCcMap", nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
     state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
@@ -312,12 +317,19 @@ juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
 {
     switch (index)
     {
-        case 0: return juce::Colour (0xffff8a3b);
+        // LFO 1 is rose, not the UI accent's orange (a lit knob read as a
+        // selected control).
+        case 0: return juce::Colour (0xffff5c9a);
         case 1: return juce::Colour (0xff35c8ff);
         case 2: return juce::Colour (0xff6fe3c1);
         case 3: return juce::Colour (0xffdde35a);
-        default: return juce::Colour::fromHSV ((float) (index - 4) / 12.0f + 0.04f, 0.5f, 0.95f, 1.0f);
+        default: break;
     }
+
+    // LFO 5-16: pastels at fixed hues clear of LFO 1-4, the main envelopes
+    // and the macros' yellows (ENV 6-16 use deeper tones of similar hues).
+    static constexpr float hues[] { 0.045f, 0.215f, 0.31f, 0.36f, 0.41f, 0.50f, 0.585f, 0.68f, 0.73f, 0.82f, 0.87f, 0.97f };
+    return juce::Colour::fromHSV (hues[juce::jlimit (0, 11, index - 4)], 0.5f, 1.0f, 1.0f);
 }
 
 void IlanaSynthAudioProcessor::addOscillator (int index)
@@ -492,6 +504,10 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         if (state.hasProperty (property))
             macroCc[macro].store (juce::jlimit (0, 127, (int) state.getProperty (property)));
     }
+
+    // Learned parameter CCs; older states have none and keep the current map.
+    if (state.hasProperty ("midiCcMap"))
+        setParamCcMapText (state.getProperty ("midiCcMap").toString());
 
     auto asyncNeeded = false;
 

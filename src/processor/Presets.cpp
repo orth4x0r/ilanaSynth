@@ -255,14 +255,29 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
             loadFactoryPreset (program % (int) count);
     }
 
+    // Only the macros whose CC moved (all eight; the others keep their
+    // values).
     if (macrosPending.exchange (false))
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < Mod::numMacros; ++i)
         {
+            if (! macroPendingFlags[i].exchange (false))
+                continue;
+
             if (auto* parameter = apvts.getParameter ("macro" + juce::String (i + 1)))
                 parameter->setValueNotifyingHost (
                     parameter->convertTo0to1 (pendingMacros[i].load()));
         }
+    }
+
+    if (ccPending.exchange (false))
+    {
+        const auto& parameters = getParameters();
+
+        for (size_t cc = 0; cc < ccParameter.size(); ++cc)
+            if (ccValuePending[cc].exchange (false))
+                if (const auto index = ccParameter[cc].load(); juce::isPositiveAndBelow (index, parameters.size()))
+                    parameters[index]->setValueNotifyingHost (pendingCcValues[cc].load());
     }
 
     bool reloadSamples = false;

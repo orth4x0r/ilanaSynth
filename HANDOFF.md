@@ -46,7 +46,7 @@ Updated 2026-10-01. The source tree is the source of truth. Work on `main` (clou
   - P4 MOD pools / LFOs / envelopes / Steps: in progress, nothing committed (CardTabs.h, LfoShapeMenu.h, LfoSimView.h new).
   - P5 filter/FX: filter side done (type picker, WEST card, markers, BALANCE, signal flow); FX rack in progress.
   - P6 browser/header: factory tags (tools/tag_presets.py, PresetTags.h), DX7 by sound in Title Case, hidden per-preset trim so MASTER reads 0 dB; header, Save As, tutorial, scope in progress.
-  - P7 clip/arp/generate: in progress, nothing committed.
+  - P7 clip/arp/generate: DONE (p7.patch final; uitest, table test, 0 of 698 fingerprints changed on its own): piano roll, editable arp lanes (appended arp_steps, arp_vel/len/pitch1..16), GENERATE boxes, note chain view, engine tab dots (CardTabs.h, shared with P4).
 
 ## Demos
 `ILANA_RENDER_DEMO=build/demo ilanaTableTest` writes the keys demos, `build/demo/fm-pd/` and one folder per M8 milestone (`m81/`...); `ILANA_DEMO_ONLY=m81` renders one milestone's. `ILANA_RENDER_DEMO=build/demo/fx ilanaFxTest` writes the FX presets over drums, plucks and a voice. The EP references are in `build/reference/ep/` and the fitted notes in `build/fit-ep/<model>/base/`.

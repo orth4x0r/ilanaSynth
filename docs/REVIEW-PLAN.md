@@ -225,3 +225,12 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    - **H. Small things** (V19, V27, V28, S17, S20, S23, S25): tour content; 10 px minimum for interactive labels;
      scope meters with a dB scale and clip light; CPU and OUT labelled; chaos LFO outputs spelled out; SEQ GENERATE on one
      baseline per row, PROB SEQ's number row labelled.
+   **Done** 2026-10-02 (cloud, branch `claude/project-thread-poh95j`, on top of PR #9's branch; one commit or merge per batch).
+   Gate clean on Linux (unit, FX and UI tests, 0 of 698 fingerprints changed, pluginval 10 on both plugins). Each batch's
+   `--uitest` checks are in `tools/Snapshot.cpp`. Notable choices: factory loads now clear clips (as user loads did); the
+   mod polarity choice reads "Auto" (was "Natural"; display only); MIDI learn on every control saves as `midiCcMap` and
+   factory loads keep it; macro CCs now drive all 8 macros and move only the macro that moved (was 1-4, others reset);
+   user presets' category and tags are read back (JUCE's 8 KB header read had dropped them); text floors are 12.5 / 11 in
+   the theme's font-height units (about 9.2 / 8 px em), not a global type-scale bump. Left: offering to merge duplicate
+   routes (they are flagged), quantise and zoom buttons in the clip editor, a "Recent" sort (nothing records it), a live
+   input dot on the FX transfer curves, the scope as a dock, DX7 rows still carry "(ROM1A)" (13.2).

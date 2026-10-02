@@ -315,6 +315,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     saveButton.setText ("SAVE");
     saveButton.setEmphasis (true);
     saveButton.onClick = [this] { savePreset(); };
+    saveButton.setTooltip ("Save preset  (Ctrl+S)\nSaves over your preset; a factory or new patch asks for a name.");
     moreButton.onClick = [this] { showPresetMenu(); };
     undoButton.onClick = [this] { undoOrRedo (false); };
     redoButton.onClick = [this] { undoOrRedo (true); };
@@ -408,6 +409,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tutorial.setPresetCount (processorRef.getFactoryPresetNames().size());
     content.addAndMakeVisible (tutorial);
     content.addChildComponent (confirmOverlay);
+    content.addChildComponent (saveOverlay);
+    saveOverlay.onSaved = [this] (const juce::File&) { presetSaved (false); };
 
     // Applied after adding: addAndMakeVisible forces the component visible.
     tutorial.setVisible (! settings->getBoolValue ("seenIntro", false));
@@ -984,6 +987,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     infoStrip.setBounds (area.removeFromBottom (22).reduced (14, 2));
     tutorial.setBounds (content.getLocalBounds());
     confirmOverlay.setBounds (content.getLocalBounds());
+    saveOverlay.setBounds (content.getLocalBounds());
 
     auto strip = area.removeFromBottom (52).reduced (14, 1);
     outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, 48));
@@ -1222,18 +1226,42 @@ void IlanaSynthAudioProcessorEditor::undoOrRedo (bool redo)
 
 void IlanaSynthAudioProcessorEditor::savePreset()
 {
-    juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
+    const auto file = PresetFiles::loadedUserPreset (processorRef);
 
-    PresetPanel::showSaveDialog (processorRef, [safeThis]
+    if (! file.existsAsFile())
     {
-        if (safeThis == nullptr)
-            return;
+        savePresetAs();
+        return;
+    }
 
-        safeThis->rememberLoadedFingerprint();
+    if (processorRef.savePresetToFile (file))
+        presetSaved (true);
+    else
+        presetDisplay.showNotice ("COULDN'T SAVE");
+}
 
-        if (safeThis->presetPanel != nullptr)
-            safeThis->presetPanel->refresh();
-    });
+void IlanaSynthAudioProcessorEditor::savePresetAs()
+{
+    if (presetPanel != nullptr && presetPanel->isOpen() && ! presetPanel->isDocked())
+        presetPanel->close();
+
+    saveOverlay.setBounds (content.getLocalBounds());
+    saveOverlay.show();
+}
+
+// After a save: the patch is no longer EDITED, the browser lists the file,
+// and the preset name says so for a moment.
+void IlanaSynthAudioProcessorEditor::presetSaved (bool inPlace)
+{
+    rememberLoadedFingerprint();
+
+    if (presetPanel != nullptr)
+        presetPanel->refresh();
+
+    updateHeaderButtons();
+    presetDisplay.showNotice (inPlace ? "SAVED" : "SAVED AS NEW PRESET");
+    presetLoadFlash = 1.0f;
+    animator.startTimerHz (60);
 }
 
 void IlanaSynthAudioProcessorEditor::exportPreset()
@@ -1493,7 +1521,8 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
     juce::PopupMenu menu;
     menu.addItem (1, "Init patch");
     menu.addSeparator();
-    menu.addItem (2, "Save preset...");
+    menu.addItem (2, "Save preset", true);
+    menu.addItem (7, "Save preset as...");
     menu.addItem (5, "Export preset file...");
     menu.addItem (3, "Load preset file...");
     menu.addItem (4, "Open user preset folder");
@@ -1510,6 +1539,7 @@ void IlanaSynthAudioProcessorEditor::showPresetMenu()
                             {
                                 case 1: safeThis->loadPresetIndex (0); break;
                                 case 2: safeThis->savePreset(); break;
+                                case 7: safeThis->savePresetAs(); break;
                                 case 3: safeThis->loadPreset(); break;
                                 case 5: safeThis->exportPreset(); break;
                                 case 6:
@@ -1818,6 +1848,7 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
         });
     };
     presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
+    presetPanel->onSaveAs = [this] { savePresetAs(); };
     presetPanel->setAnchor (&presetDisplay);
     presetPanel->onDockRequest = [this] (bool dock)
     {
@@ -1896,7 +1927,7 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
     {
         const auto width = 640;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
-        presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 500);
+        presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 528);
         presetPanel->setScrimArea (content.getLocalBounds());
     }
 
@@ -2037,16 +2068,93 @@ void IlanaSynthAudioProcessorEditor::mutate (float amount)
     }
 }
 
+// Esc closes the topmost thing open over the page, one per press: the save
+// panel, the tour, the drop-down browser, a held mod card, the remap editor,
+// the scope. False when nothing was open.
+bool IlanaSynthAudioProcessorEditor::closeTopPopup()
+{
+    if (saveOverlay.isShowing())
+    {
+        saveOverlay.cancel();
+        return true;
+    }
+
+    if (tutorial.isVisible())
+    {
+        tutorial.dismiss();
+        return true;
+    }
+
+    if (presetPanel != nullptr && presetPanel->isOpen() && ! presetPanel->isDocked())
+    {
+        presetPanel->close();
+        return true;
+    }
+
+    {
+        std::vector<KnobControl*> knobs;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& parent)
+        {
+            for (auto* child : parent.getChildren())
+            {
+                if (auto* knob = dynamic_cast<KnobControl*> (child))
+                    knobs.push_back (knob);
+
+                collect (*child);
+            }
+        };
+        collect (content);
+        auto closed = false;
+
+        for (auto* knob : knobs)
+        {
+            if (knob->isModCardOpen())
+            {
+                knob->closeModCard();
+                closed = true;
+            }
+        }
+
+        if (closed)
+            return true;
+
+        std::function<RemapEditor* (juce::Component&)> findRemap = [&] (juce::Component& parent) -> RemapEditor*
+        {
+            for (auto* child : parent.getChildren())
+            {
+                if (auto* remap = dynamic_cast<RemapEditor*> (child); remap != nullptr && remap->isShowing())
+                    return remap;
+
+                if (auto* found = findRemap (*child))
+                    return found;
+            }
+
+            return nullptr;
+        };
+
+        if (auto* remap = findRemap (content); remap != nullptr && remap->close())
+            return true;
+    }
+
+    if (isScopeOpen())
+    {
+        setScopeOpen (false);
+        return true;
+    }
+
+    return false;
+}
+
 bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
     if (confirmOverlay.isAsking())
         return confirmOverlay.keyPressed (key);
 
-    if (tutorial.isVisible() && key.getKeyCode() == juce::KeyPress::escapeKey)
-    {
-        tutorial.dismiss();
-        return true;
-    }
+    if (saveOverlay.isShowing())
+        return saveOverlay.keyPressed (key);
+
+    if (key.getKeyCode() == juce::KeyPress::escapeKey)
+        return closeTopPopup();
 
     const auto modifiers = key.getModifiers();
 
@@ -2066,21 +2174,38 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
             return true;
         }
 
+        if (code == 'S')
+        {
+            modifiers.isShiftDown() ? savePresetAs() : savePreset();
+            return true;
+        }
+
+        // Previous / next preset, asking first over an edited patch.
+        if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
+        {
+            (key.getKeyCode() == juce::KeyPress::leftKey ? prevButton : nextButton).onClick();
+            return true;
+        }
+
         return false;
     }
 
+    // Bare digits pick a tab, unless something is being typed.
+    if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr
+        || modifiers.isAltDown())
+        return false;
+
     const auto code = key.getKeyCode();
 
-    if (code >= '0' && code <= '9')
+    if (code >= '1' && code <= '9')
     {
-        const auto index = code == '0' ? 9 : code - '1';
+        const auto index = code - '1';
+
         if (index < tabs.getNumTabs())
         {
             tabs.setCurrentTabIndex (index);
             return true;
         }
-
-        return false;
     }
 
     return false;

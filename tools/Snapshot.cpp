@@ -2279,6 +2279,224 @@ int runUiTests()
             }
         }
 
+        // UI review 4 (V3, V15, V25, V31, S11, S28, S29): SAVE / SAVE AS, the
+        // browser's sort, DX7 banks, stars and tags, the keys and the table
+        // search. Saves go to a temporary folder, never the user's presets.
+        {
+            const auto tempDir = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                     .getChildFile ("ilanaUiTestPresets-" + juce::String::toHexString (juce::Random::getSystemRandom().nextInt64()));
+            tempDir.createDirectory();
+            IlanaSynthAudioProcessor::userPresetDirectoryOverride = tempDir;
+            const auto countFiles = [&tempDir] { return tempDir.findChildFiles (juce::File::findFiles, true, "*.ilanapreset").size(); };
+            const auto setCutoff = [&processor] (float hz)
+            {
+                if (auto* parameter = processor.apvts.getParameter ("f1_cutoff"))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (hz));
+            };
+            const auto cutoffIn = [&processor] (const juce::File& file)
+            {
+                IlanaSynthAudioProcessor other;
+                other.loadPresetFromFile (file);
+                return other.apvts.getRawParameterValue ("f1_cutoff")->load();
+            };
+
+            processor.loadFactoryPreset (neuroWobble);
+            settle (200);
+            auto& saveOverlay = pages->getSaveOverlay();
+            pages->savePreset();
+            settle (100);
+            expect (saveOverlay.isShowing(), "SAVE on a factory preset opens the SAVE AS panel");
+
+            saveOverlay.getNameField().setText (juce::String::fromUTF8 ("Rock'n (Roll): \xc3\xb1/1?"), true);
+            settle (100);
+            expect (saveOverlay.getNote().contains (":") && saveOverlay.getNote().contains ("/") && saveOverlay.getNote().contains ("?"),
+                    "SAVE AS says which characters a file name can't hold (" + saveOverlay.getNote() + ")");
+            saveOverlay.getTagsField().setText ("dark, wide", false);
+            setCutoff (900.0f);
+            saveOverlay.save();
+            settle (100);
+            const auto savedName = juce::String::fromUTF8 ("Rock'n (Roll) \xc3\xb1" "1");
+            const auto savedFile = tempDir.getChildFile (savedName + ".ilanapreset");
+            expect (! saveOverlay.isShowing() && savedFile.existsAsFile() && processor.getCurrentPresetName() == savedName,
+                    "SAVE AS keeps apostrophes, brackets and accents, dropping only : / ? (" + processor.getCurrentPresetName() + ")");
+            expect (! pages->isPatchEdited(), "a saved patch is no longer EDITED");
+
+            setCutoff (2400.0f);
+            pages->savePreset();
+            settle (100);
+            auto* display = findChild<PresetDisplay> (*editor);
+            expect (! saveOverlay.isShowing() && countFiles() == 1 && std::abs (cutoffIn (savedFile) - 2400.0f) < 5.0f,
+                    "SAVE overwrites the loaded user preset in place, with no dialog");
+            expect (display != nullptr && display->getNotice() == "SAVED", "SAVE says SAVED by the preset name");
+
+            setCutoff (3100.0f);
+            editor->keyPressed (juce::KeyPress ('s', juce::ModifierKeys::commandModifier, 0));
+            settle (100);
+            expect (! saveOverlay.isShowing() && countFiles() == 1 && std::abs (cutoffIn (savedFile) - 3100.0f) < 5.0f, "Ctrl+S saves in place");
+
+            editor->keyPressed (juce::KeyPress ('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0));
+            settle (100);
+            expect (saveOverlay.isShowing(), "Ctrl+Shift+S opens SAVE AS");
+            saveOverlay.getNameField().setText (savedName, true);
+            setCutoff (500.0f);
+            saveOverlay.save();
+            expect (saveOverlay.isAskingOverwrite() && countFiles() == 1, "SAVE AS asks before overwriting a name in use");
+            saveOverlay.finishOverwrite (false);
+            expect (saveOverlay.isShowing() && ! saveOverlay.isAskingOverwrite() && std::abs (cutoffIn (savedFile) - 3100.0f) < 5.0f,
+                    "Cancel keeps the old preset and goes back to the name");
+            saveOverlay.save();
+            saveOverlay.finishOverwrite (true);
+            settle (100);
+            expect (! saveOverlay.isShowing() && countFiles() == 1 && std::abs (cutoffIn (savedFile) - 500.0f) < 5.0f,
+                    "Overwrite replaces it, with no \"Name 2\" copy");
+
+            pages->savePresetAs();
+            saveOverlay.getNameField().setText ("neuro wobble", true);
+            saveOverlay.save();
+            expect (saveOverlay.isShowing() && ! saveOverlay.isAskingOverwrite() && saveOverlay.getNote().contains ("factory") && countFiles() == 1,
+                    "a factory preset's name can't be taken");
+            editor->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+            expect (! saveOverlay.isShowing(), "Esc closes the SAVE AS panel");
+
+            // Ctrl+Right / Left step through the presets, through the
+            // confirm over an edited patch.
+            processor.loadFactoryPreset (neuroWobble);
+            settle (200);
+            editor->keyPressed (juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier, 0));
+            settle (150);
+            const auto afterRight = processor.getCurrentPresetName();
+            editor->keyPressed (juce::KeyPress (juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier, 0));
+            settle (150);
+            expect (afterRight != "Neuro Wobble" && processor.getCurrentPresetName() == "Neuro Wobble",
+                    "Ctrl+Right / Ctrl+Left load the next and previous preset (" + afterRight + ")");
+            pages->setAsksBeforeReplacingEdits (true);
+            setCutoff (700.0f);
+            settle (100);
+            editor->keyPressed (juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier, 0));
+            settle (100);
+            auto* confirm = findChild<ConfirmOverlay> (*editor);
+            expect (confirm != nullptr && confirm->isAsking() && processor.getCurrentPresetName() == "Neuro Wobble",
+                    "Ctrl+Right over an edited patch asks first");
+            if (confirm != nullptr && confirm->isAsking())
+                confirm->finish (false);
+            pages->setAsksBeforeReplacingEdits (false);
+            processor.loadFactoryPreset (neuroWobble);
+            settle (150);
+
+            // Digits pick tabs 1-9; there is no tenth tab for 0.
+            if (auto* tabbed = findChild<juce::TabbedComponent> (*editor))
+            {
+                const auto before = tabbed->getCurrentTabIndex();
+                editor->keyPressed (juce::KeyPress ('2'));
+                const auto onTwo = tabbed->getCurrentTabIndex();
+                expect (onTwo == 1 && ! editor->keyPressed (juce::KeyPress ('0')) && tabbed->getCurrentTabIndex() == 1,
+                        "2 picks the second tab and 0 does nothing");
+                tabbed->setCurrentTabIndex (before);
+                settle (150);
+            }
+
+            // Esc closes the drop-down browser.
+            if (display != nullptr && display->onClick != nullptr)
+            {
+                display->onClick();
+                settle (400);
+                auto* panel = findChild<PresetPanel> (*editor);
+                expect (panel != nullptr && panel->isOpen(), "the browser opens for the browser checks");
+
+                if (panel != nullptr)
+                {
+                    const auto sortBefore = panel->getSortMode();
+                    const auto dx7Before = panel->isShowingDx7();
+                    panel->setSortMode (PresetPanel::sortByName);
+                    panel->setShowDx7 (false);
+                    panel->selectFilter ("");
+                    auto listed = panel->getListedNames();
+                    auto sorted = true;
+                    for (int i = 1; i < listed.size(); ++i)
+                        sorted = sorted && listed[i - 1].compareNatural (listed[i], false) <= 0;
+                    auto dx7Shown = 0;
+                    for (const auto& name : listed)
+                        dx7Shown += name.endsWith ("(ROM1A)") || name.endsWith ("(DEXED01)") ? 1 : 0;
+                    expect (sorted && listed.size() > 100, "the browser sorts by name (" + listed[0] + ", " + listed[1] + ", " + listed[2] + "...)");
+                    expect (dx7Shown == 0 && listed.contains (savedName), "All leaves the DX7 ROM voices out by default ("
+                                                                          + juce::String (listed.size()) + " listed)");
+
+                    panel->selectFilter ("DX7");
+                    const auto chipKeys = panel->getChipKeys();
+                    expect (panel->getListedNames().size() >= 288 && chipKeys.contains ("bank:ROM1A") && chipKeys.contains ("bank:DEXED01"),
+                            "DX7 lists its voices with a chip per bank (" + chipKeys.joinIntoString (" ") + ")");
+                    panel->clickChip ("bank:ROM1B");
+                    listed = panel->getListedNames();
+                    auto allRom1B = listed.size() == 32;
+                    for (const auto& name : listed)
+                        allRom1B = allRom1B && name.endsWith ("(ROM1B)");
+                    expect (allRom1B, "the ROM1B chip lists that bank's 32 voices");
+
+                    panel->setShowDx7 (true);
+                    panel->selectFilter ("");
+                    expect (panel->getListedNames().size() > listed.size() + 288, "Show DX7 voices puts them back into All");
+                    panel->setShowDx7 (false);
+
+                    panel->setSortMode (PresetPanel::sortByCategory);
+                    listed = panel->getListedNames();
+                    const auto categories = processor.getAllPresetCategories();
+                    const auto allNames = processor.getAllPresetNames();
+                    expect (categories[allNames.indexOf (listed[1])] == "Bass", "SORT: CATEGORY puts the basses first after Init (" + listed[1] + ")");
+                    panel->setSortMode (PresetPanel::sortByName);
+
+                    // The star on a row toggles the favourite without loading it.
+                    listed = panel->getListedNames();
+                    const auto row = listed.indexOf ("Metal Pad");
+                    panel->clickRow (row, 12);
+                    panel->selectFilter ("*fav");
+                    const auto starred = panel->getListedNames().contains ("Metal Pad");
+                    panel->selectFilter ("");
+                    panel->clickRow (panel->getListedNames().indexOf ("Metal Pad"), 12);
+                    panel->selectFilter ("*fav");
+                    const auto unstarred = ! panel->getListedNames().contains ("Metal Pad");
+                    expect (row >= 0 && starred && unstarred && processor.getCurrentPresetName() == "Neuro Wobble",
+                            "a row's star toggles the favourite (and doesn't load the preset)");
+
+                    // Tags saved with user presets become chips.
+                    panel->selectFilter ("*user");
+                    expect (panel->getChipKeys().contains ("tag:dark") && panel->getChipKeys().contains ("tag:wide"),
+                            "user preset tags show as chips (" + panel->getChipKeys().joinIntoString (" ") + ")");
+                    panel->clickChip ("tag:dark");
+                    expect (panel->getListedNames().size() == 1, "a tag chip filters the list");
+                    panel->clickChip ("tag:dark");
+
+                    panel->selectFilter ("");
+                    panel->setSortMode (sortBefore);
+                    panel->setShowDx7 (dx7Before);
+                    editor->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+                    settle (400);
+                    expect (! panel->isOpen(), "Esc closes the browser");
+                }
+            }
+
+            // The wavetable browser: a search field, spaced Title Case names.
+            {
+                TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+                browser.setSize (740, 520);
+                const auto all = browser.getShownNames();
+                browser.setSearchText ("saw");
+                settle (100);
+                const auto saws = browser.getShownNames();
+                auto allSaws = saws.size() > 2 && saws.size() < all.size();
+                for (const auto& name : saws)
+                    allSaws = allSaws && name.containsIgnoreCase ("saw");
+                expect (allSaws && saws.contains ("Drive Saw") && saws.contains ("Analog Saw"),
+                        "the table search filters (" + saws.joinIntoString (", ") + ")");
+                expect (all.contains ("Hard Sync") && ! all.contains ("DriveSaw") && ! all.contains ("Basic"),
+                        "table names show as spaced Title Case, ANALOG's Basic as Analog Saw");
+            }
+
+            IlanaSynthAudioProcessor::userPresetDirectoryOverride = juce::File();
+            tempDir.deleteRecursively();
+            processor.loadFactoryPreset (neuroWobble);
+            settle (200);
+        }
+
         // The header's live waveform and the VOICES hotspot.
         {
             auto* scope = findChild<OutputView> (*editor);
@@ -3020,14 +3238,37 @@ int main (int argc, char** argv)
             save (*editor, outDir.getChildFile ("extra-browser-dropdown.png"));
             if (auto* panel = findChild<PresetPanel> (*editor); panel != nullptr && panel->onDockRequest != nullptr)
             {
+                // DX7 with its bank chips (the settings are left as they were).
+                panel->selectFilter ("DX7");
+                panel->clickChip ("bank:ROM1A");
+                settle (200);
+                save (*editor, outDir.getChildFile ("extra-browser-dx7.png"));
                 panel->onDockRequest (true);
                 settle (500);
+                save (*editor, outDir.getChildFile ("extra-browser-docked-dx7.png"));
+                panel->selectFilter ("");
+                settle (200);
                 save (*editor, outDir.getChildFile ("extra-browser-docked.png"));
                 panel->onDockRequest (false);
                 settle (300);
                 panel->close();
                 settle (300);
             }
+        }
+
+        // SAVE AS, with a name that loses characters (cancelled, so nothing is written).
+        pages->savePresetAs();
+        pages->getSaveOverlay().getNameField().setText ("Acid: Bass / Mk 2", true);
+        settle (300);
+        save (*editor, outDir.getChildFile ("extra-save-as.png"));
+        pages->getSaveOverlay().cancel();
+
+        {
+            TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setSize (912, 576);
+            browser.setSearchText ("saw");
+            settle (200);
+            save (browser, outDir.getChildFile ("extra-table-search.png"));
         }
         return 0;
     }

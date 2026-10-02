@@ -7,13 +7,37 @@
 #include "IlanaLookAndFeel.h"
 
 // Every wavetable at a glance, grouped by category, each drawn from its
-// first and middle frames. Click one to load it into the oscillator.
+// first and middle frames. Click one to load it into the oscillator. The
+// search field above narrows it to the tables whose name or group match.
 class TableBrowser : public juce::Component
 {
 public:
     TableBrowser (IlanaSynthAudioProcessor& p, juce::String parameterIdIn, juce::Colour colourIn)
         : processorRef (p), parameterId (std::move (parameterIdIn)), colour (colourIn)
     {
+        search.setTextToShowWhenEmpty ("Search tables", IlanaTheme::Ui::text3);
+        search.setColour (juce::TextEditor::backgroundColourId, IlanaTheme::Ui::well);
+        search.setColour (juce::TextEditor::outlineColourId, IlanaTheme::Ui::line);
+        search.setColour (juce::TextEditor::focusedOutlineColourId, colour.withAlpha (0.6f));
+        search.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
+        search.setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)));
+        search.setIndents (8, 5);
+        search.onTextChange = [this] { buildLayout(); };
+        search.onReturnKey = [this]
+        {
+            // Return takes the only match, or the first one.
+            if (! items.empty())
+                pick (items.front().choice);
+        };
+        search.onEscapeKey = [this]
+        {
+            if (! search.isEmpty())
+                search.setText ({}, true);
+            else if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
+                callOut->dismiss();
+        };
+        addAndMakeVisible (search);
+
         content.owner = this;
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false);
@@ -44,8 +68,66 @@ public:
 
     void resized() override
     {
-        viewport.setBounds (getLocalBounds());
+        auto area = getLocalBounds();
+        search.setBounds (area.removeFromTop (34).reduced (6, 4));
+        viewport.setBounds (area);
         buildLayout();
+    }
+
+    void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::panel); }
+
+    // Typing goes straight to the search once the browser is up.
+    void parentHierarchyChanged() override
+    {
+        juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<TableBrowser> (this)]
+        {
+            if (safeThis != nullptr && safeThis->isShowing())
+                safeThis->search.grabKeyboardFocus();
+        });
+    }
+
+    // How a factory table's name shows here: spaced Title Case ("DriveSaw"
+    // reads "Drive Saw"), and ANALOG's "Basic" reads "Analog Saw" so it isn't
+    // taken for the BASIC group. Display only: the stored names (and the
+    // patches that keep them) don't change.
+    static juce::String displayName (int index, const juce::String& name)
+    {
+        if (index == 0 && name == "Basic")
+            return "Analog Saw";
+
+        juce::String spaced;
+        juce::juce_wchar previous = 0;
+
+        for (auto pointer = name.getCharPointer(); ! pointer.isEmpty();)
+        {
+            const auto c = pointer.getAndAdvance();
+
+            if (juce::CharacterFunctions::isUpperCase (c) && juce::CharacterFunctions::isLowerCase (previous))
+                spaced << " ";
+
+            spaced << juce::String::charToString (c);
+            previous = c;
+        }
+
+        auto words = juce::StringArray::fromTokens (spaced, " ", "");
+
+        for (auto& word : words)
+            word = word.substring (0, 1).toUpperCase() + word.substring (1);
+
+        return words.joinIntoString (" ");
+    }
+
+    // For the tests: the search, and the tables shown.
+    void setSearchText (const juce::String& text) { search.setText (text, true); }
+
+    juce::StringArray getShownNames() const
+    {
+        juce::StringArray shown;
+
+        for (const auto& item : items)
+            shown.add (item.name);
+
+        return shown;
     }
 
 private:
@@ -82,7 +164,18 @@ private:
         auto order = TableFactory::getCategoryOrder();
         order.add ("User");
 
-        const auto width = juce::jmax (200, getWidth() - 12);
+        const auto width = juce::jmax (200, viewport.getWidth() - 12);
+        const auto words = juce::StringArray::fromTokens (search.getText().trim().toLowerCase(), " ", "");
+        const auto matches = [&words] (const juce::String& name, const juce::String& category)
+        {
+            const auto haystack = (name + " " + category).toLowerCase();
+
+            for (const auto& word : words)
+                if (! haystack.contains (word))
+                    return false;
+
+            return true;
+        };
         // Cells grow with the browser; ~140 px wide at the smallest size.
         scale = juce::jlimit (1.0f, 2.5f, (float) width / 728.0f);
         const auto columns = juce::jlimit (4, 6, width / juce::roundToInt (140.0f * scale));
@@ -98,13 +191,14 @@ private:
             if (category == "User")
             {
                 for (int slot = 0; slot < IlanaSynthAudioProcessor::numUserSlots; ++slot)
-                    group.push_back ({ names.size() + slot, "User " + juce::String (slot + 1), {} });
+                    if (matches ("User " + juce::String (slot + 1), category))
+                        group.push_back ({ names.size() + slot, "User " + juce::String (slot + 1), {} });
             }
             else
             {
                 for (int i = 0; i < names.size(); ++i)
-                    if (categories[i] == category)
-                        group.push_back ({ i, names[i], {} });
+                    if (categories[i] == category && matches (displayName (i, names[i]) + " " + names[i], category))
+                        group.push_back ({ i, displayName (i, names[i]), {} });
             }
 
             if (group.empty())
@@ -127,7 +221,7 @@ private:
             y += cellHeight + juce::roundToInt (14.0f * scale);
         }
 
-        content.setSize (width, y);
+        content.setSize (width, juce::jmax (y, viewport.getHeight()));
         content.repaint();
     }
 
@@ -143,6 +237,14 @@ private:
     {
         g.fillAll (IlanaTheme::Ui::panel);
         const auto selected = current();
+
+        if (items.empty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body * scale));
+            g.drawText ("No tables match \"" + search.getText().trim() + "\".", content.getLocalBounds().withHeight (80),
+                        juce::Justification::centred);
+        }
 
         for (const auto& heading : headings)
         {
@@ -233,9 +335,12 @@ private:
     {
         const auto choice = itemAt (position);
 
-        if (choice < 0)
-            return;
+        if (choice >= 0)
+            pick (choice);
+    }
 
+    void pick (int choice)
+    {
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
         {
             processorRef.performEdit (parameter->getName (64), [parameter, choice]
@@ -253,6 +358,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::String parameterId;
     juce::Colour colour;
+    juce::TextEditor search;
     juce::Viewport viewport;
     Content content;
     std::vector<Item> items;

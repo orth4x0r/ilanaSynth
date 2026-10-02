@@ -205,6 +205,9 @@ void IlanaSynthAudioProcessor::cancelMacroLearn()
 
 juce::File IlanaSynthAudioProcessor::getUserPresetDirectory() const
 {
+    if (userPresetDirectoryOverride != juce::File())
+        return userPresetDirectoryOverride;
+
     return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
         .getChildFile ("ilanaSynth Presets");
 }

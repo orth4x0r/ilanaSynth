@@ -368,6 +368,9 @@ public:
     int getParamCc (const juce::String& parameterId) const; // -1: none
     void clearParamCc (const juce::String& parameterId);
     juce::File getUserPresetDirectory() const;
+    // Points the user preset folder elsewhere (the UI test's temporary
+    // folder, so it never touches the user's own presets). Empty: the default.
+    static inline juce::File userPresetDirectoryOverride;
     float getEnvMonitorAmp() const { return envMonitorAmp.load(); }
     float getEnvMonitorFilter() const { return envMonitorFilter.load(); }
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }

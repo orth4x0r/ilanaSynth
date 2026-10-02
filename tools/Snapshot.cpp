@@ -301,9 +301,10 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         expect (bounce.first == "height" && bounce.second == "impacts", "the bounce LFO's outputs read height / impacts");
     }
 
-    // SEQ GENERATE (S20): one name line per row, the strum's DIRECTION under
-    // STRUM, SNAP PLAYED on the grid, and the spray's switch on its own
-    // heading rather than the card's.
+    // SEQ GENERATE (review 6: V5-21, S5-17, S6-24, I6-30): three boxes,
+    // SNAP TO KEY, STRUM and SPRAY, each with its own switch on its title
+    // line and its controls inside, every name on one line; SNAP TO KEY's
+    // and STRUM's switches turn their choice Off and back, one undo step.
     {
         editor.showPage ("ARP/SEQ");
         settle (400);
@@ -327,30 +328,88 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
             }
             return nullptr;
         };
-        const auto topOf = [&editor] (juce::Component* component)
+        const auto switchFor = [&editor] (const juce::String& what) -> ChoiceSwitch*
         {
-            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getY() : -1;
+            std::vector<ChoiceSwitch*> switches;
+            findAll<ChoiceSwitch> (editor, switches);
+            for (auto* candidate : switches)
+                if (visibleInTree (candidate) && candidate->getTooltip().startsWith (what))
+                    return candidate;
+            return nullptr;
         };
-        const auto xOf = [&editor] (juce::Component* component)
+        const auto boundsOf = [&editor] (juce::Component* component)
         {
-            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getCentreX() : -1;
+            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()) : juce::Rectangle<int>();
         };
+        const auto topOf = [&boundsOf] (juce::Component* component) { return component != nullptr ? boundsOf (component).getY() : -1; };
+        const auto xOf = [&boundsOf] (juce::Component* component) { return component != nullptr ? boundsOf (component).getCentreX() : -1; };
         auto* scale = controlFor ("gen_scale");
+        auto* root = controlFor ("gen_root");
+        auto* snap = controlFor ("gen_snap");
         auto* strum = controlFor ("spray_strum");
         auto* strumTime = controlFor ("spray_strum_time");
-        auto* count = controlFor ("spray_count");
-        auto* snap = controlFor ("gen_snap");
-        auto* spread = controlFor ("spray_spread");
-        auto* sprayOn = controlFor ("spray_on");
         auto* pitch = controlFor ("spray_direction");
-        expect (scale != nullptr && strum != nullptr && count != nullptr && topOf (scale) == topOf (count) && topOf (strum) == topOf (count),
-                "GENERATE's first row puts every name on one line (menus and knobs)");
-        expect (snap != nullptr && strumTime != nullptr && spread != nullptr && topOf (snap) == topOf (spread) && topOf (strumTime) == topOf (spread),
-                "GENERATE's second row: SNAP PLAYED on the grid, level with the knobs");
-        expect (strum != nullptr && strumTime != nullptr && std::abs (xOf (strum) - xOf (strumTime)) <= 1,
-                "the strum's DIRECTION sits over its TIME, under STRUM");
-        expect (sprayOn != nullptr && pitch != nullptr && topOf (sprayOn) < topOf (pitch) && xOf (sprayOn) > xOf (count),
-                "the spray's switch sits on NOTE SPRAY's heading, not the card's");
+        auto* count = controlFor ("spray_count");
+        auto* spread = controlFor ("spray_spread");
+        auto* velocity = controlFor ("spray_velocity");
+        auto* sprayOn = controlFor ("spray_on");
+        auto* scaleSwitch = switchFor ("SNAP TO KEY");
+        auto* strumSwitch = switchFor ("STRUM");
+        const auto found = scale != nullptr && root != nullptr && snap != nullptr && strum != nullptr && strumTime != nullptr
+                        && pitch != nullptr && count != nullptr && spread != nullptr && velocity != nullptr && sprayOn != nullptr
+                        && scaleSwitch != nullptr && strumSwitch != nullptr;
+        expect (found, "GENERATE shows SNAP TO KEY, STRUM and SPRAY with a switch each");
+
+        if (found)
+        {
+            const auto row = topOf (count);
+            expect (topOf (scale) == row && topOf (root) == row && topOf (snap) == row && topOf (strum) == row
+                        && topOf (strumTime) == row && topOf (pitch) == row && topOf (spread) == row,
+                    "GENERATE's controls are one row, every name on one line");
+            expect (xOf (root) < xOf (scale) && xOf (scale) < xOf (snap) && xOf (snap) < xOf (strum) && xOf (strum) < xOf (strumTime)
+                        && xOf (strumTime) < xOf (pitch) && xOf (pitch) < xOf (count) && xOf (spread) < xOf (velocity),
+                    "SNAP TO KEY's, STRUM's and SPRAY's controls sit together, in that order");
+            expect (topOf (scaleSwitch) < row && topOf (strumSwitch) < row && topOf (sprayOn) < row
+                        && xOf (scaleSwitch) > xOf (snap) - 60 && xOf (scaleSwitch) < xOf (strum)
+                        && xOf (strumSwitch) > xOf (strum) && xOf (strumSwitch) < xOf (pitch) && xOf (sprayOn) > xOf (spread),
+                    "each box's switch closes its own title line, over its controls");
+
+            // SNAP TO KEY's switch: Off, then back to the key it had.
+            if (auto* parameter = processor.apvts.getParameter ("gen_scale"))
+            {
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (3.0f));
+                settle (150);
+                processor.apvts.copyState();
+                processor.getUndoManager().clearUndoHistory();
+                const auto onBefore = scaleSwitch->isOn();
+                scaleSwitch->getButton().triggerClick();
+                settle (50);
+                const auto off = juce::roundToInt (processor.apvts.getRawParameterValue ("gen_scale")->load()) == 0 && ! scaleSwitch->isOn();
+                processor.apvts.copyState();
+                const auto steps = processor.getUndoManager().getUndoDescriptions();
+                scaleSwitch->getButton().triggerClick();
+                settle (50);
+                const auto back = juce::roundToInt (processor.apvts.getRawParameterValue ("gen_scale")->load());
+                expect (onBefore && off && back == 3 && steps.size() == 1 && steps[0] == "SNAP TO KEY off",
+                        "SNAP TO KEY's switch sets the key Off in one undo step ('" + steps.joinIntoString ("', '")
+                            + "') and on again brings back Dorian (" + juce::String (back) + ")");
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+            }
+
+            // STRUM's switch: on from Off is Up.
+            if (auto* parameter = processor.apvts.getParameter ("spray_strum"))
+            {
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                settle (150);
+                strumSwitch->getButton().triggerClick();
+                settle (50);
+                const auto up = juce::roundToInt (processor.apvts.getRawParameterValue ("spray_strum")->load());
+                strumSwitch->getButton().triggerClick();
+                settle (50);
+                expect (up == 1 && juce::roundToInt (processor.apvts.getRawParameterValue ("spray_strum")->load()) == 0,
+                        "STRUM's switch turns the strum on (Up) and off");
+            }
+        }
     }
 }
 
@@ -1529,8 +1588,8 @@ int runUiTests()
 
     // UI review 4 (S9): the clip piano roll's grid menu, velocity lane,
     // selection and copy / paste / duplicate / nudge keys, each edit one
-    // undo step. A 400 x 200 roll on a 2-bar clip: 45 px a beat from x = 34,
-    // the velocity lane from y = 154 to 196.
+    // undo step. A 400 x 200 roll on a 2-bar clip, reached through its own
+    // geometry (beat to x, note to y, velocity to y).
     {
         const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks,
                                juce::ModifierKeys mods)
@@ -1547,7 +1606,6 @@ int runUiTests()
             component.mouseUp (event (component, to, true, clicks, mods));
         };
         const auto command = [] (char letter) { return juce::KeyPress (letter, juce::ModifierKeys::commandModifier, 0); };
-        const auto x = [] (float beat) { return 34.0f + 45.0f * beat; };
         const auto starts = [] (const Clip& clip)
         {
             juce::StringArray list;
@@ -1560,6 +1618,8 @@ int runUiTests()
         settle (100);
         ClipEditor roll (processor, juce::Colours::orange);
         roll.setSize (400, 200);
+        const auto x = [&roll] (float beat) { return roll.xForBeat (beat); };
+        const auto gridY = [&roll] (float fraction) { return roll.getGridArea().getY() + roll.getGridArea().getHeight() * fraction; };
 
         // GRID: 1/32 puts a dragged note on 32nds (1/16 would give 2.5).
         roll.setGrid (3);
@@ -1576,7 +1636,7 @@ int runUiTests()
 
         // Velocity: a drag in the lane sets the bar under it; new notes take it.
         clearHistory();
-        gesture (roll, { x (2.625f) + 1.0f, 190.0f }, { x (2.625f) + 1.0f, 160.0f });
+        gesture (roll, { x (2.625f) + 1.0f, roll.yForVelocity (30) }, { x (2.625f) + 1.0f, roll.yForVelocity (118) });
         steps = undoSteps();
         const auto velocity = processor.getClipState().getClip (0).notes[0].velocity;
         processor.getUndoManager().undo();
@@ -1609,7 +1669,7 @@ int runUiTests()
         roll.setGrid (ClipEditor::defaultGrid);
         roll.reload (true);
         clearHistory();
-        gesture (roll, { x (1.2f), 30.0f }, { x (2.5f), 145.0f });
+        gesture (roll, { x (1.2f), gridY (0.05f) }, { x (2.5f), gridY (0.95f) });
         const auto banded = roll.getNumSelected();
         const auto bandSteps = undoSteps().size();
         roll.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey));
@@ -1623,7 +1683,7 @@ int runUiTests()
 
         // A click picks one note, shift-click adds one; neither edits.
         roll.reload (false);
-        const auto noteY = [] (int note) { return 4.0f + 145.76f - ((float) (note - 52) + 0.5f) * (145.76f / 21.0f); };
+        const auto noteY = [&roll] (int note) { return roll.yForNote (note); };
         clearHistory();
         gesture (roll, { x (0.5f), noteY (60) }, { x (0.5f), noteY (60) });
         gesture (roll, { x (3.5f), noteY (65) }, { x (3.5f), noteY (65) }, 1, juce::ModifierKeys::shiftModifier);
@@ -1678,6 +1738,34 @@ int runUiTests()
         roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), wheel);
         expect (zoomed > 1.1f && std::abs (roll.getZoom() - zoomed) < 1.0e-6f,
                 "Ctrl+wheel zooms the clip roll in time, the wheel alone doesn't");
+
+        // Review 6 (V5-22, S6-10): a keyboard column left of the grid and a
+        // bar ruler over it; zoom buttons' calls; QUANTISE snaps starts to
+        // the grid in one undo step (every note with none selected).
+        roll.zoomBy (2.0f);
+        const auto zoomedIn = roll.getZoom();
+        roll.zoomToFit();
+        expect (roll.getKeysArea().getWidth() >= 40.0f && roll.getKeysArea().getRight() <= roll.getGridArea().getX()
+                    && roll.getRulerArea().getBottom() <= roll.getGridArea().getY() && roll.getRulerArea().getHeight() >= 16.0f,
+                "the clip roll has a keyboard column left of the grid and a ruler over it");
+        expect (std::abs (zoomedIn - roll.getZoom() * 2.0f) < 1.0e-4f && roll.getZoom() == 1.0f,
+                "the roll's zoom in doubles the zoom and FIT shows the whole clip again");
+        {
+            Clip loose;
+            loose.bars = 2;
+            loose.notes.push_back ({ 0.1f, 0.5f, 60, 100 });
+            loose.notes.push_back ({ 1.37f, 0.5f, 62, 100 });
+            processor.getClipState().setClip (0, loose);
+            processor.clipsEdited();
+        }
+        roll.reload (true);
+        clearHistory();
+        const auto moved = roll.quantise();
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (moved && shown.notes.size() == 2 && std::abs (shown.notes[0].start) < 1.0e-4f && std::abs (shown.notes[1].start - 1.25f) < 1.0e-4f
+                    && steps.size() == 1 && steps[0] == "Quantise clip notes" && ! roll.quantise(),
+                "QUANTISE puts every note's start on the 1/16 grid in one undo step, and then has nothing to do (" + starts (shown) + ")");
 
         processor.loadFactoryPreset (0);
         settle (100);
@@ -1785,6 +1873,119 @@ int runUiTests()
             settle (200);
             expect (visibleWith ("pseq_length") && ! visibleWith ("euc_hits"), "the PROB SEQ tab shows the sequencer");
             expect (visibleWith ("spray_strum_time"), "the GENERATE card has STRUM TIME");
+            engineTabs->setSelected (0, true);
+
+            // Review 6 (I6-15): a tab lights while its engine is on, and the
+            // note path says PROB SEQ plays instead of the ARP.
+            const auto set = [&processor] (const juce::String& id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set ("arp_on", 1.0f);
+            set ("pseq_on", 1.0f);
+            settle (400);
+            auto* chain = findChild<NoteChainView> (*editor);
+            juce::String note;
+            const auto stages = chain != nullptr ? chain->stages (note) : std::vector<NoteChainView::Stage> {};
+            auto arpWaits = false, seqPlays = false;
+            for (const auto& stage : stages)
+            {
+                arpWaits = arpWaits || (stage.name == "ARP" && stage.waiting);
+                seqPlays = seqPlays || (stage.name == "PROB SEQ" && ! stage.waiting);
+            }
+            expect (engineTabs->isTabOn (0) && engineTabs->isTabOn (2) && ! engineTabs->isTabOn (1) && ! engineTabs->isTabOn (3),
+                    "the ARP and PROB SEQ tabs light while they are on, EUCLID's and CLIP's don't");
+            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ plays instead of the ARP",
+                    "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
+
+            // The arp's settings step back while PROB SEQ plays instead.
+            KnobControl* arpGate = nullptr;
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == "arp_gate")
+                        arpGate = knob;
+            }
+            expect (arpGate != nullptr && arpGate->getAlpha() < 0.99f, "the ARP's GATE dims while PROB SEQ plays instead");
+            set ("pseq_on", 0.0f);
+            settle (300);
+            expect (arpGate != nullptr && arpGate->getAlpha() > 0.99f && ! engineTabs->isTabOn (2), "and lights again once PROB SEQ is off");
+
+            // The arp's lanes (S6-23): a drag down VELOCITY over steps 3-5
+            // draws them in one undo step; the defaults leave every step as
+            // it was.
+            if (auto* lanes = findChild<ArpLanesEditor> (*editor); lanes != nullptr && visibleInTree (lanes))
+            {
+                const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged)
+                {
+                    return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, {}, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             &component, &component, juce::Time::getCurrentTime(), position, juce::Time::getCurrentTime(),
+                                             1, dragged);
+                };
+                const auto lane = lanes->laneArea (ArpLanesEditor::velocity);
+                const auto low = lane.getBottom() - lane.getHeight() * 0.25f;
+                processor.apvts.copyState();
+                processor.getUndoManager().clearUndoHistory();
+                lanes->mouseDown (event (*lanes, { lanes->cellCentre (0, 2).x, low }, false));
+                lanes->mouseDrag (event (*lanes, { lanes->cellCentre (0, 4).x, low }, true));
+                lanes->mouseUp (event (*lanes, { lanes->cellCentre (0, 4).x, low }, true));
+                processor.apvts.copyState();
+                const auto steps = processor.getUndoManager().getUndoDescriptions();
+                const auto read = [&processor] (const char* id) { return juce::roundToInt (processor.apvts.getRawParameterValue (id)->load()); };
+                expect (read ("arp_vel3") < 50 && read ("arp_vel4") < 50 && read ("arp_vel5") < 50 && read ("arp_vel6") == 100
+                            && read ("arp_vel2") == 100 && steps.size() == 1 && steps[0] == "Arp velocity",
+                        "dragging across the arp's VELOCITY lane draws steps 3-5 (" + juce::String (read ("arp_vel4"))
+                            + ") in one undo step ('" + steps.joinIntoString ("', '") + "')");
+                lanes->mouseDoubleClick (event (*lanes, lanes->cellCentre (0, 3), false));
+                expect (read ("arp_vel4") == 100, "a double-click puts an arp step back to its defaults");
+
+                // A click on a step number sets how many steps loop.
+                lanes->mouseDown (event (*lanes, lanes->cellCentre (-1, 11), false));
+                lanes->mouseUp (event (*lanes, lanes->cellCentre (-1, 11), false));
+                expect (read ("arp_steps") == 12, "clicking step 12's number loops 12 arp steps");
+                for (const auto* id : { "arp_steps", "arp_vel3", "arp_vel5" })
+                    set (id, processor.apvts.getParameter (id)->convertFrom0to1 (processor.apvts.getParameter (id)->getDefaultValue()));
+            }
+            else
+            {
+                expect (false, "the ARP tab shows the arp's step lanes");
+            }
+            set ("arp_on", 0.0f);
+
+            // EXPAND (S6-10): the clip roll takes the page, GENERATE folds to
+            // its title line; COLLAPSE brings it back.
+            engineTabs->setSelected (3, true);
+            settle (200);
+            juce::TextButton* expandButton = nullptr;
+            {
+                std::vector<juce::TextButton*> buttons;
+                findAll<juce::TextButton> (*editor, buttons);
+                for (auto* button : buttons)
+                    if (button->getButtonText() == "EXPAND" && visibleInTree (button))
+                        expandButton = button;
+            }
+            auto* roll = findChild<ClipEditor> (*editor);
+            expect (expandButton != nullptr && roll != nullptr, "the CLIP tab has the roll and an EXPAND button");
+
+            if (expandButton != nullptr && roll != nullptr)
+            {
+                const auto before = roll->getHeight();
+                expandButton->triggerClick();
+                settle (200);
+                const auto expanded = roll->getHeight();
+                const auto generateHidden = ! visibleWith ("spray_count") && ! visibleWith ("spray_strum_time");
+                const auto collapseText = expandButton->getButtonText();
+                expandButton->triggerClick();
+                settle (200);
+                expect (expanded > before + 80 && generateHidden && collapseText == "COLLAPSE",
+                        "EXPAND gives the clip roll the page (" + juce::String (before) + " -> " + juce::String (expanded)
+                            + " px) and folds GENERATE away");
+                expect (roll->getHeight() == before && visibleWith ("spray_count") && expandButton->getButtonText() == "EXPAND",
+                        "COLLAPSE brings GENERATE back");
+            }
+
             engineTabs->setSelected (0, true);
         }
     }
@@ -4732,6 +4933,37 @@ int main (int argc, char** argv)
 
             settle (200);
             save (*editor, outDir.getChildFile ("gen-clip.png"));
+
+            // Review 6: the roll expanded over a folded GENERATE.
+            {
+                std::vector<juce::TextButton*> buttons;
+                findAll<juce::TextButton> (*editor, buttons);
+                for (auto* button : buttons)
+                    if (button->getButtonText() == "EXPAND" && button->isShowing())
+                    {
+                        button->triggerClick();
+                        settle (300);
+                        save (*editor, outDir.getChildFile ("gen-clip-expanded.png"));
+                        button->triggerClick();
+                        settle (100);
+                        break;
+                    }
+            }
+
+            // Review 6: the arp's step lanes, drawn, with the arp on.
+            set ("clip_on", 0.0f);
+            set ("euc_on", 0.0f);
+            set ("arp_on", 1.0f);
+            set ("arp_steps", 12.0f);
+            for (int step = 1; step <= 16; ++step)
+            {
+                set ("arp_vel" + juce::String (step), (float) (step % 4 == 1 ? 120 : 60 + (step * 23) % 50));
+                set ("arp_len" + juce::String (step), step % 6 == 0 ? 0.0f : step % 4 == 3 ? 1.6f : 0.6f + 0.1f * (float) (step % 3));
+                set ("arp_pitch" + juce::String (step), (float) (step % 8 == 5 ? 12 : step % 8 == 7 ? -5 : step % 4 == 2 ? 7 : 0));
+            }
+            engineTabs->setSelected (0, true);
+            settle (400);
+            save (*editor, outDir.getChildFile ("gen-arp-lanes.png"));
             engineTabs->setSelected (0, true);
         }
 

@@ -42,6 +42,7 @@
 #include "gui/XtraDisplays.h"
 
 // Page classes (anonymous namespace), in dependency order.
+#include "gui/StateTabs.h"
 #include "gui/pages/PageHelpers.h"
 #include "gui/pages/OscPage.h"
 #include "gui/pages/FilterVectorPhysicalPages.h"
@@ -217,7 +218,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
                          { "STEPS", "STEPS & MSEG", new SeqPage (p, SeqPage::Part::modulators) },
                          { "MATRIX", "MATRIX", new MatrixPage (p) } });
-    addSection ("FM", { { "FM", "FM", new FmPage (p) } });
+    auto* fmPage = new FmPage (p);
+    addSection ("FM", { { "FM", "FM", fmPage } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
     addSection ("FX", { { "FX", "FX", new FxPage (p) } });
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
@@ -237,6 +239,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
+
+    // EDIT OP ENV (PLAY and OSC): the operator's envelope lives on FM.
+    editOperator = [this, fmPage] (int op)
+    {
+        fmPage->selectOperator (op);
+        showPage ("FM");
+    };
+    mainPage->onEditOperator = [this] (int op) { showOperatorEnvelope (op); };
 
     // The scope floats over any page.
     scopePanel = std::make_unique<ScopePanel> (p);
@@ -1094,6 +1104,12 @@ SectionPage* IlanaSynthAudioProcessorEditor::currentSection() const
 {
     const auto index = tabs.getCurrentTabIndex();
     return index >= 0 && index < (int) sections.size() ? sections[(size_t) index] : nullptr;
+}
+
+void IlanaSynthAudioProcessorEditor::showOperatorEnvelope (int op)
+{
+    if (editOperator != nullptr)
+        editOperator (op);
 }
 
 void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)

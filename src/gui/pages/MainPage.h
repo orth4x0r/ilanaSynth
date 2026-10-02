@@ -212,15 +212,17 @@ public:
             const auto prefix = "lfo" + juce::String (lfo + 1);
             auto set = std::make_unique<ControlSet>();
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
-            set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + "_rate", "RATE", lfoColour (lfo), false));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
-            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
 
             for (auto& item : set->items)
                 addChildComponent (*item);
 
             lfoSets.push_back (std::move (set));
+
+            // RATE reads in Hz, or in note values while SYNC is on.
+            lfoRates.push_back (std::make_unique<LfoRateControl> (p, lfo, lfoColour (lfo), false));
+            lfoRates.back()->addTo (*this);
         }
 
         lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
@@ -455,9 +457,12 @@ public:
             lfoThumbs.setSize (thumbWidth, cards.getHeight() - (thumbWidth > cards.getWidth() ? lfoThumbView.getScrollBarThickness() + 1 : 0));
             inner.removeFromTop (12);
 
-            for (auto& set : lfoSets)
-                layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(),
-                                    set->items[3].get(), set->items[4].get() });
+            for (size_t lfo = 0; lfo < lfoSets.size(); ++lfo)
+            {
+                auto& set = lfoSets[lfo];
+                layoutRow (inner, { set->items[0].get(), lfoRates[lfo]->layoutItem(), set->items[1].get(), set->items[2].get() });
+                lfoRates[lfo]->matchBounds();
+            }
         }
     }
 
@@ -556,10 +561,11 @@ private:
         showSets (filterSets, filterTabs.getSelected());
         showSets (envSets, envTabs.getSelected());
         showSets (lfoSets, lfoTabs.getSelected());
+        for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
+            lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
         repaint();
     }
 
-    // Rate and division trade places with SYNC, like on the full page.
     void timerCallback() override
     {
         if (processorRef.getRevealVersion() != lastRevealVersion)
@@ -578,20 +584,6 @@ private:
                                    static_cast<juce::Component*> (subLevel.get()) })
                 if (control->getAlpha() != alpha)
                     control->setAlpha (alpha);
-        }
-
-        // (Kept up to date while hidden too, so the page never opens stale.)
-        const auto lfo = lfoTabs.getSelected();
-        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
-        const auto synced = sync != nullptr && sync->load() > 0.5f;
-        auto& items = lfoSets[(size_t) lfo]->items;
-
-        for (auto [index, active] : { std::pair<int, bool> { 1, ! synced }, { 3, synced } })
-        {
-            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
-
-            if (items[(size_t) index]->getAlpha() != alpha)
-                items[(size_t) index]->setAlpha (alpha);
         }
     }
 
@@ -721,6 +713,7 @@ private:
     CardTabs filterTabs, envTabs, lfoTabs;
     std::vector<std::unique_ptr<OscStrip>> strips;
     std::vector<std::unique_ptr<ControlSet>> filterSets, envSets, lfoSets;
+    std::vector<std::unique_ptr<LfoRateControl>> lfoRates;
     std::array<juce::Rectangle<int>, OscillatorIds::count> oscCards;
     juce::Rectangle<int> filterCard, envCard, lfoCard;
 };

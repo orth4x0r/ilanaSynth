@@ -96,6 +96,15 @@ public:
             }
         }
 
+        // A row whose LFO plays another shape offers to switch it to Steps
+        // (UI review 4, S21): one click, one undo step.
+        for (int row = 0; row < 2; ++row)
+        {
+            auto& button = useButtons[(size_t) row];
+            button.onClick = [this, row] { useSteps (row); };
+            addChildComponent (button);
+        }
+
         showLfo (0, 0);
         showLfo (1, 1);
 
@@ -158,17 +167,18 @@ public:
             // edits; the subtitle says whether that LFO plays its steps.
             const auto stepNote = [this] (int lfo)
             {
-                const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
-                return shape != nullptr && juce::roundToInt (shape->load()) == LfoShapes::Steps
-                           ? juce::String ("LFO ") + juce::String (lfo + 1)
-                           : juce::String ("LFO ") + juce::String (lfo + 1) + " isn't playing these: set its SHAPE to Steps";
+                return playsSteps (lfo) ? juce::String ("LFO ") + juce::String (lfo + 1) + " plays these steps"
+                                        : juce::String ("LFO ") + juce::String (lfo + 1) + " isn't playing these";
             };
+            // The pills, and the Use button left of them while it shows.
             const auto pillsWidth = [this] (int rowIndex)
             {
                 auto left = 100000;
                 for (auto& button : lfoButtons[(size_t) rowIndex])
                     if (button.isVisible())
                         left = juce::jmin (left, button.getX());
+                if (useButtons[(size_t) rowIndex].isVisible())
+                    left = juce::jmin (left, useButtons[(size_t) rowIndex].getX());
                 return left < 100000 ? stepTitle1.getRight() - left + 12 : 0;
             };
             IlanaTheme::paintCardHeader (g, stepTitle1, "STEPS A", stepNote (step1.getLfoIndex()),
@@ -253,6 +263,12 @@ public:
             for (auto& button : buttons)
                 if (button.isVisible())
                     button.setBounds (strip.removeFromLeft (width).reduced (2, 0));
+
+            header.removeFromRight (8);
+            auto& use = useButtons[(size_t) rowIndex];
+            const auto useWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true),
+                                                                              use.getButtonText()) + 24;
+            use.setBounds (header.removeFromRight (useWidth).reduced (0, 3));
         };
 
         // MOD: the two step rows and the MSEG. SEQ: arp and generate side
@@ -413,8 +429,81 @@ private:
 
         editor.setLfoIndex (lfo);
         lfoButtons[(size_t) row][(size_t) lfo].setToggleState (true, juce::dontSendNotification);
+        updateUseButtons();
         repaint (stepTitle1.getUnion (stepTitle2)); // the titles name the LFOs
     }
+
+    bool playsSteps (int lfo) const
+    {
+        const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+        return shape != nullptr && juce::roundToInt (shape->load()) == LfoShapes::Steps;
+    }
+
+    // Sets the row's LFO to the Steps shape.
+    void useSteps (int row)
+    {
+        const auto lfo = (row == 0 ? step1 : step2).getLfoIndex();
+
+        if (auto* shape = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_shape"))
+            processorRef.performEdit ("LFO " + juce::String (lfo + 1) + " shape", [shape]
+            {
+                shape->beginChangeGesture();
+                shape->setValueNotifyingHost (shape->convertTo0to1 ((float) LfoShapes::Steps));
+                shape->endChangeGesture();
+            });
+
+        updateUseButtons();
+    }
+
+    // Each row's Use button shows while its LFO plays another shape, and
+    // the steps step back until they play.
+    void updateUseButtons()
+    {
+        if (part != Part::modulators)
+            return;
+
+        auto relayout = false;
+
+        for (int row = 0; row < 2; ++row)
+        {
+            auto& editor = row == 0 ? step1 : step2;
+            auto& button = useButtons[(size_t) row];
+            const auto lfo = editor.getLfoIndex();
+            const auto playing = playsSteps (lfo);
+            const auto text = "Use on LFO " + juce::String (lfo + 1);
+
+            if (button.getButtonText() != text)
+            {
+                button.setButtonText (text);
+                button.setTooltip ("Set LFO " + juce::String (lfo + 1) + "'s SHAPE to Steps, so it plays this row");
+                relayout = true;
+            }
+
+            if (button.isVisible() == playing)
+            {
+                button.setVisible (! playing);
+                relayout = true;
+            }
+
+            const auto alpha = playing ? 1.0f : IlanaTheme::dimmedAlpha;
+
+            if (editor.getAlpha() != alpha)
+                editor.setAlpha (alpha);
+        }
+
+        if (relayout && ! getLocalBounds().isEmpty())
+        {
+            resized();
+            repaint (stepTitle1.getUnion (stepTitle2));
+        }
+    }
+
+public:
+    // The UI test reaches the rows through these.
+    juce::TextButton& getUseButton (int row) { return useButtons[(size_t) juce::jlimit (0, 1, row)]; }
+    juce::Component& getStepRow (int row) { return row == 0 ? static_cast<juce::Component&> (step1) : step2; }
+
+private:
 
     // Arp controls step back while the arp is off.
     void timerCallback() override
@@ -435,6 +524,8 @@ private:
             }
         if (pickersChanged)
             resized();
+
+        updateUseButtons();
 
         const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
         const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
@@ -574,6 +665,7 @@ private:
     juce::Rectangle<int> engineHint;
     juce::Rectangle<int> sprayDivider, scaleDivider, strumDivider;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
+    std::array<juce::TextButton, 2> useButtons;
     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
 };
 } // namespace

@@ -424,6 +424,20 @@ public:
     float getLastFilter2Value() const { return lastFilter2Value; }
     float getLastModValue() const { return lastModValue; }
     float getLastEnv4Value() const { return lastEnv4Value; }
+    // ENV 1-16's stage and progress (TensionAdsr::getDisplayPosition), for
+    // the envelope graphs' playhead.
+    float getEnvelopePosition (int env) const
+    {
+        switch (env)
+        {
+            case 0: return ampEnv.getDisplayPosition();
+            case 1: return filterEnv.getDisplayPosition();
+            case 2: return filter2Env.getDisplayPosition();
+            case 3: return modEnv.getDisplayPosition();
+            case 4: return env4.getDisplayPosition();
+            default: return extraEnvs[(size_t) juce::jlimit (0, 10, env - 5)].getDisplayPosition();
+        }
+    }
     float getVelocity() const { return velocityLevel; }
     float getKeyTrack() const { return keyTrackValue; }
     float getRandomValue() const { return randomValue; }

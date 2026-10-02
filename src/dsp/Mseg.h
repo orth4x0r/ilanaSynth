@@ -60,6 +60,8 @@ public:
         return value;
     }
 
+    double getPhase() const { return phase; }
+
 private:
     float valueAt (double p) const
     {

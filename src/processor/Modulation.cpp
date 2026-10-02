@@ -759,6 +759,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     expressionDisplay.store (expressionValue);
     clockShDisplay.store (clockShValue);
     msegDisplay.store (numSamples > 0 ? msegBuffer[numSamples - 1] : 0.0f);
+    msegPhaseDisplay.store ((float) mseg.getPhase());
 }
 
 // Pedal resonance, the soundboard and mechanical noises: after the voices,

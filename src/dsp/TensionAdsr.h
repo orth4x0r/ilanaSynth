@@ -77,6 +77,29 @@ public:
     }
 
     bool isActive() const { return stage != Stage::Idle; }
+
+    // Where the envelope is, for the graph's playhead: the stage (0 delay,
+    // 1 attack, 2 hold, 3 decay, 4 sustain, 5 release) plus the fraction
+    // of it done, or -1 while idle. Read only; changes nothing.
+    float getDisplayPosition() const
+    {
+        const auto fraction = [this] (float seconds)
+        {
+            return (float) juce::jlimit (0.0, 0.999, position / juce::jmax (1.0, (double) seconds * sampleRate));
+        };
+
+        switch (stage)
+        {
+            case Stage::Delay:   return 0.0f + fraction (params.delay);
+            case Stage::Attack:  return 1.0f + fraction (params.attack);
+            case Stage::Hold:    return 2.0f + fraction (params.hold);
+            case Stage::Decay:   return 3.0f + fraction (params.decay);
+            case Stage::Sustain: return 4.0f;
+            case Stage::Release: return 5.0f + fraction (params.release);
+            case Stage::Idle:
+            default:             return -1.0f;
+        }
+    }
     float getCurrentValue() const { return currentValue; }
 
     float getNextSample()

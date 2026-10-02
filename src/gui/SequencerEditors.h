@@ -139,7 +139,8 @@ public:
     explicit MsegEditor (IlanaSynthAudioProcessor& processor)
         : processorRef (processor)
     {
-        setTooltip ("Drag the points: horizontal = time, vertical = level");
+        setTooltip ("MSEG\nDrag the points: horizontal = time, vertical = level. The labels give the time into one "
+                    "cycle at the current RATE; the line and dot show where it is now.");
         startTimerHz (24);
     }
 
@@ -171,6 +172,8 @@ public:
 
         for (int i = 0; i < 4; ++i)
             totalTime += readTime (i);
+
+        paintTimeGrid (g, plot, centreY, halfHeight);
 
         juce::Path path;
         auto cumulative = 0.0f;
@@ -216,14 +219,100 @@ public:
 
             cumulative += readTime (i);
         }
+
+        // The playhead: a faint line where the MSEG is in its cycle and a
+        // dot riding the curve there, as on the LFO graph.
+        const auto phase = juce::jlimit (0.0f, 1.0f, processorRef.getMsegPhase());
+        const auto playX = plot.getX() + phase * plot.getWidth();
+        g.setColour (juce::Colour (0xffe0e6f0).withAlpha (0.25f));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (playX, plot.getY()));
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ playX, centreY - valueAt (phase) * halfHeight }));
     }
 
 private:
+    // The level the MSEG plays at `phase` (0..1), as Mseg::valueAt does.
+    float valueAt (float phase) const
+    {
+        auto total = 0.0f;
+
+        for (int i = 0; i < 4; ++i)
+            total += readTime (i);
+
+        auto cumulative = 0.0f;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto duration = readTime (i) / total;
+
+            if (phase < cumulative + duration || i == 3)
+            {
+                const auto local = juce::jlimit (0.0f, 1.0f, duration > 0.0001f ? (phase - cumulative) / duration : 0.0f);
+                const auto to = i < 3 ? readLevel (i + 1) : (isLooping() ? readLevel (0) : readLevel (3));
+                return readLevel (i) + (to - readLevel (i)) * local;
+            }
+
+            cumulative += duration;
+        }
+
+        return readLevel (3);
+    }
+
+    // Faint level lines at +-0.5 and +-1, and time lines with labels: one
+    // cycle lasts 1 / RATE seconds (before modulation).
+    void paintTimeGrid (juce::Graphics& g, juce::Rectangle<float> plot, float centreY, float halfHeight) const
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
+
+        for (const auto level : { -1.0f, -0.5f, 0.5f, 1.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), centreY - level * halfHeight));
+
+        const auto* rate = processorRef.apvts.getRawParameterValue ("mseg_rate");
+        const auto cycle = 1.0 / juce::jmax (0.001, rate != nullptr ? (double) rate->load() : 1.0);
+        auto step = 0.001;
+
+        for (const auto candidate : { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0 })
+        {
+            step = candidate;
+
+            if (cycle / candidate <= 8.0)
+                break;
+        }
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (font);
+        auto lastLabelRight = -1.0e9f;
+
+        for (int tick = 0; (double) tick * step <= cycle + 1.0e-9; ++tick)
+        {
+            const auto seconds = (double) tick * step;
+            const auto x = plot.getX() + (float) (seconds / cycle) * plot.getWidth();
+            g.setColour (juce::Colours::white.withAlpha (tick == 0 ? 0.0f : 0.05f));
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
+
+            const auto text = seconds < 1.0 ? juce::String (juce::roundToInt (seconds * 1000.0)) + " ms"
+                                            : juce::String (seconds, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + " s";
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
+            auto labelX = x + 3.0f;
+
+            if (labelX + width > plot.getRight())
+                labelX = x - width - 3.0f;
+
+            if (labelX < lastLabelRight + 6.0f)
+                continue;
+
+            lastLabelRight = labelX + width;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (text, juce::Rectangle<float> (labelX, plot.getBottom() - 12.0f, width, 12.0f), juce::Justification::centredLeft);
+        }
+    }
+
     void timerCallback() override
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
+                                                                ^ IlanaAnim::phaseSignature (processorRef.getMsegPhase(), 77))))
             repaint();
     }
 

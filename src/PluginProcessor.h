@@ -365,6 +365,11 @@ public:
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
+    // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
+    // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
+    float getEnvMonitorPosition (int env) const { return envMonitorPositions[(size_t) juce::jlimit (0, 15, env)].load(); }
+    // The MSEG's place in its cycle (0..1), for its playhead.
+    float getMsegPhase() const { return msegPhaseDisplay.load(); }
 
     // Which optional modules the patch shows, Phase Plant style: a few by
     // default and a "+" to add more. Saved with the patch; the UI also always
@@ -889,6 +894,7 @@ private:
     std::atomic<float> expressionDisplay { 1.0f };
     std::atomic<float> clockShDisplay { 0.0f };
     std::atomic<float> msegDisplay { 0.0f };
+    std::atomic<float> msegPhaseDisplay { 0.0f };
 
     double currentSampleRate = 44100.0;
     double baseSampleRate = 44100.0;
@@ -975,6 +981,7 @@ private:
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
+    std::array<std::atomic<float>, 16> envMonitorPositions {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
 

@@ -38,6 +38,7 @@
 #include "gui/ClipEditor.h"
 #include "gui/ConfirmOverlay.h"
 #include "gui/LfoDisplay.h"
+#include "gui/PoolIndexRow.h"
 #include "gui/RemapEditor.h"
 #include "gui/FxDisplays.h"
 
@@ -2032,6 +2033,230 @@ int runUiTests()
                                       + " destinations" + (silent.isEmpty() ? juce::String() : "; silent: " + silent.joinIntoString (", ")) + ")");
         if (juce::SystemStats::getEnvironmentVariable ("ILANA_RING_REPORT", "").isNotEmpty())
             std::cout << "knobs without a ring: " << ringless.joinIntoString (", ") << std::endl;
+    }
+
+    // UI review 4, batch C (V4, V10, V12, V29, S5, S7, S19, S21, S22):
+    // LFOs and envelopes.
+    {
+        processor.loadFactoryPreset (neuroWobble);
+        settle (200);
+
+        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(),
+                                     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                     position, juce::Time::getCurrentTime(), 1, dragged);
+        };
+        const auto readShape = [&processor] (int lfo)
+        {
+            return juce::roundToInt (processor.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape")->load());
+        };
+        const auto setShape = [&processor] (int lfo, int shape)
+        {
+            auto* parameter = processor.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_shape");
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+        };
+        const auto clearHistory = [&processor]
+        {
+            processor.apvts.copyState();
+            processor.getUndoManager().clearUndoHistory();
+        };
+        const auto undoSteps = [&processor]
+        {
+            processor.apvts.copyState();
+            return processor.getUndoManager().getUndoDescriptions();
+        };
+
+        // The first drag on a preset wave makes it a Curve with the wave's
+        // points, as one undo step; a plain click changes nothing.
+        {
+            setShape (0, LfoShapes::Triangle);
+            const auto curveBefore = processor.getLfoCurve (0).toString();
+            LfoDisplay lfoDisplay (processor, 0);
+            juce::Component& display = lfoDisplay;
+            display.setSize (300, 150);
+            clearHistory();
+            display.mouseDown (event (display, { 80.0f, 110.0f }, false));
+            display.mouseUp (event (display, { 80.0f, 110.0f }, false));
+            const auto clickChanged = readShape (0) != LfoShapes::Triangle || ! undoSteps().isEmpty();
+
+            display.mouseDown (event (display, { 80.0f, 110.0f }, false));
+            display.mouseDrag (event (display, { 90.0f, 70.0f }, true));
+            display.mouseUp (event (display, { 90.0f, 70.0f }, true));
+            const auto converted = processor.getLfoCurve (0);
+            const auto steps = undoSteps();
+            const auto shapeAfter = readShape (0);
+            processor.getUndoManager().undo();
+            const auto undoneShape = readShape (0);
+            const auto undoneCurve = processor.getLfoCurve (0).toString();
+            processor.getUndoManager().redo();
+
+            expect (! clickChanged, "a click on a Triangle LFO changes nothing");
+            expect (shapeAfter == IlanaSynthAudioProcessor::curveShape && steps.size() == 1 && steps[0] == "LFO 1 curve"
+                        && std::abs (converted.valueAt (0.5) - 1.0f) < 0.02f && std::abs (converted.valueAt (0.75)) < 0.05f
+                        && std::abs (converted.valueAt (0.0) + 1.0f) < 0.02f,
+                    "dragging a Triangle LFO turns it into a Curve with the triangle's points in one undo step ('"
+                        + steps.joinIntoString ("', '") + "', peak " + juce::String (converted.valueAt (0.5), 2) + ")");
+            expect (undoneShape == LfoShapes::Triangle && undoneCurve == curveBefore && readShape (0) == IlanaSynthAudioProcessor::curveShape,
+                    "undo puts the Triangle and the old curve back, redo the converted curve");
+            expect (lfoDisplay.getGridDivisions() == 8, "the LFO graph shows its snap grid control (GRID 8)");
+            setShape (0, LfoShapes::Triangle);
+        }
+
+        // STEPS & MSEG: a row whose LFO plays another shape offers "Use on
+        // LFO n", which sets it to Steps as one undo step.
+        {
+            pages->showPage ("STEPS");
+            settle (400);
+            juce::TextButton* use = nullptr;
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText().startsWith ("Use on LFO ") && visibleInTree (button) && button->getWidth() > 20)
+                    use = use == nullptr ? button : use;
+
+            expect (use != nullptr, "STEPS & MSEG offers a 'Use on LFO n' button for a row whose LFO isn't playing Steps");
+
+            if (use != nullptr)
+            {
+                const auto lfo = use->getButtonText().fromLastOccurrenceOf (" ", false, false).getIntValue() - 1;
+                const auto before = readShape (lfo);
+                clearHistory();
+                use->triggerClick();
+                settle (300);
+                const auto steps = undoSteps();
+                const auto after = readShape (lfo);
+                const auto hidden = ! use->isVisible();
+                processor.getUndoManager().undo();
+                expect (after == LfoShapes::Steps && steps.size() == 1 && steps[0] == "LFO " + juce::String (lfo + 1) + " shape"
+                            && hidden && readShape (lfo) == before,
+                        "'Use on LFO " + juce::String (lfo + 1) + "' sets its shape to Steps in one undo step ('"
+                            + steps.joinIntoString ("', '") + "'), the button goes, undo restores it");
+            }
+        }
+
+        // One RATE knob: while synced it shows the division, on MOD and PLAY.
+        {
+            const auto findKnob = [&editor] (const juce::String& id) -> KnobControl*
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == id && visibleInTree (knob) && knob->getWidth() > 0)
+                        return knob;
+                return nullptr;
+            };
+
+            for (const auto* page : { "ENV/LFO", "MAIN" })
+            {
+                pages->showPage (page);
+                settle (300);
+
+                // Whichever LFO the page shows.
+                auto lfo = -1;
+                for (int index = 0; index < IlanaSynthAudioProcessor::numLfos && lfo < 0; ++index)
+                    if (findKnob ("lfo" + juce::String (index + 1) + "_rate") != nullptr || findKnob ("lfo" + juce::String (index + 1) + "_div") != nullptr)
+                        lfo = index;
+
+                const auto prefix = "lfo" + juce::String (lfo + 1);
+                auto* sync = processor.apvts.getParameter (prefix + "_sync");
+                auto* divParam = processor.apvts.getParameter (prefix + "_div");
+
+                if (lfo < 0 || sync == nullptr || divParam == nullptr)
+                {
+                    expect (false, juce::String (page) + ": an LFO RATE knob is on the page");
+                    continue;
+                }
+
+                const auto syncBefore = sync->getValue();
+                sync->setValueNotifyingHost (1.0f);
+                settle (300);
+                const auto divText = divParam->getText (divParam->getValue(), 0);
+                auto* division = findKnob (prefix + "_div");
+                const auto shownText = division != nullptr ? division->getSlider().getTextFromValue (division->getSlider().getValue()) : juce::String();
+                expect (division != nullptr && division->getLabelText() == "RATE" && shownText == divText && findKnob (prefix + "_rate") == nullptr,
+                        juce::String (page) + ": a synced LFO's RATE knob shows the division ('" + shownText + "', want '" + divText + "')");
+
+                sync->setValueNotifyingHost (0.0f);
+                settle (300);
+                expect (findKnob (prefix + "_rate") != nullptr && findKnob (prefix + "_div") == nullptr,
+                        juce::String (page) + ": free-running, RATE is the Hz knob again");
+                sync->setValueNotifyingHost (syncBefore);
+                settle (100);
+            }
+        }
+
+        // The pools' index rows: one click opens any LFO or envelope, adding
+        // it to the patch when needed.
+        {
+            pages->showPage ("ENV/LFO");
+            settle (300);
+            std::vector<PoolIndexRow*> rows;
+            findAll<PoolIndexRow> (*editor, rows);
+            rows.erase (std::remove_if (rows.begin(), rows.end(), [] (PoolIndexRow* row) { return ! visibleInTree (row) || row->getWidth() < 100; }),
+                        rows.end());
+            std::sort (rows.begin(), rows.end(), [] (PoolIndexRow* a, PoolIndexRow* b) { return a->getScreenY() < b->getScreenY(); });
+            expect (rows.size() == 2 && rows[0]->getCount() == 16 && rows[1]->getCount() == 16,
+                    "ENV / LFO shows a 1-16 index row above the LFO cards and above the envelope cards");
+
+            if (rows.size() == 2)
+            {
+                using M = IlanaSynthAudioProcessor::Module;
+                const auto lfoShownBefore = processor.isLfoShown (9);
+                rows[0]->pick (9);
+                settle (100);
+                std::vector<LfoDisplay*> lfoDisplays;
+                findAll<LfoDisplay> (*pages->getCurrentPage(), lfoDisplays);
+                auto shownDisplays = 0;
+                for (auto* display : lfoDisplays)
+                    shownDisplays += visibleInTree (display) ? 1 : 0;
+                expect (! lfoShownBefore && processor.isLfoShown (9) && rows[0]->getSelected() == 9 && rows[0]->getState (9).shown
+                            && shownDisplays == 1,
+                        "clicking 10 in the LFO row adds LFO 10 and opens it");
+
+                const auto envShownBefore = processor.isRevealed (M::Envelope, 12);
+                rows[1]->pick (12);
+                settle (100);
+                expect (! envShownBefore && processor.isRevealed (M::Envelope, 12) && rows[1]->getSelected() == 12
+                            && rows[0]->getState (0).inUse && rows[1]->getState (0).inUse,
+                        "clicking 13 in the envelope row adds ENV 13 and opens it; LFO 1 and the amp envelope show as in use");
+
+                processor.setRevealed (M::Lfo, 9, false);
+                processor.setRevealed (M::Envelope, 12, false);
+                rows[0]->pick (0);
+                rows[1]->pick (0);
+                settle (100);
+            }
+        }
+
+        // The envelope graph's playhead rides the curve for the playing note
+        // and goes when it ends.
+        {
+            EnvelopeDisplay display (processor, "amp");
+            display.setSize (400, 160);
+            juce::AudioBuffer<float> buffer (2, 512);
+            const auto run = [&processor, &buffer] (int blocks, bool noteOn, bool noteOff)
+            {
+                for (int block = 0; block < blocks; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0 && noteOn)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 0);
+                    if (block == 0 && noteOff)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                    buffer.clear();
+                    processor.processBlock (buffer, midi);
+                }
+            };
+            run (40, true, false); // 0.4 s: past Neuro Wobble's 5 ms attack and 300 ms decay
+            const auto held = display.playheadPoint();
+            const auto stage = (int) processor.getEnvMonitorPosition (0);
+            run (60, false, true); // past the 50 ms release
+            const auto after = display.playheadPoint();
+            expect (held.has_value() && stage == 4 && ! after.has_value(),
+                    "the envelope's playhead sits on the sustain while a note is held (stage " + juce::String (stage)
+                        + ") and goes once it has released");
+        }
     }
 
     pages->setAsksBeforeReplacingEdits (askedBefore);

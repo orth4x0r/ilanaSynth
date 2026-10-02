@@ -1569,6 +1569,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         auto bestAmp = 0.0f;
         auto bestActivity = 0.0f;
         std::array<float, 11> extraEnvValues {};
+        std::array<float, 16> envPositions;
+        envPositions.fill (-1.0f);
         auto filterValue = 0.0f;
         auto filter2Value = 0.0f;
         auto modValue = 0.0f;
@@ -1605,6 +1607,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     }
                     for (int env = 0; env < 11; ++env)
                         extraEnvValues[(size_t) env] = voice->getLastExtraEnvValue (env);
+                    for (int env = 0; env < 16; ++env)
+                        envPositions[(size_t) env] = voice->getEnvelopePosition (env);
                     monitorVelocity.store (voice->getVelocity());
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
@@ -1627,6 +1631,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         }
         for (int env = 0; env < 11; ++env)
             envMonitorExtra[(size_t) env].store (extraEnvValues[(size_t) env]);
+        for (int env = 0; env < 16; ++env)
+            envMonitorPositions[(size_t) env].store (envPositions[(size_t) env]);
     }
 
     processAcousticKeys (buffer, midiForSynth);

@@ -488,6 +488,10 @@ private:
     {
         if (isShowing() && ! envelopeShown (processorRef, selected))
             updateVisibility();
+        // Cards added or taken away elsewhere (a patch, PLAY, the matrix):
+        // the row's width follows, so no scrollbar is left over.
+        else if (thumbs.getPreferredWidth() != thumbs.getWidth())
+            resized();
     }
 
     struct ExtraUnit
@@ -1165,6 +1169,8 @@ private:
         // A card that went (a patch load, the Clocked S&H unrouted).
         if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardShown (selected)))
             updateVisibility();
+        else if (thumbs.getPreferredWidth() != thumbs.getWidth())
+            resized();
 
         if (selected >= msegId)
         {

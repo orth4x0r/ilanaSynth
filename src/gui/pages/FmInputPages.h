@@ -474,7 +474,6 @@ public:
             algorithms.refreshMatch();
             if (egGraph.isVisible())
                 egGraph.refresh();
-        }
 
             if (const auto label = getAlgorithmLabel(); label != lastAlgorithmLabel)
             {

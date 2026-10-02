@@ -79,6 +79,14 @@ namespace TextSize
     inline constexpr float large   = 16.5f; // preset name
     inline constexpr float display = 21.0f;
     inline constexpr float hero    = 26.0f;
+
+    // The floors (UI review 4, S25), in the same units (a font's full
+    // height; Manrope's letters are about 0.73 of it): no text a user clicks
+    // is smaller than minInteractive (buttons, tabs, pills, menus), no other
+    // text smaller than minPassive. The UI test walks every page's labels
+    // and buttons against them.
+    inline constexpr float minInteractive = 12.5f;
+    inline constexpr float minPassive     = tiny;
 }
 
 // The fonts, released when JUCE shuts down (after the last editor closes)
@@ -278,6 +286,9 @@ inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float a
     g.fillEllipse (x, pill.getY() + 2.0f, knob, knob);
 }
 
+// A pill's text: clickable, so at the interactive floor.
+inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, true); }
+
 // A choice pill: the one style for every small selector (F1 / F2, 12 / 24
 // dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
 // in its colour with a bright edge; the others are quiet.
@@ -293,7 +304,7 @@ inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juc
 
     g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f)
                         : juce::Colours::white.withAlpha ((enabled ? 0.55f : 0.3f) + 0.3f * hover));
-    g.setFont (font (pill.getHeight() >= 26.0f ? TextSize::label : TextSize::tiny, true));
+    g.setFont (pillFont());
     g.drawText (text, pill, juce::Justification::centred);
 }
 // Draws a TextButton as a choice pill in `colour` when chosen.
@@ -405,9 +416,17 @@ public:
                                              label.getProperties().contains ("tabular")));
     }
 
-    juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
+    juce::Font getTextButtonFont (juce::TextButton& button, int buttonHeight) override
     {
-        return juce::Font (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::body, (float) buttonHeight * 0.72f)));
+        // A lone symbol ("×", "+") is a glyph a third the font's height:
+        // draw it larger, so a remove or add button reads as one.
+        if (const auto text = button.getButtonText(); text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
+            return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, 20.0f, (float) buttonHeight * 0.95f)));
+
+
+        // Never under the interactive floor, however short the button.
+        return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, IlanaTheme::TextSize::body,
+                                                           (float) buttonHeight * 0.72f)));
     }
 
     juce::Label* createSliderTextBox (juce::Slider& slider) override

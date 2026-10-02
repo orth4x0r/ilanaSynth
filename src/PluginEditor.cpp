@@ -75,8 +75,9 @@ public:
                 onExpand();
         };
 
-        closeButton.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
-        closeButton.setTooltip ("Close the scope");
+        // A labelled close: the panel covers the right of the page.
+        closeButton.setButtonText ("CLOSE");
+        closeButton.setTooltip ("Close the scope (or click SCOPE in the tab row again)");
         closeButton.onClick = [this]
         {
             if (onClose != nullptr)
@@ -117,7 +118,7 @@ public:
     {
         auto area = getLocalBounds().reduced (4);
         auto header = area.removeFromTop (30).reduced (8, 5);
-        closeButton.setBounds (header.removeFromRight (22));
+        closeButton.setBounds (header.removeFromRight (60));
         header.removeFromRight (6);
         expandButton.setBounds (header.removeFromRight (66));
         scope.setBounds (area.reduced (6, 0).withTrimmedBottom (6));
@@ -173,6 +174,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         tutorial.setVisible (true);
         tutorial.toFront (false);
     };
+
+    // A "new in" chip opens its page.
+    tutorial.onShowPage = [this] (const juce::String& id) { showPage (id); };
 
     tutorial.onDismiss = [this] (bool dontShowAgain)
     {
@@ -649,7 +653,7 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
     if (chips.empty())
         return;
 
-    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+    const auto font = IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true);
     // A full chip has its colour dot beside the name; a short one has it
     // under the name and needs less room.
     const auto widthOf = [&font] (const juce::String& text, bool compact)
@@ -781,6 +785,18 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         }
     }
 
+    // The voice dots' tooltip counts them (each dot is a voice).
+    {
+        const auto* voicesValue = processorRef.apvts.getRawParameterValue ("poly_voices");
+        const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
+        const auto text = "Voices: " + juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + " of "
+                          + juce::String (maxVoices) + " playing\nA dot per voice; lit dots are sounding. "
+                          + "Click for the voice mode, how many voices and the pitch-bend range.";
+
+        if (voicesArea.getTooltip() != text)
+            voicesArea.setTooltip (text);
+    }
+
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
@@ -841,7 +857,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
     // Status line along the bottom edge of the header (tempo, voices and
     // CPU at the right), clear of the buttons above.
-    const auto statusY = 41;
+    const auto statusY = 40;
 
     // The rules between the action groups.
     g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
@@ -860,14 +876,16 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
                                       : IlanaTheme::accent().interpolatedWith (juce::Colours::red,
                                                                                juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
 
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true)); // live numbers
+    // (At the interactive floor: VOICES is a button, and the line is read
+    // at a glance.)
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, false, true)); // live numbers
     g.setColour (cpuColour);
     g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
-                juce::Rectangle<int> (designWidth - 80, statusY, 64, 11), juce::Justification::centredRight);
+                juce::Rectangle<int> (designWidth - 84, statusY, 70, 14), juce::Justification::centredRight);
 
     g.setColour (IlanaTheme::Ui::text3);
     g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
-                juce::Rectangle<int> (designWidth - 356, statusY, 70, 11), juce::Justification::centredRight);
+                juce::Rectangle<int> (designWidth - 366, statusY, 78, 14), juce::Justification::centredRight);
     {
         // The voice mode when it isn't the usual Poly, so Mono or Legato
         // shows without opening the settings.
@@ -875,7 +893,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         const auto mode = modeValue != nullptr ? juce::roundToInt (modeValue->load()) : 0;
         g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
         g.drawText (mode == 1 ? "MONO" : (mode == 2 ? "LEGATO" : "VOICES"),
-                    juce::Rectangle<int> (designWidth - 290, statusY, 54, 11), juce::Justification::centredRight);
+                    juce::Rectangle<int> (designWidth - 296, statusY, 60, 14), juce::Justification::centredRight);
         g.setColour (IlanaTheme::Ui::text3);
     }
 
@@ -890,7 +908,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     {
         const auto lit = i < activeVoices;
         const auto dot = juce::Rectangle<float> ((float) (designWidth - 232) + (float) i * spacing,
-                                                 (float) statusY + 3.0f + (5.0f - size) * 0.5f, size, size);
+                                                 (float) statusY + 4.5f + (5.0f - size) * 0.5f, size, size);
 
         // Playing voices light up with a halo.
         if (lit)

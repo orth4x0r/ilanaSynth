@@ -70,7 +70,7 @@ public:
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius, pinned ? 2.0f : 1.0f);
 
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
 
         // A crowded row's short chips carry their colour as a bar under the
         // name instead of a dot beside it, so the name keeps the width.

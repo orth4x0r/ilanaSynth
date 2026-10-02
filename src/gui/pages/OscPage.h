@@ -407,11 +407,11 @@ public:
                         juce::Justification::centredLeft);
 
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive));
             g.drawText (isOff (band) ? juce::String ("OFF  -  ") + modeNames[(size_t) mode] + "  -  switch on to edit"
                                      : autoFolded[(size_t) band] ? juce::String (modeNames[(size_t) mode]) + "  -  folded to fit  -  click to open"
                                                                  : juce::String (modeNames[(size_t) mode]),
-                        juce::Rectangle<int> (bounds.getX() + 80, headerY - 7, 400, 14),
+                        juce::Rectangle<int> (bounds.getX() + 80, headerY - 9, 400, 18),
                         juce::Justification::centredLeft);
 
             if (! controlBay[(size_t) band].isEmpty())

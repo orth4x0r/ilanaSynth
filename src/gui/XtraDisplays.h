@@ -361,9 +361,9 @@ public:
             g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withX (plot.getX()).withCentre ({ plot.getCentreX(), y }));
 
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText ("OCT " + juce::String (oct + 1),
-                        juce::Rectangle<float> (plot.getRight() - 40.0f, y - 11.0f, 40.0f, 10.0f).toNearestInt(),
+                        juce::Rectangle<float> (plot.getRight() - 48.0f, y - 15.0f, 48.0f, 14.0f).toNearestInt(),
                         juce::Justification::centredRight);
         }
 
@@ -442,19 +442,19 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
 
         for (int step = 0; step < steps; step += 4)
             g.drawText (juce::String (step + 1),
-                        juce::Rectangle<float> (plot.getX() + (float) step * stepWidth + 2.0f,
-                                                plot.getBottom() - 11.0f, stepWidth, 10.0f).toNearestInt(),
+                        juce::Rectangle<float> (plot.getX() + (float) step * stepWidth + 3.0f,
+                                                plot.getBottom() - 15.0f, juce::jmax (stepWidth, 24.0f), 14.0f).toNearestInt(),
                         juce::Justification::centredLeft);
 
         g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.drawText (on ? "RUNNING   -   GATE " + juce::String (juce::roundToInt (gate * 100.0f)) + "%"
                        : "ARP OFF",
-                    plot.withHeight (14.0f).toNearestInt(),
+                    plot.withHeight (16.0f).toNearestInt(),
                     juce::Justification::topRight);
     }
 

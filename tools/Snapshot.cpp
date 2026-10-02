@@ -38,6 +38,8 @@
 #include "gui/ModHoverPopup.h"
 #include "gui/ClipEditor.h"
 #include "gui/ConfirmOverlay.h"
+#include "gui/LfoSimView.h"
+#include "gui/LogoComponent.h"
 #include "gui/LfoDisplay.h"
 #include "gui/PoolIndexRow.h"
 #include "gui/RemapEditor.h"
@@ -116,6 +118,240 @@ void expect (bool condition, const juce::String& message)
 
     if (! condition)
         ++uiFailures;
+}
+
+// UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
+// labels and SEQ GENERATE's grid.
+void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
+{
+    // The tour's "new in" list: the header's version, real pages, current
+    // names, every chip shown, and a click opens the chip's page.
+    {
+        const auto& features = TutorialOverlay::whatsNew();
+        const auto pageIds = editor.getPageIds();
+        auto* logo = findChild<LogoComponent> (editor);
+        juce::StringArray labels, badPages;
+        for (const auto& feature : features)
+        {
+            labels.add (feature.label);
+            if (! pageIds.contains (feature.page))
+                badPages.add (feature.label + " -> " + feature.page);
+        }
+        expect (logo != nullptr && logo->version == "v" + juce::String (TutorialOverlay::whatsNewVersion),
+                "the tour's NEW IN version is the header's (" + juce::String (TutorialOverlay::whatsNewVersion) + ")");
+        expect (badPages.isEmpty(), "every tour chip opens a page that exists" + (badPages.isEmpty() ? juce::String() : ": " + badPages.joinIntoString (", ")));
+        // Names retired since: the piano preset was renamed Felt Hammer Board.
+        expect (! labels.joinIntoString ("|").containsIgnoreCase ("GRAND PIANO") && labels.contains ("FELT HAMMER BOARD"),
+                "the tour names the Felt Hammer Board, not the retired GRAND PIANO");
+        expect (labels.contains (juce::String (FilterType::Count) + " FILTERS"), "the tour's filter count is the code's ("
+                                                                                     + juce::String (FilterType::Count) + ")");
+        for (const auto* name : { "DX7 MODE + BANKS", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
+            expect (labels.contains (name), juce::String ("the tour lists ") + name);
+
+        auto* tutorial = findChild<TutorialOverlay> (editor);
+        if (tutorial != nullptr)
+        {
+            tutorial->setVisible (true);
+            settle (600);
+            expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
+                                                                          + juce::String ((int) tutorial->chipBounds().size()) + " of "
+                                                                          + juce::String ((int) features.size()) + ")");
+            tutorial->openChip (labels.indexOf ("CLIP SEQUENCER"));
+            settle (300);
+            expect (! tutorial->isVisible() && editor.getCurrentPageId() == "ARP/SEQ",
+                    "clicking the tour's CLIP SEQUENCER chip closes the tour and opens SEQ");
+        }
+        else
+        {
+            expect (false, "the tour exists");
+        }
+    }
+
+    // Text floors (S25): every visible label and button on every page, at
+    // 100 %, against the theme's floors. Interactive: buttons, menus,
+    // editable fields and knob value boxes; the rest is passive.
+    {
+        juce::StringArray small;
+        std::set<juce::String> seen;
+        auto checked = 0;
+        const auto check = [&] (const juce::String& page)
+        {
+            std::vector<juce::Label*> labels;
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::Label> (editor, labels);
+            findAll<juce::TextButton> (editor, buttons);
+
+            for (auto* label : labels)
+            {
+                if (! visibleInTree (label) || label->getWidth() <= 0 || label->getText().trim().isEmpty())
+                    continue;
+                const auto interactive = label->isEditable() || dynamic_cast<juce::Slider*> (label->getParentComponent()) != nullptr
+                                         || dynamic_cast<juce::ComboBox*> (label->getParentComponent()) != nullptr;
+                const auto height = label->getLookAndFeel().getLabelFont (*label).getHeight();
+                ++checked;
+                const auto floor = interactive ? IlanaTheme::TextSize::minInteractive : IlanaTheme::TextSize::minPassive;
+                const auto key = page + ": '" + label->getText() + "' " + juce::String (height, 1);
+                if (height < floor - 0.01f && seen.insert (key).second)
+                    small.add (key);
+            }
+
+            for (auto* button : buttons)
+            {
+                if (! visibleInTree (button) || button->getWidth() <= 0 || button->getButtonText().trim().isEmpty()
+                    || button->getProperties().contains ("switch"))
+                    continue;
+                const auto height = button->getProperties().contains ("pill")
+                                        ? juce::Font (IlanaTheme::pillFont()).getHeight()
+                                        : button->getLookAndFeel().getTextButtonFont (*button, button->getHeight()).getHeight();
+                const auto key = page + ": [" + button->getButtonText() + "] " + juce::String (height, 1);
+                ++checked;
+                if (height < IlanaTheme::TextSize::minInteractive - 0.01f && seen.insert (key).second)
+                    small.add (key);
+            }
+        };
+
+        for (const auto& page : editor.getPageIds())
+        {
+            editor.showPage (page);
+            settle (250);
+            check (page);
+        }
+        editor.setScopeOpen (true);
+        settle (300);
+        check ("SCOPE");
+        editor.setScopeOpen (false);
+        settle (100);
+
+        expect (small.isEmpty() && checked > 300, "no text under the floors (" + juce::String (checked) + " checked; "
+                                     + juce::String (IlanaTheme::TextSize::minInteractive) + " interactive, "
+                                     + juce::String (IlanaTheme::TextSize::minPassive) + " passive)"
+                                     + (small.isEmpty() ? juce::String() : ": " + small.joinIntoString (", ")));
+    }
+
+    // The scope's meters (S23, V27): held peak numbers after sound, reset by
+    // a click; the clip light starts dark. The header meter has its own.
+    {
+        editor.showPage ("MAIN");
+        editor.setScopeOpen (true);
+        settle (300);
+        auto* scope = findChild<ScopeDisplay> (editor);
+        expect (scope != nullptr, "the scope panel has its display");
+
+        if (scope != nullptr)
+        {
+            scope->resetPeaks();
+            juce::AudioBuffer<float> audio (2, 512);
+            for (int block = 0; block < 24; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+                audio.clear();
+                processor.processBlock (audio, midi);
+            }
+            // (A paint reads the output into the meters.)
+            const auto image = scope->createComponentSnapshot (scope->getLocalBounds());
+            juce::ignoreUnused (image);
+            const auto held = juce::jmax (scope->getHeldPeakDb (0), scope->getHeldPeakDb (1));
+            expect (held > -60.0f && held < 12.0f, "the scope's meters hold the peak in dB after a note (" + juce::String (held, 1) + " dB)");
+            scope->resetPeaks();
+            expect (scope->getHeldPeakDb (0) < -90.0f && ! scope->isClipLit(), "resetting the scope's meters clears the peaks and the clip light");
+
+            juce::AudioBuffer<float> silence (2, 512);
+            juce::MidiBuffer off;
+            off.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+            for (int block = 0; block < 200; ++block)
+            {
+                silence.clear();
+                processor.processBlock (silence, off);
+                off.clear();
+            }
+        }
+        editor.setScopeOpen (false);
+        settle (100);
+
+        auto* meter = findChild<OutputMeter> (editor);
+        expect (meter != nullptr && meter->getTooltip().contains ("dB") && ! meter->isClipLit(),
+                "the OUT meter has a clip light and a tooltip in dB");
+    }
+
+    // The voice dots' tooltip counts them (V28).
+    {
+        settle (400);
+        juce::String voices;
+        std::vector<juce::Component*> all;
+        findAll<juce::Component> (editor, all);
+        for (auto* component : all)
+            if (auto* client = dynamic_cast<juce::SettableTooltipClient*> (component))
+                if (client->getTooltip().startsWith ("Voices: "))
+                    voices = client->getTooltip();
+        expect (voices.contains (" of ") && voices.contains ("playing"), "the voice dots' tooltip counts them (" + voices.upToFirstOccurrenceOf ("\n", false, false) + ")");
+    }
+
+    // Chaos LFO outputs are spelled out, following OUTPUT A's axis (V28).
+    {
+        const auto& lorenz = LfoSimInfo::get (LfoSimShapes::RandomHold + 4);
+        const auto x = LfoSimPreview::outputNames (lorenz, 0);
+        const auto z = LfoSimPreview::outputNames (lorenz, 2);
+        const auto mix = LfoSimPreview::outputNames (lorenz, 3);
+        expect (juce::String (lorenz.name) == "Lorenz" && x.first == "X axis" && x.second == "Y axis" && z.first == "Z axis"
+                    && z.second == "X axis" && mix.first.contains ("mix") && mix.second == "Y axis",
+                "a chaos LFO's outputs read 'X axis' / 'Y axis' and follow OUTPUT A's axis");
+        const auto bounce = LfoSimPreview::outputNames (LfoSimInfo::get (LfoSimShapes::RandomHold + 10), 0);
+        expect (bounce.first == "height" && bounce.second == "impacts", "the bounce LFO's outputs read height / impacts");
+    }
+
+    // SEQ GENERATE (S20): one name line per row, the strum's DIRECTION under
+    // STRUM, SNAP PLAYED on the grid, and the spray's switch on its own
+    // heading rather than the card's.
+    {
+        editor.showPage ("ARP/SEQ");
+        settle (400);
+        const auto controlFor = [&editor, &processor] (const juce::String& id) -> juce::Component*
+        {
+            auto* parameter = processor.apvts.getParameter (id);
+            std::vector<juce::Component*> all;
+            findAll<juce::Component> (editor, all);
+            for (auto* component : all)
+            {
+                if (! visibleInTree (component) || component->getWidth() <= 0)
+                    continue;
+                if (auto* knob = dynamic_cast<KnobControl*> (component); knob != nullptr && knob->getParameterId() == id)
+                    return knob;
+                if (auto* combo = dynamic_cast<ComboControl*> (component); combo != nullptr && parameter != nullptr
+                    && combo->getTooltip().startsWith (parameter->getName (64)))
+                    return combo;
+                if (auto* toggle = dynamic_cast<ToggleControl*> (component); toggle != nullptr && parameter != nullptr
+                    && toggle->getButton().getTooltip().startsWith (parameter->getName (64)))
+                    return toggle;
+            }
+            return nullptr;
+        };
+        const auto topOf = [&editor] (juce::Component* component)
+        {
+            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getY() : -1;
+        };
+        const auto xOf = [&editor] (juce::Component* component)
+        {
+            return component != nullptr ? editor.getLocalArea (component->getParentComponent(), component->getBounds()).getCentreX() : -1;
+        };
+        auto* scale = controlFor ("gen_scale");
+        auto* strum = controlFor ("spray_strum");
+        auto* strumTime = controlFor ("spray_strum_time");
+        auto* count = controlFor ("spray_count");
+        auto* snap = controlFor ("gen_snap");
+        auto* spread = controlFor ("spray_spread");
+        auto* sprayOn = controlFor ("spray_on");
+        auto* pitch = controlFor ("spray_direction");
+        expect (scale != nullptr && strum != nullptr && count != nullptr && topOf (scale) == topOf (count) && topOf (strum) == topOf (count),
+                "GENERATE's first row puts every name on one line (menus and knobs)");
+        expect (snap != nullptr && strumTime != nullptr && spread != nullptr && topOf (snap) == topOf (spread) && topOf (strumTime) == topOf (spread),
+                "GENERATE's second row: SNAP PLAYED on the grid, level with the knobs");
+        expect (strum != nullptr && strumTime != nullptr && std::abs (xOf (strum) - xOf (strumTime)) <= 1,
+                "the strum's DIRECTION sits over its TIME, under STRUM");
+        expect (sprayOn != nullptr && pitch != nullptr && topOf (sprayOn) < topOf (pitch) && xOf (sprayOn) > xOf (count),
+                "the spray's switch sits on NOTE SPRAY's heading, not the card's");
+    }
 }
 
 // Drives the real editor the way a user would and checks the processor
@@ -1905,7 +2141,11 @@ int runUiTests()
                 processor.setRevealed (Module::Lfo, i, true);
                 processor.setRevealed (Module::Envelope, i, true);
             }
-            settle (200);
+            // The row follows the pool on the editor's 250 ms timer, so a
+            // fixed 200 ms settle sometimes checked it before the timer had
+            // run (the flake): wait for that tick, up to two seconds.
+            for (int wait = 0; wait < 40 && std::get<0> (chipState()) < 32 + 6; ++wait)
+                settle (50);
             {
                 const auto [shown, compact, strays, strayNames] = chipState();
                 expect (shown >= 32 + 6 && (compact == 0 || compact == shown),
@@ -3241,6 +3481,9 @@ int runUiTests()
         }
         loadNamed ("Neuro Wobble");
     }
+
+    // Batch H (UI review 4: V19, V27, V28, S17, S20, S23, S25).
+    runSmallThingsTests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();

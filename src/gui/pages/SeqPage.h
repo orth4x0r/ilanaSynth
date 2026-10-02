@@ -32,8 +32,10 @@ public:
           genRoot (p.apvts, "gen_root", "ROOT"),
           genSnap (p.apvts, "gen_snap", "SNAP PLAYED"),
           sprayOn (p.apvts, "spray_on", "ON"),
-          sprayDirection (p.apvts, "spray_direction", "DIRECTION"),
-          sprayStrum (p.apvts, "spray_strum", "MODE"),
+          // The strum's Off / Up / Down is its DIRECTION; the spray's own
+          // direction (up, down or both from the played note) is its PITCH.
+          sprayDirection (p.apvts, "spray_direction", "PITCH"),
+          sprayStrum (p.apvts, "spray_strum", "DIRECTION"),
           engineTabs ({ "ARP", "EUCLID", "PROB SEQ", "CLIP" }, { arpColour(), euclidColour(), pseqColour(), clipColour() }, false),
           euclidDisplay (p, euclidColour()),
           eucOn (p.apvts, "euc_on", "ON"),
@@ -267,11 +269,13 @@ public:
 
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
             const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+            // NOTE SPRAY's rule stops short of its switch.
+            const auto end = area == sprayDivider ? sprayOn.getX() - 8 : area.getRight() - 6;
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (font);
             g.drawText (text, area, juce::Justification::centredLeft);
             g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, area.getWidth() - width - 16), 1);
+            g.fillRect (area.getX() + width + 10, area.getCentreY(), juce::jmax (0, end - area.getX() - width - 10), 1);
         }
 
 
@@ -387,10 +391,12 @@ public:
             clipGrid.setBounds (clipMode.getBounds().translated (column * 3, 0));
         }
 
-        // Generate: three groups side by side, each under its own heading:
-        // SCALE (two columns), STRUM (one) and NOTE SPRAY (three, its
-        // switch on the heading's line at the card switch place), rows of
-        // full-size controls on the shared grid.
+        // Generate: three groups side by side, each under its own heading
+        // and rule: SCALE (two columns), STRUM (one) and NOTE SPRAY (three,
+        // its switch at the end of its own rule: it switches the spray only,
+        // so the card has no master switch to contradict STRUM's Off). Two
+        // rows of full-size controls on the shared grid, every name in a row
+        // on one line.
         auto generate = generateCard.reduced (10, 0);
         generate.removeFromTop (26);
         generate.removeFromBottom (6);
@@ -406,17 +412,12 @@ public:
         scaleDivider = headings.withWidth (column * 2).reduced (3, 0);
         strumDivider = headings.withTrimmedLeft (column * 2).withWidth (column).reduced (3, 0);
         sprayDivider = headings.withTrimmedLeft (column * 3).reduced (3, 0);
-        // The spray's switch in the card's header, at the card switch place.
-        sprayOn.setBounds (IlanaTheme::cardSwitchBounds (generateCard, generateCard.getY() + 13));
+        // The spray's switch closes its heading's line (a bare switch: the
+        // heading names it).
+        sprayOn.setBounds (juce::Rectangle<int> (40, 13 + 20).withCentre ({ sprayDivider.getRight() - 20, sprayDivider.getCentreY() - 6 }));
 
-        layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() });
-        layoutRow (second, { nullptr, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
-        // SNAP PLAYED centred under the SCALE group, level with the dials.
-        {
-            const auto dialDrop = juce::jlimit (IlanaTheme::KnobSize::minimum, strumTime->getMaxDial(), column - 6) / 2 - 12;
-            const auto rowBand = second.withSizeKeepingCentre (second.getWidth(), juce::jmin (second.getHeight(), preferredControlHeight (strumTime.get(), column - 6) + 6));
-            genSnap.setBounds (rowBand.withWidth (column * 2).withSizeKeepingCentre (column, rowBand.getHeight()).reduced (3).withTrimmedTop (dialDrop));
-        }
+        layoutRow (first, { &genScale, &genRoot, &sprayStrum, &sprayDirection, sprayCount.get(), sprayRange.get() }, true);
+        layoutRow (second, { &genSnap, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() }, true);
     }
 
     void visibilityChanged() override

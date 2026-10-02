@@ -11,6 +11,65 @@
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
+// A spectrum on a log-frequency axis (20 Hz to 20 kHz), one value per pixel
+// column, from an FFT's bins (shared by the scope and the PLAY page's view).
+// A column spanning several bins takes the loudest; below a few hundred Hz a
+// column is narrower than a bin, so the value is interpolated between the two
+// nearest bins and the low end draws as a curve instead of wide steps.
+namespace SpectrumColumns
+{
+inline void fill (const std::complex<float>* bins, int fftSize, double sampleRate, std::vector<float>& out, int width)
+{
+    out.assign ((size_t) juce::jmax (0, width), 0.0f);
+    const auto binsPerHz = (double) fftSize / sampleRate;
+    const auto lastBin = fftSize / 2 - 1;
+
+    for (int x = 0; x < width; ++x)
+    {
+        const auto low = 20.0 * std::pow (1000.0, (double) x / (double) width) * binsPerHz;
+        const auto high = 20.0 * std::pow (1000.0, (double) (x + 1) / (double) width) * binsPerHz;
+        auto magnitude = 0.0f;
+
+        if (high - low < 1.0)
+        {
+            const auto centre = juce::jlimit (1.0, (double) lastBin - 1.0, 20.0 * std::pow (1000.0, ((double) x + 0.5) / (double) width) * binsPerHz);
+            const auto bin = (int) centre;
+            const auto fraction = (float) (centre - (double) bin);
+            const auto a = std::abs (bins[bin]), b = std::abs (bins[bin + 1]);
+            // Smoothstep between the bins: no corner at each bin.
+            const auto t = fraction * fraction * (3.0f - 2.0f * fraction);
+            magnitude = a + (b - a) * t;
+        }
+        else
+        {
+            const auto binLow = juce::jlimit (1, lastBin, (int) low);
+            const auto binHigh = juce::jlimit (1, lastBin, (int) high);
+
+            for (int bin = binLow; bin <= binHigh; ++bin)
+                magnitude = juce::jmax (magnitude, std::abs (bins[bin]));
+        }
+
+        out[(size_t) x] = magnitude / (float) fftSize * 4.0f;
+    }
+}
+
+// The frequency names under a spectrum, on their own band below the plot.
+inline void paintFrequencyBand (juce::Graphics& g, juce::Rectangle<float> plot, juce::Rectangle<float> band)
+{
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+
+    for (const auto& [frequency, name] : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+    {
+        const auto x = plot.getX() + (float) (std::log (frequency / 20.0) / std::log (1000.0)) * plot.getWidth();
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight() + 3.0f).withX (x).withY (plot.getY()));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText (name, juce::Rectangle<float> (x - 20.0f, band.getY(), 40.0f, band.getHeight()).toNearestInt(),
+                    juce::Justification::centred);
+    }
+}
+} // namespace SpectrumColumns
+
 class ScopeDisplay : public juce::Component,
                      public juce::SettableTooltipClient,
                      private IlanaAnim::FrameTimer
@@ -20,7 +79,8 @@ public:
         : processorRef (processor),
           fft (11)
     {
-        setTooltip ("Click to cycle scope, spectrum and split view.  Click the L/R meters to solo a channel.");
+        setTooltip ("Click to cycle scope, spectrum and split view.  Click a meter (L or R) to solo that channel; "
+                    "click the peak numbers or CLIP to reset them.");
 
         holdButton.setClickingTogglesState (true);
         holdButton.setTooltip ("Freeze the display");
@@ -128,7 +188,7 @@ public:
         IlanaTheme::paintWell (g, bounds, 6.0f);
 
         auto area = bounds.reduced (10.0f);
-        auto meterArea = area.removeFromRight (42.0f);
+        auto meterArea = area.removeFromRight ((float) meterWidth).withTrimmedTop (22.0f);
         area.removeFromRight (10.0f);
 
         if (! hold)
@@ -152,6 +212,13 @@ public:
         {
             peakHoldL = juce::jmax (peakL, IlanaAnim::decay (peakHoldL, 0.985f, paintTicks));
             peakHoldR = juce::jmax (peakR, IlanaAnim::decay (peakHoldR, 0.985f, paintTicks));
+        }
+
+        if (! hold)
+        {
+            heldPeak[0] = juce::jmax (heldPeak[0], peakL);
+            heldPeak[1] = juce::jmax (heldPeak[1], peakR);
+            clipped = clipped || peakL > 1.0f || peakR > 1.0f;
         }
 
         const auto peak = juce::jmax (peakL, peakR);
@@ -193,24 +260,90 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
-        // Clicking a meter bar solos that channel; the main area toggles scope/spectrum.
-        const auto meterZone = getLocalBounds().reduced (10).removeFromRight (42);
+        // The clip light and peak numbers reset; a meter's bar solos its
+        // channel; the main area toggles scope/spectrum.
+        const auto layout = meterLayout (getLocalBounds().toFloat().reduced (10.0f).removeFromRight ((float) meterWidth).withTrimmedTop (22.0f));
+        const auto position = event.position;
 
-        if (meterZone.contains (event.getPosition()))
+        if (layout.clip.getUnion (layout.numbers[0]).getUnion (layout.numbers[1]).contains (position))
         {
-            const auto half = meterZone.withHeight (meterZone.getHeight() / 2);
-            const auto clicked = half.contains (event.getPosition()) ? 1 : 2;
-            channelSolo = (channelSolo == clicked) ? 0 : clicked;
-            repaint();
+            resetPeaks();
             return;
         }
+
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            if (layout.bars[(size_t) channel].getUnion (layout.letters[(size_t) channel]).contains (position))
+            {
+                channelSolo = channelSolo == channel + 1 ? 0 : channel + 1;
+                repaint();
+                return;
+            }
+        }
+
+        if (layout.whole.contains (position))
+            return;
 
         viewMode = (viewMode + 1) % 3;
         viewButtons[(size_t) viewMode].setToggleState (true, juce::dontSendNotification);
         repaint();
     }
 
+    // The meters' held peaks (dB, as shown) and clip light (the UI test).
+    float getHeldPeakDb (int channel) const { return juce::Decibels::gainToDecibels (heldPeak[(size_t) (channel & 1)], -100.0f); }
+    bool isClipLit() const { return clipped; }
+
+    void resetPeaks()
+    {
+        heldPeak = {};
+        clipped = false;
+        repaint();
+    }
+
 private:
+    static constexpr int meterWidth = 78;
+
+    struct MeterLayout
+    {
+        juce::Rectangle<float> whole, clip, scale;
+        std::array<juce::Rectangle<float>, 2> numbers, bars, letters;
+    };
+
+    // The meters' column: the clip light across the top, each channel's held
+    // peak in dB under it, the bars with a dB scale at their left, and L and
+    // R under the bars (not on the fills).
+    static MeterLayout meterLayout (juce::Rectangle<float> area)
+    {
+        MeterLayout layout;
+        layout.whole = area;
+        layout.clip = area.removeFromTop (14.0f).withTrimmedLeft (24.0f);
+        area.removeFromTop (3.0f);
+        auto numbers = area.removeFromTop (13.0f).withTrimmedLeft (24.0f);
+        area.removeFromTop (3.0f);
+        auto letters = area.removeFromBottom (13.0f).withTrimmedLeft (24.0f);
+        area.removeFromBottom (2.0f);
+        layout.scale = area.removeFromLeft (22.0f);
+        area.removeFromLeft (2.0f);
+        constexpr float gap = 4.0f;
+        const auto barWidth = (area.getWidth() - gap) * 0.5f;
+
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            const auto x = area.getX() + (float) channel * (barWidth + gap);
+            layout.bars[(size_t) channel] = { x, area.getY(), barWidth, area.getHeight() };
+            layout.numbers[(size_t) channel] = { x - gap * 0.5f, numbers.getY(), barWidth + gap, numbers.getHeight() };
+            layout.letters[(size_t) channel] = { x, letters.getY(), barWidth, letters.getHeight() };
+        }
+
+        return layout;
+    }
+
+    // -60 dB .. 0 dBFS onto 0..1 up a meter.
+    static float meterProportion (float gain)
+    {
+        return juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (gain, -60.0f) + 60.0f) / 60.0f);
+    }
+
     void timerCallback() override
     {
         if (! isShowing())
@@ -331,6 +464,8 @@ private:
 
         fft.perform (fftInput.data(), fftOutput.data(), false);
 
+        // The frequency names on their own band under the plot.
+        const auto band = area.removeFromBottom (14.0f);
         const auto width = (int) area.getWidth();
 
         if (width < 2)
@@ -339,26 +474,12 @@ private:
         if ((int) spectrumSmoothed.size() != width)
             spectrumSmoothed.assign ((size_t) width, 0.0f);
 
-        std::vector<float> buckets ((size_t) width, 0.0f);
+        std::vector<float> buckets;
+        SpectrumColumns::fill (fftOutput.data(), fftSize, sampleRate, buckets, width);
         auto peakNormalized = 0.0f;
 
-        for (int x = 1; x < width; ++x)
-        {
-            const auto frequencyLow = 20.0 * std::pow (1000.0, (double) x / (double) width);
-            const auto frequencyHigh = 20.0 * std::pow (1000.0, (double) (x + 1) / (double) width);
-
-            const auto binLow = juce::jlimit (1, fftSize / 2 - 1, (int) (frequencyLow * (double) fftSize / sampleRate));
-            const auto binHigh = juce::jlimit (1, fftSize / 2 - 1, (int) (frequencyHigh * (double) fftSize / sampleRate));
-
-            auto magnitude = 0.0f;
-
-            for (int bin = binLow; bin <= binHigh; ++bin)
-                magnitude = juce::jmax (magnitude, std::abs (fftOutput[(size_t) bin]));
-
-            const auto normalized = magnitude / (float) fftSize * 4.0f;
-            buckets[(size_t) x] = normalized;
-            peakNormalized = juce::jmax (peakNormalized, normalized);
-        }
+        for (const auto value : buckets)
+            peakNormalized = juce::jmax (peakNormalized, value);
 
         if (peakNormalized > 0.01f)
         {
@@ -424,34 +545,41 @@ private:
         g.setColour (IlanaTheme::accent());
         g.strokePath (outline, juce::PathStrokeType (1.4f));
 
-        // Frequency ruler.
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-
-        const std::pair<double, const char*> marks[] { { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } };
-
-        for (const auto& mark : marks)
-        {
-            const auto proportion = std::log (mark.first / 20.0) / std::log (1000.0);
-            const auto x = area.getX() + (float) proportion * area.getWidth();
-
-            g.setColour (juce::Colours::white.withAlpha (0.07f));
-            g.fillRect (juce::Rectangle<float> (x, area.getY(), 1.0f, area.getHeight()));
-
-            g.setColour (IlanaTheme::Ui::text3);
-            g.drawText (mark.second, juce::Rectangle<float> (x + 3.0f, area.getBottom() - 12.0f, 40.0f, 12.0f)
-                                          .toNearestInt(),
-                        juce::Justification::centredLeft);
-        }
+        SpectrumColumns::paintFrequencyBand (g, area, band);
     }
 
     void drawMeter (juce::Graphics& g, juce::Rectangle<float> area) const
     {
-        const auto channels = 2;
-        const auto gap = 6.0f;
-        const auto barWidth = (area.getWidth() - gap) * 0.5f;
+        const auto layout = meterLayout (area);
+        const auto channelColour = [] (int channel) { return channel == 0 ? IlanaTheme::accent() : juce::Colour (0xff5b8cff); };
+        const auto yFor = [] (juce::Rectangle<float> bar, float proportion) { return bar.getBottom() - proportion * bar.getHeight(); };
 
-        for (int channel = 0; channel < channels; ++channel)
+        // The clip light: red once either channel went over 0 dBFS, until
+        // clicked.
+        {
+            const auto light = layout.clip.reduced (0.0f, 1.0f);
+            g.setColour (clipped ? juce::Colour (0xffff4f5e) : IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (light, 3.0f);
+            g.setColour (clipped ? juce::Colours::white : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("CLIP", light, juce::Justification::centred);
+        }
+
+        // The dB scale, its ticks running faintly across both bars.
+        const auto bars = layout.bars[0].getUnion (layout.bars[1]);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true));
+
+        for (const auto db : { 0, -6, -12, -24, -36, -48 })
+        {
+            const auto y = yFor (bars, meterProportion (juce::Decibels::decibelsToGain ((float) db)));
+            g.setColour (juce::Colours::white.withAlpha (db == 0 ? 0.22f : 0.1f));
+            g.fillRect (juce::Rectangle<float> (layout.scale.getRight() - 4.0f, y - 0.5f, bars.getRight() - layout.scale.getRight() + 4.0f, 1.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (juce::String (db), juce::Rectangle<float> (layout.scale.getX(), y - 6.0f, layout.scale.getWidth() - 5.0f, 12.0f),
+                        juce::Justification::centredRight);
+        }
+
+        for (int channel = 0; channel < 2; ++channel)
         {
             const auto* samples = channel == 0 ? scopeSamplesL.data() : scopeSamplesR.data();
 
@@ -466,44 +594,43 @@ private:
             }
 
             const auto rms = std::sqrt (sumSquares / (float) fftSize);
-            const auto rmsLevel = juce::jlimit (0.0f, 1.0f,
-                                                (juce::Decibels::gainToDecibels (rms, -60.0f) + 60.0f) / 60.0f);
-            const auto peakLevel = juce::jlimit (0.0f, 1.0f,
-                                                 (juce::Decibels::gainToDecibels (peak, -60.0f) + 60.0f) / 60.0f);
+            const auto bar = layout.bars[(size_t) channel];
+            const auto colour = channelColour (channel);
 
-            const juce::Rectangle<float> bar (area.getX() + (float) channel * (barWidth + gap),
-                                              area.getY(), barWidth, area.getHeight());
-
-            g.setColour (IlanaTheme::Ui::raised);
+            g.setColour (IlanaTheme::Ui::raised.withAlpha (0.7f));
             g.fillRoundedRectangle (bar, 3.0f);
 
             const auto soloedOut = channelSolo != 0 && channelSolo != channel + 1;
             const auto alphaScale = soloedOut ? 0.25f : 1.0f;
 
-            const auto rmsBar = bar.withTrimmedTop (bar.getHeight() * (1.0f - rmsLevel));
-            g.setColour (channel == 0 ? IlanaTheme::accent().withAlpha (0.85f * alphaScale)
-                                      : juce::Colour (0xff5b8cff).withAlpha (0.75f * alphaScale));
+            const auto rmsBar = bar.withTop (yFor (bar, meterProportion (rms)));
+            g.setColour (colour.withAlpha ((channel == 0 ? 0.85f : 0.75f) * alphaScale));
             g.fillRoundedRectangle (rmsBar, 3.0f);
 
-            const auto peakY = bar.getBottom() - peakLevel * bar.getHeight();
             g.setColour (peak > 0.99f ? juce::Colours::red : juce::Colours::white.withAlpha (0.9f));
-            g.fillRect (juce::Rectangle<float> (bar.getWidth(), 2.0f).withCentre ({ bar.getCentreX(), peakY }));
+            g.fillRect (juce::Rectangle<float> (bar.getWidth(), 2.0f).withCentre ({ bar.getCentreX(), yFor (bar, meterProportion (peak)) }));
 
             if (peakHoldEnabled)
             {
                 const auto holdLevel = channel == 0 ? peakHoldL : peakHoldR;
-                const auto holdY = bar.getBottom() - juce::jlimit (0.0f, 1.0f, holdLevel) * bar.getHeight();
-                g.setColour ((channel == 0 ? IlanaTheme::accent()
-                                           : juce::Colour (0xff5b8cff)).withAlpha (0.45f));
-                g.fillRect (juce::Rectangle<float> (bar.getWidth(), 1.0f).withCentre ({ bar.getCentreX(), holdY }));
+                g.setColour (colour.withAlpha (0.6f));
+                g.fillRect (juce::Rectangle<float> (bar.getWidth(), 1.0f).withCentre ({ bar.getCentreX(), yFor (bar, meterProportion (holdLevel)) }));
             }
 
-            g.setColour (channel == 0 ? IlanaTheme::accent().withAlpha (0.7f)
-                                      : juce::Colour (0xff5b8cff).withAlpha (0.7f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (channel == 0 ? "L" : "R",
-                        juce::Rectangle<float> (bar.getX(), bar.getBottom() - 12.0f, bar.getWidth(), 12.0f),
-                        juce::Justification::centred);
+            // The held peak in dB over the bar, and the channel's letter under it.
+            {
+                const auto held = heldPeak[(size_t) channel];
+                const auto db = juce::Decibels::gainToDecibels (held, -100.0f);
+                const auto text = held < 1.0e-5f ? juce::String ("-inf")
+                                                 : (std::abs (db) < 10.0f ? juce::String (db, 1) : juce::String (juce::roundToInt (db)));
+                g.setColour (held > 1.0f ? juce::Colour (0xffff4f5e) : IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true));
+                g.drawText (text, layout.numbers[(size_t) channel], juce::Justification::centred);
+            }
+
+            g.setColour (colour.withAlpha (soloedOut ? 0.4f : 0.9f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (channel == 0 ? "L" : "R", layout.letters[(size_t) channel], juce::Justification::centred);
 
             if (channelSolo == channel + 1)
             {
@@ -546,6 +673,8 @@ private:
     float spectrumGain = 1.0f;
     float peakHoldL = 0.0f;
     float peakHoldR = 0.0f;
+    std::array<float, 2> heldPeak {}; // the loudest peak since the last reset
+    bool clipped = false;
     int viewMode = 2; // 0 scope, 1 spectrum, 2 both
     std::array<juce::TextButton, 3> viewButtons;
     bool hold = false;

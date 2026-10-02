@@ -301,12 +301,13 @@ inline juce::String describeParameter (const juce::String& id)
             return "What restarts a simulated shape: Note (each note), Free (never), Beat (each DIVISION of the host's "
                    "beat) or Generative (Euclid's hits, else the probability sequencer's steps). FIRE triggers it by hand.";
         if (suffix == "axis")
-            return "Which axis of the attractor is output A; output B is the next one. Mix blends X and Z.";
+            return "Which axis of the attractor output A carries; output B carries the next one (X then Y, Y then Z, "
+                   "Z then X). Mix puts X and Z together on A, and Y on B. The graph names both.";
         if (suffix == "loop")
             return "Physics objects: start again once settled, instead of resting until the next trigger.";
         if (suffix == "seed")
-            return "0: every voice and every note gets its own random sequence. 1-999: the same repeatable sequence "
-                   "everywhere, restarting on each trigger.";
+            return "Which random sequence the shape plays. Free (0): every voice and every note gets its own. "
+                   "1-999: the same repeatable sequence everywhere, restarting on each trigger (or FIRE).";
         if (suffix == "stereo")
             return "Random shapes: how far output B departs from A (route B to the other side, or another target).";
         if (suffix == "fire")

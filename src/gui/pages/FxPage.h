@@ -1546,7 +1546,8 @@ private:
             const auto rightLimit = cardHeaders[(size_t) panel.slot].solo.getX() - 8;
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (juce::String ("slot ") + juce::String (panel.slot + 1) + (off ? "  -  off" : ""),
+            // (No "slot N": the chain list numbers the slots.)
+            g.drawText (off ? "off" : "",
                         juce::Rectangle<int> (subtitleLeft, panel.bounds.getY(), juce::jmax (0, rightLimit - subtitleLeft), cardHeaderHeight),
                         juce::Justification::centredLeft, true);
 

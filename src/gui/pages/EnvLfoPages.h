@@ -796,14 +796,15 @@ private:
               , stereo (state, "lfo" + juce::String (lfo) + "_stereo", "STEREO", accent, followsTheme)
               , seed (state, "lfo" + juce::String (lfo) + "_seed", "SEED", accent, followsTheme)
               , trigger (state, "lfo" + juce::String (lfo) + "_trigger", "TRIGGER")
-              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUTPUT A")
+              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUTPUT A AXIS")
               , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
                 sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),
                                                               "P" + juce::String (param + 1), accent, followsTheme));
             fire.setButtonText ("FIRE");
-            fire.setTooltip ("Triggers the LFO now: drops the ball, plucks the spring, restarts a seeded sequence.");
+            fire.setTooltip ("Fire\nTriggers the LFO now, as a new note or TRIGGER would: drops the ball, plucks the "
+                             "spring, restarts a seeded sequence.");
         }
 
         ComboControl shape;

@@ -1632,8 +1632,10 @@ inline int preferredControlHeight (juce::Component* item, int width)
 
 // Controls side by side in equal columns. When the row is taller than its
 // controls need, they sit as one band centred in it (labels on one line)
-// rather than hugging the top with the spare space below.
-inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& items)
+// rather than hugging the top with the spare space below. oneLabelLine keeps
+// menus' and switches' names on the knobs' label line too (their boxes right
+// under), for a grid read by its labels (SEQ's GENERATE).
+inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& items, bool oneLabelLine = false)
 {
     if (items.empty())
         return;
@@ -1676,7 +1678,7 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     // height, whichever is tighter, up to its role's size; a small dial
     // barely drops anything.)
     const auto dialSize = juce::jlimit (IlanaTheme::KnobSize::minimum, largestDial, juce::jmin (width - 6, area.getHeight() - 6 - 13 - 16));
-    const auto dialDrop = hasKnob ? juce::jmax (0, dialSize / 2 - 12) : 0;
+    const auto dialDrop = hasKnob && ! oneLabelLine ? juce::jmax (0, dialSize / 2 - 12) : 0;
 
     for (auto* item : items)
     {

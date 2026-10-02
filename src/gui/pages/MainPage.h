@@ -189,10 +189,10 @@ public:
                         static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
                         const juce::String mode (modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))]);
                         g.setColour (IlanaTheme::Ui::text3);
-                        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive));
                         g.drawText (autoFolded[(size_t) osc] ? mode + "  -  folded to fit  -  click to open"
                                                              : "OFF  -  " + mode + "  -  switch on to edit",
-                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (16).withY (titleCentreY (oscCards[(size_t) osc], true) - 8),
+                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (18).withY (titleCentreY (oscCards[(size_t) osc], true) - 9),
                                     juce::Justification::centredLeft);
                     }
                 }

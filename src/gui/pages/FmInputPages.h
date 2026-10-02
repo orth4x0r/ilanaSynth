@@ -593,14 +593,10 @@ private:
     }
 
 public:
-    // The ALGORITHMS heading's note: which DX7 algorithm a DX7 voice uses,
-    // the grid's match, or CUSTOM when the routing matches none of it (UI
-    // review 4, S14).
+    // The ALGORITHMS heading's note: the grid's match, or CUSTOM when the
+    // routing matches none of it (UI review 4, S14).
     juce::String getAlgorithmLabel() const
     {
-        if (const auto* voice = processorRef.getDx7Voice())
-            return "DX7 ALG " + juce::String ((int) (*voice)[134] % 32 + 1);
-
         const auto matching = algorithms.getMatching();
 
         if (matching >= 0 && matching < (int) FmAlgorithms::all().size())

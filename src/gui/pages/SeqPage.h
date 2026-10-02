@@ -52,7 +52,8 @@ public:
           clipOn (p.apvts, "clip_on", "ON"),
           clipIndex (p.apvts, "clip_index", "CLIP"),
           clipMode (p.apvts, "clip_mode", "MODE"),
-          clipBars (p, "LENGTH")
+          clipBars (p, "LENGTH"),
+          clipGrid (clipEditor, "GRID")
     {
         sprayCount = std::make_unique<KnobControl> (p.apvts, "spray_count", "NOTES", generateColour(), true);
         sprayRange = std::make_unique<KnobControl> (p.apvts, "spray_range", "RANGE", generateColour(), true);
@@ -66,7 +67,7 @@ public:
         // The Generative card: ARP, EUCLID and PROB SEQ share one card.
         addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
                 pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate, clipEditor, clipOn, clipIndex, clipMode, clipBars,
-                clipImport);
+                clipGrid, clipImport);
         clipImport.setButtonText ("IMPORT MIDI");
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
@@ -131,7 +132,7 @@ public:
             for (auto* control : std::initializer_list<juce::Component*> {
                      &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
                      &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                     &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
+                     &clipGrid, &clipImport, &arpDisplay, &arpOn, &arpMode, &arpDiv,
                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
                      sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
                 control->setVisible (false);
@@ -214,8 +215,9 @@ public:
             else if (tab == 2)
                 hint = seqOnNow && arpOnNow ? "takes over from the arp while on" : "hold notes: each step rolls its chance";
             else
-                hint = (int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, other keys transpose it"
-                                                          : "plays in sync with the host transport";
+                hint = juce::String ("double-click adds a note, drag selects; ")
+                     + ((int) readValue ("clip_mode") == 0 ? "hold a key: C3 plays the clip as written, others transpose it"
+                                                           : "plays in sync with the host transport");
 
             if ((tab == 1 && ! euclidOnNow) || (tab == 3 && ! clipOnNow))
                 hint = "switch it on (top right) to use it";
@@ -333,19 +335,25 @@ public:
         arpDisplay.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
-        clipEditor.setBounds (display);
 
         // Every engine's row on one six-column grid, packed from the left,
         // and the same grid runs through Generate below.
         layoutRow (arpArea, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, nullptr });
         layoutRow (arpArea, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
         layoutRow (arpArea, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
-        layoutRow (arpArea, { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
+        // The clip's row is menus only: the piano roll takes the height the
+        // other engines' knobs need.
+        {
+            const auto spare = juce::jmax (0, arpArea.getHeight() - (13 + 24 + 6) - 4);
+            clipEditor.setBounds (display.withHeight (display.getHeight() + spare));
+            layoutRow (arpArea.withTrimmedTop (spare), { &clipIndex, &clipMode, nullptr, nullptr, nullptr, nullptr });
+        }
         // LENGTH and the import button continue the row on its grid.
         {
             const auto column = arpArea.getWidth() / 6;
             clipBars.setBounds (clipMode.getBounds().translated (column, 0));
             clipImport.setBounds (clipMode.getBounds().translated (column * 2, 0).withTrimmedTop (13));
+            clipGrid.setBounds (clipMode.getBounds().translated (column * 3, 0));
         }
 
         // Generate: three groups side by side, each under its own heading:
@@ -545,7 +553,7 @@ private:
 
         dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
         dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
-        dim ({ &clipIndex, &clipMode, &clipBars, &clipImport }, readOn ("clip_on"));
+        dim ({ &clipIndex, &clipMode, &clipBars, &clipGrid, &clipImport }, readOn ("clip_on"));
         clipBars.refresh();
         dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
         repaint (engineHint);
@@ -589,7 +597,7 @@ private:
             control->setVisible (tab == 2);
 
         for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                                                                        &clipImport })
+                                                                        &clipGrid, &clipImport })
             control->setVisible (tab == 3);
 
         repaint();
@@ -660,6 +668,7 @@ private:
     ToggleControl clipOn;
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
+    ClipGridControl clipGrid;
     juce::TextButton clipImport;
     std::unique_ptr<juce::FileChooser> clipChooser;
     juce::Rectangle<int> engineHint;

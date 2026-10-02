@@ -223,8 +223,8 @@ private:
 };
 
 // M8.5: the VECTOR page. The vector pad (four oscillators at the corners,
-// moved by hand, by a path or by drift) and EVOLVE (each macro drifting
-// within a range; FREEZE keeps where they are).
+// moved by hand, by a path or by its wander) and EVOLVE (each macro
+// drifting within a range; FREEZE keeps where they are).
 class VectorPage : public juce::Component,
                    private IlanaAnim::FrameTimer
 {
@@ -241,31 +241,54 @@ public:
           x (p.apvts, "vec_x", "X", colour(), true),
           y (p.apvts, "vec_y", "Y", colour(), true),
           rate (p.apvts, "vec_rate", "PATH RATE", colour(), true),
-          drift (p.apvts, "vec_drift", "DRIFT", colour(), true),
-          driftRate (p.apvts, "vec_drift_rate", "DRIFT RATE", colour(), true)
+          // The pad's own wander, apart from the oscillators' analog drift
+          // (UI review 6, I6-25).
+          drift (p.apvts, "vec_drift", "WANDER", colour(), true),
+          driftRate (p.apvts, "vec_drift_rate", "WANDER RATE", colour(), true),
+          chipX ("Vector X", (int) Mod::Source::VectorX),
+          chipY ("Vector Y", (int) Mod::Source::VectorY)
     {
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
-        // The EVOLVE and RATE names head their columns once, on the first row.
+
+        // Vector X / Y as sources, to drag onto any knob, while the vector
+        // plays (UI review 6, S36).
+        chipX.setShortName ("VEC X");
+        chipY.setShortName ("VEC Y");
+        chipX.valueProvider = [this] { return processorRef.getVectorPosition().x; };
+        chipY.valueProvider = [this] { return processorRef.getVectorPosition().y; };
+        addChildComponent (chipX);
+        addChildComponent (chipY);
+
+        // EVOLVE: a row for each macro that evolves, and "+ MACRO" for the
+        // others (UI review 6, S36, V29).
         for (int m = 0; m < Mod::numMacros; ++m)
         {
-            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", m == 0 ? "EVOLVE" : "",
+            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", "EVOLVE",
                                                                     evolveColour(), true));
-            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", m == 0 ? "RATE" : "",
+            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", "RATE",
                                                                   evolveColour(), true));
-            addAndMakeVisible (*evolveAmount.back());
-            addAndMakeVisible (*evolveRate.back());
+            addChildComponent (*evolveAmount.back());
+            addChildComponent (*evolveRate.back());
         }
         freeze.setButtonText ("FREEZE");
         freeze.setTooltip ("Keeps the macros where Evolve has taken them, and stops the drift.");
         freeze.onClick = [this] { processorRef.freezeEvolve(); };
         addAndMakeVisible (freeze);
+        addMacro.setButtonText ("+  MACRO");
+        addMacro.setTooltip ("Let another macro drift within a range");
+        addMacro.onClick = [this] { showMacroMenu(); };
+        addAndMakeVisible (addMacro);
+        updateRows();
         startTimerHz (20);
     }
 
     // Not modulation sources, so not in a source's colour: the accent.
     static juce::Colour colour() { return IlanaTheme::accent(); }
     static juce::Colour evolveColour() { return IlanaTheme::accent(); }
+
+    // The macros with an EVOLVE row (the UI test reads them).
+    const std::vector<int>& getEvolveRows() const { return rows; }
 
     void paint (juce::Graphics& g) override
     {
@@ -274,17 +297,30 @@ public:
         IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "VECTOR", "four oscillators at the corners; Vector X / Y are mod sources", colour());
+        IlanaTheme::paintCardHeader (g, header, "VECTOR",
+                                     chipX.isVisible() ? "four oscillators at the corners; drag" : "four oscillators at the corners",
+                                     colour(), vectorCard.getRight() - chipX.getX() + 6);
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
         IlanaTheme::paintCardHeader (g, header, "EVOLVE", "macros drift in range", evolveColour(), 110);
 
+        if (rows.empty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawFittedText ("No macro evolves. + MACRO lets one drift on its own within a range.",
+                              addMacro.getBounds().translated (0, -50).withHeight (40).withX (evolveCard.getX() + 14)
+                                  .withWidth (evolveCard.getWidth() - 28),
+                              juce::Justification::centred, 2);
+        }
+
         // Each macro: its name, where it is set and where it has drifted to,
         // with a hairline between rows.
-        for (int m = 0; m < Mod::numMacros; ++m)
+        for (size_t r = 0; r < rows.size(); ++r)
         {
-            const auto row = macroRows[(size_t) m];
-            if (m > 0)
+            const auto m = rows[r];
+            const auto row = macroRows[r];
+            if (r > 0)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.07f));
                 g.fillRect (evolveCard.getX() + 12, row.getY() - 10, evolveCard.getWidth() - 24, 1);
@@ -322,8 +358,13 @@ public:
         inner.removeFromLeft (12);
         const auto controlsHeight = 40 + 44 + 44 + 6 + 112 * 2 + 18;
         inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), controlsHeight));
-        // The vector's on switch in its header, like every card's.
+        // The vector's on switch in its header, like every card's; the
+        // source chips before it.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
+        auto chips = juce::Rectangle<int> (on.getX() - 8 - 2 * 74, vectorCard.getY() + 3, 2 * 74, 22);
+        chipX.setBounds (chips.removeFromLeft (70));
+        chips.removeFromLeft (4);
+        chipY.setBounds (chips.removeFromLeft (70));
         auto toggles = inner.removeFromTop (40);
         path.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
         auto combos1 = inner.removeFromTop (44);
@@ -340,22 +381,30 @@ public:
         inner.removeFromTop (18);
         layoutRow (inner.removeFromTop (knobHeight), { &drift, &driftRate, nullptr }); // on the row above's grid
 
-        auto rows = evolveCard.reduced (12, 0);
-        rows.removeFromTop (30);
+        auto list = evolveCard.reduced (12, 0);
+        list.removeFromTop (30);
         // FREEZE is an action on the whole card: in its header, at the right.
         freeze.setBounds (evolveCard.getRight() - 12 - 96, evolveCard.getY() + 4, 96, 20);
-        const auto rowHeight = rows.getHeight() / Mod::numMacros;
-        for (int m = 0; m < Mod::numMacros; ++m)
+        list.removeFromBottom (10);
+        const auto rowHeight = juce::jmin (96, list.getHeight() / juce::jmax (1, (int) rows.size() + 1));
+
+        for (size_t r = 0; r < rows.size(); ++r)
         {
-            auto row = rows.removeFromTop (rowHeight);
-            macroRows[(size_t) m] = row.withWidth (116).withTrimmedTop (8);
+            const auto m = (size_t) rows[r];
+            auto row = list.removeFromTop (rowHeight);
+            macroRows[r] = row.withWidth (116).withTrimmedTop (8);
             row.removeFromLeft (120);
             // A gap under each row, so a row's labels don't read as the
             // values of the row above.
             row.removeFromBottom (8);
-            evolveAmount[(size_t) m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
-            evolveRate[(size_t) m]->setBounds (row.reduced (2, 0));
+            evolveAmount[m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
+            evolveRate[m]->setBounds (row.reduced (2, 0));
         }
+
+        if (rows.empty())
+            list = list.withSizeKeepingCentre (list.getWidth(), 60);
+
+        addMacro.setBounds (list.removeFromTop (40).withSizeKeepingCentre (120, 26));
     }
 
 private:
@@ -365,6 +414,61 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    bool evolves (int macro) const { return readParam ("macro" + juce::String (macro + 1) + "_evolve") > 0.0005f; }
+
+    // A row for each macro that evolves, or was added here.
+    void updateRows()
+    {
+        std::vector<int> wanted;
+
+        for (int m = 0; m < Mod::numMacros; ++m)
+            if (evolves (m) || added[(size_t) m])
+                wanted.push_back (m);
+
+        addMacro.setVisible ((int) wanted.size() < Mod::numMacros);
+
+        if (wanted == rows)
+            return;
+
+        rows = wanted;
+
+        for (int m = 0; m < Mod::numMacros; ++m)
+        {
+            const auto shown = std::find (rows.begin(), rows.end(), m) != rows.end();
+            evolveAmount[(size_t) m]->setVisible (shown);
+            evolveRate[(size_t) m]->setVisible (shown);
+        }
+
+        resized();
+        repaint();
+    }
+
+    void showMacroMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Evolve a macro");
+
+        for (int m = 0; m < Mod::numMacros; ++m)
+            if (std::find (rows.begin(), rows.end(), m) == rows.end())
+                menu.addItem (m + 1, processorRef.getMacroName (m));
+
+        juce::Component::SafePointer<VectorPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addMacro), [safe] (int result)
+        {
+            if (safe != nullptr && result > 0)
+                safe->showMacro (result - 1);
+        });
+    }
+
+public:
+    // Gives a macro its EVOLVE row (the "+ MACRO" menu; the UI test).
+    void showMacro (int macro)
+    {
+        added[(size_t) juce::jlimit (0, Mod::numMacros - 1, macro)] = true;
+        updateRows();
+    }
+
+private:
     IlanaAnim::ChangeGate changeGate;
 
     void timerCallback() override
@@ -380,6 +484,15 @@ private:
                 c->setAlpha (alpha);
         }
         rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
+
+        if (chipX.isVisible() != active)
+        {
+            chipX.setVisible (active);
+            chipY.setVisible (active);
+            repaint (vectorCard);
+        }
+
+        updateRows();
         if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint (evolveCard);
     }
@@ -389,33 +502,30 @@ private:
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
     KnobControl x, y, rate, drift, driftRate;
+    ModSourceChip chipX, chipY;
     std::vector<std::unique_ptr<KnobControl>> evolveAmount, evolveRate;
-    juce::TextButton freeze;
+    juce::TextButton freeze, addMacro;
     juce::Rectangle<int> vectorCard, evolveCard;
     std::array<juce::Rectangle<int>, Mod::numMacros> macroRows;
+    std::array<bool, Mod::numMacros> added {};
+    std::vector<int> rows;
 };
 
-// M8.7: the PHYSICAL page. The animated string, its exciter and the body
-// for one oscillator (the first in Physical mode unless another is picked),
-// with that oscillator's string controls and the shared body and
-// soundboard switches beside it.
+// M8.7: the PHYSICAL page. The big view of one physical oscillator (the
+// first in Physical mode unless another is picked): its string moving, an
+// electric piano's pickup, and every string control, built from the same
+// list as its OSC card (UI review 6, S13, I6-18). The body and the
+// soundboard are edited in one place each (FILTER, OSC > ACOUSTIC KEYS):
+// here they are a summary with links (S14, I6-17).
 class PhysicalPage : public juce::Component,
                      private juce::Timer
 {
 public:
     explicit PhysicalPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
-          view (p),
-          resOn (p.apvts, "res_on", "BODY"),
-          bodyType (p.apvts, "body_type", "BODY TYPE"),
-          sbOn (p.apvts, "sb_on", "SOUNDBOARD"),
-          sbModel (p.apvts, "sb_model", "BOARD MODEL")
+          view (p)
     {
-        addAll (*this, view, resOn, bodyType, sbOn, sbModel);
-        // Two named switches side by side (the body and the soundboard are
-        // separate), rather than one card switch that reads as "all off".
-        resOn.showAsSwitch();
-        sbOn.showAsSwitch();
+        addAndMakeVisible (view);
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             auto& button = oscButtons[(size_t) i];
@@ -433,9 +543,28 @@ public:
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (1.0f));
         };
         addChildComponent (makePhysical);
+
+        bodyLink.setButtonText ("FILTER");
+        bodyLink.setTooltip ("The resonator body is edited on the FILTER page");
+        bodyLink.onClick = [this]
+        {
+            if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                editor->showPage ("FILTER");
+        };
+        boardLink.setButtonText ("ACOUSTIC KEYS");
+        boardLink.setTooltip ("The soundboard is edited on OSC, under ACOUSTIC KEYS");
+        boardLink.onClick = [this] { showAcousticKeys(); };
+        for (auto* button : { &bodyLink, &boardLink })
+        {
+            button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+            addAndMakeVisible (*button);
+        }
+
         choose (firstPhysical(), false);
         startTimerHz (5);
     }
+
+    ~PhysicalPage() override { pickup.reset(); }
 
     // The page belongs to the chosen oscillator: its identity colour.
     juce::Colour colour() const { return IlanaTheme::oscColour (chosen); }
@@ -471,18 +600,38 @@ public:
         IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
-        title (viewCard, "PHYSICAL", "the string, what excites it and the body, from OSC " + juce::String (chosen + 1) + "'s settings", colour());
-        title (stringCard, "OSC " + juce::String (chosen + 1) + " STRING", "", colour());
-        title (bodyCard, "BODY", "a body and a soundboard for every string", colour());
+        title (viewCard, "PHYSICAL", "OSC " + juce::String (chosen + 1) + "'s string, moving as you play", colour());
+        title (stringCard, "OSC " + juce::String (chosen + 1), "the controls of its OSC card", colour());
+        title (bodyCard, "BODY", "", colour());
+
+        for (const auto& [area, name] : rowLabels)
+        {
+            g.setColour (colour().withAlpha (0.8f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText (name, area, juce::Justification::centredLeft);
+        }
+
+        // The body and the soundboard: what they are set to, and where.
+        const auto summary = [&] (juce::Rectangle<int> line, const juce::String& name, bool isOn, const juce::String& choice)
+        {
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText (name, line.removeFromLeft (130), juce::Justification::centredLeft);
+            g.setColour (isOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (isOn ? "on, " + choice : juce::String ("off"), line, juce::Justification::centredLeft, true);
+        };
+        summary (bodyLine.withRight (bodyLink.getX() - 6), "RESONATOR BODY", readParam ("res_on") > 0.5f, choiceName ("body_type"));
+        summary (boardLine.withRight (boardLink.getX() - 6), "SOUNDBOARD", readParam ("sb_on") > 0.5f, choiceName ("sb_model"));
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
         const auto physical = isPhysical (chosen);
+        rowLabels.clear();
 
-        for (juce::Component* c : { (juce::Component*) &resOn, (juce::Component*) &bodyType,
-                                    (juce::Component*) &sbOn, (juce::Component*) &sbModel })
+        for (juce::Component* c : { (juce::Component*) &bodyLink, (juce::Component*) &boardLink })
             c->setVisible (physical);
 
         // Not physical: the view still shows, in its own preview look, what
@@ -509,57 +658,71 @@ public:
         }
 
         emptyCard = {};
-        viewCard = area.removeFromLeft (area.getWidth() * 60 / 100);
+        viewCard = area.removeFromLeft (area.getWidth() * 50 / 100);
         area.removeFromLeft (10);
-        bodyCard = area.removeFromBottom (juce::jmin (150, area.getHeight() / 3));
+        bodyCard = area.removeFromBottom (96);
         area.removeFromBottom (10);
         stringCard = area;
 
         auto inner = viewCard.reduced (10, 0);
         inner.removeFromTop (30);
         auto picker = inner.removeFromTop (30);
-        const auto buttonWidth = picker.getWidth() / OscillatorIds::count;
         for (auto& button : oscButtons)
-            button.setBounds (picker.removeFromLeft (buttonWidth).reduced (3, 3));
+            if (button.isVisible())
+                button.setBounds (picker.removeFromLeft (juce::jmin (84, picker.getWidth() / OscillatorIds::count)).reduced (3, 3));
         inner.removeFromTop (6);
-        view.setBounds (inner.withTrimmedBottom (10));
+        inner.removeFromBottom (10);
 
+        // A tine or reed: its pickup under the string (S13).
+        if (pickup != nullptr && pickup->isVisible())
+        {
+            pickup->setBounds (inner.removeFromBottom (inner.getHeight() * 32 / 100));
+            inner.removeFromBottom (8);
+        }
+
+        view.setBounds (inner);
+
+        // The rows, each named above its controls, on a grid of five.
         auto controls = stringCard.reduced (10, 0);
         controls.removeFromTop (30);
-        makePhysical.setBounds (juce::Rectangle<int> (220, 34).withCentre (controls.getCentre().translated (0, 20)));
-        if (excite != nullptr)
+        controls.removeFromBottom (8);
+        auto lines = 0;
+        for (const auto& row : layoutRows)
+            lines += ((int) row.second.size() + columns - 1) / columns;
+        const auto lineHeight = juce::jlimit (60, 96, (controls.getHeight() - (int) layoutRows.size() * 20) / juce::jmax (1, lines));
+
+        for (const auto& [name, items] : layoutRows)
         {
-            excite->setBounds (controls.removeFromTop (44).reduced (3, 1));
-            controls.removeFromTop (4);
-            const auto rows = (int) (knobs.size() + 3) / 4;
-            const auto rowHeight = juce::jmin (120, controls.getHeight() / juce::jmax (1, rows));
-            for (int row = 0; row < rows; ++row)
+            rowLabels.push_back ({ controls.removeFromTop (20).reduced (4, 0), name });
+
+            for (size_t first = 0; first < items.size(); first += (size_t) columns)
             {
-                std::vector<juce::Component*> items;
-                for (size_t k = (size_t) row * 4; k < juce::jmin (knobs.size(), (size_t) row * 4 + 4); ++k)
-                    items.push_back (knobs[k].get());
-                while (items.size() < 4)
-                    items.push_back (nullptr);
-                auto rowArea = controls.removeFromTop (rowHeight);
-                const auto cell = rowArea.getWidth() / 4;
-                for (auto* item : items)
-                {
-                    auto slot = rowArea.removeFromLeft (cell);
-                    if (item != nullptr)
-                        item->setBounds (slot.reduced (2, 6));
-                }
+                auto line = controls.removeFromTop (lineHeight);
+                const auto cell = line.getWidth() / columns;
+
+                for (size_t k = first; k < juce::jmin (items.size(), first + (size_t) columns); ++k)
+                    items[k]->setBounds (line.removeFromLeft (cell).reduced (2, 2));
             }
         }
 
-        // The body's switch in its header; its type, and the soundboard's
-        // switch and model, in one row under it.
-        auto body = bodyCard.reduced (10, 0).withTrimmedTop (30).withTrimmedBottom (6);
-        layoutRow (body, { &resOn, &bodyType, &sbOn, &sbModel });
+        auto body = bodyCard.reduced (12, 0).withTrimmedTop (30).withTrimmedBottom (8);
+        bodyLine = body.removeFromTop (body.getHeight() / 2);
+        boardLine = body;
+        bodyLink.setBounds (bodyLine.removeFromRight (120).withSizeKeepingCentre (120, 22));
+        boardLink.setBounds (boardLine.removeFromRight (120).withSizeKeepingCentre (120, 22));
+        bodyLine = bodyLine.withRight (bodyLink.getRight());
+        boardLine = boardLine.withRight (boardLink.getRight());
     }
 
     int getChosenOscillator() const { return chosen; }
 
+    // The controls shown for the chosen oscillator's string, in order (the
+    // UI test compares them with the OSC card's).
+    juce::StringArray getControlIds() const { return controlIds; }
+
 private:
+    static constexpr int columns = 5;
+
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 
     float readParam (const juce::String& id) const
@@ -568,9 +731,24 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    juce::String choiceName (const juce::String& id) const
+    {
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (id)))
+            return choice->getCurrentChoiceName();
+        return {};
+    }
+
     bool isPhysical (int osc) const
     {
         return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 1;
+    }
+
+    bool anyPhysical() const
+    {
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (isPhysical (i) && processorRef.isOscillatorShown (i))
+                return true;
+        return false;
     }
 
     int firstPhysical() const
@@ -581,6 +759,21 @@ private:
         return 0;
     }
 
+    void showAcousticKeys()
+    {
+        auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>();
+        auto* section = findParentComponentOfClass<SectionPage>();
+
+        if (editor == nullptr || section == nullptr)
+            return;
+
+        if (auto* viewport = dynamic_cast<OscPageViewport*> (section->getPage (section->indexOf ("OSC"))))
+            if (auto* page = viewport->getPage())
+                page->selectShared (3);
+
+        editor->showPage ("OSC");
+    }
+
     void choose (int osc, bool byHand)
     {
         chosen = juce::jlimit (0, OscillatorIds::count - 1, osc);
@@ -589,34 +782,66 @@ private:
         view.setOscillator (id);
         view.setColour (colour());
 
-        // The string's controls, rebound to the chosen oscillator.
-        knobs.clear();
+        // The string's controls, rebound to the chosen oscillator, from
+        // the list its OSC card uses.
+        layoutRows.clear();
+        controls.clear();
+        controlIds.clear();
         if (excite == nullptr || excitePrefix != id) // not while its own menu may be calling back
         {
             excite = std::make_unique<ComboControl> (processorRef.apvts, id + "_excite", "EXCITE");
             addAndMakeVisible (*excite);
             excitePrefix = id;
         }
-        // The knobs this exciter uses (as on the OSC card).
         shownExcite = juce::roundToInt (readParam (id + "_excite"));
-        const auto hammer = shownExcite == 5 || shownExcite == 9, feedback = shownExcite == 10, bow = shownExcite == 4;
-        std::vector<std::pair<const char*, const char*>> knobIds {
-            { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_string_sustain", feedback ? "FEEDBACK" : "SUSTAIN" },
-            { "_string_stiffness", "STIFF" }, { "_string_excite_pos", "EXCITE POS" }, { "_string_pickup", "PICKUP" } };
-        if (hammer)
-            knobIds.push_back ({ "_hammer_hard", "HAMMER" });
-        else if (bow)
-            knobIds.insert (knobIds.end(), { { "_bow_pressure", "PRESSURE" }, { "_bow_speed", "SPEED" } });
-        else if (feedback)
-            knobIds.insert (knobIds.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
-        else
-            knobIds.insert (knobIds.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_bridge_buzz", "BUZZ" } });
-        for (const auto& [suffix, label] : knobIds)
-            if (processorRef.apvts.getParameter (id + suffix) != nullptr)
+
+        for (const auto& [name, specs] : physicalControlRows (shownExcite))
+        {
+            std::vector<juce::Component*> items;
+
+            for (const auto& spec : specs)
             {
-                knobs.push_back (std::make_unique<KnobControl> (processorRef.apvts, id + suffix, label, colour(), false));
-                addAndMakeVisible (*knobs.back());
+                const juce::String suffix (spec.suffix);
+
+                if (processorRef.apvts.getParameter (id + suffix) == nullptr)
+                    continue;
+
+                controlIds.add (id + suffix);
+
+                if (suffix == "_excite")
+                {
+                    items.push_back (excite.get());
+                    continue;
+                }
+
+                if (suffix == "_string_slap")
+                    controls.push_back (std::make_unique<ToggleControl> (processorRef.apvts, id + suffix, spec.label));
+                else
+                {
+                    auto knob = std::make_unique<KnobControl> (processorRef.apvts, id + suffix, spec.label, colour(), false);
+                    knob->setSizeRole (IlanaTheme::KnobSize::small);
+                    controls.push_back (std::move (knob));
+                }
+
+                addAndMakeVisible (*controls.back());
+                items.push_back (controls.back().get());
             }
+
+            layoutRows.push_back ({ name, items });
+        }
+
+        // A tine or reed's pickup curve, as on its OSC card.
+        const auto electric = shownExcite == 7 || shownExcite == 8;
+        if (electric && (pickup == nullptr || pickupPrefix != id))
+        {
+            pickup = std::make_unique<WaveDisplay> (processorRef, id + "_table", id + "_frame", id + "_unison", id + "_spread",
+                                                    id + "_detune", false, juce::String {}, id + "_mode", chosen, colour(), false);
+            addChildComponent (*pickup);
+            pickupPrefix = id;
+        }
+        if (pickup != nullptr)
+            pickup->setVisible (electric);
+
         for (int i = 0; i < OscillatorIds::count; ++i)
             oscButtons[(size_t) i].setToggleState (i == chosen, juce::dontSendNotification);
         updateAvailability();
@@ -630,17 +855,25 @@ private:
         makePhysical.setVisible (! physical);
         if (excite != nullptr)
             excite->setVisible (physical);
-        for (auto& knob : knobs)
-            knob->setVisible (physical);
+        for (auto& control : controls)
+            control->setVisible (physical);
+        if (pickup != nullptr)
+            pickup->setVisible (physical && (shownExcite == 7 || shownExcite == 8));
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             auto& button = oscButtons[(size_t) i];
             button.setVisible (processorRef.isOscillatorShown (i));
             button.setAlpha (isPhysical (i) ? 1.0f : 0.5f);
+            button.setTooltip (isPhysical (i) ? juce::String() : "OSC " + juce::String (i + 1) + " is not Physical");
         }
-        const auto resonator = readParam ("res_on") > 0.5f;
-        bodyType.setAlpha (resonator ? 1.0f : IlanaTheme::dimmedAlpha);
-        sbModel.setAlpha (readParam ("sb_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
+
+        // The PHYSICAL tab greys while no oscillator has a string (UI
+        // review 6, V23, S37); it still opens, to offer the switch.
+        if (auto* section = findParentComponentOfClass<SectionPage>())
+            section->switcher.setItemDimmed (section->indexOf ("PHYSICAL"),
+                                             anyPhysical() ? juce::String()
+                                                           : juce::String ("No oscillator is Physical: pick Physical in an oscillator's MODE menu "
+                                                                           "(OSC page) to give it a string to edit here"));
     }
 
     void timerCallback() override
@@ -658,21 +891,29 @@ private:
             repaint();
         }
         updateAvailability();
+
+        if (const auto body = readParam ("res_on") + 2.0f * readParam ("sb_on") + 4.0f * readParam ("body_type") + 64.0f * readParam ("sb_model");
+            body != shownBody)
+        {
+            shownBody = body;
+            repaint (bodyCard);
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
     PhysicalView view;
-    ToggleControl resOn;
-    ComboControl bodyType;
-    ToggleControl sbOn;
-    ComboControl sbModel;
     std::array<juce::TextButton, OscillatorIds::count> oscButtons;
-    juce::TextButton makePhysical;
+    juce::TextButton makePhysical, bodyLink, boardLink;
     std::unique_ptr<ComboControl> excite;
-    juce::String excitePrefix;
-    std::vector<std::unique_ptr<KnobControl>> knobs;
+    juce::String excitePrefix, pickupPrefix;
+    std::unique_ptr<WaveDisplay> pickup;
+    std::vector<std::unique_ptr<juce::Component>> controls;
+    std::vector<std::pair<juce::String, std::vector<juce::Component*>>> layoutRows;
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels;
+    juce::StringArray controlIds;
     int chosen = 0, shownExcite = -1;
+    float shownBody = -1.0f;
     bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyCard;
+    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyCard, bodyLine, boardLine;
 };
 } // namespace

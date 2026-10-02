@@ -646,9 +646,12 @@ public:
                     const auto y = cell.getBottom() - unit * cell.getHeight();
                     g.setColour (juce::Colours::white.withAlpha (0.12f * cellAlpha));
                     g.fillRect (cell.getX(), mid - 0.5f, cell.getWidth(), 1.0f);
-                    g.setColour (fill);
-                    g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX(), juce::jmin (mid, y), cell.getWidth(),
-                                                                    juce::jmax (2.0f, std::abs (y - mid))), 2.0f);
+                    if (edited)
+                    {
+                        g.setColour (fill);
+                        g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX(), juce::jmin (mid, y), cell.getWidth(),
+                                                                        juce::jmax (2.0f, std::abs (y - mid))), 2.0f);
+                    }
                 }
                 else if (lane == gate && value < 0.005f)
                 {
@@ -967,7 +970,7 @@ public:
                 x += 14.0f;
             }
 
-            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, stage.name) + (stage.quiet ? 2.0f : 14.0f);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, stage.name) + 4.0f;
 
             if (x + width > (float) getWidth())
                 break;
@@ -982,18 +985,19 @@ public:
             }
             else
             {
+                // A stage reads as a word in the accent (the tabs are the
+                // pills): bold, underlined while the pointer is on one that
+                // opens a tab; one waiting for another is grey, struck through.
                 const auto hovered = stage.engine >= 0 && isMouseOver() && chip.contains (mouse);
-                const auto tone = stage.waiting ? juce::Colours::white.withAlpha (0.35f) : colour;
-                g.setColour (tone.withAlpha (stage.waiting ? 0.05f : (hovered ? 0.3f : 0.18f)));
-                g.fillRoundedRectangle (chip, height * 0.5f);
-                g.setColour (tone.withAlpha (stage.waiting ? 0.35f : 0.75f));
-                g.drawRoundedRectangle (chip.reduced (0.5f), height * 0.5f, 1.0f);
-                g.setColour (stage.waiting ? IlanaTheme::Ui::text3 : colour.interpolatedWith (juce::Colours::white, 0.35f));
+                g.setColour (stage.waiting ? IlanaTheme::Ui::text3 : colour.interpolatedWith (juce::Colours::white, hovered ? 0.45f : 0.2f));
                 g.drawText (stage.name, chip.toNearestInt(), juce::Justification::centred);
+                const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (font, stage.name);
+                const auto line = juce::Rectangle<float> (textWidth, 1.0f).withCentre ({ chip.getCentreX(), centreY });
 
-                // Waiting: struck through.
                 if (stage.waiting)
-                    g.fillRect (chip.getX() + 5.0f, centreY, chip.getWidth() - 10.0f, 1.0f);
+                    g.fillRect (line);
+                else if (hovered)
+                    g.fillRect (line.withY (centreY + 7.0f));
             }
 
             chips.push_back ({ chip, stage.engine });

@@ -16,7 +16,8 @@
 // space to select a group, drag notes to move them and a note's right edge
 // to resize, right-click to delete. Keys: Ctrl+A, Delete, Ctrl+C / V / D,
 // Q quantises, arrows nudge (shift: an octave or a bar). The wheel scrolls
-// the pitches, Ctrl+wheel zooms in time, shift+wheel scrolls it. Edits go
+// the pitches, Alt+wheel zooms them, Ctrl+wheel zooms in time, shift+wheel
+// scrolls it. Edits go
 // straight to the patch's clips (ClipState), one undo step per click, drag
 // or key; a note placed or picked plays briefly.
 class ClipEditor : public juce::Component,
@@ -47,7 +48,7 @@ public:
         setTooltip ("Clip piano roll. Double-click to add a note, click to select (shift adds), drag empty space to select "
                     "several. Drag to move, drag the right edge to resize, right-click to delete. Delete, Ctrl+C / V / D, "
                     "Q quantises, arrows nudge (shift: octave / bar). Drag the lane below for velocity. Wheel: pitch, "
-                    "Ctrl+wheel: zoom, drag the ruler to scroll. Click a key to hear it.");
+                    "Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to scroll. Click a key to hear it.");
         setWantsKeyboardFocus (true);
         reload (true);
         startTimerHz (30);
@@ -507,7 +508,17 @@ public:
         const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
         const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
 
-        if (event.mods.isCommandDown() || event.mods.isCtrlDown())
+        if (event.mods.isAltDown())
+        {
+            // Zoom the pitches (taller or shorter rows) around the pointer's note.
+            const auto anchor = yToNote (event.position.y);
+            const auto fromBottom = anchor - lowNote;
+            const auto before = visibleRows();
+            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * (direction > 0 ? 1.2f : direction < 0 ? 1.0f / 1.2f : 1.0f));
+            const auto rows = visibleRows();
+            lowNote = juce::jlimit (0, 128 - rows, anchor - juce::roundToInt ((float) fromBottom * (float) rows / (float) before));
+        }
+        else if (event.mods.isCommandDown() || event.mods.isCtrlDown())
         {
             // Zoom in time around the pointer.
             const auto anchor = xToBeat (event.position.x);
@@ -1018,8 +1029,9 @@ private:
         return { grid.getX(), grid.getBottom() + 5.0f, grid.getWidth(), laneHeight() };
     }
 
-    // Rows of about 12 px, an octave at the least and five at the most.
-    int visibleRows() const { return juce::jlimit (12, 60, juce::roundToInt (gridBounds().getHeight() / 12.0f)); }
+    // Rows of about 12 px (Alt+wheel makes them taller or shorter), 8 to 72
+    // of them.
+    int visibleRows() const { return juce::jlimit (8, 72, juce::roundToInt (gridBounds().getHeight() / (12.0f * rowScale))); }
 
     void centreOnNotes()
     {
@@ -1241,7 +1253,7 @@ private:
     unsigned shownEpoch = 0;
     int lowNote = 48;
     int gridIndex = defaultGrid;
-    float zoom = 1.0f, viewStart = 0.0f;
+    float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;
     int dragHit = -1, dragNote = -1;

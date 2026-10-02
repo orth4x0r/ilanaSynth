@@ -271,7 +271,7 @@ public:
         const auto tuningOn = readOn ("tuning_on");
         const struct { juce::Rectangle<int> box; const char* title; bool on; juce::String note; } boxes[] {
             { snapBox, "SNAP TO KEY", scaleSwitch.isOn(),
-              scaleSwitch.isOn() ? (tuningOn ? "snaps in 12-TET steps" : "spray, PROB SEQ, Scale Random") : "off" },
+              ! scaleSwitch.isOn() ? "off" : tuningOn ? "snaps in 12-TET steps" : readOn ("gen_snap") ? "snaps every note" : "snaps generated notes" },
             { strumBox, "STRUM", strumSwitch.isOn(), strumSwitch.isOn() ? "spreads chords" : "off" },
             { sprayBox, "SPRAY", readOn ("spray_on"), readOn ("spray_on") ? "throws extra notes" : "off" }
         };
@@ -661,7 +661,7 @@ private:
 
             // The boxes' titles and notes follow their switches.
             const auto signature = (scaleSwitch.isOn() ? 1 : 0) | (strumSwitch.isOn() ? 2 : 0) | (readOn ("spray_on") ? 4 : 0)
-                                 | (readOn ("tuning_on") ? 8 : 0) | (juce::roundToInt (readValue ("gen_scale")) << 4)
+                                 | (readOn ("tuning_on") ? 8 : 0) | (readOn ("gen_snap") ? 1 << 20 : 0) | (juce::roundToInt (readValue ("gen_scale")) << 4)
                                  | (juce::roundToInt (readValue ("gen_root")) << 9) | (juce::roundToInt (readValue ("spray_strum")) << 14);
             if (signature != boxSignature)
             {

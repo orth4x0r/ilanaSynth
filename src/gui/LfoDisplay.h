@@ -25,8 +25,10 @@ public:
           traceColour (traceColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("LFO shape\nDraw: drag to draw.  Steps: drag to set steps.  Curve: click to add points, drag them, "
-                    "drag the dot on a line to bend it, double-click to delete, right-click for shapes and grid.");
+        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into a Curve with the same points and edit it.  "
+                    "Draw: drag to draw.  Steps: drag to set steps.  Curve: click to add points, drag them, "
+                    "drag the dot on a line to bend it, double-click to delete.  GRID (top right) sets the snap; "
+                    "right-click for shapes.");
 
         juce::Random random (lfoIndex * 1234 + 7);
 
@@ -260,12 +262,181 @@ public:
 
         if (shape == IlanaSynthAudioProcessor::curveShape)
             paintCurveHandles (g, plot, centreY, halfHeight);
+
+        // The snap grid's own control, on the graph wherever a drag makes
+        // (or will make) a curve.
+        if (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape))
+            IlanaTheme::paintPill (g, gridChipBounds(), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
+                                   traceColour, shape == IlanaSynthAudioProcessor::curveShape && gridDivisions > 0,
+                                   gridChipBounds().contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
+
+        // What a drag does on a preset wave, and what just happened after one.
+        juce::String hint;
+        auto hintAlpha = 0.0f;
+
+        if (convertHint > 0.0f)
+        {
+            hint = "now a Curve with the same points (undo puts the " + convertedFrom + " back)";
+            hintAlpha = juce::jmin (1.0f, convertHint * 2.0f);
+        }
+        else if (convertsToCurve (shape) && isMouseOver())
+        {
+            hint = "drag to edit: the wave becomes a Curve";
+            hintAlpha = 0.8f;
+        }
+
+        if (hint.isNotEmpty())
+        {
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, hint) + 16.0f;
+            const auto box = juce::Rectangle<float> (width, 16.0f).withCentre ({ bounds.getCentreX(), bounds.getY() + 12.0f });
+            g.setColour (juce::Colours::black.withAlpha (0.55f * hintAlpha));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.setColour (traceColour.interpolatedWith (juce::Colours::white, 0.3f).withAlpha (hintAlpha));
+            g.setFont (font);
+            g.drawText (hint, box, juce::Justification::centred);
+        }
     }
+
+    // Preset waves turn into a Curve on the first drag. Draw and Steps edit
+    // in place already, and the simulated shapes aren't a drawable cycle.
+    static bool convertsToCurve (int shape)
+    {
+        return shape >= 0 && shape < LfoShapes::Count && shape != LfoShapes::Draw && shape != LfoShapes::Steps
+               && shape != LfoShapes::Curve;
+    }
+
+    // The points a preset wave becomes as a Curve: the matching curve
+    // preset where there is one, otherwise the picture on screen sampled.
+    LfoCurve curveFromShape (int shape)
+    {
+        switch (shape)
+        {
+            case LfoShapes::Sine:     return LfoCurve::preset (0);
+            case LfoShapes::Triangle: return LfoCurve::preset (1);
+            case LfoShapes::SawUp:    return LfoCurve::preset (2);
+            case LfoShapes::SawDown:  return LfoCurve::preset (3);
+            case LfoShapes::Square:   return LfoCurve::preset (4);
+            default: break;
+        }
+
+        LfoCurve curve;
+        curve.points.clear();
+
+        if (shape == LfoShapes::SampleHold)
+        {
+            // The eight held values the graph shows, as flat stairs.
+            for (int step = 0; step < 8; ++step)
+            {
+                const auto value = sampleHoldPreview[(size_t) step];
+                curve.points.push_back ({ (float) step / 8.0f, value, 0.0f });
+                curve.points.push_back ({ (float) (step + 1) / 8.0f - 0.001f, value, 0.0f });
+            }
+            curve.points.push_back ({ 1.0f, sampleHoldPreview[0], 0.0f });
+        }
+        else
+        {
+            // The random and physics pictures, 16 points across the cycle
+            // (the physics trace's first cycle).
+            constexpr int points = 16;
+            const auto physics = LfoShapes::isPhysics (shape);
+            const std::vector<float> trace = physics ? physicsTrace (shape, juce::jmax (48, (int) plotArea().getWidth()))
+                                                     : std::vector<float> (1, 0.0f);
+
+            for (int i = 0; i <= points; ++i)
+            {
+                const auto phase = (double) i / (double) points;
+                const auto value = physics ? trace[(size_t) juce::jlimit (0, (int) trace.size() - 1,
+                                                                          (int) (phase / (double) physicsCycles * (double) (trace.size() - 1)))]
+                                           : lfoShapeValue (shape, juce::jmin (0.9999, phase));
+                curve.points.push_back ({ (float) phase, juce::jlimit (-1.0f, 1.0f, value), 0.0f });
+            }
+        }
+
+        curve.sanitise();
+        return curve;
+    }
+
+    // Sets this LFO's SHAPE (inside whatever undo step is open).
+    void setShape (int shape)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1) + "_shape"))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) shape));
+            parameter->endChangeGesture();
+        }
+    }
+
+    // A preset wave becomes a Curve seeded with `seed`, and the graph says so.
+    void convertToCurve (const LfoCurve& seed)
+    {
+        const auto shape = (int) readParam ("_shape");
+        const juce::StringArray names { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H" };
+        convertedFrom = juce::isPositiveAndBelow (shape, names.size()) ? names[shape] : juce::String ("shape");
+        processorRef.setLfoCurve (index, seed);
+        setShape (IlanaSynthAudioProcessor::curveShape);
+        curve = processorRef.getLfoCurve (index);
+        convertHint = 1.6f;
+        repaint();
+    }
+
+    juce::Rectangle<float> gridChipBounds() const
+    {
+        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (70.0f).reduced (6.0f, 3.0f);
+    }
+
+    void showGridMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Snap to grid");
+
+        for (const auto divisions : { 0, 4, 8, 16, 32 })
+            menu.addItem (200 + divisions, divisions == 0 ? juce::String ("Off") : juce::String (divisions) + " columns",
+                          true, gridDivisions == divisions);
+
+        juce::Component::SafePointer<LfoDisplay> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis] (int result)
+        {
+            if (safeThis != nullptr && result >= 200)
+            {
+                safeThis->gridDivisions = result - 200;
+                safeThis->repaint();
+            }
+        });
+    }
+
+public:
+    // For the UI test: the snap grid's column count (0 = off).
+    int getGridDivisions() const { return gridDivisions; }
+    void setGridDivisions (int divisions) { gridDivisions = divisions; repaint(); }
 
 private:
     void mouseDown (const juce::MouseEvent& event) override
     {
         const auto shape = (int) readParam ("_shape");
+        pendingConvert = false;
+
+        if ((shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
+        {
+            showGridMenu();
+            return;
+        }
+
+        if (convertsToCurve (shape))
+        {
+            if (event.mods.isPopupMenu())
+            {
+                showCurveMenu (true);
+                return;
+            }
+
+            // The first drag converts; a plain click changes nothing.
+            processorRef.beginEdit (editName (IlanaSynthAudioProcessor::curveShape));
+            pendingConvert = true;
+            downPosition = event.position;
+            return;
+        }
 
         // One undo step per stroke (the curve's right-click menu makes its own).
         if (shape == 6 || shape == 7 || (shape == IlanaSynthAudioProcessor::curveShape && ! event.mods.isPopupMenu()))
@@ -281,6 +452,15 @@ private:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (pendingConvert)
+        {
+            // Seeded with the wave's points, then this drag edits the curve
+            // from where it started: grabbing a corner moves it.
+            pendingConvert = false;
+            convertToCurve (curveFromShape ((int) readParam ("_shape")));
+            curvePress (downPosition);
+        }
+
         const auto shape = (int) readParam ("_shape");
 
         if (shape == IlanaSynthAudioProcessor::curveShape)
@@ -387,22 +567,27 @@ private:
 
         if (event.mods.isPopupMenu())
         {
-            showCurveMenu();
+            showCurveMenu (false);
             return;
         }
 
-        dragPoint = hitPoint (event.position);
+        curvePress (event.position);
+    }
 
-        if (dragPoint < 0)
-            dragTension = hitTension (event.position);
+    // Grabs the point or bend handle under `position`, or adds a point there.
+    void curvePress (juce::Point<float> position)
+    {
+        curve = processorRef.getLfoCurve (index);
+        dragPoint = hitPoint (position);
+        dragTension = dragPoint < 0 ? hitTension (position) : -1;
 
         if (dragPoint < 0 && dragTension < 0)
         {
             // Empty space: add a point there and start dragging it.
             const auto plot = plotArea();
             LfoCurve::Point point;
-            point.x = snapX (juce::jlimit (0.001f, 0.999f, (event.position.x - plot.getX()) / plot.getWidth()));
-            point.y = snapY (valueFromY (event.position.y, plot));
+            point.x = snapX (juce::jlimit (0.001f, 0.999f, (position.x - plot.getX()) / plot.getWidth()));
+            point.y = snapY (valueFromY (position.y, plot));
 
             auto insertAt = curve.points.begin();
 
@@ -455,7 +640,9 @@ private:
         repaint();
     }
 
-    void showCurveMenu()
+    // The shape menu. On a preset wave (`converting`) every edit first
+    // turns it into a Curve with the wave's points, in the same undo step.
+    void showCurveMenu (bool converting)
     {
         juce::PopupMenu shapes;
         const auto names = LfoCurve::getPresetNames();
@@ -470,15 +657,21 @@ private:
                           true, gridDivisions == divisions);
 
         juce::PopupMenu menu;
+
+        if (converting)
+            menu.addItem (400, "Edit as a curve (same points)");
+
         menu.addSubMenu ("Load shape", shapes);
         menu.addSubMenu ("Snap to grid", grid);
         menu.addSeparator();
         menu.addItem (300, "Flip vertically");
         menu.addItem (301, "Reverse");
+        menu.addSeparator();
+        menu.addItem (401, "Use 16 steps (Steps shape)");
 
         juce::Component::SafePointer<LfoDisplay> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
-                            [safeThis] (int result)
+                            [safeThis, converting] (int result)
                             {
                                 if (safeThis == nullptr || result == 0)
                                     return;
@@ -492,7 +685,19 @@ private:
                                     return;
                                 }
 
+                                if (result == 401)
+                                {
+                                    self.processorRef.performEdit ("LFO " + juce::String (self.index + 1) + " shape",
+                                                                   [&self] { self.setShape (LfoShapes::Steps); });
+                                    self.repaint();
+                                    return;
+                                }
+
                                 self.processorRef.beginEdit (self.editName (IlanaSynthAudioProcessor::curveShape));
+
+                                if (converting)
+                                    self.convertToCurve (self.curveFromShape ((int) self.readParam ("_shape")));
+
                                 self.curve = self.processorRef.getLfoCurve (self.index);
 
                                 if (result >= 100 && result < 200)
@@ -558,7 +763,7 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("click: add   drag: move   dot on a line: bend   double-click: delete   right-click: shapes / grid",
+        g.drawText ("click: add   drag: move   dot on a line: bend   double-click: delete   right-click: shapes",
                     getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
     }
 
@@ -657,6 +862,8 @@ private:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        pendingConvert = false;
+
         if (gestureParameter != nullptr)
         {
             gestureParameter->endChangeGesture();
@@ -669,6 +876,8 @@ private:
     void timerCallback() override
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
+        const auto hinting = convertHint > 0.0f;
+        convertHint = juce::jmax (0.0f, convertHint - 0.033f * frameTicks());
 
         const auto now = juce::Time::getMillisecondCounterHiRes();
         const auto elapsed = juce::jlimit (0.0, 0.2, (now - lastTimerMs) / 1000.0);
@@ -677,7 +886,7 @@ private:
         if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing() && (simulating || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (processorRef.getLfoPhase (index), index))))
+        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (processorRef.getLfoPhase (index), index))))
             repaint();
     }
 
@@ -717,6 +926,10 @@ private:
     int dragTension = -1;
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
+    bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
+    juce::Point<float> downPosition;
+    float convertHint = 0.0f;          // the "now a Curve" note, fading
+    juce::String convertedFrom;
     std::array<float, 16> sampleHoldPreview {};
     static constexpr int physicsCycles = 3;
     std::vector<float> physicsValues;

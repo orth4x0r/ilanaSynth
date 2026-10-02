@@ -2,6 +2,8 @@
 // after its includes; the contents stay in the same anonymous namespace.
 #pragma once
 
+#include "../PoolIndexRow.h"
+
 namespace
 {
 class FilterPage : public juce::Component,
@@ -205,11 +207,146 @@ inline void scrollToCard (juce::Viewport& view, juce::Rectangle<int> card)
         view.setViewPosition (card.getRight() - view.getViewWidth(), 0);
 }
 
+// An LFO's RATE (UI review 4, V12 and S22): Hz while free-running, note
+// values (1/16, 1/8T...) while SYNC is on. Two knobs share one place, one
+// on the RATE parameter and one on DIVISION, and SYNC picks which is shown;
+// both values stay stored. Modulating RATE still acts while synced (the
+// DSP scales the division's rate by it, up to 4 octaves each way), so the
+// RATE routings' dots stay beside the division knob and work as usual.
+// The knobs are the page's children: lay out layoutItem() (the RATE knob)
+// like any knob, then call matchBounds().
+class LfoRateControl : private juce::Timer
+{
+public:
+    LfoRateControl (IlanaSynthAudioProcessor& p, int lfoIndex, juce::Colour accent, bool followsTheme)
+        : processorRef (p),
+          lfo (lfoIndex),
+          rate (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_rate", "RATE", accent, followsTheme),
+          division (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_div", "RATE", accent, followsTheme)
+    {
+        const juce::String tip ("LFO " + juce::String (lfoIndex + 1) + " rate (synced)\nSYNC is on, so RATE is a note value at the "
+                                "host tempo: drag or scroll to step through them. Turn SYNC off for Hz. Modulation of RATE "
+                                "still speeds it up or slows it down (the dots beside the dial).");
+        division.setTooltip (tip);
+        division.getSlider().setTooltip (tip);
+
+        dots.onDepthChange = [this] (int slot, float depth) { processorRef.setModSlotValue (slot, "amt", depth); };
+        dots.onRemove = [this] (int slot)
+        {
+            processorRef.performEdit ("Remove modulation", [this, slot] { processorRef.clearModSlot (slot); });
+            refresh();
+        };
+        dots.onDragStart = [this] (int source) { processorRef.beginEdit (Mod::getSourceNames()[source] + " depth"); };
+        dots.onDragEnd = [this] { processorRef.endEdit(); };
+
+        startTimerHz (10);
+    }
+
+    void addTo (juce::Component& parent)
+    {
+        parent.addChildComponent (rate);
+        parent.addChildComponent (division);
+        parent.addChildComponent (dots);
+        refresh();
+    }
+
+    // Whether the page shows this LFO's controls at all.
+    void setShown (bool shouldShow)
+    {
+        shown = shouldShow;
+        refresh();
+    }
+
+    juce::Component* layoutItem() { return &rate; }
+
+    void setBounds (juce::Rectangle<int> bounds)
+    {
+        rate.setBounds (bounds);
+        matchBounds();
+    }
+
+    // The division knob and the dots follow the RATE knob's place.
+    void matchBounds()
+    {
+        division.setBounds (rate.getBounds());
+        layoutDots();
+    }
+
+    KnobControl& getRateKnob() { return rate; }
+    KnobControl& getDivisionKnob() { return division; }
+    juce::Component& getDots() { return dots; }
+
+    bool isSynced() const
+    {
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
+        return sync != nullptr && sync->load() > 0.5f;
+    }
+
+    // Follows SYNC and the RATE routings (the timer does this too).
+    void refresh()
+    {
+        const auto synced = isSynced();
+
+        if (rate.isVisible() != (shown && ! synced))
+            rate.setVisible (shown && ! synced);
+
+        if (division.isVisible() != (shown && synced))
+            division.setVisible (shown && synced);
+
+        std::vector<ModDotStrip::Dot> found;
+
+        for (int slot = 0; slot < Mod::maxSlots && found.size() < 6 && synced && shown; ++slot)
+        {
+            const auto routing = processorRef.readModSlot (slot);
+
+            if (routing.destination == (int) Mod::lfoRateDestinationFor (lfo) && routing.source != Mod::Source::None)
+                found.push_back ({ slot, (int) routing.source, routing.depth });
+        }
+
+        const auto changed = found.size() != shownDots.size()
+                             || ! std::equal (found.begin(), found.end(), shownDots.begin(), [] (const auto& a, const auto& b)
+                                              { return a.slot == b.slot && a.source == b.source && std::abs (a.depth - b.depth) < 1.0e-4f; });
+
+        if (changed)
+        {
+            shownDots = found;
+            dots.setDots (shownDots);
+            layoutDots();
+        }
+
+        if (dots.isVisible() != ! shownDots.empty())
+            dots.setVisible (! shownDots.empty());
+    }
+
+private:
+    void timerCallback() override { refresh(); }
+
+    // Beside the dial's upper right, where a knob puts its own dots (a knob
+    // lays out its label, 13 px, then the dial and the 16 px value).
+    void layoutDots()
+    {
+        const auto bounds = division.getBounds();
+        const auto dial = juce::jlimit (28, 58, juce::jmin (bounds.getWidth(), bounds.getHeight() - 13 - 16));
+        const auto centre = juce::Point<float> ((float) bounds.getCentreX(), (float) bounds.getY() + 13.0f + (float) (dial + 2) * 0.5f);
+        const auto radius = (float) dial * 0.5f - 2.0f;
+        const auto height = juce::jmax (ModDotStrip::dotPitch, dots.getPreferredHeight());
+        dots.setBounds (juce::jmin ((int) (centre.x + radius + 3.0f), bounds.getRight() - 12), (int) (centre.y - radius + 2.0f), 12, height);
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    int lfo = 0;
+    bool shown = true;
+    KnobControl rate, division;
+    ModDotStrip dots;
+    std::vector<ModDotStrip::Dot> shownDots;
+};
+
 class EnvSection : public juce::Component
 {
 public:
     EnvSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
-        : settings (settingsRef),
+        : processorRef (p),
+          settings (settingsRef),
           thumbs (p, []
           {
               std::vector<EnvThumbBar::Env> envs { EnvThumbBar::Env { "AMP ENV", "amp", Mod::Source::AmpEnv, modSourceColour ((int) Mod::Source::AmpEnv) },
@@ -246,6 +383,29 @@ public:
           e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xff5b8cff), false),
           e4Curve (p.apvts, "e4_curve", "TENSION", juce::Colour (0xff5b8cff), false)
     {
+        // Every envelope one click away, above the cards (which scroll).
+        indexRow.stateOf = [this] (int env)
+        {
+            const auto inUse = thumbs.isEnvelopeInUse (env);
+            return PoolIndexRow::State { inUse || processorRef.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env), inUse };
+        };
+        indexRow.colourOf = [] (int env) { return colourOf (env); };
+        indexRow.nameOf = [] (int env)
+        {
+            const juce::StringArray titles { "AMP ENV (1)", "FILT ENV (2)", "FILT 2 ENV (3)", "MOD ENV (4)", "ENV 5" };
+            return env < 5 ? titles[env] : "ENV " + juce::String (env + 1);
+        };
+        indexRow.onPick = [this] (int env)
+        {
+            if (! indexRow.getState (env).shown)
+            {
+                processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
+                thumbs.refreshLayout();
+            }
+            select (env);
+        };
+        addAndMakeVisible (indexRow);
+
         // The cards keep one size and scroll sideways once there are more than five.
         thumbView.setViewedComponent (&thumbs, false);
         thumbView.setScrollBarsShown (false, true);
@@ -322,6 +482,8 @@ public:
     {
         auto area = getLocalBounds();
 
+        indexRow.setBounds (area.removeFromTop (indexRowHeight));
+        area.removeFromTop (4);
         thumbs.setViewWidth (area.getWidth());
         const auto thumbWidth = thumbs.getPreferredWidth();
         const auto scrolls = thumbWidth > area.getWidth();
@@ -365,11 +527,9 @@ public:
         if (panel.isEmpty())
             return;
 
-        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffc86bff), juce::Colour (0xff8f9dff),
-                                       juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
         const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" };
         const auto index = juce::jlimit (0, 4, selected);
-        const auto colour = selected < 5 ? colours[index] : extraColour (selected + 1);
+        const auto colour = colourOf (selected);
 
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
@@ -377,12 +537,26 @@ public:
                                      "drag the graph or the knobs", colour);
     }
 
+    // The UI test reaches the row through here.
+    PoolIndexRow& getIndexRow() { return indexRow; }
+    int getSelected() const { return selected; }
+
 private:
     // ENV 6-16 in their mod source colours.
     static juce::Colour extraColour (int env)
     {
         return modSourceColour ((int) Mod::Source::Env6 + env - 6);
     }
+
+    // ENV 1-16's colours, 0-based.
+    static juce::Colour colourOf (int env)
+    {
+        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffc86bff), juce::Colour (0xff8f9dff),
+                                       juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
+        return env < 5 ? colours[juce::jlimit (0, 4, env)] : extraColour (env + 1);
+    }
+
+    static constexpr int indexRowHeight = 18;
 
     struct ExtraUnit
     {
@@ -439,6 +613,7 @@ private:
         }
 
         thumbs.setSelected (selected);
+        indexRow.setSelected (selected);
         resized();
 
         scrollToCard (thumbView, thumbs.boundsOfCard (selected));
@@ -446,8 +621,10 @@ private:
         repaint();
     }
 
+    IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
+    PoolIndexRow indexRow { 16, "ENV" };
     juce::Viewport thumbView;
     EnvThumbBar thumbs;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
@@ -472,6 +649,21 @@ public:
           settings (settingsRef),
           thumbs (p, [] (int index) { return lfoColour (index); })
     {
+        // Every LFO one click away, above the cards (which scroll).
+        indexRow.stateOf = [this] (int lfo) { return PoolIndexRow::State { processorRef.isLfoShown (lfo), thumbs.isLfoRouted (lfo) }; };
+        indexRow.colourOf = [] (int lfo) { return lfoColour (lfo); };
+        indexRow.nameOf = [] (int lfo) { return "LFO " + juce::String (lfo + 1); };
+        indexRow.onPick = [this] (int lfo)
+        {
+            if (! processorRef.isLfoShown (lfo))
+            {
+                processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
+                thumbs.refreshLayout();
+            }
+            select (lfo);
+        };
+        addAndMakeVisible (indexRow);
+
         // Cards keep one size and scroll sideways past four.
         thumbView.setViewedComponent (&thumbs, false);
         thumbView.setScrollBarsShown (false, true);
@@ -485,9 +677,12 @@ public:
             addAndMakeVisible (*display);
             displays.push_back (std::move (display));
 
-            auto controls = std::make_unique<Controls> (p.apvts, lfo + 1, lfoColour (lfo), false);
-            addAll (*this, controls->shape, controls->rate, controls->sync, controls->div, controls->retrig, controls->key,
+            auto controls = std::make_unique<Controls> (p, lfo + 1, lfoColour (lfo), false);
+            controls->rate.addTo (*this);
+            addAll (*this, controls->shape, controls->sync, controls->retrig, controls->key,
                     controls->phase, controls->physA, controls->physB, controls->kick);
+            // RATE shows the division while synced; the menu isn't needed.
+            addChildComponent (controls->div);
             addAll (*this, controls->smooth, controls->stereo, controls->seed, controls->trigger, controls->axis, controls->loop);
             for (auto& knob : controls->sim)
                 addChildComponent (*knob);
@@ -549,6 +744,8 @@ public:
     {
         auto area = getLocalBounds();
 
+        indexRow.setBounds (area.removeFromTop (18));
+        area.removeFromTop (4);
         thumbs.setViewWidth (area.getWidth());
         const auto thumbWidth = thumbs.getPreferredWidth();
         const auto scrolls = thumbWidth > area.getWidth();
@@ -583,9 +780,7 @@ public:
         c.sync.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
         c.retrig.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
         c.key.setBounds (toggles.reduced (3, 1));
-        auto lastOptions = options;
-        c.div.setBounds (lastOptions.removeFromLeft (lastOptions.getWidth() * 2 / 3).reduced (3, 1));
-        c.kick.setBounds (lastOptions.reduced (3, 1));
+        c.kick.setBounds (options.withWidth (options.getWidth() / 3).reduced (3, 1));
 
         inner.removeFromLeft (8);
         if (LfoShapes::isPhysics (shape))
@@ -635,12 +830,20 @@ public:
         updateVisibility();
     }
 
+    // The UI test reaches these through here.
+    PoolIndexRow& getIndexRow() { return indexRow; }
+    int getSelected() const { return selected; }
+    LfoRateControl& getRateControl (int lfo) { return controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, lfo)]->rate; }
+
 private:
     struct Controls
     {
-        Controls (juce::AudioProcessorValueTreeState& state, int lfo, juce::Colour accent, bool followsTheme)
+        Controls (IlanaSynthAudioProcessor& p, int lfo, juce::Colour accent, bool followsTheme)
+            : Controls (p, p.apvts, lfo, accent, followsTheme) {}
+
+        Controls (IlanaSynthAudioProcessor& p, juce::AudioProcessorValueTreeState& state, int lfo, juce::Colour accent, bool followsTheme)
             : shape (state, "lfo" + juce::String (lfo) + "_shape", "SHAPE"),
-              rate (state, "lfo" + juce::String (lfo) + "_rate", "RATE", accent, followsTheme),
+              rate (p, lfo - 1, accent, followsTheme),
               sync (state, "lfo" + juce::String (lfo) + "_sync", "SYNC"),
               div (state, "lfo" + juce::String (lfo) + "_div", "DIVISION"),
               retrig (state, "lfo" + juce::String (lfo) + "_retrig", "RETRIG"),
@@ -664,7 +867,7 @@ private:
         }
 
         ComboControl shape;
-        KnobControl rate;
+        LfoRateControl rate;
         ToggleControl sync;
         ComboControl div;
         ToggleControl retrig;
@@ -759,16 +962,15 @@ private:
         const auto& info = LfoSimInfo::get (shape);
         labelSimulated (c, shape);
 
-        // Options on the left: SHAPE, then TRIGGER / DIVISION / OUTPUT, then
-        // the switches and FIRE.
+        // Options on the left: SHAPE, then TRIGGER / OUTPUT, then the
+        // switches and FIRE (RATE shows the division while synced).
         auto options = inner.removeFromLeft (inner.getWidth() * 45 / 100);
         inner.removeFromLeft (6);
         const auto rowHeight = options.getHeight() / 3;
         c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
         auto combos = options.removeFromTop (rowHeight);
-        const auto comboWidth = combos.getWidth() / (info.usesAxis ? 3 : 2);
+        const auto comboWidth = combos.getWidth() / 2;
         c.trigger.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
-        c.div.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
         if (info.usesAxis)
             c.axis.setBounds (combos.reduced (3, 1));
 
@@ -783,7 +985,7 @@ private:
         c.fire.setBounds (options.reduced (2, 1).withTrimmedTop (13).withHeight (juce::jmin (24, juce::jmax (16, options.getHeight() - 14))));
 
         // Knobs on the right, two rows of four.
-        std::vector<juce::Component*> knobs { &c.rate, &c.smooth };
+        std::vector<juce::Component*> knobs { c.rate.layoutItem(), &c.smooth };
         for (int param = 0; param < LfoSimInfo::numParams; ++param)
             if (info.params[(size_t) param].name != nullptr)
                 knobs.push_back (c.sim[(size_t) param].get());
@@ -802,6 +1004,7 @@ private:
         layoutRow (inner.removeFromTop (knobHeight), first);
         inner.removeFromTop (rowGap);
         layoutRow (inner.removeFromTop (knobHeight), second);
+        c.rate.matchBounds();
     }
 
     void updateVisibility()
@@ -821,9 +1024,9 @@ private:
             auto& c = *controlsList[(size_t) lfo];
             const auto visible = lfo == selected;
             c.shape.setVisible (visible);
-            c.rate.setVisible (visible);
+            c.rate.setShown (visible);
             c.sync.setVisible (visible);
-            c.div.setVisible (visible);
+            c.div.setVisible (false);
             c.retrig.setVisible (visible);
             c.key.setVisible (visible);
             c.phase.setVisible (visible);
@@ -846,20 +1049,17 @@ private:
         }
 
         thumbs.setSelected (selected);
+        indexRow.setSelected (selected);
         resized();
         scrollToCard (thumbView, thumbs.boundsOfCard (selected));
         repaint();
     }
 
-    // RATE only matters free-running and DIVISION only when synced, so the
-    // unused one steps back.
     IlanaAnim::ChangeGate changeGate;
 
     void timerCallback() override
     {
         auto& c = *controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, selected)];
-        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_sync");
-        const auto synced = sync != nullptr && sync->load() > 0.5f;
         const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_shape")->load();
         if (shape != lastShape)
         {
@@ -873,14 +1073,6 @@ private:
             }
             updateVisibility();
         }
-        const auto rateAlpha = synced ? IlanaTheme::dimmedAlpha : 1.0f;
-        const auto divAlpha = synced ? 1.0f : IlanaTheme::dimmedAlpha;
-
-        if (c.rate.getAlpha() != rateAlpha)
-            c.rate.setAlpha (rateAlpha);
-
-        if (c.div.getAlpha() != divAlpha)
-            c.div.setAlpha (divAlpha);
 
         if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
             repaint (panel);
@@ -889,6 +1081,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
+    PoolIndexRow indexRow { IlanaSynthAudioProcessor::numLfos, "LFO" };
     juce::Viewport thumbView;
     LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;

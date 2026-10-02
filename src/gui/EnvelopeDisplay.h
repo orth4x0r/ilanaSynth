@@ -2,9 +2,12 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <tuple>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
@@ -26,7 +29,9 @@ public:
           followsTheme (followsThemeIn)
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse), drag the curve to bend the tension, "
-                    "double-click a handle to reset it");
+                    "double-click a handle to reset it.\nTime runs on a square-root scale: the ticks give the time since "
+                    "the note started, and after the sustain since the key was let go (+). The dot is the last note "
+                    "played.");
         startTimerHz (30);
     }
 
@@ -62,6 +67,8 @@ public:
         const auto geo = layoutGeometry();
 
         const auto path = curvePath (geo);
+
+        paintTimeTicks (g, geo);
 
         // DAHDSR: the delay and hold stretches get a faint band and a label.
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
@@ -121,16 +128,24 @@ public:
                                .withCentre (point));
         }
 
-        const auto monitor = readMonitor();
-
-        if (monitor > 0.002f)
+        // The last played note's place on the curve.
+        if (const auto playhead = playheadPoint (geo); playhead.has_value())
         {
+            // In the curve's colour with a white rim, so it doesn't read as
+            // one of the white stage handles.
+            g.setColour (curveColour.withAlpha (0.3f));
+            g.fillEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (*playhead));
+            g.setColour (curveColour.interpolatedWith (juce::Colours::white, 0.15f));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (*playhead));
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.drawEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (*playhead), 1.4f);
+        }
+        else if (const auto monitor = readMonitor(); monitor > 0.002f)
+        {
+            // No stage to place it by: a short tick at the edge for the level.
             const auto monitorY = geo.yBottom - monitor * (geo.yBottom - geo.yTop);
-
-            g.setColour (curveColour.withAlpha (0.5f));
-            g.fillRect (juce::Rectangle<float> (geo.plot.getWidth(), 1.2f)
-                            .withCentre ({ geo.plot.getCentreX(), monitorY }));
-            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ geo.plot.getRight(), monitorY }));
+            g.setColour (curveColour.withAlpha (0.7f));
+            g.fillRect (juce::Rectangle<float> (8.0f, 2.0f).withPosition (geo.plot.getRight() - 8.0f, monitorY - 1.0f));
         }
 
         if (readout.isNotEmpty())
@@ -251,6 +266,119 @@ private:
         };
     }
 
+public:
+    // Where the dot for the last played note sits: on the curve at its
+    // stage and progress (in the release, at its actual level, since a
+    // note let go early releases from below the sustain). None while idle.
+    std::optional<juce::Point<float>> playheadPoint() const { return playheadPoint (layoutGeometry()); }
+
+private:
+    std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
+    {
+        const auto position = processorRef.getEnvMonitorPosition (envelopeIndex());
+
+        // Idle, or an envelope that isn't running (it waits at the start).
+        if (position <= 0.0f)
+            return std::nullopt;
+
+        const auto stage = juce::jlimit (0, 5, (int) position);
+        const auto u = juce::jlimit (0.0f, 1.0f, position - (float) stage);
+        const auto height = geo.yBottom - geo.yTop;
+
+        switch (stage)
+        {
+            case 0: return juce::Point<float> (geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom);
+            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - std::pow (u, geo.exponent) * height);
+            case 2: return juce::Point<float> (geo.xA + u * (geo.xH - geo.xA), geo.yTop);
+            case 3: return juce::Point<float> (geo.xH + u * (geo.xD - geo.xH),
+                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - std::pow (1.0f - u, geo.exponent)));
+            case 4: return juce::Point<float> (geo.xD + 0.25f * (geo.xS - geo.xD), geo.ySustain);
+            default: return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
+                                                geo.yBottom - juce::jlimit (0.0f, 1.0f, readMonitor()) * height);
+        }
+    }
+
+    // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) for this graph.
+    int envelopeIndex() const
+    {
+        if (paramPrefix.startsWith ("env"))
+            return paramPrefix.substring (3).getIntValue() - 1;
+
+        return paramPrefix == "fe" ? 1 : paramPrefix == "f2e" ? 2 : paramPrefix == "me" ? 3 : paramPrefix == "e4" ? 4 : 0;
+    }
+
+    // Faint time lines on the square-root axis. Inside a stage time runs
+    // evenly, so a tick lands where the note is that long after its start
+    // (through delay, attack, hold and decay) or, past the sustain, after
+    // the key was let go. Ticks at 10 ms, 100 ms, 1 s and 10 s are labelled;
+    // the 2s and 5s between them are short marks at the base.
+    void paintTimeTicks (juce::Graphics& g, const Geometry& geo) const
+    {
+        const float spans[] { readSeconds ("delay"), readSeconds ("attack"), readSeconds ("hold"), readSeconds ("decay") };
+        const float edges[] { geo.x0, geo.xStart, geo.xA, geo.xH, geo.xD };
+
+        const auto noteX = [&] (float seconds) -> float
+        {
+            auto start = 0.0f;
+
+            for (int stage = 0; stage < 4; ++stage)
+            {
+                if (spans[stage] > 0.0f && seconds < start + spans[stage])
+                    return edges[stage] + (seconds - start) / spans[stage] * (edges[stage + 1] - edges[stage]);
+
+                start += juce::jmax (0.0f, spans[stage]);
+            }
+
+            return -1.0f;
+        };
+        const auto release = readSeconds ("release");
+        const auto releaseX = [&] (float seconds)
+        {
+            return release > 0.0f && seconds < release ? geo.xS + seconds / release * (geo.xR - geo.xS) : -1.0f;
+        };
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (font);
+        std::vector<juce::Range<float>> labelled;
+
+        for (const auto inRelease : { false, true })
+        {
+            // Longest first, so where ticks crowd the bigger time keeps its label.
+            for (const auto seconds : { 20.0f, 10.0f, 5.0f, 2.0f, 1.0f, 0.5f, 0.2f, 0.1f, 0.05f, 0.02f, 0.01f, 0.005f, 0.002f })
+            {
+                const auto x = inRelease ? releaseX (seconds) : noteX (seconds);
+
+                if (x < 0.0f)
+                    continue;
+
+                const auto decade = std::abs (std::log10 (seconds) - std::round (std::log10 (seconds))) < 1.0e-3f && seconds >= 0.01f;
+
+                if (! decade)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.12f));
+                    g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, geo.yBottom - 4.0f));
+                    continue;
+                }
+
+                g.setColour (juce::Colours::white.withAlpha (0.06f));
+                g.fillRect (juce::Rectangle<float> (1.0f, geo.yBottom - geo.yTop).withPosition (x, geo.yTop));
+
+                const auto text = (inRelease ? "+" : "") + (seconds < 1.0f ? juce::String (juce::roundToInt (seconds * 1000.0f)) + " ms"
+                                                                          : juce::String (juce::roundToInt (seconds)) + " s");
+                const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
+                const auto span = juce::Range<float> (x + 3.0f, x + 3.0f + width);
+
+                if (span.getEnd() > geo.plot.getRight() + 10.0f
+                    || std::any_of (labelled.begin(), labelled.end(), [span] (juce::Range<float> other) { return other.expanded (4.0f).intersects (span); }))
+                    continue;
+
+                labelled.push_back (span);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (text, juce::Rectangle<float> (span.getStart(), geo.yBottom - 13.0f, width, 12.0f), juce::Justification::centredLeft);
+            }
+        }
+    }
+
     float readMonitor() const
     {
         if (paramPrefix.startsWith ("env"))
@@ -275,7 +403,8 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
+                                                                ^ IlanaAnim::phaseSignature (processorRef.getEnvMonitorPosition (envelopeIndex()), 31))))
             repaint();
     }
 

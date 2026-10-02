@@ -30,6 +30,7 @@
 #include "gui/ClipEditor.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
+#include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -192,7 +193,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     // Seven tabs; the ones holding several pages switch them from the tab
     // row (PLAY: overview and vector, OSC: oscillators and the physical
-    // view, MOD: envelopes and LFOs, step LFOs and MSEG, the matrix).
+    // view, MOD: envelopes, LFOs and the MSEG, the matrix).
     const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
     {
         auto* section = new SectionPage();
@@ -215,7 +216,6 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("OSC", { { "OSC", "OSCILLATORS", new OscPageViewport (p) }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
-                         { "STEPS", "STEPS & MSEG", new SeqPage (p, SeqPage::Part::modulators) },
                          { "MATRIX", "MATRIX", new MatrixPage (p) } });
     addSection ("FM", { { "FM", "FM", new FmPage (p) } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
@@ -1101,6 +1101,14 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
     if (id == "SCOPE")
     {
         setScopeOpen (true);
+        return;
+    }
+
+    // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): its old id
+    // opens there.
+    if (id == "STEPS")
+    {
+        showPage ("ENV/LFO");
         return;
     }
 

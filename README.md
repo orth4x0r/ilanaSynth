@@ -197,11 +197,13 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 ### Envelopes & LFOs
 - **16 tension envelopes**: AMP, FILTER 1, FILTER 2, MOD, ENV 5 and ENV 6–16. The five original parameter sets keep their saved IDs.
   - They're shown as cards that mark the ones in use and name what each drives (for example "Filter 1" or "Filter1 Cutoff +2"). Drag a card onto a knob to modulate it. LFO cards do the same, and an LFO that drives nothing is drawn faint.
-  - The ENV page starts with AMP, FILTER 1 and FILTER 2. Click **+** to add another; the cards keep their size and the row scrolls sideways past five. Right-click a card to remove it. Envelopes in use (assigned in the matrix, as an amp envelope or by a filter's env amount) always show. LFOs work the same way: three cards and a **+**. What is shown is saved in the patch.
-  - Drag the graph's handles for A / D / S / R, and drag a curve to bend its tension. Double-click a handle to reset it.
+  - The ENV page starts with AMP, FILTER 1 and FILTER 2. Click **+** to add another; the cards narrow to fit, then the row scrolls sideways. Hover a card and click its **×** (or right-click it) to remove it: one that drives something asks first, and its routes go with it in one undo step. Envelopes in use (assigned in the matrix, as an amp envelope or by a filter's env amount) always show. LFOs work the same way: three cards and a **+**. What is shown is saved in the patch, and PLAY's envelope tabs list the same envelopes.
+  - Drag the graph's handles for A / D / S / R; the value shows beside the handle. **CURVE** bends the attack, decay and release together, and the dot on each segment curves that segment alone. Double-click a handle or a dot to reset it. The time ruler sits under the graph.
   - Each is a DAHDSR: **DELAY** and **HOLD** knobs, plus **KEY RATE**, which shortens every stage up the keyboard.
 - **16 LFOs** (LFO 1–3 shown by default, **+** for more; the card row scrolls past four):
-  - Shapes: Sine, Triangle, Saw up, Saw down, Square, S&H, Draw, Steps, Curve, Smooth Random, Drunk, Chaos, and the physics shapes Bounce, Pendulum, Spring and Friction.
+  - Shapes, grouped in the SHAPE menu: Basic (Sine, Triangle, Saw up, Saw down, Square), Drawn (Draw, Steps, Curve), Random, Chaos and Physics. The older takes on some of these (the first S&H, Smooth Random, Drunk, Chaos and the classic physics shapes) sit under Legacy while a patch uses one.
+  - **Steps** is a shape: the LFO's graph becomes 16 bars to drag.
+  - Simulated shapes have two outputs: drag the **A** or **B** tag on the graph (or the card's **B**) onto a knob.
   - LFO 5–16 cost nothing until a mod slot uses them.
   - Free rate or host-synced divisions, and a start phase.
   - **RETRIG** runs the LFO per voice.
@@ -210,8 +212,9 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - Click to add a point, drag to move it, drag a segment to bend it, and double-click a point to delete it.
   - Right-click for presets, grid, flip and reverse.
 
-### SEQ, and MOD > STEPS & MSEG
-- **Step sequencers and MSEG** (MOD > STEPS & MSEG): two 16-step LFO editors, and a 4-stage looping MSEG with a clocked sample & hold.
+### SEQ, MSEG and the clocked S&H
+- **MSEG**: a 4-stage looping shape with its own card after the LFOs on MOD > ENV / LFO, edited there (drag a point; right-click for shapes). It is also an oscillator ENVELOPE choice.
+- **Clocked S&H**: a random value on every step of its DIVISION. Its card joins the LFO pool once a mod slot uses it.
 - **Arpeggiator**: 9 modes (Up, Down, UpDown, Random, DownUp, Converge, Walk, Chord, Scale Random), 1–4 octaves, host-synced rate, gate and step chance, with a live pattern display.
   - While the host plays, steps lock to its beat grid. Notes start and stop on the exact sample they arrive.
   - It stops on All Notes Off, All Sound Off or when the host transport stops, so a clip whose note-offs go missing can't leave it running.

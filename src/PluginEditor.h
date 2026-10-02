@@ -54,7 +54,7 @@ public:
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
     // Pages by id ("MAIN", "VECTOR", "OSC", "PHYSICAL", "FILTER", "ENV/LFO",
-    // "STEPS", "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
+    // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
     juce::String getCurrentPageId() const;

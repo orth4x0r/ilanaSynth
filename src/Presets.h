@@ -35,6 +35,9 @@ struct FactoryPreset
         bool withFx = true;
     };
     std::vector<Bounce> bounces {};
+    // The browser's category when it differs from category (DX7 voices: the
+    // kind of sound, while category stays "DX7" for the tools and tests).
+    const char* browseCategory = nullptr;
 };
 
 inline const std::vector<FactoryPreset>& getLegacyPresets()
@@ -959,6 +962,10 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
     return presets;
 }
 
+// The categories the browser and the header show: getFactoryPresetCategories,
+// with each DX7 voice under the kind of sound it is (Keys, Bass, Pad...).
+inline juce::StringArray getFactoryBrowseCategories();
+
 inline juce::StringArray getFactoryPresetCategories()
 {
     auto categories = getLegacyCategories();
@@ -966,6 +973,17 @@ inline juce::StringArray getFactoryPresetCategories()
 
     for (auto i = (size_t) categories.size(); i < presets.size(); ++i)
         categories.add (presets[i].category != nullptr ? presets[i].category : "Other");
+
+    return categories;
+}
+inline juce::StringArray getFactoryBrowseCategories()
+{
+    auto categories = getFactoryPresetCategories();
+    const auto& presets = getFactoryPresets();
+
+    for (size_t i = 0; i < presets.size() && i < (size_t) categories.size(); ++i)
+        if (presets[i].browseCategory != nullptr)
+            categories.set ((int) i, presets[i].browseCategory);
 
     return categories;
 }

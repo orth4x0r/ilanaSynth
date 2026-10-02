@@ -167,6 +167,40 @@ int main (int argc, char** argv)
 
     const auto names = processor.getFactoryPresetNames();
 
+    // ILANA_PRESET_PARAMS=file: write each factory preset's loaded values
+    // instead (one JSON object per line: name, categories, macro names and
+    // every parameter away from its default), for tools/tag_presets.py.
+    if (const auto paramsPath = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_PARAMS", ""); paramsPath.isNotEmpty())
+    {
+        std::ofstream params (paramsPath.toStdString());
+        const auto categories = processor.getFactoryPresetCategories();
+        const auto browse = processor.getAllPresetCategories();
+
+        for (int i = 0; i < names.size(); ++i)
+        {
+            processor.loadFactoryPreset (i);
+            auto* line = new juce::DynamicObject();
+            line->setProperty ("index", i);
+            line->setProperty ("name", names[i]);
+            line->setProperty ("category", categories[i]);
+            line->setProperty ("browse", browse[i]);
+            juce::Array<juce::var> macros;
+            for (int m = 0; m < 4; ++m)
+                macros.add (processor.getMacroName (m));
+            line->setProperty ("macros", macros);
+            auto* values = new juce::DynamicObject();
+            for (auto* parameter : processor.getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                    if (std::abs (ranged->getValue() - ranged->getDefaultValue()) > 1.0e-6f)
+                        values->setProperty (ranged->getParameterID(), ranged->convertFrom0to1 (ranged->getValue()));
+            line->setProperty ("params", juce::var (values));
+            params << juce::JSON::toString (juce::var (line), true).toStdString() << "\n";
+        }
+
+        std::cout << "wrote " << names.size() << " presets' values to " << paramsPath << std::endl;
+        return 0;
+    }
+
     // ILANA_FINGERPRINT_ONLY=a,b: only presets whose names contain one of
     // these (for quick iteration; the filter model rows are always written).
     const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_FINGERPRINT_ONLY", ""), ",", "");

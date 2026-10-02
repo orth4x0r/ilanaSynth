@@ -854,6 +854,7 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
     const auto makeup = juce::Decibels::decibelsToGain (getParam ("fx_comp_makeup"));
     const auto mix = getParam ("fx_comp_mix");
+    auto deepestGain = 1.0f; // for the card's meter only
 
     for (int channel = 0; channel < numChannels; ++channel)
     {
@@ -871,12 +872,15 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
             if (envelope > threshold)
                 gain = std::pow (envelope / threshold, 1.0f / ratio - 1.0f);
 
+            deepestGain = juce::jmin (deepestGain, gain);
             const auto processed = data[i] * gain * makeup;
             data[i] = data[i] + (processed - data[i]) * mix;
         }
 
         compEnvelope[channel] = envelope;
     }
+
+    compGainReduction.store (deepestGain);
 }
 
 void IlanaSynthAudioProcessor::processHaas (juce::AudioBuffer<float>& buffer)
@@ -1320,6 +1324,7 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
     const auto lowCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 200.0 / currentSampleRate);
     const auto highCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 2000.0 / currentSampleRate);
     const auto envelopeCoefficient = (float) std::exp (-1.0 / (0.01 * currentSampleRate));
+    float bandGains[3] { 1.0f, 1.0f, 1.0f }; // for the card's meters only
 
     for (int channel = 0; channel < channels; ++channel)
     {
@@ -1346,11 +1351,15 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
 
                 const auto gain = juce::jlimit (0.25f, 4.0f, std::pow (envelope + 0.001f, -0.6f * amount));
                 output += bands[band] * gain;
+                bandGains[band] = gain;
             }
 
             data[i] = input + (output - input) * mix;
         }
     }
+
+    for (int band = 0; band < 3; ++band)
+        ottBandGain[(size_t) band].store (bandGains[band]);
 }
 
 void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
@@ -1360,6 +1369,8 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
     const auto ceiling = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 0.0f, getParam ("fx_limit_ceiling")));
     const auto releaseMs = juce::jmax (1.0f, getParam ("fx_limit_release"));
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
+
+    auto deepestGain = 1.0f; // for the card's meter only
 
     for (int channel = 0; channel < channels; ++channel)
     {
@@ -1375,9 +1386,12 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
                 limiterEnvelope[channel] = magnitude + (limiterEnvelope[channel] - magnitude) * releaseCoefficient;
 
             const auto gain = limiterEnvelope[channel] > ceiling ? ceiling / limiterEnvelope[channel] : 1.0f;
+            deepestGain = juce::jmin (deepestGain, gain);
             data[i] *= gain;
         }
     }
+
+    limiterGainReduction.store (deepestGain);
 }
 
 void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)

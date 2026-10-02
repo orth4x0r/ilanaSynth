@@ -39,6 +39,7 @@
 #include "gui/ConfirmOverlay.h"
 #include "gui/LfoDisplay.h"
 #include "gui/RemapEditor.h"
+#include "gui/FxDisplays.h"
 
 namespace
 {
@@ -653,9 +654,15 @@ int runUiTests()
         findAll<juce::TextButton> (*editor, textButtons);
         juce::TextButton* reverb = nullptr;
 
+        juce::TextButton* delay = nullptr;
+
         for (auto* button : textButtons)
-            if (button->getButtonText().contains ("REVERB") && visibleInTree (button))
+        {
+            if (button->getButtonText() == "REVERB" && visibleInTree (button))
                 reverb = button;
+            if (button->getButtonText() == "DELAY" && visibleInTree (button))
+                delay = button;
+        }
 
         expect (reverb != nullptr, "the empty rack shows quick-add buttons");
 
@@ -669,11 +676,221 @@ int runUiTests()
             const auto* page = pages->getCurrentPage();
             expect (reverb->isVisible() && page != nullptr && reverb->getX() < 330 && reverb->getY() > 100,
                     "quick-add buttons move under the rack once it has an effect");
-            reverb->triggerClick();
+            // The rack takes each effect once: REVERB greys out, DELAY goes into slot 2.
+            expect (! reverb->isEnabled() && delay != nullptr && delay->isEnabled(),
+                    "a type already in the rack is greyed out in the library");
+            if (delay != nullptr)
+                delay->triggerClick();
             settle (400);
             const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
-            expect (slot2 != nullptr && (int) slot2->load() == 13, "a second quick-add goes into slot 2");
+            expect (slot2 != nullptr && (int) slot2->load() == 9, "a second quick-add goes into slot 2");
         }
+    }
+
+    // FX cards (UI review 4, batch D): sized to their controls, a display
+    // per family, one MIX, the header's solo / band / SLOT BLEND.
+    {
+        const auto loadFx = [&] (std::initializer_list<int> types)
+        {
+            auto slot = 1;
+            for (auto type : types)
+                processor.assignFxSlot (slot++, type);
+            for (; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                processor.assignFxSlot (slot, 0);
+            settle (400);
+        };
+        // The stack's viewport: the one whose content holds the FX knobs.
+        const auto stackViewport = [&]() -> juce::Viewport*
+        {
+            std::vector<juce::Viewport*> viewports;
+            findAll<juce::Viewport> (*editor, viewports);
+            for (auto* viewport : viewports)
+            {
+                if (! visibleInTree (viewport) || viewport->getViewedComponent() == nullptr)
+                    continue;
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*viewport->getViewedComponent(), knobs);
+                for (auto* knob : knobs)
+                    if (knob->getParameterId().startsWith ("fx_"))
+                        return viewport;
+            }
+            return nullptr;
+        };
+        // Every shown control of the cards (and the displays), in content coordinates.
+        const auto cardControls = [&] (juce::Viewport& viewport)
+        {
+            std::vector<juce::Component*> found;
+            for (auto* child : viewport.getViewedComponent()->getChildren())
+                if (child->isVisible() && ! child->getBounds().isEmpty())
+                    found.push_back (child);
+            return found;
+        };
+        const auto checkCards = [&] (const juce::String& what, bool allInView)
+        {
+            auto* viewport = stackViewport();
+            expect (viewport != nullptr, what + ": the FX stack is on screen");
+            if (viewport == nullptr)
+                return;
+            viewport->setViewPosition (0, 0);
+            settle (100);
+            const auto controls = cardControls (*viewport);
+            const auto view = viewport->getViewArea();
+            juce::String clipped, overlapping;
+            for (size_t i = 0; i < controls.size(); ++i)
+            {
+                const auto bounds = controls[i]->getBounds();
+                if (! viewport->getViewedComponent()->getLocalBounds().contains (bounds) || (allInView && ! view.contains (bounds)))
+                    clipped << controls[i]->getName() << typeid (*controls[i]).name() << bounds.toString() << " ";
+                for (size_t j = i + 1; j < controls.size(); ++j)
+                    if (bounds.intersects (controls[j]->getBounds()))
+                        overlapping << bounds.toString() << "/" << controls[j]->getBounds().toString() << " ";
+            }
+            expect (clipped.isEmpty(), what + ": no FX card control is clipped " + clipped);
+            expect (overlapping.isEmpty(), what + ": no two FX card controls overlap " + overlapping);
+        };
+        const auto shownKnob = [&] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    return true;
+            return false;
+        };
+        const auto shownDisplays = [&]
+        {
+            std::vector<FxDisplay*> displays;
+            findAll<FxDisplay> (*editor, displays);
+            return (int) std::count_if (displays.begin(), displays.end(), [] (FxDisplay* d) { return visibleInTree (d); });
+        };
+        const auto findButtons = [&] (const juce::String& text)
+        {
+            std::vector<juce::TextButton*> buttons, matching;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == text && visibleInTree (button))
+                    matching.push_back (button);
+            return matching;
+        };
+
+        pages->showPage ("FX");
+        loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
+        checkCards ("3 effects", true);
+        expect (shownDisplays() == 2, "Drive and OTT cards show a display, Vowel none");
+        expect (findButtons ("S").size() == 3, "each card header has a solo button");
+        loadFx ({ 27, 2, 20, 13 });
+        checkCards ("4 effects", false);
+        loadFx ({ 9, 4, 13, 21 });
+        checkCards ("delay, comp, reverb, limiter", false);
+        expect (shownDisplays() == 4, "delay, comp, reverb and limiter each show a display");
+
+        // The delay's custom tap grid only while TAPS is on.
+        const auto tapGridShown = [&]
+        {
+            std::vector<juce::Component*> all;
+            findAll<juce::Component> (*editor, all);
+            for (auto* component : all)
+                if (component->getName() == "CUSTOM TAP GRID")
+                    return visibleInTree (component);
+            return false;
+        };
+        auto* taps = processor.apvts.getParameter ("fx_taps_on");
+        taps->setValueNotifyingHost (0.0f);
+        settle (300);
+        const auto hiddenWhileOff = ! tapGridShown();
+        taps->setValueNotifyingHost (1.0f);
+        settle (300);
+        expect (hiddenWhileOff && tapGridShown(), "the delay's tap grid shows only while TAPS is on");
+        checkCards ("delay with taps", false);
+        taps->setValueNotifyingHost (0.0f);
+
+        // Solo is a visible button in the card header.
+        if (auto soloButtons = findButtons ("S"); ! soloButtons.empty())
+        {
+            soloButtons.front()->triggerClick();
+            settle (200);
+            expect (processor.apvts.getRawParameterValue ("fx_slot1_solo")->load() > 0.5f, "the header's S button solos its slot");
+            soloButtons.front()->triggerClick();
+            settle (200);
+        }
+
+        // The slot blend sits in the selected card, not beside CHAIN.
+        {
+            std::vector<juce::Slider*> sliders;
+            findAll<juce::Slider> (*editor, sliders);
+            auto* viewport = stackViewport();
+            auto inCard = false;
+            for (auto* slider : sliders)
+                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider))
+                    inCard = viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent();
+            expect (inCard, "SLOT BLEND is in the selected card's header");
+        }
+
+        // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
+        loadFx ({ 33 }); // AW Saturation; its first effect, Density3, has Dry/Wet as knob 4
+        processor.apvts.getParameter ("fx_awsat_algo")->setValueNotifyingHost (0.0f);
+        settle (300);
+        expect (shownKnob ("fx_awsat_p1") && ! shownKnob ("fx_awsat_p4") && shownKnob ("fx_awsat_mix"),
+                "AW Saturation shows DENSITY and MIX but not the algorithm's Dry/Wet");
+        expect (shownDisplays() == 1, "AW Saturation shows its transfer curve");
+        loadFx ({ 30 });
+        if (auto* algo = processor.apvts.getParameter ("fx_aw_algo"))
+            algo->setValueNotifyingHost (algo->convertTo0to1 (3.0f)); // Density: Dry/Wet is knob 4
+        settle (300);
+        expect (shownKnob ("fx_aw_p1") && ! shownKnob ("fx_aw_p4") && shownKnob ("fx_aw_mix"),
+                "the all-in-one Airwindows module hides the algorithm's Dry/Wet");
+        {
+            processor.apvts.getParameter ("fx_aw_algo")->setValueNotifyingHost (0.0f); // ToTape6
+            settle (300);
+            std::vector<juce::ComboBox*> boxes;
+            findAll<juce::ComboBox> (*editor, boxes);
+            juce::String shown;
+            for (auto* box : boxes)
+                if (visibleInTree (box) && box->getTooltip().startsWith ("Airwindows ToTape6"))
+                    shown = box->getText();
+            expect (shown == "To Tape 6", "the Airwindows menu shows \"To Tape 6\" for ToTape6 (" + shown + ")");
+        }
+        checkCards ("Airwindows", true);
+
+        // DICE starts its own undo step, and undo brings the chain back.
+        loadFx ({ 13, 9 });
+        if (auto dice = findButtons ("DICE FX"); ! dice.empty())
+        {
+            processor.getUndoManager().beginNewTransaction();
+            dice.front()->triggerClick();
+            settle (300);
+            const auto described = processor.getUndoManager().getUndoDescription();
+            processor.getUndoManager().undo();
+            settle (300);
+            expect (described == "Dice FX chain" && (int) processor.apvts.getRawParameterValue ("fx_slot1")->load() == 13
+                        && (int) processor.apvts.getRawParameterValue ("fx_slot2")->load() == 9,
+                    "DICE FX is one undo step (" + described + ")");
+        }
+        else
+            expect (false, "the FX toolbar has a DICE FX button");
+
+        // The live meters: OTT and the limiter report gain while audio runs.
+        {
+            loadFx ({ 20, 21 });
+            processor.apvts.getParameter ("fx_limit_ceiling")->setValueNotifyingHost (0.0f); // -24 dB
+            juce::AudioBuffer<float> audio (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 48, 1.0f), 0);
+            for (int block = 0; block < 20; ++block)
+            {
+                audio.clear();
+                processor.processBlock (audio, midi);
+                midi.clear();
+            }
+            expect (processor.getLimiterGainReduction() < 0.99f && std::abs (processor.getOttBandGain (1) - 1.0f) > 0.01f,
+                    "the limiter and OTT report their gain for the cards' meters");
+            juce::MidiBuffer off;
+            off.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+            processor.processBlock (audio, off);
+        }
+
+        processor.loadFactoryPreset (neuroWobble);
+        settle (300);
     }
 
     // M5/M6/M6b pages.

@@ -2,6 +2,8 @@
 // after its includes; the contents stay in the same anonymous namespace.
 #pragma once
 
+#include "../FxDisplays.h"
+
 namespace
 {
 class TapGrid : public juce::Component,
@@ -127,16 +129,17 @@ inline juce::Colour fxColour (int type)
     // confetti when colours followed the individual effects).
     switch (type)
     {
-        case 13: case 9: case 15: case 11: case 12: case 8: case 22:
-            return juce::Colour (0xff5cc4e8); // space: reverb, delay, dimension, smear, freeze, haas, widener
-        case 2: case 1: case 3: case 26: case 28: case 30:
-            return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback, airwindows
-        case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5: case 31:
-            return juce::Colour (0xff9a8cff); // motion: chorus .. comb, vocoder
+        // (The Airwindows category modules, 32-41, wear their function's.)
+        case 13: case 9: case 15: case 11: case 12: case 8: case 22: case 34: case 35: case 41:
+            return juce::Colour (0xff5cc4e8); // space: reverb, delay, dimension, smear, freeze, haas, widener, AW reverb/delay/stereo
+        case 2: case 1: case 3: case 26: case 28: case 30: case 32: case 33: case 39: case 40:
+            return juce::Colour (0xffff8a5c); // drive: drive, amp, crush, octaver, feedback, airwindows, AW tape/saturation/console/lo-fi
+        case 7: case 6: case 14: case 23: case 24: case 25: case 27: case 5: case 31: case 36:
+            return juce::Colour (0xff9a8cff); // motion: chorus .. comb, vocoder, AW modulation
         case 16: case 10: case 17:
             return juce::Colour (0xff7ad98e); // rhythm: trance gate, stutter, tape stop
-        case 29: case 18: case 4: case 20: case 21: case 19:
-            return juce::Colour (0xffe0c35c); // tone & level: eq, tilt, comp, ott, limiter, utility
+        case 29: case 18: case 4: case 20: case 21: case 19: case 37: case 38:
+            return juce::Colour (0xffe0c35c); // tone & level: eq, tilt, comp, ott, limiter, utility, AW dynamics/EQ
         default:
             return IlanaTheme::Ui::text3;
     }
@@ -287,6 +290,67 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int hoverStep = -1;
+};
+
+// An FX card's title as its type menu: the tag, the name and a chevron;
+// a click opens the list of effects to swap this slot's module for.
+class FxTypeButton : public juce::Component,
+                     public juce::SettableTooltipClient
+{
+public:
+    FxTypeButton()
+    {
+        setTooltip ("Change this slot's effect");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    std::function<void()> onClick;
+
+    void setTitle (const juce::String& newTitle, juce::Colour newColour)
+    {
+        if (newTitle == title && newColour == colour)
+            return;
+        title = newTitle;
+        colour = newColour;
+        repaint();
+    }
+
+    // Wide enough for the tag, the name and the chevron.
+    int preferredWidth() const { return IlanaTheme::cardTitleWidth (title) + 4; }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (isMouseOver())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat().withTrimmedLeft (-4.0f), 5.0f);
+        }
+
+        IlanaTheme::paintCardTitle (g, getLocalBounds(), title, colour);
+
+        // The chevron after the name.
+        const auto x = (float) IlanaTheme::cardTitleWidth (title) - 12.0f;
+        const auto y = (float) getHeight() * 0.5f;
+        juce::Path chevron;
+        chevron.startNewSubPath (x, y - 2.0f);
+        chevron.lineTo (x + 4.0f, y + 2.0f);
+        chevron.lineTo (x + 8.0f, y - 2.0f);
+        g.setColour (IlanaTheme::Ui::text2.withAlpha (isMouseOver() ? 1.0f : 0.7f));
+        g.strokePath (chevron, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+private:
+    juce::String title;
+    juce::Colour colour;
 };
 
 // Scrolling content for the FX stack: paints each module's panel and hands

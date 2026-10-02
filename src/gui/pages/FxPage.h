@@ -44,7 +44,7 @@ public:
           chorusRate (p.apvts, "fx_chorus_rate", "RATE"),
           chorusDepth (p.apvts, "fx_chorus_depth", "DEPTH"),
           chorusMix (p.apvts, "fx_chorus_mix", "MIX"),
-          haasDelay (p.apvts, "fx_haas_delay", "DELAY MS"),
+          haasDelay (p.apvts, "fx_haas_delay", "DELAY"),
           haasMix (p.apvts, "fx_haas_mix", "WIDTH"),
           delayOn (p.apvts, "fx_delay_on", "ON"),
           delayTime (p.apvts, "fx_delay_time", "TIME"),
@@ -63,7 +63,7 @@ public:
           stutterDiv (p.apvts, "fx_stutter_div", "DIV"),
           stutterMix (p.apvts, "fx_stutter_mix", "MIX"),
           smearOn (p.apvts, "fx_smear_on", "ON"),
-          smearSize (p.apvts, "fx_smear_size", "GRAIN MS"),
+          smearSize (p.apvts, "fx_smear_size", "GRAIN"),
           smearDensity (p.apvts, "fx_smear_density", "DENSITY"),
           smearMix (p.apvts, "fx_smear_mix", "MIX"),
           freezeOn (p.apvts, "fx_freeze_on", "HOLD"),
@@ -104,19 +104,19 @@ public:
           tremRate (p.apvts, "fx_trem_rate", "RATE"),
           tremDepth (p.apvts, "fx_trem_depth", "DEPTH"),
           tremShape (p.apvts, "fx_trem_shape", "SHAPE"),
-          shifterShift (p.apvts, "fx_shifter_shift", "SHIFT HZ"),
+          shifterShift (p.apvts, "fx_shifter_shift", "SHIFT"),
           shifterMix (p.apvts, "fx_shifter_mix", "MIX"),
           ringFreq (p.apvts, "fx_ring_freq", "FREQ"),
           ringMix (p.apvts, "fx_ring_mix", "MIX"),
           octaverMix (p.apvts, "fx_octaver_mix", "MIX"),
           vowelMorph (p.apvts, "fx_vowel_morph", "MORPH"),
           vowelMix (p.apvts, "fx_vowel_mix", "MIX"),
-          delayTimeR (p.apvts, "fx_delay_time_r", "TIME R"),
+          delayTimeR (p.apvts, "fx_delay_time_r", "TIME RIGHT"),
           delayDuck (p.apvts, "fx_delay_duck", "DUCK"),
           stutterReverse (p.apvts, "fx_stutter_reverse", "REVERSE"),
           stutterPitch (p.apvts, "fx_stutter_pitch", "PITCH"),
           feedbackAmount (p.apvts, "fx_feedback_amount", "AMOUNT"),
-          feedbackDelay (p.apvts, "fx_feedback_delay", "DELAY MS"),
+          feedbackDelay (p.apvts, "fx_feedback_delay", "DELAY"),
           feedbackTone (p.apvts, "fx_feedback_tone", "TONE"),
           feedbackMix (p.apvts, "fx_feedback_mix", "MIX"),
           eqLowFreq (p.apvts, "fx_eq_low_freq", "LOW FREQ"), eqLowGain (p.apvts, "fx_eq_low_gain", "LOW GAIN"),
@@ -213,7 +213,7 @@ public:
         {
             const juce::String prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
             auto& controls = awCategories.emplace_back();
-            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "EFFECT");
+            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "ALGORITHM");
             for (int k = 0; k < airwindows::Module::numKnobs; ++k)
                 controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
             controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
@@ -227,9 +227,35 @@ public:
             controls.algo->setPopupOverride ([this, c] { showCategoryMenu (c); });
         }
 
+        // The menus show Airwindows' names as words ("To Tape 6"); the saved
+        // choice strings stay the plugins' own.
+        const auto rename = [] (juce::ComboBox& box, const std::vector<int>& algorithms)
+        {
+            const auto selected = box.getSelectedId(); // (read before: it compares the shown text)
+            for (int i = 0; i < (int) algorithms.size(); ++i)
+                box.changeItemText (i + 1, airwindowsDisplayName (airwindows::registry()[(size_t) algorithms[(size_t) i]].name));
+            box.setSelectedId (selected, juce::dontSendNotification);
+        };
+        std::vector<int> everyAlgorithm;
+        for (int i = 0; i < airwindows::count(); ++i)
+            everyAlgorithm.push_back (i);
+        rename (awAlgo.getComboBox(), everyAlgorithm);
+        for (size_t c = 0; c < awCategories.size(); ++c)
+            rename (awCategories[c].algo->getComboBox(), airwindows::categoryModules()[c].algorithms);
+
         prevSlotButton.onClick = [this] { moveSelectedSlot (-1); };
         nextSlotButton.onClick = [this] { moveSelectedSlot (1); };
-        diceButton.onClick = [this] { processorRef.randomizeFxChain(); };
+        prevSlotButton.setTooltip ("Move the selected slot up: earlier in the chain (or drag its row)");
+        nextSlotButton.setTooltip ("Move the selected slot down: later in the chain (or drag its row)");
+        diceButton.setTooltip ("Random rack: new effects in every slot of this rack. Undo brings the old chain back.");
+        diceButton.onClick = [this]
+        {
+            processorRef.getUndoManager().beginNewTransaction ("Dice FX chain");
+            processorRef.randomizeFxChain();
+        };
+        chainAButton.setTooltip ("Rack A: one of two FX chains this patch stores. Click to hear and edit it; rack B keeps its own settings.");
+        chainBButton.setTooltip ("Rack B: one of two FX chains this patch stores. Click to hear and edit it; rack A keeps its own settings.");
+        copyChainButton.setTooltip ("Copy this rack's whole chain over the other rack");
         saveChainButton.onClick = [this] { saveChain(); };
         loadChainButton.onClick = [this] { loadChain(); };
         chainAButton.onClick = [this]
@@ -250,8 +276,21 @@ public:
         };
         copyChainButton.onClick = [this]
         {
-            processorRef.copyFxChainToOtherBank();
-            chainABChanged();
+            // The other rack is stored outside the parameters, so undo can't
+            // bring it back: ask first.
+            const auto other = juce::String (processorRef.isShowingChainA() ? "B" : "A");
+            juce::Component::SafePointer<FxPage> safeThis (this);
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Copy to rack " + other,
+                                                "Replace rack " + other + "'s chain with a copy of this one?",
+                                                "Copy", "Cancel", this,
+                                                juce::ModalCallbackFunction::create ([safeThis] (int result)
+                                                {
+                                                    if (result != 1 || safeThis == nullptr)
+                                                        return;
+                                                    safeThis->processorRef.getUndoManager().beginNewTransaction ("Copy FX rack");
+                                                    safeThis->processorRef.copyFxChainToOtherBank();
+                                                    safeThis->chainABChanged();
+                                                }));
         };
         loadIrButton.onClick = [this]
         {
@@ -285,6 +324,7 @@ public:
         addAndMakeVisible (copyChainButton);
         addAndMakeVisible (tapGrid);
         tapGrid.setVisible (false);
+        tapGrid.setName ("CUSTOM TAP GRID"); // (the UI test finds it by name)
 
         // The final stage after the rack.
         softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "SOFT CLIP");
@@ -293,10 +333,11 @@ public:
         addAndMakeVisible (*softClip);
         addAndMakeVisible (*clipGain);
 
+        // The selected slot's parallel blend, in its card's header.
         slotBlend.setSliderStyle (juce::Slider::LinearHorizontal);
-        slotBlend.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 16);
-        slotBlend.setTooltip ("Parallel blend for the selected slot: 0 is dry only, 1 is the full effect.");
-        addAndMakeVisible (slotBlend);
+        slotBlend.setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 16);
+        slotBlend.setTooltip ("Slot blend: this slot's output against the signal that came in (0 % dry only, 100 % the slot as set). The effect's own MIX works inside it.");
+        stackContent.addChildComponent (slotBlend);
 
         // Every loaded module's controls live in one scrolling stack.
         for (auto& group : slotGroups)
@@ -325,6 +366,7 @@ public:
                 {
                     selectedSlot = panel.slot;
                     bindBlend();
+                    layoutStack(); // SLOT BLEND moves to this card's header
                     repaint();
                     stackContent.repaint();
                 }
@@ -335,6 +377,36 @@ public:
         {
             slotSwitches[(size_t) slot] = std::make_unique<SlotSwitch> (p, slot);
             stackContent.addChildComponent (*slotSwitches[(size_t) slot]);
+
+            // Each card's header: its type menu, solo and band.
+            auto& header = cardHeaders[(size_t) slot];
+            const auto prefix = "fx_slot" + juce::String (slot + 1);
+            header.type.onClick = [this, slot]
+            {
+                selectedSlot = slot;
+                bindBlend();
+                layoutStack();
+                showTypeMenu (slot, &cardHeaders[(size_t) slot].type);
+            };
+            stackContent.addChildComponent (header.type);
+
+            header.solo.setClickingTogglesState (true);
+            header.solo.setTooltip ("Solo: hear only this slot's effect (wet only)");
+            IlanaTheme::makePill (header.solo, IlanaTheme::accent());
+            if (auto* solo = p.apvts.getParameter (prefix + "_solo"))
+                header.soloAttachment = std::make_unique<juce::ButtonParameterAttachment> (*solo, header.solo, nullptr);
+            stackContent.addChildComponent (header.solo);
+
+            header.band.addItemList ({ "FULL", "LOW", "MID", "HIGH", "M", "S" }, 1);
+            header.band.setTooltip ("Band: the part of the signal this slot works on (FULL, the LOW / MID / HIGH band, "
+                                    "or the Mid or Side of the stereo image); the rest passes around it. "
+                                    "Right-click the slot's row to set the crossovers.");
+            if (auto* band = p.apvts.getParameter (prefix + "_band"))
+                header.bandAttachment = std::make_unique<juce::ComboBoxParameterAttachment> (*band, header.band, nullptr);
+            stackContent.addChildComponent (header.band);
+
+            displays[(size_t) slot] = std::make_unique<FxDisplay> (p);
+            stackContent.addChildComponent (*displays[(size_t) slot]);
         }
 
         stackView.setViewedComponent (&stackContent, false);
@@ -356,42 +428,26 @@ public:
 
         for (const auto& pick : quickAddPicks())
         {
-            auto button = std::make_unique<juce::TextButton> (pick.second);
+            auto button = std::make_unique<juce::TextButton> (juce::String (pick.second).toUpperCase());
             const auto type = pick.first;
             button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised.interpolatedWith (fxColour (type), 0.08f));
             button->setColour (juce::TextButton::textColourOffId, fxColour (type).interpolatedWith (juce::Colours::white, 0.35f));
-            button->setTooltip ("Add " + juce::String (pick.second).toLowerCase() + " to the first empty slot");
-            const auto add = [this] (int typeToAdd)
+            button->setTooltip ("Add " + juce::String (pick.second) + " to the first empty slot");
+            if (type == 30)
+                button->setTooltip ("Add the all-in-one Airwindows module (every algorithm) to the first empty slot");
+            button->onClick = [this, type]
             {
                 for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
                 {
                     if (getSlotType (slot) == 0)
                     {
-                        processorRef.assignFxSlot (slot + 1, typeToAdd);
+                        processorRef.assignFxSlot (slot + 1, type);
                         selectedSlot = slot;
                         updateVisibility();
                         return;
                     }
                 }
             };
-            if (type == 30)
-            {
-                // AIRWINDOWS opens its category modules (and the all-in-one).
-                button->setTooltip ("Add an Airwindows module: pick a category");
-                button->onClick = [this, add, target = button.get()]
-                {
-                    juce::PopupMenu menu;
-                    const auto& categories = airwindows::categoryModules();
-                    for (int c = 0; c < (int) categories.size(); ++c)
-                        menu.addItem (airwindows::firstCategoryFxType + c, juce::String (categories[(size_t) c].label).fromFirstOccurrenceOf ("AW ", false, false));
-                    menu.addSeparator();
-                    menu.addItem (30, "All-in-one (every algorithm)");
-                    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
-                                        [add] (int result) { if (result > 0) add (result); });
-                };
-            }
-            else
-                button->onClick = [add, type] { add (type); };
             addChildComponent (*button);
             quickAddButtons.push_back (std::move (button));
         }
@@ -421,10 +477,6 @@ public:
                         outputStrip.withLeft (clipGain != nullptr ? clipGain->getRight() + 24 : outputStrip.getX()).withTrimmedRight (14),
                         juce::Justification::centredLeft);
         }
-
-        g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("BLEND", juce::Rectangle<int> (236, 15, 40, 18), juce::Justification::centredRight);
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
@@ -506,6 +558,7 @@ public:
             g.drawFittedText (slotType != 0 ? getSlotName (slotType) + bandTag : juce::String ("+  add effect"),
                               row.reduced (30, 6).withTrimmedRight (18), 1, juce::Justification::centredLeft);
 
+            // What the slot costs, as a share of the audio thread's time.
             if (slotType != 0 && ! bypassed)
             {
                 const auto cpu = processorRef.getFxSlotCpu (slot);
@@ -514,15 +567,16 @@ public:
                 {
                     g.setColour (IlanaTheme::Ui::text3);
                     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-                    g.drawText (juce::String (cpu * 100.0f, 1) + "%",
-                                juce::Rectangle<int> (row.getRight() - 78, row.getY() + 6, 26, 10),
+                    g.drawText ("CPU " + juce::String (cpu * 100.0f, 1) + "%",
+                                juce::Rectangle<int> (row.getRight() - 100, row.getY() + 6, 72, 10),
                                 juce::Justification::centredRight);
                 }
             }
 
+            // Soloed (set in the card's header): a badge, not a button.
             if (slotType != 0 && soloed)
             {
-                const juce::Rectangle<float> badge ((float) row.getRight() - 52.0f, (float) row.getY() + 6.0f, 16.0f, 10.0f);
+                const juce::Rectangle<float> badge ((float) row.getRight() - 120.0f, (float) row.getY() + 6.0f, 16.0f, 10.0f);
                 g.setColour (IlanaTheme::accent().withAlpha (0.9f));
                 g.fillRoundedRectangle (badge, 2.5f);
                 g.setColour (juce::Colours::black.withAlpha (0.85f));
@@ -629,10 +683,6 @@ public:
         }
 
         juce::ignoreUnused (type);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("Click a slot to add or jump to it, drag to reorder, right-click to change it.",
-                    juce::Rectangle<int> (stackView.getX(), stackView.getY() - 20, 600, 16), juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -644,13 +694,13 @@ public:
         toolbar.removeFromRight (4);
         saveChainButton.setBounds (toolbar.removeFromRight (86).reduced (0, 3));
         toolbar.removeFromRight (4);
-        diceButton.setBounds (toolbar.removeFromRight (50).reduced (0, 3));
+        diceButton.setBounds (toolbar.removeFromRight (70).reduced (0, 3));
         toolbar.removeFromRight (12);
-        nextSlotButton.setBounds (toolbar.removeFromRight (26).reduced (0, 3));
+        nextSlotButton.setBounds (toolbar.removeFromRight (78).reduced (0, 3));
         toolbar.removeFromRight (4);
-        prevSlotButton.setBounds (toolbar.removeFromRight (26).reduced (0, 3));
+        prevSlotButton.setBounds (toolbar.removeFromRight (66).reduced (0, 3));
         toolbar.removeFromRight (12);
-        copyChainButton.setBounds (toolbar.removeFromRight (104).reduced (0, 3));
+        copyChainButton.setBounds (toolbar.removeFromRight (112).reduced (0, 3));
         toolbar.removeFromRight (6);
         chainBButton.setBounds (toolbar.removeFromRight (58).reduced (0, 3));
         toolbar.removeFromRight (4);
@@ -659,7 +709,7 @@ public:
         area.removeFromTop (6);
 
         auto chainColumn = area.removeFromLeft (300);
-        rowsTop = chainColumn.getY() + 22; // level with the first effect card (under the hint line)
+        rowsTop = chainColumn.getY() + stackTopMargin; // level with the first effect card
 
         area.removeFromLeft (22);
 
@@ -674,10 +724,8 @@ public:
             clipGain->setBounds (strip.removeFromLeft (160));
         }
 
-        panel.removeFromTop (22); // hint line
         stackView.setBounds (panel);
         layoutStack();
-        slotBlend.setBounds (280, 15, 150, 18);
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -694,6 +742,7 @@ public:
             // drag, so it can't walk into the hidden rows).
             dragLimit = juce::jmax (0, numVisibleRows() - 2);
             bindBlend();
+            layoutStack();
             scrollToSlot (slot);
             stackContent.repaint();
             repaint();
@@ -710,16 +759,6 @@ public:
             if (ledZone.contains (event.getPosition()))
             {
                 if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + "_bypass"))
-                    parameter->setValueNotifyingHost (parameter->getValue() > 0.5f ? 0.0f : 1.0f);
-
-                return;
-            }
-
-            const juce::Rectangle<int> soloZone (row.getRight() - 60, row.getY(), 32, row.getHeight());
-
-            if (soloZone.contains (event.getPosition()))
-            {
-                if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + "_solo"))
                     parameter->setValueNotifyingHost (parameter->getValue() > 0.5f ? 0.0f : 1.0f);
 
                 return;
@@ -863,12 +902,28 @@ private:
         return 0;
     }
 
+    // An effect's name, from the library's table (the card title, the row
+    // and the menus all use it; the parameter's choice strings stay as saved).
     juce::String getSlotName (int type) const
     {
+        for (const auto& pick : quickAddPicks())
+            if (pick.first == type)
+                return pick.second;
+
         return juce::isPositiveAndBelow (type, slotNames.size()) ? slotNames[type] : juce::String ("-");
     }
 
-    void showTypeMenu (int slot)
+    // The slot already holding this type, or -1. A module type has one set
+    // of settings, so the menus grey out types the rack already has.
+    int slotHoldingType (int type, int except = -1) const
+    {
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            if (slot != except && getSlotType (slot) == type)
+                return slot;
+        return -1;
+    }
+
+    void showTypeMenu (int slot, juce::Component* target = nullptr)
     {
         juce::PopupMenu menu;
         const auto prefix = "fx_slot" + juce::String (slot + 1);
@@ -876,10 +931,20 @@ private:
         const auto soloed = processorRef.apvts.getParameter (prefix + "_solo")->getValue() > 0.5f;
 
         menu.addItem (1003, "Clear (None)", true, getSlotType (slot) == 0);
-        menu.addSeparator();
 
-        for (int i = 1; i < slotNames.size(); ++i)
-            menu.addItem (i + 1, slotNames[i], true, getSlotType (slot) == i);
+        // The library's groups and names; a type in another slot is greyed.
+        size_t pick = 0;
+        for (const auto& group : quickAddGroups())
+        {
+            menu.addSectionHeader (group.title);
+            for (int i = 0; i < group.count; ++i, ++pick)
+            {
+                const auto type = quickAddPicks()[pick].first;
+                const auto holder = slotHoldingType (type, slot);
+                menu.addItem (type + 1, getSlotName (type) + (holder >= 0 ? "  (in slot " + juce::String (holder + 1) + ")" : juce::String()),
+                              holder < 0, getSlotType (slot) == type);
+            }
+        }
 
         menu.addSeparator();
         menu.addItem (1001, "Bypass", true, bypassed);
@@ -896,7 +961,7 @@ private:
 
         juce::Component::SafePointer<FxPage> safeThis (this);
 
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target != nullptr ? target : this),
                             [safeThis, slot] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
@@ -1075,14 +1140,33 @@ private:
         updateAirwindowsKnobs (shown[30]);
         for (int c = 0; c < (int) awCategories.size(); ++c)
             updateCategoryKnobs (c, shown[(size_t) (airwindows::firstCategoryFxType + c)]);
-        tapGrid.setVisible (shown[9]);
+        // The custom tap grid only while TAPS is on.
+        tapGrid.setVisible (shown[9] && tapsEnabled());
         gateGrid->setVisible (shown[16]);
         eqCurve.setVisible (shown[29]);
         loadIrButton.setVisible (shown[13]);
 
+        // A type already in the rack can't be added again (it would only
+        // mirror the first one's settings).
+        for (size_t pick = 0; pick < quickAddButtons.size(); ++pick)
+        {
+            const auto type = quickAddPicks()[pick].first;
+            const auto holder = slotHoldingType (type);
+            auto& button = *quickAddButtons[pick];
+            button.setEnabled (holder < 0);
+            button.setTooltip (holder < 0 ? (type == 30 ? juce::String ("Add the all-in-one Airwindows module (every algorithm) to the first empty slot")
+                                                        : "Add " + getSlotName (type) + " to the first empty slot")
+                                          : getSlotName (type) + " is in slot " + juce::String (holder + 1) + " already");
+        }
+
+        copyChainButton.setButtonText (processorRef.isShowingChainA() ? "COPY TO RACK B" : "COPY TO RACK A");
+
         bindBlend();
         resized();
     }
+
+    bool tapsEnabled() const { return processorRef.apvts.getRawParameterValue ("fx_taps_on")->load() > 0.5f; }
+    bool delaySynced() const { return processorRef.apvts.getRawParameterValue ("fx_delay_sync")->load() > 0.5f; }
 
     void bindBlend()
     {
@@ -1101,14 +1185,36 @@ private:
     std::vector<std::unique_ptr<juce::TextButton>> quickAddButtons;
     std::vector<std::unique_ptr<juce::Label>> quickAddLabels;
 
+    struct StackPanel
+    {
+        int slot = 0, type = 0;
+        bool duplicate = false;
+        juce::Rectangle<int> bounds;
+    };
+
+    // Card geometry: a 30 px header (type menu, slot, solo, band, blend, on
+    // switch), then rows of controls sized to their knobs, with the
+    // family's display on the left where the module has one.
+    static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8;
+
     void layoutStack()
     {
         stackPanels.clear();
 
         for (auto& slotSwitch : slotSwitches)
             slotSwitch->setVisible (false);
+        for (auto& header : cardHeaders)
+        {
+            header.type.setVisible (false);
+            header.solo.setVisible (false);
+            header.band.setVisible (false);
+        }
+        for (auto& display : displays)
+            display->setVisible (false);
+        slotBlend.setVisible (false);
+
         const auto width = juce::jmax (100, stackView.getWidth() - stackView.getScrollBarThickness() - 4);
-        auto y = 0;
+        auto y = stackTopMargin; // (room for the first card's glow and its on switch's label space)
         std::array<bool, 64> placed {};
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
@@ -1134,19 +1240,19 @@ private:
                 return toggle == nullptr || ! toggle->isSwitch();
             });
             const auto rows = rowItems > 8 ? 2 : 1;
-            auto height = 30 + (panel.duplicate ? 30 : rows * 112 + 8);
+            const auto showTapGrid = type == 9 && tapsEnabled();
+            auto height = cardHeaderHeight + (panel.duplicate ? 30 : rows * cardRowHeight + cardPadding);
 
-            if (! panel.duplicate && type == 29)
-                height += 130;
-
-            if (! panel.duplicate && type == 9)
-                height += 58;
+            if (! panel.duplicate && showTapGrid)
+                height += 56;
 
             if (! panel.duplicate && type == 16)
                 height += 78;
 
             panel.bounds = { 0, y, width, height };
             y += height + 8;
+
+            layoutCardHeader (panel);
 
             // Duplicates share settings but bypass on their own.
             if (panel.duplicate)
@@ -1158,7 +1264,7 @@ private:
             if (! panel.duplicate)
             {
                 auto body = panel.bounds.reduced (10, 0);
-                body.removeFromTop (30);
+                body.removeFromTop (cardHeaderHeight);
 
                 // The module's on switch sits in its header (left of SLOT n),
                 // as on the oscillator and body cards; the rest fill the rows.
@@ -1170,7 +1276,7 @@ private:
                     auto* toggle = dynamic_cast<ToggleControl*> (item);
 
                     if (isAirwindowsType (type) && ! item->isVisible())
-                        continue; // an Airwindows knob the algorithm doesn't use
+                        continue; // an Airwindows knob the algorithm doesn't use (or its Dry/Wet)
 
                     if (toggle != nullptr && toggle->isSwitch() && power == nullptr)
                         power = toggle;
@@ -1191,30 +1297,47 @@ private:
                     slotSwitches[(size_t) slot]->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
                 }
 
+                auto rowsArea = body.removeFromTop (rows * cardRowHeight);
+
+                // The family's picture, left of the knobs.
+                if (type == 29 || FxDisplay::hasDisplay (type))
+                {
+                    const auto preferred = type == 29 ? 250 : (type == 9 ? 220 : (FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics || type == 13 ? 180 : 130));
+                    const auto displayWidth = juce::jmin (rowsArea.getWidth() / 3, preferred);
+                    const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
+                    rowsArea.removeFromLeft (12);
+
+                    if (type == 29)
+                        eqCurve.setBounds (displayArea);
+                    else
+                    {
+                        auto& display = *displays[(size_t) slot];
+                        display.setType (type, fxColour (type));
+                        display.setBounds (displayArea);
+                        display.setVisible (true);
+                    }
+                }
+
                 if (items.size() > 8)
                 {
                     const auto half = (int) (items.size() + 1) / 2;
-                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (items.begin(), items.begin() + half));
-                    layoutRow (body.removeFromTop (112), std::vector<juce::Component*> (items.begin() + half, items.end()));
+                    layoutRow (rowsArea.removeFromTop (cardRowHeight), std::vector<juce::Component*> (items.begin(), items.begin() + half));
+                    layoutRow (rowsArea.removeFromTop (cardRowHeight), std::vector<juce::Component*> (items.begin() + half, items.end()));
                 }
                 else
                 {
-                    // A short row is centred in the card, not pinned left.
-                    const auto maxWidth = juce::jmin (body.getWidth(), (int) items.size() * 120);
-                    layoutRow (body.removeFromTop (112).withSizeKeepingCentre (maxWidth, 112), items);
+                    // A short row is centred in its space, not pinned left.
+                    const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * 110);
+                    layoutRow (rowsArea.removeFromTop (cardRowHeight).withSizeKeepingCentre (maxWidth, cardRowHeight), items);
                 }
 
-                if (type == 29)
-                    eqCurve.setBounds (body.removeFromTop (126).reduced (0, 2));
+                body.removeFromTop (cardPadding);
 
-                if (type == 9)
-                    tapGrid.setBounds (body.removeFromTop (54).reduced (0, 2));
+                if (showTapGrid)
+                    tapGrid.setBounds (body.removeFromTop (56).reduced (0, 2).withTrimmedBottom (4));
 
                 if (type == 16)
-                    gateGrid->setBounds (body.removeFromTop (74).reduced (0, 2));
-
-                if (type == 13)
-                    loadIrButton.setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, 0).getX() - 8 - 96, panel.bounds.getY() + 5, 96, 18);
+                    gateGrid->setBounds (body.removeFromTop (78).reduced (0, 2).withTrimmedBottom (4));
             }
 
             stackPanels.push_back (panel);
@@ -1236,7 +1359,7 @@ private:
         stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
         stackContent.repaint();
 
-        // The library sits under the rack's rows in every state (three
+        // The library sits under the rack's rows in every state (four
         // across, a small heading per group) while it fits.
         size_t pick = 0;
         auto column = libraryColumn();
@@ -1275,6 +1398,41 @@ private:
         }
     }
 
+    // A card's header controls, right to left from the on switch: SLOT
+    // BLEND (the selected card only), the band, solo and, on the reverb,
+    // LOAD IR; the title on the left is the type menu.
+    void layoutCardHeader (const StackPanel& panel)
+    {
+        auto& header = cardHeaders[(size_t) panel.slot];
+        const auto top = panel.bounds.getY();
+        const auto lineY = top + 5;
+
+        header.type.setTitle (getSlotName (panel.type).toUpperCase(), isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : fxColour (panel.type));
+        header.type.setBounds (panel.bounds.getX() + 12, top + 4, header.type.preferredWidth(), 22);
+        header.type.setVisible (true);
+
+        auto right = IlanaTheme::cardSwitchBounds (panel.bounds, top + 14).getX() - 10;
+
+        if (panel.slot == selectedSlot)
+        {
+            slotBlend.setBounds (right - 128, lineY + 1, 128, 18);
+            slotBlend.setVisible (true);
+            right -= 128 + slotBlendLabelWidth + 12;
+        }
+
+        header.band.setBounds (right - 60, lineY, 60, 20);
+        header.band.setVisible (true);
+        right -= 60 + 6;
+        header.solo.setBounds (right - 24, lineY, 24, 20);
+        header.solo.setVisible (true);
+        right -= 24 + 8;
+
+        if (panel.type == 13 && ! panel.duplicate)
+            loadIrButton.setBounds (right - 80, lineY + 1, 80, 18);
+    }
+
+    static constexpr int slotBlendLabelWidth = 66;
+
     struct QuickAddGroup
     {
         const char* title;
@@ -1284,20 +1442,25 @@ private:
     // Groups, in order, and how many of quickAddPicks() each takes.
     static const std::vector<QuickAddGroup>& quickAddGroups()
     {
-        static const std::vector<QuickAddGroup> groups { { "SPACE", 7 }, { "DRIVE", 6 }, { "MOTION", 9 },
-                                                         { "RHYTHM", 3 }, { "TONE & LEVEL", 6 } };
+        static const std::vector<QuickAddGroup> groups { { "SPACE", 10 }, { "DRIVE", 10 }, { "MOTION", 10 },
+                                                         { "RHYTHM", 3 }, { "TONE & LEVEL", 8 } };
         return groups;
     }
 
     static const std::vector<std::pair<int, const char*>>& quickAddPicks()
     {
         static const std::vector<std::pair<int, const char*>> picks {
-            { 13, "REVERB" }, { 9, "DELAY" }, { 15, "DIMENSION" }, { 11, "SMEAR" }, { 12, "FREEZE" }, { 8, "HAAS" }, { 22, "WIDENER" },
-            { 2, "DRIVE" }, { 1, "AMP" }, { 3, "CRUSH" }, { 26, "OCTAVER" }, { 28, "FEEDBACK" }, { 30, "AIRWINDOWS" },
-            { 7, "CHORUS" }, { 6, "PHASER" }, { 14, "FLANGER" }, { 23, "TREMOLO" }, { 24, "FREQ SHIFT" }, { 25, "RING MOD" },
-            { 27, "VOWEL" }, { 5, "COMB" }, { 31, "VOCODER" },
-            { 16, "TRANCE GATE" }, { 10, "STUTTER" }, { 17, "TAPE STOP" },
-            { 29, "EQ" }, { 18, "TILT" }, { 4, "COMP" }, { 20, "OTT" }, { 21, "LIMITER" }, { 19, "UTILITY" }
+            // Every type once, under what it does (the Airwindows category
+            // modules too); the names are the cards' and rows' as well.
+            { 13, "Reverb" }, { 9, "Delay" }, { 15, "Dimension" }, { 11, "Smear" }, { 12, "Freeze" }, { 8, "Haas" }, { 22, "Widener" },
+            { 34, "AW Reverb" }, { 35, "AW Delay" }, { 41, "AW Stereo" },
+            { 2, "Drive" }, { 1, "Amp" }, { 3, "Crush" }, { 26, "Octaver" }, { 28, "Feedback" },
+            { 32, "AW Tape" }, { 33, "AW Saturation" }, { 39, "AW Console" }, { 40, "AW Lo-Fi" }, { 30, "Airwindows" },
+            { 7, "Chorus" }, { 6, "Phaser" }, { 14, "Flanger" }, { 23, "Tremolo" }, { 24, "Freq Shift" }, { 25, "Ring Mod" },
+            { 27, "Vowel" }, { 5, "Comb" }, { 31, "Vocoder" }, { 36, "AW Modulation" },
+            { 16, "Trance Gate" }, { 10, "Stutter" }, { 17, "Tape Stop" },
+            { 29, "EQ" }, { 18, "Tilt" }, { 4, "Comp" }, { 20, "OTT" }, { 21, "Limiter" }, { 19, "Utility" },
+            { 38, "AW EQ" }, { 37, "AW Dynamics" }
         };
         return picks;
     }
@@ -1319,7 +1482,7 @@ private:
         return column;
     }
 
-    static constexpr int libraryHeadingHeight = 14, libraryButtonHeight = 22, libraryAcross = 3;
+    static constexpr int libraryHeadingHeight = 14, libraryButtonHeight = 22, libraryAcross = 4;
 
     bool libraryFits() const
     {
@@ -1377,16 +1540,30 @@ private:
                 g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.2f);
             }
 
-            auto header = panel.bounds.withHeight (28).reduced (12, 0);
-            IlanaTheme::paintCardHeader (g, header, getSlotName (panel.type).toUpperCase(),
-                                         juce::String ("slot ") + juce::String (panel.slot + 1) + (off ? "  -  off" : ""),
-                                         off ? IlanaTheme::Ui::text3 : colour, panel.type == 13 ? 220 : 110);
+            // The title is the type menu (a child); its subtitle follows it.
+            const auto& typeButton = cardHeaders[(size_t) panel.slot].type;
+            const auto subtitleLeft = typeButton.getRight() + 8;
+            const auto rightLimit = cardHeaders[(size_t) panel.slot].solo.getX() - 8;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (juce::String ("slot ") + juce::String (panel.slot + 1) + (off ? "  -  off" : ""),
+                        juce::Rectangle<int> (subtitleLeft, panel.bounds.getY(), juce::jmax (0, rightLimit - subtitleLeft), cardHeaderHeight),
+                        juce::Justification::centredLeft, true);
+
+            if (selected && slotBlend.isVisible())
+            {
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("SLOT BLEND", slotBlend.getBounds().withX (slotBlend.getX() - slotBlendLabelWidth - 4).withWidth (slotBlendLabelWidth),
+                            juce::Justification::centredRight);
+            }
 
             if (panel.duplicate)
             {
                 g.setColour (IlanaTheme::Ui::text3);
-                g.drawText ("Shares its settings with the first " + getSlotName (panel.type) + " above.",
-                            panel.bounds.withTrimmedTop (28).reduced (16, 0).withHeight (26), juce::Justification::centredLeft);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText ("Shares its settings with the first " + getSlotName (panel.type) + " above (an older patch; the rack takes each effect once).",
+                            panel.bounds.withTrimmedTop (cardHeaderHeight - 2).reduced (16, 0).withHeight (26), juce::Justification::centredLeft);
             }
         }
     }
@@ -1469,6 +1646,8 @@ private:
         signature += juce::String (airwindowsAlgorithm()); // its knobs differ
         for (int c = 0; c < (int) awCategories.size(); ++c)
             signature += "," + juce::String (categoryChoice (c));
+        signature += tapsEnabled() ? ",taps" : ",-"; // the tap grid comes and goes
+        signature += processorRef.isShowingChainA() ? ",A" : ",B";
 
         if (signature != lastSignature)
         {
@@ -1518,17 +1697,22 @@ private:
     juce::StringArray slotNames;
     std::vector<std::vector<juce::Component*>> slotGroups;
 
-    struct StackPanel
-    {
-        int slot = 0, type = 0;
-        bool duplicate = false;
-        juce::Rectangle<int> bounds;
-    };
-
     juce::Viewport stackView;
     FxStackContent stackContent;
     juce::Rectangle<int> addEffectCard;
     std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
+
+    // Per slot: the card header's type menu, solo and band, and the card's display.
+    struct CardHeader
+    {
+        FxTypeButton type;
+        juce::TextButton solo { "S" };
+        juce::ComboBox band;
+        std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
+        std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
+    };
+    std::array<CardHeader, IlanaSynthAudioProcessor::numFxSlots> cardHeaders;
+    std::array<std::unique_ptr<FxDisplay>, IlanaSynthAudioProcessor::numFxSlots> displays;
 
     // The module's own on parameter, where it has one.
     static const char* enableParamFor (int type)
@@ -1571,16 +1755,29 @@ private:
             if (panel.duplicate)
                 continue;
 
-            const auto alpha = isModuleOff (panel.slot) ? IlanaTheme::dimmedAlpha : 1.0f;
+            const auto off = isModuleOff (panel.slot);
+            const auto alpha = off ? IlanaTheme::dimmedAlpha : 1.0f;
+            cardHeaders[(size_t) panel.slot].type.setTitle (getSlotName (panel.type).toUpperCase(),
+                                                            off ? IlanaTheme::Ui::text3 : fxColour (panel.type));
 
             for (auto* item : slotGroups[(size_t) panel.type])
             {
                 auto* toggle = dynamic_cast<ToggleControl*> (item);
                 const auto isPower = toggle != nullptr && toggle->isSwitch() && item->getY() < panel.bounds.getY() + 20;
+                auto itemAlpha = alpha;
 
-                if (! isPower && item->getAlpha() != alpha)
+                // The delay's times do nothing while SYNC is on, its DIV
+                // nothing while it is off.
+                if (panel.type == 9 && ! off)
                 {
-                    item->setAlpha (alpha);
+                    const auto synced = delaySynced();
+                    if (((item == &delayTime || item == &delayTimeR) && synced) || (item == &delayDiv && ! synced))
+                        itemAlpha = IlanaTheme::dimmedAlpha;
+                }
+
+                if (! isPower && item->getAlpha() != itemAlpha)
+                {
+                    item->setAlpha (itemAlpha);
                     changed = true;
                 }
             }
@@ -1608,16 +1805,16 @@ private:
     std::vector<float> correlationL, correlationR;
     float lastCorrelation = 0.0f;
     juce::String lastSignature;
-    juce::TextButton prevSlotButton { "<" };
-    juce::TextButton nextSlotButton { ">" };
-    juce::TextButton diceButton { "DICE" };
+    juce::TextButton prevSlotButton { "MOVE UP" };
+    juce::TextButton nextSlotButton { "MOVE DOWN" };
+    juce::TextButton diceButton { "DICE FX" };
     juce::TextButton saveChainButton { "SAVE CHAIN" };
     juce::TextButton loadChainButton { "LOAD CHAIN" };
     juce::TextButton loadIrButton { "LOAD IR" };
     // RACK A / B, named apart from the header's COMPARE A/B.
     juce::TextButton chainAButton { "RACK A" };
     juce::TextButton chainBButton { "RACK B" };
-    juce::TextButton copyChainButton { "COPY TO OTHER" };
+    juce::TextButton copyChainButton { "COPY TO RACK B" };
     juce::Slider slotBlend;
     std::unique_ptr<juce::SliderParameterAttachment> slotBlendAttachment;
     int boundBlendSlot = -1;
@@ -1709,6 +1906,44 @@ private:
         return (found != full.end() ? found->second : text).toUpperCase();
     }
 
+    // Airwindows' plugin names as words: "ToTape6" reads "To Tape 6",
+    // "Console7Channel" "Console 7 Channel". Display only: the saved choice
+    // strings stay the plugins' own (and show in the tooltip).
+    static juce::String airwindowsDisplayName (const char* name)
+    {
+        static const std::map<juce::String, juce::String> special { { "kCathedral", "Cathedral" }, { "DeRez2", "DeRez 2" },
+                                                                    { "StereoFX", "Stereo FX" } };
+        const juce::String raw (name);
+        if (const auto found = special.find (raw); found != special.end())
+            return found->second;
+
+        juce::String out;
+        for (int i = 0; i < raw.length(); ++i)
+        {
+            const auto c = raw[i];
+            if (i > 0)
+            {
+                const auto previous = raw[i - 1];
+                const auto upperAfterLower = juce::CharacterFunctions::isUpperCase (c) && juce::CharacterFunctions::isLowerCase (previous);
+                const auto digitAfterLetter = juce::CharacterFunctions::isDigit (c) && juce::CharacterFunctions::isLetter (previous);
+                const auto letterAfterDigit = juce::CharacterFunctions::isLetter (c) && juce::CharacterFunctions::isDigit (previous);
+                if (upperAfterLower || digitAfterLetter || letterAfterDigit)
+                    out << ' ';
+            }
+            out << juce::String::charToString (c);
+        }
+        return out;
+    }
+
+    // The algorithm's own Dry/Wet stays where it is (as chosen, usually
+    // 100 %): the module's MIX is the one wet/dry control on the card.
+    static bool isAirwindowsDryWet (const char* name) { return juce::String (name) == "Dry/Wet"; }
+
+    static juce::String airwindowsTooltip (const airwindows::Info& info)
+    {
+        return "Airwindows " + juce::String (info.name) + " (" + info.category + ")\nClick to choose another algorithm.";
+    }
+
     // The chosen algorithm's knobs carry its own names; the rest hide.
     void updateAirwindowsKnobs (bool loaded)
     {
@@ -1717,11 +1952,13 @@ private:
 
         for (int k = 0; k < airwindows::Module::numKnobs; ++k)
         {
-            const auto used = k < info.numKnobs;
+            const auto used = k < info.numKnobs && ! isAirwindowsDryWet (info.knobs[k].name);
             if (used)
                 knobs[k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
             knobs[k]->setVisible (loaded && used);
         }
+
+        awAlgo.getComboBox().setTooltip (airwindowsTooltip (info));
     }
 
     // The algorithms by family; picking one sets its knobs to the plugin's
@@ -1745,7 +1982,7 @@ private:
             {
                 if (category == list[(size_t) i].category)
                 {
-                    family.addItem (i + 1, list[(size_t) i].name, true, i == chosen);
+                    family.addItem (i + 1, airwindowsDisplayName (list[(size_t) i].name), true, i == chosen);
                     holdsChosen = holdsChosen || i == chosen;
                 }
             }
@@ -1812,11 +2049,13 @@ private:
         auto& controls = awCategories[(size_t) c];
         for (int k = 0; k < airwindows::Module::numKnobs; ++k)
         {
-            const auto used = k < info.numKnobs;
+            const auto used = k < info.numKnobs && ! isAirwindowsDryWet (info.knobs[k].name);
             if (used)
                 controls.knobs[(size_t) k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
             controls.knobs[(size_t) k]->setVisible (loaded && used);
         }
+
+        controls.algo->getComboBox().setTooltip (airwindowsTooltip (info));
     }
 
     // The category's effects; picking one sets its knobs to the plugin's
@@ -1828,7 +2067,7 @@ private:
         juce::PopupMenu menu;
         menu.addSectionHeader (juce::String (category.label).toUpperCase());
         for (int i = 0; i < (int) category.algorithms.size(); ++i)
-            menu.addItem (i + 1, airwindows::registry()[(size_t) category.algorithms[(size_t) i]].name, true, i == chosen);
+            menu.addItem (i + 1, airwindowsDisplayName (airwindows::registry()[(size_t) category.algorithms[(size_t) i]].name), true, i == chosen);
 
         juce::Component::SafePointer<FxPage> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (awCategories[(size_t) c].algo.get()),

@@ -1054,5 +1054,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addEgField (field, field.suffix, field.name);
     addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
 
+    // UI review 6 (V5-18): each envelope's attack, decay and release bend on
+    // their own, added to its CURVE. 0 bends them alike, as before.
+    for (int env = 0; env < 16; ++env)
+    {
+        const auto prefix = envelopePrefix (env);
+        const auto name = "ENV " + juce::String (env + 1);
+        addFloat (prefix + "_acurve", name + " Attack Curve", -1.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_dcurve", name + " Decay Curve", -1.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_rcurve", name + " Release Curve", -1.0f, 1.0f, 0.0f);
+    }
+
     return layout;
 }

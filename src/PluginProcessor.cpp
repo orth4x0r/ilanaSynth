@@ -265,7 +265,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         for (int env = 0; env < 16; ++env)
         {
             const auto prefix = envelopePrefix (env);
-            envelopeExtraIds[(size_t) env] = { prefix + "_delay", prefix + "_hold", prefix + "_keyrate" };
+            envelopeExtraIds[(size_t) env] = { prefix + "_delay", prefix + "_hold", prefix + "_keyrate",
+                                               prefix + "_acurve", prefix + "_dcurve", prefix + "_rcurve" };
         }
 
         for (int point = 0; point < Mseg::numPoints; ++point)
@@ -1487,6 +1488,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                      : env == 3 ? p.modEnv : env == 4 ? p.env4 : p.extraEnvs[(size_t) (env - 5)];
         target.delay = delay;
         target.hold = hold;
+        target.attackCurve = getParam (ids.attackCurve);
+        target.decayCurve = getParam (ids.decayCurve);
+        target.releaseCurve = getParam (ids.releaseCurve);
         p.envKeyRate[(size_t) env] = getParam (ids.keyRate);
     }
 

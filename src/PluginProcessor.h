@@ -810,7 +810,7 @@ private:
     std::array<OperatorIds, OscillatorIds::count> operatorIds;
     std::array<ParamRef, OscillatorIds::count> fmNoiseIds;
     // DAHDSR extras and rate key scaling for ENV 1..16.
-    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate; };
+    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate, attackCurve, decayCurve, releaseCurve; };
     std::array<EnvelopeExtraIds, 16> envelopeExtraIds;
     std::array<ParamRef, Mseg::numPoints> msegLevelIds, msegTimeIds;
     // ENV 6..16's ADSR, curve and velocity.

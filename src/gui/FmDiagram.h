@@ -200,7 +200,10 @@ public:
                         node.getCentre() + juce::Point<float> (speckle.nextFloat() - 0.5f, speckle.nextFloat() - 0.5f) * node.getWidth() * 0.55f));
 
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("NOISE", node.translated (0.0f, node.getHeight() * 0.62f).toNearestInt(), juce::Justification::centred);
+                // Beside the node: under it, the small node's width cut the
+                // name short ("NOI...": UI review 4, S14).
+                g.drawText ("NOISE", juce::Rectangle<float> (node.getRight() + 5.0f, node.getCentreY() - 7.0f, 48.0f, 14.0f).toNearestInt(),
+                            juce::Justification::centredLeft);
             }
         }
 
@@ -260,6 +263,12 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (out ? "OUT" : "MOD", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
 
+            // Its tuning and level under it, so the graph reads without
+            // opening each operator (UI review 4, S14).
+            g.setColour (on ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.drawText (getNodeCaption (osc), juce::Rectangle<float> (radius * 4.0f, 12.0f).withCentre ({ centre.x, circle.getBottom() + 9.0f }),
+                        juce::Justification::centred);
+
             // Oscillators that ignore FM: a dashed ring and a tag under them.
             if (! receivesFm (processorRef, osc))
             {
@@ -274,7 +283,7 @@ public:
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText ("NO FM IN", juce::Rectangle<float> (radius * 3.0f, 12.0f)
-                                           .withCentre ({ centre.x, circle.getBottom() + 13.0f }),
+                                           .withCentre ({ centre.x, circle.getBottom() + 21.0f }),
                             juce::Justification::centred);
             }
         }
@@ -353,6 +362,30 @@ private:
     }
 
     static constexpr float hintHeight = 24.0f;
+
+public:
+    // "x1.00  50%": an operator's tuning (ratio, fixed Hz or semitones) and
+    // its level.
+    juce::String getNodeCaption (int osc) const
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)]);
+        const auto tune = juce::roundToInt (read (prefix + "_tune"));
+        juce::String tuning;
+
+        if (tune == OscTuning::Ratio)
+            tuning = "x" + juce::String (processorRef.getSnappedRatio (osc), 2);
+        else if (tune == OscTuning::Fixed)
+            tuning = juce::String (juce::roundToInt (read (prefix + "_fixed_hz"))) + " Hz";
+        else
+        {
+            const auto semi = juce::roundToInt (read (prefix + "_semi"));
+            tuning = (semi > 0 ? "+" : "") + juce::String (semi) + " st";
+        }
+
+        return tuning + "  " + juce::String (juce::roundToInt (read (prefix + "_level") * 100.0f)) + "%";
+    }
+
+private:
 
     float operatorRadius() const
     {

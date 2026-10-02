@@ -595,6 +595,7 @@ public:
                                  + (description.isNotEmpty() || modHint.isNotEmpty() ? "\n" + description + modHint : "");
             slider.setTooltip (tooltip);
             setTooltip (tooltip);
+            baseTooltip = tooltip;
         }
 
         lastSliderValue = slider.getValue();
@@ -651,6 +652,45 @@ public:
         label.setVisible (! compact);
         slider.setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 64, 14);
         resized();
+    }
+
+    // The knob's role sets its largest dial (IlanaTheme::KnobSize: main,
+    // small or mini); layoutRow and preferredControlHeight follow it.
+    void setSizeRole (int largestDial)
+    {
+        maxDial = juce::jmax (IlanaTheme::KnobSize::minimum, largestDial);
+        resized();
+    }
+
+    int getMaxDial() const { return maxDial; }
+    // The dial's drawn size right now (the UI test checks roles with it).
+    int getDialSize() const { return knobBounds.getWidth() > 0 ? juce::jmin (knobBounds.getWidth(), (int) rotaryArea().getHeight()) : 0; }
+
+    // A knob standing in for another parameter's modulation: a synced LFO's
+    // division knob shows RATE's ring and dots, and a source dropped on it
+    // (or picked from its menu) routes to RATE, which still scales the
+    // synced rate.
+    void setModulationTarget (const juce::String& targetParameterId)
+    {
+        ringConfig = modRingConfigFor (targetParameterId);
+        routings.clear();
+        dotStrip.setDots (routings);
+        refreshRoutings();
+        layoutDots();
+        repaint();
+    }
+
+    // Why the knob does nothing right now (EffectRules), added to its
+    // tooltip; empty when it acts.
+    void setInactiveNote (const juce::String& note)
+    {
+        if (note == inactiveNote || baseTooltip.isEmpty())
+            return;
+
+        inactiveNote = note;
+        const auto tooltip = baseTooltip + (note.isNotEmpty() ? "\n(No effect now: " + note + ")" : juce::String());
+        slider.setTooltip (tooltip);
+        setTooltip (tooltip);
     }
 
     void mouseEnter (const juce::MouseEvent&) override
@@ -798,9 +838,9 @@ public:
         // used to push the label up and the value down). The group sits at
         // the top, where combo and toggle labels in the same row sit; a knob
         // without a label (a matrix cell) is centred instead.
-        constexpr int labelHeight = 13, valueHeight = 16, minDial = 28, maxDial = 58;
+        constexpr int labelHeight = 13, valueHeight = 16;
         const auto hasLabel = label.getText().isNotEmpty();
-        const auto dial = juce::jlimit (minDial, maxDial,
+        const auto dial = juce::jlimit (IlanaTheme::KnobSize::minimum, maxDial,
                                         juce::jmin (area.getWidth(), area.getHeight() - (hasLabel ? labelHeight : 0) - valueHeight));
         const auto groupHeight = juce::jmin (area.getHeight(), (hasLabel ? labelHeight : 0) + dial + valueHeight);
         auto group = hasLabel ? area.removeFromTop (groupHeight) : area.withSizeKeepingCentre (area.getWidth(), groupHeight);
@@ -1185,6 +1225,8 @@ private:
     bool dragHover = false;
     bool hover = false;
     bool compact = false;
+    int maxDial = IlanaTheme::KnobSize::main;
+    juce::String baseTooltip, inactiveNote;
 };
 
 class ComboControl : public juce::Component,
@@ -1494,6 +1536,81 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
 
+// One dimming rule for every page (UI review 4, V12 and S10). A control
+// declares when it has an effect (SPEC AMT while SPECTRAL is on, DETUNE
+// with more than one unison voice...), and the page calls apply() on its
+// timer: a control with no effect is drawn at IlanaTheme::dimmedAlpha (its
+// arc goes grey) and says why in its tooltip, but stays usable, so it can be
+// set up before it is switched in. A control the page has disabled (its
+// section is off) is left as the page set it.
+class EffectRules
+{
+public:
+    explicit EffectRules (const IlanaSynthAudioProcessor& p) : processor (p) {}
+
+    using Condition = std::function<bool()>;
+
+    // `hasEffect` decides; `why` (shown in a knob's tooltip while it doesn't
+    // act) names what to change, e.g. "SPECTRAL is Off".
+    void add (juce::Component& control, Condition hasEffect, const juce::String& why = {})
+    {
+        rules.push_back ({ &control, std::move (hasEffect), why });
+    }
+
+    // Conditions on a parameter's plain value.
+    Condition isOn (const juce::String& id) const { return [this, id] { return read (id) > 0.5f; }; }
+    Condition isOff (const juce::String& id) const { return [this, id] { return read (id) < 0.5f; }; }
+    Condition isAbove (const juce::String& id, float threshold) const { return [this, id, threshold] { return read (id) > threshold; }; }
+    Condition choiceIsNot (const juce::String& id, int index) const
+    {
+        return [this, id, index] { return juce::roundToInt (read (id)) != index; };
+    }
+
+    void apply()
+    {
+        for (auto& rule : rules)
+        {
+            if (! rule.control->isEnabled())
+                continue;
+
+            const auto acts = rule.hasEffect();
+            const auto alpha = acts ? 1.0f : IlanaTheme::dimmedAlpha;
+
+            if (rule.control->getAlpha() != alpha)
+                rule.control->setAlpha (alpha);
+
+            if (auto* knob = dynamic_cast<KnobControl*> (rule.control))
+                knob->setInactiveNote (acts ? juce::String() : rule.why);
+        }
+    }
+
+    // How many controls are dimmed by a rule right now (the UI test).
+    int numInactive() const
+    {
+        auto count = 0;
+        for (const auto& rule : rules)
+            count += rule.control->isEnabled() && ! rule.hasEffect() ? 1 : 0;
+        return count;
+    }
+
+private:
+    float read (const juce::String& id) const
+    {
+        const auto* value = processor.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    struct Rule
+    {
+        juce::Component* control;
+        Condition hasEffect;
+        juce::String why;
+    };
+
+    const IlanaSynthAudioProcessor& processor;
+    std::vector<Rule> rules;
+};
+
 // The height a control needs at a given width (label, then dial and value,
 // or the box/button), or -1 when it takes whatever it's given.
 inline int preferredControlHeight (juce::Component* item, int width)
@@ -1504,7 +1621,7 @@ inline int preferredControlHeight (juce::Component* item, int width)
             return -1;
 
         const auto labelHeight = knob->getLabelText().isNotEmpty() ? 13 : 0;
-        return labelHeight + juce::jlimit (28, 58, width) + 16;
+        return labelHeight + juce::jlimit (IlanaTheme::KnobSize::minimum, knob->getMaxDial(), width) + 16;
     }
 
     if (dynamic_cast<ComboControl*> (item) != nullptr || dynamic_cast<ToggleControl*> (item) != nullptr)
@@ -1547,13 +1664,18 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     // Menus and switches beside full-size knobs sit with their box level
     // with the dials' centres (their names drop with them).
     auto hasKnob = false;
+    auto largestDial = IlanaTheme::KnobSize::minimum;
     for (auto* item : items)
         if (auto* knob = dynamic_cast<KnobControl*> (item))
+        {
             hasKnob = hasKnob || (! knob->isCompact() && knob->getLabelText().isNotEmpty());
+            largestDial = juce::jmax (largestDial, knob->getMaxDial());
+        }
 
     // (The dial is sized as KnobControl sizes it: by the cell's width or
-    // height, whichever is tighter; a small dial barely drops anything.)
-    const auto dialSize = juce::jlimit (28, 58, juce::jmin (width - 6, area.getHeight() - 6 - 13 - 16));
+    // height, whichever is tighter, up to its role's size; a small dial
+    // barely drops anything.)
+    const auto dialSize = juce::jlimit (IlanaTheme::KnobSize::minimum, largestDial, juce::jmin (width - 6, area.getHeight() - 6 - 13 - 16));
     const auto dialDrop = hasKnob ? juce::jmax (0, dialSize / 2 - 12) : 0;
 
     for (auto* item : items)

@@ -43,6 +43,24 @@ public:
         addAll (*this, filterDisplay, panel1, panel2, flow, balance,
                 resOn, resAmount, resDecay, resOffset, resKeytrack,
                 bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
+
+        // What doesn't act right now dims (the one rule for every page:
+        // UI review 4, V26): BALANCE in serial, the body's knobs while it is
+        // off. MATERIAL and SIZE shape the modal bodies only (Classic is the
+        // old comb bank); without the body only Strings coupling does
+        // anything.
+        const auto resonating = effectRules.isOn ("res_on");
+        const auto modal = [this, resonating] { return resonating() && readValue ("body_type") > 0.5f; };
+        const auto couplingMode = [this] { return juce::roundToInt (readValue ("body_coupling_mode")); };
+        effectRules.add (balance, effectRules.isOn ("filters_parallel"), "the filters are in SERIAL");
+        for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
+            effectRules.add (*knob, resonating, "BODY is off");
+        effectRules.add (bodyType, resonating);
+        effectRules.add (bodyMaterial, modal, "BODY is off or Classic");
+        effectRules.add (bodySize, modal, "BODY is off or Classic");
+        effectRules.add (bodyCouplingMode, [resonating, couplingMode] { return resonating() || couplingMode() == 3; });
+        effectRules.add (bodyCoupling, [modal, couplingMode] { return couplingMode() == 3 || (couplingMode() != 0 && modal()); },
+                         "COUPLING is Off, or needs a modal BODY");
         startTimerHz (8);
     }
 
@@ -135,21 +153,7 @@ private:
     // Balance only acts in parallel; resonator knobs only when it is on.
     void timerCallback() override
     {
-        const auto read = [this] (const char* id)
-        {
-            const auto* value = processorRef.apvts.getRawParameterValue (id);
-            return value != nullptr && value->load() > 0.5f;
-        };
-
-        const auto fade = [] (juce::Component& component, bool active)
-        {
-            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
-
-            if (component.getAlpha() != alpha)
-                component.setAlpha (alpha);
-        };
-
-        const auto parallelNow = read ("filters_parallel");
+        const auto parallelNow = readValue ("filters_parallel") > 0.5f;
 
         if (parallelNow != wasParallel)
         {
@@ -157,26 +161,13 @@ private:
             repaint (flowCard);
         }
 
-        fade (balance, parallelNow);
+        effectRules.apply();
+    }
 
-        const auto resonating = read ("res_on");
-
-        // MATERIAL and SIZE shape the modal bodies only; Classic is the old comb bank.
-        // String-to-string coupling works without the body, the other modes need one.
-        const auto* type = processorRef.apvts.getRawParameterValue ("body_type");
-        const auto* coupling = processorRef.apvts.getRawParameterValue ("body_coupling_mode");
-        const auto modal = resonating && type != nullptr && type->load() > 0.5f;
-        const auto couplingMode = coupling != nullptr ? (int) coupling->load() : 0;
-
-        for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
-            fade (*knob, resonating);
-        fade (bodyType, resonating);
-        fade (bodyMaterial, modal);
-        fade (bodySize, modal);
-        // Without the body only Strings coupling does anything, so the menu
-        // is dimmed like the rest unless that is what it holds.
-        fade (bodyCouplingMode, resonating || couplingMode == 3);
-        fade (bodyCoupling, couplingMode == 3 || (couplingMode != 0 && modal));
+    float readValue (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -192,6 +183,7 @@ private:
     ComboControl bodyType, bodyCouplingMode;
     KnobControl bodyMaterial, bodySize, bodyCoupling;
     juce::Rectangle<int> flowCard, resonatorCard;
+    EffectRules effectRules { processorRef };
 };
 
 // Scrolls a sideways card bar so the given card is in view.
@@ -212,7 +204,8 @@ inline void scrollToCard (juce::Viewport& view, juce::Rectangle<int> card)
 // on the RATE parameter and one on DIVISION, and SYNC picks which is shown;
 // both values stay stored. Modulating RATE still acts while synced (the
 // DSP scales the division's rate by it, up to 4 octaves each way), so the
-// RATE routings' dots stay beside the division knob and work as usual.
+// division knob stands in for RATE's modulation: it shows RATE's ring and
+// dots, and a source dropped on it routes to RATE.
 // The knobs are the page's children: lay out layoutItem() (the RATE knob)
 // like any knob, then call matchBounds().
 class LfoRateControl : private juce::Timer
@@ -224,21 +217,12 @@ public:
           rate (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_rate", "RATE", accent, followsTheme),
           division (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_div", "RATE", accent, followsTheme)
     {
+        division.setModulationTarget ("lfo" + juce::String (lfoIndex + 1) + "_rate");
         const juce::String tip ("LFO " + juce::String (lfoIndex + 1) + " rate (synced)\nSYNC is on, so RATE is a note value at the "
                                 "host tempo: drag or scroll to step through them. Turn SYNC off for Hz. Modulation of RATE "
-                                "still speeds it up or slows it down (the dots beside the dial).");
+                                "still speeds it up or slows it down: drop a source here, or use the dots beside the dial.");
         division.setTooltip (tip);
         division.getSlider().setTooltip (tip);
-
-        dots.onDepthChange = [this] (int slot, float depth) { processorRef.setModSlotValue (slot, "amt", depth); };
-        dots.onRemove = [this] (int slot)
-        {
-            processorRef.performEdit ("Remove modulation", [this, slot] { processorRef.clearModSlot (slot); });
-            refresh();
-        };
-        dots.onDragStart = [this] (int source) { processorRef.beginEdit (Mod::getSourceNames()[source] + " depth"); };
-        dots.onDragEnd = [this] { processorRef.endEdit(); };
-
         startTimerHz (10);
     }
 
@@ -246,7 +230,6 @@ public:
     {
         parent.addChildComponent (rate);
         parent.addChildComponent (division);
-        parent.addChildComponent (dots);
         refresh();
     }
 
@@ -265,16 +248,11 @@ public:
         matchBounds();
     }
 
-    // The division knob and the dots follow the RATE knob's place.
-    void matchBounds()
-    {
-        division.setBounds (rate.getBounds());
-        layoutDots();
-    }
+    // The division knob follows the RATE knob's place.
+    void matchBounds() { division.setBounds (rate.getBounds()); }
 
     KnobControl& getRateKnob() { return rate; }
     KnobControl& getDivisionKnob() { return division; }
-    juce::Component& getDots() { return dots; }
 
     bool isSynced() const
     {
@@ -282,7 +260,7 @@ public:
         return sync != nullptr && sync->load() > 0.5f;
     }
 
-    // Follows SYNC and the RATE routings (the timer does this too).
+    // Follows SYNC (the timer does this too).
     void refresh()
     {
         const auto synced = isSynced();
@@ -292,53 +270,15 @@ public:
 
         if (division.isVisible() != (shown && synced))
             division.setVisible (shown && synced);
-
-        std::vector<ModDotStrip::Dot> found;
-
-        for (int slot = 0; slot < Mod::maxSlots && found.size() < 6 && synced && shown; ++slot)
-        {
-            const auto routing = processorRef.readModSlot (slot);
-
-            if (routing.destination == (int) Mod::lfoRateDestinationFor (lfo) && routing.source != Mod::Source::None)
-                found.push_back ({ slot, (int) routing.source, routing.depth });
-        }
-
-        const auto changed = found.size() != shownDots.size()
-                             || ! std::equal (found.begin(), found.end(), shownDots.begin(), [] (const auto& a, const auto& b)
-                                              { return a.slot == b.slot && a.source == b.source && std::abs (a.depth - b.depth) < 1.0e-4f; });
-
-        if (changed)
-        {
-            shownDots = found;
-            dots.setDots (shownDots);
-            layoutDots();
-        }
-
-        if (dots.isVisible() != ! shownDots.empty())
-            dots.setVisible (! shownDots.empty());
     }
 
 private:
     void timerCallback() override { refresh(); }
 
-    // Beside the dial's upper right, where a knob puts its own dots (a knob
-    // lays out its label, 13 px, then the dial and the 16 px value).
-    void layoutDots()
-    {
-        const auto bounds = division.getBounds();
-        const auto dial = juce::jlimit (28, 58, juce::jmin (bounds.getWidth(), bounds.getHeight() - 13 - 16));
-        const auto centre = juce::Point<float> ((float) bounds.getCentreX(), (float) bounds.getY() + 13.0f + (float) (dial + 2) * 0.5f);
-        const auto radius = (float) dial * 0.5f - 2.0f;
-        const auto height = juce::jmax (ModDotStrip::dotPitch, dots.getPreferredHeight());
-        dots.setBounds (juce::jmin ((int) (centre.x + radius + 3.0f), bounds.getRight() - 12), (int) (centre.y - radius + 2.0f), 12, height);
-    }
-
     IlanaSynthAudioProcessor& processorRef;
     int lfo = 0;
     bool shown = true;
     KnobControl rate, division;
-    ModDotStrip dots;
-    std::vector<ModDotStrip::Dot> shownDots;
 };
 
 class EnvSection : public juce::Component

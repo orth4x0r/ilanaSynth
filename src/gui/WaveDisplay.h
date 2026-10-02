@@ -195,12 +195,12 @@ public:
                 drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 1.6f);
             }
 
-            const auto markerX = plot.getX() + plot.getWidth() * frame;
-            g.setColour (juce::Colours::white.withAlpha (0.2f));
-            g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ markerX, centreY }));
-
-            drawUnison (g, plot);
-            drawPlayhead (g, table, frameIndex, plot, centreY, halfHeight);
+            // The x axis is the phase of one cycle, so the frame isn't marked
+            // on it (UI review 4, V11): a readout and a slim scrubber under
+            // the plot say where in the table the cycle comes from. (Unison
+            // shows on the UNISON knob, not as marks here.)
+            if (! dragging)
+                drawFramePosition (g, frameCount, frame, plot);
         }
 
         if (dragging)
@@ -209,8 +209,23 @@ public:
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
 
-    // A drag on a table: across scrubs the frame (the white line follows
-    // the mouse), up and down change the first WARP's amount when a warp is
+    // The WAVE view's frame readout ("FRAME 12 / 64"), empty when the view
+    // shows no table or the table has one frame (the UI test reads it).
+    juce::String getFrameReadout() const
+    {
+        if (viewMode != 0 || ! isTableMode() || isPhysicalString() || isElectricPiano())
+            return {};
+
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+
+        if (table == nullptr || table->getNumFrames() <= 1)
+            return {};
+
+        return frameText (table->getNumFrames(), displayedFrame);
+    }
+
+    // A drag on a table: across scrubs the frame (the scrubber under the
+    // plot follows the mouse), up and down change the first WARP's amount when a warp is
     // chosen. Each parameter moves inside one gesture, so a host records one
     // undo step and automation writes a clean move. Grains: across moves the
     // read position.
@@ -798,23 +813,36 @@ private:
         return choice - 4;
     }
 
-    void drawUnison (juce::Graphics& g, juce::Rectangle<float> plot) const
+    static juce::String frameText (int frames, float position)
     {
-        const auto unison = juce::jlimit (1, VoiceParams::maxUnison, (int) readPlain (unisonId));
-        const auto spread = readPlain (spreadId);
-        const auto detune = readPlain (detuneId);
-        const auto y = plot.getBottom() - 5.0f;
-        const auto spreadWidth = plot.getWidth() * 0.35f * (0.25f + spread * 0.75f);
+        return "FRAME " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
+               + " / " + juce::String (frames);
+    }
 
-        for (int u = 0; u < unison; ++u)
-        {
-            const auto offset = unison > 1 ? ((float) u / (float) (unison - 1) * 2.0f - 1.0f) : 0.0f;
-            const auto x = plot.getCentreX() + offset * spreadWidth;
-            const auto size = 4.0f + juce::jmin (6.0f, detune * 0.2f);
+    // Where the cycle sits in the table (after modulation, gliding): a
+    // quiet readout at the top left and a slim scrubber along the bottom.
+    void drawFramePosition (juce::Graphics& g, int frames, float position, juce::Rectangle<float> plot) const
+    {
+        if (frames <= 1)
+            return;
 
-            g.setColour (traceColour.withAlpha (0.35f + 0.4f * (1.0f - std::abs (offset))));
-            g.fillEllipse (juce::Rectangle<float> (size, size).withCentre ({ x, y }));
-        }
+        // On a backing so the trace under it doesn't cross the letters.
+        const auto text = frameText (frames, position);
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto box = juce::Rectangle<float> (plot.getX() - 2.0f, plot.getY(), juce::GlyphArrangement::getStringWidth (font, text) + 8.0f, 14.0f);
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.75f));
+        g.fillRoundedRectangle (box, 3.0f);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (font);
+        g.drawText (text, box.toNearestInt(), juce::Justification::centred);
+
+        const auto track = juce::Rectangle<float> (plot.getX(), plot.getBottom() - 2.0f, plot.getWidth(), 2.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.08f));
+        g.fillRoundedRectangle (track, 1.0f);
+        g.setColour (traceColour.withAlpha (0.45f));
+        g.fillRoundedRectangle (track.withWidth (track.getWidth() * position), 1.0f);
+        g.setColour (traceColour);
+        g.fillRoundedRectangle (juce::Rectangle<float> (10.0f, 4.0f).withCentre ({ track.getX() + track.getWidth() * position, track.getCentreY() }), 2.0f);
     }
 
     float readPlain (const juce::String& id) const
@@ -908,28 +936,6 @@ private:
         if (frameId == "osc6_frame") return Mod::Destination::Osc6Frame;
 
         return Mod::Destination::None;
-    }
-
-    void drawPlayhead (juce::Graphics& g, const Wavetable* table, int frameIndex,
-                       juce::Rectangle<float> plot, float centreY, float halfHeight) const
-    {
-        // Driven by the phase of the voice that is actually sounding, so the
-        // playhead stops when nothing is playing instead of free running.
-        if (processorRef.getActiveVoiceCount() <= 0)
-            return;
-
-        const auto phase = juce::jlimit (0.0f, 1.0f, processorRef.getWavetablePhase (oscIndex));
-        const auto cursorX = plot.getX() + phase * plot.getWidth();
-        const auto sampleIndex = juce::jlimit (1, Wavetable::frameSize,
-                                               (int) (phase * (float) Wavetable::frameSize) + 1);
-        const auto* data = table->getFrameData (0, frameIndex);
-        const auto cursorY = centreY - data[sampleIndex] * halfHeight;
-
-        g.setColour (juce::Colours::white.withAlpha (0.25f));
-        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withCentre ({ cursorX, centreY }));
-
-        g.setColour (juce::Colours::white);
-        g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ cursorX, cursorY }));
     }
 
     void drawWaterfall (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const

@@ -49,19 +49,36 @@ public:
         const juce::Point<float> corners[4] { area.getTopLeft(), area.getTopRight(), area.getBottomLeft(), area.getBottomRight() };
         for (int c = 0; c < 4; ++c)
         {
-            const auto radius = area.getWidth() * (0.12f + 0.3f * weights[(size_t) c]);
-            juce::ColourGradient glow (accent.withAlpha (0.35f * weights[(size_t) c] + 0.05f), corners[c],
-                                       accent.withAlpha (0.0f), corners[c].translated (radius, 0.0f), true);
-            g.setGradientFill (glow);
-            g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (corners[c]));
-            g.setColour (IlanaTheme::Ui::text);
+            // A corner whose oscillator is off (or not on the page) adds
+            // nothing: it is greyed and says so (UI review 4, S27).
+            const auto sounding = isCornerSounding (c);
+
+            if (sounding)
+            {
+                const auto radius = area.getWidth() * (0.12f + 0.3f * weights[(size_t) c]);
+                juce::ColourGradient glow (accent.withAlpha (0.35f * weights[(size_t) c] + 0.05f), corners[c],
+                                           accent.withAlpha (0.0f), corners[c].translated (radius, 0.0f), true);
+                g.setGradientFill (glow);
+                g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (corners[c]));
+            }
+
+            g.setColour (sounding ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            const auto label = "OSC " + juce::String (processorRef.getVectorCorner (c) + 1)
-                               + "  " + juce::String (juce::roundToInt (weights[(size_t) c] * weights[(size_t) c] * 100.0f)) + "%";
+            const auto label = getCornerLabel (c, weights[(size_t) c]);
             auto box = juce::Rectangle<float> (area.getWidth() * 0.5f - 8.0f, 16.0f);
             box.setPosition (c % 2 == 0 ? area.getX() + 6.0f : area.getRight() - box.getWidth() - 6.0f,
                              c < 2 ? area.getY() + 4.0f : area.getBottom() - 20.0f);
             g.drawText (label, box, c % 2 == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight);
+        }
+
+        // While VECTOR is off the pad does nothing (the page dims it too).
+        if (read ("vec_on") < 0.5f)
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText ("VECTOR OFF  -  switch on to mix the corners",
+                        area.withSizeKeepingCentre (area.getWidth(), 18.0f).translated (0.0f, -24.0f),
+                        juce::Justification::centred);
         }
 
         // The path.
@@ -141,6 +158,24 @@ public:
             setParam ("vec_x", 0.5f);
             setParam ("vec_y", 0.5f);
         });
+    }
+
+    // A corner's oscillator is on the page and switched on.
+    bool isCornerSounding (int corner) const
+    {
+        const auto osc = processorRef.getVectorCorner (corner);
+
+        if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+            return false;
+
+        return read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f;
+    }
+
+    juce::String getCornerLabel (int corner, float weight) const
+    {
+        const auto name = "OSC " + juce::String (processorRef.getVectorCorner (corner) + 1);
+        return isCornerSounding (corner) ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%"
+                                         : name + " (off)";
     }
 
 private:

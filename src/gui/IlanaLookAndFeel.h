@@ -54,6 +54,20 @@ inline juce::Colour oscColour (int index)
 // but still readable against the card (about 4:1 for the label text).
 inline constexpr float dimmedAlpha = 0.6f;
 
+// Knob sizes by role (UI review 4, V22), the same on every page: the largest
+// dial a knob takes (its cell; the ring drawn inside is 8 px smaller). A
+// smaller cell shrinks the dial, down to `minimum`.
+//   main:  the parameters a card is about (oscillator, filter, envelope...)
+//   small: detail rows under them (a physical string's exciter, body...)
+//   mini:  grids of amounts (the FM send matrix)
+namespace KnobSize
+{
+    inline constexpr int main    = 48;
+    inline constexpr int small   = 40;
+    inline constexpr int mini    = 36;
+    inline constexpr int minimum = 28;
+}
+
 // The type scale (component units; the editor zooms them). Every text in the
 // UI uses one of these, so sizes stay consistent from page to page.
 namespace TextSize

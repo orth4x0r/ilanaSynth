@@ -55,6 +55,8 @@ public:
             {
                 auto knob = std::make_unique<KnobControl> (p.apvts, FmDiagram::routeId (source, target), "",
                                                            FmDiagram::oscColour (source), false);
+                // Send amounts are the page's small print (UI review 4, V22).
+                knob->setSizeRole (IlanaTheme::KnobSize::mini);
                 addAndMakeVisible (*knob);
                 knobs[(size_t) source][(size_t) target] = std::move (knob);
             }
@@ -65,6 +67,7 @@ public:
 
             noiseKnobs[(size_t) source] = std::make_unique<KnobControl> (p.apvts, "fm_noise" + juce::String (source + 1), "",
                                                                           noiseColour(), false);
+            noiseKnobs[(size_t) source]->setSizeRole (IlanaTheme::KnobSize::mini);
             addAndMakeVisible (*noiseKnobs[(size_t) source]);
 
             const juce::String prefix (OscillatorIds::prefixes[(size_t) source]);
@@ -112,7 +115,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "ALGORITHMS", algorithmsTitle);
+        paintSectionTitle (g, "ALGORITHMS", algorithmsTitle, getAlgorithmLabel());
         paintSectionTitle (g, "OPERATORS", operatorsTitle);
         IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
 
@@ -230,7 +233,15 @@ public:
         }();
 
         if (isShowing())
+        {
             algorithms.refreshMatch();
+
+            if (const auto label = getAlgorithmLabel(); label != lastAlgorithmLabel)
+            {
+                lastAlgorithmLabel = label;
+                repaint (algorithmsTitle);
+            }
+        }
 
         if (refreshFmInputs (false))
             repaint (matrixCard);
@@ -312,7 +323,7 @@ public:
     {
         auto area = getLocalBounds().reduced (12);
 
-        matrixCard = area.removeFromRight (area.getWidth() * 48 / 100);
+        matrixCard = area.removeFromRight (area.getWidth() * 44 / 100);
         area.removeFromRight (10);
 
         // Left column: algorithms, the diagram, the selected operator; its
@@ -338,6 +349,29 @@ private:
         return 0.0f;
     }
 
+public:
+    // The ALGORITHMS heading's note: which DX7 algorithm a DX7 voice uses,
+    // the grid's match, or CUSTOM when the routing matches none of it (UI
+    // review 4, S14).
+    juce::String getAlgorithmLabel() const
+    {
+        if (const auto* voice = processorRef.getDx7Voice())
+            return "DX7 ALG " + juce::String ((int) (*voice)[134] % 32 + 1);
+
+        const auto matching = algorithms.getMatching();
+
+        if (matching >= 0 && matching < (int) FmAlgorithms::all().size())
+            return FmAlgorithms::all()[(size_t) matching].name;
+
+        for (const auto source : shown)
+            for (const auto target : shown)
+                if (read (FmDiagram::routeId (source, target)) > 0.001f)
+                    return "CUSTOM  -  matches no algorithm here";
+
+        return {};
+    }
+
+private:
     // "sounds at x1.414 of the note" and the like, after SNAP.
     juce::String soundingText() const
     {
@@ -469,12 +503,12 @@ private:
                 knob.setCompact (compactCells);
                 if (compactCells)
                 {
-                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 22, 110);
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 22, IlanaTheme::KnobSize::mini);
                     knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize).translated (0, -6));
                 }
                 else
                 {
-                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, 110);
+                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, IlanaTheme::KnobSize::mini + 30);
                     knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
                 }
             }
@@ -531,6 +565,7 @@ private:
     std::array<int, OscillatorIds::count> lastTune {};
     std::vector<int> shown;
     int selectedOperator = 0;
+    juce::String lastAlgorithmLabel;
 };
 
 // M7.5: ilanaSynth FX's INPUT page: the input's level and envelope, its

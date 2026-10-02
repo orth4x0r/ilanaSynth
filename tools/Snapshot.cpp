@@ -160,6 +160,37 @@ int runUiTests()
                 && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 8 : 7),
             "seven tabs");
 
+    // An oscillator card's switch on the page shown (its tooltip names the
+    // parameter), and a click on that card's title line: a card folded to
+    // fit opens (UI review 4, V13).
+    const auto toggleFor = [&processor, &editor] (const juce::String& id) -> ToggleControl*
+    {
+        auto* parameter = processor.apvts.getParameter (id);
+        std::vector<ToggleControl*> toggles;
+        findAll<ToggleControl> (*editor, toggles);
+        for (auto* toggle : toggles)
+            if (parameter != nullptr && visibleInTree (toggle) && toggle->getWidth() > 0
+                && toggle->getButton().getTooltip().startsWith (parameter->getName (64)))
+                return toggle;
+        return nullptr;
+    };
+    const auto clickCardTitle = [&toggleFor] (const juce::String& onId, bool rightClick = false)
+    {
+        auto* toggle = toggleFor (onId);
+        auto* card = toggle != nullptr ? toggle->getParentComponent() : nullptr;
+        if (card == nullptr)
+            return false;
+        const juce::Point<float> position (40.0f, (float) toggle->getBounds().getCentreY());
+        const juce::MouseEvent event (juce::Desktop::getInstance().getMainMouseSource(), position,
+                                      rightClick ? juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier | juce::ModifierKeys::popupMenuClickModifier)
+                                                 : juce::ModifierKeys(),
+                                      1.0f, 0.0f, 0.0f, 0.0f, 0.0f, card, card, juce::Time::getCurrentTime(),
+                                      position, juce::Time::getCurrentTime(), 1, false);
+        card->mouseUp (event);
+        settle (200);
+        return true;
+    };
+
     // Pages inside a tab: MATRIX is under MOD, and the scope opens over any page.
     pages->showPage ("MATRIX");
     settle (200);
@@ -629,8 +660,13 @@ int runUiTests()
             on->setValueNotifyingHost (1.0f);
         settle (300);
 
-        expect (shownOnMain (osc3 + "_level") && ! shownOnMain ("osc4_level"),
-                "MAIN shows OSC 3 and hides OSC 4 by default");
+        // Three open cards may not fit with the rest: OSC 3 then folds to
+        // fit, and opens on a click on its title.
+        const auto osc3Folded = ! shownOnMain (osc3 + "_level") && toggleFor (osc3 + "_on") != nullptr;
+        if (osc3Folded)
+            clickCardTitle (osc3 + "_on");
+        expect (shownOnMain (osc3 + "_level") && ! shownOnMain ("osc4_level") && toggleFor ("osc4_on") == nullptr,
+                juce::String ("MAIN shows OSC 3 and hides OSC 4 by default") + (osc3Folded ? " (OSC 3 folded to fit; its title opened it)" : ""));
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)
             processor.addOscillator (osc);
@@ -644,6 +680,8 @@ int runUiTests()
                 on->setValueNotifyingHost (1.0f);
 
             settle (400);
+            if (! shownOnMain (prefix + "_level"))
+                clickCardTitle (prefix + "_on"); // folded to fit: open it
             std::vector<KnobControl*> mainKnobs;
             findAll<KnobControl> (*editor, mainKnobs);
             auto level = false, grainSize = false;
@@ -1452,6 +1490,12 @@ int runUiTests()
         for (int i = 0; i < 300 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
             settle (50);
         settle (300);
+        {
+            std::vector<KnobControl*> shownKnobs;
+            findAll<KnobControl> (*editor, shownKnobs);
+            if (std::none_of (shownKnobs.begin(), shownKnobs.end(), [] (KnobControl* k) { return k->getParameterId() == "osc2_level" && visibleInTree (k); }))
+                clickCardTitle ("osc2_on"); // folded to fit: open it
+        }
         std::vector<KnobControl*> knobs;
         findAll<KnobControl> (*editor, knobs);
         auto sampleShown = false;
@@ -2567,6 +2611,263 @@ int runUiTests()
         }
     }
 
+    // UI review 4, batch E: oscillators, filter, PLAY.
+    {
+        const auto setParam = [&processor] (const juce::String& id, float plain)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+        };
+        const auto readParam = [&processor] (const juce::String& id)
+        {
+            const auto* value = processor.apvts.getRawParameterValue (id);
+            return value != nullptr ? value->load() : 0.0f;
+        };
+        const auto findKnob = [&editor] (const juce::String& id) -> KnobControl*
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob) && knob->getWidth() > 0)
+                    return knob;
+            return nullptr;
+        };
+        const auto loadNamed = [&processor] (const juce::String& name)
+        {
+            processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (name));
+            settle (500);
+        };
+        const juce::StringArray presets { "Init", "Neuro Wobble", "E.PIANO 1 (ROM1A)" };
+
+        // No card is cut mid-knob: every visible knob on PLAY and OSC is
+        // wholly inside each of its ancestors (the scrolling viewports
+        // included) or wholly out of view, at 100 % and 75 % (V13, S8).
+        const auto clippedKnobs = [&editor] (juce::StringArray& names)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+            {
+                if (! visibleInTree (knob) || knob->getWidth() <= 0 || knob->getHeight() <= 0)
+                    continue;
+                // The dial and its value: the label above may tuck under a header.
+                const auto area = editor->getLocalArea (knob, knob->getLocalBounds().withTrimmedTop (13));
+                for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                {
+                    const auto view = editor->getLocalArea (parent, parent->getLocalBounds());
+                    if (view.intersects (area) && ! view.contains (area))
+                    {
+                        names.add (knob->getParameterId());
+                        break;
+                    }
+                }
+            }
+        };
+
+        for (const auto width : { 1060, 795 })
+        {
+            editor->setSize (width, width * 720 / 1060);
+            settle (300);
+            for (const auto& preset : presets)
+            {
+                loadNamed (preset);
+                for (const auto* page : { "MAIN", "OSC" })
+                {
+                    pages->showPage (page);
+                    settle (400);
+                    juce::StringArray clipped;
+                    clippedKnobs (clipped);
+                    expect (clipped.isEmpty() && processor.getFactoryPresetNames().contains (preset),
+                            juce::String (page) + " at " + juce::String (width) + " px, " + preset + ": no knob is cut by its card or the page"
+                                + (clipped.isEmpty() ? juce::String() : " (cut: " + clipped.joinIntoString (", ") + ")"));
+                }
+            }
+        }
+        editor->setSize (1060, 720);
+        settle (300);
+
+        // The DX7 voice's six oscillators don't fit open: the lower ones fold
+        // to their titles; a click on one opens it (another folds instead),
+        // still with no knob cut.
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        for (const auto* page : { "MAIN", "OSC" })
+        {
+            pages->showPage (page);
+            settle (400);
+            const auto osc4FoldedBefore = findKnob ("osc4_level") == nullptr && toggleFor ("osc4_on") != nullptr;
+            clickCardTitle ("osc4_on");
+            juce::StringArray clipped;
+            clippedKnobs (clipped);
+            expect (osc4FoldedBefore && findKnob ("osc4_level") != nullptr && findKnob ("osc1_level") != nullptr && clipped.isEmpty(),
+                    juce::String (page) + ": DX7 OSC 4 is folded to fit; a click on its title opens it, nothing cut ("
+                        + clipped.joinIntoString (", ") + ")");
+        }
+
+        // No remove button on an oscillator's title (S16): it is on the
+        // title's right-click menu.
+        loadNamed ("Neuro Wobble");
+        for (const auto* page : { "MAIN", "OSC" })
+        {
+            pages->showPage (page);
+            settle (300);
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            auto crosses = 0;
+            for (auto* button : buttons)
+                crosses += visibleInTree (button) && (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97"))
+                                                      || button->getButtonText() == "x") ? 1 : 0;
+            expect (crosses == 0, juce::String (page) + ": no remove button on the oscillator titles");
+        }
+
+        // The filter graph's markers: the set cutoff's, solid, inside the
+        // plot and apart when both sit at 20 kHz; a click on one picks that
+        // filter (V11).
+        loadNamed ("Init");
+        pages->showPage ("MAIN");
+        settle (300);
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr && visibleInTree (display))
+        {
+            const auto markers = display->getMarkerCentres();
+            const auto plot = display->getLocalBounds().toFloat().reduced (10.0f, 12.0f);
+            expect (plot.contains (markers[0]) && plot.contains (markers[1]) && markers[0].getDistanceFrom (markers[1]) >= 10.0f
+                        && display->filterAt (markers[0]) == 0 && display->filterAt (markers[1]) == 1,
+                    "Init: both filter markers are inside the graph, apart, and each picks its own filter");
+        }
+        else
+            expect (false, "PLAY shows the filter graph");
+
+        // PLAY's filter TYPE reads like FILTER's (its short names), SLOPE is
+        // FILTER's 12 / 24 dB switch (S10).
+        {
+            std::vector<ComboControl*> combos;
+            findAll<ComboControl> (*editor, combos);
+            auto typeText = juce::String();
+            for (auto* combo : combos)
+                if (visibleInTree (combo) && combo->getComboBox().getNumItems() == FilterTypeGrid::shortNames().size()
+                    && combo->getComboBox().getItemText (0) == FilterTypeGrid::shortNames()[0])
+                    typeText = combo->getComboBox().getText();
+            std::vector<SlopeSwitch*> slopes;
+            findAll<SlopeSwitch> (*editor, slopes);
+            auto slopeShown = false;
+            for (auto* slope : slopes)
+                slopeShown = slopeShown || visibleInTree (slope);
+            expect (typeText.isNotEmpty() && typeText == FilterTypeGrid::shortNames()[juce::roundToInt (readParam ("f1_type"))] && slopeShown,
+                    "PLAY's filter TYPE shows FILTER's name ('" + typeText + "') and SLOPE is the 12 / 24 dB switch");
+        }
+
+        // The WAVE view: the frame as a readout and scrubber (V12).
+        pages->showPage ("OSC");
+        settle (300);
+        {
+            std::vector<WaveDisplay*> waves;
+            findAll<WaveDisplay> (*editor, waves);
+            auto readout = juce::String();
+            for (auto* wave : waves)
+                if (visibleInTree (wave) && readout.isEmpty())
+                    readout = wave->getFrameReadout();
+            expect (readout.startsWith ("FRAME ") && readout.contains (" / "), "the WAVE view reads out the frame ('" + readout + "')");
+        }
+
+        // One dimming rule (V26): a control that does nothing now dims, says
+        // why on hover, and still takes edits.
+        {
+            auto* spectral = findKnob ("osc1_spectral_amt");
+            const auto dimmed = spectral != nullptr && std::abs (spectral->getAlpha() - IlanaTheme::dimmedAlpha) < 0.01f
+                                && spectral->isEnabled() && spectral->getSlider().getTooltip().contains ("No effect now");
+            setParam ("osc1_spectral", 1.0f);
+            settle (500);
+            const auto lit = spectral != nullptr && spectral->getAlpha() > 0.99f && ! spectral->getSlider().getTooltip().contains ("No effect now");
+            setParam ("osc1_spectral", 0.0f);
+            settle (300);
+            auto* detune = findKnob ("osc1_detune");
+            expect (dimmed && lit && detune != nullptr && detune->getAlpha() < 0.99f,
+                    "OSC: SPEC AMT dims (and says why) while SPECTRAL is Off, lights when it is on; DETUNE dims at UNISON 1");
+
+            pages->showPage ("FILTER");
+            settle (400);
+            auto* balance = findKnob ("filter_balance");
+            const auto serialDim = balance != nullptr && balance->getAlpha() < 0.99f;
+            setParam ("filters_parallel", 1.0f);
+            settle (400);
+            expect (serialDim && balance != nullptr && balance->getAlpha() > 0.99f, "FILTER: BALANCE dims in serial, not in parallel");
+            setParam ("filters_parallel", 0.0f);
+            settle (200);
+        }
+
+        // Three knob sizes by role (V22): FM sends are mini, OSC's core
+        // knobs as large as PLAY's.
+        {
+            pages->showPage ("FM");
+            settle (400);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            auto sends = 0, miniSends = 0;
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId().startsWith ("fm_") && knob->getLabelText().isEmpty())
+                {
+                    ++sends;
+                    miniSends += knob->getMaxDial() == IlanaTheme::KnobSize::mini ? 1 : 0;
+                }
+            expect (sends > 0 && sends == miniSends, "FM: the matrix's send knobs are mini (" + juce::String (miniSends) + " of " + juce::String (sends) + ")");
+
+            pages->showPage ("MAIN");
+            settle (300);
+            auto* playLevel = findKnob ("osc1_level");
+            const auto playDial = playLevel != nullptr ? playLevel->getDialSize() : 0;
+            pages->showPage ("OSC");
+            settle (300);
+            auto* oscLevel = findKnob ("osc1_level");
+            expect (playDial > 0 && oscLevel != nullptr && oscLevel->getDialSize() >= playDial,
+                    "OSC's LEVEL dial (" + juce::String (oscLevel != nullptr ? oscLevel->getDialSize() : 0) + " px) is not smaller than PLAY's ("
+                        + juce::String (playDial) + " px)");
+        }
+
+        // The physical card: LOAD .WAV only for a wavetable (V30).
+        {
+            setParam ("osc1_mode", 1.0f);
+            settle (500);
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            auto loadShown = false;
+            for (auto* button : buttons)
+                loadShown = loadShown || (visibleInTree (button) && button->getButtonText().startsWith ("LOAD"));
+            expect (! loadShown && findKnob ("osc1_string_decay") != nullptr && findKnob ("osc1_unison") != nullptr,
+                    "a Physical card has no LOAD .WAV, and shows its string and voice rows");
+            setParam ("osc1_mode", 0.0f);
+            settle (300);
+        }
+
+        // VECTOR: a corner whose oscillator is off says so (S27).
+        {
+            pages->showPage ("VECTOR");
+            settle (300);
+            auto* pad = findChild<VectorPadDisplay> (*editor);
+            auto offCorner = -1;
+            for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
+                if (! pad->isCornerSounding (corner))
+                    offCorner = corner;
+            expect (pad != nullptr && offCorner >= 0 && pad->getCornerLabel (offCorner, 0.5f).endsWith ("(off)")
+                        && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains ("(off)"),
+                    "VECTOR: Init's corners on switched-off oscillators read '(off)', OSC 1's does not");
+        }
+
+        // The synced RATE knob takes modulation for RATE (V14).
+        {
+            pages->showPage ("ENV/LFO");
+            settle (300);
+            setParam ("lfo1_sync", 1.0f);
+            settle (400);
+            auto* division = findKnob ("lfo1_div");
+            const juce::DragAndDropTarget::SourceDetails drag (juce::var ("modsource:0"), nullptr, {});
+            expect (division != nullptr && division->getRingDestination() == (int) Mod::Destination::Lfo1Rate
+                        && division->isInterestedInDragSource (drag),
+                    "a synced LFO's RATE knob shows RATE's modulation and takes a dropped source");
+            setParam ("lfo1_sync", 0.0f);
+            settle (200);
+        }
+        loadNamed ("Neuro Wobble");
+    }
+
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -3283,9 +3584,14 @@ int main (int argc, char** argv)
     }
 
     const auto pageIds = pages->getPageIds();
+    // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
+    const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
 
     for (int i = 0; i < pageIds.size(); ++i)
     {
+        if (! onlyPages.isEmpty() && ! onlyPages.contains (pageIds[i]))
+            continue;
+
         pages->showPage (pageIds[i]);
         settle (450);
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
@@ -3385,6 +3691,9 @@ int main (int argc, char** argv)
             }
         }
     }
+
+    if (! onlyPages.isEmpty())
+        return 0;
 
     // The scope floats over a page, then fills it.
     pages->showPage ("MAIN");

@@ -137,6 +137,36 @@ public:
                 control->setVisible (false);
         }
 
+        // What doesn't act right now dims (one rule for every page: UI review
+        // 4, V26): the arp's card body, display included, while it is off;
+        // each engine's settings while it is off; the spray's while SPRAY is
+        // off; ROOT and SNAP PLAYED while there is no scale (ROOT still tunes
+        // the sympathetic strings).
+        const auto arpOnNow = effectRules.isOn ("arp_on");
+        for (juce::Component* control : { static_cast<juce::Component*> (&arpDisplay), static_cast<juce::Component*> (&arpMode),
+                                          static_cast<juce::Component*> (&arpDiv), static_cast<juce::Component*> (&arpOctaves),
+                                          static_cast<juce::Component*> (&arpGate), static_cast<juce::Component*> (&arpChance) })
+            effectRules.add (*control, arpOnNow, "the ARP is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&eucTarget), static_cast<juce::Component*> (&eucDiv),
+                                          static_cast<juce::Component*> (&eucSteps), static_cast<juce::Component*> (&eucHits),
+                                          static_cast<juce::Component*> (&eucRotate), static_cast<juce::Component*> (&eucGate) })
+            effectRules.add (*control, effectRules.isOn ("euc_on"), "EUCLID is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&pseqDiv), static_cast<juce::Component*> (&pseqLength),
+                                          static_cast<juce::Component*> (&pseqGate) })
+            effectRules.add (*control, effectRules.isOn ("pseq_on"), "the sequencer is off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&clipIndex), static_cast<juce::Component*> (&clipMode),
+                                          static_cast<juce::Component*> (&clipBars), static_cast<juce::Component*> (&clipImport) })
+            effectRules.add (*control, effectRules.isOn ("clip_on"), "CLIP is off");
+        effectRules.add (*strumTime, effectRules.choiceIsNot ("spray_strum", 0), "STRUM is Off");
+        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
+                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
+                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
+            effectRules.add (*control, effectRules.isOn ("spray_on"), "SPRAY is off");
+        const auto hasScale = effectRules.choiceIsNot ("gen_scale", 0);
+        const auto tunesStrings = [this] { return readOn ("sym_on") && ! readOn ("sym_manual"); };
+        effectRules.add (genSnap, hasScale, "SCALE is Off");
+        effectRules.add (genRoot, [hasScale, tunesStrings] { return hasScale() || tunesStrings(); }, "SCALE is Off");
+
         startTimerHz (8);
     }
 
@@ -374,7 +404,7 @@ public:
         layoutRow (second, { nullptr, nullptr, strumTime.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get() });
         // SNAP PLAYED centred under the SCALE group, level with the dials.
         {
-            const auto dialDrop = juce::jlimit (28, 58, column - 6) / 2 - 12;
+            const auto dialDrop = juce::jlimit (IlanaTheme::KnobSize::minimum, strumTime->getMaxDial(), column - 6) / 2 - 12;
             const auto rowBand = second.withSizeKeepingCentre (second.getWidth(), juce::jmin (second.getHeight(), preferredControlHeight (strumTime.get(), column - 6) + 6));
             genSnap.setBounds (rowBand.withWidth (column * 2).withSizeKeepingCentre (column, rowBand.getHeight()).reduced (3).withTrimmedTop (dialDrop));
         }
@@ -527,40 +557,18 @@ private:
 
         updateUseButtons();
 
-        const auto* on = processorRef.apvts.getRawParameterValue ("arp_on");
-        const auto alpha = on != nullptr && on->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
-
-        for (juce::Component* control : { static_cast<juce::Component*> (&arpMode), static_cast<juce::Component*> (&arpDiv),
-                                          static_cast<juce::Component*> (&arpOctaves), static_cast<juce::Component*> (&arpGate),
-                                          static_cast<juce::Component*> (&arpChance) })
-            if (control->getAlpha() != alpha)
-                control->setAlpha (alpha);
-
-        const auto dim = [] (std::initializer_list<juce::Component*> controls, bool on)
-        {
-            for (auto* control : controls)
-                if (control->getAlpha() != (on ? 1.0f : IlanaTheme::dimmedAlpha))
-                    control->setAlpha (on ? 1.0f : IlanaTheme::dimmedAlpha);
-        };
-
-        dim ({ &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate }, readOn ("euc_on"));
-        dim ({ &pseqDiv, &pseqLength, &pseqGate }, readOn ("pseq_on"));
-        dim ({ &clipIndex, &clipMode, &clipBars, &clipImport }, readOn ("clip_on"));
+        effectRules.apply();
         clipBars.refresh();
-        dim ({ strumTime.get() }, (int) readValue ("spray_strum") != 0);
         repaint (engineHint);
         repaint (stepTitle1); // their notes follow the LFOs' shapes
         repaint (stepTitle2);
-
-        const auto* spray = processorRef.apvts.getRawParameterValue ("spray_on");
-        const auto sprayAlpha = spray != nullptr && spray->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
-
-        for (juce::Component* control : { static_cast<juce::Component*> (&sprayDirection), static_cast<juce::Component*> (sprayCount.get()),
-                                          static_cast<juce::Component*> (sprayRange.get()), static_cast<juce::Component*> (spraySpread.get()),
-                                          static_cast<juce::Component*> (sprayChance.get()), static_cast<juce::Component*> (sprayVelocity.get()) })
-            if (control->getAlpha() != sprayAlpha)
-                control->setAlpha (sprayAlpha);
     }
+
+public:
+    // The UI test counts the dimmed controls.
+    int getNumInactive() const { return effectRules.numInactive(); }
+
+private:
 
     float readValue (const char* id) const
     {
@@ -667,5 +675,6 @@ private:
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
     std::array<juce::TextButton, 2> useButtons;
     juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
+    EffectRules effectRules { processorRef };
 };
 } // namespace

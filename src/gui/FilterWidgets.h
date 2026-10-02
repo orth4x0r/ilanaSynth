@@ -153,6 +153,18 @@ public:
     int getPage() const { return page; }
     void setPage (int newPage) { page = juce::jlimit (0, numPages - 1, newPage); pageChosen = true; repaint(); }
 
+    // The grid's pages and families, for lists that group the types the
+    // same way (PLAY's TYPE menu).
+    static int getNumPages() { return numPages; }
+    static juce::String getPageName (int p) { return pageNames()[juce::jlimit (0, numPages - 1, p)]; }
+    static std::vector<std::pair<juce::String, std::vector<int>>> getFamilies (int p)
+    {
+        std::vector<std::pair<juce::String, std::vector<int>>> families;
+        for (const auto& group : pages()[(size_t) juce::jlimit (0, numPages - 1, p)])
+            families.push_back ({ group.name, group.types });
+        return families;
+    }
+
     // The full name of the cell under the mouse.
     void mouseMove (const juce::MouseEvent& event) override
     {

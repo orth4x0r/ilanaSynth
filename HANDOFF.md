@@ -42,7 +42,7 @@ Updated 2026-10-01. The source tree is the source of truth. Work on `main` (clou
 - Unfinished work of the seven packages is saved as patches against main e9eaf10 in `docs/wip-review6/pN.patch` (snapshot 2026-10-02 17:39; NOT built or gated together; they overlap in PluginEditor.cpp, PluginProcessor.h, ParameterLayout.cpp, ParamInfo.h and tools/Snapshot.cpp). Resume: `git apply --3way docs/wip-review6/pN.patch` one package at a time on a branch, build, fix, `--uitest`, fingerprints.
   - P1 modulation (rings, chip bar, matrix, macros): early, nothing committed; new ModNames.h, ModSourceChip.h, MacroStrip.h.
   - P2 FM/DX7: most done: all 32 DX7 algorithms, stacked diagram, draggable Operator Env graph, units/names, Op LFO / Op Pitch sources and destinations, wheel and pressure on DX7 voices. Left: pool cards, matrix dots/FB glyph, copy.
-  - P3 PLAY/OSC/PHYSICAL/VECTOR: folded SUB + NOISE leak fixed; fixed layout, operator view, wave display, PHYSICAL/VECTOR in progress.
+  - P3 PLAY/OSC/PHYSICAL/VECTOR: DONE (p3.patch is final, --uitest passed on its own): fixed PLAY slots, OSC tabs, FM operators shown as operators, WAVE/3D/SPEC pills, one physical control list, PHYSICAL tab dimmed, VECTOR/EVOLVE. Touches ParamControls.h (empty-label combo), PluginEditor.h/.cpp (showOperatorEnvelope).
   - P4 MOD pools / LFOs / envelopes / Steps: in progress, nothing committed (CardTabs.h, LfoShapeMenu.h, LfoSimView.h new).
   - P5 filter/FX: filter side done (type picker, WEST card, markers, BALANCE, signal flow); FX rack in progress.
   - P6 browser/header: factory tags (tools/tag_presets.py, PresetTags.h), DX7 by sound in Title Case, hidden per-preset trim so MASTER reads 0 dB; header, Save As, tutorial, scope in progress.

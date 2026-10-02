@@ -4451,7 +4451,7 @@ index c8c07fa..0dd0e82 100644
              const auto scrolls = needed > getHeight();
              page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)),
 diff --git a/tools/Snapshot.cpp b/tools/Snapshot.cpp
-index 1251afe..4842934 100644
+index 1251afe..5bd7a9e 100644
 --- a/tools/Snapshot.cpp
 +++ b/tools/Snapshot.cpp
 @@ -36,6 +36,7 @@
@@ -4834,7 +4834,7 @@ index 1251afe..4842934 100644
              }
  
              processor.loadFactoryPreset (0);
-@@ -3300,21 +3487,42 @@ int runUiTests()
+@@ -3300,21 +3487,50 @@ int runUiTests()
          editor->setSize (1060, 720);
          settle (300);
  
@@ -4865,6 +4865,14 @@ index 1251afe..4842934 100644
 +
 +            // AMP ENV plays nothing here: greyed, with the reason and a way
 +            // to the Operator EG (V42, S3).
++            {
++                std::vector<CardTabs*> bars;
++                findAll<CardTabs> (*editor, bars);
++                for (auto* bar : bars)
++                    if (visibleInTree (bar) && bar->getNames().contains ("AMP ENV"))
++                        bar->setSelected (0, true);
++                settle (300);
++            }
 +            std::vector<juce::TextButton*> buttons;
 +            findAll<juce::TextButton> (*editor, buttons);
 +            auto opEnv = false;
@@ -4886,7 +4894,7 @@ index 1251afe..4842934 100644
          }
  
          // No remove button on an oscillator's title (S16): it is on the
-@@ -3331,6 +3539,22 @@ int runUiTests()
+@@ -3331,6 +3547,22 @@ int runUiTests()
                  crosses += visibleInTree (button) && (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97"))
                                                        || button->getButtonText() == "x") ? 1 : 0;
              expect (crosses == 0, juce::String (page) + ": no remove button on the oscillator titles");
@@ -4909,7 +4917,7 @@ index 1251afe..4842934 100644
          }
  
          // The filter graph's markers: the set cutoff's, solid, inside the
-@@ -3460,9 +3684,23 @@ int runUiTests()
+@@ -3460,9 +3692,23 @@ int runUiTests()
              for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
                  if (! pad->isCornerSounding (corner))
                      offCorner = corner;
@@ -4936,7 +4944,7 @@ index 1251afe..4842934 100644
          }
  
          // The synced RATE knob takes modulation for RATE (V14).
-@@ -4137,15 +4375,8 @@ int main (int argc, char** argv)
+@@ -4137,15 +4383,8 @@ int main (int argc, char** argv)
          for (auto* wave : waves)
              if (visibleInTree (wave) && wave->getOscIndex() == 0)
              {

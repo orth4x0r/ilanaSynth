@@ -244,6 +244,9 @@ public:
 
     std::function<void (int slot, float depth)> onDepthChange;
     std::function<void (int slot)> onRemove;
+    // A depth drag's start and end (one undo step).
+    std::function<void (int source)> onDragStart;
+    std::function<void()> onDragEnd;
 
     void setDots (const std::vector<Dot>& newDots)
     {
@@ -311,7 +314,12 @@ public:
         dragIndex = indexAt (event.position);
 
         if (dragIndex >= 0)
+        {
             dragStartDepth = dots[(size_t) dragIndex].depth;
+
+            if (onDragStart != nullptr)
+                onDragStart (dots[(size_t) dragIndex].source);
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
@@ -329,7 +337,13 @@ public:
             onDepthChange (dots[(size_t) dragIndex].slot, depth);
     }
 
-    void mouseUp (const juce::MouseEvent&) override { dragIndex = -1; }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragIndex >= 0 && onDragEnd != nullptr)
+            onDragEnd();
+
+        dragIndex = -1;
+    }
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
@@ -423,9 +437,19 @@ public:
         dotStrip.onRemove = [this] (int slot)
         {
             if (processorRef != nullptr)
-                processorRef->clearModSlot (slot);
+                processorRef->performEdit ("Remove modulation", [this, slot] { processorRef->clearModSlot (slot); });
 
             refreshRoutings();
+        };
+        dotStrip.onDragStart = [this] (int source)
+        {
+            if (processorRef != nullptr)
+                processorRef->beginEdit (Mod::getSourceNames()[source] + " depth");
+        };
+        dotStrip.onDragEnd = [this]
+        {
+            if (processorRef != nullptr)
+                processorRef->endEdit();
         };
         addChildComponent (dotStrip);
 
@@ -846,6 +870,16 @@ private:
 
                                 auto& processor = *safeThis->processorRef;
 
+                                // Each edit here is one named undo step.
+                                const auto name = result == 1000   ? juce::String ("Clear modulation")
+                                                  : result == 2000 ? "Reset " + safeThis->label.getText()
+                                                  : result == 3001 ? "Paste " + safeThis->label.getText()
+                                                  : result >= 5000 ? juce::String ("Remove modulation")
+                                                                   : juce::String ("Add modulation");
+
+                                if (result != 3000 && result != 4000)
+                                    processor.beginEdit (name);
+
                                 if (result == 1000)
                                     processor.clearModSlotsForTarget (safeThis->ringConfig.destination);
                                 else if (result == 2000)
@@ -875,6 +909,7 @@ private:
                                     processor.assignModSlot (result - 1, safeThis->ringConfig.destination, 0.35f);
                                 }
 
+                                processor.endEdit();
                                 safeThis->refreshRoutings();
                             });
     }

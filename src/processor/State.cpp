@@ -688,3 +688,196 @@ void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeIn
 
     applyFullState (juce::ValueTree::fromXml (*xml));
 }
+
+// ---- Undo for gestures and for data that isn't a parameter ----------------
+
+IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData() const
+{
+    PatchData data;
+
+    {
+        const juce::SpinLock::ScopedLockType lock (lfoShapeLock);
+        data.draws = lfoCustom;
+        data.curves = lfoCurves;
+    }
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        data.remaps[(size_t) slot] = getModRemap (slot);
+
+    data.clips = clipState.getAll();
+    return data;
+}
+
+namespace
+{
+bool sameCurve (const LfoCurve& a, const LfoCurve& b)
+{
+    if (a.points.size() != b.points.size())
+        return false;
+
+    for (size_t i = 0; i < a.points.size(); ++i)
+        if (a.points[i].x != b.points[i].x || a.points[i].y != b.points[i].y || a.points[i].tension != b.points[i].tension)
+            return false;
+
+    return true;
+}
+
+bool sameClips (const std::shared_ptr<const ClipState::Clips>& a, const std::shared_ptr<const ClipState::Clips>& b)
+{
+    if (a == b)
+        return true;
+
+    if (a == nullptr || b == nullptr)
+        return false;
+
+    for (size_t i = 0; i < a->size(); ++i)
+        if (! ClipState::sameClip ((*a)[i], (*b)[i]))
+            return false;
+
+    return true;
+}
+} // namespace
+
+bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchData& b)
+{
+    if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
+        return false;
+
+    for (size_t i = 0; i < a.curves.size(); ++i)
+        if (! sameCurve (a.curves[i], b.curves[i]))
+            return false;
+
+    for (size_t i = 0; i < a.remaps.size(); ++i)
+        if (! sameCurve (a.remaps[i], b.remaps[i]))
+            return false;
+
+    return true;
+}
+
+void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const PatchData& reference)
+{
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+    {
+        if (data.draws[(size_t) lfo] != reference.draws[(size_t) lfo])
+            for (int i = 0; i < lfoDrawSteps; ++i)
+                setLfoCustomPoint (lfo, i, data.draws[(size_t) lfo][(size_t) i]);
+
+        if (! sameCurve (data.curves[(size_t) lfo], reference.curves[(size_t) lfo]))
+            setLfoCurve (lfo, data.curves[(size_t) lfo]);
+    }
+
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        if (! sameCurve (data.remaps[(size_t) slot], reference.remaps[(size_t) slot]))
+            setModRemap (slot, data.remaps[(size_t) slot]);
+
+    if (! sameClips (data.clips, reference.clips))
+    {
+        clipState.setAll (data.clips);
+        clipsEdited();
+    }
+}
+
+// One gesture's change to the data: undo puts back what it was before,
+// redo what it was after, each only where the gesture changed it.
+struct IlanaSynthAudioProcessor::PatchDataEdit : public juce::UndoableAction
+{
+    PatchDataEdit (IlanaSynthAudioProcessor& p, PatchData b, PatchData a)
+        : processor (p), before (std::move (b)), after (std::move (a)) {}
+
+    bool perform() override
+    {
+        // The first perform is the gesture itself, already done.
+        if (std::exchange (done, true))
+            processor.restorePatchData (after, before);
+        return true;
+    }
+
+    bool undo() override
+    {
+        processor.restorePatchData (before, after);
+        return true;
+    }
+
+    int getSizeInUnits() override { return 100; }
+
+    IlanaSynthAudioProcessor& processor;
+    PatchData before, after;
+    bool done = false;
+};
+
+void IlanaSynthAudioProcessor::beginEdit (const juce::String& name)
+{
+    if (pendingEditData.has_value()) // a gesture that never saw its mouse-up
+        endEdit();
+
+    // Parameter changes still waiting for the tree go to the step before
+    // (copyState flushes them; the tree otherwise catches up on a timer).
+    apvts.copyState();
+    undoManager.beginNewTransaction (name);
+    pendingEditData = capturePatchData();
+}
+
+void IlanaSynthAudioProcessor::endEdit()
+{
+    if (! pendingEditData.has_value())
+        return;
+
+    apvts.copyState(); // this gesture's parameter changes join its step now
+    auto before = std::move (*pendingEditData);
+    pendingEditData.reset();
+    auto after = capturePatchData();
+
+    if (! samePatchData (before, after))
+        undoManager.perform (new PatchDataEdit (*this, std::move (before), std::move (after)));
+}
+
+juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
+{
+    const auto epoch = dataEpoch.load();
+
+    if (epoch == hashedDataEpoch)
+        return cachedDataHash;
+
+    // FNV-1a over the values (the remaps that are off all hash alike).
+    juce::uint64 hash = 14695981039346656037ull;
+    const auto add = [&hash] (const void* bytes, size_t size)
+    {
+        for (size_t i = 0; i < size; ++i)
+            hash = (hash ^ static_cast<const juce::uint8*> (bytes)[i]) * 1099511628211ull;
+    };
+    const auto addCurve = [&add] (const LfoCurve& curve)
+    {
+        for (const auto& point : curve.points)
+            add (&point, sizeof (point));
+
+        const auto count = curve.points.size();
+        add (&count, sizeof (count));
+    };
+
+    const auto data = capturePatchData();
+    add (data.draws.data(), sizeof (data.draws));
+
+    for (const auto& curve : data.curves)
+        addCurve (curve);
+
+    for (const auto& curve : data.remaps)
+        addCurve (curve);
+
+    if (data.clips != nullptr)
+    {
+        for (const auto& clip : *data.clips)
+        {
+            add (&clip.bars, sizeof (clip.bars));
+
+            for (const auto& note : clip.notes)
+                add (&note, sizeof (note));
+
+            const auto count = clip.notes.size();
+            add (&count, sizeof (count));
+        }
+    }
+
+    hashedDataEpoch = epoch;
+    cachedDataHash = (juce::int64) hash;
+    return cachedDataHash;
+}

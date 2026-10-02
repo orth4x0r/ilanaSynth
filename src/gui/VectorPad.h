@@ -106,6 +106,7 @@ public:
             for (int i = 0; i < IlanaSynthAudioProcessor::numVectorPoints; ++i)
                 if (toScreen (processorRef.getVectorPathPoint (i)).getDistanceFrom (event.position) < 9.0f)
                     dragPoint = i;
+        processorRef.beginEdit (dragPoint >= 0 ? "Vector path point " + juce::String (dragPoint + 1) : juce::String ("Vector position"));
         beginGesture();
         mouseDrag (event);
     }
@@ -129,13 +130,17 @@ public:
     void mouseUp (const juce::MouseEvent&) override
     {
         endGesture();
+        processorRef.endEdit();
         dragPoint = -1;
     }
 
     void mouseDoubleClick (const juce::MouseEvent&) override
     {
-        setParam ("vec_x", 0.5f);
-        setParam ("vec_y", 0.5f);
+        processorRef.performEdit ("Centre vector position", [this]
+        {
+            setParam ("vec_x", 0.5f);
+            setParam ("vec_y", 0.5f);
+        });
     }
 
 private:

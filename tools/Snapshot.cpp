@@ -35,6 +35,10 @@
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
 #include "gui/ModHoverPopup.h"
+#include "gui/ClipEditor.h"
+#include "gui/ConfirmOverlay.h"
+#include "gui/LfoDisplay.h"
+#include "gui/RemapEditor.h"
 
 namespace
 {
@@ -131,6 +135,24 @@ int runUiTests()
 
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
     expect (pages != nullptr && pages->getPageIds()[0] == "MAIN", "MAIN is the first page");
+
+    // Loads don't ask over edited patches except in the test that checks it
+    // (the user's own choice is put back at the end).
+    const auto askedBefore = pages->asksBeforeReplacingEdits();
+    pages->setAsksBeforeReplacingEdits (false);
+
+    // Undo checks start from an empty history, with every parameter change
+    // already in the tree (it otherwise catches up on a timer).
+    const auto clearHistory = [&processor]
+    {
+        processor.apvts.copyState();
+        processor.getUndoManager().clearUndoHistory();
+    };
+    const auto undoSteps = [&processor]
+    {
+        processor.apvts.copyState();
+        return processor.getUndoManager().getUndoDescriptions();
+    };
     expect (findChild<juce::TabbedComponent> (*editor) != nullptr
                 && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 8 : 7),
             "seven tabs");
@@ -309,6 +331,25 @@ int runUiTests()
         {
             strips[0]->onDepthChange (routed, -0.6f);
             expect (std::abs (processor.readModSlot (routed).depth + 0.6f) < 1.0e-3f, "dragging the dot sets the depth");
+
+            // UI review 4: removing it with a double-click is one named undo
+            // step, and undo brings the routing back.
+            auto& strip = static_cast<juce::Component&> (*strips[0]);
+            const juce::Point<float> at ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
+            const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f,
+                                          0.0f, 0.0f, 0.0f, &strip, &strip, juce::Time::getCurrentTime(), at,
+                                          juce::Time::getCurrentTime(), 2, false);
+            clearHistory();
+            strip.mouseDoubleClick (click);
+            settle (100);
+            const auto removed = processor.readModSlot (routed).source == Mod::Source::None;
+            const auto steps = undoSteps();
+            processor.getUndoManager().undo();
+            settle (100);
+            expect (removed && steps.size() == 1 && steps[0] == "Remove modulation"
+                        && processor.readModSlot (routed).source == Mod::Source::Lfo2
+                        && std::abs (processor.readModSlot (routed).depth + 0.6f) < 1.0e-3f,
+                    "double-clicking a depth dot is one undo step ('" + steps.joinIntoString ("', '") + "') and undo restores the routing");
         }
         else
         {
@@ -844,6 +885,128 @@ int runUiTests()
         }
     }
 
+    // UI review 4 (V1, S1): drawn data (LFO curves, remaps, clips) is undone
+    // one gesture at a time, EDITED sees it, and a load over an edited patch
+    // asks once.
+    {
+        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(),
+                                     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                     position, juce::Time::getCurrentTime(), 1, dragged);
+        };
+        const auto gesture = [&event] (juce::Component& component, juce::Point<float> from, juce::Point<float> to)
+        {
+            component.mouseDown (event (component, from, false));
+            component.mouseDrag (event (component, to, true));
+            component.mouseUp (event (component, to, true));
+        };
+        const auto sameCurve = [] (const LfoCurve& a, const LfoCurve& b) { return a.toString() == b.toString(); };
+
+        // An LFO curve stroke.
+        {
+            if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
+                shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
+
+            LfoDisplay display (processor, 0);
+            display.setSize (300, 150);
+            const auto before = processor.getLfoCurve (0);
+            clearHistory();
+            gesture (display, { 100.0f, 50.0f }, { 120.0f, 40.0f });
+            settle (50);
+            const auto drawn = processor.getLfoCurve (0);
+            const auto steps = undoSteps();
+            processor.getUndoManager().undo();
+            const auto undone = processor.getLfoCurve (0);
+            processor.getUndoManager().redo();
+            expect (! sameCurve (before, drawn) && steps.size() == 1 && steps[0] == "LFO 1 curve" && sameCurve (undone, before)
+                        && sameCurve (processor.getLfoCurve (0), drawn),
+                    "an LFO curve stroke is one undo step ('" + steps.joinIntoString ("', '") + "'); undo and redo restore the curve");
+        }
+
+        // A remap curve drag.
+        {
+            RemapEditor remap (processor, 5, juce::Colours::orange);
+            clearHistory();
+            gesture (remap, { 150.0f, 60.0f }, { 160.0f, 50.0f });
+            const auto drawn = processor.isModRemapOn (5);
+            const auto steps = undoSteps();
+            processor.getUndoManager().undo();
+            expect (drawn && steps.size() == 1 && steps[0] == "Remap curve 6" && ! processor.isModRemapOn (5),
+                    "a remap curve drag is one undo step and undo straightens it again");
+        }
+
+        // A clip note: one step, and EDITED follows it (no parameter changes).
+        auto* confirm = findChild<ConfirmOverlay> (*editor);
+        IconButton* nextButton = nullptr;
+        for (auto* button : buttons)
+            if (button->getName() == "next")
+                nextButton = button;
+
+        if (confirm != nullptr && nextButton != nullptr)
+        {
+            // Start from a freshly loaded preset.
+            nextButton->triggerClick();
+            settle (300);
+            const auto loadedName = processor.getCurrentPresetName();
+            expect (! pages->isPatchEdited() && ! processor.getClipState().hasAny(), "a freshly loaded preset is not EDITED and has no clips");
+
+            ClipEditor clips (processor, juce::Colours::orange);
+            clips.setSize (400, 200);
+            clearHistory();
+            gesture (clips, { 80.0f, 100.0f }, { 80.0f, 100.0f });
+            settle (50);
+            const auto steps = undoSteps();
+            const auto edited = pages->isPatchEdited();
+            processor.getUndoManager().undo();
+            const auto undone = ! processor.getClipState().hasAny() && ! pages->isPatchEdited();
+            processor.getUndoManager().redo();
+            expect (steps.size() == 1 && steps[0] == "Add clip note" && undone && processor.getClipState().hasAny(),
+                    "adding a clip note is one undo step ('" + steps.joinIntoString ("', '") + "'); undo and redo bring it back");
+            expect (edited && pages->isPatchEdited(), "a clip edit lights EDITED, and undoing it clears it");
+
+            // A load over the edit asks; Cancel keeps the patch.
+            pages->setAsksBeforeReplacingEdits (true);
+            nextButton->triggerClick();
+            settle (100);
+            expect (confirm->isAsking() && processor.getCurrentPresetName() == loadedName,
+                    "the next-preset button asks before replacing an edited patch");
+            confirm->finish (false);
+            settle (100);
+            expect (processor.getCurrentPresetName() == loadedName && pages->isPatchEdited() && processor.getClipState().hasAny(),
+                    "Cancel keeps the edited patch");
+
+            // Load anyway loads it, and EDITED clears.
+            nextButton->triggerClick();
+            settle (100);
+            confirm->finish (true);
+            settle (300);
+            const auto landed = processor.getCurrentPresetName();
+            expect (landed != loadedName && ! pages->isPatchEdited() && ! processor.getClipState().hasAny(),
+                    "Load anyway loads the next preset and EDITED clears ('" + landed + "')");
+
+            // Stepping on from an unedited patch doesn't ask again.
+            nextButton->triggerClick();
+            settle (300);
+            expect (! confirm->isAsking() && processor.getCurrentPresetName() != landed,
+                    "stepping on from the loaded preset doesn't ask again");
+
+            // Undoing the load brings the clip back with the old patch.
+            processor.getUndoManager().undo();
+            processor.getUndoManager().undo();
+            settle (100);
+            expect (processor.getClipState().hasAny(), "undoing a load restores the clips it replaced");
+
+            pages->setAsksBeforeReplacingEdits (false);
+            processor.loadFactoryPreset (0);
+            settle (100);
+        }
+        else
+        {
+            expect (false, "the editor has the confirm overlay and the next button");
+        }
+    }
+
     // Init puts the modules back to three each and forgets the old patch's
     // macro CCs and drawn LFO shapes.
     {
@@ -1322,11 +1485,22 @@ int runUiTests()
             const auto w = (float) display->getWidth();
             const auto h = (float) display->getHeight();
             auto* component = static_cast<juce::Component*> (display);
+            clearHistory();
             component->mouseDown (makeEvent (*component, { 10.0f + 0.5f * (w - 20.0f), 0.5f * h }, false));
             component->mouseDrag (makeEvent (*component, { 10.0f + 0.3f * (w - 20.0f), 0.2f * h }, true));
             component->mouseUp (makeEvent (*component, { 10.0f + 0.3f * (w - 20.0f), 0.2f * h }, true));
             const auto after = processor.apvts.getRawParameterValue ("f1_cutoff")->load();
             const auto resoAfter = processor.apvts.getRawParameterValue ("f1_reso")->load();
+            {
+                settle (100);
+                const auto steps = undoSteps();
+                processor.getUndoManager().undo();
+                const auto undone = processor.apvts.getRawParameterValue ("f1_cutoff")->load();
+                processor.getUndoManager().redo();
+                expect (steps.size() == 1 && steps[0] == "Filter 1 graph" && std::abs (undone / before - 1.0f) < 0.01f
+                            && std::abs (processor.apvts.getRawParameterValue ("f1_cutoff")->load() / after - 1.0f) < 0.01f,
+                        "the filter graph drag is one undo step ('" + steps.joinIntoString ("', '") + "'); undo and redo move the cutoff");
+            }
             expect (before > 5000.0f && std::abs (after / 159.0f - 1.0f) < 0.15f,
                     "dragging across the filter graph sets the cutoff (" + juce::String (before, 0) + " -> " + juce::String (after, 0) + " Hz)");
             expect (resoAfter > resoBefore + 0.1f, "dragging up on the filter graph raises the resonance");
@@ -1490,9 +1664,14 @@ int runUiTests()
                     processor.setModSlotValue (slot, "amt", 0.2f);
                     settle (80); // the card re-reads its rows each frame
                     auto& component = static_cast<juce::Component&> (*card);
+                    clearHistory();
                     component.mouseDown (rowEvent (from, false));
                     component.mouseDrag (rowEvent (to, true));
                     component.mouseUp (rowEvent (to, true));
+                    settle (50);
+                    const auto dragSteps = undoSteps();
+                    expect (dragSteps.size() == 1 && dragSteps[0].endsWith (" depth"),
+                            "a card row drag is one undo step ('" + dragSteps.joinIntoString ("', '") + "')");
                     expect (std::abs (read().depth - 0.35f) < 0.02f && gestures.begins == 1 && gestures.ends == 1,
                             "dragging a card row sets its depth in one gesture (0.20 -> " + juce::String (read().depth, 2) + ")");
                     component.mouseDoubleClick (rowEvent (from, false));
@@ -1506,9 +1685,15 @@ int runUiTests()
                     expect (! read().bypass, "and turns it back on");
 
                     const auto rowsBefore = card->getNumRows();
+                    const auto sourceBefore = read().source;
+                    clearHistory();
                     card->applyRowAction (0, ModHoverPopup::RowAction::remove);
                     expect (read().source == Mod::Source::None && (card->getNumRows() == rowsBefore - 1 || ! card->isVisible()),
                             "the row menu removes the routing and the card follows");
+                    const auto removeSteps = undoSteps();
+                    processor.getUndoManager().undo();
+                    expect (removeSteps.size() == 1 && removeSteps[0] == "Remove modulation" && read().source == sourceBefore,
+                            "the card's Remove is one undo step and undo restores the routing");
                 }
 
                 modulated->closeModCard();
@@ -1617,6 +1802,7 @@ int runUiTests()
             std::cout << "knobs without a ring: " << ringless.joinIntoString (", ") << std::endl;
     }
 
+    pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
@@ -1962,6 +2148,18 @@ int main (int argc, char** argv)
         settle (200);
         save (*editor, outDir.getChildFile ("00-tutorial.png"));
         tutorial->setVisible (false);
+    }
+
+    // ILANA_SNAPSHOT_CONFIRM: the question a load over an edited patch asks.
+    if (auto* confirm = findChild<ConfirmOverlay> (*editor);
+        confirm != nullptr && juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_CONFIRM", "").isNotEmpty())
+    {
+        confirm->ask ("Replace your edits?",
+                      "'" + processor.getCurrentPresetName() + "' has changes that aren't saved. Loading 'Init' replaces them.",
+                      "Load anyway", [] (bool, bool) {});
+        settle (100);
+        save (*editor, outDir.getChildFile ("00-confirm.png"));
+        confirm->finish (false);
     }
 
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());

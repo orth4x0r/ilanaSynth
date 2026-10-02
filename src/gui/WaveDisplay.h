@@ -222,6 +222,7 @@ public:
         {
             if (isGranularMode())
             {
+                processorRef.beginEdit (editName());
                 beginGesture (startId);
                 setPositionFromX (event.position.x);
                 return;
@@ -230,6 +231,7 @@ public:
             if (! isTableMode())
                 return;
 
+            processorRef.beginEdit (editName());
             beginGesture (frameId);
 
             if (canDragWarp())
@@ -273,10 +275,13 @@ public:
                                     return;
                                 }
 
-                                if (auto* parameter = safeThis->processorRef.apvts.getParameter (paramId))
-                                    parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) result));
+                                safeThis->processorRef.performEdit (safeThis->editName(), [&]
+                                {
+                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (paramId))
+                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) result));
 
-                                safeThis->switchToSampleMode();
+                                    safeThis->switchToSampleMode();
+                                });
                             });
     }
 
@@ -304,6 +309,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override
     {
         endGestures();
+        processorRef.endEdit();
 
         if (dragging)
         {
@@ -318,10 +324,16 @@ public:
         if (event.mods.isPopupMenu() || ! isTableMode() || ! canDragWarp())
             return;
 
-        beginGesture (warpAmountId());
-        setPlain (warpAmountId(), 0.0f);
-        endGestures();
+        processorRef.performEdit ("Reset OSC " + juce::String (oscIndex + 1) + " warp", [this]
+        {
+            beginGesture (warpAmountId());
+            setPlain (warpAmountId(), 0.0f);
+            endGestures();
+        });
     }
+
+    // The undo step's name for a drag or pick on this display.
+    juce::String editName() const { return "OSC " + juce::String (oscIndex + 1) + " display"; }
 
     int getViewMode() const { return viewMode; }
     int getOscIndex() const { return oscIndex; }

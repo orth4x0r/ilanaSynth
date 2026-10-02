@@ -485,9 +485,12 @@ private:
     {
         if (auto* parameter = processorRef.apvts.getParameter (id))
         {
-            parameter->beginChangeGesture();
-            parameter->setValueNotifyingHost (parameter->getValue() > 0.5f ? 0.0f : 1.0f);
-            parameter->endChangeGesture();
+            processorRef.performEdit (parameter->getName (64), [parameter]
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->getValue() > 0.5f ? 0.0f : 1.0f);
+                parameter->endChangeGesture();
+            });
         }
 
         repaint();
@@ -514,9 +517,12 @@ private:
                                 if (result <= 0 || safeThis == nullptr)
                                     return;
 
-                                parameter->beginChangeGesture();
-                                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (result - 1)));
-                                parameter->endChangeGesture();
+                                safeThis->processorRef.performEdit (parameter->getName (64), [parameter, result]
+                                {
+                                    parameter->beginChangeGesture();
+                                    parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (result - 1)));
+                                    parameter->endChangeGesture();
+                                });
                                 safeThis->repaint();
                             });
     }

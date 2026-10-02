@@ -317,7 +317,7 @@ public:
         const auto target = oscAt (event.position);
 
         if (target >= 0)
-            processorRef.getUndoManager().beginNewTransaction();
+            processorRef.getUndoManager().beginNewTransaction ("FM routing");
 
         if (target >= 0 && event.getDistanceFromDragStart() < 6)
         {

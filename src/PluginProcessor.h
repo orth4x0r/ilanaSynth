@@ -179,6 +179,25 @@ public:
 
     juce::UndoManager& getUndoManager() { return undoManager; }
 
+    // Undo (UI review 4): every edit made by a gesture other than a knob
+    // drag (JUCE's attachments start those) is one named undo step.
+    // beginEdit starts the step at the gesture's start; endEdit closes it at
+    // its end. Edits to data that isn't a parameter (drawn LFO steps and
+    // curves, remap curves, clips) made in between join the step as one
+    // action that puts the data back through the same setters. performEdit
+    // wraps a one-shot edit (a menu item, a double-click). Message thread only.
+    void beginEdit (const juce::String& name);
+    void endEdit();
+    void performEdit (const juce::String& name, const std::function<void()>& edit)
+    {
+        beginEdit (name);
+        edit();
+        endEdit();
+    }
+    // A hash of that data, for the editor's EDITED marker (cached until the
+    // data epoch moves).
+    juce::int64 getPatchDataHash() const;
+
     juce::StringArray getFactoryPresetNames() const;
     juce::StringArray getFactoryPresetCategories() const;
     juce::Array<juce::File> getUserPresetFiles() const;
@@ -463,6 +482,26 @@ public:
 private:
     TuningState tuningState;
     ClipState clipState;
+
+    // The patch data that isn't a parameter, as one undo action sees it
+    // (beginEdit / endEdit; State.cpp). Remaps that are off hold the
+    // straight line.
+    struct PatchData
+    {
+        std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> draws {};
+        std::array<LfoCurve, (size_t) numLfos> curves;
+        std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
+        std::shared_ptr<const ClipState::Clips> clips;
+    };
+    struct PatchDataEdit;
+    PatchData capturePatchData() const;
+    // Puts back the parts of data that differ from reference.
+    void restorePatchData (const PatchData& data, const PatchData& reference);
+    static bool samePatchData (const PatchData& a, const PatchData& b);
+    std::optional<PatchData> pendingEditData; // between beginEdit and endEdit
+    mutable unsigned hashedDataEpoch = ~0u;
+    mutable juce::int64 cachedDataHash = 0;
+
     MtsEspClient mtsEsp;
     Tuning mtsTuning; // filled from the master each block while one is connected
     void handleAsyncUpdate() override;

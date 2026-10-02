@@ -356,7 +356,7 @@ public:
 
         remove.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
         remove.setTooltip ("Remove this routing");
-        remove.onClick = [this] { processorRef.clearModSlot (slotIndex); };
+        remove.onClick = [this] { processorRef.performEdit ("Remove modulation", [this] { processorRef.clearModSlot (slotIndex); }); };
 
         for (auto* component : std::initializer_list<juce::Component*> { &bypass, &source, &via, &amount, &curve,
                                                                           &polarity, &destination, &remove })

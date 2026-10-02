@@ -114,8 +114,14 @@ private:
         repaint();
     }
 
-    void mouseDown (const juce::MouseEvent& event) override { setFromPosition (event.position); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        processorRef.beginEdit ("LFO " + juce::String (index + 1) + " steps");
+        setFromPosition (event.position);
+    }
+
     void mouseDrag (const juce::MouseEvent& event) override { setFromPosition (event.position); }
+    void mouseUp (const juce::MouseEvent&) override { processorRef.endEdit(); }
 
     IlanaSynthAudioProcessor& processorRef;
     int index = 0;
@@ -284,7 +290,12 @@ private:
     {
         dragHandle = findHandle (event.position);
         lastMousePosition = event.position;
+
+        if (dragHandle >= 0)
+            processorRef.beginEdit ("MSEG point " + juce::String (dragHandle + 1));
     }
+
+    void mouseUp (const juce::MouseEvent&) override { processorRef.endEdit(); }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {

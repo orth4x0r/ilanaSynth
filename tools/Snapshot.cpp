@@ -4311,7 +4311,8 @@ int runUiTests()
             {
                 auto* step5 = processor.apvts.getParameter ("lfo1_step5");
                 const auto stepBefore = step5->getValue();
-                const auto plot = shown->getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+                // The time ruler sits under the well (rulerHeight + 2), outside the plot.
+                const auto plot = shown->getLocalBounds().toFloat().withTrimmedBottom (16.0f).reduced (10.0f, 14.0f);
                 const juce::Point<float> at (plot.getX() + plot.getWidth() * 4.5f / 16.0f, plot.getCentreY() - plot.getHeight() * 0.42f * 0.5f);
                 clearHistory();
                 auto& component = static_cast<juce::Component&> (*shown);

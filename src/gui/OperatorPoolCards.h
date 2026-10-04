@@ -137,7 +137,8 @@ private:
             if (onShownChanged != nullptr)
                 onShownChanged();
         }
-        if (! wanted || ! isShowing())
+        // (Visible, not showing: an offscreen editor keeps it current too.)
+        if (! wanted || ! isVisible())
             return;
 
         std::vector<float> nowShape;

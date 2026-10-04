@@ -179,6 +179,39 @@ public:
             }
         }
 
+        // The OSC card's WARP FM and Ring: OSC 2 into OSC 1, OSC 1 into the
+        // others. Dashed, labelled, so all the FM in the patch shows here
+        // (UI review 6, I6-13).
+        for (const auto target : shown)
+        {
+            const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) target]);
+            const auto warp = juce::roundToInt (read (prefix + "_warp"));
+            const auto source = target == 0 ? 1 : 0;
+            if ((warp != Warp::Fm && warp != Warp::Ring) || read (prefix + "_warp_amt") < 0.001f
+                || std::find (shown.begin(), shown.end(), source) == shown.end())
+                continue;
+            const auto from = centres[(size_t) source], to = centres[(size_t) target];
+            const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
+            const juce::Point<float> normal (-direction.y, direction.x);
+            // Beside any matrix route between the same pair.
+            const auto offset = normal * -9.0f;
+            const juce::Line<float> line (from + direction * radius + offset, to - direction * (radius + 6.0f) + offset);
+            juce::Path shaft, dashed;
+            shaft.startNewSubPath (line.getStart());
+            shaft.lineTo (line.getEnd());
+            const float dashes[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.6f).createDashedStroke (dashed, shaft, dashes, 2);
+            juce::Path head;
+            head.addArrow ({ line.getEnd() - direction * 0.5f, line.getEnd() }, 0.0f, 9.0f, 9.0f);
+            g.setColour (oscColour (source).withAlpha (0.7f));
+            g.fillPath (dashed);
+            g.fillPath (head);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (warp == Warp::Fm ? "WARP FM" : "WARP RING",
+                        juce::Rectangle<float> (64.0f, 12.0f).withCentre (line.getPointAlongLineProportionally (0.5f) + normal * -9.0f),
+                        juce::Justification::centred);
+        }
+
         // The noise operator: a small node in the corner, drawn only while it
         // modulates something.
         {
@@ -459,7 +492,7 @@ private:
             const auto rowHeight = layoutArea().getHeight() / rows;
             // Room in each slot for the node and its caption beside it.
             const auto slot = layoutArea().getWidth() / widest;
-            return juce::jlimit ((float) minimumStackRadius, 28.0f, juce::jmin ((rowHeight - stackGap) * 0.5f, (slot - 54.0f) * 0.5f));
+            return juce::jlimit ((float) minimumStackRadius, 28.0f, juce::jmin ((rowHeight - stackGap) * 0.5f, (slot - 62.0f) * 0.5f));
         }
         const auto size = (float) juce::jmin (getWidth(), getHeight() - (int) hintHeight);
         return juce::jlimit (26.0f, 44.0f, size * 0.11f);

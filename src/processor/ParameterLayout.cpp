@@ -1052,7 +1052,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                         "Osc" + juce::String (osc + 1) + " " + field.name);
     for (const auto& field : OperatorEg::voiceFields())
         addEgField (field, field.suffix, field.name);
-    addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
+    addInt (OperatorEg::keyOffsetId, "Op Env Scale Shift", -24, 24, 0);
 
     // Review 6 (appended): the DX7 algorithm the FM routing came from (a
     // .syx voice, or a click on the grid's DX7 page), 0 for none. Display

@@ -192,7 +192,6 @@ class FmPage : public juce::Component,
                 list.push_back (knob.get());
             return list;
         }
-        std::vector<juce::Component*> lfoTop() { return { &shape, &retrig, &rate, &delay }; }
         std::vector<juce::Component*> lfoBottom() { return { &pitchDepth, &pitchSens, &ampDepth, &scaleShift }; }
         std::vector<juce::Component*> pitchStages()
         {
@@ -590,7 +589,7 @@ public:
     }
 
 private:
-    // "x1.00 · Operator Env · heard": the operator in a line (V6-33).
+    // "x1.00 · Operator Env · OUT": the operator in a line (V6-33).
     juce::String operatorText() const
     {
         const auto dot = juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 "));
@@ -599,7 +598,8 @@ private:
         auto text = tune == OscTuning::Ratio || tune == OscTuning::Fixed ? FmOperatorInfo::tuningText (processorRef, selectedOperator)
                                                                          : juce::String ("semitones");
         text << dot << (usesOperatorEnv (selectedOperator) ? "Operator Env" : operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText());
-        text << dot << (read (prefix + "_out") > 0.5f ? "heard" : "modulator only");
+        // OUT or MOD, as its node in the diagram says.
+        text << dot << (read (prefix + "_out") > 0.5f ? "OUT" : "MOD");
         if (! FmOperatorInfo::isPlaying (processorRef, selectedOperator))
             text << dot << "off";
         return text;
@@ -838,7 +838,9 @@ private:
             layoutGrid (stages, voice.pitchStages(), 9);
             egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 5 / 9).withTrimmedLeft (8).reduced (0, 2));
             auto top = inner.removeFromTop (inner.getHeight() / 2);
-            layoutRow (top, voice.lfoTop());
+            // SHAPE two columns wide, so its wave's name fits.
+            layoutRow (top, { &voice.shape, nullptr, &voice.retrig, &voice.rate, &voice.delay });
+            voice.shape.setBounds (voice.shape.getBounds().withWidth (voice.shape.getWidth() + top.getWidth() / 5));
             layoutRow (inner, voice.lfoBottom());
             return;
         }

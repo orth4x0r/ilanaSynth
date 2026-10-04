@@ -800,7 +800,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_warp"))
         return "Bends how the oscillator reads its wavetable: Sync squeezes cycles in, Bend pushes the wave "
                "forwards or back, PWM squashes it into part of the cycle, Mirror plays it there and back, Asym "
-               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others). "
+               "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others; the FM page draws them as "
+               "dashed WARP arrows beside its own routes). "
                "PD modes are Casio CZ phase distortion (try the Sine table): Saw, Square and Pulse bend a sine into "
                "those shapes; Res I-III are the CZ's resonant waves, a sweepable formant.";
 

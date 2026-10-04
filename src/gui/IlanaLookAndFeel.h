@@ -573,7 +573,19 @@ public:
         juce::Path backgroundArc;
         backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
         g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.04f * hover));
-        g.strokePath (backgroundArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (slider.getProperties().getWithDefault ("notModulatable", false))
+        {
+            // A knob no source can drive: a dotted track (UI review 7, I7-5).
+            juce::Path dotted;
+            const float dashes[] { 1.0f, lineWidth * 1.15f };
+            juce::PathStrokeType (lineWidth * 0.85f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+                .createDashedStroke (dotted, backgroundArc, dashes, 2);
+            g.fillPath (dotted);
+        }
+        else
+        {
+            g.strokePath (backgroundArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
 
         // Pages dim controls that do nothing right now (a section switched
         // off) by fading their control; those arcs go grey too, so an idle

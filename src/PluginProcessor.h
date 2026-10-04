@@ -65,7 +65,7 @@ public:
     // M8.1: each LFO's output B follows, from channel numLfos + 2.
     static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
     static constexpr int numLfoChannels = 2 * numLfos + 2;
-    static constexpr int maxDestinations = 512;
+    static constexpr int maxDestinations = 1024;
 
     float getFxMod (Mod::Destination destination, float depth) const
     {

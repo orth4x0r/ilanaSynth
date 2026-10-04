@@ -45,7 +45,7 @@ For an agent arriving cold. Current state and rules: [HANDOFF.md](../HANDOFF.md)
 ## Parameters and modulation
 - Parameters are created in `createParameterLayout()` (`src/processor/ParameterLayout.cpp`); per-block reads use a `ParamRef` member (resolved once).
 - `namespace Mod` in `src/dsp/Modulation.h`: `Source` and `Destination` enums, `Slot`, `paramDestinationFor(i)`. 64 matrix slots, 8 macros, a vector pad.
-- Destinations: 115 legacy parameter destinations at 96..210, OSC 4-6 from 211, newer parameters appended after `Destination::Count` in list order. `maxDestinations` = 512 (`PluginProcessor.h`).
+- Destinations: 115 legacy parameter destinations at 96..210, OSC 4-6 from 211, newer parameters appended after `Destination::Count` in list order. `maxDestinations` = 1024 (`PluginProcessor.h`; 989 used after review 7).
 - **Never renumber** parameter IDs, choice indices, destinations or sources. Append only (LFO 5-16, ENV 6-16 and slots 33-64 were all appended).
 - Choice parameters are non-automatable (`withAutomatable (false)` in the layout); switches and macros stay automatable.
 - New features default to old behaviour, skip their code while unused, and use their own random generators, so old presets stay bit-identical.

@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "../PluginProcessor.h"
+#include "../dsp/airwindows/Categories.h"
 
 // One name per modulation source and destination for everything the editor
 // shows (chips, knob cards, the matrix, menus, pool tags), so a source reads
@@ -75,7 +76,8 @@ inline juce::String sourceUpper (int sourceIndex, const IlanaSynthAudioProcessor
 }
 
 // Every source in the order the pickers list them, grouped: LFOs (A then
-// B), envelopes, macros, then performance and the rest.
+// B, the MSEG and Op LFO with them), envelopes (with Op Pitch), macros, then
+// performance and the rest.
 enum class SourceGroup { lfo, lfoB, envelope, macro, performance };
 
 inline SourceGroup groupOf (int sourceIndex)
@@ -89,6 +91,12 @@ inline SourceGroup groupOf (int sourceIndex)
         return SourceGroup::lfoB;
     if (Mod::macroIndexFor (s) >= 0)
         return SourceGroup::macro;
+    // The MSEG and the Operator Env's LFO sit in the LFO row on MOD, its
+    // pitch envelope in the envelope row (review 7, I7-16).
+    if (s == S::Mseg || s == S::OpLfo)
+        return SourceGroup::lfo;
+    if (s == S::OpPitchEnv)
+        return SourceGroup::envelope;
     if (s == S::AmpEnv || s == S::FilterEnv || s == S::FilterEnv2 || s == S::ModEnv || s == S::Env4
         || (s >= S::Env6 && s <= S::Env16))
         return SourceGroup::envelope;
@@ -111,6 +119,34 @@ inline int envelopePoolIndexFor (Mod::Source source)
     return -1;
 }
 
+// Every source once, in the pickers' order: LFOs, their B outputs, the
+// MSEG and Op LFO; the envelopes in pool order and Op Pitch; the macros;
+// then performance and the rest.
+inline const std::vector<int>& sourcesInMenuOrder()
+{
+    static const std::vector<int> order = []
+    {
+        using S = Mod::Source;
+        std::vector<int> list;
+        for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
+            list.push_back ((int) Mod::lfoSourceFor (lfo));
+        for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
+            list.push_back ((int) Mod::lfoBSourceFor (lfo));
+        list.push_back ((int) S::Mseg);
+        list.push_back ((int) S::OpLfo);
+        for (int env = 0; env < 16; ++env)
+            list.push_back ((int) envelopeSourceFor (env));
+        list.push_back ((int) S::OpPitchEnv);
+        for (int macro = 0; macro < Mod::numMacros; ++macro)
+            list.push_back ((int) Mod::macroSourceFor (macro));
+        for (int i = 1; i < (int) S::Count; ++i)
+            if (std::find (list.begin(), list.end(), i) == list.end())
+                list.push_back (i);
+        return list;
+    }();
+    return order;
+}
+
 // Fills a menu with every source, grouped into sub-menus; item IDs are
 // source index + 1 (none: 1). `isTicked` marks sources (e.g. already routed).
 inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcessor* processor,
@@ -123,20 +159,27 @@ inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcesso
         target.addItem (index + 1, source (index, processor), true, isTicked != nullptr && isTicked (index));
     };
 
+    // Filed where the MOD page's pools show them (I7-16): the MSEG and the
+    // Op LFO after the LFOs, Op Pitch after the envelopes.
     for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
     {
         add (lfos, (int) Mod::lfoSourceFor (lfo));
         add (lfoBs, (int) Mod::lfoBSourceFor (lfo));
     }
+    lfos.addSeparator();
+    add (lfos, (int) S::Mseg);
+    add (lfos, (int) S::OpLfo);
 
     for (int env = 0; env < 16; ++env)
         add (envelopes, (int) envelopeSourceFor (env));
+    envelopes.addSeparator();
+    add (envelopes, (int) S::OpPitchEnv);
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         add (macros, (int) Mod::macroSourceFor (macro));
 
     for (const auto s : { S::Velocity, S::KeyTrack, S::Random, S::ModWheel, S::Aftertouch, S::Expression,
-                          S::Mseg, S::ClockSh, S::VectorX, S::VectorY, S::OpLfo, S::OpPitchEnv, S::InputEnv })
+                          S::ClockSh, S::VectorX, S::VectorY, S::InputEnv })
         if (s != S::InputEnv || IlanaSynthAudioProcessor::isEffectBuild)
             add (performance, (int) s);
 
@@ -300,7 +343,7 @@ inline DestinationName explicitName (int destination)
         case D::Fm2Feedback:     return { "FM", "OSC 2 Feedback" };
         case D::Fm3Feedback:     return { "FM", "OSC 3 Feedback" };
         case D::RingMod:         return { "Ring Mod", "Amount" };
-        case D::Drift:           return { "Voice", "Drift" };
+        case D::Drift:           return { "Voice", "Analog Drift" };
         case D::MsegRate:        return { "MSEG", "Rate" };
         case D::ResAmount:       return { "Resonator", "Amount" };
         case D::ResDecay:        return { "Resonator", "Decay" };
@@ -352,6 +395,94 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
             control = "Shift";
         return { "FX " + juce::String (fx->module), control };
     }
+
+    // The Operator Env (review 7, I7-17): its stages as the operator card
+    // labels them, under the oscillator; the pitch envelope and LFO as
+    // their own modules, named as their pool cards are.
+    if (id.contains ("_eg_"))
+    {
+        static const std::pair<const char*, const char*> fields[] {
+            { "_eg_out", "Operator Level" },        { "_eg_r1", "Operator Env Attack" },
+            { "_eg_r2", "Operator Env Decay 1" },   { "_eg_r3", "Operator Env Decay 2" },
+            { "_eg_r4", "Operator Env Release" },   { "_eg_l1", "Operator Env Peak" },
+            { "_eg_l2", "Operator Env Mid" },       { "_eg_l3", "Operator Env Sustain" },
+            { "_eg_l4", "Operator Env End" },       { "_eg_rate_key", "Operator Env Key Rate" },
+            { "_eg_break", "Operator Scale Key" },  { "_eg_ldepth", "Operator Low Depth" },
+            { "_eg_rdepth", "Operator High Depth" }, { "_eg_ams", "Operator Amp Mod" },
+            { "_eg_vel", "Operator Velocity" },
+        };
+        for (const auto& [suffix, control] : fields)
+            if (id.endsWith (suffix))
+                return { "OSC " + juce::String::charToString (name[3]), control };
+    }
+
+    if (id.startsWith ("opeg_"))
+    {
+        static const std::pair<const char*, DestinationName> fields[] {
+            { "opeg_lfo_speed", { "Op LFO", "Rate" } },        { "opeg_lfo_delay", { "Op LFO", "Delay" } },
+            { "opeg_lfo_pmd", { "Op LFO", "Pitch Depth" } },   { "opeg_lfo_amd", { "Op LFO", "Amp Depth" } },
+            { "opeg_lfo_pms", { "Op LFO", "Pitch Sens" } },    { "opeg_pitch_r1", { "Op Pitch", "Attack" } },
+            { "opeg_pitch_r2", { "Op Pitch", "Decay 1" } },    { "opeg_pitch_r3", { "Op Pitch", "Decay 2" } },
+            { "opeg_pitch_r4", { "Op Pitch", "Release" } },    { "opeg_pitch_l1", { "Op Pitch", "Pitch 1" } },
+            { "opeg_pitch_l2", { "Op Pitch", "Pitch 2" } },    { "opeg_pitch_l3", { "Op Pitch", "Sustain" } },
+            { "opeg_pitch_l4", { "Op Pitch", "End" } },        { "opeg_key_offset", { "FM", "Scale Shift" } },
+        };
+        for (const auto& [field, parts] : fields)
+            if (id == field)
+                return parts;
+    }
+
+    // The LFOs' own knobs: "LFO 3 › Shape 2", "LFO 3 › Smooth".
+    if (id.startsWith ("lfo") && name.startsWith ("LFO"))
+        return { "LFO " + juce::String (id.substring (3).getIntValue()), name.fromFirstOccurrenceOf (" ", false, false) };
+
+    if (id.startsWith ("macro") && id.contains ("_evolve"))
+        return { "Macro " + juce::String (id.substring (5).getIntValue()), id.endsWith ("_rate") ? "Evolve Rate" : "Evolve" };
+
+    // Airwindows: "FX Airwindows › Knob 2", "FX AW Tape › Mix".
+    if (id.startsWith ("fx_aw"))
+    {
+        const auto module = id.substring (3).upToFirstOccurrenceOf ("_", false, false);
+        juce::String moduleName = "Airwindows";
+        for (const auto& category : airwindows::categoryModules())
+            if (module == category.id)
+                moduleName = category.label;
+        const auto field = id.fromLastOccurrenceOf ("_", false, false);
+        return { "FX " + moduleName, field == "mix" ? juce::String ("Mix") : "Knob " + field.substring (1) };
+    }
+
+    // Envelope settings: "Amp Env › Delay", "Env 7 › Attack".
+    {
+        static const std::pair<const char*, const char*> envelopes[] {
+            { "amp_", "Amp Env" }, { "fe_", "Filt Env" }, { "f2e_", "Filt 2 Env" }, { "me_", "Mod Env" }, { "e4_", "Env 5" }
+        };
+        static const std::pair<const char*, const char*> fields[] {
+            { "attack", "Attack" }, { "decay", "Decay" }, { "sustain", "Sustain" }, { "release", "Release" },
+            { "delay", "Delay" }, { "hold", "Hold" }, { "curve", "Curve" }, { "keyrate", "Key Rate" }, { "velocity", "Velocity" }
+        };
+        juce::String module;
+        for (const auto& [prefix, envName] : envelopes)
+            if (id.startsWith (prefix))
+                module = envName;
+        if (id.startsWith ("env") && juce::CharacterFunctions::isDigit (id[3]))
+            module = "Env " + juce::String (id.substring (3).getIntValue());
+        if (id == "filter_velocity")
+            return { "Filt Env", "Velocity" };
+        if (module.isNotEmpty())
+            for (const auto& [field, control] : fields)
+                if (id.endsWith (juce::String ("_") + field))
+                    return { module, control };
+    }
+
+    if (id == "f1_keytrack")   return { "Filter 1", "Key Track" };
+    if (id == "f2_keytrack")   return { "Filter 2", "Key Track" };
+    if (id == "res_keytrack")  return { "Resonator", "Key Track" };
+    if (id == "voice_spread")  return { "Voice", "Spread" };
+    if (id == "unison_random") return { "Voice", "Unison Random" };
+    if (id.startsWith ("sym_")) return { "Sympathetic", name.fromFirstOccurrenceOf (" ", false, false) };
+    if (id == "vec_rate")       return { "Vector", "Path Rate" };
+    if (id == "vec_drift")      return { "Vector", "Wander" };
+    if (id == "vec_drift_rate") return { "Vector", "Wander Rate" };
 
     // "FM Osc4 > Osc5", "FM Osc2 Feedback", "FM Noise > Osc1", "FM Noise Colour".
     if (name.startsWith ("FM "))
@@ -477,6 +608,37 @@ inline juce::String whyDestinationIsIdle (const IlanaSynthAudioProcessor& proces
 
         if (const auto* fx = detail::fxModuleFor (id))
             return fxIdle (fx->type, parts.module, enableFor (fx->type));
+
+        if (id.startsWith ("fx_aw"))
+        {
+            const auto module = id.substring (3).upToFirstOccurrenceOf ("_", false, false);
+            auto type = 30;
+            for (int c = 0; c < (int) airwindows::categoryModules().size(); ++c)
+                if (module == airwindows::categoryModules()[(size_t) c].id)
+                    type = airwindows::firstCategoryFxType + c;
+            return fxIdle (type, parts.module, nullptr);
+        }
+
+        // The Operator Env's settings act only on an oscillator that plays
+        // it; its pitch envelope and LFO while any oscillator does.
+        const auto playsOperatorEnv = [&read] (int osc)
+        {
+            const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, 5, osc)]);
+            return read (prefix + "_on") > 0.5f && juce::roundToInt (read (prefix + "_amp_env")) == OperatorEg::envelopeChoice;
+        };
+        if (id.startsWith ("opeg_"))
+        {
+            for (int osc = 0; osc < 6; ++osc)
+                if (playsOperatorEnv (osc))
+                    return {};
+            return "no oscillator plays the Operator Env";
+        }
+        if (id.contains ("_eg_") && parts.module.startsWith ("OSC "))
+        {
+            const auto osc = parts.module.getTrailingIntValue() - 1;
+            if (read (juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, 5, osc)]) + "_on") > 0.5f && ! playsOperatorEnv (osc))
+                return parts.module + " doesn't play the Operator Env";
+        }
 
         if (id.startsWith ("west_"))
             return read ("west_on") > 0.5f ? juce::String() : juce::String ("WEST is off");

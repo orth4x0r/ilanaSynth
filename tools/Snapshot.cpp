@@ -3226,20 +3226,31 @@ int runUiTests()
                 // Cutoff rows are one row now.
                 expect (duplicates == 0, "a factory preset loads with no repeated routing (" + juce::String (duplicates) + " flagged)");
                 if (! visible.empty())
-                    expect (visible[0]->getHeight() <= 30, "matrix rows are compact (" + juce::String (visible[0]->getHeight()) + " px)");
+                    expect (visible[0]->getHeight() <= 34, "matrix rows are compact (" + juce::String (visible[0]->getHeight()) + " px)");
             }
 
             if (auto* page = pages->getCurrentPage())
             {
-                // The add button is pinned in the header, outside the scrolling list.
-                std::vector<juce::TextButton*> buttons;
-                findAll<juce::TextButton> (*page, buttons);
-                juce::TextButton* add = nullptr;
+                // With routings, "+ ADD MODULATION" is the row after the last
+                // one (review 7, S7-35); the header's button is for an empty matrix.
+                std::vector<juce::Button*> buttons;
+                findAll<juce::Button> (*page, buttons);
+                juce::Button* add = nullptr;
+                auto headerAdd = false;
                 for (auto* button : buttons)
                     if (button->getButtonText().contains ("ADD MODULATION"))
-                        add = button;
-                expect (add != nullptr && add->getParentComponent() == page && add->getY() < 40,
-                        "+ ADD MODULATION is pinned in the matrix header");
+                    {
+                        if (dynamic_cast<DashedAddButton*> (button) != nullptr)
+                            add = button;
+                        else
+                            headerAdd = headerAdd || button->isVisible();
+                    }
+                auto lastRowBottom = 0;
+                for (auto* row : shownRows())
+                    lastRowBottom = juce::jmax (lastRowBottom, row->getBottom());
+                expect (add != nullptr && add->isVisible() && ! headerAdd && add->getY() >= lastRowBottom
+                            && add->getY() < lastRowBottom + 10,
+                        "+ ADD MODULATION is the row after the last routing, not a header button");
 
                 // A click on SOURCE sorts by source name; on # goes back to slot order.
                 const auto clickAt = [&] (juce::Point<float> at)

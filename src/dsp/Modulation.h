@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include <array>
+#include <utility>
 #include <cmath>
 #include <vector>
 
@@ -366,7 +367,7 @@ inline const std::vector<ParamDestination>& getParamDestinations()
     static const bool extended = []
     {
         static std::vector<juce::String> storage;
-        storage.reserve (512);
+        storage.reserve (2048);
         const auto add = [] (const juce::String& id, const juce::String& name)
         {
             storage.push_back (id);
@@ -490,6 +491,105 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("opeg_lfo_pmd", "Op LFO Pitch Depth");
         add ("opeg_lfo_amd", "Op LFO Amp Depth");
         add ("opeg_pitch_l1", "Op Pitch Env Level 1");
+
+        // Review 7 (append only): every other knob that draws a ring takes
+        // a source too (I7-5). All are plain parameters read at block rate,
+        // as above; counts, seeds, notes and step lengths stay unmodulated
+        // and their knobs say so.
+        using Pair = std::pair<const char*, const char*>;
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " Operator ";
+            for (const auto& [suffix, label] : { Pair { "_eg_r2", "Env Decay 1" }, Pair { "_eg_r3", "Env Decay 2" },
+                                                 Pair { "_eg_l1", "Env Peak" }, Pair { "_eg_l2", "Env Mid" },
+                                                 Pair { "_eg_l3", "Env Sustain" }, Pair { "_eg_l4", "Env End" },
+                                                 Pair { "_eg_rate_key", "Env Key Rate" }, Pair { "_eg_break", "Scale Key" },
+                                                 Pair { "_eg_ldepth", "Low Depth" }, Pair { "_eg_rdepth", "High Depth" },
+                                                 Pair { "_eg_ams", "Amp Mod Sens" }, Pair { "_eg_vel", "Velocity Sens" } })
+                add (prefix + suffix, name + label);
+        }
+        for (const auto& [id, label] : { Pair { "opeg_pitch_r1", "Op Pitch Env Attack" }, Pair { "opeg_pitch_r2", "Op Pitch Env Decay 1" },
+                                         Pair { "opeg_pitch_r3", "Op Pitch Env Decay 2" }, Pair { "opeg_pitch_r4", "Op Pitch Env Release" },
+                                         Pair { "opeg_pitch_l2", "Op Pitch Env Level 2" }, Pair { "opeg_pitch_l3", "Op Pitch Env Level 3" },
+                                         Pair { "opeg_pitch_l4", "Op Pitch Env Level 4" }, Pair { "opeg_lfo_delay", "Op LFO Delay" },
+                                         Pair { "opeg_lfo_pms", "Op LFO Pitch Sens" }, Pair { "opeg_key_offset", "Op Scale Shift" } })
+            add (id, label);
+
+        // The LFOs' shape knobs (chaos, physics), smoothing, stereo offset
+        // and start phase.
+        for (int lfo = 1; lfo <= 16; ++lfo)
+        {
+            const auto prefix = "lfo" + juce::String (lfo);
+            const auto name = "LFO" + juce::String (lfo) + " ";
+            for (int param = 1; param <= 6; ++param)
+                add (prefix + "_p" + juce::String (param), name + "Shape " + juce::String (param));
+            add (prefix + "_phys_a", name + "Physics A");
+            add (prefix + "_phys_b", name + "Physics B");
+            add (prefix + "_smooth", name + "Smooth");
+            add (prefix + "_stereo", name + "Stereo");
+            add (prefix + "_phase", name + "Start Phase");
+        }
+
+        for (int macro = 1; macro <= 8; ++macro)
+        {
+            add ("macro" + juce::String (macro) + "_evolve", "Macro " + juce::String (macro) + " Evolve");
+            add ("macro" + juce::String (macro) + "_evolve_rate", "Macro " + juce::String (macro) + " Evolve Rate");
+        }
+
+        // The Airwindows modules: the all-in-one (type 30), then the ten
+        // category modules in Categories.h order.
+        for (const auto* module : { "aw", "awtape", "awsat", "awverb", "awdelay", "awmod", "awdyn", "aweq", "awcons",
+                                    "awlofi", "awstereo" })
+        {
+            const auto prefix = "fx_" + juce::String (module);
+            for (int knob = 1; knob <= 5; ++knob)
+                add (prefix + "_p" + juce::String (knob), "Airwindows " + juce::String (module) + " " + juce::String (knob));
+            add (prefix + "_mix", "Airwindows " + juce::String (module) + " Mix");
+        }
+
+        // The envelopes' other stages and settings: the five classic ones
+        // (the filter envelope's velocity is filter_velocity), then ENV 6-16.
+        for (const auto* env : { "amp", "fe", "f2e", "me", "e4" })
+            for (const auto* field : { "delay", "hold", "curve", "keyrate", "velocity" })
+                add (juce::String (env) == "fe" && juce::String (field) == "velocity" ? juce::String ("filter_velocity")
+                                                                                      : juce::String (env) + "_" + field,
+                     juce::String (env) + " Env " + field);
+        for (int env = 6; env <= 16; ++env)
+            for (const auto* field : { "attack", "decay", "sustain", "release", "delay", "hold", "curve", "keyrate", "velocity" })
+                add ("env" + juce::String (env) + "_" + field, "Env" + juce::String (env) + " " + field);
+        add ("f1_keytrack", "Filter1 Key Track");
+        add ("f2_keytrack", "Filter2 Key Track");
+        add ("res_keytrack", "Resonator Key Track");
+
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_ratio", name + "Ratio");
+            add (prefix + "_fixed_hz", name + "Fixed Freq");
+            add (prefix + "_grain_spread", name + "Grain Spread");
+            add (prefix + "_sample_fade_in", name + "Sample Fade In");
+            add (prefix + "_sample_fade_out", name + "Sample Fade Out");
+            add (prefix + "_string_pick_hardness", name + "Pick Hardness");
+            add (prefix + "_string_pick_pos", name + "Pick Position");
+            add (prefix + "_string_pickup", name + "Pickup Position");
+            add (prefix + "_fb_distance", name + "Feedback Distance");
+        }
+
+        add ("voice_spread", "Voice Spread");
+        add ("unison_random", "Unison Random");
+        add ("west_res", "West Resonance");
+        add ("fx_eq_low_freq", "EQ Low Freq");
+        add ("fx_eq_high_freq", "EQ High Freq");
+        add ("fx_eq_mid_q", "EQ Mid Q");
+        add ("sym_amount", "Sympathetic Amount");
+        add ("sym_decay", "Sympathetic Decay");
+        add ("vec_rate", "Vector Path Rate");
+        add ("vec_drift", "Vector Wander");
+        add ("vec_drift_rate", "Vector Wander Rate");
+        add ("spray_strum_time", "Spray Strum Time");
+        add ("spray_velocity", "Spray Velocity");
         return true;
     }();
     juce::ignoreUnused (extended);

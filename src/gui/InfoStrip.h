@@ -9,10 +9,12 @@
 
 // The hover line (UI review 6: the status line only while hovering). It
 // has no row of its own: while the mouse rests on a control that explains
-// itself (its tooltip text), the line fades in over the source chip row
-// with the control's name and description, and fades out when the mouse
-// leaves it, comes down to the chips or the macros (quietArea), or a drag
-// is under way. It never takes a click.
+// itself (its tooltip text), the line fades in just above the source chip
+// row (review 7, S7-20: never over the chips) with the control's name and
+// description, and fades out when the mouse leaves it, comes down to the
+// chips or the macros (quietArea), or a drag is under way. A control the
+// line would cover gets no line (its tooltip still shows). It never takes
+// a click.
 class InfoStrip : public juce::Component,
                   private IlanaAnim::FrameTimer
 {
@@ -126,7 +128,7 @@ private:
     {
         juce::String newTitle, newDescription;
 
-        if (under != nullptr && ! dragging)
+        if (under != nullptr && ! dragging && ! wouldCover (under))
             std::tie (newTitle, newDescription) = describe (under);
 
         // A control's text shows once the mouse has rested on it a moment,
@@ -168,6 +170,17 @@ private:
             shown = target;
             repaint();
         }
+    }
+
+    // Whether the line would sit over the control under the mouse (a page
+    // or a big panel, which the line always overlaps, doesn't count).
+    bool wouldCover (juce::Component* under) const
+    {
+        auto* parent = getParentComponent();
+        if (parent == nullptr || under == parent)
+            return false;
+        const auto area = parent->getLocalArea (under, under->getLocalBounds());
+        return area.getHeight() < 200 && area.intersects (getBounds());
     }
 
     juce::String title, description, pendingTitle, pendingDescription;

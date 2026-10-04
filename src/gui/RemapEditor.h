@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 
 // A mod slot's remap curve (Vital's per-route remap), drawn as the LFO curve
 // shape is: the source's range runs left to right, the amount it sends from
@@ -111,8 +112,8 @@ public:
         g.fillRoundedRectangle (bounds, 6.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText ("REMAP  " + titleSuffix, bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f),
-                    juce::Justification::centredLeft);
+        g.drawFittedText ("REMAP  " + titleText(), bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f).toNearestInt(),
+                          juce::Justification::centredLeft, 1, 0.85f);
 
         const auto plot = plotArea();
         IlanaTheme::paintWell (g, plot.expanded (6.0f), 5.0f);
@@ -206,11 +207,22 @@ public:
         g.drawText ("OUT", juce::Rectangle<float> (plot.getX() - 10.0f, plot.getY() - 12.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
     }
 
-    // The title's slot or row label ("6", or "ROW 3  ·  slot 6").
+    // The title names the routing by what it joins ("REMAP  ·  LFO 1 →
+    // Filter 1 › Cutoff", V7-40), not by a row or slot number; a caller
+    // can set its own instead.
     void setTitle (const juce::String& text)
     {
         titleSuffix = text;
         repaint();
+    }
+
+    juce::String titleText() const
+    {
+        if (titleSuffix.isNotEmpty())
+            return titleSuffix;
+        const auto slot = processorRef.readModSlot (slotIndex);
+        return juce::String::fromUTF8 ("\xc2\xb7  ") + ModNames::source ((int) slot.source, &processorRef)
+               + (slot.destination != 0 ? juce::String::fromUTF8 (" \xe2\x86\x92 ") + ModNames::destination (slot.destination) : juce::String());
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -434,7 +446,7 @@ private:
     int dragPoint = -1, dragTension = -1;
     float dragStartTension = 0.0f;
     float liveInput = -1.0f;
-    juce::String titleSuffix { juce::String (slotIndex + 1) };
+    juce::String titleSuffix;
     juce::TextButton shapesButton, closeButton;
     std::function<void()> onClose;
 };

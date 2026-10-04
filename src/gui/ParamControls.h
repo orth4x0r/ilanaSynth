@@ -342,9 +342,7 @@ public:
             g.drawEllipse (area.reduced (0.5f), 1.0f);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (9.5f, true));
-            // (With no room for any badge, it just counts the routings.)
-            g.drawText ((numShown() > 0 ? "+" : "") + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f),
-                        juce::Justification::centred);
+            g.drawText ("+" + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f), juce::Justification::centred);
         }
     }
 
@@ -717,9 +715,13 @@ public:
     juce::Point<float> getRingPoint (int ring, float proportion) const
     {
         const auto angle = ringStart + (ringEnd - ringStart) * proportion;
-        return rotaryArea().getCentre().getPointOnCircumference (ringRadius (ring), angle);
+        return dialCentre().getPointOnCircumference (ringRadius (ring), angle);
     }
     juce::Component& getRingOverlay() { return ringOverlay; }
+    // The drawn dial's radius and a ring's, about the dial's centre.
+    float getDialRadius() const { return dialRadius(); }
+    float getRingRadius (int ring) const { return ringRadius (ring); }
+    juce::Point<float> getDialCentre() const { return dialCentre(); }
     // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
     void syncRoutings() { refreshRoutings(); }
     ModDotStrip& getDotStrip() { return dotStrip; }
@@ -851,7 +853,7 @@ public:
             const juce::Graphics::ScopedSaveState clip (g);
             g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
             g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
-            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), highlighted == pinned ? 2.0f : 1.5f);
+            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), highlighted == pinned ? 2.0f : 1.5f);
         }
 
         if (dragHover)
@@ -877,7 +879,7 @@ public:
         if (count == 0 || knobRadius < 8.0f)
             return;
 
-        const auto centre = rotaryArea().getCentre();
+        const auto centre = dialCentre();
         const auto knobColour = slider.findColour (juce::Slider::rotarySliderFillColourId);
         const auto baseNorm = (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()));
         const auto angleOf = [] (float norm) { return ringStart + juce::jlimit (0.0f, 1.0f, norm) * (ringEnd - ringStart); };
@@ -896,7 +898,8 @@ public:
             const auto& dot = routings[(size_t) i];
             const auto radius = ringRadius (i);
             const auto hot = i == hoveredRing || i == draggedRing;
-            const auto width = (i == 0 ? 2.0f : 1.75f) + (hot ? 1.0f : 0.0f);
+            const auto tight = count > 1 && ringRadius (1) - ringRadius (0) < 3.0f;
+            const auto width = (tight ? 1.6f : 2.0f) + (hot ? 1.0f : 0.0f);
             const auto quiet = dot.bypass || (highlighted != 0 && highlighted != dot.source);
             const auto colour = modArcColour (modSourceColour (dot.source), knobColour);
             const auto depth = dot.depth * ringConfig.scale;
@@ -915,8 +918,8 @@ public:
 
             const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
             g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-            g.strokePath (range, juce::PathStrokeType (width + 1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (colour.withAlpha (quiet ? 0.22f : (hot ? 0.7f : 0.45f)));
+            g.strokePath (range, juce::PathStrokeType (width + (tight ? 1.0f : 1.6f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (colour.withAlpha (quiet ? 0.22f : (hot ? 0.75f : 0.55f)));
             g.strokePath (range, rounded);
 
             if (dot.bypass)
@@ -1035,31 +1038,47 @@ public:
     }
 
 private:
-    // The rings' geometry: the value arc's sweep, the first ring just
-    // outside it, the rest 2.75 px apart. Up to three rings; past that the
-    // badges (and their "+N") list every routing.
+    // The rings' geometry: the value arc's sweep, the first ring a little
+    // outside the drawn dial (the look-and-feel's arc), the rest 3.5 px
+    // apart. Up to three rings; past that the badges (and their "+N") list
+    // every routing.
     static constexpr float ringStart = juce::MathConstants<float>::pi * 1.2f;
     static constexpr float ringEnd = juce::MathConstants<float>::pi * 2.8f;
-    static constexpr float ringPitch = 2.75f;
+    static constexpr float ringPitch = 3.5f, ringGap = 3.0f;
     static constexpr int maxRings = 3;
 
     int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
 
+    // Where the look-and-feel draws the dial: the slider's rotary bounds
+    // (above its value box), less its 4 px inset, radius 14-30.
+    juce::Rectangle<float> dialBounds() const
+    {
+        auto& s = const_cast<juce::Slider&> (slider);
+        return s.getLookAndFeel().getSliderLayout (s).sliderBounds.toFloat().translated ((float) slider.getX(), (float) slider.getY()).reduced (4.0f);
+    }
+    juce::Point<float> dialCentre() const { return dialBounds().getCentre(); }
+    float dialRadius() const
+    {
+        const auto area = dialBounds();
+        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+    }
+
     // A knob in a narrow cell has little room either side of its dial: the
-    // rings close up (and at worst step in over the value arc) rather than
-    // run off the knob's edge.
+    // rings close up a little (never onto each other or the value arc)
+    // rather than run off the knob's edge.
     float ringRadius (int index) const
     {
         const auto count = numRings();
-        const auto centreX = rotaryArea().getCentreX();
-        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 1.5f;
-        auto base = knobRadiusFor (knobBounds) - 1.0f;
+        const auto centreX = dialCentre().x;
+        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 2.5f; // (the stroke and its outline)
+        const auto dial = dialRadius();
+        auto base = dial + ringGap;
         auto pitch = ringPitch;
 
         if (count > 1)
-            pitch = juce::jlimit (2.0f, ringPitch, (room - base) / (float) (count - 1));
+            pitch = juce::jlimit (2.5f, ringPitch, (room - base) / (float) (count - 1));
 
-        base = juce::jmin (base, room - pitch * (float) (count - 1));
+        base = juce::jmax (dial + 1.5f, juce::jmin (base, room - pitch * (float) (count - 1)));
         return base + (float) index * pitch;
     }
     float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
@@ -1073,7 +1092,7 @@ private:
         if (count == 0 || knobRadiusFor (knobBounds) < 12.0f)
             return -1;
 
-        const auto centre = rotaryArea().getCentre();
+        const auto centre = dialCentre();
         const auto distance = position.getDistanceFrom (centre);
 
         if (distance < ringRadius (0) - 2.5f || distance > ringRadius (count - 1) + 3.0f)
@@ -1267,23 +1286,45 @@ private:
     // height takes (then "+N"); the ring overlay covers the dial.
     void layoutDots()
     {
-        const auto area = rotaryArea();
-        const auto radius = knobRadiusFor (knobBounds);
-        const auto x = (int) (area.getCentreX() + outerRingRadius() + 1.0f);
-        auto y = (int) (area.getCentreY() - radius);
+        const auto centre = dialCentre();
+        const auto dial = dialRadius();
+        const auto stripW = ModDotStrip::stripWidth, pitch = ModDotStrip::dotPitch;
+        const auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
 
         // Beside the rings, a column of badges as tall as the dial. A knob
-        // too narrow for that gets one badge in its top corner: the routing's
-        // own, or the count of them (the rings still show each one).
-        const auto roomBeside = getWidth() - x >= ModDotStrip::stripWidth - 3;
-        dotStrip.setMaxVisible (roomBeside ? (int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch : 1);
+        // too narrow for that leaves its routings to the rings (and its
+        // card); only those past the three rings get a badge, in its
+        // top-right corner: the routing's own, or "+N".
+        const auto roomBeside = getWidth() - x >= stripW - 1;
+        juce::Rectangle<int> bounds;
 
-        if (! roomBeside)
-            y -= ModDotStrip::dotPitch / 2;
+        if (roomBeside)
+        {
+            dotStrip.setDots (routings);
+            dotStrip.setMaxVisible ((int) (dial * 2.0f + 6.0f) / pitch);
+            const auto height = juce::jmax (pitch, dotStrip.getPreferredHeight());
+            bounds = { x, (int) (centre.y - dial) - 2, stripW, height };
+        }
+        else
+        {
+            const auto extra = (int) routings.size() > maxRings ? std::vector<ModDotStrip::Dot> (routings.begin() + maxRings, routings.end())
+                                                                 : std::vector<ModDotStrip::Dot>();
+            dotStrip.setDots (extra);
+            dotStrip.setMaxVisible (1);
+            auto y = (int) (centre.y - dial) - pitch + 1;
 
-        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
-        dotStrip.setBounds (juce::jmin (x, getWidth() - ModDotStrip::stripWidth), juce::jmax (0, y), ModDotStrip::stripWidth, height);
-        dotStrip.setVisible (! routings.empty() && ! compact);
+            if (label.isVisible() && label.getText().isNotEmpty())
+            {
+                const auto textWidth = juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText());
+                if (label.getBounds().getCentreX() + textWidth / 2 + 2 > getWidth() - stripW + 2)
+                    y = juce::jmax (y, label.getBottom() - 1);
+            }
+
+            bounds = { getWidth() - stripW, y, stripW, pitch };
+        }
+
+        dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
+        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > maxRings));
 
         ringOverlay.setBounds (getLocalBounds());
         ringOverlay.setVisible (! routings.empty());
@@ -1331,8 +1372,7 @@ private:
             return;
 
         routings = std::move (found);
-        dotStrip.setDots (routings);
-        layoutDots();
+        layoutDots(); // (and the badges' list)
         repaint();
     }
 

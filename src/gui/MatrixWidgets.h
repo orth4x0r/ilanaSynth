@@ -638,8 +638,10 @@ public:
         g.fillPath (arrow);
     }
 
-    // The live bar: what the routing adds right now, drawn along the amount
-    // slider's track from zero (Vital's matrix shows the same).
+    // The live bar: what the routing adds right now, drawn in the amount
+    // slider's track from zero, as wide as the track and brighter than the
+    // amount's own fill, ending in a white tick (Vital's matrix shows the
+    // same; UI review 6, V6-22).
     void paintOverChildren (juce::Graphics& g) override
     {
         if (! active || std::abs (liveValue) < 0.002f)
@@ -648,12 +650,15 @@ public:
         const auto track = amountTrack();
         const auto zeroX = track.getCentreX();
         const auto liveX = zeroX + juce::jlimit (-1.0f, 1.0f, liveValue) * track.getWidth() * 0.5f;
-        const auto bar = juce::Rectangle<float>::leftTopRightBottom (juce::jmin (zeroX, liveX), track.getBottom() + 3.0f,
-                                                                    juce::jmax (zeroX, liveX), track.getBottom() + 6.0f);
-        g.setColour (lastColour.withAlpha (idleReason.isNotEmpty() ? 0.35f : 0.95f));
-        g.fillRoundedRectangle (bar, 1.5f);
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.fillRect (juce::Rectangle<float> (1.5f, 6.0f).withCentre ({ liveX, bar.getCentreY() }));
+        const auto bar = juce::Rectangle<float>::leftTopRightBottom (juce::jmin (zeroX, liveX), track.getY() - 1.0f,
+                                                                    juce::jmax (zeroX, liveX), track.getBottom() + 1.0f);
+        const auto idle = idleReason.isNotEmpty();
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.6f));
+        g.fillRoundedRectangle (bar.expanded (0.0f, 1.0f), 3.0f);
+        g.setColour (lastColour.interpolatedWith (juce::Colours::white, 0.3f).withAlpha (idle ? 0.35f : 0.95f));
+        g.fillRoundedRectangle (bar, 2.5f);
+        g.setColour (juce::Colours::white.withAlpha (idle ? 0.4f : 0.95f));
+        g.fillRoundedRectangle (juce::Rectangle<float> (2.0f, bar.getHeight() + 6.0f).withCentre ({ liveX, bar.getCentreY() }), 1.0f);
     }
 
     void mouseMove (const juce::MouseEvent& event) override { setNumberHover (isDuplicate() && numberBounds().contains (event.getPosition())); }
@@ -710,7 +715,7 @@ private:
     {
         const auto layout = amount.getLookAndFeel().getSliderLayout (amount);
         return layout.sliderBounds.toFloat().translated ((float) amount.getX(), (float) amount.getY())
-            .withSizeKeepingCentre ((float) layout.sliderBounds.getWidth(), 4.0f);
+            .withSizeKeepingCentre ((float) layout.sliderBounds.getWidth(), 6.0f);
     }
 
     void setNumberHover (bool hover)

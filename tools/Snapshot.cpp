@@ -607,8 +607,13 @@ int runUiTests()
             // UI review 4 (V2): a double-click zeroes the depth (as knobs and
             // the source card do), keeps the routing, is one named undo
             // step, and undo brings the depth back.
-            auto& strip = static_cast<juce::Component&> (*strips[0]);
-            const juce::Point<float> at ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
+            // (A knob too narrow for badges beside its rings leaves them
+            // to the rings, which take the same double-click.)
+            reso->syncRoutings();
+            const auto onRing = strips[0]->getNumShown() == 0;
+            auto& strip = onRing ? reso->getRingOverlay() : static_cast<juce::Component&> (*strips[0]);
+            const auto at = onRing ? strip.getLocalPoint (reso, reso->getRingPoint (0, 0.5f))
+                                   : juce::Point<float> ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
             const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f,
                                           0.0f, 0.0f, 0.0f, &strip, &strip, juce::Time::getCurrentTime(), at,
                                           juce::Time::getCurrentTime(), 2, false);
@@ -4299,6 +4304,103 @@ int main (int argc, char** argv)
                 settle (500);
                 save (*editor, outDir.getChildFile ("remap-editor.png"));
                 curve->openRemapEditor(); // closes it again
+                break;
+            }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_P1: the modulation views of UI review 6 (P1), then
+    // stop: knob rings and badges, a knob's and a macro's cards (with a
+    // target whose module is off), a group chip's tray, and the matrix with
+    // an idle row, a repeated row and a docked remap editor.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_P1", "").isNotEmpty())
+    {
+        const auto route = [&processor] (int slot, Mod::Source source, Mod::Destination destination, float depth)
+        {
+            const auto prefix = "mod" + juce::String (slot + 1);
+            for (const auto& [field, value] : { std::pair<const char*, float> { "_src", (float) source },
+                                                { "_dst", (float) destination }, { "_amt", depth } })
+                if (auto* parameter = processor.apvts.getParameter (prefix + field))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        auto freeSlot = 0;
+        while (freeSlot < Mod::maxSlots && processor.readModSlot (freeSlot).source != Mod::Source::None)
+            ++freeSlot;
+
+        // Macro 1 into OSC 3 (off in most patches) and a repeat of slot 1.
+        route (freeSlot, Mod::macroSourceFor (0), Mod::Destination::SubLevel, 0.5f);
+        if (const auto first = processor.readModSlot (0); first.source != Mod::Source::None)
+            route (freeSlot + 1, first.source, (Mod::Destination) first.destination, 0.25f);
+        settle (300);
+
+        for (const auto* page : { "MAIN", "FILTER" })
+        {
+            pages->showPage (page);
+            settle (500);
+            save (*editor, outDir.getChildFile ("p1-" + juce::String (page).toLowerCase() + ".png"));
+        }
+
+        pages->showPage ("MAIN");
+        settle (400);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* busiest = nullptr;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob) && ! knob->isCompact() && knob->getNumRoutings() > (busiest != nullptr ? busiest->getNumRoutings() : 0))
+                busiest = knob;
+        if (busiest != nullptr)
+        {
+            busiest->openModCard (true);
+            settle (300);
+            save (*editor, outDir.getChildFile ("p1-knob-card.png"));
+            busiest->closeModCard();
+            settle (200);
+        }
+
+        std::vector<StripKnob*> macros;
+        findAll<StripKnob> (*editor, macros);
+        for (auto* macro : macros)
+            if (auto* card = ModHoverPopup::instance(); card != nullptr && macro->getMacroIndex() == 0)
+            {
+                card->holdOpen (true);
+                macro->openCard();
+                settle (400);
+                save (*editor, outDir.getChildFile ("p1-macro-card.png"));
+                card->holdOpen (false);
+                card->close();
+            }
+
+        // Every LFO and envelope in the pool: the bar folds them into group
+        // chips; open the envelopes' tray.
+        for (int i = 0; i < IlanaSynthAudioProcessor::numLfos; ++i)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, i, true);
+        for (int i = 0; i < 16; ++i)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, i, true);
+        settle (400);
+        std::vector<ModSourceGroupChip*> groups;
+        findAll<ModSourceGroupChip> (*editor, groups);
+        for (auto* group : groups)
+            if (visibleInTree (group) && group->onOpen != nullptr)
+            {
+                group->onOpen (*group);
+                settle (300);
+                save (*editor, outDir.getChildFile ("p1-chip-tray.png"));
+                group->onOpen (*group);
+                break;
+            }
+
+        pages->showPage ("MATRIX");
+        settle (500);
+        save (*editor, outDir.getChildFile ("p1-matrix.png"));
+        std::vector<CurveControl*> curves;
+        findAll<CurveControl> (*editor, curves);
+        for (auto* curve : curves)
+            if (visibleInTree (curve) && curve->getSlotIndex() == 1)
+            {
+                curve->openRemapEditor();
+                settle (500);
+                save (*editor, outDir.getChildFile ("p1-remap.png"));
+                curve->openRemapEditor();
                 break;
             }
         return 0;

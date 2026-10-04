@@ -252,20 +252,27 @@ public:
             g.drawText (row.bypass ? juce::String ("OFF") : depthText, line.removeFromRight (40), juce::Justification::centredRight);
             line.removeFromRight (6);
 
-            // The live contribution, from the centre: right is up, left down.
+            // The depth, dim, from the centre (right is up, left down), and
+            // over it the live contribution.
             const auto bar = line.toFloat().withSizeKeepingCentre ((float) line.getWidth(), 4.0f);
+            const auto half = bar.getWidth() * 0.5f;
+            const auto span = [&bar, half] (float amount)
+            {
+                amount = juce::jlimit (-1.0f, 1.0f, amount);
+                return juce::Rectangle<float> (bar.getCentreX() + juce::jmin (0.0f, amount) * half, bar.getY(), std::abs (amount) * half,
+                                               bar.getHeight());
+            };
             g.setColour (juce::Colours::white.withAlpha (0.08f));
             g.fillRoundedRectangle (bar, 2.0f);
+            g.setColour (colour.withAlpha ((row.bypass ? 0.12f : 0.3f) * dim));
+            g.fillRoundedRectangle (span (row.depth), 2.0f);
             g.setColour (juce::Colours::white.withAlpha (0.25f));
             g.fillRect (juce::Rectangle<float> (1.0f, 8.0f).withCentre (bar.getCentre()));
 
             if (! row.bypass)
             {
-                const auto amount = juce::jlimit (-1.0f, 1.0f, row.live);
-                const auto half = bar.getWidth() * 0.5f;
-                const auto x0 = bar.getCentreX() + juce::jmin (0.0f, amount) * half;
                 g.setColour (colour.withAlpha (idle ? 0.5f : 1.0f));
-                g.fillRoundedRectangle (juce::Rectangle<float> (x0, bar.getY(), std::abs (amount) * half, bar.getHeight()), 2.0f);
+                g.fillRoundedRectangle (span (row.live), 2.0f);
             }
         }
 

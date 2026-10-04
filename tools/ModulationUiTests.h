@@ -60,6 +60,24 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
         expect (cutoff != nullptr && cutoff->getNumRoutings() == 2 && cutoff->getNumRings() == 2,
                 "a knob with two routings draws two depth rings");
 
+        // The rings clear the value arc and each other, stay inside the
+        // knob, and a knob too narrow for badges beside them shows none
+        // (the rings are the legend; only routings past three get a badge).
+        if (cutoff != nullptr && cutoff->getNumRings() == 2)
+        {
+            const auto centre = cutoff->getDialCentre();
+            const auto outer = cutoff->getRingRadius (1) + 1.0f;
+            auto& strip = cutoff->getDotStrip();
+            const auto stripRight = strip.isVisible() ? strip.getRight() : 0;
+            expect (cutoff->getRingRadius (0) >= cutoff->getDialRadius() + 1.5f
+                        && cutoff->getRingRadius (1) - cutoff->getRingRadius (0) >= 2.5f
+                        && centre.x - outer >= 0.0f && centre.x + outer <= (float) cutoff->getWidth()
+                        && (! strip.isVisible() || (strip.getX() >= (int) (centre.x + outer) && stripRight <= cutoff->getWidth())),
+                    "the rings sit outside the dial (" + juce::String (cutoff->getDialRadius(), 1) + " px), "
+                        + juce::String (cutoff->getRingRadius (1) - cutoff->getRingRadius (0), 1)
+                        + " px apart, inside the knob, with the badges (if any) beside them");
+        }
+
         if (cutoff != nullptr && cutoff->getNumRings() == 2)
         {
             auto& overlay = cutoff->getRingOverlay();

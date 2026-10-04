@@ -66,10 +66,13 @@ public:
         const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.getX()) - 12;
         paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
                            juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use"
-                           + (numDuplicates > 0 ? ",  " + juce::String (numDuplicates) + " repeat a routing (click a ! to merge)"
+                           // (The how-to only while there's nothing to report.)
+                           + (numDuplicates > 0 ? ",  " + juce::String (numDuplicates) + " repeat a routing (click ! to merge)"
                                                 : juce::String())
                            + (numIdle > 0 ? ",  " + juce::String (numIdle) + " into a module that is off (dimmed)" : juce::String())
-                           + ".   Drag a source onto any knob, then drag its ring on the knob to set the depth.");
+                           + (numDuplicates > 0 || numIdle > 0 ? juce::String (".")
+                                                               : juce::String (".   Drag a source onto any knob, then drag its ring "
+                                                                               "on the knob to set the depth.")));
 
         // An empty matrix has no columns to head: just the ways in.
         if (visibleRows.empty())

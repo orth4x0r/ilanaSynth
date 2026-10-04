@@ -76,4 +76,4 @@ build/ilanaFingerprint_artefacts/Release/ilanaFingerprint.exe build/after.csv
 - **Plain FM feedback** splits into a buzz at half the sample rate above about 0.2 (the one-sample loop does this in any ideal renderer too). It is kept for old patches; the new Filtered type is the fix.
 - **Piano:** fitted to the Iowa grand (error 90.7) but not yet convincing. More work waits for M17, with a time limit.
 - The MAIN LFO card relayouts on a showing-timer only.
-- **pluginval on Linux CI** crashed on exit in some runs (not reproducible locally or under ASan); CI runs it under gdb to capture backtraces.
+- **pluginval on Linux** used to segfault now and then (after SUCCESS, or at the first teardown). The bug is in the JUCE host code pluginval is built with: when the last instance goes, the host frees its shared Linux run loop while the event-loop pass still holds a callback for one of our FDs, which then writes into freed memory. The plugin now keeps one host context alive for the process (`HostRunLoopKeepAlive` in `src/PluginProcessor.cpp`). CI still runs pluginval under gdb.

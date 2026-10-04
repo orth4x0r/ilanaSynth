@@ -1713,23 +1713,59 @@ int runUiTests()
             expect (ampUnused == voices, "a DX7 voice's Amp Env reads as unused (its operators play the Operator Env)");
             expect (wheel == voices, "a DX7 voice routes the wheel and pressure to the Op LFO's pitch depth");
 
-            // The tallest DX7 stacks fit too.
+            // The tallest DX7 stacks fit too, with every depth label clear of
+            // the nodes, captions and other labels, and the operator card
+            // does not move between algorithms (review 7, V7-3 and I7-10).
             processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
-            for (const auto number : { 1, 2, 3, 14, 17, 18 })
+            juce::Rectangle<int> firstDiagramBounds;
+            auto cardFixed = true;
+            for (const auto number : { 1, 2, 3, 5, 14, 17, 18, 32 })
             {
                 processor.applyDx7Algorithm (number);
                 settle (150);
                 auto* diagram = findChild<FmDiagram> (*editor);
                 auto apart = diagram != nullptr && diagram->getHeight() >= diagram->getMinimumHeight();
+                auto labelsClear = diagram != nullptr;
+                juce::String badLabels;
                 if (diagram != nullptr)
                 {
                     const auto nodes = diagram->getNodeBounds();
+                    const auto captions = diagram->getCaptionBoundsList();
+                    const auto labels = diagram->getAmountLabelBoundsList();
                     for (size_t i = 0; i < nodes.size(); ++i)
                         for (size_t j = 0; j < nodes.size(); ++j)
                             apart = apart && diagram->getLocalBounds().toFloat().contains (nodes[i]) && (i == j || ! nodes[i].intersects (nodes[j]));
+                    for (size_t i = 0; i < labels.size(); ++i)
+                    {
+                        auto clear = diagram->getLocalBounds().toFloat().contains (labels[i]);
+                        for (size_t j = 0; j < nodes.size(); ++j)
+                            clear = clear && ! labels[i].intersects (nodes[j].reduced (nodes[j].getWidth() * 0.06f))
+                                    && ! labels[i].intersects (captions[j]);
+                        for (size_t j = 0; j < labels.size(); ++j)
+                            clear = clear && (i == j || ! labels[i].intersects (labels[j]));
+                        if (! clear)
+                            badLabels << " [" << labels[i].toString() << "]";
+                        labelsClear = labelsClear && clear;
+                    }
+                    if (firstDiagramBounds.isEmpty())
+                        firstDiagramBounds = diagram->getBounds();
+                    cardFixed = cardFixed && diagram->getBounds() == firstDiagramBounds;
                 }
                 expect (apart, "DX7 algorithm " + juce::String (number) + "'s stack fits the diagram without overlaps");
+                expect (labelsClear, "DX7 algorithm " + juce::String (number) + "'s depth labels sit clear of nodes, captions and each other" + badLabels);
             }
+            expect (cardFixed, "the operator card keeps one height across DX7 algorithms 1-32");
+
+            // One node style in every layout: "OSC n" inside the circle,
+            // also for a three-oscillator patch (V7-13).
+            processor.loadFactoryPreset (names.indexOf ("Neuro Wobble"));
+            pages->showPage ("FM");
+            settle (200);
+            if (auto* diagram = findChild<FmDiagram> (*editor))
+                expect (diagram->getOperatorRadius() >= 21.0f && diagram->getNodeBounds().size() >= 2,
+                        "a basic FM patch draws full-size OSC n nodes");
+            expect (FmAlgorithmStrip::nearestBasic (processor) == 0,
+                    "a one-modulator routing that no tile matches is named after the nearest tile (B1)");
 
             // The operator card speaks the synth's words: a rate as a time, a
             // level as dB, the output as LEVEL and the oscillator level as TRIM.
@@ -1759,6 +1795,47 @@ int runUiTests()
             expect (attackText.startsWith ("ATTACK ") && (attackText.endsWith (" ms") || attackText.endsWith (" s"))
                         && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "LEVEL" && trimLabel == "TRIM",
                     "the Operator Env reads in the synth's words and units (" + attackText + ", " + peakText + ")");
+
+            // Review 7: the time knobs turn the normal way (clockwise is
+            // longer), a ratio reads "×1.00", a silent level "-inf dB", and
+            // no visible text or help names the "Operator EG" or "Op EG".
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == "osc1_eg_r1")
+                    expect (knob->getSlider().valueToProportionOfLength (10.0) > knob->getSlider().valueToProportionOfLength (90.0),
+                            "an Operator Env time knob turns clockwise for a longer stage (I7-3)");
+            expect (describeValue ("osc2_ratio", 1.0f) == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1.00"
+                        && describeValue ("osc2_eg_l2", 0.0f).startsWith ("-inf") && describeValue ("osc2_eg_out", 0.0f).startsWith ("-inf"),
+                    "a ratio reads x1.00 and a silent Operator Env level -inf dB");
+            {
+                juce::StringArray stale;
+                for (auto* parameter : processor.getParameters())
+                    if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+                        for (const auto& text : { describeParameter (withId->paramID), withId->getName (100) })
+                            if (text.contains ("Operator EG") || text.contains ("Op EG") || text.contains ("OP EG"))
+                                stale.add (withId->paramID);
+                std::vector<juce::Component*> all;
+                findAll<juce::Component> (*editor, all);
+                for (auto* component : all)
+                {
+                    juce::String text;
+                    if (auto* label = dynamic_cast<juce::Label*> (component))
+                        text = label->getText();
+                    if (auto* button = dynamic_cast<juce::Button*> (component))
+                        text = button->getButtonText() + " " + button->getTooltip();
+                    if (auto* tip = dynamic_cast<juce::SettableTooltipClient*> (component))
+                        text << " " << tip->getTooltip();
+                    if (text.contains ("Operator EG") || text.contains ("Op EG") || text.contains ("OP EG"))
+                        stale.add (text.substring (0, 40));
+                }
+                for (const auto& name : Mod::getDestinationNames())
+                    if (name.contains ("Op EG") || name.contains ("Op Env") || name.contains ("Op LFO") || name.contains ("Op Pitch"))
+                        stale.add (name);
+                expect (stale.isEmpty(), "the Operator Env has one name everywhere (I7-6): " + stale.joinIntoString (", "));
+            }
+            // SPACE is live on a DX7 voice: the reverb is on, its dry kept.
+            expect (processor.apvts.getRawParameterValue ("fx_reverb_on")->load() > 0.5f
+                        && processor.apvts.getRawParameterValue ("fx_reverb_keep_dry")->load() > 0.5f,
+                    "a DX7 voice's SPACE macro drives a reverb that is on (I7-4)");
 
             // Its graph is an editor: four handles inside the plot.
             OperatorEnvDisplay* graph = nullptr;

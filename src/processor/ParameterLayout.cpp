@@ -412,8 +412,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("arp_chance", "Arp Chance", 0.0f, 1.0f, 1.0f);
 
     // Generative: scale snapping and note spray
-    addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
-    addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
+    // Named apart from the Scala tuning's scale (review 6, I6-30); the IDs stay.
+    addChoice ("gen_scale", "Snap To Key", Scales::getNames(), 0);
+    addChoice ("gen_root", "Key Root", Scales::getRootNames(), 0);
     addBool ("sym_on", "Sympathetic Strings", false);
     addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.5f);
     addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);
@@ -1053,6 +1054,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     for (const auto& field : OperatorEg::voiceFields())
         addEgField (field, field.suffix, field.name);
     addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
+
+    // The arp's step lanes (review 6): how many steps loop, and each step's
+    // velocity, gate (a share of GATE; 0 rests) and transpose. The defaults
+    // play every step as before.
+    addInt ("arp_steps", "Arp Steps", 1, 16, 16);
+    for (int step = 1; step <= 16; ++step)
+    {
+        const auto n = juce::String (step);
+        addInt ("arp_vel" + n, "Arp Velocity " + n, 1, 127, 100);
+        addFloat ("arp_len" + n, "Arp Step Gate " + n, 0.0f, 2.0f, 1.0f);
+        addInt ("arp_pitch" + n, "Arp Transpose " + n, -12, 12, 0);
+    }
 
     return layout;
 }

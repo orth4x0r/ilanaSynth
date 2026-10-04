@@ -37,6 +37,31 @@ public:
             onSelect (selected);
     }
 
+    // A lit dot in a tab whose part is switched on (review 6, I6-15): cards
+    // whose tabs are separate engines (SEQ's PATTERN) show which are on, not
+    // only which is shown. Tabs that never get a state draw no dot.
+    void setTabOn (int index, bool on)
+    {
+        if (! juce::isPositiveAndBelow (index, names.size()))
+            return;
+
+        if (tabOn.empty())
+            tabOn.assign ((size_t) names.size(), -1);
+
+        const auto state = on ? 1 : 0;
+
+        if (tabOn[(size_t) index] == state)
+            return;
+
+        tabOn[(size_t) index] = state;
+        repaint();
+    }
+
+    bool isTabOn (int index) const
+    {
+        return juce::isPositiveAndBelow (index, (int) tabOn.size()) && tabOn[(size_t) index] == 1;
+    }
+
     // Width the pills need, so a card can right-align them.
     int getIdealWidth() const
     {
@@ -54,7 +79,33 @@ public:
             const auto colour = colourFor (i);
             const auto hovered = isMouseOver() && pill.contains (mouse);
 
-            IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
+            if (! hasDots())
+            {
+                IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
+                continue;
+            }
+
+            // The name shifts right of its dot: lit while on, a quiet ring
+            // while off.
+            const auto hover = hovered ? 1.0f : 0.0f;
+            IlanaTheme::paintPill (g, pill, {}, colour, active, hover);
+            g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace), juce::Justification::centred);
+            const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() });
+
+            if (isTabOn (i))
+            {
+                g.setColour (colour.withAlpha (0.3f));
+                g.fillEllipse (dot.expanded (2.5f));
+                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
+                g.fillEllipse (dot);
+            }
+            else
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.28f));
+                g.drawEllipse (dot.reduced (0.5f), 1.0f);
+            }
         }
 
         if (hasOpen)
@@ -104,9 +155,14 @@ private:
 
     static constexpr int idealPadding = 16;
 
+    static constexpr int dotSpace = 10;
+
+    bool hasDots() const { return ! tabOn.empty(); }
+
     int textWidth (int index) const
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index]);
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index])
+             + (hasDots() ? dotSpace : 0);
     }
 
     int widthWith (int padding) const
@@ -155,4 +211,5 @@ private:
     std::vector<juce::Colour> colours;
     bool hasOpen = false;
     int selected = 0;
+    std::vector<int> tabOn; // per tab: -1 no dot, 0 off, 1 on
 };

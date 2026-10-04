@@ -95,17 +95,20 @@ public:
             // A target whose module is off (a reverb mix with the reverb
             // switched off) can't be heard: an amber mark says so, and the
             // macro's card (rest on it) says which.
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto name = title.toUpperCase();
+            const auto markWidth = idleTargets > 0 ? 10 : 0;
+            const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
+                                               juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
+            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setFont (font);
+            g.drawFittedText (name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1, 0.8f);
+
             if (idleTargets > 0)
             {
-                const auto mark = nameArea.removeFromRight (12).toFloat();
                 g.setColour (juce::Colour (0xffffb020));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                g.drawText ("!", mark, juce::Justification::bottomLeft, false);
+                g.drawText ("!", nameArea.removeFromLeft (markWidth).translated (3, 0), juce::Justification::bottomLeft, false);
             }
-
-            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawFittedText (title.toUpperCase(), nameArea, juce::Justification::bottomLeft, 1, 0.8f);
         }
         else
         {

@@ -258,11 +258,11 @@ public:
                     continue;
 
                 anyNoise = true;
+                // Around the operators and captions in its way, as the routes.
                 const auto to = centres[(size_t) target];
-                const auto direction = (to - node.getCentre()) / juce::jmax (1.0f, node.getCentre().getDistanceFrom (to));
+                const auto bend = bendBetween (node.getCentre(), to, -1, target, false, centres, radius);
                 juce::Path arrow;
-                arrow.addArrow ({ node.getCentre() + direction * node.getWidth() * 0.5f, to - direction * (radius + 6.0f) },
-                                1.2f + amount * 4.0f, 8.0f + amount * 4.0f, 10.0f);
+                addBentArrow (arrow, node.getCentre(), to, bend, node.getWidth() * 0.5f, radius + 6.0f, 1.2f + amount * 4.0f);
                 g.setColour (IlanaTheme::Ui::text2.withAlpha (0.3f + 0.5f * amount));
                 g.fillPath (arrow);
             }
@@ -374,7 +374,7 @@ public:
             if (! receivesFm (processorRef, osc))
             {
                 juce::Path ring;
-                ring.addEllipse (circle.expanded (5.0f));
+                ring.addEllipse (circle.expanded (2.5f));
                 juce::Path dashed;
                 const float dashes[] { 3.0f, 4.0f };
                 juce::PathStrokeType (1.2f).createDashedStroke (dashed, ring, dashes, 2);
@@ -766,11 +766,16 @@ private:
     {
         const auto start = centres[(size_t) source];
         const auto end = landingPoint (source, target, centres, radius).value_or (centres[(size_t) target]);
+        return bendBetween (start, end, source, target, std::abs (start.y - centres[(size_t) target].y) < 1.0f, centres, radius);
+    }
+
+    float bendBetween (juce::Point<float> start, juce::Point<float> end, int source, int target, bool sameRow,
+                       const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
+    {
         const juce::Line<float> line (start, end);
         const auto direction = (line.getEnd() - line.getStart()) / juce::jmax (1.0f, line.getLength());
         const juce::Point<float> normal (-direction.y, direction.x);
         const auto up = normal.y > 0.0f ? -1.0f : 1.0f;
-        const auto sameRow = std::abs (start.y - centres[(size_t) target].y) < 1.0f;
 
         // The first bend, straight first, then over the top, then under,
         // each further out, whose curve misses every other node, every
@@ -922,22 +927,47 @@ private:
         return placed;
     }
 
+    // The bent route is exactly the curve planned for it (so labels placed
+    // beside that curve stay clear), cut where it leaves the source's node
+    // and where its head meets the target.
     static void addBentArrow (juce::Path& arrow, juce::Point<float> from, juce::Point<float> to, float bend, float radius,
                               float endGap, float thickness)
     {
         const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
         const juce::Point<float> normal (-direction.y, direction.x);
         const auto control = (from + to) * 0.5f + normal * bend;
-        const auto startDirection = (control - from) / juce::jmax (1.0f, from.getDistanceFrom (control));
-        const auto endDirection = (to - control) / juce::jmax (1.0f, to.getDistanceFrom (control));
-        const auto start = from + startDirection * radius;
-        const auto end = to - endDirection * endGap;
+        const auto at = [&] (float t) { return from * ((1.0f - t) * (1.0f - t)) + control * (2.0f * t * (1.0f - t)) + to * (t * t); };
         const auto head = 10.0f + thickness;
-        const auto shaftEnd = end - endDirection * head * 0.8f;
+
+        auto t0 = 0.0f, tip = 1.0f, t1 = 1.0f;
+        for (int step = 0; step <= 400; ++step)
+        {
+            const auto t = (float) step / 400.0f;
+            if (t0 == 0.0f && at (t).getDistanceFrom (from) >= radius)
+                t0 = t;
+        }
+        for (int step = 400; step >= 0; --step)
+        {
+            const auto t = (float) step / 400.0f;
+            if (tip == 1.0f && at (t).getDistanceFrom (to) >= endGap)
+                tip = t;
+            if (at (t).getDistanceFrom (to) >= endGap + head * 0.8f)
+            {
+                t1 = t;
+                break;
+            }
+        }
+        t1 = juce::jmax (t0, t1);
+
+        // The piece of the curve from t0 to t1 is itself a quadratic.
+        const auto subControl = from * ((1.0f - t0) * (1.0f - t1)) + control * ((1.0f - t0) * t1 + t0 * (1.0f - t1)) + to * (t0 * t1);
+        const auto shaftEnd = at (t1);
+        const auto end = at (tip);
+        const auto endDirection = (end - shaftEnd) / juce::jmax (0.5f, shaftEnd.getDistanceFrom (end));
 
         juce::Path shaft;
-        shaft.startNewSubPath (start);
-        shaft.quadraticTo (control, shaftEnd);
+        shaft.startNewSubPath (at (t0));
+        shaft.quadraticTo (subControl, shaftEnd);
         juce::PathStrokeType (thickness).createStrokedPath (arrow, shaft);
         arrow.addArrow ({ shaftEnd - endDirection * 0.5f, end }, 0.0f, head, head);
     }
@@ -971,10 +1001,31 @@ private:
         return { centre.x + radius + 5.0f, centre.y - 13.0f, captionWidth, 26.0f };
     }
 
+    // The noise operator's node: in a corner clear of the operators and
+    // their captions (with room for its name on its right).
     juce::Rectangle<float> noiseNode() const
     {
-        const auto size = operatorRadius() * 1.1f;
-        return juce::Rectangle<float> (size, size).withPosition (14.0f, (float) getHeight() - size - 22.0f);
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        const auto size = radius * 1.1f;
+        const auto bounds = getLocalBounds().toFloat();
+        const juce::Rectangle<float> corners[] {
+            juce::Rectangle<float> (size, size).withPosition (14.0f, bounds.getBottom() - size - 22.0f),
+            juce::Rectangle<float> (size, size).withPosition (14.0f, 12.0f),
+            juce::Rectangle<float> (size, size).withPosition (bounds.getRight() - size - 62.0f, bounds.getBottom() - size - 22.0f),
+            juce::Rectangle<float> (size, size).withPosition (bounds.getRight() - size - 62.0f, 12.0f),
+        };
+        for (const auto& node : corners)
+        {
+            const auto withName = node.withWidth (size + 52.0f).expanded (4.0f);
+            auto clear = true;
+            for (const auto osc : shownOscillators())
+                clear = clear && ! withName.intersects (juce::Rectangle<float> (radius * 2.3f, radius * 2.3f).withCentre (centres[(size_t) osc]))
+                        && ! withName.intersects (getCaptionBounds (osc, centres, radius));
+            if (clear)
+                return node;
+        }
+        return corners[0];
     }
 
     int oscAt (juce::Point<float> position) const

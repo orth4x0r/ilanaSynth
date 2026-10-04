@@ -385,8 +385,12 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            // Under the line the handles sit on (the pitch's centre, an
+            // operator's floor).
+            const auto line = isPitch() ? geo.y (0.0) : geo.plot.getBottom();
+            const auto text = juce::Rectangle<float> (geo.plot.getX(), isPitch() ? line + 10.0f : line - 34.0f, geo.plot.getWidth(), 16.0f);
             g.drawText (isPitch() ? "No pitch movement: drag a point up or down" : "No movement: drag a point",
-                        geo.plot.toNearestInt(), juce::Justification::centred);
+                        text.toNearestInt(), juce::Justification::centred);
         }
 
         if (readout.isNotEmpty())

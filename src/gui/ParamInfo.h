@@ -435,8 +435,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_eg_rdepth"))
         return "How much the level changes above SCALE KEY, along HIGH CURVE (the DX7's RIGHT DEPTH, 0-99).";
     if (isOscParameter (id, "_eg_lcurve") || isOscParameter (id, "_eg_rcurve"))
-        return "Keyboard scaling curve away from SCALE KEY: -LIN and -EXP get quieter, +EXP and +LIN louder (straight "
-               "or exponential).";
+        return "Keyboard scaling curve away from SCALE KEY: -Linear and -Exp get quieter, +Exp and +Linear louder "
+               "(straight or exponential; the DX7's -LIN to +LIN).";
     if (isOscParameter (id, "_eg_rate_key"))
         return "Key rate (the DX7's RATE SCALING, 0-7): higher notes run this operator's envelope faster.";
     if (isOscParameter (id, "_eg_vel"))

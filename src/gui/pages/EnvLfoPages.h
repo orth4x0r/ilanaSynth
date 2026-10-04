@@ -1037,10 +1037,19 @@ class EnvLfoPage : public juce::Component
 public:
     EnvLfoPage (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
         : lfoSection (p, settingsRef),
-          envSection (p, settingsRef)
+          envSection (p, settingsRef),
+          opEnvCard (p, OperatorPoolCard::Kind::envelope),
+          opPitchCard (p, OperatorPoolCard::Kind::pitch),
+          opLfoCard (p, OperatorPoolCard::Kind::lfo)
     {
         addAndMakeVisible (lfoSection);
         addAndMakeVisible (envSection);
+        // The Operator Env's cards on the headings' lines, while it plays.
+        for (auto* card : { &opEnvCard, &opPitchCard, &opLfoCard })
+        {
+            addChildComponent (*card);
+            card->onShownChanged = [this] { resized(); };
+        }
     }
 
     void selectLfo (int index) { lfoSection.select (index); }
@@ -1066,11 +1075,24 @@ public:
         area.removeFromTop (headingHeight + 8);
         envSection.setBounds (area);
         lfoSection.setBounds (lfoArea);
+
+        const auto placeCards = [] (int x, int y, std::initializer_list<OperatorPoolCard*> cards)
+        {
+            for (auto* card : cards)
+            {
+                card->setVisible (card->isWanted());
+                card->setBounds (x, y + 2, card->getIdealWidth(), headingHeight - 4);
+                x += card->getIdealWidth() + 8;
+            }
+        };
+        placeCards (headingX + IlanaTheme::cardTitleWidth ("LFO") + 8, 12, { &opLfoCard });
+        placeCards (headingX + IlanaTheme::cardTitleWidth ("ENVELOPES") + 8, lfoBottom + 4, { &opEnvCard, &opPitchCard });
     }
 
 private:
     LfoSection lfoSection;
     EnvSection envSection;
+    OperatorPoolCard opEnvCard, opPitchCard, opLfoCard;
     int lfoBottom = 0;
 };
 } // namespace

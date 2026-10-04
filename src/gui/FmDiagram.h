@@ -167,9 +167,15 @@ public:
 
                 g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%",
-                            juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
-                            juce::Justification::centred);
+                const auto label = juce::String (juce::roundToInt (amount * 100.0f)) + "%";
+                if (isStacked())
+                    // Right of the arrow, in the gap between the rows (the
+                    // node's caption is beside the node itself).
+                    g.drawText (label, juce::Rectangle<float> (40.0f, 14.0f).withPosition ((from + to) * 0.5f + juce::Point<float> (std::abs (normal.x) * 7.0f + 2.0f, -7.0f)),
+                                juce::Justification::centredLeft);
+                else
+                    g.drawText (label, juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
+                                juce::Justification::centred);
             }
         }
 
@@ -265,9 +271,12 @@ public:
             g.setColour (colour.withAlpha (on ? 1.0f : 0.35f));
             g.drawEllipse (circle.reduced (1.0f), hoverOsc == osc ? 2.6f : 1.8f);
 
+            // Its name, or in a small stacked node its number (as a DX7
+            // numbers its operators), which the colour names too.
             g.setColour (on ? juce::Colours::white : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OSC " + juce::String (osc + 1), circle.withTrimmedBottom (radius * 0.4f), juce::Justification::centred);
+            g.setFont (IlanaTheme::font (radius < 27.0f ? IlanaTheme::TextSize::body + 2.0f : IlanaTheme::TextSize::body, true));
+            g.drawText (radius < 27.0f ? juce::String (osc + 1) : "OSC " + juce::String (osc + 1),
+                        circle.withTrimmedBottom (radius * 0.4f), juce::Justification::centred);
 
             g.setColour (out ? colour : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
@@ -410,7 +419,7 @@ public:
     // The height under which nodes, captions and arrows would crowd.
     int getMinimumHeight() const
     {
-        return isStacked() ? getStackRows() * (2 * minimumStackRadius + 18) + 12 : 150;
+        return isStacked() ? getStackRows() * (2 * minimumStackRadius + (int) stackGap) + 12 : 150;
     }
 
     // Where each shown operator is drawn, and how big (for the UI test).
@@ -436,7 +445,10 @@ public:
 
 private:
 
-    static constexpr int minimumStackRadius = 14;
+    // A stacked node's smallest radius, and the room between rows for the
+    // arrow and its amount.
+    static constexpr int minimumStackRadius = 15;
+    static constexpr float stackGap = 20.0f;
 
     float operatorRadius() const
     {
@@ -447,7 +459,7 @@ private:
             const auto rowHeight = layoutArea().getHeight() / rows;
             // Room in each slot for the node and its caption beside it.
             const auto slot = layoutArea().getWidth() / widest;
-            return juce::jlimit ((float) minimumStackRadius, 28.0f, juce::jmin ((rowHeight - 18.0f) * 0.5f, (slot - 54.0f) * 0.5f));
+            return juce::jlimit ((float) minimumStackRadius, 28.0f, juce::jmin ((rowHeight - stackGap) * 0.5f, (slot - 54.0f) * 0.5f));
         }
         const auto size = (float) juce::jmin (getWidth(), getHeight() - (int) hintHeight);
         return juce::jlimit (26.0f, 44.0f, size * 0.11f);
@@ -580,7 +592,7 @@ private:
                     for (const auto target : shown)
                         if (target != osc && levels[(size_t) target] < row && read (routeId (osc, target)) > 0.001f)
                         {
-                            desired += centres[(size_t) target].x;
+                            desired += centres[(size_t) target].x + captionShift; // its slot's centre
                             ++targets;
                         }
                 placed.push_back ({ targets > 0 ? desired / (float) targets : -1.0f, osc });
@@ -663,8 +675,9 @@ private:
     {
         const auto centre = centres[(size_t) osc];
         if (isStacked())
-            // Up and left, clear of the caption on the right.
-            return juce::Rectangle<float> (radius * 1.1f, radius * 1.1f).withCentre (centre + juce::Point<float> (-radius * 0.95f, -radius * 0.95f));
+            // On the left, touching the node, clear of the caption on the
+            // right and the arrows above and below.
+            return juce::Rectangle<float> (radius * 0.9f, radius * 0.9f).withCentre (centre + juce::Point<float> (-radius * 1.3f, 0.0f));
         auto outward = centre - getLocalBounds().toFloat().getCentre();
         const auto length = outward.getDistanceFromOrigin();
         outward = length > 1.0f ? outward / length : juce::Point<float> (0.0f, -1.0f);

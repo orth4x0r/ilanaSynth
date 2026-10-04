@@ -25,7 +25,8 @@ struct Field
     bool choice = false;
 };
 
-inline const std::array<const char*, 4> curveNames { "-LIN", "-EXP", "+EXP", "+LIN" };
+// Display labels only (the saved value is the index).
+inline const std::array<const char*, 4> curveNames { "-Linear", "-Exp", "+Exp", "+Linear" };
 inline const std::array<const char*, 6> lfoWaveNames { "Triangle", "Saw Down", "Saw Up", "Square", "Sine", "S&H" };
 
 // Per operator: rates, levels, keyboard scaling, sensitivities, output level.

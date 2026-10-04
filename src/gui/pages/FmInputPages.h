@@ -4,179 +4,109 @@
 
 namespace
 {
-// The Operator EG's shape, as its engine plays it: an operator's level
-// (C3 at velocity 100, its keyboard scaling and output level included) or
-// the voice's pitch envelope, held until it settles, then released.
-class OperatorEgGraph : public juce::Component
+// An operator tab: the oscillator's colour dot and its name at normal
+// contrast, so unselected tabs read as choices rather than disabled ones (UI
+// review 6, V6-41); quiet only while the oscillator is off (I6-37), or the
+// PITCH & LFO tab while no oscillator plays the Operator Env.
+class OperatorPill : public juce::TextButton
 {
 public:
-    explicit OperatorEgGraph (IlanaSynthAudioProcessor& p) : processorRef (p) {}
-
-    // An oscillator prefix, or empty for the pitch envelope.
-    void setSource (const juce::String& newPrefix, juce::Colour newColour)
+    OperatorPill (const juce::String& text, juce::Colour colourIn, bool withDot = true)
+        : juce::TextButton (text), colour (colourIn), dot (withDot)
     {
-        prefix = newPrefix;
-        colour = newColour;
-        values.clear();
-        refresh();
+        setClickingTogglesState (false);
     }
 
-    // Repaints when a value the shape depends on changed.
-    void refresh()
+    void setQuiet (bool shouldBeQuiet)
     {
-        std::vector<int> now;
-        if (prefix.isEmpty())
-            for (int i = 0; i < 8; ++i)
-                now.push_back (read (OperatorEg::voiceFields()[(size_t) i].suffix));
-        else
-            for (const auto& field : OperatorEg::operatorFields())
-                now.push_back (read (prefix + field.suffix));
-        if (now != values)
+        if (quiet != shouldBeQuiet)
         {
-            values = now;
+            quiet = shouldBeQuiet;
             repaint();
         }
     }
 
-    void paint (juce::Graphics& g) override
+    bool isQuiet() const { return quiet; }
+
+    // Short: just the number ("OSC 3" as "3"), where the header is tight.
+    void setShort (bool shouldBeShort)
     {
-        const auto bounds = getLocalBounds().toFloat();
-        IlanaTheme::paintWell (g, bounds, 6.0f);
-        if (values.empty())
-            return;
-
-        const auto pitch = prefix.isEmpty();
-        constexpr double rate = 44100.0;
-        constexpr int maxBlocks = (int) (2.5 * rate / Dx7::block);
-        int r[4], l[4];
-        for (int i = 0; i < 4; ++i)
+        if (shortText != shouldBeShort)
         {
-            r[i] = values[(size_t) i];
-            l[i] = values[(size_t) (4 + i)];
+            shortText = shouldBeShort;
+            repaint();
         }
+    }
 
-        // Run the engine's own envelope: held until it stops moving (or
-        // 2.5 s), then released until it stops again.
-        std::vector<double> points;
-        int keyOff = 0;
-        const auto run = [&points] (auto&& next, int limit)
+    int getIdealWidth (bool asShort = false) const
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), shownText (asShort)) + (dot ? 34 : 24);
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto pill = getLocalBounds().toFloat().reduced (0.5f);
+        const auto active = getToggleState();
+        const auto radius = pill.getHeight() * 0.5f;
+        const auto hover = over || down ? 1.0f : 0.0f;
+
+        g.setColour (active ? colour.withAlpha (0.22f) : juce::Colours::white.withAlpha (0.04f + 0.05f * hover));
+        g.fillRoundedRectangle (pill, radius);
+        g.setColour (active ? colour.withAlpha (0.8f) : colour.withAlpha (quiet ? 0.14f : 0.32f + 0.2f * hover));
+        g.drawRoundedRectangle (pill.reduced (0.5f), radius, 1.0f);
+
+        // The dot and name, centred together.
+        const auto font = juce::Font (IlanaTheme::pillFont());
+        const auto text = shownText (shortText);
+        const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (font, text);
+        const auto contentWidth = textWidth + (dot ? 11.0f : 0.0f);
+        auto content = pill.withSizeKeepingCentre (juce::jmin (pill.getWidth() - 8.0f, contentWidth), pill.getHeight());
+        if (dot)
         {
-            auto still = 0;
-            for (int block = 0; block < limit && still < 8; ++block)
-            {
-                const auto value = next();
-                still = ! points.empty() && value == points.back() ? still + 1 : 0;
-                points.push_back (value);
-            }
-        };
-        if (pitch)
-        {
-            Dx7::PitchEnvelope env;
-            env.init (r, l, rate);
-            run ([&env] { return (double) env.next() / (1 << 24); }, maxBlocks);
-            keyOff = (int) points.size();
-            env.keyUp();
-            run ([&env] { return (double) env.next() / (1 << 24); }, maxBlocks);
+            g.setColour (colour.withAlpha (quiet ? 0.35f : 1.0f));
+            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ content.getX() + 3.0f, content.getCentreY() }));
+            content.removeFromLeft (11.0f);
         }
-        else
-        {
-            constexpr int note = 60, velocity = 100;
-            const auto& v = values;
-            auto out = Dx7::scaleOutLevel (v[16]) + Dx7::scaleLevel (note, v[8], v[9], v[10], v[11], v[12]);
-            out = std::min (127, out) << 5;
-            out = std::max (0, out + Dx7::scaleVelocity (velocity, v[15]));
-            Dx7::Envelope env;
-            env.init (r, l, out, Dx7::scaleRate (note, v[13]), rate);
-            // log2 of the operator's gain, as the engine's exp2 (level - 14).
-            run ([&env] { return (double) env.next() / (1 << 24) - 14.0; }, maxBlocks);
-            keyOff = (int) points.size();
-            env.keyUp();
-            run ([&env] { return (double) env.next() / (1 << 24) - 14.0; }, maxBlocks);
-        }
-
-        // Levels: about 66 dB of gain (log2 -10 to 1), or the pitch's own
-        // span either side of the note.
-        auto span = 0.25;
-        if (pitch)
-            for (auto point : points)
-                span = std::max (span, std::abs (point) * 1.15);
-        const auto area = bounds.reduced (8.0f, 8.0f).withTrimmedTop (12.0f);
-        const auto x = [&area, &points] (int i) { return area.getX() + area.getWidth() * (float) i / (float) std::max<size_t> (1, points.size() - 1); };
-        const auto y = [&area, pitch, span] (double value)
-        {
-            const auto t = pitch ? 0.5 + 0.5 * value / span : (value + 10.0) / 11.0;
-            return area.getBottom() - area.getHeight() * (float) juce::jlimit (0.0, 1.0, t);
-        };
-
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        if (pitch)
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.drawHorizontalLine (juce::roundToInt (y (0.0)), area.getX(), area.getRight());
-        }
-        const auto xOff = x (keyOff);
-        g.setColour (juce::Colours::white.withAlpha (0.25f));
-        const float dashes[] { 3.0f, 3.0f };
-        g.drawDashedLine ({ xOff, area.getY(), xOff, area.getBottom() }, dashes, 2, 1.0f);
-
-        juce::Path path;
-        for (int i = 0; i < (int) points.size(); ++i)
-        {
-            const auto py = y (points[(size_t) i]);
-            if (i == 0)
-                path.startNewSubPath (x (i), py);
-            else
-                path.lineTo (x (i), py);
-        }
-        auto filled = path;
-        filled.lineTo (x ((int) points.size() - 1), pitch ? y (0.0) : area.getBottom());
-        filled.lineTo (area.getX(), pitch ? y (0.0) : area.getBottom());
-        filled.closeSubPath();
-        g.setColour (colour.withAlpha (0.12f));
-        g.fillPath (filled);
-        g.setColour (colour);
-        g.strokePath (path, juce::PathStrokeType (1.8f));
-
-        const auto seconds = (double) points.size() * Dx7::block / rate;
-        g.setColour (IlanaTheme::Ui::text2);
-        const auto top = bounds.reduced (8.0f, 3.0f).withHeight (14.0f).toNearestInt();
-        g.drawText (pitch ? "PITCH +/-" + juce::String (span * 12.0, 1) + " st" : "C3 VEL 100",
-                    top, juce::Justification::centredLeft);
-        const auto flat = std::all_of (points.begin(), points.end(), [&points] (double p) { return p == points.front(); });
-        g.drawText (flat ? juce::String (pitch ? "NO PITCH MOVEMENT" : "NO MOVEMENT")
-                         : "KEY UP " + juce::String ((double) keyOff * Dx7::block / rate, 1) + " / " + juce::String (seconds, 1) + " s",
-                    top, juce::Justification::centredRight);
+        g.setColour (active  ? colour.interpolatedWith (juce::Colours::white, 0.2f)
+                     : quiet ? IlanaTheme::Ui::text3
+                             : IlanaTheme::Ui::text.withAlpha (0.82f + 0.18f * hover));
+        g.setFont (font);
+        g.drawText (text, content, juce::Justification::centredLeft, false);
     }
 
 private:
-    int read (const juce::String& id) const
+    juce::String shownText (bool asShort) const
     {
-        const auto* value = processorRef.apvts.getRawParameterValue (id);
-        return value != nullptr ? juce::roundToInt (value->load()) : 0;
+        return asShort ? getButtonText().fromLastOccurrenceOf (" ", false, false) : getButtonText();
     }
 
-    IlanaSynthAudioProcessor& processorRef;
-    juce::String prefix;
-    juce::Colour colour { IlanaTheme::accent() };
-    std::vector<int> values;
+    juce::Colour colour;
+    bool dot = true, quiet = false, shortText = false;
 };
 
 // FM between six oscillators: the algorithms, the operator diagram and the
 // selected operator's settings on the left; the full matrix of amounts on the
 // right (rows = from, columns = to, plus the noise operator), with the FM
-// style, each oscillator's output switch, ring mod and hard sync.
+// style and, under it, OSC 1 and OSC 2's ring mod and hard sync.
+//
+// An oscillator on the Operator Env (a DX7 voice's operators) shows its
+// envelope as a graph you drag, in the synth's words and units: ATTACK to
+// RELEASE in ms, PEAK to END in dB, its output as LEVEL (UI review 6, I6-7 to
+// I6-9). The voice's pitch envelope and LFO sit behind PITCH & LFO.
 class FmPage : public juce::Component,
                private IlanaAnim::FrameTimer
 {
-    // One operator's M5 settings (tuning, key scaling, feedback style) and
-    // the oscillator controls that matter most when it is an operator.
+    // One operator's M5 settings (tuning, key scaling, feedback style), the
+    // oscillator controls that matter most when it is an operator, and its
+    // Operator Env.
     struct OperatorControls
     {
-        OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefix, juce::Colour colour)
-            : tune (state, prefix + "_tune", "TUNING"),
+        OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefixIn, juce::Colour colour)
+            : prefix (prefixIn),
+              tune (state, prefix + "_tune", "TUNING"),
               snap (state, prefix + "_ratio_snap", "SNAP"),
               feedbackType (state, prefix + "_fb_type", "FB TYPE"),
-              ampEnv (state, prefix + "_amp_env", "ENVELOPE"),
+              ampEnv (state, prefix + "_amp_env", FmOperatorInfo::envelopeLabel),
               ratio (state, prefix + "_ratio", "RATIO", colour, false),
               fixedHz (state, prefix + "_fixed_hz", "FIXED", colour, false),
               semi (state, prefix + "_semi", "SEMI", colour, false),
@@ -184,9 +114,11 @@ class FmPage : public juce::Component,
               level (state, prefix + "_level", "LEVEL", colour, false),
               keyLevel (state, prefix + "_key_level", "KEY LVL", colour, false)
         {
-            // The Operator EG, in OperatorEg::operatorFields() order.
-            static const char* const labels[] { "R1", "R2", "R3", "R4", "L1", "L2", "L3", "L4", "BREAK", "L DEPTH",
-                                                 "R DEPTH", "L CURVE", "R CURVE", "RATE KEY", "AMS", "VEL", "OUTPUT" };
+            // The Operator Env, in OperatorEg::operatorFields() order, named
+            // as the synth's own envelopes are (I6-7).
+            static const char* const labels[] { "ATTACK", "DECAY 1", "DECAY 2", "RELEASE", "PEAK", "MID", "SUSTAIN", "END",
+                                                 "SCALE KEY", "LOW DEPTH", "HIGH DEPTH", "LOW CURVE", "HIGH CURVE",
+                                                 "KEY RATE", "AMP MOD", "VEL", "LEVEL" };
             for (size_t i = 0; i < OperatorEg::operatorFields().size(); ++i)
             {
                 const auto& field = OperatorEg::operatorFields()[i];
@@ -196,11 +128,15 @@ class FmPage : public juce::Component,
                 else
                     eg.push_back (std::make_unique<KnobControl> (state, id, labels[i], colour, false));
             }
+            FmOperatorInfo::sectionEnvelopeMenu (ampEnv.getComboBox());
         }
 
+        juce::String prefix;
         ComboControl tune, snap, feedbackType, ampEnv;
         KnobControl ratio, fixedHz, semi, fine, level, keyLevel;
         std::vector<std::unique_ptr<juce::Component>> eg;
+
+        KnobControl* egKnob (size_t index) { return dynamic_cast<KnobControl*> (eg[index].get()); }
 
         std::vector<juce::Component*> all()
         {
@@ -209,13 +145,74 @@ class FmPage : public juce::Component,
                 list.push_back (control.get());
             return list;
         }
-        // The EG's rates and levels (the graph's row), then its scaling,
-        // sensitivities and output.
-        std::vector<juce::Component*> egShape() { return { eg[0].get(), eg[1].get(), eg[2].get(), eg[3].get(), eg[4].get(), eg[5].get(), eg[6].get(), eg[7].get() }; }
+
+        // The two tabs under the graph, on one nine-column grid: the stages
+        // (times, then levels) and how the key speeds them up; then the
+        // keyboard and velocity scaling, the LFO's amp depth and TRIM (the
+        // oscillator's LEVEL).
+        std::vector<juce::Component*> egStages()
+        {
+            return { eg[0].get(), eg[1].get(), eg[2].get(), eg[3].get(), eg[4].get(), eg[5].get(), eg[6].get(), eg[7].get(), eg[13].get() };
+        }
         std::vector<juce::Component*> egScaling()
         {
-            return { eg[16].get(), eg[8].get(), eg[9].get(), eg[10].get(), eg[11].get(), eg[12].get(), eg[13].get(), eg[15].get(), eg[14].get() };
+            return { eg[8].get(), eg[9].get(), eg[11].get(), eg[10].get(), eg[12].get(), eg[15].get(), eg[14].get(), &level, nullptr };
         }
+        static bool isStageControl (size_t index) { return index < 8 || index == 13; }
+    };
+
+    // The Operator Env's voice-wide half: its LFO and pitch envelope.
+    struct VoiceControls
+    {
+        VoiceControls (juce::AudioProcessorValueTreeState& state, juce::Colour colour)
+            : shape (state, "opeg_lfo_wave", "SHAPE"),
+              retrig (state, "opeg_lfo_sync", "RETRIG"),
+              rate (state, "opeg_lfo_speed", "RATE", colour, false),
+              delay (state, "opeg_lfo_delay", "DELAY", colour, false),
+              pitchDepth (state, "opeg_lfo_pmd", "PITCH DEPTH", colour, false),
+              pitchSens (state, "opeg_lfo_pms", "PITCH SENS", colour, false),
+              ampDepth (state, "opeg_lfo_amd", "AMP DEPTH", colour, false),
+              scaleShift (state, OperatorEg::keyOffsetId, "SCALE SHIFT", colour, false)
+        {
+            retrig.showAsSwitch();
+            static const char* const labels[] { "ATTACK", "DECAY 1", "DECAY 2", "RELEASE", "PITCH 1", "PITCH 2", "SUSTAIN", "END" };
+            for (size_t i = 0; i < 8; ++i)
+                stages[i] = std::make_unique<KnobControl> (state, OperatorEg::voiceFields()[i].suffix, labels[i], colour, false);
+        }
+
+        ComboControl shape;
+        ToggleControl retrig;
+        KnobControl rate, delay, pitchDepth, pitchSens, ampDepth, scaleShift;
+        std::array<std::unique_ptr<KnobControl>, 8> stages;
+
+        std::vector<juce::Component*> all()
+        {
+            std::vector<juce::Component*> list { &shape, &retrig, &rate, &delay, &pitchDepth, &pitchSens, &ampDepth, &scaleShift };
+            for (auto& knob : stages)
+                list.push_back (knob.get());
+            return list;
+        }
+        std::vector<juce::Component*> lfoTop() { return { &shape, &retrig, &rate, &delay }; }
+        std::vector<juce::Component*> lfoBottom() { return { &pitchDepth, &pitchSens, &ampDepth, &scaleShift }; }
+        std::vector<juce::Component*> pitchStages()
+        {
+            std::vector<juce::Component*> list;
+            for (auto& knob : stages)
+                list.push_back (knob.get());
+            list.push_back (nullptr);
+            return list;
+        }
+    };
+
+    // A rate knob reads as its stage's time (the rest of the envelope as
+    // set); its 0-99 stays in the tooltip for DX7 users (I6-7).
+    struct EgKnob
+    {
+        KnobControl* knob = nullptr;
+        juce::String prefix, baseTooltip;
+        int stage = 0, lastValue = -1;
+        bool rate = false;
+        OperatorEnv::Settings settings {};
     };
 
 public:
@@ -224,13 +221,37 @@ public:
           diagram (p),
           algorithms (p),
           egGraph (p),
+          voice (p.apvts, fmColour()),
+          pageTabs ({ "BASIC", "DX7 1-16", "DX7 17-32" }, { fmColour(), fmColour(), fmColour() }, false),
           mode (p.apvts, "fm_mode", "FM MODE"),
-          hardSync (p.apvts, "hard_sync", "HARD SYNC 1>2")
+          hardSync (p.apvts, "hard_sync", "SYNC 2 TO 1"),
+          effectRules (p)
     {
-        addAll (*this, diagram, algorithms, mode, hardSync);
+        addAll (*this, diagram, algorithms, pageTabs, mode, hardSync);
+        addChildComponent (envTabs);
+        envTabs.setTooltip ("STAGES: the envelope's times and levels (or drag the graph). KEYS & VELOCITY: how the key and "
+                            "velocity scale this operator, its LFO amp depth and its TRIM.");
+        envTabs.onSelect = [this] (int)
+        {
+            updateOperatorVisibility();
+            resized();
+        };
         hardSync.showAsSwitch();
         ringMod = std::make_unique<KnobControl> (p.apvts, "ring_mod", "RING MOD", fmColour(), false);
+        ringMod->setSizeRole (IlanaTheme::KnobSize::minimum);
         addAndMakeVisible (*ringMod);
+
+        // The algorithm pages, on the ALGORITHMS heading's line; the heading
+        // names the cell under the mouse.
+        pageTabs.setTooltip ("BASIC: simple routings for any oscillators. DX7: the DX7's 32 algorithms, under their own numbers.");
+        pageTabs.setSelected (algorithms.getPage(), false);
+        pageTabs.onSelect = [this] (int page) { algorithms.setPage (page); };
+        algorithms.onPageChanged = [this] { pageTabs.setSelected (algorithms.getPage(), false); };
+        algorithms.onHoverChanged = [this] (const juce::String& name)
+        {
+            hoverAlgorithm = name;
+            repaint (algorithmsTitle);
+        };
 
         for (int source = 0; source < OscillatorIds::count; ++source)
         {
@@ -258,53 +279,48 @@ public:
             for (auto* control : operators[(size_t) source]->all())
                 addChildComponent (control);
 
-            auto button = std::make_unique<juce::TextButton> ("OSC " + juce::String (source + 1));
-            button->setClickingTogglesState (false);
-            IlanaTheme::makePill (*button, FmDiagram::oscColour (source));
+            auto button = std::make_unique<OperatorPill> ("OSC " + juce::String (source + 1), FmDiagram::oscColour (source));
             button->onClick = [this, source] { selectOperator (source); };
             addAndMakeVisible (*button);
             operatorButtons[(size_t) source] = std::move (button);
+
+            // FB TYPE only acts with a feedback route (I6-10).
+            effectRules.add (operators[(size_t) source]->feedbackType,
+                             effectRules.isAbove (FmDiagram::routeId (source, source), 0.0005f));
+            setUpEgKnobs (*operators[(size_t) source]);
+            setUpLevelText (source);
         }
 
-        noiseColourKnob = std::make_unique<KnobControl> (p.apvts, "fm_noise_color", "NOISE COLOUR", noiseColour(), false);
+        // The noise operator's colour, at the head of its row (V6-14).
+        noiseColourKnob = std::make_unique<KnobControl> (p.apvts, "fm_noise_color", "", noiseColour(), false);
+        noiseColourKnob->setCompact (true);
+        noiseColourKnob->setSizeRole (IlanaTheme::KnobSize::mini);
         addAndMakeVisible (*noiseColourKnob);
 
         for (const auto* prefix : OscillatorIds::prefixes)
-        {
-            tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + "_tune"));
-            tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + "_amp_env"));
-        }
+            for (const auto* suffix : { "_tune", "_amp_env", "_on" })
+                tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + suffix));
 
-        // The Operator EG: its graph, and the voice's pitch envelope and LFO
-        // behind the PITCH / LFO tab (shown while an oscillator uses it).
+        // The Operator Env's graph, and the voice's pitch envelope and LFO
+        // behind PITCH & LFO: a header button apart from the operator tabs,
+        // always there (quiet while nothing plays the Operator Env).
         addChildComponent (egGraph);
-        static const char* const voiceLabels[] { "R1", "R2", "R3", "R4", "L1", "L2", "L3", "L4", "SPEED", "DELAY",
-                                                  "PITCH DEPTH", "AMP DEPTH", "KEY SYNC", "WAVE", "PITCH SENS" };
-        for (size_t i = 0; i < OperatorEg::voiceFields().size(); ++i)
-        {
-            const auto& field = OperatorEg::voiceFields()[i];
-            if (field.choice)
-                voiceEg.push_back (std::make_unique<ComboControl> (p.apvts, field.suffix, voiceLabels[i]));
-            else if (field.maximum == 1)
-                voiceEg.push_back (std::make_unique<ToggleControl> (p.apvts, field.suffix, voiceLabels[i]));
-            else
-                voiceEg.push_back (std::make_unique<KnobControl> (p.apvts, field.suffix, voiceLabels[i], fmColour(), false));
-        }
-        voiceEg.push_back (std::make_unique<KnobControl> (p.apvts, OperatorEg::keyOffsetId, "KEY OFFSET", fmColour(), false));
-        for (auto& control : voiceEg)
-            addChildComponent (*control);
-        if (auto* sync = dynamic_cast<ToggleControl*> (voiceEg[12].get()))
-            sync->showAsSwitch();
-        voiceButton.setButtonText ("PITCH / LFO");
-        voiceButton.setClickingTogglesState (false);
-        voiceButton.setTooltip ("The Operator EG's pitch envelope and LFO, shared by every oscillator on the Operator EG");
-        IlanaTheme::makePill (voiceButton, fmColour());
+        for (auto* control : voice.all())
+            addChildComponent (control);
+        for (size_t i = 0; i < 4; ++i)
+            egKnobs.push_back ({ voice.stages[i].get(), {}, voice.stages[i]->getTooltip(), (int) i, -1, true });
+        for (size_t i = 4; i < 8; ++i)
+            egKnobs.push_back ({ voice.stages[i].get(), {}, voice.stages[i]->getTooltip(), (int) i - 4, -1, false });
+        for (size_t i = 0; i < 4; ++i)
+            setRateText (*voice.stages[i], {}, (int) i);
+        voiceButton.setTooltip ("The Operator Env's pitch envelope and LFO, for the whole voice: every oscillator on the "
+                                "Operator Env follows them. Also in MOD's envelope and LFO pools.");
         voiceButton.onClick = [this] { selectVoicePage(); };
-        addChildComponent (voiceButton);
+        addAndMakeVisible (voiceButton);
 
         refreshShown();
         refreshFmInputs (true);
-        selectOperator (0);
+        selectOperator (shown.empty() ? 0 : shown.front());
         startTimerHz (12);
     }
 
@@ -327,7 +343,7 @@ public:
         repaint();
     }
 
-    // The PITCH / LFO tab: the Operator EG's settings for the whole voice.
+    // PITCH & LFO: the Operator Env's settings for the whole voice.
     void selectVoicePage()
     {
         voicePage = true;
@@ -340,110 +356,57 @@ public:
     }
 
     bool isVoicePageShown() const { return voicePage; }
+    const FmDiagram& getDiagram() const { return diagram; }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "ALGORITHMS", algorithmsTitle, getAlgorithmLabel());
-        paintSectionTitle (g, "OPERATORS", operatorsTitle);
+        paintSectionTitle (g, "ALGORITHMS", algorithmsTitle.withTrimmedRight (pageTabs.getWidth() + 8),
+                           hoverAlgorithm.isNotEmpty() ? hoverAlgorithm : getAlgorithmLabel());
         IlanaTheme::paintCard (g, matrixCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
 
-        // The selected operator's settings.
+        // The selected operator's settings, its tabs on the header line.
+        const auto header = operatorCard.reduced (12, 0).withHeight (26);
+        const auto reserve = operatorCard.getRight() - tabsLeft + 8;
         if (voicePage)
         {
             IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, fmColour().withAlpha (0.35f));
-            IlanaTheme::paintCardHeader (g, operatorCard.reduced (12, 0).withHeight (26), "OPERATOR EG PITCH AND LFO",
-                                         "every oscillator on the Operator EG", fmColour(), 0);
+            IlanaTheme::paintCardHeader (g, header, "PITCH & LFO",
+                                         anyOperatorEnv() ? "the whole voice" : "for oscillators on the Operator Env",
+                                         fmColour(), reserve);
         }
         else
         {
             const auto colour = FmDiagram::oscColour (selectedOperator);
             IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-            IlanaTheme::paintCardHeader (g, operatorCard.reduced (12, 0).withHeight (26),
-                                         "OSC " + juce::String (selectedOperator + 1) + " AS AN OPERATOR", soundingText(), colour, 0);
+            IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1), operatorText(), colour, reserve);
         }
 
-        IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", "rows modulate columns", fmColour(), 0);
-
-        // Matrix cells: tinted by the source, brighter the deeper the route.
-        const auto paintCell = [&g] (juce::Rectangle<float> cell, float amount, juce::Colour colour)
+        // A rule between the operator tabs and PITCH & LFO.
+        if (voiceButton.isVisible() && voiceButton.getX() > tabsLeft)
         {
-            g.setColour (juce::Colours::black.withAlpha (0.22f));
-            g.fillRoundedRectangle (cell, 6.0f);
-            g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
-            g.fillRoundedRectangle (cell, 6.0f);
-            g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
-            g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
-        };
-
-        for (const auto source : shown)
-        {
-            for (const auto target : shown)
-            {
-                const auto cell = cells[(size_t) source][(size_t) target].toFloat();
-                const auto colour = FmDiagram::oscColour (source);
-
-                if (! fmIn[(size_t) target])
-                {
-                    // This oscillator ignores FM: a flat, empty cell.
-                    g.setColour (juce::Colours::black.withAlpha (0.3f));
-                    g.fillRoundedRectangle (cell, 6.0f);
-                    g.setColour (juce::Colours::white.withAlpha (0.05f));
-                    g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
-                    continue;
-                }
-
-                paintCell (cell, read (FmDiagram::routeId (source, target)), colour);
-
-                if (source == target)
-                {
-                    g.setColour (colour.withAlpha (0.6f));
-                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                    const auto type = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type"));
-                    g.drawText (type == FmFeedback::Filtered ? "FB~" : type == FmFeedback::Cross ? "FB<>"
-                                : type == FmFeedback::Dx7 ? "FB DX" : "FB",
-                                cell.reduced (6.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
-                }
-            }
-
-            if (fmIn[(size_t) source])
-                paintCell (noiseCells[(size_t) source].toFloat(), read ("fm_noise" + juce::String (source + 1)), noiseColour());
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawVerticalLine (voiceButton.getX() - 7, (float) voiceButton.getY() + 2.0f, (float) voiceButton.getBottom() - 2.0f);
         }
 
-        // Compact cells: each amount under its knob.
-        if (compactCells)
+        if (envTabs.isVisible())
         {
+            g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            const auto value = [&g, this] (juce::Rectangle<int> cell, const juce::String& id)
-            {
-                const auto amount = read (id);
-                g.setColour (juce::Colours::white.withAlpha (amount > 0.001f ? 0.85f : 0.4f));
-                g.drawText (describeValue (id, amount), cell.removeFromBottom (15), juce::Justification::centred);
-            };
-            for (const auto source : shown)
-            {
-                for (const auto target : shown)
-                    if (fmIn[(size_t) target])
-                        value (cells[(size_t) source][(size_t) target], FmDiagram::routeId (source, target));
-                if (fmIn[(size_t) source])
-                    value (noiseCells[(size_t) source], "fm_noise" + juce::String (source + 1));
-            }
+            g.drawText ("Drag the graph's points: across for time, up or down for level.", envTabLine,
+                        juce::Justification::centredRight, true);
         }
 
-        // Column and row headings.
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-
-        for (const auto i : shown)
+        if (voicePage)
         {
-            g.setColour (FmDiagram::oscColour (i).withAlpha (fmIn[(size_t) i] ? 1.0f : 0.4f));
-            g.drawText (fmIn[(size_t) i] ? "TO OSC " + juce::String (i + 1) : "OSC " + juce::String (i + 1) + ": NO FM IN",
-                        columnHeads[(size_t) i], juce::Justification::centred);
-            g.setColour (FmDiagram::oscColour (i));
-            g.drawText ("OSC " + juce::String (i + 1), rowHeads[(size_t) i].withHeight (18), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText ("SCALE SHIFT moves only the keys the operators' scaling follows: transpose with each oscillator's "
+                        "SEMI, or the octave on PLAY.",
+                        voiceHint, juce::Justification::centredLeft, true);
         }
 
-        g.setColour (noiseColour());
-        g.drawText ("NOISE", noiseHead.withHeight (18), juce::Justification::centredLeft);
+        paintMatrix (g);
     }
 
     void visibilityChanged() override
@@ -469,11 +432,15 @@ public:
             return changed;
         }();
 
-        if (isShowing())
+        // (Visible, not showing: an offscreen editor, as in the UI test,
+        // keeps its page current too.)
+        if (isVisible())
         {
             algorithms.refreshMatch();
             if (egGraph.isVisible())
                 egGraph.refresh();
+            refreshEgKnobs();
+            effectRules.apply();
 
             if (const auto label = getAlgorithmLabel(); label != lastAlgorithmLabel)
             {
@@ -482,10 +449,12 @@ public:
             }
         }
 
-        if (refreshFmInputs (false))
+        const auto inputsChanged = refreshFmInputs (false);
+        const auto cellsChanged = refreshCellKnobs();
+        if (inputsChanged || cellsChanged)
             repaint (matrixCard);
 
-        if (refreshShown() || tuneChanged)
+        if (refreshShown() || tuneChanged || diagram.getMinimumHeight() != lastDiagramMinimum)
         {
             updateOperatorVisibility();
             resized();
@@ -500,43 +469,46 @@ public:
 
     // Columns of oscillators that ignore FM (sample, granular, a string
     // not set to Osc In) are greyed out and can't be edited; routes already
-    // there stay in the patch but do nothing.
+    // there stay in the patch but do nothing. A switched-off oscillator's
+    // row and column are greyed the same way (I6-37, V6-13).
     bool refreshFmInputs (bool force)
     {
-        std::array<bool, OscillatorIds::count> now {};
+        std::array<bool, OscillatorIds::count> nowIn {}, nowOn {};
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            now[(size_t) osc] = FmDiagram::receivesFm (processorRef, osc);
+        {
+            nowIn[(size_t) osc] = FmDiagram::receivesFm (processorRef, osc);
+            nowOn[(size_t) osc] = FmOperatorInfo::isPlaying (processorRef, osc);
+        }
 
-        if (now == fmIn && ! force)
+        if (nowIn == fmIn && nowOn == playing && ! force)
             return false;
 
-        fmIn = now;
+        fmIn = nowIn;
+        playing = nowOn;
 
         for (int target = 0; target < OscillatorIds::count; ++target)
         {
-            const auto on = fmIn[(size_t) target];
-            const auto note = FmDiagram::fmInputNote (processorRef, target);
-
-            std::vector<juce::Component*> column { noiseKnobs[(size_t) target].get() };
-            for (int source = 0; source < OscillatorIds::count; ++source)
-                column.push_back (knobs[(size_t) source][(size_t) target].get());
-
-            for (auto* control : column)
+            for (int source = -1; source < OscillatorIds::count; ++source)
             {
-                control->setEnabled (on);
-                control->setAlpha (on ? 1.0f : 0.22f);
-
-                if (auto* tooltipClient = dynamic_cast<juce::SettableTooltipClient*> (control))
-                {
-                    if (! on)
-                        tooltipClient->setTooltip (note);
-                    else if (auto* knob = dynamic_cast<KnobControl*> (control))
-                        tooltipClient->setTooltip (knob->getSlider().getTooltip());
-                }
+                auto* knob = source < 0 ? noiseKnobs[(size_t) target].get() : knobs[(size_t) source][(size_t) target].get();
+                const auto note = ! playing[(size_t) target] ? "OSC " + juce::String (target + 1) + " is off: switch it on on OSC"
+                                  : source >= 0 && ! playing[(size_t) source]
+                                      ? "OSC " + juce::String (source + 1) + " is off: switch it on on OSC"
+                                      : FmDiagram::fmInputNote (processorRef, target);
+                const auto live = isLiveCell (source, target);
+                knob->setEnabled (live);
+                knob->setTooltip (live ? knob->getSlider().getTooltip() : note);
             }
         }
 
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            outs[(size_t) osc]->setAlpha (playing[(size_t) osc] ? 1.0f : 0.35f);
+            operatorButtons[(size_t) osc]->setQuiet (! playing[(size_t) osc]);
+        }
+
+        refreshCellKnobs (true);
         return true;
     }
 
@@ -565,16 +537,21 @@ public:
         matrixCard = area.removeFromRight (area.getWidth() * 44 / 100);
         area.removeFromRight (10);
 
-        // Left column: algorithms, the diagram, the selected operator; its
-        // heading on the FM MATRIX card's header line.
+        // Left column: algorithms (one row, its pages on the heading's line),
+        // the diagram, the selected operator. The diagram needs no heading
+        // of its own: its nodes say what it is, and the height goes to it.
         algorithmsTitle = area.removeFromTop (headingHeight).withTrimmedLeft (12);
-        algorithms.setBounds (area.removeFromTop (area.getWidth() >= 16 * 38 ? 48 : 80));
-        area.removeFromTop (6);
-        operatorsTitle = area.removeFromTop (headingHeight).withTrimmedLeft (12);
-        // The Operator EG's controls take more of the column.
-        const auto egShown = voicePage || usesOperatorEg (selectedOperator);
-        operatorCard = area.removeFromBottom (egShown ? juce::jmin (400, area.getHeight() * 82 / 100)
-                                                      : juce::jmin (176, area.getHeight() / 2));
+        const auto tabsWidth = pageTabs.getIdealWidth();
+        pageTabs.setBounds (algorithmsTitle.getRight() - tabsWidth - 2, algorithmsTitle.getCentreY() - 10, tabsWidth, 20);
+        algorithms.setBounds (area.removeFromTop (42));
+        area.removeFromTop (8);
+
+        // The operator card takes what it needs and the diagram never less
+        // than its stack of operators needs (UI review 6, I6-1).
+        lastDiagramMinimum = diagram.getMinimumHeight();
+        const auto egShown = ! voicePage && usesOperatorEnv (selectedOperator);
+        const auto wanted = voicePage ? 262 : egShown ? 262 : 176;
+        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (wanted, area.getHeight() - lastDiagramMinimum - 8)));
         area.removeFromBottom (8);
         diagram.setBounds (area);
 
@@ -592,63 +569,181 @@ private:
     }
 
 public:
-    // The ALGORITHMS heading's note: the grid's match, or CUSTOM when the
-    // routing matches none of it (UI review 4, S14).
+    // The ALGORITHMS heading's note: the DX7 algorithm a patch matches by its
+    // number, else a basic routing's name, else CUSTOM ROUTING (UI review 6,
+    // I6-6 and I6-41).
     juce::String getAlgorithmLabel() const
     {
-        const auto matching = algorithms.getMatching();
+        if (const auto dx7 = processorRef.findMatchingDx7Algorithm(); dx7 > 0)
+            return "DX7 ALGORITHM " + juce::String (dx7);
 
+        const auto matching = processorRef.findMatchingFmAlgorithm();
         if (matching >= 0 && matching < (int) FmAlgorithms::all().size())
             return FmAlgorithms::all()[(size_t) matching].name;
 
         for (const auto source : shown)
             for (const auto target : shown)
                 if (read (FmDiagram::routeId (source, target)) > 0.001f)
-                    return "CUSTOM  -  matches no algorithm here";
+                    return "CUSTOM ROUTING";
 
         return {};
     }
 
 private:
-    // "sounds at x1.414 of the note" and the like, after SNAP.
-    juce::String soundingText() const
+    // "x1.00 · Operator Env · heard": the operator in a line (V6-33).
+    juce::String operatorText() const
     {
-        return soundingTuneText() + (usesOperatorEg (selectedOperator) ? ", on the Operator EG" : "");
+        const auto dot = juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 "));
+        const auto prefix = FmOperatorInfo::prefixOf (selectedOperator);
+        const auto tune = juce::roundToInt (read (prefix + "_tune"));
+        auto text = tune == OscTuning::Ratio || tune == OscTuning::Fixed ? FmOperatorInfo::tuningText (processorRef, selectedOperator)
+                                                                         : juce::String ("semitones");
+        text << dot << (usesOperatorEnv (selectedOperator) ? "Operator Env" : operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText());
+        text << dot << (read (prefix + "_out") > 0.5f ? "heard" : "modulator only");
+        if (! FmOperatorInfo::isPlaying (processorRef, selectedOperator))
+            text << dot << "off";
+        return text;
     }
 
-    bool usesOperatorEg (int op) const
-    {
-        return juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_amp_env")) == OperatorEg::envelopeChoice;
-    }
+    bool usesOperatorEnv (int op) const { return FmOperatorInfo::usesOperatorEnv (processorRef, op); }
 
-    bool anyOperatorEg() const
+    bool anyOperatorEnv() const
     {
         for (const auto op : shown)
-            if (usesOperatorEg (op))
+            if (usesOperatorEnv (op))
                 return true;
         return false;
     }
 
-    juce::String soundingTuneText() const
+    // A cell's knob can be edited: its source plays, and its target plays and
+    // takes FM (source -1: the noise row).
+    bool isLiveCell (int source, int target) const
     {
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) selectedOperator]);
-        const auto tune = juce::roundToInt (read (prefix + "_tune"));
+        return fmIn[(size_t) target] && playing[(size_t) target] && (source < 0 || playing[(size_t) source]);
+    }
 
-        if (tune == OscTuning::Ratio)
-            return "sounds at x" + juce::String (processorRef.getSnappedRatio (selectedOperator), 3) + " the note";
+    float cellAmount (int source, int target) const
+    {
+        return read (source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target));
+    }
 
-        if (tune == OscTuning::Fixed)
-            return "fixed at " + describeValue (prefix + "_fixed_hz", read (prefix + "_fixed_hz"));
+    KnobControl& cellKnob (int source, int target)
+    {
+        return source < 0 ? *noiseKnobs[(size_t) target] : *knobs[(size_t) source][(size_t) target];
+    }
 
-        return "tuned in semitones";
+    // An empty route is a dot that turns into its knob under the mouse, so
+    // the routes in use stand out from the grid (V6-15, S6-17); a dead one is
+    // a faint knob or nothing.
+    bool refreshCellKnobs (bool force = false)
+    {
+        auto changed = false;
+        for (const auto target : shown)
+        {
+            for (int source = -1; source < OscillatorIds::count; ++source)
+            {
+                if (source >= 0 && std::find (shown.begin(), shown.end(), source) == shown.end())
+                    continue;
+                auto& knob = cellKnob (source, target);
+                const auto used = cellAmount (source, target) > 0.0005f;
+                const auto alpha = ! isLiveCell (source, target) ? (used ? 0.22f : 0.0f)
+                                   : used || knob.isMouseOverOrDragging (true) ? 1.0f
+                                                                              : 0.0f;
+                if (knob.getAlpha() != alpha || force)
+                {
+                    changed = changed || knob.getAlpha() != alpha;
+                    knob.setAlpha (alpha);
+                }
+            }
+        }
+        return changed;
+    }
+
+    // The ENVELOPE choice, the rate knobs' times and every Op Env knob's
+    // DX7 value, kept current.
+    void setUpEgKnobs (OperatorControls& controls)
+    {
+        for (size_t i = 0; i < 17; ++i)
+            if (auto* knob = controls.egKnob (i))
+                egKnobs.push_back ({ knob, controls.prefix, knob->getTooltip(), (int) (i % 4), -1, i < 4 });
+        for (int stage = 0; stage < 4; ++stage)
+            setRateText (*controls.egKnob ((size_t) stage), controls.prefix, stage);
+    }
+
+    void setRateText (KnobControl& knob, const juce::String& prefix, int stage)
+    {
+        auto& slider = knob.getSlider();
+        const auto original = slider.valueFromTextFunction;
+        slider.textFromValueFunction = [this, prefix, stage] (double value)
+        {
+            auto settings = OperatorEnv::read (processorRef, prefix);
+            settings.rates[(size_t) stage] = juce::jlimit (0, 99, juce::roundToInt (value));
+            const auto run = OperatorEnv::run (settings, stage);
+            return OperatorEnv::formatSeconds (run.stageSeconds (stage), run.endless[(size_t) stage]);
+        };
+        // "250 ms" or "1.5 s" types a time; a bare number is the DX7 value.
+        slider.valueFromTextFunction = [this, prefix, stage, original] (const juce::String& text)
+        {
+            const auto trimmed = text.trim().toLowerCase();
+            if (trimmed.endsWith ("ms") || trimmed.endsWith ("s"))
+            {
+                const auto seconds = trimmed.getDoubleValue() * (trimmed.endsWith ("ms") ? 0.001 : 1.0);
+                return (double) OperatorEnv::rateForSeconds (OperatorEnv::read (processorRef, prefix), stage, seconds);
+            }
+            return original != nullptr ? original (text) : trimmed.getDoubleValue();
+        };
+        slider.updateText();
+    }
+
+    // LEVEL reads in % on Amp Env; on the Operator Env it is TRIM, 0 dB at
+    // 50 % (the level a DX7 voice imports at), its output level being the
+    // operator's LEVEL (I6-8, S6-5).
+    void setUpLevelText (int op)
+    {
+        auto& slider = operators[(size_t) op]->level.getSlider();
+        const auto original = slider.textFromValueFunction;
+        slider.textFromValueFunction = [this, op, original] (double value)
+        {
+            if (! usesOperatorEnv (op))
+                return original != nullptr ? original (value) : juce::String (value);
+            if (value <= 0.0)
+                return juce::String ("-inf dB");
+            const auto db = juce::Decibels::gainToDecibels (value / 0.5);
+            return (db > 0.05 ? "+" : "") + describeFixed ((float) db, 1) + " dB";
+        };
+        slider.updateText();
+    }
+
+    void refreshEgKnobs()
+    {
+        for (auto& entry : egKnobs)
+        {
+            if (! entry.knob->isVisible())
+                continue;
+            const auto value = juce::roundToInt (entry.knob->getSlider().getValue());
+            if (value != entry.lastValue)
+            {
+                entry.lastValue = value;
+                const auto tooltip = entry.baseTooltip + "\nDX7 value: " + juce::String (value);
+                entry.knob->setTooltip (tooltip);
+                entry.knob->getSlider().setTooltip (tooltip);
+            }
+            // A stage's time depends on the levels around it.
+            if (entry.rate)
+            {
+                const auto settings = OperatorEnv::read (processorRef, entry.prefix);
+                if (settings != entry.settings)
+                {
+                    entry.settings = settings;
+                    entry.knob->getSlider().updateText();
+                }
+            }
+        }
     }
 
     void updateOperatorVisibility()
     {
-        const auto anyEg = anyOperatorEg();
-        if (voicePage && ! anyEg)
-            selectOperator (selectedOperator);
-        voiceButton.setVisible (anyEg);
+        voiceButton.setQuiet (! anyOperatorEnv());
 
         for (int op = 0; op < OscillatorIds::count; ++op)
         {
@@ -658,6 +753,7 @@ private:
             auto& controls = *operators[(size_t) op];
             const auto selected = op == selectedOperator && ! voicePage;
             const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_tune"));
+            const auto opEnv = usesOperatorEnv (op);
 
             for (auto* control : controls.all())
                 control->setVisible (selected);
@@ -665,13 +761,25 @@ private:
             controls.ratio.setVisible (selected && tune == OscTuning::Ratio);
             controls.snap.setVisible (selected && tune == OscTuning::Ratio);
             controls.fixedHz.setVisible (selected && tune == OscTuning::Fixed);
-            for (auto& control : controls.eg)
-                control->setVisible (selected && usesOperatorEg (op));
+            // One level story (I6-8): on the Operator Env its output level
+            // is LEVEL and the oscillator's LEVEL a TRIM beside the scaling;
+            // the envelope's own scaling replaces KEY LVL.
+            controls.keyLevel.setVisible (selected && ! opEnv);
+            const auto stagesTab = envTabs.getSelected() == 0;
+            for (size_t i = 0; i < controls.eg.size(); ++i)
+                controls.eg[i]->setVisible (selected && opEnv && (i == 16 || OperatorControls::isStageControl (i) == stagesTab));
+            controls.level.setVisible (selected && (! opEnv || ! stagesTab));
+            if (controls.level.getLabelText() != (opEnv ? "TRIM" : "LEVEL"))
+            {
+                controls.level.setLabelText (opEnv ? "TRIM" : "LEVEL");
+                controls.level.getSlider().updateText();
+            }
         }
 
-        for (auto& control : voiceEg)
+        for (auto* control : voice.all())
             control->setVisible (voicePage);
-        egGraph.setVisible (voicePage || usesOperatorEg (selectedOperator));
+        envTabs.setVisible (! voicePage && usesOperatorEnv (selectedOperator));
+        egGraph.setVisible (voicePage || usesOperatorEnv (selectedOperator));
         if (voicePage)
             egGraph.setSource ({}, fmColour());
         else
@@ -681,53 +789,72 @@ private:
     void layoutOperatorCard()
     {
         auto inner = operatorCard.reduced (10, 0);
-        inner.removeFromTop (26);
 
-        auto tabs = inner.removeFromTop (22);
-        const auto tabWidth = juce::jmin (64, tabs.getWidth() / OscillatorIds::count);
-
-        for (int op = 0; op < OscillatorIds::count; ++op)
-            if (std::find (shown.begin(), shown.end(), op) != shown.end())
-                operatorButtons[(size_t) op]->setBounds (tabs.removeFromLeft (tabWidth).reduced (2, 0));
-        if (voiceButton.isVisible())
-            voiceButton.setBounds (tabs.removeFromLeft (juce::jmin (tabs.getWidth(), 96)).reduced (2, 0));
-
-        inner.removeFromTop (6);
-
-        // Operator EG: two rows of controls along the bottom (rates and
-        // levels, then scaling), on one grid.
-        const auto egRowHeight = juce::jmin (72, (inner.getHeight() - 8) / 4);
-        const auto layoutEgRows = [egRowHeight] (juce::Rectangle<int>& area, const std::vector<juce::Component*>& first,
-                                                 const std::vector<juce::Component*>& second)
+        // The tabs on the header line, right-aligned: the shown oscillators,
+        // then PITCH & LFO past a rule (I6-38).
         {
-            auto secondRow = area.removeFromBottom (egRowHeight);
-            area.removeFromBottom (2);
-            auto firstRow = area.removeFromBottom (egRowHeight);
-            area.removeFromBottom (6);
-            const auto columns = juce::jmax (first.size(), second.size());
-            auto a = first, b = second;
-            a.resize (columns, nullptr);
-            b.resize (columns, nullptr);
-            layoutRow (firstRow, a);
-            layoutRow (secondRow, b);
+            auto tabs = operatorCard.reduced (12, 0).withHeight (26).withSizeKeepingCentre (operatorCard.getWidth() - 24, 20);
+            const auto voiceWidth = voiceButton.getIdealWidth();
+            voiceButton.setBounds (tabs.removeFromRight (voiceWidth));
+            tabs.removeFromRight (14);
+            // "OSC 1" while the title and a line about the operator fit
+            // beside them, else just the numbers.
+            const auto widthOf = [this] (bool asShort)
+            {
+                auto width = 0;
+                for (const auto op : shown)
+                    width += operatorButtons[(size_t) op]->getIdealWidth (asShort) + 4;
+                return width;
+            };
+            const auto asShort = widthOf (false) > tabs.getWidth() - 260;
+            auto x = tabs.getRight() - widthOf (asShort);
+            tabsLeft = x;
+            for (const auto op : shown)
+            {
+                auto& button = *operatorButtons[(size_t) op];
+                button.setShort (asShort);
+                const auto w = button.getIdealWidth (asShort);
+                button.setBounds (x, tabs.getY(), w, tabs.getHeight());
+                x += w + 4;
+            }
+        }
+        inner.removeFromTop (30);
+        inner.removeFromBottom (6);
+
+        // Rows of the Operator Env's knobs along the bottom, on one grid.
+        const auto rowHeight = [&inner] (int rows, int above) { return juce::jlimit (56, 76, (inner.getHeight() - above) / rows); };
+        const auto layoutGrid = [] (juce::Rectangle<int> row, std::vector<juce::Component*> items, size_t columns)
+        {
+            items.resize (columns, nullptr);
+            layoutRow (row, items);
         };
 
         if (voicePage)
         {
-            std::vector<juce::Component*> shape, lfo;
-            for (size_t i = 0; i < voiceEg.size(); ++i)
-                (i < 8 ? shape : lfo).push_back (voiceEg[i].get());
-            layoutEgRows (inner, shape, lfo);
-            egGraph.setBounds (inner);
+            voiceHint = inner.removeFromBottom (16).withTrimmedLeft (2);
+            const auto height = rowHeight (3, 0);
+            auto stages = inner.removeFromBottom (height);
+            inner.removeFromBottom (4);
+            layoutGrid (stages, voice.pitchStages(), 9);
+            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 5 / 9).withTrimmedLeft (8).reduced (0, 2));
+            auto top = inner.removeFromTop (inner.getHeight() / 2);
+            layoutRow (top, voice.lfoTop());
+            layoutRow (inner, voice.lfoBottom());
             return;
         }
 
         auto& controls = *operators[(size_t) selectedOperator];
-        if (usesOperatorEg (selectedOperator))
+        const auto opEnv = usesOperatorEnv (selectedOperator);
+        if (opEnv)
         {
+            auto row = inner.removeFromBottom (rowHeight (3, 20));
+            envTabLine = inner.removeFromBottom (22);
+            envTabs.setBounds (envTabLine.removeFromLeft (envTabs.getIdealWidth()).withSizeKeepingCentre (envTabs.getIdealWidth(), 20));
+            envTabLine.removeFromLeft (12);
+            inner.removeFromBottom (4);
+            layoutGrid (row, envTabs.getSelected() == 0 ? controls.egStages() : controls.egScaling(), 9);
             // The graph beside the tuning menus and knobs.
-            layoutEgRows (inner, controls.egShape(), controls.egScaling());
-            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 2 / 5).withTrimmedLeft (8));
+            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 2 / 5).withTrimmedLeft (8).reduced (0, 2));
         }
         const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
 
@@ -744,8 +871,17 @@ private:
             bottom.push_back (&controls.ratio);
         if (tune == OscTuning::Fixed)
             bottom.push_back (&controls.fixedHz);
-        for (auto* item : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel })
-            bottom.push_back (item);
+        bottom.push_back (&controls.semi);
+        bottom.push_back (&controls.fine);
+        if (opEnv)
+        {
+            bottom.push_back (controls.eg[16].get());
+        }
+        else
+        {
+            bottom.push_back (&controls.level);
+            bottom.push_back (&controls.keyLevel);
+        }
 
         // Menus and knobs on one grid (as many columns as the longer row), so
         // each menu sits over a knob.
@@ -762,11 +898,22 @@ private:
         inner.removeFromTop (26);
         inner.removeFromBottom (8);
 
-        // Mode, ring mod, the noise colour and sync across the top, labels
-        // above like every card's controls (smaller dials: the cells below
-        // need the height).
-        layoutRow (inner.removeFromTop (72), { &mode, ringMod.get(), noiseColourKnob.get(), &hardSync });
+        // The FM style across the top, a note on what sets the depth beside
+        // it; OSC 1 and OSC 2's ring mod and sync in a row under the matrix
+        // (V6-14).
+        auto top = inner.removeFromTop (44);
+        mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 3)).reduced (3, 2));
+        topNote = top.withTrimmedLeft (12).withTrimmedTop (13);
         inner.removeFromTop (6);
+
+        pairRow = inner.removeFromBottom (62);
+        inner.removeFromBottom (6);
+        {
+            auto row = pairRow.reduced (4, 0);
+            hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
+            ringMod->setBounds (row.removeFromRight (80));
+            pairText = row.withTrimmedRight (8);
+        }
 
         for (int source = 0; source < OscillatorIds::count; ++source)
         {
@@ -781,7 +928,7 @@ private:
 
         const auto count = juce::jmax (1, (int) shown.size());
         auto heads = inner.removeFromTop (18);
-        heads.removeFromLeft (70);
+        heads.removeFromLeft (headWidth);
         const auto columnWidth = heads.getWidth() / count;
 
         for (const auto i : shown)
@@ -794,7 +941,7 @@ private:
         // Short cells (six oscillators) get compact knobs, their values
         // drawn in the cell's corner: the knob's own value box overlapped it.
         compactCells = rowHeight < 82;
-        const auto layoutRow = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
+        const auto layoutCells = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
         {
             for (const auto target : shown)
             {
@@ -825,36 +972,198 @@ private:
         for (const auto source : shown)
         {
             auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
-            auto head = row.removeFromLeft (70);
+            auto head = row.removeFromLeft (headWidth);
             rowHeads[(size_t) source] = layoutHead (head);
             // The row's name, then its OUT switch with that name above it.
             const auto& block = rowHeads[(size_t) source];
             outs[(size_t) source]->setBounds (block.withTrimmedTop (20).withHeight (13 + juce::jmin (22, block.getHeight() - 33)));
 
-            layoutRow (row,
-                       [this, source] (int target) -> KnobControl& { return *knobs[(size_t) source][(size_t) target]; },
-                       [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
+            layoutCells (row,
+                         [this, source] (int target) -> KnobControl& { return *knobs[(size_t) source][(size_t) target]; },
+                         [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
         }
 
         auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
-        auto head = row.removeFromLeft (70);
+        auto head = row.removeFromLeft (headWidth);
         noiseHead = layoutHead (head);
-        layoutRow (row,
-
-                   [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
-                   [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
+        // NOISE, then its colour: a small dial with its name and value.
+        noiseColourKnob->setBounds (noiseHead.getX() - 2, noiseHead.getY() + 20, 30, 30);
+        layoutCells (row,
+                     [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
+                     [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
     }
 
+    void paintMatrix (juce::Graphics& g)
+    {
+        IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", "rows modulate columns", fmColour(), 0);
+
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawFittedText (anyOperatorEnv() ? "On the Operator Env a modulator's depth is its LEVEL; a cell scales it. "
+                                             "Hover a dot to add a route."
+                                           : "Each cell is how deeply its row modulates its column. Hover a dot to add a route.",
+                          topNote, juce::Justification::topLeft, 2, 1.0f);
+
+        // Matrix cells: tinted by the source, brighter the deeper the route;
+        // an empty one is a dot until the mouse is over it.
+        const auto paintCell = [&g, this] (int source, int target, juce::Rectangle<float> cell, juce::Colour colour)
+        {
+            const auto amount = cellAmount (source, target);
+            if (! isLiveCell (source, target))
+            {
+                // This oscillator is off or ignores FM: a flat, empty cell.
+                g.setColour (juce::Colours::black.withAlpha (0.3f));
+                g.fillRoundedRectangle (cell, 6.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.05f));
+                g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
+                return;
+            }
+
+            g.setColour (juce::Colours::black.withAlpha (0.22f));
+            g.fillRoundedRectangle (cell, 6.0f);
+            g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
+            g.fillRoundedRectangle (cell, 6.0f);
+            g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
+            g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
+
+            if (cellKnob (source, target).getAlpha() < 0.01f)
+            {
+                const auto centre = cellKnob (source, target).getBounds().toFloat().getCentre();
+                g.setColour (colour.withAlpha (0.12f));
+                g.drawEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre), 1.0f);
+                g.setColour (colour.withAlpha (0.5f));
+                g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (centre));
+            }
+        };
+
+        for (const auto source : shown)
+        {
+            for (const auto target : shown)
+            {
+                const auto cell = cells[(size_t) source][(size_t) target].toFloat();
+                paintCell (source, target, cell, FmDiagram::oscColour (source));
+
+                // Feedback: a loop in the corner, clear of the knob (V6-15).
+                if (source == target && isLiveCell (source, target))
+                    paintFeedbackGlyph (g, cell.reduced (6.0f, 5.0f).withSize (11.0f, 11.0f), FmDiagram::oscColour (source));
+            }
+
+            paintCell (-1, source, noiseCells[(size_t) source].toFloat(), noiseColour());
+        }
+
+        // Each amount under its knob (compact cells), or a DX7 feedback's
+        // number in the corner (I6-40).
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (const auto target : shown)
+        {
+            for (int source = -1; source < OscillatorIds::count; ++source)
+            {
+                if (source >= 0 && std::find (shown.begin(), shown.end(), source) == shown.end())
+                    continue;
+                const auto& knob = cellKnob (source, target);
+                const auto cell = source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target];
+                const auto amount = cellAmount (source, target);
+                const auto feedback = source == target ? dx7FeedbackText (source) : juce::String();
+                if (compactCells && knob.getAlpha() > 0.01f)
+                {
+                    const auto id = source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target);
+                    const auto value = describeValue (id, amount);
+                    g.setColour (juce::Colours::white.withAlpha (amount > 0.001f ? 0.85f : 0.4f) .withMultipliedAlpha (knob.getAlpha()));
+                    g.drawText (feedback.isNotEmpty() ? feedback + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + value : value,
+                                cell.withTrimmedBottom (2).removeFromBottom (14), juce::Justification::centred);
+                }
+                else if (! compactCells && feedback.isNotEmpty())
+                {
+                    g.setColour (FmDiagram::oscColour (source).withAlpha (0.8f));
+                    g.drawText (feedback, cell.reduced (6, 4).withTrimmedLeft (14).withHeight (12), juce::Justification::centredLeft);
+                }
+            }
+        }
+
+        // Column and row headings: an off oscillator says so (I6-37).
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+
+        for (const auto i : shown)
+        {
+            const auto name = "OSC " + juce::String (i + 1);
+            const auto live = fmIn[(size_t) i] && playing[(size_t) i];
+            g.setColour (FmDiagram::oscColour (i).withAlpha (live ? 1.0f : 0.4f));
+            g.drawText (! playing[(size_t) i] ? name + ": OFF" : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
+                        columnHeads[(size_t) i], juce::Justification::centred);
+            g.setColour (playing[(size_t) i] ? FmDiagram::oscColour (i) : IlanaTheme::Ui::text3);
+            g.drawText (playing[(size_t) i] ? name : name + ": OFF", rowHeads[(size_t) i].withHeight (18),
+                        juce::Justification::centredLeft);
+        }
+
+        g.setColour (noiseColour());
+        g.drawText ("NOISE", noiseHead.withHeight (18), juce::Justification::centredLeft);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        const auto colourText = juce::Rectangle<int> (noiseColourKnob->getRight() + 2, noiseColourKnob->getY() + 2,
+                                                      noiseHead.getRight() - noiseColourKnob->getRight() - 2, 13);
+        g.drawText ("COLOUR", colourText, juce::Justification::centredLeft);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.drawText (describeValue ("fm_noise_color", read ("fm_noise_color")), colourText.translated (0, 13),
+                    juce::Justification::centredLeft);
+
+        // OSC 1 x OSC 2: the two pair controls, said in a line.
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("OSC 1 \xc3\x97 OSC 2")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
+                    juce::Justification::bottomLeft);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawFittedText ("RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
+                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 6), juce::Justification::topLeft, 2, 1.0f);
+    }
+
+    // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import
+    // as 2^(n - 8)), else empty.
+    juce::String dx7FeedbackText (int osc) const
+    {
+        if (juce::roundToInt (read (FmOperatorInfo::prefixOf (osc) + "_fb_type")) != FmFeedback::Dx7)
+            return {};
+        const auto amount = read (FmDiagram::routeId (osc, osc));
+        if (amount <= 0.0f)
+            return {};
+        const auto steps = 8.0f + std::log2 (amount);
+        const auto step = juce::roundToInt (steps);
+        return std::abs (steps - (float) step) < 0.02f && step >= 1 && step <= 7 ? "FB " + juce::String (step) : juce::String();
+    }
+
+    static void paintFeedbackGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
+    {
+        // A loop back into itself: most of a circle and its arrowhead.
+        juce::Path loop;
+        const auto centre = box.getCentre();
+        const auto radius = box.getWidth() * 0.4f;
+        loop.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, 0.5f, juce::MathConstants<float>::twoPi - 0.2f, true);
+        g.setColour (colour.withAlpha (0.8f));
+        g.strokePath (loop, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        const auto tip = centre + juce::Point<float> (std::sin (-0.2f), -std::cos (-0.2f)) * radius;
+        juce::Path head;
+        head.addTriangle (tip.x - 3.2f, tip.y - 2.6f, tip.x + 1.0f, tip.y, tip.x - 3.2f, tip.y + 2.6f);
+        g.fillPath (head);
+    }
+
+    static constexpr int headWidth = 76;
+
     IlanaSynthAudioProcessor& processorRef;
-    std::array<bool, OscillatorIds::count> fmIn {};
+    std::array<bool, OscillatorIds::count> fmIn {}, playing {};
     FmDiagram diagram;
     FmAlgorithmStrip algorithms;
-    OperatorEgGraph egGraph;
-    std::vector<std::unique_ptr<juce::Component>> voiceEg;
-    juce::TextButton voiceButton;
+    OperatorEnvDisplay egGraph;
+    VoiceControls voice;
+    std::vector<EgKnob> egKnobs;
+    OperatorPill voiceButton { "PITCH & LFO", fmColour(), false };
+    CardTabs pageTabs;
+    CardTabs envTabs { { "STAGES", "KEYS & VELOCITY" }, { fmColour(), fmColour() }, false };
     bool voicePage = false;
     ComboControl mode;
     ToggleControl hardSync;
+    EffectRules effectRules;
     std::unique_ptr<KnobControl> ringMod;
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
@@ -862,15 +1171,15 @@ private:
     bool compactCells = false;
     std::unique_ptr<KnobControl> noiseColourKnob;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
-    std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> operatorButtons;
+    std::array<std::unique_ptr<OperatorPill>, OscillatorIds::count> operatorButtons;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, operatorsTitle, noiseHead;
+    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, envTabLine, pairRow, pairText, voiceHint;
     std::vector<std::atomic<float>*> tuneValues;
-    std::array<int, OscillatorIds::count * 2> lastTune {};
+    std::array<int, OscillatorIds::count * 3> lastTune {};
     std::vector<int> shown;
-    int selectedOperator = 0;
-    juce::String lastAlgorithmLabel;
+    int selectedOperator = 0, tabsLeft = 0, lastDiagramMinimum = 0;
+    juce::String lastAlgorithmLabel, hoverAlgorithm;
 };
 
 // M7.5: ilanaSynth FX's INPUT page: the input's level and envelope, its

@@ -26,6 +26,7 @@ public:
         setTooltip (defaultTooltip());
         matching = processorRef.findMatchingFmAlgorithm();
         matchingDx7 = processorRef.findMatchingDx7Algorithm();
+        turnedFor = matchingDx7;
         page = pageForMatch();
         startTimerHz (5);
     }
@@ -72,6 +73,10 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // Read the match afresh: a paint can come before the timer has seen
+        // a change (an offscreen snapshot never runs it).
+        matching = processorRef.findMatchingFmAlgorithm();
+        matchingDx7 = processorRef.findMatchingDx7Algorithm();
         const auto shown = shownCount();
         for (int index = 0; index < getNumCells(); ++index)
         {
@@ -218,6 +223,7 @@ public:
                 processorRef.applyDx7Algorithm (dx7NumberAt (index));
             matching = processorRef.findMatchingFmAlgorithm();
             matchingDx7 = processorRef.findMatchingDx7Algorithm();
+            turnedFor = matchingDx7; // the page clicked on stays
             repaint();
         }
     }
@@ -229,13 +235,14 @@ public:
         const auto now = processorRef.findMatchingFmAlgorithm();
         const auto nowDx7 = processorRef.findMatchingDx7Algorithm();
 
-        if (now != matching || nowDx7 != matchingDx7)
+        if (now != matching || nowDx7 != matchingDx7 || nowDx7 != turnedFor)
         {
-            const auto turn = nowDx7 != matchingDx7 && nowDx7 > 0;
             matching = now;
             matchingDx7 = nowDx7;
-            if (turn)
+            // A new DX7 match turns to its page (once: the user may turn away).
+            if (nowDx7 != turnedFor && nowDx7 > 0)
                 setPage (pageForMatch());
+            turnedFor = nowDx7;
             repaint();
         }
     }
@@ -301,7 +308,7 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    int matching = -1, matchingDx7 = 0;
+    int matching = -1, matchingDx7 = 0, turnedFor = 0;
     int page = basic;
     int hover = -1;
 };

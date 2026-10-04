@@ -342,7 +342,9 @@ public:
             g.drawEllipse (area.reduced (0.5f), 1.0f);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (9.5f, true));
-            g.drawText ("+" + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f), juce::Justification::centred);
+            // (With no room for any badge, it just counts the routings.)
+            g.drawText ((numShown() > 0 ? "+" : "") + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f),
+                        juce::Justification::centred);
         }
     }
 
@@ -796,7 +798,7 @@ public:
         modCardHeld = held;
         if (modHoverHooks().show != nullptr && ! routings.empty())
         {
-            modHoverHooks().show (*this, ringConfig.destination, parameter != nullptr ? parameter->getName (40) : label.getText());
+            modHoverHooks().show (*this, ringConfig.destination, ModNames::destination (ringConfig.destination).toUpperCase());
             modCardOpen = true;
         }
     }
@@ -1042,7 +1044,24 @@ private:
     static constexpr int maxRings = 3;
 
     int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
-    float ringRadius (int index) const { return knobRadiusFor (knobBounds) - 1.0f + (float) index * ringPitch; }
+
+    // A knob in a narrow cell has little room either side of its dial: the
+    // rings close up (and at worst step in over the value arc) rather than
+    // run off the knob's edge.
+    float ringRadius (int index) const
+    {
+        const auto count = numRings();
+        const auto centreX = rotaryArea().getCentreX();
+        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 1.5f;
+        auto base = knobRadiusFor (knobBounds) - 1.0f;
+        auto pitch = ringPitch;
+
+        if (count > 1)
+            pitch = juce::jlimit (2.0f, ringPitch, (room - base) / (float) (count - 1));
+
+        base = juce::jmin (base, room - pitch * (float) (count - 1));
+        return base + (float) index * pitch;
+    }
     float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
 
     // The ring under a point (local to the knob), or -1: within the ring band
@@ -1067,7 +1086,12 @@ private:
         if (angle > juce::MathConstants<float>::pi * 0.8f && angle < juce::MathConstants<float>::pi * 1.2f)
             return -1;
 
-        return juce::jlimit (0, count - 1, juce::roundToInt ((distance - ringRadius (0)) / ringPitch));
+        auto nearest = 0;
+        for (int i = 1; i < count; ++i)
+            if (std::abs (distance - ringRadius (i)) < std::abs (distance - ringRadius (nearest)))
+                nearest = i;
+
+        return nearest;
     }
 
     // Catches presses on the rings (over the slider); the rest of the knob
@@ -1245,11 +1269,19 @@ private:
     {
         const auto area = rotaryArea();
         const auto radius = knobRadiusFor (knobBounds);
-        dotStrip.setMaxVisible ((int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch);
-        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
         const auto x = (int) (area.getCentreX() + outerRingRadius() + 1.0f);
-        const auto y = (int) (area.getCentreY() - radius);
+        auto y = (int) (area.getCentreY() - radius);
 
+        // Beside the rings, a column of badges as tall as the dial. A knob
+        // too narrow for that gets one badge in its top corner: the routing's
+        // own, or the count of them (the rings still show each one).
+        const auto roomBeside = getWidth() - x >= ModDotStrip::stripWidth - 3;
+        dotStrip.setMaxVisible (roomBeside ? (int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch : 1);
+
+        if (! roomBeside)
+            y -= ModDotStrip::dotPitch / 2;
+
+        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
         dotStrip.setBounds (juce::jmin (x, getWidth() - ModDotStrip::stripWidth), juce::jmax (0, y), ModDotStrip::stripWidth, height);
         dotStrip.setVisible (! routings.empty() && ! compact);
 

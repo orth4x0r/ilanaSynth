@@ -108,11 +108,13 @@ public:
             backdrop = IlanaAnim::blurredSnapshot (*parent, 2.0f);
     }
 
-    // The panel is as tall as its content (one line per tip), centred.
+    // The panel is as tall as its content (the tips as tall as their lines:
+    // review 7 found a fixed allowance left a gap above NEW IN), centred.
     juce::Rectangle<int> panelBounds() const
     {
-        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 3 * 40 + 10 + newBandHeight + 12 + 18 + 44 + 28;
         const auto area = getLocalBounds().reduced (70);
+        const auto tipsWidth = area.getWidth() - 56 - (area.getWidth() - 56) / 5;
+        const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
 
@@ -185,7 +187,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("A one-minute tour.  Reopen it any time with the ? beside SCOPE.",
+            g.drawText ("A one-minute tour.  Reopen it any time with the ? at the top right.",
                         area.removeFromTop (18), juce::Justification::centredLeft);
 
             area.removeFromTop (14);
@@ -334,6 +336,22 @@ public:
 private:
     static constexpr float chipHeight = 26.0f, chipGap = 6.0f;
     static constexpr int newBandHeight = 22 + 3 + 2 * 26 + 6 + 2; // two rows of chips
+
+    // The heading and the tips, as drawTipColumn lays them out.
+    static int tipColumnHeight (int width, const juce::StringArray& tips)
+    {
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::body));
+        auto y = 20.0f + 2.0f;
+
+        for (const auto& tip : tips)
+        {
+            juce::GlyphArrangement lines;
+            lines.addJustifiedText (font, tip, 14.0f, y + font.getAscent(), (float) width - 14.0f, juce::Justification::left);
+            y = lines.getBoundingBox (0, -1, true).getBottom() + 12.0f;
+        }
+
+        return (int) std::ceil (y);
+    }
 
     static void drawTipColumn (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& heading,
                                const juce::StringArray& tips)

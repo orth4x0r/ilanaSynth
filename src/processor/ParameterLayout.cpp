@@ -743,8 +743,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     juce::StringArray ampEnvelopeChoices;
     // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filt Env" : env == 3 ? "Filt 2 Env"
-                                : env == 4 ? "Mod Env" : "Env " + juce::String (env));
+        // Upper case, as the chips and tabs name them (review 7, V7-36).
+        ampEnvelopeChoices.add (env == 1 ? "AMP ENV" : env == 2 ? "FILT ENV" : env == 3 ? "FILT 2 ENV"
+                                : env == 4 ? "MOD ENV" : "ENV " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
     ampEnvelopeChoices.add ("Operator Env"); // appended, index 17: the Operator Env (OperatorEgParams.h)
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -921,7 +922,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("vec_x", "Vector X", 0.0f, 1.0f, 0.5f);
     addFloat ("vec_y", "Vector Y", 0.0f, 1.0f, 0.5f);
     {
-        const juce::StringArray oscillators { "Osc 1", "Osc 2", "Osc 3", "Osc 4", "Osc 5", "Osc 6" };
+        const juce::StringArray oscillators { "OSC 1", "OSC 2", "OSC 3", "OSC 4", "OSC 5", "OSC 6" };
         const char* corners[] { "a", "b", "c", "d" };
         for (int c = 0; c < 4; ++c)
             addChoice (juce::String ("vec_") + corners[c], "Vector Corner " + juce::String::charToString ((juce::juce_wchar) ('A' + c)), oscillators, c);

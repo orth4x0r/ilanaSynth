@@ -295,7 +295,9 @@ public:
         g.drawText ("Save preset as", area.removeFromTop (24), juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("To your user preset folder", area.removeFromTop (16), juce::Justification::centredLeft);
+        // The preset's own level (output_trim) goes with it (review 7).
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("To your user preset folder  \xc2\xb7  keeps this preset's level")),
+                    area.removeFromTop (16), juce::Justification::centredLeft);
         area.removeFromTop (8);
 
         g.setColour (IlanaTheme::Ui::text2);

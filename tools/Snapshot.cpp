@@ -436,6 +436,12 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         for (const auto* name : { "DX7 BANKS + OPERATOR EG", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
             expect (labels.contains (name), juce::String ("the tour lists ") + name);
 
+        // UI review 7 (I7-35): header captions are lower-case fragments.
+        expect (IlanaTheme::captionFragment ("Drag the graph's points.") == "drag the graph's points"
+                    && IlanaTheme::captionFragment ("OSC 1 carrier") == "OSC 1 carrier"
+                    && IlanaTheme::captionFragment ("rows modulate columns") == "rows modulate columns",
+                "card captions read as lower-case fragments");
+
         auto* tutorial = findChild<TutorialOverlay> (editor);
         if (tutorial != nullptr)
         {
@@ -445,6 +451,10 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                     "the tour has three tips, \"Don't show this again\" unticked and no DX7 MODE");
             tutorial->setVisible (true);
             settle (600);
+            // UI review 7 (S7-30): the tips are as tall as their lines, no
+            // fixed allowance leaving a gap above NEW IN.
+            expect (tutorial->panelBounds().getHeight() < 431, "the tour's panel is as tall as its tips ("
+                                                                   + juce::String (tutorial->panelBounds().getHeight()) + " px)");
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
                                                                           + juce::String ((int) tutorial->chipBounds().size()) + " of "
                                                                           + juce::String ((int) features.size()) + ")");
@@ -570,14 +580,38 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 
         if (scope != nullptr)
         {
-            // UI review 6: the scope floats over the page (not across it), and
-            // the engine quality settings live in the settings menu only.
+            // UI review 7 (I7-31): the scope docks over the page area by
+            // default, with the browser's FLOAT / × pair; FLOAT makes it a
+            // small panel and DOCK puts it back. The engine quality settings
+            // live in the settings menu only (review 6).
             std::vector<juce::ComboBox*> boxes;
             findAll<juce::ComboBox> (*scope, boxes);
-            const auto* panel = scope->getParentComponent();
-            expect (boxes.empty() && panel != nullptr && panel->getWidth() < 600 && panel->getY() > 56,
-                    "the scope floats over the page, without quality or oversampling controls ("
-                        + (panel != nullptr ? panel->getBounds().toString() : juce::String()) + ")");
+            auto* panel = scope->getParentComponent();
+            juce::TextButton* floatButton = nullptr;
+            auto hasCross = false;
+            if (panel != nullptr)
+                for (auto* child : panel->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child))
+                    {
+                        if (button->getButtonText() == "FLOAT")
+                            floatButton = button;
+                        hasCross = hasCross || button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97"));
+                    }
+            const auto dockedBounds = panel != nullptr ? panel->getBounds() : juce::Rectangle<int>();
+            expect (boxes.empty() && panel != nullptr && dockedBounds.getWidth() > 900 && dockedBounds.getY() > 56 && floatButton != nullptr && hasCross,
+                    "the scope docks over the page with FLOAT and a cross, without quality or oversampling controls ("
+                        + dockedBounds.toString() + ")");
+            if (floatButton != nullptr)
+            {
+                floatButton->triggerClick();
+                settle (100);
+                const auto floating = panel->getBounds();
+                const auto dockText = floatButton->getButtonText();
+                floatButton->triggerClick();
+                settle (100);
+                expect (floating.getWidth() < 600 && floating.getY() > 56 && dockText == "DOCK" && panel->getBounds() == dockedBounds,
+                        "FLOAT makes the scope a small panel, DOCK puts it back (" + floating.toString() + ")");
+            }
             scope->resetPeaks();
             juce::AudioBuffer<float> audio (2, 512);
             for (int block = 0; block < 24; ++block)
@@ -968,6 +1002,27 @@ int runUiTests()
                         + juce::String (checked) + offender + ", Init trim " + juce::String (initTrim, 1) + " dB)");
             const auto* trimParam = dynamic_cast<juce::AudioProcessorParameterWithID*> (processor.apvts.getParameter ("output_trim"));
             expect (trimParam != nullptr && ! trimParam->isAutomatable(), "the preset trim is hidden from automation");
+
+            // UI review 7 (I7-23): MASTER's hover names the preset's own
+            // level, and the preset menu resets it (one undo step).
+            {
+                processor.loadFactoryPreset (0);
+                settle (150);
+                const auto tip = pages->getMasterTooltip();
+                const auto shown = pages->presetLevelText();
+                pages->resetPresetLevel();
+                settle (150);
+                const auto reset = processor.apvts.getRawParameterValue ("output_trim")->load();
+                const auto tipAfter = pages->getMasterTooltip();
+                processor.getUndoManager().undo();
+                const auto undone = processor.apvts.getRawParameterValue ("output_trim")->load();
+                expect (shown == "-5.1 dB" && tip.contains ("preset's own level: -5.1 dB") && std::abs (reset) < 0.01f
+                            && tipAfter.contains ("level: 0.0 dB") && std::abs (undone + 5.1f) < 0.05f,
+                        "MASTER's hover names the preset level, and its reset is one undo step (" + shown + ", reset " + juce::String (reset, 2)
+                            + ", undone " + juce::String (undone, 2) + ", " + tipAfter.fromLastOccurrenceOf ("  ", false, false) + ")");
+                processor.loadFactoryPreset (juce::jmax (0, presetBefore));
+                settle (100);
+            }
 
             auto& hover = pages->getHoverLine();
             hover.restOn (compare);
@@ -2435,6 +2490,44 @@ int runUiTests()
             processor.getUndoManager().undo();
             settle (100);
             expect (processor.getClipState().hasAny(), "undoing a load restores the clips it replaced");
+
+            // UI review 7 (S7-32): the dialog is as tall as what it says,
+            // and while the browser is open one "Load anyway" covers the
+            // rest of that browsing session.
+            if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+            {
+                auto* cutoff = processor.apvts.getParameter ("f1_cutoff");
+                const auto edit = [&] { cutoff->setValueNotifyingHost (cutoff->getValue() > 0.5f ? 0.3f : 0.7f); settle (50); };
+                display->onClick();
+                settle (400);
+                auto* panel = findChild<PresetPanel> (*editor);
+                edit();
+                nextButton->triggerClick();
+                settle (100);
+                const auto asked = confirm->isAsking();
+                const auto tight = confirm->panelBounds().getHeight();
+                confirm->finish (true);
+                settle (200);
+                const auto first = processor.getCurrentPresetName();
+                edit();
+                nextButton->triggerClick();
+                settle (200);
+                const auto askedAgain = confirm->isAsking();
+                expect (asked && ! askedAgain && processor.getCurrentPresetName() != first,
+                        "while browsing, one Load anyway covers the session (asked " + juce::String (asked ? "once" : "never") + ")");
+                expect (tight > 100 && tight <= 160, "the confirm is as tall as its text (" + juce::String (tight) + " px)");
+                if (askedAgain)
+                    confirm->finish (false);
+                if (panel != nullptr)
+                    panel->close();
+                settle (400);
+                edit();
+                nextButton->triggerClick();
+                settle (100);
+                expect (confirm->isAsking(), "after the browser closes, a load over an edit asks again");
+                confirm->finish (false);
+                settle (100);
+            }
 
             pages->setAsksBeforeReplacingEdits (false);
             processor.loadFactoryPreset (0);
@@ -4277,8 +4370,47 @@ int runUiTests()
                             "the DX7 chip leads the chip row, banks folded away (" + chipKeys.joinIntoString (" ").substring (0, 120) + ")");
                     panel->clickChip ("pack:dx7");
                     chipKeys = panel->getChipKeys();
-                    expect (panel->getListedNames().size() >= 288 && chipKeys.contains ("bank:ROM1A") && chipKeys.contains ("bank:DEXED01"),
+                    expect (panel->getListedNames().size() >= 270 && chipKeys.contains ("bank:ROM1A") && chipKeys.contains ("bank:DEXED01"),
                             "the DX7 chip lists the voices with a chip per bank (" + juce::String (panel->getListedNames().size()) + ")");
+
+                    // UI review 7 (S7-10, I7-41, V7-25): a voice a later
+                    // cartridge repeats is listed once, with "also in", and
+                    // under its own bank's chip; DX7 rows drop the FM tag and
+                    // their bank tag while a bank chip is on; the tags get a
+                    // line of their own.
+                    {
+                        const auto all = panel->getListedNames();
+                        const auto original = all.indexOf ("ORCHESTRA (ROM1A)");
+                        const auto tip = panel->getRowTooltip (original);
+                        expect (original >= 0 && ! all.contains ("ORCHESTRA (ROM4B)") && tip.contains ("Also in ROM4B")
+                                    && panel->getRowTooltip (all.indexOf ("BRASS 2 (ROM1A)")).contains ("ROM4A (as Synth Brass)"),
+                                "a repeated DX7 voice is listed once, with the bank that repeats it (" + tip.fromLastOccurrenceOf ("\n", false, false) + ")");
+                        auto fmTagged = 0;
+                        for (int row = 0; row < juce::jmin (40, all.size()); ++row)
+                            fmTagged += panel->getRowTags (row).contains ("FM") ? 1 : 0;
+                        expect (fmTagged == 0, "DX7 rows carry no FM tag (" + juce::String (fmTagged) + " of 40 do)");
+                        panel->clickChip ("bank:ROM4B");
+                        const auto rom4b = panel->getListedNames();
+                        expect (rom4b.size() == 32 && rom4b.contains ("ORCHESTRA (ROM4B)"), "the ROM4B chip lists all its 32 voices, repeats included");
+                        panel->clickChip ("bank:ROM4B");
+                        expect (Presets::dx7DisplayName ("HARPSICH 1 (ROM1A)") == "Harpsichord 1"
+                                    && Presets::dx7DisplayName ("JAZZ GUIT1 (ROM1B)") == "Jazz Guitar 1"
+                                    && Presets::dx7DisplayName ("STRG ENS 1 (ROM2A)") == "Strings Ensemble 1"
+                                    && Presets::dx7DisplayName ("E.P-BRS BC (ROM3B)") == "E.Piano-Brass BC"
+                                    && Presets::dx7DisplayName ("PIANO 5THS (ROM3A)") == "Piano 5ths",
+                                "DX7 names spell out the cartridge's cuts (" + Presets::dx7DisplayName ("HARPSICH 1 (ROM1A)") + ", "
+                                    + Presets::dx7DisplayName ("JAZZ GUIT1 (ROM1B)") + ", " + Presets::dx7DisplayName ("E.P-BRS BC (ROM3B)") + ")");
+                        const auto categories = processor.getAllPresetCategories();
+                        const auto allNames = processor.getAllPresetNames();
+                        const auto factoryNames = processor.getFactoryPresetNames();
+                        const auto macros = [&] (const juce::String& name) { return processor.getFactoryMacroNames (factoryNames.indexOf (name)).joinIntoString (" "); };
+                        expect (categories[allNames.indexOf ("BRASS 1 (ROM1A)")] == "Brass" && categories[allNames.indexOf ("FLUTE 1 (ROM1A)")] == "Wind"
+                                    && panel->getSidebarKeys().contains ("Brass") && panel->getSidebarKeys().contains ("Wind"),
+                                "brass and wind DX7 voices have their own categories");
+                        expect (macros ("E.PIANO 1 (ROM1A)") == "BARK DARKEN WOBBLE ROOM" && macros ("BASS 1 (ROM1A)") == "GROWL DARKEN DETUNE ROOM",
+                                "DX7 voices name their macros for their kind of sound (" + macros ("E.PIANO 1 (ROM1A)") + " / "
+                                    + macros ("BASS 1 (ROM1A)") + ")");
+                    }
                     panel->clickChip ("bank:ROM1B");
                     listed = panel->getListedNames();
                     const auto shown = panel->getListedDisplayNames();

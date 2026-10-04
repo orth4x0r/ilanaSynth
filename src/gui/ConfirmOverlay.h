@@ -113,12 +113,22 @@ public:
     void chooseAlternative() { alternativeButton.onClick(); }
     juce::String getTitle() const { return title; }
 
+    // As tall as what it says (review 7: a fixed height left an empty band
+    // under a one-line message). Three buttons need the tick on a line of
+    // its own.
     juce::Rectangle<int> panelBounds() const
     {
-        // Three buttons need the tick on a line of its own.
         const auto three = alternativeButton.isVisible();
-        return getLocalBounds().withSizeKeepingCentre (juce::jmin (three ? 470 : 420, getWidth() - 32),
-                                                       three && dontAskAgain.isVisible() ? 180 : 150);
+        const auto width = juce::jmin (three ? 470 : 420, getWidth() - 32);
+        const auto tickLine = three && dontAskAgain.isVisible() ? 24 + 8 : 0;
+        return getLocalBounds().withSizeKeepingCentre (width, 16 + 24 + 6 + messageHeight (width - 40) + 14 + tickLine + 30 + 16);
+    }
+
+    // One line, or two when the message wraps.
+    int messageHeight (int width) const
+    {
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::body));
+        return juce::GlyphArrangement::getStringWidthInt (font, message) > width * 19 / 20 ? 40 : 20;
     }
 
     void resized() override
@@ -163,7 +173,7 @@ public:
         area.removeFromTop (6);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawFittedText (message, area.removeFromTop (40), juce::Justification::topLeft, 2, 1.0f);
+        g.drawFittedText (message, area.removeFromTop (messageHeight (area.getWidth())), juce::Justification::topLeft, 2, 1.0f);
     }
 
     void mouseDown (const juce::MouseEvent& event) override

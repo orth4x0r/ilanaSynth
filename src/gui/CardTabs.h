@@ -105,20 +105,7 @@ public:
             g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
             g.setFont (IlanaTheme::pillFont());
             g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace), juce::Justification::centred);
-            const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() });
-
-            if (isTabOn (i))
-            {
-                g.setColour (colour.withAlpha (0.3f));
-                g.fillEllipse (dot.expanded (2.5f));
-                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
-                g.fillEllipse (dot);
-            }
-            else
-            {
-                g.setColour (juce::Colours::white.withAlpha (0.28f));
-                g.drawEllipse (dot.reduced (0.5f), 1.0f);
-            }
+            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, isTabOn (i));
         }
 
         if (hasOpen)

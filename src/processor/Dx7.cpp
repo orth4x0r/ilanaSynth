@@ -18,7 +18,7 @@ void IlanaSynthAudioProcessor::loadDx7Voice (const Dx7::Voice& voice, const juce
         if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value.second));
     for (int macro = 0; macro < 4; ++macro)
-        setMacroName (macro, Presets::Dx7Import::macroNames[macro]);
+        setMacroName (macro, Presets::Dx7Import::macroNamesFor (Presets::Dx7Import::soundCategory (Presets::dx7VoiceName (name), &voice))[(size_t) macro]);
     setCurrentPresetName (name);
     // Filed by sound (Keys, Bass...) like the factory voices; the DX7 tag
     // keeps it with them under the browser's DX7 chip.

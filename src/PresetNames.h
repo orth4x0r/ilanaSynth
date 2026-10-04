@@ -35,14 +35,39 @@ inline juce::String dx7VoiceName (const juce::String& name)
     return text;
 }
 
+// The cartridges' 10-character cuts, spelled out (UI review 7: "Harpsich 1",
+// "Jazz Guit1"): whole words, as the ALL CAPS name writes them.
+inline juce::String dx7ExpandedWord (const juce::String& word)
+{
+    static const std::pair<const char*, const char*> words[] {
+        { "HARPSICH", "Harpsichord" }, { "HARPSI", "Harpsichord" }, { "GUIT", "Guitar" }, { "GUITR", "Guitar" },
+        { "GTR", "Guitar" }, { "STRG", "Strings" }, { "STRGS", "Strings" }, { "STGS", "Strings" }, { "STG", "Strings" },
+        { "PNO", "Piano" }, { "BRS", "Brass" }, { "CLV", "Clav" }, { "ORG", "Organ" }, { "GLOKENSPL", "Glockenspiel" },
+        { "HRMNCA", "Harmonica" }, { "TBONE", "Trombone" }, { "SECN", "Section" }, { "QRT", "Quartet" },
+        { "ENS", "Ensemble" }, { "CRSNDO", "Crescendo" }, { "PIZZT", "Pizzicato" }, { "MARIM", "Marimba" },
+        { "SWP", "Sweep" }, { "WHISL", "Whistle" }, { "GDN", "Garden" }, { "PRC", "Perc" }, { "CLAS", "Classical" },
+        { "SYNBRASS", "Synth Brass" }, { "SYNTHBRASS", "Synth Brass" }, { "SYNORGAN", "Synth Organ" },
+        { "BRASSHORNS", "Brass Horns" }, { "THS", "ths" }, { "SPANISHGTR", "Spanish Guitar" }, { "HEAVYMETAL", "Heavy Metal" }
+    };
+
+    for (const auto& [cut, full] : words)
+        if (word == cut)
+            return full;
+
+    return {};
+}
+
 // A DX7 name as a title: the bank and number gone, runs of spaces made one,
 // junk at the ends (\ ^ / + . - and spaces) trimmed, and ALL CAPS words in
-// Title Case ("E.PIANO 1" -> "E.Piano 1", "SYN-LEAD 1" -> "Syn-Lead 1").
-// Words without a vowel stay capitals ("BC", "TRW"), and a name the
-// cartridge already wrote in mixed case keeps it.
+// Title Case ("E.PIANO 1" -> "E.Piano 1", "SYN-LEAD 1" -> "Syn-Lead 1"),
+// cut words spelled out ("HARPSICH 1" -> "Harpsichord 1", "JAZZ GUIT1" ->
+// "Jazz Guitar 1"). Words without a vowel stay capitals ("BC", "TRW"), and a
+// name the cartridge already wrote in mixed case keeps it.
 inline juce::String dx7DisplayName (const juce::String& name)
 {
     auto text = dx7VoiceName (name);
+
+    text = text.replace ("E.P-", "E.PIANO-").replace ("TUB BELLS", "TUBULAR BELLS").replace ("CLAS.GUIT", "CLAS GUIT");
 
     while (text.contains ("  "))
         text = text.replace ("  ", " ");
@@ -72,8 +97,14 @@ inline juce::String dx7DisplayName (const juce::String& name)
             ++end;
 
         const auto word = text.substring (i, end);
+        const auto expanded = dx7ExpandedWord (word);
         const auto hasVowel = word.containsAnyOf ("AEIOUY");
-        out << (hasVowel ? word.substring (0, 1) + word.substring (1).toLowerCase() : word);
+        out << (expanded.isNotEmpty() ? expanded : (hasVowel ? word.substring (0, 1) + word.substring (1).toLowerCase() : word));
+
+        // "GUIT1": a number run into a word gets its space back.
+        if (end < text.length() && juce::CharacterFunctions::isDigit (text[end]) && word.length() >= 3)
+            out << " ";
+
         i = end;
     }
 

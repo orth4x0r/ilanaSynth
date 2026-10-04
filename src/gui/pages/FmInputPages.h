@@ -63,8 +63,7 @@ public:
         auto content = pill.withSizeKeepingCentre (juce::jmin (pill.getWidth() - 8.0f, contentWidth), pill.getHeight());
         if (dot)
         {
-            g.setColour (colour.withAlpha (quiet ? 0.35f : 1.0f));
-            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ content.getX() + 3.0f, content.getCentreY() }));
+            IlanaTheme::paintOnDot (g, { content.getX() + 3.0f, content.getCentreY() }, colour, ! quiet);
             content.removeFromLeft (11.0f);
         }
         g.setColour (active  ? colour.interpolatedWith (juce::Colours::white, 0.2f)

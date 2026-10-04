@@ -96,6 +96,15 @@ public:
     // 12-TET), for the tests.
     juce::String getVoicesText() const;
     juce::String getTuningIndicatorText() const { return tuningArea.isVisible() ? tuningText : juce::String(); }
+    // The preset's own level (output_trim, review 7): as MASTER's hover
+    // reads it, and the preset menu's reset; MASTER's hover text.
+    juce::String presetLevelText() const;
+    void resetPresetLevel();
+    juce::String getMasterTooltip()
+    {
+        updateMasterTooltip();
+        return masterKnob != nullptr ? masterKnob->getKnob().getTooltip() : juce::String();
+    }
 
     // GPU drawing on macOS and Linux (settings menu > GPU rendering, saved as
     // "gpuRendering", on by default; ILANA_NO_GPU=1 turns it off for a run).
@@ -222,6 +231,13 @@ private:
     std::function<void()> afterSave;
     bool presetDocked = false;     // the user's choice: dock rather than drop down
     bool presetDockShown = false;  // the docked browser is open
+    // "Load anyway" was chosen once while browsing: the rest of that
+    // browsing session loads without asking (review 7, S7-32).
+    bool browsingAccepted = false;
+    void updateMasterTooltip();
+    juce::String masterBaseTooltip, shownPresetLevel;
+    // The gap between the status line's tempo and its VOICES group.
+    static constexpr int statusGroupGap = 16;
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // Every LFO and envelope has a chip, shown while that module is in the

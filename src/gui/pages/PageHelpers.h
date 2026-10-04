@@ -106,7 +106,7 @@ void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Recta
     g.setColour (IlanaTheme::Ui::text3);
     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
     const auto room = area.withTrimmedLeft (width + 16);
-    g.drawText (IlanaTheme::fittedHint (subtitle, juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), (float) room.getWidth()),
+    g.drawText (IlanaTheme::fittedHint (IlanaTheme::captionFragment (subtitle), juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), (float) room.getWidth()),
                 room, juce::Justification::centredLeft, false);
 }
 

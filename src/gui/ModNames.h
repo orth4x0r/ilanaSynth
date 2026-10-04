@@ -57,8 +57,8 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
         case S::InputEnv:   return "Input Env";
         case S::VectorX:    return "Vector X";
         case S::VectorY:    return "Vector Y";
-        case S::OpLfo:      return "Op LFO";
-        case S::OpPitchEnv: return "Op Pitch";
+        case S::OpLfo:      return "OP LFO";
+        case S::OpPitchEnv: return "OP PITCH";
         default:            break;
     }
 
@@ -76,7 +76,7 @@ inline juce::String sourceUpper (int sourceIndex, const IlanaSynthAudioProcessor
 }
 
 // Every source in the order the pickers list them, grouped: LFOs (A then
-// B, the MSEG and Op LFO with them), envelopes (with Op Pitch), macros, then
+// B, the MSEG and OP LFO with them), envelopes (with OP PITCH), macros, then
 // performance and the rest.
 enum class SourceGroup { lfo, lfoB, envelope, macro, performance };
 
@@ -120,7 +120,7 @@ inline int envelopePoolIndexFor (Mod::Source source)
 }
 
 // Every source once, in the pickers' order: LFOs, their B outputs, the
-// MSEG and Op LFO; the envelopes in pool order and Op Pitch; the macros;
+// MSEG and OP LFO; the envelopes in pool order and OP PITCH; the macros;
 // then performance and the rest.
 inline const std::vector<int>& sourcesInMenuOrder()
 {
@@ -160,7 +160,7 @@ inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcesso
     };
 
     // Filed where the MOD page's pools show them (I7-16): the MSEG and the
-    // Op LFO after the LFOs, Op Pitch after the envelopes.
+    // OP LFO after the LFOs, OP PITCH after the envelopes.
     for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
     {
         add (lfos, (int) Mod::lfoSourceFor (lfo));
@@ -402,14 +402,14 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
     if (id.contains ("_eg_"))
     {
         static const std::pair<const char*, const char*> fields[] {
-            { "_eg_out", "Operator Level" },        { "_eg_r1", "Operator Env Attack" },
-            { "_eg_r2", "Operator Env Decay 1" },   { "_eg_r3", "Operator Env Decay 2" },
-            { "_eg_r4", "Operator Env Release" },   { "_eg_l1", "Operator Env Peak" },
-            { "_eg_l2", "Operator Env Mid" },       { "_eg_l3", "Operator Env Sustain" },
-            { "_eg_l4", "Operator Env End" },       { "_eg_rate_key", "Operator Env Key Rate" },
-            { "_eg_break", "Operator Scale Key" },  { "_eg_ldepth", "Operator Low Depth" },
-            { "_eg_rdepth", "Operator High Depth" }, { "_eg_ams", "Operator Amp Mod" },
-            { "_eg_vel", "Operator Velocity" },
+            { "_eg_out", "OP ENV Level" },        { "_eg_r1", "OP ENV Attack" },
+            { "_eg_r2", "OP ENV Decay 1" },       { "_eg_r3", "OP ENV Decay 2" },
+            { "_eg_r4", "OP ENV Release" },       { "_eg_l1", "OP ENV Peak" },
+            { "_eg_l2", "OP ENV Mid" },           { "_eg_l3", "OP ENV Sustain" },
+            { "_eg_l4", "OP ENV End" },           { "_eg_rate_key", "OP ENV Key Rate" },
+            { "_eg_break", "OP ENV Scale Key" },  { "_eg_ldepth", "OP ENV Low Depth" },
+            { "_eg_rdepth", "OP ENV High Depth" }, { "_eg_ams", "OP ENV Amp Mod" },
+            { "_eg_vel", "OP ENV Velocity" },
         };
         for (const auto& [suffix, control] : fields)
             if (id.endsWith (suffix))
@@ -419,13 +419,13 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
     if (id.startsWith ("opeg_"))
     {
         static const std::pair<const char*, DestinationName> fields[] {
-            { "opeg_lfo_speed", { "Op LFO", "Rate" } },        { "opeg_lfo_delay", { "Op LFO", "Delay" } },
-            { "opeg_lfo_pmd", { "Op LFO", "Pitch Depth" } },   { "opeg_lfo_amd", { "Op LFO", "Amp Depth" } },
-            { "opeg_lfo_pms", { "Op LFO", "Pitch Sens" } },    { "opeg_pitch_r1", { "Op Pitch", "Attack" } },
-            { "opeg_pitch_r2", { "Op Pitch", "Decay 1" } },    { "opeg_pitch_r3", { "Op Pitch", "Decay 2" } },
-            { "opeg_pitch_r4", { "Op Pitch", "Release" } },    { "opeg_pitch_l1", { "Op Pitch", "Pitch 1" } },
-            { "opeg_pitch_l2", { "Op Pitch", "Pitch 2" } },    { "opeg_pitch_l3", { "Op Pitch", "Sustain" } },
-            { "opeg_pitch_l4", { "Op Pitch", "End" } },        { "opeg_key_offset", { "FM", "Scale Shift" } },
+            { "opeg_lfo_speed", { "OP LFO", "Rate" } },        { "opeg_lfo_delay", { "OP LFO", "Delay" } },
+            { "opeg_lfo_pmd", { "OP LFO", "Pitch Depth" } },   { "opeg_lfo_amd", { "OP LFO", "Amp Depth" } },
+            { "opeg_lfo_pms", { "OP LFO", "Pitch Sens" } },    { "opeg_pitch_r1", { "OP PITCH", "Attack" } },
+            { "opeg_pitch_r2", { "OP PITCH", "Decay 1" } },    { "opeg_pitch_r3", { "OP PITCH", "Decay 2" } },
+            { "opeg_pitch_r4", { "OP PITCH", "Release" } },    { "opeg_pitch_l1", { "OP PITCH", "Peak" } },
+            { "opeg_pitch_l2", { "OP PITCH", "Mid" } },    { "opeg_pitch_l3", { "OP PITCH", "Sustain" } },
+            { "opeg_pitch_l4", { "OP PITCH", "End" } },        { "opeg_key_offset", { "FM", "OP ENV Scale Shift" } },
         };
         for (const auto& [field, parts] : fields)
             if (id == field)

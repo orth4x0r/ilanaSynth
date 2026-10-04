@@ -92,9 +92,22 @@ inline juce::String levelText (const IlanaSynthAudioProcessor& p, int osc)
         return juce::String (juce::roundToInt (level * 100.0f)) + "%";
     const auto out = juce::roundToInt (read (p, prefix + "_eg_out"));
     if (out <= 0 || level <= 0.0f)
-        return "Off";
+        return "-inf dB";
     const auto db = (Dx7::scaleOutLevel (out) - 127) * 6.0206 / 8.0 + juce::Decibels::gainToDecibels ((double) level / 0.5);
     return describeFixed ((float) db, 1) + " dB";
+}
+
+// The Operator Env's rate knobs read as times, so they turn the way every
+// other envelope's do: clockwise is longer (review 7, I7-3). The slider runs
+// its range backwards; the saved DX7 rate (0-99, higher is faster) and the
+// sound are unchanged.
+inline void reverseRateKnob (juce::Slider& slider)
+{
+    const auto range = slider.getNormalisableRange();
+    slider.setNormalisableRange ({ range.start, range.end,
+                                   [] (double start, double end, double proportion) { return end - proportion * (end - start); },
+                                   [] (double start, double end, double value) { return (end - value) / juce::jmax (1.0e-9, end - start); },
+                                   [] (double start, double end, double value) { return juce::jlimit (start, end, (double) juce::roundToInt (value)); } });
 }
 
 // "x1.00 · OP ENV · OUT": an oscillator as an operator, in a line.

@@ -174,13 +174,13 @@ inline juce::PopupMenu buildDestinationMenu()
             continue;
         }
 
-        if (module == "Op LFO" || module.startsWith ("LFO "))
+        if (module == "OP LFO" || module.startsWith ("LFO "))
         {
             lfos.add (destination);
             continue;
         }
 
-        if (module == "Op Pitch" || module.contains ("Env"))
+        if (module == "OP PITCH" || module.contains ("Env"))
         {
             envelopes.add (destination);
             continue;

@@ -21,7 +21,7 @@
 // with the editors the FM page uses (the Operator Env graph, its stage knobs,
 // the LFO's controls). They are always in the pool; while no oscillator
 // plays the Operator Env they are greyed and say why. OP PITCH and OP LFO
-// drag onto a knob like any pool source (the Op Pitch Env and Op LFO
+// drag onto a knob like any pool source (the OP PITCH and OP LFO
 // sources); OP ENV shapes its operators only, so it doesn't drag.
 namespace OperatorPool
 {
@@ -141,6 +141,8 @@ inline std::unique_ptr<KnobControl> makeStageKnob (IlanaSynthAudioProcessor& p, 
         // The pitch envelope's prefix is empty (its ids are whole).
         const auto envPrefix = prefix.startsWith ("osc") ? prefix : juce::String();
         auto& slider = knob->getSlider();
+        // Clockwise is longer, as on the FM page (review 7, I7-3).
+        FmOperatorInfo::reverseRateKnob (slider);
         const auto original = slider.valueFromTextFunction;
         slider.textFromValueFunction = [&p, envPrefix, rateStage] (double value)
         {

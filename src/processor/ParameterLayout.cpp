@@ -1054,7 +1054,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                         "Osc" + juce::String (osc + 1) + " " + field.name);
     for (const auto& field : OperatorEg::voiceFields())
         addEgField (field, field.suffix, field.name);
-    addInt (OperatorEg::keyOffsetId, "Op Env Scale Shift", -24, 24, 0);
+    addInt (OperatorEg::keyOffsetId, "OP ENV Scale Shift", -24, 24, 0);
 
     // Review 6 (appended): the DX7 algorithm the FM routing came from (a
     // .syx voice, or a click on the grid's DX7 page), 0 for none. Display
@@ -1099,6 +1099,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (prefix + "_dcurve", name + " Decay Curve", -1.0f, 1.0f, 0.0f);
         addFloat (prefix + "_rcurve", name + " Release Curve", -1.0f, 1.0f, 0.0f);
     }
+
+    // Review 7 (I7-4): the reverb leaves the dry signal as it is and adds its
+    // wet on top, so a reverb at MIX 0 passes the dry signal exactly (the DX7
+    // voices' SPACE macro opens it). Off, as in every older patch: the dry
+    // follows MIX as before.
+    addBool ("fx_reverb_keep_dry", "Reverb Keep Dry", false);
 
     return layout;
 }

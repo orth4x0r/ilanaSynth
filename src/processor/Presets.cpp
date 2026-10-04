@@ -290,7 +290,7 @@ IlanaSynthAudioProcessor::PresetInfo IlanaSynthAudioProcessor::getPresetInfo (in
             return { "ilanaSynth", {} };
 
         return { bank.startsWithIgnoreCase ("Dexed") ? juce::String ("Dexed") : juce::String ("Yamaha DX7"),
-                 "A DX7 voice from the " + bank + " bank, played by the FM engine on the Operator EG." };
+                 "A DX7 voice from the " + bank + " bank, played by the FM engine on the Operator Env." };
     }
 
     const auto files = getUserPresetFiles();

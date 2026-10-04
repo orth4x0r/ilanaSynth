@@ -365,7 +365,8 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
     };
 
     // Every destination names a real parameter, once; the names are the
-    // pages' ("Op LFO › Pitch Depth"), never the retired "Op Env".
+    // pages' ("OP LFO › Pitch Depth"), never the retired "Op Env" (Q1's
+    // one name: Operator Env, short OP ENV, review 7 I7-6).
     {
         juce::StringArray missing, seen, repeated;
         for (const auto& entry : Mod::getParamDestinations())
@@ -385,10 +386,11 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         const auto arrow = juce::String::fromUTF8 (" \xe2\x80\xba ");
         juce::StringArray old;
         for (int d = 0; d < Mod::getNumDestinations(); ++d)
-            if (ModNames::destination (d).containsIgnoreCase ("Op Env") || ModNames::destination (d).containsIgnoreCase ("Op EG"))
+            if (ModNames::destination (d).contains ("Op Env") || ModNames::destination (d).containsIgnoreCase ("Op EG")
+                || ModNames::destination (d).contains ("Op LFO") || ModNames::destination (d).contains ("Op Pitch"))
                 old.add (ModNames::destination (d));
-        expect (nameOf ("opeg_lfo_pmd") == "Op LFO" + arrow + "Pitch Depth" && nameOf ("opeg_pitch_l1") == "Op Pitch" + arrow + "Pitch 1"
-                    && nameOf ("osc1_eg_r2") == "OSC 1" + arrow + "Operator Env Decay 1"
+        expect (nameOf ("opeg_lfo_pmd") == "OP LFO" + arrow + "Pitch Depth" && nameOf ("opeg_pitch_l1") == "OP PITCH" + arrow + "Peak"
+                    && nameOf ("osc1_eg_r2") == "OSC 1" + arrow + "OP ENV Decay 1"
                     && ModNames::destination ((int) Mod::Destination::Drift) == "Voice" + arrow + "Analog Drift"
                     && nameOf ("lfo3_phys_a") == "LFO 3" + arrow + "Physics A" && nameOf ("macro2_evolve") == "Macro 2" + arrow + "Evolve"
                     && nameOf ("fx_awtape_p2") == "FX AW Tape" + arrow + "Knob 2" && nameOf ("env7_hold") == "Env 7" + arrow + "Hold"

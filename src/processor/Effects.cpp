@@ -665,6 +665,33 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
+    // KEEP DRY (review 7): the reverb runs on a copy with no dry of its own,
+    // and that is added to the untouched signal only while there is some
+    // wet, so MIX 0 is the dry signal bit for bit.
+    if (getParam ("fx_reverb_on") > 0.5f && getParam ("fx_reverb_keep_dry") > 0.5f && ! reverbWetOnly)
+    {
+        if (reverbDryScratch.getNumChannels() < numChannels || reverbDryScratch.getNumSamples() < numSamples)
+            reverbDryScratch.setSize (numChannels, numSamples, false, false, true);
+        juce::AudioBuffer<float> wet (reverbDryScratch.getArrayOfWritePointers(), numChannels, numSamples);
+        for (int channel = 0; channel < numChannels; ++channel)
+            wet.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+
+        reverbWetOnly = true;
+        processReverb (wet);
+        reverbWetOnly = false;
+
+        // (Held a moment after MIX reaches 0, while the reverb's own wet
+        // gain glides down.)
+        if (getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f) > 0.0f)
+            reverbKeepDryHold = juce::roundToInt (currentSampleRate * 0.05);
+        else
+            reverbKeepDryHold = juce::jmax (0, reverbKeepDryHold - numSamples);
+        if (reverbKeepDryHold > 0)
+            for (int channel = 0; channel < numChannels; ++channel)
+                buffer.addFrom (channel, 0, wet, channel, 0, numSamples);
+        return;
+    }
+
     if (getParam ("fx_reverb_on") > 0.5f)
     {
         const auto type = juce::jlimit (0, 6, (int) getParam ("fx_reverb_type"));
@@ -683,6 +710,8 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
 
             const auto wet = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
 
+            if (reverbWetOnly)
+                buffer.clear();
             for (int channel = 0; channel < numChannels; ++channel)
                 buffer.addFrom (channel, 0, reverbScratch, channel, 0, numSamples, wet);
 
@@ -694,7 +723,7 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
         reverbParams.damping = getParam ("fx_reverb_damping");
         reverbParams.width = getParam ("fx_reverb_width");
         reverbParams.wetLevel = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
-        reverbParams.dryLevel = 1.0f - reverbParams.wetLevel;
+        reverbParams.dryLevel = reverbWetOnly ? 0.0f : 1.0f - reverbParams.wetLevel;
         reverbParams.freezeMode = 0.0f;
 
         switch (type)
@@ -772,7 +801,8 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
                     gatedReverbEnvelope *= gateCoefficient;
 
                 for (int channel = 0; channel < numChannels; ++channel)
-                    buffer.addSample (channel, i, reverbScratch.getSample (channel, i) * gatedReverbEnvelope * gateGain);
+                    buffer.setSample (channel, i, (reverbWetOnly ? 0.0f : buffer.getSample (channel, i))
+                                                      + reverbScratch.getSample (channel, i) * gatedReverbEnvelope * gateGain);
             }
         }
         else

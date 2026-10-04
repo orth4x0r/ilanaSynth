@@ -133,7 +133,7 @@ inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc)
     }
 
     if (usesOperatorEg (p, osc))
-        parts.add ("plays its Operator EG (FM page)");
+        parts.add ("plays its Operator Env (FM page)");
 
     return parts.joinIntoString (", ");
 }
@@ -492,7 +492,7 @@ public:
         }
 
         opEnvButton.setButtonText ("EDIT OP ENV");
-        opEnvButton.setTooltip ("This operator plays its Operator EG: open it on the FM page");
+        opEnvButton.setTooltip ("This operator plays its Operator Env: open it on the FM page");
         opEnvButton.onClick = [this]
         {
             if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())

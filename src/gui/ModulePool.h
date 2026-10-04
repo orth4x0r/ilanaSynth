@@ -54,7 +54,7 @@ inline bool envelopeInUse (const IlanaSynthAudioProcessor& processor, int env)
 }
 
 // A card in the pool: added to the patch, or doing something in it. The amp
-// envelope always has its card (greyed with "unused (Op Env)" on a DX7 voice).
+// envelope always has its card (greyed with "unused" on a DX7 voice).
 inline bool envelopeShown (const IlanaSynthAudioProcessor& processor, int env)
 {
     return env == 0 || processor.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env) || envelopeInUse (processor, env);

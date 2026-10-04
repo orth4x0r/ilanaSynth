@@ -376,7 +376,7 @@ public:
             opPitch.colour = OperatorPool::colour();
             opPitch.isActive = anyOperator;
             opPitch.tooltip = "OP PITCH\nThe Operator Env's pitch envelope, for the whole voice. Click to edit it below; drag it onto "
-                              "a knob to modulate that knob too (source: Op Pitch Env).";
+                              "a knob to modulate that knob too (source: OP PITCH).";
             opPitch.paintShape = [this] (juce::Graphics& g, juce::Rectangle<float> plot, bool active)
             {
                 OperatorPool::paintEnvelopeShape (g, plot, OperatorPool::envelopeShape (processorRef, {}, opPitchShape).values,
@@ -802,7 +802,7 @@ public:
         opLfo.colour = OperatorPool::colour();
         opLfo.isActive = [&p] { return FmOperatorInfo::anyOperatorEnv (p); };
         opLfo.tooltip = "OP LFO\nThe Operator Env's LFO (the DX7's), for the whole voice. Click to edit it below; drag it onto a "
-                        "knob to modulate that knob too (source: Op LFO).";
+                        "knob to modulate that knob too (source: OP LFO).";
         opLfo.valueAt = [this] (double phase)
         {
             return OperatorPool::lfoWaveValue (juce::roundToInt (read ("opeg_lfo_wave")), phase);

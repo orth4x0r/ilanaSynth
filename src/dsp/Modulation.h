@@ -482,15 +482,17 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         for (int osc = 0; osc < 6; ++osc)
         {
             const juce::String prefix (prefixes[osc]);
-            const auto name = "Osc" + juce::String (osc + 1) + " Op Env ";
+            const auto name = "Osc" + juce::String (osc + 1) + " OP ENV ";
             add (prefix + "_eg_out", name + "Level");
-            add (prefix + "_eg_r1", name + "Attack Rate");
-            add (prefix + "_eg_r4", name + "Release Rate");
+            // Review 7: times, as the knobs read them (a positive amount
+            // lengthens the stage; the processor turns it into a slower rate).
+            add (prefix + "_eg_r1", name + "Attack");
+            add (prefix + "_eg_r4", name + "Release");
         }
-        add ("opeg_lfo_speed", "Op LFO Rate");
-        add ("opeg_lfo_pmd", "Op LFO Pitch Depth");
-        add ("opeg_lfo_amd", "Op LFO Amp Depth");
-        add ("opeg_pitch_l1", "Op Pitch Env Level 1");
+        add ("opeg_lfo_speed", "OP LFO Rate");
+        add ("opeg_lfo_pmd", "OP LFO Pitch Depth");
+        add ("opeg_lfo_amd", "OP LFO Amp Depth");
+        add ("opeg_pitch_l1", "OP PITCH Peak");
 
         // Review 7 (append only): every other knob that draws a ring takes
         // a source too (I7-5). All are plain parameters read at block rate,
@@ -500,20 +502,20 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         for (int osc = 0; osc < 6; ++osc)
         {
             const juce::String prefix (prefixes[osc]);
-            const auto name = "Osc" + juce::String (osc + 1) + " Operator ";
-            for (const auto& [suffix, label] : { Pair { "_eg_r2", "Env Decay 1" }, Pair { "_eg_r3", "Env Decay 2" },
-                                                 Pair { "_eg_l1", "Env Peak" }, Pair { "_eg_l2", "Env Mid" },
-                                                 Pair { "_eg_l3", "Env Sustain" }, Pair { "_eg_l4", "Env End" },
-                                                 Pair { "_eg_rate_key", "Env Key Rate" }, Pair { "_eg_break", "Scale Key" },
+            const auto name = "Osc" + juce::String (osc + 1) + " OP ENV ";
+            for (const auto& [suffix, label] : { Pair { "_eg_r2", "Decay 1" }, Pair { "_eg_r3", "Decay 2" },
+                                                 Pair { "_eg_l1", "Peak" }, Pair { "_eg_l2", "Mid" },
+                                                 Pair { "_eg_l3", "Sustain" }, Pair { "_eg_l4", "End" },
+                                                 Pair { "_eg_rate_key", "Key Rate" }, Pair { "_eg_break", "Scale Key" },
                                                  Pair { "_eg_ldepth", "Low Depth" }, Pair { "_eg_rdepth", "High Depth" },
-                                                 Pair { "_eg_ams", "Amp Mod Sens" }, Pair { "_eg_vel", "Velocity Sens" } })
+                                                 Pair { "_eg_ams", "Amp Mod" }, Pair { "_eg_vel", "Velocity" } })
                 add (prefix + suffix, name + label);
         }
-        for (const auto& [id, label] : { Pair { "opeg_pitch_r1", "Op Pitch Env Attack" }, Pair { "opeg_pitch_r2", "Op Pitch Env Decay 1" },
-                                         Pair { "opeg_pitch_r3", "Op Pitch Env Decay 2" }, Pair { "opeg_pitch_r4", "Op Pitch Env Release" },
-                                         Pair { "opeg_pitch_l2", "Op Pitch Env Level 2" }, Pair { "opeg_pitch_l3", "Op Pitch Env Level 3" },
-                                         Pair { "opeg_pitch_l4", "Op Pitch Env Level 4" }, Pair { "opeg_lfo_delay", "Op LFO Delay" },
-                                         Pair { "opeg_lfo_pms", "Op LFO Pitch Sens" }, Pair { "opeg_key_offset", "Op Scale Shift" } })
+        for (const auto& [id, label] : { Pair { "opeg_pitch_r1", "OP PITCH Attack" }, Pair { "opeg_pitch_r2", "OP PITCH Decay 1" },
+                                         Pair { "opeg_pitch_r3", "OP PITCH Decay 2" }, Pair { "opeg_pitch_r4", "OP PITCH Release" },
+                                         Pair { "opeg_pitch_l2", "OP PITCH Mid" }, Pair { "opeg_pitch_l3", "OP PITCH Sustain" },
+                                         Pair { "opeg_pitch_l4", "OP PITCH End" }, Pair { "opeg_lfo_delay", "OP LFO Delay" },
+                                         Pair { "opeg_lfo_pms", "OP LFO Pitch Sens" }, Pair { "opeg_key_offset", "OP ENV Scale Shift" } })
             add (id, label);
 
         // The LFOs' shape knobs (chaos, physics), smoothing, stereo offset

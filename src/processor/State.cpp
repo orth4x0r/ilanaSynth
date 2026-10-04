@@ -242,16 +242,23 @@ void IlanaSynthAudioProcessor::applyFmRouting (const FmAlgorithms::Algorithm& al
     // routes at 100% (each modulator's OUTPUT sets the depth) and new
     // feedback of the type its feedback already uses (DX7 if none); other
     // patches start routes gently and feedback Filtered (UI review 6, I6-11).
+    // The feedback moves with the algorithm, as a DX7's FEEDBACK does: the
+    // strongest loop the patch had (amount and type) goes to the new
+    // algorithm's feedback operator (review 7, I7-9).
     auto operatorEnv = false;
     auto feedbackType = -1;
+    auto feedbackAmount = 0.0f;
     for (int op = 0; op < OscillatorIds::count; ++op)
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) op]);
         if (! isOscillatorShown (op))
             continue;
         operatorEnv = operatorEnv || juce::roundToInt (read (prefix + "_amp_env")) == OperatorEg::envelopeChoice;
-        if (feedbackType < 0 && read (fmRouteId (op, op)) > 0.001f)
+        if (const auto amount = read (fmRouteId (op, op)); amount > 0.001f && amount > feedbackAmount)
+        {
+            feedbackAmount = amount;
             feedbackType = juce::roundToInt (read (prefix + "_fb_type"));
+        }
     }
     if (feedbackType < 0)
         feedbackType = operatorEnv ? FmFeedback::Dx7 : FmFeedback::Filtered;
@@ -271,7 +278,9 @@ void IlanaSynthAudioProcessor::applyFmRouting (const FmAlgorithms::Algorithm& al
             else if (current < 0.001f)
             {
                 if (source == target)
-                    set (id, operatorEnv ? FmAlgorithms::operatorEnvFeedbackAmount : FmAlgorithms::defaultFeedbackAmount);
+                    set (id, feedbackAmount > 0.001f ? feedbackAmount
+                             : operatorEnv          ? FmAlgorithms::operatorEnvFeedbackAmount
+                                                    : FmAlgorithms::defaultFeedbackAmount);
                 else
                     set (id, operatorEnv ? FmAlgorithms::operatorEnvRouteAmount : FmAlgorithms::defaultRouteAmount);
                 // Feedback the patch already had keeps its type.

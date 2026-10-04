@@ -74,6 +74,8 @@ public:
           reverbDamping (p.apvts, "fx_reverb_damping", "DAMPING"),
           reverbWidth (p.apvts, "fx_reverb_width", "WIDTH"),
           reverbMix (p.apvts, "fx_reverb_mix", "MIX"),
+          // Q1's dry-stays-dry mode (review 7, I7-4): the DX7 voices' SPACE.
+          reverbKeepDry (p.apvts, "fx_reverb_keep_dry", "KEEP DRY"),
           flangerRate (p.apvts, "fx_flanger_rate", "RATE"),
           flangerDepth (p.apvts, "fx_flanger_depth", "DEPTH"),
           flangerFeedback (p.apvts, "fx_flanger_feedback", "FEEDBACK"),
@@ -150,7 +152,7 @@ public:
                 delayPitch, delayWow, delayPingPong, tapsOn, tapsPattern, tapsMix,
                 stutterOn, stutterDiv, stutterMix,
                 smearOn, smearSize, smearDensity, smearMix, freezeOn, freezeMix,
-                reverbOn, reverbType, reverbSize, reverbDamping, reverbWidth, reverbMix,
+                reverbOn, reverbType, reverbSize, reverbDamping, reverbWidth, reverbMix, reverbKeepDry,
                 flangerRate, flangerDepth, flangerFeedback, flangerMix,
                 dimRate, dimDepth, dimMix,
                 gateDiv, gatePattern, gateSteps, gateSwing, gateSmooth, gateMix,
@@ -184,7 +186,7 @@ public:
         slotGroups.push_back ({ &stutterOn, &stutterDiv, &stutterMix, &stutterReverse, &stutterPitch });
         slotGroups.push_back ({ &smearOn, &smearSize, &smearDensity, &smearMix });
         slotGroups.push_back ({ &freezeOn, &freezeMix });
-        slotGroups.push_back ({ &reverbOn, &reverbType, &reverbSize, &reverbDamping, &reverbWidth, &reverbMix });
+        slotGroups.push_back ({ &reverbOn, &reverbType, &reverbSize, &reverbDamping, &reverbWidth, &reverbKeepDry, &reverbMix });
         slotGroups.push_back ({ &flangerRate, &flangerDepth, &flangerFeedback, &flangerMix });
         slotGroups.push_back ({ &dimRate, &dimDepth, &dimMix });
         slotGroups.push_back ({ &gateDiv, &gatePattern, &gateSteps, &gateSwing, &gateSmooth, &gateMix });
@@ -1829,6 +1831,7 @@ private:
     ToggleControl reverbOn;
     ComboControl reverbType;
     KnobControl reverbSize, reverbDamping, reverbWidth, reverbMix;
+    ToggleControl reverbKeepDry;
     KnobControl flangerRate, flangerDepth, flangerFeedback, flangerMix;
     KnobControl dimRate, dimDepth, dimMix;
     ComboControl gateDiv, gatePattern;

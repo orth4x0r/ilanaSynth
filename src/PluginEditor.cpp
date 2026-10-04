@@ -439,6 +439,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // oscillator plays the Operator Env or the matrix uses them (kind -2).
     chipSpecs.push_back ({ Mod::Source::OpLfo, -2 });
     chipSpecs.push_back ({ Mod::Source::OpPitchEnv, -2 });
+    // The vector pad's X and Y while VECTOR is on (kind -3; UI review 7, I7-22).
+    for (const auto source : { Mod::Source::VectorX, Mod::Source::VectorY })
+        chipSpecs.push_back ({ source, -3 });
 
     for (const auto& spec : chipSpecs)
     {
@@ -745,8 +748,9 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
             continue;
 
         const auto source = juce::jlimit (0, (int) Mod::Source::Count - 1, chips[i]->getSourceIndex());
-        const auto wanted = (kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
-                                        : processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index))
+        const auto wanted = (kind == -3 ? processorRef.apvts.getRawParameterValue ("vec_on")->load() > 0.5f
+                             : kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
+                                          : processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index))
                             || usedModSources[(size_t) source];
 
         if (chipWanted[i] != wanted)

@@ -1260,7 +1260,8 @@ private:
             }
         }
 
-        // Column and row headings: an off oscillator says so (I6-37).
+        // Column and row headings: an off oscillator is dimmed, with no
+        // "OFF" away from its switch (I6-37; review 8, I8-20).
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
 
         for (const auto i : shown)
@@ -1268,10 +1269,10 @@ private:
             const auto name = "OSC " + juce::String (i + 1);
             const auto live = fmIn[(size_t) i] && playing[(size_t) i];
             g.setColour (FmDiagram::oscColour (i).withAlpha (live ? 1.0f : 0.4f));
-            g.drawText (! playing[(size_t) i] ? name + ": OFF" : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
+            g.drawText (! playing[(size_t) i] ? name : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
                         columnHeads[(size_t) i], juce::Justification::centred);
             g.setColour (playing[(size_t) i] ? FmDiagram::oscColour (i) : IlanaTheme::Ui::text3);
-            g.drawText (playing[(size_t) i] ? name : name + ": OFF", rowHeads[(size_t) i].withHeight (18),
+            g.drawText (name, rowHeads[(size_t) i].withHeight (18),
                         juce::Justification::centredLeft);
         }
 

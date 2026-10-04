@@ -349,7 +349,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
                                        { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
                                        { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
-                                       { "_damper", "DAMPER" }, { "_couple", "STRING COUPLING" } };
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } }; // (I8-25)
     std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
 
     const auto plucked = excite <= 3 || excite == 10;

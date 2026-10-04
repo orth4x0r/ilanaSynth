@@ -333,7 +333,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
                 hammerName = combo->getComboBox().getText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
-                    && knobFor ("osc1_couple", "STRING COUPLING") != nullptr,
+                    && knobFor ("osc1_couple", "COUPLING") != nullptr,
                 "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
         setParam ("osc1_excite", 0.0f);
         settle (300);

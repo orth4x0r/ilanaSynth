@@ -260,7 +260,7 @@ class OscPage : public juce::Component,
               bridgeBuzz (state, prefix + "_bridge_buzz", "BRIDGE BUZZ"),
               fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE"),
               hammer (state, prefix + "_hammer_hard", "HAMMER"),
-              couple (state, prefix + "_couple", "STRING COUPLING"),
+              couple (state, prefix + "_couple", "COUPLING"), // the section says STRING (I8-25)
               damper (state, prefix + "_damper", "DAMPER"),
               registerMap (state, prefix + "_register", "REGISTER"),
               epDistance (state, prefix + "_ep_distance", "DISTANCE"),

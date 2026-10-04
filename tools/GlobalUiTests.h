@@ -6,6 +6,22 @@
 
 #include <set>
 
+// The source tree, for the checks that read it. __FILE__ is relative to the
+// build folder when ccache's base_dir rewrites it ("../tools/..."), so it is
+// also tried from the executable's build folder (build/X_artefacts/Release).
+inline juce::File findSourceTree()
+{
+    const juce::String here (__FILE__);
+    const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+    for (const auto& base : { juce::File::getCurrentWorkingDirectory(), exe.getParentDirectory().getParentDirectory().getParentDirectory() })
+    {
+        const auto file = juce::File::isAbsolutePath (here) ? juce::File (here) : base.getChildFile (here);
+        if (const auto src = file.getParentDirectory().getSiblingFile ("src"); src.getChildFile ("gui").isDirectory())
+            return src;
+    }
+    return {};
+}
+
 void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
 {
     const auto loadNamed = [&processor] (const juce::String& name)
@@ -50,9 +66,11 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 "drawFitted draws a fitting line as it is, shrinks a slightly long one and cuts a far too long one, never condensed");
 
         // No other path to JUCE's condensing fitted text in the sources.
-        const auto sources = juce::File (__FILE__).getParentDirectory().getSiblingFile ("src");
+        const auto sources = findSourceTree();
         juce::StringArray offenders;
-        if (sources.isDirectory())
+        if (! sources.isDirectory())
+            offenders.add ("(the source tree wasn't found)");
+        else
             for (const auto& file : sources.findChildFiles (juce::File::findFiles, true, "*.h;*.cpp"))
             {
                 if (file.getFileName() == "IlanaLookAndFeel.h" || file.getFullPathName().contains ("thirdparty"))
@@ -62,6 +80,13 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             }
         expect (offenders.isEmpty(), "every fitted text goes through IlanaTheme::drawFitted (no drawFittedText elsewhere"
                                          + (offenders.isEmpty() ? juce::String (")") : ": " + offenders.joinIntoString (", ") + ")"));
+
+        // No "OFF" spelled out away from a switch (I8-20): the FM matrix's
+        // headings and the SIGNAL FLOW's stubs are dimmed instead.
+        const auto fmPage = sources.getChildFile ("gui/pages/FmInputPages.h").loadFileAsString();
+        const auto flow = sources.getChildFile ("gui/FilterWidgets.h").loadFileAsString();
+        expect (fmPage.isNotEmpty() && ! fmPage.contains ("name + \": OFF\"") && flow.isNotEmpty() && ! flow.contains ("drawText (\"OFF\""),
+                "the FM matrix's headings and the SIGNAL FLOW's stubs don't spell OFF out (dimmed instead)");
 
         auto* top = editor.getTopLevelComponent();
         const auto before = top->getBounds();

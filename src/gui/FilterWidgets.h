@@ -536,12 +536,8 @@ public:
             drawBlock (g, layout.post, postLabel(), IlanaTheme::Ui::text2, true, false);
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
-        if (! layout.offCaption.isEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("OFF", layout.offCaption, juce::Justification::centredRight);
-        }
+        // No "OFF" before the stubs: dashed and dim, they are the switches
+        // themselves, and their tooltips say it (review 8, I8-20).
 
         // Serial / parallel badge.
         const auto badgeHover = over && layout.badge.contains (mouse);

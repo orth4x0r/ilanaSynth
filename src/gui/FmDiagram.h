@@ -5,6 +5,8 @@
 #include <array>
 #include <limits>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
@@ -102,6 +104,8 @@ public:
         const auto radius = operatorRadius();
         const auto shown = shownOscillators();
 
+        const auto amountLabels = amountLabelLayout();
+
         // Routes between different oscillators.
         for (const auto source : shown)
         {
@@ -193,8 +197,9 @@ public:
                 g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 // Beside the arrow where it crosses no node or caption.
-                g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%", amountLabelBounds (source, target, centres, radius),
-                            juce::Justification::centred);
+                for (const auto& label : amountLabels)
+                    if (label.first == std::make_pair (source, target))
+                        g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%", label.second, juce::Justification::centred);
             }
         }
 
@@ -516,13 +521,9 @@ public:
     // caption).
     std::vector<juce::Rectangle<float>> getAmountLabelBoundsList() const
     {
-        const auto centres = operatorCentres();
-        const auto radius = operatorRadius();
         std::vector<juce::Rectangle<float>> labels;
-        for (const auto source : shownOscillators())
-            for (const auto target : shownOscillators())
-                if (source != target && read (routeId (source, target)) >= 0.001f)
-                    labels.push_back (amountLabelBounds (source, target, centres, radius));
+        for (const auto& label : amountLabelLayout())
+            labels.push_back (label.second);
         return labels;
     }
 
@@ -551,12 +552,15 @@ private:
         const auto slot = area.getWidth() / (float) widestRow();
         const auto byWidth = (slot - captionWidth - 10.0f) * 0.5f;
 
+        // A staircase only when the height is what is short: it saves
+        // height, not width.
+        const auto byHeight = (area.getHeight() / rows - stackGap) * 0.5f;
         Geometry geo;
-        geo.radius = juce::jmin (maximumRadius, byWidth, (area.getHeight() / rows - stackGap) * 0.5f);
-        if (geo.radius < 24.0f && rows > 1.0f)
+        geo.radius = juce::jmin (maximumRadius, byWidth, byHeight);
+        if (byHeight < 24.0f && byHeight < byWidth && rows > 1.0f)
         {
             geo.staircase = true;
-            geo.radius = juce::jmin (maximumRadius, (area.getHeight() - 8.0f - stairGap * (rows - 1.0f)) / (rows + 1.0f));
+            geo.radius = juce::jmin (maximumRadius, byWidth, (area.getHeight() - 8.0f - stairGap * (rows - 1.0f)) / (rows + 1.0f));
         }
         geo.radius = juce::jmax ((float) juce::jmin (minimumRadius, 16), geo.radius);
         return geo;
@@ -693,10 +697,30 @@ private:
             }
             std::stable_sort (placed.begin(), placed.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
 
-            // Keep a slot apart, as close to the wish as fits.
-            std::vector<float> xs;
+            // Keep a slot apart, as close to the wishes as fits: operators
+            // that want one place share it, spread evenly around it.
+            struct Cluster { float left; int count; };
+            std::vector<Cluster> clusters;
             for (const auto& item : placed)
-                xs.push_back (xs.empty() ? item.first : juce::jmax (item.first, xs.back() + slot));
+            {
+                clusters.push_back ({ item.first, 1 });
+                while (clusters.size() > 1)
+                {
+                    const auto last = clusters.back();
+                    auto& previous = clusters[clusters.size() - 2];
+                    if (previous.left + slot * (float) previous.count <= last.left)
+                        break;
+                    const auto count = previous.count + last.count;
+                    previous.left = (previous.left * (float) previous.count
+                                     + (last.left - slot * (float) previous.count) * (float) last.count) / (float) count;
+                    previous.count = count;
+                    clusters.pop_back();
+                }
+            }
+            std::vector<float> xs;
+            for (const auto& cluster : clusters)
+                for (int i = 0; i < cluster.count; ++i)
+                    xs.push_back (cluster.left + slot * (float) i);
 
             const auto y = bottomY - rise * (float) row;
             for (size_t i = 0; i < placed.size(); ++i)
@@ -708,7 +732,7 @@ private:
         auto left = std::numeric_limits<float>::max(), right = std::numeric_limits<float>::lowest();
         for (const auto osc : shown)
         {
-            left = juce::jmin (left, centres[(size_t) osc].x - radius * 2.1f);
+            left = juce::jmin (left, centres[(size_t) osc].x - radius * (read (routeId (osc, osc)) > 0.001f ? 2.1f : 1.1f));
             right = juce::jmax (right, centres[(size_t) osc].x + radius + 6.0f + captionWidth);
         }
         auto shift = area.getCentreX() - (left + right) * 0.5f;
@@ -722,11 +746,14 @@ private:
         return centres;
     }
 
-    // Where a route from a row above ends: the top of the node it drives.
+    // Where a route from a row above, more or less straight over, ends: the
+    // top of the node it drives (a staircase's diagonal steps aim at the
+    // centre, which keeps them under the source's caption).
     std::optional<juce::Point<float>> landingPoint (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres,
                                                     float radius) const
     {
-        if (centres[(size_t) source].y < centres[(size_t) target].y - radius * 0.5f)
+        if (centres[(size_t) source].y < centres[(size_t) target].y - radius * 0.5f
+            && std::abs (centres[(size_t) source].x - centres[(size_t) target].x) < radius * 1.5f)
             return centres[(size_t) target] - juce::Point<float> (0.0f, radius);
         return std::nullopt;
     }
@@ -737,14 +764,47 @@ private:
     // clear it.
     float bendFor (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
     {
+        const auto start = centres[(size_t) source];
         const auto end = landingPoint (source, target, centres, radius).value_or (centres[(size_t) target]);
-        const juce::Line<float> line (centres[(size_t) source], end);
+        const juce::Line<float> line (start, end);
         const auto direction = (line.getEnd() - line.getStart()) / juce::jmax (1.0f, line.getLength());
         const juce::Point<float> normal (-direction.y, direction.x);
-        if (std::abs (centres[(size_t) source].y - centres[(size_t) target].y) < 1.0f)
-            return (normal.y > 0.0f ? -1.0f : 1.0f) * radius * 1.7f;
+        const auto up = normal.y > 0.0f ? -1.0f : 1.0f;
+        const auto sameRow = std::abs (start.y - centres[(size_t) target].y) < 1.0f;
 
-        for (const auto osc : shownOscillators())
+        // The first bend, straight first, then over the top, then under,
+        // each further out, whose curve misses every other node, every
+        // caption (its own included, V7-3) and the diagram's edge.
+        const auto shown = shownOscillators();
+        const auto clear = [&] (float bend)
+        {
+            const auto control = (start + end) * 0.5f + normal * bend;
+            for (int step = 1; step < 16; ++step)
+            {
+                const auto t = (float) step / 16.0f;
+                const auto point = start * ((1.0f - t) * (1.0f - t)) + control * (2.0f * t * (1.0f - t)) + end * (t * t);
+                if (! getLocalBounds().toFloat().reduced (3.0f).contains (point))
+                    return false;
+                for (const auto osc : shown)
+                {
+                    if (osc != source && osc != target && point.getDistanceFrom (centres[(size_t) osc]) < radius + 5.0f)
+                        return false;
+                    if (getCaptionBounds (osc, centres, radius).expanded (3.0f).contains (point))
+                        return false;
+                }
+            }
+            return true;
+        };
+        if (! sameRow && clear (0.0f))
+            return 0.0f;
+        for (const auto amount : { 1.0f, 1.7f, 2.4f, 3.2f, 4.0f })
+            for (const auto side : { up, -up })
+                if (clear (side * radius * amount))
+                    return side * radius * amount;
+
+        if (sameRow)
+            return up * radius * 1.7f;
+        for (const auto osc : shown)
         {
             if (osc == source || osc == target)
                 continue;
@@ -753,63 +813,113 @@ private:
             {
                 // The curve's middle sits half the bend off the line.
                 const auto offset = (centres[(size_t) osc] - nearest).getDotProduct (normal);
-                const auto up = normal.y > 0.0f ? -1.0f : 1.0f;
                 return 2.0f * (offset + up * (radius + 10.0f));
             }
         }
         return 0.0f;
     }
 
-    // Where a route's amount is written: beside its arrow's middle, on the
-    // first side that covers no node, caption or loop.
-    juce::Rectangle<float> amountLabelBounds (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres,
-                                              float radius) const
+    // A route's path as a few straight pieces (for keeping labels off it).
+    std::vector<juce::Point<float>> routePoints (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres,
+                                                 float radius) const
     {
         const auto from = centres[(size_t) source], to = centres[(size_t) target];
-        const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
+        const auto end = landingPoint (source, target, centres, radius).value_or (to);
+        const auto direction = (end - from) / juce::jmax (1.0f, from.getDistanceFrom (end));
         const juce::Point<float> normal (-direction.y, direction.x);
-        const auto bend = bendFor (source, target, centres, radius);
-        const auto both = read (routeId (target, source)) > 0.001f;
-        const auto end = landingPoint (source, target, centres, radius).value_or (to - direction * (radius + 6.0f));
-        auto middle = (from + direction * radius + end) * 0.5f + normal * (both ? 7.0f : 0.0f);
-        if (bend != 0.0f)
+        const auto control = (from + end) * 0.5f + normal * bendFor (source, target, centres, radius);
+        std::vector<juce::Point<float>> points;
+        for (int step = 0; step <= 8; ++step)
         {
-            const auto bentEnd = landingPoint (source, target, centres, radius).value_or (to);
-            const auto bentDirection = (bentEnd - from) / juce::jmax (1.0f, from.getDistanceFrom (bentEnd));
-            middle = (from + bentEnd) * 0.5f + juce::Point<float> (-bentDirection.y, bentDirection.x) * bend * 0.5f;
+            const auto t = (float) step / 8.0f;
+            points.push_back (from * ((1.0f - t) * (1.0f - t)) + control * (2.0f * t * (1.0f - t)) + end * (t * t));
         }
+        return points;
+    }
 
-        const auto size = juce::Rectangle<float> (34.0f, 13.0f);
-        const auto away = radius * 0.8f;
-        const juce::Rectangle<float> candidates[] {
-            size.withPosition (middle + juce::Point<float> (6.0f, -6.5f)),
-            size.withPosition (middle + juce::Point<float> (-40.0f, -6.5f)),
-            size.withCentre (middle - normal * away),
-            size.withCentre (middle + normal * away),
-            size.withCentre (middle + juce::Point<float> (0.0f, -12.0f)),
-            size.withCentre (middle + juce::Point<float> (0.0f, 12.0f)),
-            size.withCentre (middle - normal * away * 1.4f),
-            size.withCentre (middle + normal * away * 1.4f),
-        };
+    // Where each route's amount is written: beside its arrow's middle, on the
+    // first side that covers no node, caption, loop, route or earlier label.
+    std::vector<std::pair<std::pair<int, int>, juce::Rectangle<float>>> amountLabelLayout() const
+    {
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
         const auto shown = shownOscillators();
-        const auto clear = [&] (juce::Rectangle<float> box)
+        std::vector<std::pair<int, int>> routes;
+        std::vector<std::vector<juce::Point<float>>> paths;
+        for (const auto source : shown)
+            for (const auto target : shown)
+                if (source != target && read (routeId (source, target)) >= 0.001f)
+                {
+                    routes.push_back ({ source, target });
+                    paths.push_back (routePoints (source, target, centres, radius));
+                }
+
+        std::vector<std::pair<std::pair<int, int>, juce::Rectangle<float>>> placed;
+        for (const auto& route : routes)
         {
-            if (! getLocalBounds().toFloat().contains (box))
-                return false;
-            for (const auto osc : shown)
+            const auto source = route.first, target = route.second;
+            const auto from = centres[(size_t) source], to = centres[(size_t) target];
+            const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
+            const juce::Point<float> normal (-direction.y, direction.x);
+            const auto bend = bendFor (source, target, centres, radius);
+            const auto both = read (routeId (target, source)) > 0.001f;
+            const auto end = landingPoint (source, target, centres, radius).value_or (to - direction * (radius + 6.0f));
+            auto middle = (from + direction * radius + end) * 0.5f + normal * (both ? 7.0f : 0.0f);
+            if (bend != 0.0f)
             {
-                const auto node = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centres[(size_t) osc]);
-                if (box.intersects (node.reduced (radius * 0.15f)) || box.intersects (getCaptionBounds (osc, centres, radius)))
-                    return false;
-                if (read (routeId (osc, osc)) > 0.001f && box.intersects (feedbackLoop (osc, centres, radius)))
-                    return false;
+                const auto bentEnd = landingPoint (source, target, centres, radius).value_or (to);
+                const auto bentDirection = (bentEnd - from) / juce::jmax (1.0f, from.getDistanceFrom (bentEnd));
+                middle = (from + bentEnd) * 0.5f + juce::Point<float> (-bentDirection.y, bentDirection.x) * bend * 0.5f;
             }
-            return true;
-        };
-        for (const auto& box : candidates)
-            if (clear (box))
-                return box;
-        return candidates[0];
+
+            const auto size = juce::Rectangle<float> (32.0f, 12.0f);
+            std::vector<juce::Rectangle<float>> candidates;
+            for (const auto away : { 0.55f, 0.8f, 1.1f, 1.5f, 1.9f, 2.4f })
+            {
+                candidates.push_back (size.withCentre (middle + juce::Point<float> (radius * away, -radius * away * 0.6f)));
+                candidates.push_back (size.withCentre (middle + juce::Point<float> (-radius * away, radius * away * 0.6f)));
+                candidates.push_back (size.withCentre (middle - normal * radius * away));
+                candidates.push_back (size.withCentre (middle + normal * radius * away));
+                candidates.push_back (size.withCentre (middle + juce::Point<float> (radius * away + 12.0f, 0.0f)));
+                candidates.push_back (size.withCentre (middle - juce::Point<float> (radius * away + 12.0f, 0.0f)));
+                candidates.push_back (size.withCentre (middle - juce::Point<float> (0.0f, radius * away)));
+                candidates.push_back (size.withCentre (middle + juce::Point<float> (0.0f, radius * away)));
+            }
+
+            // How badly a place covers things: nodes, captions, loops and
+            // earlier labels count by the area covered, routes a little, so
+            // a crowded diagram still gets the least bad place.
+            const auto cost = [&] (juce::Rectangle<float> box)
+            {
+                auto total = getLocalBounds().toFloat().reduced (2.0f).contains (box) ? 0.0f : 1.0e6f;
+                const auto covered = [&box] (juce::Rectangle<float> other) { return box.getIntersection (other).getWidth() * box.getIntersection (other).getHeight(); };
+                for (const auto osc : shown)
+                {
+                    const auto node = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centres[(size_t) osc]);
+                    total += 100.0f * (covered (node.reduced (radius * 0.12f)) + covered (getCaptionBounds (osc, centres, radius)));
+                    if (read (routeId (osc, osc)) > 0.001f)
+                        total += 100.0f * covered (feedbackLoop (osc, centres, radius));
+                }
+                for (const auto& label : placed)
+                    total += 100.0f * covered (label.second.expanded (2.0f));
+                for (const auto& path : paths)
+                    for (size_t i = 1; i < path.size(); ++i)
+                        if (box.expanded (2.0f).intersects (juce::Line<float> (path[i - 1], path[i])))
+                            total += 1.0f;
+                return total;
+            };
+
+            auto chosen = candidates.front();
+            auto best = std::numeric_limits<float>::max();
+            for (const auto& box : candidates)
+                if (const auto score = cost (box); score < best)
+                {
+                    best = score;
+                    chosen = box;
+                }
+            placed.push_back ({ route, chosen });
+        }
+        return placed;
     }
 
     static void addBentArrow (juce::Path& arrow, juce::Point<float> from, juce::Point<float> to, float bend, float radius,

@@ -21,7 +21,7 @@ public:
           resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), true),
           resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), true),
           resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), true),
-          bodyType (p.apvts, "body_type", "BODY"),
+          bodyType (p.apvts, "body_type", "TYPE"),
           bodyMaterial (p.apvts, "body_material", "MATERIAL", resonatorColour(), true),
           bodySize (p.apvts, "body_size", "SIZE", resonatorColour(), true),
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),

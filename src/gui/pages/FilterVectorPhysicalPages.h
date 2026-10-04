@@ -277,9 +277,11 @@ private:
     juce::Rectangle<int> picture;
 };
 
-// M8.5: the VECTOR page. The vector pad (four oscillators at the corners,
-// moved by hand, by a path or by its wander) and EVOLVE (each macro
-// drifting within a range; FREEZE keeps where they are).
+// M8.5: the VECTOR page: the vector pad (four oscillators at the corners,
+// moved by hand, by a path or by its wander). EVOLVE (a macro drifting
+// within a range) moved onto the macro's own card in the bottom strip, and
+// VECTOR X / Y are dragged from the source bar, their one home (review 8:
+// I8-13, I8-14, S8-20).
 class VectorPage : public juce::Component,
                    private IlanaAnim::FrameTimer
 {
@@ -299,9 +301,7 @@ public:
           // The pad's own wander, apart from the oscillators' analog drift
           // (UI review 6, I6-25).
           drift (p.apvts, "vec_drift", "WANDER", colour(), true),
-          driftRate (p.apvts, "vec_drift_rate", "WANDER RATE", colour(), true),
-          chipX (ModNames::sourceUpper ((int) Mod::Source::VectorX), (int) Mod::Source::VectorX),
-          chipY (ModNames::sourceUpper ((int) Mod::Source::VectorY), (int) Mod::Source::VectorY)
+          driftRate (p.apvts, "vec_drift_rate", "WANDER RATE", colour(), true)
     {
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
@@ -330,103 +330,30 @@ public:
                          "VECTOR or its PATH is off",
                          [this] { return readParam ("vec_on") > 0.5f ? IlanaTheme::dimmedAlpha : FilterColours::offAlpha; });
 
-        // Vector X / Y as sources, to drag onto any knob, while the vector
-        // plays (UI review 6, S36).
-        chipX.valueProvider = [this] { return processorRef.getVectorPosition().x; };
-        chipY.valueProvider = [this] { return processorRef.getVectorPosition().y; };
-        addChildComponent (chipX);
-        addChildComponent (chipY);
-
-        // EVOLVE: a row for each macro that evolves, and "+ MACRO" for the
-        // others (UI review 6, S36, V29).
-        for (int m = 0; m < Mod::numMacros; ++m)
-        {
-            evolveAmount.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve", "EVOLVE",
-                                                                    evolveColour(), true));
-            evolveRate.push_back (std::make_unique<KnobControl> (p.apvts, "macro" + juce::String (m + 1) + "_evolve_rate", "RATE",
-                                                                  evolveColour(), true));
-            addChildComponent (*evolveAmount.back());
-            addChildComponent (*evolveRate.back());
-        }
-        freeze.setButtonText ("FREEZE");
-        freeze.setTooltip ("Keeps the macros where Evolve has taken them, and stops the drift.");
-        freeze.onClick = [this] { processorRef.freezeEvolve(); };
-        addAndMakeVisible (freeze);
-        addMacro.setButtonText ("+  MACRO");
-        addMacro.setTooltip ("Let another macro drift within a range");
-        addMacro.onClick = [this] { showMacroMenu(); };
-        addAndMakeVisible (addMacro);
-        updateRows();
         startTimerHz (20);
     }
 
     // Not modulation sources, so not in a source's colour: the accent.
     static juce::Colour colour() { return IlanaTheme::accent(); }
-    static juce::Colour evolveColour() { return IlanaTheme::accent(); }
-
-    // The macros with an EVOLVE row (the UI test reads them).
-    const std::vector<int>& getEvolveRows() const { return rows; }
 
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
         IlanaTheme::paintCard (g, vectorCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-        IlanaTheme::paintCard (g, evolveCard.toFloat(), 7.0f, evolveColour().withAlpha (0.35f));
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
         IlanaTheme::paintCardHeader (g, header, "VECTOR",
-                                     chipX.isVisible() ? "four oscillators at the corners; drag X or Y onto a knob"
-                                                       : "four oscillators at the corners",
-                                     colour(), vectorCard.getRight() - chipX.getX() + 6);
-
-        header = evolveCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "EVOLVE", "macros drift in range", evolveColour(), 110);
-
-        if (rows.empty())
-        {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawFittedText ("No macro evolves. + MACRO lets one drift on its own within a range.",
-                              addMacro.getBounds().translated (0, -50).withHeight (40).withX (evolveCard.getX() + 14)
-                                  .withWidth (evolveCard.getWidth() - 28),
-                              juce::Justification::centred, 2);
-        }
-
-        // Each macro: its name, where it is set and where it has drifted to,
-        // with a hairline between rows.
-        for (size_t r = 0; r < rows.size(); ++r)
-        {
-            const auto m = rows[r];
-            const auto row = macroRows[r];
-            if (r > 0)
-            {
-                g.setColour (juce::Colours::white.withAlpha (0.07f));
-                g.fillRect (evolveCard.getX() + 12, row.getY() - 10, evolveCard.getWidth() - 24, 1);
-            }
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (processorRef.getMacroName (m).toUpperCase(), row.withWidth (110).withHeight (18), juce::Justification::centredLeft);
-            const auto bar = juce::Rectangle<float> ((float) row.getX(), (float) row.getY() + 24.0f, 100.0f, 6.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.1f));
-            g.fillRoundedRectangle (bar, 3.0f);
-            const auto set = readParam ("macro" + juce::String (m + 1));
-            const auto now = processorRef.macroValue (m);
-            g.setColour (juce::Colours::white.withAlpha (0.5f));
-            g.fillRect (bar.getX() + bar.getWidth() * set - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f);
-            g.setColour (evolveColour());
-            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ bar.getX() + bar.getWidth() * now, bar.getCentreY() }));
-        }
+                                     readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
+                                                                 : "four oscillators at the corners",
+                                     colour(), vectorCard.getRight() - on.getX() + 6);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
         // The pad gets most of the page, square at the card's full height
-        // (no band above it: V7-21); EVOLVE's rows take the width left.
-        const auto padSide = area.getHeight() - 30 - 12;
-        vectorCard = area.removeFromLeft (juce::jlimit (area.getWidth() * 55 / 100, area.getWidth() * 72 / 100, padSide + 250 + 12 + 24));
-        area.removeFromLeft (10);
-        evolveCard = area;
+        // (no band above it: V7-21); the controls take the width left.
+        vectorCard = area;
 
         auto inner = vectorCard.reduced (12, 0);
         inner.removeFromTop (30);
@@ -438,14 +365,8 @@ public:
         inner.removeFromLeft (12);
         const auto controlsHeight = 40 + 44 + 44 + 6 + 112 * 2 + 18;
         inner = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (inner.getHeight(), controlsHeight));
-        // The vector's on switch in its header, like every card's; the
-        // source chips before it.
+        // The vector's on switch in its header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
-        const auto chipWidth = (int) std::ceil (juce::jmax (chipX.getNaturalWidth(), chipY.getNaturalWidth()));
-        auto chips = juce::Rectangle<int> (on.getX() - 8 - 2 * chipWidth - 4, vectorCard.getY() + 3, 2 * chipWidth + 4, 22);
-        chipX.setBounds (chips.removeFromLeft (chipWidth));
-        chips.removeFromLeft (4);
-        chipY.setBounds (chips.removeFromLeft (chipWidth));
         auto toggles = inner.removeFromTop (40);
         path.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
         auto combos1 = inner.removeFromTop (44);
@@ -461,31 +382,6 @@ public:
         layoutRow (inner.removeFromTop (knobHeight), { &x, &y, &rate });
         inner.removeFromTop (18);
         layoutRow (inner.removeFromTop (knobHeight), { &drift, &driftRate, nullptr }); // on the row above's grid
-
-        auto list = evolveCard.reduced (12, 0);
-        list.removeFromTop (30);
-        // FREEZE is an action on the whole card: in its header, at the right.
-        freeze.setBounds (evolveCard.getRight() - 12 - 96, evolveCard.getY() + 4, 96, 20);
-        list.removeFromBottom (10);
-        const auto rowHeight = juce::jmin (96, list.getHeight() / juce::jmax (1, (int) rows.size() + 1));
-
-        for (size_t r = 0; r < rows.size(); ++r)
-        {
-            const auto m = (size_t) rows[r];
-            auto row = list.removeFromTop (rowHeight);
-            macroRows[r] = row.withWidth (116).withTrimmedTop (8);
-            row.removeFromLeft (120);
-            // A gap under each row, so a row's labels don't read as the
-            // values of the row above.
-            row.removeFromBottom (8);
-            evolveAmount[m]->setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 0));
-            evolveRate[m]->setBounds (row.reduced (2, 0));
-        }
-
-        if (rows.empty())
-            list = list.withSizeKeepingCentre (list.getWidth(), 60);
-
-        addMacro.setBounds (list.removeFromTop (40).withSizeKeepingCentre (120, 26));
     }
 
 private:
@@ -495,63 +391,6 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
-    bool evolves (int macro) const { return readParam ("macro" + juce::String (macro + 1) + "_evolve") > 0.0005f; }
-
-    // A row for each macro that evolves, or was added here.
-    void updateRows()
-    {
-        std::vector<int> wanted;
-
-        for (int m = 0; m < Mod::numMacros; ++m)
-            if (evolves (m) || added[(size_t) m])
-                wanted.push_back (m);
-
-        addMacro.setVisible ((int) wanted.size() < Mod::numMacros);
-
-        if (wanted == rows)
-            return;
-
-        rows = wanted;
-
-        for (int m = 0; m < Mod::numMacros; ++m)
-        {
-            const auto shown = std::find (rows.begin(), rows.end(), m) != rows.end();
-            evolveAmount[(size_t) m]->setVisible (shown);
-            evolveRate[(size_t) m]->setVisible (shown);
-        }
-
-        resized();
-        repaint();
-    }
-
-    void showMacroMenu()
-    {
-        juce::PopupMenu menu;
-        menu.addSectionHeader ("Evolve a macro");
-
-        for (int m = 0; m < Mod::numMacros; ++m)
-            if (std::find (rows.begin(), rows.end(), m) == rows.end())
-                menu.addItem (m + 1, processorRef.getMacroName (m));
-
-        juce::Component::SafePointer<VectorPage> safe (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addMacro), [safe] (int result)
-        {
-            if (safe != nullptr && result > 0)
-                safe->showMacro (result - 1);
-        });
-    }
-
-public:
-    // Gives a macro its EVOLVE row (the "+ MACRO" menu; the UI test).
-    void showMacro (int macro)
-    {
-        added[(size_t) juce::jlimit (0, Mod::numMacros - 1, macro)] = true;
-        updateRows();
-    }
-
-private:
-    IlanaAnim::ChangeGate changeGate;
-
     void timerCallback() override
     {
         const auto active = readParam ("vec_on") > 0.5f;
@@ -559,16 +398,11 @@ private:
             pad.setAlpha (alpha);
         effectRules.apply();
 
-        if (chipX.isVisible() != active)
+        if (shownActive != active)
         {
-            chipX.setVisible (active);
-            chipY.setVisible (active);
+            shownActive = active;
             repaint (vectorCard);
         }
-
-        updateRows();
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
-            repaint (evolveCard);
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -577,13 +411,8 @@ private:
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
     KnobControl x, y, rate, drift, driftRate;
-    ModSourceChip chipX, chipY;
-    std::vector<std::unique_ptr<KnobControl>> evolveAmount, evolveRate;
-    juce::TextButton freeze, addMacro;
-    juce::Rectangle<int> vectorCard, evolveCard;
-    std::array<juce::Rectangle<int>, Mod::numMacros> macroRows;
-    std::array<bool, Mod::numMacros> added {};
-    std::vector<int> rows;
+    juce::Rectangle<int> vectorCard;
+    bool shownActive = false;
 };
 
 // M8.7: the PHYSICAL page. The big view of one physical oscillator (the

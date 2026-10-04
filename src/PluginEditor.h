@@ -168,6 +168,8 @@ private:
     float displayScale() const;
     float hostScaleFactor() const;
 
+    // The hover line's own strip, between the pages and the source chips.
+    static constexpr int infoLineHeight = 16;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "1.3";
@@ -242,18 +244,19 @@ private:
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // Every LFO and envelope has a chip, shown while that module is in the
     // pool (or the matrix uses it). Parallel to chips; kind -1 for the
-    // performance sources, which always show.
+    // performance sources, which always show; -2 the Operator Env's (while
+    // an oscillator plays it), -3 the vector's (while it is on), -4 the
+    // patch MSEG (while routed).
     std::vector<std::pair<int, int>> chipReveal;
     std::vector<bool> chipWanted;
-    // Wanted, but folded into its group's chip because the bar is full.
+    // Wanted, but folded into its region's "+N" chip because it is full.
     std::vector<bool> chipFolded;
-    // Each chip's group (0 LFOs, 1 envelopes, 2 the rest), and whether the
-    // matrix routes its source (a routed chip folds last).
+    // Each chip's group (0 LFOs, 1 envelopes, 2 the rest).
     std::vector<int> chipGroup;
-    std::vector<bool> chipRouted;
-    bool folding = false; // some chip is folded now
-    // LFO / ENV / MORE: the chips a full bar folds away, in a tray.
+    // Each region's "+N": the chips it folds away, in a tray.
     std::array<std::unique_ptr<ModSourceGroupChip>, 3> groupChips;
+    static constexpr int chipPickerWidth = 34;
+    static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.

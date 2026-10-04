@@ -246,7 +246,7 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
 
         auto* reverbRow = rowFor (0);
         auto* cutoffRow = rowFor (1);
-        expect (cutoffRow != nullptr && cutoffRow->getDestinationBox().getText() == juce::String (juce::CharPointer_UTF8 ("Filter 1 \xe2\x80\xba Cutoff"))
+        expect (cutoffRow != nullptr && cutoffRow->getDestinationBox().getText() == juce::String (juce::CharPointer_UTF8 ("FILTER 1 \xe2\x80\xba Cutoff"))
                     && cutoffRow->getSourceBox().getText() == ModNames::source ((int) Mod::Source::Macro1, &processor),
                 "a matrix row names its destination 'Filter 1 > Cutoff' and its source as the strip does");
 
@@ -391,9 +391,9 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                 old.add (ModNames::destination (d));
         expect (nameOf ("opeg_lfo_pmd") == "OP LFO" + arrow + "Pitch Depth" && nameOf ("opeg_pitch_l1") == "OP PITCH" + arrow + "Peak"
                     && nameOf ("osc1_eg_r2") == "OSC 1" + arrow + "OP ENV Decay 1"
-                    && ModNames::destination ((int) Mod::Destination::Drift) == "Voice" + arrow + "Analog Drift"
-                    && nameOf ("lfo3_phys_a") == "LFO 3" + arrow + "Physics A" && nameOf ("macro2_evolve") == "Macro 2" + arrow + "Evolve"
-                    && nameOf ("fx_awtape_p2") == "FX AW Tape" + arrow + "Knob 2" && nameOf ("env7_hold") == "Env 7" + arrow + "Hold"
+                    && ModNames::destination ((int) Mod::Destination::Drift) == "VOICE" + arrow + "Analog Drift"
+                    && nameOf ("lfo3_phys_a") == "LFO 3" + arrow + "Physics A" && nameOf ("macro2_evolve") == "MACRO 2" + arrow + "Evolve"
+                    && nameOf ("fx_awtape_p2") == "FX AW TAPE" + arrow + "Knob 2" && nameOf ("env7_hold") == "ENV 7" + arrow + "Hold"
                     && old.isEmpty(),
                 "new destinations read 'Module › Control' (" + nameOf ("opeg_lfo_pmd") + ", " + nameOf ("osc1_eg_r2") + ", "
                     + nameOf ("fx_awtape_p2") + ")" + (old.isEmpty() ? juce::String() : "; old names: " + old.joinIntoString (", ")));
@@ -545,13 +545,14 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         // The bar files Op LFO with the LFOs and Op Pitch with the envelopes.
         std::vector<ModSourceChip*> found;
         findAll<ModSourceChip> (editor, found);
-        int lfo3X = -1, opLfoX = -1, filtEnvX = -1, opPitchX = -1, velocityX = -1;
+        int lfo1X = -1, lfo3X = -1, opLfoX = -1, filtEnvX = -1, opPitchX = -1, velocityX = -1;
         for (auto* chip : found)
             if (dynamic_cast<ModSourceTray*> (chip->getParentComponent()) == nullptr)
             {
                 const auto x = chip->getX();
                 switch ((Mod::Source) chip->getSourceIndex())
                 {
+                    case Mod::Source::Lfo1:       lfo1X = x; break;
                     case Mod::Source::Lfo3:       lfo3X = x; break;
                     case Mod::Source::OpLfo:      opLfoX = x; break;
                     case Mod::Source::FilterEnv:  filtEnvX = x; break;
@@ -560,8 +561,9 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                     default: break;
                 }
             }
-        expect (lfo3X < opLfoX && opLfoX < filtEnvX && filtEnvX < opPitchX && opPitchX < velocityX,
-                "the bar's order is LFOs, Op LFO, envelopes, Op Pitch, then performance");
+        // (Review 8: the Operator Env's chips lead their groups on a DX7 voice.)
+        expect (opLfoX < lfo1X && lfo1X < lfo3X && lfo3X < opPitchX && opPitchX < filtEnvX && filtEnvX < velocityX,
+                "the bar's order is OP LFO, LFOs, OP PITCH, envelopes, then performance");
 
         // A crowded bar: the tray opens over its group chip.
         std::vector<bool> lfoBefore;
@@ -575,7 +577,7 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         findAll<ModSourceGroupChip> (editor, groups);
         ModSourceGroupChip* lfoGroup = nullptr;
         for (auto* group : groups)
-            if (group->isVisible() && group->getLabel().startsWith ("LFO"))
+            if (group->isVisible() && group->getGroupName() == "LFOs")
                 lfoGroup = group;
         auto anchored = false;
         if (lfoGroup != nullptr && lfoGroup->onOpen != nullptr)
@@ -600,7 +602,7 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         for (auto* chip : found)
             if (chip->isVisible() && chip->getParentComponent() == line.getParentComponent())
                 overChips = overChips || chip->getBounds().intersects (line.getBounds());
-        expect (! overChips && line.getBounds().getBottom() <= lfoGroup->getY() + 2,
+        expect (! overChips && lfoGroup != nullptr && line.getBounds().getBottom() <= lfoGroup->getY() + 2,
                 "the hover line sits above the source chips, not over them");
 
         // Its title is the matrix's name for the knob.

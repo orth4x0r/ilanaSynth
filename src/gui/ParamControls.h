@@ -170,6 +170,20 @@ inline int& pinnedModSource()
     return source;
 }
 
+// The source a drag under way carries ("modsource:N" from a chip, a macro,
+// an LFO or envelope card), 0 while none is dragged. Knobs poll it to show
+// every drop target as soon as a drag starts (review 8, V8-10).
+inline int modSourceBeingDragged (juce::Component& component)
+{
+    auto* container = juce::DragAndDropContainer::findParentDragContainerFor (&component);
+
+    if (container == nullptr || ! container->isDragAndDropActive())
+        return 0;
+
+    const auto description = container->getCurrentDragDescription().toString();
+    return description.startsWith ("modsource:") ? description.fromFirstOccurrenceOf (":", false, false).getIntValue() : 0;
+}
+
 // One colour per modulation source, used by its chip, its card (LFO and
 // envelope pages), its tabs, the matrix and the rings on knobs it moves.
 // Every source has its own: macros step from yellow to amber (and carry
@@ -832,6 +846,10 @@ public:
     // Whether a mod slot routes this source into the knob, and whether the
     // source pinned by a chip click is one of them (the knob is lit).
     bool isDrivenBy (int source) const { return routesFrom (source); }
+    // The source a drag under way carries, as the knob last saw it (V8-10;
+    // the tests set it with showDragTarget).
+    int getShownDragSource() const { return dragSource; }
+    void showDragTarget (int source) { dragSource = source; repaint(); }
     bool isLitByPinnedSource() const { return pinnedModSource() != 0 && routesFrom (pinnedModSource()); }
 
     // Compact knobs (bottom strip) have no label or value box: the owner
@@ -905,7 +923,7 @@ public:
         modCardHeld = held;
         if (modHoverHooks().show != nullptr && ! routings.empty())
         {
-            modHoverHooks().show (*this, ringConfig.destination, ModNames::destination (ringConfig.destination).toUpperCase());
+            modHoverHooks().show (*this, ringConfig.destination, ModNames::destination (ringConfig.destination));
             modCardOpen = true;
         }
     }
@@ -961,8 +979,37 @@ public:
             g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), highlighted == pinned ? 2.0f : 1.5f);
         }
 
+        // While a source is dragged, every knob says whether it takes it:
+        // a target ring in the source's colour, or dimmed (V8-10). The one
+        // under the mouse lights up fully (below).
+        if (dragSource != 0 && ! dragHover && ! sourceKnob)
+        {
+            if (isModulatable())
+            {
+                const auto radius = outerRingRadius() + 2.5f;
+                const juce::Graphics::ScopedSaveState clip (g);
+                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                g.setColour (modSourceColour (dragSource).withAlpha (0.5f));
+                g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 1.5f);
+            }
+            else
+            {
+                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.45f));
+                g.fillRoundedRectangle (knobBounds.toFloat().reduced (2.0f), 6.0f);
+            }
+        }
+
         if (dragHover)
         {
+            if (isModulatable() && dragSource != 0)
+            {
+                const auto radius = outerRingRadius() + 2.5f;
+                const juce::Graphics::ScopedSaveState clip (g);
+                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                g.setColour (modSourceColour (dragSource));
+                g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 2.5f);
+            }
+
             // A knob that can't take the source greys and is struck through.
             const auto area = knobBounds.toFloat().reduced (2.0f);
             g.setColour (isModulatable() ? juce::Colours::white.withAlpha (0.16f) : IlanaTheme::Ui::bg.withAlpha (0.55f));
@@ -1706,6 +1753,12 @@ private:
         if (! isShowing())
             return;
 
+        if (const auto dragged = modSourceBeingDragged (*this); dragged != dragSource)
+        {
+            dragSource = dragged;
+            repaint();
+        }
+
         const auto targetGlow = hover ? 1.0f : 0.0f;
         glow = IlanaAnim::approach (glow, targetGlow, 0.22f, frameTicks());
 
@@ -1809,7 +1862,8 @@ private:
     {
         if (ringConfig.destination != 0)
             return ModNames::destination (ringConfig.destination);
-        return parameter != nullptr ? ModNames::detail::paramName (parameterId, parameter->getName (64)).full() : parameterId;
+        return parameter != nullptr ? ModNames::asLabelled (ModNames::detail::paramName (parameterId, parameter->getName (64))).full()
+                                    : parameterId;
     }
 
     // Tooltip and track for whether the knob takes a source: a dotted
@@ -1849,6 +1903,7 @@ private:
     float activity = 0.0f;
     double lastSliderValue = 0.0;
     bool dragHover = false;
+    int dragSource = 0; // the source being dragged anywhere (V8-10)
     bool hover = false;
     bool compact = false;
     bool sourceKnob = false;

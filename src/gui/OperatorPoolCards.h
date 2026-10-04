@@ -619,7 +619,7 @@ public:
         {
             // Room for the title and a word of the line before it.
             const auto room = header.getWidth() - 150;
-            const auto width = picker.getQuietWidth() <= room ? picker.getQuietWidth() : juce::jmin (room, picker.getShortWidth());
+            const auto width = juce::jmin (header.getWidth(), picker.getQuietWidth() <= room ? picker.getQuietWidth() : picker.getShortWidth());
             picker.setBounds (header.removeFromRight (juce::jmax (0, width)).withSizeKeepingCentre (juce::jmax (0, width), 22));
             headerLeft = picker.getX();
         }
@@ -697,8 +697,11 @@ private:
         effectRules.apply();
         texts.refresh (processorRef);
         const auto unused = place == Place::pool && ! FmOperatorInfo::anyOperatorEnv (processorRef);
-        if (unused != useButton.isVisible())
+        const auto useText = "USE ON OSC " + juce::String (firstShownOscillator() + 1);
+        if (unused != useButton.isVisible() || (unused && useButton.getButtonText() != useText))
         {
+            useButton.setButtonText (useText);
+            useButton.setTooltip ("Set OSC " + juce::String (firstShownOscillator() + 1) + "'s ENVELOPE to OP ENV, so these knobs shape it");
             useButton.setVisible (unused);
             resized();
         }
@@ -708,11 +711,17 @@ private:
 
     // Unused (I8-39): a button sets the first oscillator's ENVELOPE to OP
     // ENV, so the knobs say whose envelope they would change.
-    void useOnFirstOscillator()
+    int firstShownOscillator() const
     {
         auto osc = 0;
         while (osc < OscillatorIds::count - 1 && ! processorRef.isOscillatorShown (osc))
             ++osc;
+        return osc;
+    }
+
+    void useOnFirstOscillator()
+    {
+        const auto osc = firstShownOscillator();
         if (auto* parameter = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (osc) + "_amp_env"))
             processorRef.performEdit ("OSC " + juce::String (osc + 1) + " plays OP ENV", [parameter]
             {

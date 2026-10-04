@@ -372,7 +372,7 @@ private:
         const auto tune = juce::roundToInt (read (prefix + "_tune"));
         auto text = tune == OscTuning::Ratio || tune == OscTuning::Fixed ? FmOperatorInfo::tuningText (processorRef, selectedOperator)
                                                                          : juce::String ("semitones");
-        text << dot << (usesOperatorEnv (selectedOperator) ? "Operator Env" : operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText());
+        text << dot << (usesOperatorEnv (selectedOperator) ? "OP ENV" : operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText());
         // OUT or MOD, as its node in the diagram says.
         text << dot << (read (prefix + "_out") > 0.5f ? "OUT" : "MOD");
         if (! FmOperatorInfo::isPlaying (processorRef, selectedOperator))
@@ -484,7 +484,8 @@ private:
             // Names while the title and a line about the operator fit
             // beside them, else just the numbers.
             const auto room = tabs.getWidth() - 200;
-            const auto width = picker.getQuietWidth() <= room ? picker.getQuietWidth() : juce::jmin (juce::jmax (0, room), picker.getShortWidth());
+            // Every operator always shows: the line about it gives way.
+            const auto width = juce::jmin (tabs.getWidth(), picker.getQuietWidth() <= room ? picker.getQuietWidth() : picker.getShortWidth());
             picker.setBounds (tabs.removeFromRight (width));
             tabsLeft = picker.getX();
         }

@@ -1995,9 +1995,12 @@ int runUiTests()
         // The operator panel follows the selected operator and its tuning.
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
-        for (auto* button : buttons)
-            if (button->getButtonText() == "OSC 2" && visibleInTree (button))
-                button->triggerClick();
+        // The operators on the one picker (UI review 8, I8-10).
+        std::vector<OscPicker*> pickers;
+        findAll<OscPicker> (*editor, pickers);
+        for (auto* picker : pickers)
+            if (visibleInTree (picker))
+                picker->pick (1);
         set ("osc2_tune", (float) OscTuning::Ratio);
         settle (400);
         expect (visibleKnob ("osc2_ratio") && ! visibleKnob ("osc1_ratio") && ! visibleKnob ("osc2_fixed_hz"),
@@ -2246,7 +2249,13 @@ int runUiTests()
             auto pitchShown = false;
             for (auto* candidate : graphs)
                 pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
-            expect (pitchShown, "PITCH & LFO shows the pitch envelope's graph");
+            expect (pitchShown, "OP PITCH · OP LFO opens the pitch envelope's graph");
+            // The link left MOD on OP PITCH: back to OP ENV, where the voice
+            // opened it.
+            if (auto* page = pages->getCurrentPage())
+                if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
+                    envCards->onSelect (16);
+            settle (200);
 
             // The MOD pools carry OP ENV, OP PITCH and OP LFO as pool cards,
             // edited in place (UI review 7, I7-7); a DX7 voice opens on OP

@@ -71,6 +71,9 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
         { "f2_drive", D::Filter2Drive, 1.0f }, { "f2_env", D::Filter2Env, 0.5f }, { "f2_fm", D::Filter2Fm, 0.5f },
         { "f2_morph", D::Filter2Morph, 1.0f },
         { "fm_amount", D::FmAmount, 1.0f }, { "fm_feedback", D::FmFeedback, 1.0f },
+        { "fm_1to2", D::Fm1to2, 1.0f }, { "fm_1to3", D::Fm1to3, 1.0f }, { "fm_2to3", D::Fm2to3, 1.0f },
+        { "fm_3to1", D::Fm3to1, 1.0f }, { "fm_3to2", D::Fm3to2, 1.0f },
+        { "fm_fb2", D::Fm2Feedback, 1.0f }, { "fm_fb3", D::Fm3Feedback, 1.0f },
         { "ring_mod", D::RingMod, 1.0f }, { "drift", D::Drift, 1.0f },
         { "lfo1_rate", D::Lfo1Rate, 0.3f }, { "lfo2_rate", D::Lfo2Rate, 0.3f },
         { "lfo3_rate", D::Lfo3Rate, 0.3f }, { "lfo4_rate", D::Lfo4Rate, 0.3f }, { "mseg_rate", D::MsegRate, 0.3f },
@@ -254,9 +257,10 @@ inline juce::String& knobClipboard()
     return value;
 }
 
-// The badges beside a modulated knob: one per routing into it, in the
-// source's colour, filled like a pie to show the depth (a macro's carries
-// its number). They are the legend for the knob's rings, and controls too:
+// The badges beside a modulated knob: one per routing into it, a disc in
+// the source's colour (a macro's carries its number). They are the legend
+// for the knob's rings, shown while the knob is hovered (V7-27), and
+// controls too:
 // drag one up or down to set that routing's depth, double-click it to zero
 // the depth (as knobs, rings and the source card do), right-click it to
 // bypass or remove the routing. More routings than fit show as a "+N"
@@ -324,22 +328,17 @@ public:
             g.setColour (colour.withAlpha (active ? 0.35f : 0.16f));
             g.fillEllipse (area.expanded (active ? 2.0f : 1.0f));
 
-            // Fill shows the depth: a pie from 12 o'clock, clockwise for
-            // positive and anticlockwise for negative.
+            // A plain disc in the source's colour: the ring shows the depth,
+            // the badge only which source it is (review 7, V7-27: no pie).
             g.setColour (IlanaTheme::Ui::bg);
             g.fillEllipse (area);
-
-            juce::Path pie;
-            const auto angle = juce::jlimit (-1.0f, 1.0f, dot.depth) * juce::MathConstants<float>::twoPi;
-            pie.addPieSegment (area.reduced (1.0f), 0.0f, angle, 0.0f);
-            g.setColour (colour.withAlpha (dot.bypass ? 0.35f : 1.0f));
-            g.fillPath (pie);
-
+            g.setColour (colour.withAlpha (dot.bypass ? 0.3f : 0.9f));
+            g.fillEllipse (area.reduced (1.0f));
             g.setColour (colour.withAlpha (dot.bypass ? 0.4f : 0.95f));
             g.drawEllipse (area.reduced (0.5f), 1.2f);
 
             // A macro's number, white with a dark outline so it reads on
-            // both the yellow and the dark part of the pie.
+            // its colour.
             if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0)
                 paintOutlinedText (g, juce::String (macro + 1), area, IlanaTheme::TextSize::tiny);
         }
@@ -588,6 +587,98 @@ inline bool handleMidiLearnResult (int result, IlanaSynthAudioProcessor& process
     return true;
 }
 
+// A one-line note that floats over a control for a moment and fades (a
+// source dropped on a knob that can't take it, I7-5). One at a time; it
+// lives in the editor's scaled content and goes with it.
+class FloatingNote : public juce::Component,
+                     private juce::ComponentListener,
+                     private juce::Timer
+{
+public:
+    static void show (juce::Component& anchor, const juce::String& text)
+    {
+        // The anchor's ancestor just under the top level: the editor's
+        // content, drawn at the zoom.
+        juce::Component* host = &anchor;
+        while (host->getParentComponent() != nullptr && host->getParentComponent()->getParentComponent() != nullptr)
+            host = host->getParentComponent();
+        if (host == &anchor)
+            return;
+
+        delete current().getComponent();
+        auto* note = new FloatingNote (text, *host);
+        current() = note;
+
+        const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        const auto width = juce::GlyphArrangement::getStringWidthInt (font, text) + 24;
+        const auto at = host->getLocalArea (&anchor, anchor.getLocalBounds());
+        auto bounds = juce::Rectangle<int> (width, 26).withCentre ({ at.getCentreX(), at.getY() - 15 });
+        bounds = bounds.constrainedWithin (host->getLocalBounds().reduced (4));
+        note->setBounds (bounds);
+    }
+
+    // The note on screen now, for the tests (empty when none).
+    static juce::String shownText() { return current() != nullptr ? current()->text : juce::String(); }
+
+    ~FloatingNote() override
+    {
+        if (host != nullptr)
+            host->removeComponentListener (this);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        g.drawText (text, getLocalBounds(), juce::Justification::centred, false);
+    }
+
+private:
+    FloatingNote (const juce::String& textIn, juce::Component& hostIn) : text (textIn), host (&hostIn)
+    {
+        setInterceptsMouseClicks (false, false);
+        host->addAndMakeVisible (this);
+        host->addComponentListener (this);
+        toFront (false);
+        startTimerHz (30);
+    }
+
+    static juce::Component::SafePointer<FloatingNote>& current()
+    {
+        static juce::Component::SafePointer<FloatingNote> note;
+        return note;
+    }
+
+    void timerCallback() override
+    {
+        life -= 1.0f / 30.0f;
+        setAlpha (juce::jlimit (0.0f, 1.0f, life / 0.4f));
+        if (life <= 0.0f)
+        {
+            stopTimer();
+            setVisible (false);
+            juce::MessageManager::callAsync ([note = juce::Component::SafePointer<FloatingNote> (this)] { delete note.getComponent(); });
+        }
+    }
+
+    void componentBeingDeleted (juce::Component&) override
+    {
+        host->removeComponentListener (this);
+        host = nullptr;
+        stopTimer();
+        delete this;
+    }
+
+    juce::String text;
+    juce::Component* host = nullptr;
+    float life = 2.2f;
+};
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -669,15 +760,7 @@ public:
         {
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
 
-            const auto description = describeParameter (parameterID);
-            const auto modHint = ringConfig.destination != 0
-                                     ? juce::String ("  Drop a mod source here, or right-click to modulate.")
-                                     : juce::String();
-            const auto tooltip = parameter->getName (64)
-                                 + (description.isNotEmpty() || modHint.isNotEmpty() ? "\n" + description + modHint : "");
-            slider.setTooltip (tooltip);
-            setTooltip (tooltip);
-            baseTooltip = tooltip;
+            applyModulatableMark();
         }
 
         lastSliderValue = slider.getValue();
@@ -738,6 +821,14 @@ public:
     // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
     void syncRoutings() { refreshRoutings(); }
     ModDotStrip& getDotStrip() { return dotStrip; }
+    // Shows the badges as a hover does (the tests); false leaves them to the mouse.
+    void setBadgesShown (bool shown)
+    {
+        badgesForced = shown;
+        badgesShown = shown && ! routings.empty();
+        layoutDots();
+    }
+    bool areBadgesShown() const { return dotStrip.isVisible(); }
     // Whether a mod slot routes this source into the knob, and whether the
     // source pinned by a chip click is one of them (the knob is lit).
     bool isDrivenBy (int source) const { return routesFrom (source); }
@@ -772,6 +863,7 @@ public:
     void setModulationTarget (const juce::String& targetParameterId)
     {
         ringConfig = modRingConfigFor (targetParameterId);
+        applyModulatableMark();
         routings.clear();
         dotStrip.setDots (routings);
         refreshRoutings();
@@ -871,8 +963,17 @@ public:
 
         if (dragHover)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.16f));
-            g.fillRoundedRectangle (knobBounds.toFloat().reduced (2.0f), 6.0f);
+            // A knob that can't take the source greys and is struck through.
+            const auto area = knobBounds.toFloat().reduced (2.0f);
+            g.setColour (isModulatable() ? juce::Colours::white.withAlpha (0.16f) : IlanaTheme::Ui::bg.withAlpha (0.55f));
+            g.fillRoundedRectangle (area, 6.0f);
+            if (! isModulatable())
+            {
+                const auto cross = juce::Rectangle<float> (16.0f, 16.0f).withCentre (rotaryArea().getCentre());
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawEllipse (cross, 1.6f);
+                g.drawLine ({ cross.getBottomLeft() + juce::Point<float> (3.0f, -3.0f), cross.getTopRight() + juce::Point<float> (-3.0f, 3.0f) }, 1.6f);
+            }
         }
 
         paintRings (g, highlighted);
@@ -999,12 +1100,26 @@ public:
         layoutDots();
     }
 
+    // A knob that can't be modulated still takes the drag, to say so: it
+    // greys while a source hovers it and a dropped source leaves a note.
     bool isInterestedInDragSource (const SourceDetails& details) override
     {
-        return processorRef != nullptr
-               && ringConfig.destination != 0
-               && details.description.toString().startsWith ("modsource:");
+        return processorRef != nullptr && details.description.toString().startsWith ("modsource:");
     }
+
+    // Whether a source can be routed here (else the knob is drawn with a
+    // dashed track and refuses drops, I7-5).
+    bool isModulatable() const { return ringConfig.destination != 0; }
+
+    // A knob that is itself a source (a macro): no dotted track.
+    void setIsSourceKnob()
+    {
+        sourceKnob = true;
+        applyModulatableMark();
+    }
+
+    // The note a refused drop leaves ("OSC 1 › Unison can't be modulated").
+    juce::String refusalText() const { return displayName() + " can't be modulated"; }
 
     void itemDragEnter (const SourceDetails&) override
     {
@@ -1024,6 +1139,13 @@ public:
 
         if (processorRef == nullptr)
             return;
+
+        if (! isModulatable())
+        {
+            FloatingNote::show (*this, refusalText());
+            repaint();
+            return;
+        }
 
         const auto sourceIndex = details.description.toString()
                                      .fromFirstOccurrenceOf ("modsource:", false, false)
@@ -1108,7 +1230,20 @@ private:
         const auto centre = dialCentre();
         const auto distance = position.getDistanceFrom (centre);
 
-        if (distance < ringRadius (0) - 2.5f || distance > ringRadius (count - 1) + 3.0f)
+        // A source pinned (or hovered) in the chip bar owns the whole band,
+        // at least 8 px, and with Alt held the whole knob (S7-33).
+        const auto focus = highlightedModSource() != 0 ? highlightedModSource() : pinnedModSource();
+        auto focusRing = -1;
+        for (int i = 0; i < count && focus != 0; ++i)
+            if (routings[(size_t) i].source == focus)
+                focusRing = i;
+
+        if (focusRing >= 0 && juce::ModifierKeys::currentModifiers.isAltDown() && distance <= ringRadius (count - 1) + 4.0f)
+            return focusRing;
+
+        const auto inner = ringRadius (0) - (focusRing >= 0 ? 4.0f : 2.5f);
+        const auto outer = ringRadius (count - 1) + (focusRing >= 0 ? 4.0f : 3.0f);
+        if (distance < inner || distance > outer)
             return -1;
 
         // JUCE's angles: 0 at 12 o'clock, clockwise.
@@ -1117,6 +1252,9 @@ private:
             angle += juce::MathConstants<float>::twoPi;
         if (angle > juce::MathConstants<float>::pi * 0.8f && angle < juce::MathConstants<float>::pi * 1.2f)
             return -1;
+
+        if (focusRing >= 0)
+            return focusRing;
 
         auto nearest = 0;
         for (int i = 1; i < count; ++i)
@@ -1304,11 +1442,12 @@ private:
         const auto stripW = ModDotStrip::stripWidth, pitch = ModDotStrip::dotPitch;
         const auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
 
-        // Beside the rings, a column of badges as tall as the dial. A knob
-        // too narrow for that leaves its routings to the rings (and its
-        // card); only those past the three rings get a badge, in its
-        // top-right corner: the routing's own, or "+N".
-        const auto roomBeside = getWidth() - x >= stripW - 1;
+        // Beside the rings, a column of badges as tall as the dial, while
+        // the knob is hovered (the rings are the legend the rest of the
+        // time, V7-27). A knob too narrow for that leaves its routings to
+        // the rings (and its card); only those past the three rings get a
+        // badge, in its top-right corner: the routing's own, or "+N".
+        const auto roomBeside = getWidth() - x >= stripW - 1 && (badgesShown || (int) routings.size() > maxRings);
         juce::Rectangle<int> bounds;
 
         if (roomBeside)
@@ -1399,7 +1538,7 @@ public:
         // Only the LFOs and envelopes in the pools (a source that has no
         // card isn't offered); "New LFO" / "New envelope" adds the next.
         // The LFOs' B outputs file under LFOs.
-        for (int i = 1; i < (int) Mod::Source::Count; ++i)
+        for (const auto i : ModNames::sourcesInMenuOrder())
         {
             const auto source = (Mod::Source) i;
             if (source == Mod::Source::InputEnv && ! IlanaSynthAudioProcessor::isEffectBuild)
@@ -1602,6 +1741,13 @@ private:
         // It stays while the mouse is on the card, after a moment's grace to
         // cross the gap between them.
         const auto overKnob = isMouseOver (true) && ! slider.isMouseButtonDown();
+
+        if (const auto wantBadges = ! routings.empty() && (isMouseOverOrDragging (true) || badgesForced); wantBadges != badgesShown)
+        {
+            badgesShown = wantBadges;
+            layoutDots();
+        }
+
         const auto cardEngaged = modCardOpen && modHoverHooks().engaged != nullptr && modHoverHooks().engaged (*this);
 
         if (! routings.empty() && (overKnob || cardEngaged))
@@ -1657,6 +1803,34 @@ private:
 
     IlanaSynthAudioProcessor* processorRef = nullptr;
     juce::RangedAudioParameter* parameter = nullptr;
+    // The knob's name as the matrix writes it ("OSC 1 › Frame", S7-20),
+    // the first line of its tooltip and the hover line's title.
+    juce::String displayName() const
+    {
+        if (ringConfig.destination != 0)
+            return ModNames::destination (ringConfig.destination);
+        return parameter != nullptr ? ModNames::detail::paramName (parameterId, parameter->getName (64)).full() : parameterId;
+    }
+
+    // Tooltip and track for whether the knob takes a source: a dotted
+    // track and "Not modulatable" when it doesn't (I7-5).
+    void applyModulatableMark()
+    {
+        slider.getProperties().set ("notModulatable", ! isModulatable() && ! sourceKnob);
+        slider.repaint();
+
+        if (parameter == nullptr)
+            return;
+
+        const auto description = describeParameter (parameterId);
+        const auto modHint = isModulatable() ? juce::String ("  Drop a mod source here, or right-click to modulate.")
+                                             : juce::String ("  Not modulatable.");
+        baseTooltip = displayName() + "\n" + description + modHint;
+        const auto tooltip = baseTooltip + (inactiveNote.isNotEmpty() ? "\n(No effect now: " + inactiveNote + ")" : juce::String());
+        slider.setTooltip (tooltip);
+        setTooltip (tooltip);
+    }
+
     ModRingConfig ringConfig;
     juce::String parameterId;
     juce::Colour knobAccent;
@@ -1677,6 +1851,9 @@ private:
     bool dragHover = false;
     bool hover = false;
     bool compact = false;
+    bool sourceKnob = false;
+    bool badgesShown = false; // the mouse is on the knob (or its badges)
+    bool badgesForced = false; // (the tests and snapshots)
     int maxDial = IlanaTheme::KnobSize::main;
     juce::String baseTooltip, inactiveNote;
 };

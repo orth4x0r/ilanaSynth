@@ -421,7 +421,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // shown while that module is added (or the matrix uses it), with the
     // rest one click away behind "+". The performance sources always show.
     // Names are the sources' one name (ModNames), never a code: a full bar
-    // folds the last chips of each group into a group chip instead.
+    // folds its rarest chips into a group chip instead (layoutChips).
+    // Three groups, as the MOD page's rows and the source menus file them
+    // (review 7, I7-16): LFOs then the MSEG and the Op LFO; envelopes then
+    // Op Pitch; the performance sources and the vector's X / Y.
     struct ChipSpec
     {
         Mod::Source source;
@@ -430,29 +433,39 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     std::vector<ChipSpec> chipSpecs;
     for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         chipSpecs.push_back ({ Mod::lfoSourceFor (lfo), (int) IlanaSynthAudioProcessor::Module::Lfo, lfo });
-    for (int env = 0; env < 16; ++env)
-        chipSpecs.push_back ({ ModNames::envelopeSourceFor (env), (int) IlanaSynthAudioProcessor::Module::Envelope, env });
-    for (const auto source : { Mod::Source::Velocity, Mod::Source::KeyTrack, Mod::Source::ModWheel, Mod::Source::Aftertouch,
-                               Mod::Source::Random, Mod::Source::Mseg, Mod::Source::InputEnv })
-        chipSpecs.push_back ({ source });
+    chipSpecs.push_back ({ Mod::Source::Mseg });
     // The Operator Env's LFO and pitch envelope (UI review 6), shown while an
     // oscillator plays the Operator Env or the matrix uses them (kind -2).
     chipSpecs.push_back ({ Mod::Source::OpLfo, -2 });
+    for (int env = 0; env < 16; ++env)
+        chipSpecs.push_back ({ ModNames::envelopeSourceFor (env), (int) IlanaSynthAudioProcessor::Module::Envelope, env });
     chipSpecs.push_back ({ Mod::Source::OpPitchEnv, -2 });
+    for (const auto source : { Mod::Source::Velocity, Mod::Source::KeyTrack, Mod::Source::ModWheel, Mod::Source::Aftertouch,
+                               Mod::Source::Random, Mod::Source::InputEnv })
+        chipSpecs.push_back ({ source });
+    // The vector pad's position, while the vector is on (kind -3; I7-22).
+    chipSpecs.push_back ({ Mod::Source::VectorX, -3 });
+    chipSpecs.push_back ({ Mod::Source::VectorY, -3 });
 
     for (const auto& spec : chipSpecs)
     {
         // The input's envelope only exists in ilanaSynth FX.
         if (spec.source == Mod::Source::InputEnv && ! IlanaSynthAudioProcessor::isEffectBuild)
             continue;
+        // One chip per source, whatever else lists it.
+        if (std::any_of (chips.begin(), chips.end(), [&spec] (const auto& c) { return c->getSourceIndex() == (int) spec.source; }))
+            continue;
 
         auto chip = makeSourceChip ((int) spec.source);
         content.addAndMakeVisible (*chip);
         chip->setVisible (spec.revealKind == -1);
+        const auto group = ModNames::groupOf ((int) spec.source);
+        chipGroup.push_back (group == ModNames::SourceGroup::lfo ? 0 : group == ModNames::SourceGroup::envelope ? 1 : 2);
         chips.push_back (std::move (chip));
         chipReveal.push_back ({ spec.revealKind, spec.revealIndex });
         chipWanted.push_back (spec.revealKind == -1);
         chipFolded.push_back (false);
+        chipRouted.push_back (false);
     }
 
     const char* const groupNames[] { "LFO", "ENV", "MORE" };
@@ -745,14 +758,26 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
             continue;
 
         const auto source = juce::jlimit (0, (int) Mod::Source::Count - 1, chips[i]->getSourceIndex());
-        const auto wanted = (kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
-                                        : processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index))
-                            || usedModSources[(size_t) source];
+        const auto shown = kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
+                         : kind == -3 ? processorRef.apvts.getRawParameterValue ("vec_on")->load() > 0.5f
+                         : kind >= 0 && processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index);
+        const auto wanted = shown || usedModSources[(size_t) source];
 
         if (chipWanted[i] != wanted)
         {
             chipWanted[i] = wanted;
             changed = true;
+        }
+    }
+
+    // A crowded bar folds unrouted chips first, so routing one can move it.
+    for (size_t i = 0; i < chips.size() && i < chipRouted.size(); ++i)
+    {
+        const auto routed = usedModSources[(size_t) juce::jlimit (0, (int) Mod::Source::Count - 1, chips[i]->getSourceIndex())];
+        if (chipRouted[i] != routed)
+        {
+            chipRouted[i] = routed;
+            changed = changed || (chipWanted[i] && chipFolded[i]) || folding;
         }
     }
 
@@ -806,21 +831,23 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
 
 // The bar, in three groups (LFOs | envelopes | performance) with a gap
 // between them: every shown chip at its full name's width, the spare shared
-// out, then the "+" picker. When they don't all fit, the group with the most
-// chips folds its last one into a group chip ("ENV +3"), and so on, LFOs and
-// envelopes before the performance sources; nothing is ever shortened to a
-// code (UI review 6, V6-9 / S6-19).
+// out, then the "+" picker. When they don't all fit, the rarest chip folds
+// into its group's chip ("LFO +2") first, and so on (review 7, V7-6 / S7-8):
+// unrouted Random, Pressure, MSEG, Op LFO, Op Pitch and the vector's X / Y;
+// then unrouted pool chips past the third of their group; then the other
+// unrouted performance chips; then LFO / ENV 2 and 3; a routed chip last.
+// Widths are measured the same way at every zoom, so the bar folds alike at
+// 75 % and 100 % (V7-39); nothing is ever shortened to a code.
 void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
 {
     if (chips.empty())
         return;
 
-    using Module = IlanaSynthAudioProcessor::Module;
     std::array<std::vector<size_t>, 3> members;
 
     for (size_t i = 0; i < chips.size(); ++i)
         if (chipWanted[i])
-            members[chipReveal[i].first == (int) Module::Lfo ? 0 : chipReveal[i].first == (int) Module::Envelope ? 1 : 2].push_back (i);
+            members[(size_t) chipGroup[i]].push_back (i);
 
     // A pool chip left to add (the Operator Env's come and go by themselves).
     auto picker = false;
@@ -829,9 +856,11 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
     const auto pickerWidth = picker ? 34.0f : 0.0f;
     constexpr float groupGap = 10.0f;
     const char* const groupNames[] { "LFO", "ENV", "MORE" };
-    std::array<int, 3> shown { (int) members[0].size(), (int) members[1].size(), (int) members[2].size() };
 
-    const auto widthOf = [&] (const std::array<int, 3>& counts)
+    for (size_t i = 0; i < chips.size(); ++i)
+        chipFolded[i] = false;
+
+    const auto widthOf = [&]
     {
         auto sum = pickerWidth;
         auto groups = 0;
@@ -842,36 +871,85 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
                 continue;
 
             ++groups;
-            for (int k = 0; k < counts[g]; ++k)
-                sum += chips[members[g][(size_t) k]]->getNaturalWidth();
+            auto folded = 0;
+            for (const auto index : members[g])
+            {
+                if (chipFolded[index])
+                    ++folded;
+                else
+                    sum += chips[index]->getLayoutWidth();
+            }
 
-            if (counts[g] < (int) members[g].size())
-                sum += ModSourceGroupChip::widthFor (groupNames[g], (int) members[g].size() - counts[g]);
+            if (folded > 0)
+                sum += ModSourceGroupChip::layoutWidthFor (groupNames[g], folded);
         }
 
         return sum + groupGap * (float) juce::jmax (0, groups - 1);
+    };
+
+    // How readily a chip folds (higher first; later in the bar first among
+    // equals).
+    const auto foldRank = [&] (size_t index, int positionInGroup)
+    {
+        using S = Mod::Source;
+        const auto source = (S) chips[index]->getSourceIndex();
+        const auto rare = source == S::Random || source == S::Aftertouch || source == S::Mseg || source == S::OpLfo
+                          || source == S::OpPitchEnv || source == S::VectorX || source == S::VectorY || source == S::InputEnv;
+        const auto pool = chipReveal[index].first >= 0;
+
+        if (chipRouted[index])
+            return 0;
+        if (rare)
+            return 4;
+        if (pool && positionInGroup >= 3)
+            return 3;
+        if (! pool)
+            return 2;
+        return positionInGroup == 0 ? 0 : 1;
     };
 
     // With the pool full there's no "+" to end the row: keep a group's gap
     // clear at the end instead, so the last chip isn't flush with the edge.
     const auto available = (float) row.getWidth() - (picker ? 0.0f : groupGap);
 
-    while (widthOf (shown) > available)
+    while (widthOf() > available)
     {
-        // The LFOs or envelopes, whichever shows more; the performance
-        // sources only once both are folded.
-        auto g = shown[0] >= shown[1] ? 0 : 1;
-        if (shown[(size_t) g] == 0)
-            g = 2;
-        if (shown[(size_t) g] == 0)
+        auto best = chips.size();
+        auto bestRank = -1, bestOrder = -1;
+
+        for (size_t g = 0; g < 3; ++g)
+            for (size_t k = 0; k < members[g].size(); ++k)
+            {
+                const auto index = members[g][k];
+                if (chipFolded[index])
+                    continue;
+                const auto rank = foldRank (index, (int) k);
+                const auto order = (int) index;
+                if (rank > bestRank || (rank == bestRank && order > bestOrder))
+                {
+                    best = index;
+                    bestRank = rank;
+                    bestOrder = order;
+                }
+            }
+
+        if (best == chips.size())
             break;
-        --shown[(size_t) g];
+        chipFolded[best] = true;
     }
 
-    const auto used = widthOf (shown);
+    const auto used = widthOf();
     auto items = 0;
     for (size_t g = 0; g < 3; ++g)
-        items += shown[g] + (shown[g] < (int) members[g].size() ? 1 : 0);
+    {
+        auto folded = false;
+        for (const auto index : members[g])
+        {
+            items += chipFolded[index] ? 0 : 1;
+            folded = folded || chipFolded[index];
+        }
+        items += folded ? 1 : 0;
+    }
 
     const auto spare = juce::jlimit (0.0f, 40.0f, (available - used) / (float) juce::jmax (1, items));
     const auto squeeze = juce::jmin (1.0f, available / juce::jmax (1.0f, used));
@@ -883,30 +961,25 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
         x += width;
     };
 
-    for (size_t i = 0; i < chips.size(); ++i)
-        chipFolded[i] = false;
-
+    folding = false;
     for (size_t g = 0; g < 3; ++g)
     {
         std::vector<int> folded;
 
-        for (size_t k = 0; k < members[g].size(); ++k)
+        for (const auto index : members[g])
         {
-            const auto index = members[g][k];
-            const auto visible = (int) k < shown[g];
-            chipFolded[index] = ! visible;
-
-            if (visible)
-                place (*chips[index], chips[index]->getNaturalWidth());
-            else
+            if (chipFolded[index])
                 folded.push_back (chips[index]->getSourceIndex());
+            else
+                place (*chips[index], chips[index]->getLayoutWidth());
         }
 
         groupChips[g]->setSources (folded);
         groupChips[g]->setVisible (! folded.empty());
+        folding = folding || ! folded.empty();
 
         if (! folded.empty())
-            place (*groupChips[g], groupChips[g]->getNaturalWidth());
+            place (*groupChips[g], groupChips[g]->getLayoutWidth());
 
         if (! members[g].empty())
             x += groupGap * squeeze;
@@ -1265,9 +1338,11 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     layoutChips (chipsRow);
 
-    // The hover line over the chips; it stays away while the mouse is on
-    // the chips or the macros below them.
-    infoStrip.setBounds (chipsRow.reduced (0, 1));
+    // The hover line just above the chips, over the page's bottom edge, so
+    // the sources stay in view while you look at a knob (S7-20); it stays
+    // away while the mouse is on the chips or the macros below them, or on
+    // a control it would cover.
+    infoStrip.setBounds (chipsRow.translated (0, -chipsRow.getHeight() - 2).reduced (0, 1));
     infoStrip.setQuietArea ({ 0, chipsRow.getY() - 6, designWidth, designHeight - chipsRow.getY() + 6 });
     infoStrip.toFront (false);
 

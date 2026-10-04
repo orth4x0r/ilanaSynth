@@ -53,6 +53,22 @@ public:
     // (plus room for an LFO's "B" sub-chip when it has one).
     float getNaturalWidth() const { return widthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? 19.0f : 0.0f); }
 
+    // The width the bar plans with: the name measured the same way at every
+    // zoom (the font unsnapped, with room for the snapping to round up), so
+    // the bar folds alike at 75 % and 100 % (V7-39).
+    static float layoutWidthFor (const juce::String& text)
+    {
+        return layoutTextWidth (text) + 30.0f;
+    }
+    float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? 19.0f : 0.0f); }
+
+    static float layoutTextWidth (const juce::String& text)
+    {
+        constexpr auto height = IlanaTheme::TextSize::minInteractive * 1.06f;
+        const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withHeight (height));
+        return std::ceil (juce::GlyphArrangement::getStringWidth (font, text));
+    }
+
     // The source's live value (LFO position, envelope level, wheel...); the
     // chip glows with it. Optional.
     std::function<float()> valueProvider;
@@ -265,6 +281,12 @@ public:
     juce::String getLabel() const { return group + " +" + juce::String ((int) sources.size()); }
     float getNaturalWidth() const { return widthFor (group, (int) sources.size()); }
 
+    float getLayoutWidth() const { return layoutWidthFor (group, (int) sources.size()); }
+    static float layoutWidthFor (const juce::String& groupName, int count)
+    {
+        return ModSourceChip::layoutTextWidth (groupName + " +" + juce::String (count)) + 28.0f;
+    }
+
     // The width a group chip of n sources needs.
     static float widthFor (const juce::String& groupName, int count)
     {
@@ -434,7 +456,8 @@ private:
         const auto width = columns * chipWidth + pad * 2;
         const auto height = rows * chipHeight + pad * 2;
         const auto anchor = parent->getLocalArea (owner.getComponent(), owner->getLocalBounds());
-        const auto x = juce::jlimit (6, juce::jmax (6, parent->getWidth() - width - 6), anchor.getCentreX() - width / 2);
+        // Over its chip, starting at the chip's left edge (V7-6), kept on screen.
+        const auto x = juce::jlimit (6, juce::jmax (6, parent->getWidth() - width - 6), anchor.getX() - pad);
         setBounds (x, anchor.getY() - height - 3, width, height);
 
         for (int i = 0; i < (int) chips.size(); ++i)

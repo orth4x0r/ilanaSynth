@@ -2,22 +2,68 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <map>
+
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ModNames.h"
 #include "ParamControls.h"
 #include "RemapEditor.h"
 
+// A quiet dashed pill for something not set yet: VIA's "+" (it reads
+// "+ VIA" under the mouse) and the "+ ADD MODULATION" row after the last
+// routing (review 7: I7-45, V7-20, S7-35).
+class DashedAddButton : public juce::Button
+{
+public:
+    DashedAddButton (const juce::String& textIn, const juce::String& hoverTextIn)
+        : juce::Button (textIn), text (textIn), hoverText (hoverTextIn)
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (area, 5.0f);
+        const float dashes[] { 3.0f, 3.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line);
+        g.fillPath (dashed);
+        if (highlighted || down)
+        {
+            g.setColour (juce::Colours::white.withAlpha (down ? 0.08f : 0.04f));
+            g.fillRoundedRectangle (area, 5.0f);
+        }
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
+        g.drawText (highlighted || down ? hoverText : text, getLocalBounds(), juce::Justification::centred, false);
+    }
+
+private:
+    juce::String text, hoverText;
+};
+
 namespace MatrixMenus
 {
 // Fills a combo box with every destination, grouped into sub-menus so the
 // list of ~400 targets stays navigable. Item IDs are index + 1, which is
 // what ComboBoxAttachment expects.
+inline juce::PopupMenu buildDestinationMenu();
+
 inline void fillDestinations (juce::ComboBox& combo)
 {
+    // Built once (the 64 rows each take a copy; ~1000 names).
+    static const juce::PopupMenu menu = buildDestinationMenu();
+    *combo.getRootMenu() = menu;
+}
+
+inline juce::PopupMenu buildDestinationMenu()
+{
     using D = Mod::Destination;
-    auto* root = combo.getRootMenu();
-    root->clear();
+    juce::PopupMenu rootMenu;
+    auto* root = &rootMenu;
 
     // Each written as the page labels it, module first ("Filter 1 › Cutoff").
     const auto item = [] (juce::PopupMenu& menu, int index)
@@ -29,13 +75,6 @@ inline void fillDestinations (juce::ComboBox& combo)
     {
         for (const auto destination : list)
             item (menu, (int) destination);
-    };
-
-    const auto group = [&] (const juce::String& title, std::initializer_list<D> list)
-    {
-        juce::PopupMenu menu;
-        fill (menu, list);
-        root->addSubMenu (title, menu);
     };
 
     item (*root, 0);
@@ -60,12 +99,53 @@ inline void fillDestinations (juce::ComboBox& combo)
     fill (fm, { D::FmAmount, D::Fm1to2, D::Fm1to3, D::Fm2to3, D::Fm3to1, D::Fm3to2,
                 D::FmFeedback, D::Fm2Feedback, D::Fm3Feedback });
 
-    juce::PopupMenu effects, global, keys;
+    juce::PopupMenu global, keys, macros;
+    juce::PopupMenu filters, voice;
+    fill (filters, { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
+                     D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
+    fill (voice, { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
+
+    // Envelopes, LFOs and effects have a sub-menu per module ("Amp Env",
+    // "LFO 3", "FX Reverb"), in the order first met (review 7: the list
+    // passed 900 targets).
+    struct Nested
+    {
+        std::vector<juce::String> order;
+        std::map<juce::String, juce::PopupMenu> menus;
+
+        void add (int destination, juce::String module = {})
+        {
+            if (module.isEmpty())
+                module = ModNames::destinationParts (destination).module;
+            if (menus.find (module) == menus.end())
+                order.push_back (module);
+            menus[module].addItem (destination + 1, ModNames::destination (destination));
+        }
+
+        juce::PopupMenu build()
+        {
+            juce::PopupMenu menu;
+            for (const auto& module : order)
+                menu.addSubMenu (module, menus[module]);
+            return menu;
+        }
+    };
+    Nested envelopes, lfos, effects;
+
+    for (const auto destination : { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
+                                    D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
+                                    D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
+                                    D::F2eAttack, D::F2eDecay, D::F2eSustain, D::F2eRelease,
+                                    D::E4Attack, D::E4Decay, D::E4Sustain, D::E4Release })
+        envelopes.add ((int) destination);
+    for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
+        lfos.add ((int) Mod::lfoRateDestinationFor (lfo));
+    lfos.add ((int) D::MsegRate);
 
     for (const auto destination : { D::FxDriveAmount, D::FxCrushMix, D::FxCombFreq, D::FxPhaserRate, D::FxChorusDepth,
                                     D::FxDelayMix, D::FxDelayFeedback, D::FxSmearMix, D::FxFreezeMix, D::FxReverbMix,
                                     D::FxReverbSize })
-        item (effects, (int) destination);
+        effects.add ((int) destination);
 
     const auto& params = Mod::getParamDestinations();
     const char* const prefixes[] { "osc1_", "osc2_", "sub_", "osc4_", "osc5_", "osc6_" };
@@ -74,25 +154,64 @@ inline void fillDestinations (juce::ComboBox& combo)
     {
         const juce::String id (params[(size_t) i].id);
         const auto destination = Mod::paramDestinationFor (i);
+        const auto module = ModNames::destinationParts (destination).module;
 
-        if (i < Mod::numLegacyParamDestinations)
+        if (id.startsWith ("fx_"))
         {
-            item (id.startsWith ("fx_") ? effects : global, destination);
+            effects.add (destination, id.startsWith ("fx_slot") ? juce::String ("FX Slot Blend") : juce::String());
             continue;
         }
 
-        if (id.startsWith ("fm_"))
+        if (i < Mod::numLegacyParamDestinations)
+        {
+            item (global, destination);
+            continue;
+        }
+
+        if (id.startsWith ("fm_") || id == "opeg_key_offset")
         {
             item (fm, destination);
             continue;
         }
 
-        // Operator and PD settings sit with their oscillator; the M4
+        if (module == "Op LFO" || module.startsWith ("LFO "))
+        {
+            lfos.add (destination);
+            continue;
+        }
+
+        if (module == "Op Pitch" || module.contains ("Env"))
+        {
+            envelopes.add (destination);
+            continue;
+        }
+
+        if (module.startsWith ("Macro "))
+        {
+            item (macros, destination);
+            continue;
+        }
+
+        if (module.startsWith ("Filter "))
+        {
+            item (filters, destination);
+            continue;
+        }
+
+        if (module == "Voice" || module == "Resonator")
+        {
+            item (voice, destination);
+            continue;
+        }
+
+        // Operator, PD and pitch settings sit with their oscillator; the
         // physical and keys settings keep their own menu.
         auto placed = false;
         for (int osc = 0; osc < 6 && ! placed; ++osc)
             if (id.startsWith (prefixes[osc])
-                && (id.endsWith ("_warp2_amt") || id.endsWith ("_pd_env_amt") || id.endsWith ("_key_level")))
+                && (id.endsWith ("_warp2_amt") || id.endsWith ("_pd_env_amt") || id.endsWith ("_key_level") || id.contains ("_eg_")
+                    || id.endsWith ("_ratio") || id.endsWith ("_fixed_hz") || id.endsWith ("_spectral_amt") || id.endsWith ("_fb_gain")
+                    || id.endsWith ("_fb_distance") || id.contains ("_sample_")))
             {
                 item (oscillators[(size_t) osc], destination);
                 placed = true;
@@ -105,22 +224,16 @@ inline void fillDestinations (juce::ComboBox& combo)
     for (int osc = 0; osc < 6; ++osc)
         root->addSubMenu ("OSC " + juce::String (osc + 1), oscillators[(size_t) osc]);
 
-    group ("Filters", { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
-                        D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
-    group ("Voice", { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
+    root->addSubMenu ("Filters", filters);
+    root->addSubMenu ("Voice", voice);
     root->addSubMenu ("FM", fm);
-    group ("Envelopes", { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
-                          D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
-                          D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
-                          D::F2eAttack, D::F2eDecay, D::F2eSustain, D::F2eRelease,
-                          D::E4Attack, D::E4Decay, D::E4Sustain, D::E4Release });
-    group ("LFOs & MSEG", { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate, D::Lfo5Rate, D::Lfo6Rate,
-                            D::Lfo7Rate, D::Lfo8Rate, D::Lfo9Rate, D::Lfo10Rate, D::Lfo11Rate, D::Lfo12Rate,
-                            D::Lfo13Rate, D::Lfo14Rate, D::Lfo15Rate, D::Lfo16Rate, D::MsegRate });
-
-    root->addSubMenu ("Effects", effects);
+    root->addSubMenu ("Envelopes", envelopes.build());
+    root->addSubMenu ("LFOs & MSEG", lfos.build());
+    root->addSubMenu ("Macros", macros);
+    root->addSubMenu ("Effects", effects.build());
     root->addSubMenu ("Global", global);
     root->addSubMenu ("Physical & Keys", keys);
+    return rootMenu;
 }
 
 // Fills a combo box with every source, grouped as the knobs' menus group
@@ -484,9 +597,8 @@ public:
         via.setTooltip ("Via (aux)\nA second source that scales this routing: e.g. the mod wheel fading an LFO in.  "
                         "None leaves the amount as set.");
 
-        // Until a via source is set, VIA reads "Aux: none" and opens the
-        // same list.
-        viaButton.setButtonText ("Aux: none");
+        // Until a via source is set, VIA is an empty dashed "+" (the
+        // destination's "+" style) and opens the same list.
         viaButton.setTooltip ("Via (aux)\nScale this routing by a second source (the mod wheel fading an LFO in, say).");
         viaButton.onClick = [this]
         {
@@ -644,14 +756,8 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (juce::String (displayNumber) + (isDuplicate() ? "!" : ""), numberArea, juce::Justification::centred);
 
-        // Arrow between the polarity and the destination; amber with a
-        // module that is off.
-        const auto arrowX = (float) destination.getX() - 11.0f;
-        juce::Path arrow;
-        arrow.addTriangle (arrowX, (float) getHeight() * 0.5f - 4.0f, arrowX, (float) getHeight() * 0.5f + 4.0f,
-                           arrowX + 6.0f, (float) getHeight() * 0.5f);
-        g.setColour (idle ? amber().withAlpha (0.9f) : lastColour.withAlpha (active ? 0.8f : 0.3f));
-        g.fillPath (arrow);
+        // (No arrow before the destination: the unlabelled mark said nothing
+        // the column heads don't, S7-35. A dimmed row says why in its tooltip.)
     }
 
     // The live bar: what the routing adds right now, drawn in the amount
@@ -687,11 +793,11 @@ public:
             onDuplicateClicked (slotIndex);
     }
 
-    // Column layout shared with the header labels. VIA is narrow ("Aux:
-    // none") until some row uses it.
+    // Column layout shared with the header labels. VIA is narrow (a "+")
+    // until some row uses it.
     struct Columns
     {
-        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 80,
+        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 80, viaPill = 56,
                              amount = 190, curve = 50, polarity = 76, destination = 244, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
     };
@@ -708,7 +814,7 @@ public:
         area.removeFromLeft (Columns::gap);
         const auto viaArea = area.removeFromLeft (Columns::via (viaExpanded));
         via.setBounds (viaArea);
-        viaButton.setBounds (viaArea.withWidth (Columns::viaNarrow));
+        viaButton.setBounds (viaArea.withWidth (Columns::viaPill).reduced (0, 2));
         area.removeFromLeft (Columns::gap * 2);
         amount.setBounds (area.removeFromLeft (Columns::amount));
         area.removeFromLeft (Columns::gap);
@@ -772,7 +878,8 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove, viaButton;
+    juce::TextButton bypass, remove;
+    DashedAddButton viaButton { "+", "+ VIA" };
     juce::ComboBox source, via, destination;
     juce::Slider amount;
     CurveControl curve;

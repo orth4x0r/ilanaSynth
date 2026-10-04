@@ -33,6 +33,8 @@ public:
         knob.setCompact (true);
         addAndMakeVisible (knob);
         parameter = p.apvts.getParameter (parameterID);
+        if (macroIndex >= 0)
+            knob.setIsSourceKnob(); // a macro is a source, not a target
 
         if (macroIndex >= 0)
         {
@@ -93,21 +95,34 @@ public:
             auto nameArea = text.removeFromTop (text.getHeight() / 2);
 
             // A target whose module is off (a reverb mix with the reverb
-            // switched off) can't be heard: an amber mark says so, and the
-            // macro's card (rest on it) says which.
+            // switched off) can't be heard: a small amber warning sign after
+            // the name says so, its tooltip which (V7-28), and the macro's
+            // card (rest on it) the same.
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto name = title.toUpperCase();
-            const auto markWidth = idleTargets > 0 ? 10 : 0;
+            const auto markWidth = idleTargets > 0 ? 14 : 0;
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
             g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
             g.setFont (font);
             g.drawFittedText (name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1, 0.8f);
 
+            markBounds = {};
             if (idleTargets > 0)
             {
+                // A triangle as tall as the capitals, on the name's baseline.
+                const auto capHeight = juce::Font (font).getAscent() * 0.72f;
+                const auto mark = juce::Rectangle<float> ((float) nameArea.getX() + 4.0f,
+                                                          (float) nameArea.getBottom() - juce::Font (font).getDescent() - capHeight - 1.0f,
+                                                          capHeight * 1.1f, capHeight + 1.0f);
+                juce::Path triangle;
+                triangle.addTriangle (mark.getCentreX(), mark.getY(), mark.getRight(), mark.getBottom(), mark.getX(), mark.getBottom());
                 g.setColour (juce::Colour (0xffffb020));
-                g.drawText ("!", nameArea.removeFromLeft (markWidth).translated (3, 0), juce::Justification::bottomLeft, false);
+                g.fillPath (triangle);
+                g.setColour (IlanaTheme::Ui::bg);
+                g.fillRect (juce::Rectangle<float> (1.4f, mark.getHeight() * 0.36f).withCentre ({ mark.getCentreX(), mark.getY() + mark.getHeight() * 0.5f }));
+                g.fillRect (juce::Rectangle<float> (1.4f, 1.4f).withCentre ({ mark.getCentreX(), mark.getBottom() - 2.2f }));
+                markBounds = mark.expanded (3.0f).toNearestInt();
             }
         }
         else
@@ -188,6 +203,20 @@ public:
     // How many of the macro's targets can't be heard now (their module is
     // off); the tests.
     int getNumIdleTargets() const { return idleTargets; }
+    // The warning sign's bounds (empty while every target can be heard).
+    juce::Rectangle<int> getIdleMarkBounds() const { return markBounds; }
+
+    // A macro with targets that can't be heard says which first (its
+    // warning sign means this).
+    juce::String getTooltip() override
+    {
+        const auto base = juce::SettableTooltipClient::getTooltip();
+        if (macroIndex < 0 || idleTargets == 0 || idleText.isEmpty())
+            return base;
+        const auto name = processorRef.getMacroName (macroIndex).toUpperCase();
+        return name + ": " + juce::String (idleTargets) + (idleTargets == 1 ? " target" : " targets") + " can't be heard now\n"
+               + idleText + (base.isNotEmpty() ? "  " + base : juce::String());
+    }
 
     // Opens the macro's card: where it goes, with warnings (hover does it
     // after a short rest).
@@ -205,17 +234,22 @@ private:
         return area.reduced (0, 6);
     }
 
-    int countIdleTargets() const
+    int countIdleTargets (juce::String& text) const
     {
         const auto source = Mod::macroSourceFor (macroIndex);
         auto count = 0;
+        text.clear();
 
         for (int i = 0; i < Mod::maxSlots; ++i)
         {
             const auto slot = processorRef.readModSlot (i);
 
-            if (slot.source == source && slot.isActive() && ModNames::whyDestinationIsIdle (processorRef, slot.destination).isNotEmpty())
-                ++count;
+            if (slot.source == source && slot.isActive())
+                if (const auto why = ModNames::whyDestinationIsIdle (processorRef, slot.destination); why.isNotEmpty())
+                {
+                    text << (count > 0 ? "; " : "") << ModNames::destination (slot.destination) << " (" << why << ")";
+                    ++count;
+                }
         }
 
         return count;
@@ -247,7 +281,9 @@ private:
             if ((idleCheck += frameSeconds()) > 0.4f)
             {
                 idleCheck = 0.0f;
-                const auto idle = countIdleTargets();
+                juce::String text;
+                const auto idle = countIdleTargets (text);
+                idleText = text;
                 if (idle != idleTargets)
                 {
                     idleTargets = idle;
@@ -274,6 +310,8 @@ private:
     float lastValue = -1.0f;
     float hoverRest = 0.0f, idleCheck = 1.0f;
     int idleTargets = 0;
+    juce::String idleText;
+    juce::Rectangle<int> markBounds;
     bool hover = false;
 };
 

@@ -231,6 +231,11 @@ private:
     std::vector<bool> chipWanted;
     // Wanted, but folded into its group's chip because the bar is full.
     std::vector<bool> chipFolded;
+    // Each chip's group (0 LFOs, 1 envelopes, 2 the rest), and whether the
+    // matrix routes its source (a routed chip folds last).
+    std::vector<int> chipGroup;
+    std::vector<bool> chipRouted;
+    bool folding = false; // some chip is folded now
     // LFO / ENV / MORE: the chips a full bar folds away, in a tray.
     std::array<std::unique_ptr<ModSourceGroupChip>, 3> groupChips;
     ModSourceTray chipTray;

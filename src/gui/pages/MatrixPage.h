@@ -21,11 +21,15 @@ public:
             rows.push_back (std::move (row));
         }
 
-        // Pinned in the header, so it never scrolls away under the rows.
+        // In the header while the matrix is empty; once it has routings,
+        // the row after the last one adds the next (S7-35).
         addButton.setButtonText ("+  ADD MODULATION");
         addButton.setTooltip ("Add a routing.  You can also drag any source chip, macro name or LFO card onto a knob.");
         addButton.onClick = [this] { addRouting(); };
         addAndMakeVisible (addButton);
+        addRow.setTooltip (addButton.getTooltip());
+        addRow.onClick = [this] { addRouting(); };
+        list.addChildComponent (addRow);
 
         // Shown while rows repeat a routing: folds each pair into one row.
         mergeButton.setTooltip ("Merge repeated routings\nRows with the same source and destination add up; each pair becomes "
@@ -63,7 +67,7 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.getX()) - 12;
+        const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.isVisible() ? addButton.getX() : getWidth() - 12) - 12;
         paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
                            juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use"
                            // (The how-to only while there's nothing to report.)
@@ -423,9 +427,16 @@ public:
         mergeButton.setBounds (top.removeFromRight (210).withTrimmedTop (6).withTrimmedBottom (2));
         headerArea = area.removeFromTop (18);
 
+        // Rows grow a little taller while there are few (V7-20), as long as
+        // the dock's note still fits under them.
+        const auto listRows = (int) visibleRows.size() + 1; // (and the add row)
+        rowHeight = MatrixRow::rowHeight;
+        while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 + dockHeight + 12 <= area.getHeight())
+            ++rowHeight;
+
         // The dock takes the bottom while a remap is open, and also when the
         // rows leave that much room (as a note on how to open it).
-        const auto rowsHeight = (int) visibleRows.size() * rowHeight + 8;
+        const auto rowsHeight = listRows * rowHeight + 8;
         const auto showDock = ! visibleRows.empty()
                               && (remapEditor != nullptr || area.getHeight() - rowsHeight >= dockHeight + 12);
         dockArea = showDock ? area.removeFromBottom (dockHeight).withTrimmedTop (8) : juce::Rectangle<int>();
@@ -446,7 +457,7 @@ public:
     }
 
 private:
-    static constexpr int rowHeight = MatrixRow::rowHeight;
+    int rowHeight = MatrixRow::rowHeight;
     static constexpr int dockHeight = 210;
 
     struct Heading
@@ -686,6 +697,7 @@ private:
                 row->setVisible (std::find (used.begin(), used.end(), row->getSlotIndex()) != used.end());
 
             addButton.setEnabled (used.size() < (size_t) Mod::maxSlots);
+            addButton.setVisible (used.empty());
             resized();
             repaint();
         }
@@ -731,10 +743,12 @@ private:
             y += rowHeight;
         }
 
-        if (remapEditor != nullptr)
+        // "+ ADD MODULATION" as the row after the last routing (S7-35).
+        addRow.setVisible (! visibleRows.empty() && visibleRows.size() < (size_t) Mod::maxSlots);
+        if (addRow.isVisible())
         {
-            const auto index = remapEditor->getSlotIndex();
-            remapEditor->setTitle ("ROW " + juce::String (rows[(size_t) index]->getDisplayNumber()) + "  (slot " + juce::String (index + 1) + ")");
+            addRow.setBounds (0, y + 2, width, rowHeight - 4);
+            y += rowHeight;
         }
 
         list.setSize (width, y + 8);
@@ -812,6 +826,7 @@ private:
     std::vector<std::unique_ptr<MatrixRow>> rows;
     std::vector<int> visibleRows;
     juce::TextButton addButton, mergeButton;
+    DashedAddButton addRow { "+  ADD MODULATION", "+  ADD MODULATION" };
     std::vector<std::unique_ptr<juce::TextButton>> starterButtons;
     juce::Rectangle<int> headerArea;
 };

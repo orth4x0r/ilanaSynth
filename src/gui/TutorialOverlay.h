@@ -26,7 +26,8 @@ public:
     static const std::vector<NewFeature>& whatsNew()
     {
         static const std::vector<NewFeature> list {
-            { "DX7 MODE + BANKS", "FM", "Load DX7 voices and banks (.syx): the FM page plays them with their own envelopes." },
+            { "DX7 BANKS + OPERATOR EG", "FM", "288 DX7 voices load as normal patches (find them by sound in the browser, or under its DX7 chip); "
+                                                "any oscillator can use the DX7's envelope (ENVELOPE: Operator EG). Import more .syx banks from the browser." },
             { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters on the FILTER page." },
             { juce::String (FilterType::Count) + " FILTERS", "FILTER", "The filter list, grouped by family on the FILTER page." },
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
@@ -63,7 +64,9 @@ public:
         closeButton.onClick = [this] { dismiss(); };
 
         dontShowAgain.setButtonText ("Don't show this again");
-        dontShowAgain.setToggleState (true, juce::dontSendNotification);
+        // Unticked: GOT IT alone brings the tour back next time; ticking
+        // it is a choice (UI review 5).
+        dontShowAgain.setToggleState (false, juce::dontSendNotification);
         dontShowAgain.setColour (juce::ToggleButton::textColourId, IlanaTheme::Ui::text2);
 
         addAndMakeVisible (closeButton);
@@ -85,6 +88,18 @@ public:
     // How many factory presets there are, for the tips.
     void setPresetCount (int count) { presetCount = count; }
 
+    // Three tips: the few things that aren't obvious from the screen.
+    juce::StringArray getTips() const
+    {
+        return { "PLAY has the essentials on one screen; the other tabs hold the detail. Click the preset name to browse "
+                     + juce::String (presetCount) + " presets by sound, tag or bank.",
+                 "Drag a source chip (the row above the macros) onto any knob to modulate it; the knob shows how far it moves.",
+                 "Every edit can be undone (" + commandKey() + "+Z), preset loads too, so try things: the dice rolls a fresh patch." };
+    }
+
+    // For the tests: whether "Don't show this again" is ticked.
+    bool isDontShowTicked() const { return dontShowAgain.getToggleState(); }
+
     void captureBackdrop()
     {
         backdrop = {};
@@ -96,7 +111,7 @@ public:
     // The panel is as tall as its content (one line per tip), centred.
     juce::Rectangle<int> panelBounds() const
     {
-        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 5 * 36 + 10 + newBandHeight + 12 + 18 + 44 + 28;
+        constexpr int contentHeight = 28 + 34 + 18 + 14 + 20 + 3 * 40 + 10 + newBandHeight + 12 + 18 + 44 + 28;
         const auto area = getLocalBounds().reduced (70);
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
@@ -170,7 +185,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("A one-minute tour.  Reopen it any time with the ? button at the bottom.",
+            g.drawText ("A one-minute tour.  Reopen it any time with the ? beside SCOPE.",
                         area.removeFromTop (18), juce::Justification::centredLeft);
 
             area.removeFromTop (14);
@@ -215,20 +230,12 @@ public:
                 }
             }
 
-            // Five tips: the few things that aren't obvious from the screen.
-            const juce::StringArray tips {
-                "PLAY has the essentials on one screen; the other tabs hold the detail.",
-                "Drag a source chip (bottom row) onto any knob to modulate it, then drag its coloured dot to set the depth.",
-                "Each oscillator can be a wavetable, a physical string, a sample or grains: pick it in MODE. TABLE opens the browser.",
-                "FX: \"+ add effect\" in the chain list puts a module in; drag a row to reorder it, click its light to switch it off.",
-                "The dice rolls a fresh patch; " + commandKey() + "+Z steps back through knob, graph, curve and clip edits and preset loads. " + juce::String (presetCount) + " factory presets are one click away in the name box."
-            };
-
-            drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", tips);
+            drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", getTips());
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("Number keys switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    ? reopens this tour",
+            g.drawText (commandKey() + "+1-7 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    "
+                            + commandKey() + "+S save",
                         shortcuts, juce::Justification::centredLeft);
         }
     }
@@ -339,7 +346,7 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
 
         // The tips share the space evenly (no dead band under the last one).
-        const auto rowHeight = juce::jlimit (34, 64, area.getHeight() / juce::jmax (1, tips.size()));
+        const auto rowHeight = juce::jlimit (34, 48, area.getHeight() / juce::jmax (1, tips.size()));
 
         for (const auto& tip : tips)
         {

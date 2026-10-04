@@ -1067,5 +1067,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addInt ("arp_pitch" + n, "Arp Transpose " + n, -12, 12, 0);
     }
 
+    // The preset's own output level (review 6, master level): factory loads
+    // put their level here so MASTER reads 0 dB on every factory preset.
+    // Added to MASTER in dB; not shown on any page, not automatable, and 0
+    // (as in every older patch) leaves the output as it was.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "output_trim", 1 }, "Preset Level", juce::NormalisableRange<float> (-60.0f, 12.0f, 0.1f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction ([] (float value, int) { return describeValue ("output_trim", value); })
+            .withAutomatable (false)));
+
     return layout;
 }

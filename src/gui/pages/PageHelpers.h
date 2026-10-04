@@ -84,13 +84,28 @@ void addAll (juce::Component& parent, Components&... components)
     (parent.addAndMakeVisible (components), ...);
 }
 
-// A page section's heading (a display, a pool, the rack): drawn like a card
-// title, with a neutral tag, so every section on every page is headed the
-// same way.
+// A page section's heading (a display, a pool, the rack): the title in the
+// label colour with a short rule under it, and no dot (review 6: a dot
+// reads as a power light, and on cards it means a module's colour beside a
+// real switch). The text starts where a card's tag does, so headings line
+// up with the cards under them.
 void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
                         const juce::String& subtitle = {})
 {
-    IlanaTheme::paintCardHeader (g, area, text, subtitle, IlanaTheme::Ui::text2, 0);
+    const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+    const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+    g.setColour (IlanaTheme::Ui::text2);
+    g.setFont (font);
+    g.drawText (text, area, juce::Justification::centredLeft);
+    g.setColour (IlanaTheme::Ui::line.brighter (0.5f));
+    g.fillRect (juce::Rectangle<float> ((float) area.getX(), (float) area.getCentreY() + 8.0f, (float) juce::jmin (width, 18), 1.5f));
+
+    if (subtitle.isEmpty())
+        return;
+
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+    g.drawText (subtitle, area.withTrimmedLeft (width + 16), juce::Justification::centredLeft, true);
 }
 
 // Page headings sit where a card's title does: 12 px in from the card edge

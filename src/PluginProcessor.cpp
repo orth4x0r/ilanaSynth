@@ -1731,7 +1731,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processEffects (buffer);
     blockDc (1);
 
-    buffer.applyGain (juce::Decibels::decibelsToGain (getParam ("master")));
+    // MASTER plus the preset's own level (output_trim, 0 unless a factory
+    // preset set it), summed in dB.
+    buffer.applyGain (juce::Decibels::decibelsToGain (getParam (masterRef) + getRawParam (outputTrimRef)));
 
     if (getParam ("master_clip") > 0.5f)
     {

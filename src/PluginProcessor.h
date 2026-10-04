@@ -213,8 +213,21 @@ public:
     // an empty string is a macro with no name.
     juce::StringArray getFactoryMacroNames (int factoryIndex) const;
     juce::StringArray getAllPresetNames() const;
+    // The browser's view of every preset (factory, then user files): its
+    // category (DX7 voices under the kind of sound they are), its tags
+    // (factory presets from src/PresetTags.h, written by
+    // tools/tag_presets.py), and the DX7 bank it comes from ("" when it isn't
+    // a DX7 voice: ROM1A..., or an imported bank's folder).
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;
+    juce::StringArray getAllPresetBanks() const;
+    // Who made a preset and what its author says about it (user presets
+    // carry what Save As asked for; factory presets name their source).
+    struct PresetInfo
+    {
+        juce::String author, comment;
+    };
+    PresetInfo getPresetInfo (int index) const;
     bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
     void loadPresetByIndex (int index);
@@ -232,6 +245,14 @@ public:
         apvts.state.setProperty ("presetTags", tags, nullptr);
     }
 
+    void setPresetInfo (const juce::String& author, const juce::String& comment)
+    {
+        apvts.state.setProperty ("presetAuthor", author, nullptr);
+        apvts.state.setProperty ("presetComment", comment, nullptr);
+    }
+
+    juce::String getPresetAuthor() const { return apvts.state.getProperty ("presetAuthor").toString(); }
+    juce::String getPresetComment() const { return apvts.state.getProperty ("presetComment").toString(); }
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
@@ -246,6 +267,8 @@ public:
                                     std::array<juce::String, 4>& macroNames);
     static void applyPresetTrims (const char* presetName, const juce::String& category,
                                   std::vector<std::pair<juce::String, float>>& values);
+    // MASTER's value in a preset's values moves to output_trim (review 6).
+    static void moveLevelToTrim (std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
 
@@ -711,6 +734,7 @@ private:
         inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
     ParamRef tuningOnRef { "tuning_on" };
+    ParamRef masterRef { "master" }, outputTrimRef { "output_trim" };
     // The Airwindows module (FX type 30): only the chosen algorithm runs.
     airwindows::Module airwindowsModule;
     ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
@@ -861,7 +885,7 @@ private:
     struct UserPresetMeta
     {
         juce::int64 modified = -1;
-        juce::String category, tags;
+        juce::String category, tags, author, comment;
     };
 
     const UserPresetMeta& getUserPresetMeta (const juce::File& file) const;

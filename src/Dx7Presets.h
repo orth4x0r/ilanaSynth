@@ -8,6 +8,7 @@
 // banks (Dx7Banks.h), File > Import DX7 bank, and patches saved by the old
 // DX7 mode (their "Dx7" child, converted on load).
 
+#include <cstring>
 #include <deque>
 #include <string>
 #include <vector>
@@ -151,6 +152,78 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     return out;
 }
 
+// The kind of sound a DX7 voice is, for the browser (UI review 6: DX7
+// voices sit under Keys, Bass, Pad... with the bank as a filter). From the
+// name first: the keyword that starts earliest wins (the longer one on a
+// tie, so BASSOON is not a bass and HARPSICH is not a harp), so "STRG-CHIME"
+// is strings and "CHIME-STRG" a chime. A name with no keyword falls back on
+// the carriers' envelopes when the voice is known: no sustain is a pluck, a
+// slow attack a pad, anything else a lead.
+inline const char* soundCategory (const juce::String& voiceName, const Dx7::Voice* voice = nullptr)
+{
+    static const std::pair<const char*, const char*> keywords[] {
+        { "BASSOON", "Lead" }, { "BASS", "Bass" }, { "FRETLESS", "Bass" },
+        { "B.DRM", "Drums" }, { "DRUM", "Drums" }, { "SNAR", "Drums" }, { "TIMPANI", "Drums" }, { "BLOCK", "Drums" },
+        { "COW BELL", "Drums" }, { "COWBELL", "Drums" }, { "STEEL DRUM", "Pluck" },
+        { "PIANO", "Keys" }, { "PNO", "Keys" }, { "E.P", "Keys" }, { "GRAND", "Keys" }, { "HONKY", "Keys" },
+        { "CLAV", "Keys" }, { "CLV", "Keys" }, { "HARPSI", "Keys" }, { "ORGAN", "Keys" }, { "ORG-", "Keys" },
+        { "PIPES", "Keys" }, { "CALIOPE", "Keys" }, { "ACCORDION", "Keys" }, { "CELESTE", "Keys" }, { "VIBE", "Keys" },
+        { "MARIM", "Keys" }, { "XYLOPHONE", "Keys" }, { "GLOKEN", "Keys" }, { "CHIME", "Keys" }, { "ORCH-CHIME", "Keys" },
+        { "BELL", "Keys" }, { "T.BL", "Keys" },
+        { "GUIT", "Pluck" }, { "GTR", "Pluck" }, { "KOTO", "Pluck" }, { "SITAR", "Pluck" }, { "LUTE", "Pluck" },
+        { "BANJO", "Pluck" }, { "HARP", "Pluck" }, { "PIZZ", "Pluck" }, { "PLUCK", "Pluck" },
+        { "STRING", "Pad" }, { "STRG", "Pad" }, { "STGS", "Pad" }, { "STG", "Pad" }, { "ORCH", "Pad" }, { "VOICE", "Pad" },
+        { "VOX", "Pad" }, { "CHOIR", "Pad" }, { "SHIMMER", "Pad" }, { "EVOLUTION", "Pad" }, { "WATER", "Pad" }, { "PAD", "Pad" },
+        { "VIOLA", "Pad" }, { "BOW", "Pad" },
+        { "BRASS", "Lead" }, { "BRS", "Lead" }, { "HORN", "Lead" }, { "TRUMPET", "Lead" }, { "TBONE", "Lead" },
+        { "SAX", "Lead" }, { "FLUTE", "Lead" }, { "PICCOLO", "Lead" }, { "OBOE", "Lead" }, { "CLARINET", "Lead" },
+        { "RECORDER", "Lead" }, { "HARMONICA", "Lead" }, { "HRMNCA", "Lead" }, { "LEAD", "Lead" }, { "SAW", "Lead" },
+        { "TRAIN", "FX" }, { "TAKE OFF", "FX" }, { "LASER", "FX" }, { "EXPLOSION", "FX" }, { "HELENS", "FX" },
+        { "PRIX", "FX" }, { "GRAND PRIX", "FX" }, { "PLUCK BASS", "Bass" }, { "WASP", "FX" }, { "DESCENT", "FX" }, { "OCTAVE WAR", "FX" }, { "GOTCHA", "FX" }, { "BOAR", "FX" },
+        { "ERUPT", "FX" }, { "THUNDER", "FX" }, { "ENCOUNTER", "FX" }, { "RUMBLE", "FX" }, { "SWP", "FX" },
+        { "SWEEP", "FX" }, { "RISE", "FX" }, { "WHISL", "FX" }, { "WHISTLE", "FX" }, { "FLEXATONE", "FX" },
+        { "GONG", "FX" }, { "ECHO", "FX" }, { "WOBBLE", "FX" }
+    };
+
+    const auto upper = voiceName.toUpperCase();
+    const char* best = nullptr;
+    int bestAt = 1 << 30, bestLength = 0;
+
+    for (const auto& [word, category] : keywords)
+    {
+        const auto at = upper.indexOf (word);
+        const auto length = (int) std::strlen (word);
+
+        if (at >= 0 && (at < bestAt || (at == bestAt && length > bestLength)))
+        {
+            best = category;
+            bestAt = at;
+            bestLength = length;
+        }
+    }
+
+    if (best != nullptr || voice == nullptr)
+        return best != nullptr ? best : "Keys";
+
+    // The heard operators' envelopes: R1 is the attack rate and L3 the
+    // sustain level (0-99), output level at byte 16.
+    const auto r = Dx7::routing ((*voice)[134]);
+    auto sustain = 0, slowestAttack = 99;
+
+    for (int k = 1; k <= 6; ++k)
+    {
+        const auto* o = Dx7::op (*voice, k);
+
+        if (! r.carrier[(size_t) (k - 1)] || o[16] < 50)
+            continue;
+
+        sustain = juce::jmax (sustain, (int) o[6]);
+        slowestAttack = juce::jmin (slowestAttack, (int) o[0]);
+    }
+
+    return sustain < 40 ? "Pluck" : (slowestAttack < 55 ? "Pad" : "Lead");
+}
+
 // The preloaded banks as factory presets, "NAME (BANK)", category DX7.
 inline std::vector<FactoryPreset> bankPresets()
 {
@@ -162,6 +235,7 @@ inline std::vector<FactoryPreset> bankPresets()
             FactoryPreset preset { intern (Dx7::name (voice) + " (" + bank.label + ")"), values (voice) };
             preset.macroNames = { macroNames[0], macroNames[1], macroNames[2], macroNames[3] };
             preset.category = "DX7";
+            preset.browseCategory = soundCategory (Dx7::name (voice), &voice);
             list.push_back (std::move (preset));
         }
     return list;

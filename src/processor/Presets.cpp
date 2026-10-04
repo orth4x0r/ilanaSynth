@@ -158,6 +158,8 @@ const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUse
         entry.modified = modified;
         entry.category = "User";
         entry.tags.clear();
+        entry.author.clear();
+        entry.comment.clear();
 
         // Only the root element's attributes are needed, but they don't fit
         // in the 8 KB that JUCE's outer-element-only read takes (the drawn
@@ -171,6 +173,12 @@ const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUse
                 entry.category = category;
 
             entry.tags = xml->getStringAttribute ("presetTags").trim();
+            entry.author = xml->getStringAttribute ("presetAuthor").trim();
+            entry.comment = xml->getStringAttribute ("presetComment").trim();
+
+            // DX7 voices imported before the browser sorted them by sound.
+            if (entry.category == "DX7")
+                entry.category = Presets::Dx7Import::soundCategory (Presets::dx7VoiceName (file.getFileNameWithoutExtension()));
         }
     }
 
@@ -179,7 +187,7 @@ const IlanaSynthAudioProcessor::UserPresetMeta& IlanaSynthAudioProcessor::getUse
 
 juce::StringArray IlanaSynthAudioProcessor::getAllPresetCategories() const
 {
-    auto categories = getFactoryPresetCategories();
+    auto categories = Presets::getFactoryBrowseCategories();
 
     for (const auto& file : getUserPresetFiles())
         categories.add (getUserPresetMeta (file).category);
@@ -191,13 +199,61 @@ juce::StringArray IlanaSynthAudioProcessor::getAllPresetTags() const
 {
     juce::StringArray tags;
 
-    for (int i = 0; i < getFactoryPresetCategories().size(); ++i)
-        tags.add ({});
+    for (const auto& preset : Presets::getFactoryPresets())
+        tags.add (Presets::factoryTags (preset.name));
 
     for (const auto& file : getUserPresetFiles())
         tags.add (getUserPresetMeta (file).tags);
 
     return tags;
+}
+
+juce::StringArray IlanaSynthAudioProcessor::getAllPresetBanks() const
+{
+    juce::StringArray banks;
+
+    for (const auto& preset : Presets::getFactoryPresets())
+        banks.add (Presets::dx7BankOf (preset.name, preset.category));
+
+    for (const auto& file : getUserPresetFiles())
+    {
+        const auto folder = file.getParentDirectory();
+        banks.add (folder.getParentDirectory().getFileName() == "DX7" && folder.getParentDirectory().getParentDirectory()
+                                                                             == getUserPresetDirectory()
+                       ? folder.getFileName()
+                       : (getUserPresetMeta (file).tags.contains ("DX7") ? juce::String ("Imported") : juce::String()));
+    }
+
+    return banks;
+}
+
+IlanaSynthAudioProcessor::PresetInfo IlanaSynthAudioProcessor::getPresetInfo (int index) const
+{
+    const auto& presets = Presets::getFactoryPresets();
+
+    if (index < 0)
+        return {};
+
+    if (index < (int) presets.size())
+    {
+        const auto& preset = presets[(size_t) index];
+        const auto bank = Presets::dx7BankOf (preset.name, preset.category);
+
+        if (bank.isEmpty())
+            return { "ilanaSynth", {} };
+
+        return { bank.startsWithIgnoreCase ("Dexed") ? juce::String ("Dexed") : juce::String ("Yamaha DX7"),
+                 "A DX7 voice from the " + bank + " bank, played by the FM engine on the Operator EG." };
+    }
+
+    const auto files = getUserPresetFiles();
+    const auto userIndex = index - (int) presets.size();
+
+    if (userIndex >= files.size())
+        return {};
+
+    const auto& meta = getUserPresetMeta (files[userIndex]);
+    return { meta.author, meta.comment };
 }
 
 int IlanaSynthAudioProcessor::getNumAllPresets() const
@@ -698,6 +754,27 @@ void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const j
     }
 }
 
+// The preset's level (its MASTER after the trims) goes to output_trim and
+// MASTER to 0 dB, so the knob reads the same on every factory preset and the
+// sum (what the output hears) is unchanged.
+void IlanaSynthAudioProcessor::moveLevelToTrim (std::vector<std::pair<juce::String, float>>& values)
+{
+    auto level = -6.0f; // MASTER's default
+    for (auto it = values.begin(); it != values.end();)
+    {
+        if (it->first == "master" || it->first == "output_trim")
+        {
+            if (it->first == "master")
+                level = it->second;
+            it = values.erase (it);
+        }
+        else
+            ++it;
+    }
+    values.push_back ({ "master", 0.0f });
+    values.push_back ({ "output_trim", level });
+}
+
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
     ++dataEpoch; // what the editor draws changes
@@ -709,7 +786,13 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         return;
 
     setCurrentPresetName (presets[(size_t) index].name);
-    setPresetMeta (getFactoryPresetCategories()[index], {});
+    setPresetMeta (presets[(size_t) index].browseCategory != nullptr ? juce::String (presets[(size_t) index].browseCategory)
+                                                                     : getFactoryPresetCategories()[index],
+                   Presets::factoryTags (presets[(size_t) index].name));
+    {
+        const auto info = getPresetInfo (index);
+        setPresetInfo (info.author, info.comment);
+    }
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
     {
@@ -830,6 +913,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             setMacroName (macro, voicedMacroNames[(size_t) macro]);
 
     applyPresetTrims (presets[(size_t) index].name, getFactoryPresetCategories()[index], values);
+    moveLevelToTrim (values);
 
     for (const auto& value : values)
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))

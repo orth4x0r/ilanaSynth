@@ -308,7 +308,11 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         const auto slot = freeSlot();
         const auto first = processor.readModSlot (shown.front()->getSlotIndex());
         routeSlot (slot, first.source, (Mod::Destination) first.destination, 0.1f);
+        editor.showPage ("MAIN"); // (the page reads its rows as it's shown)
+        settle (100);
+        editor.showPage ("MATRIX");
         settle (400);
+        page = editor.getCurrentPage();
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*page, buttons);
         juce::TextButton* merge = nullptr;
@@ -324,7 +328,11 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                     + (merge != nullptr ? " (" + merge->getTooltip().upToFirstOccurrenceOf (".", false, false).fromFirstOccurrenceOf ("\n", false, false) + ")"
                                         : " (slot " + juce::String (slot) + ", buttons: " + texts.joinIntoString (", ") + ")"));
         processor.clearModSlot (slot);
+        editor.showPage ("MAIN");
+        settle (100);
+        editor.showPage ("MATRIX");
         settle (300);
+        page = editor.getCurrentPage();
 
         // Quick shapes beside an open remap: inside the dock, clear of the
         // editor, and a click sets the curve.

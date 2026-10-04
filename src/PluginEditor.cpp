@@ -397,6 +397,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
             return processorRef.getSourceDisplayValue ((int) source);
         };
+        // A simulated LFO shape's second output gets a "B" on its chip.
+        if (const auto lfo = Mod::lfoIndexFor (spec.source); lfo >= 0)
+        {
+            chip->secondIndex = (int) Mod::lfoBSourceFor (lfo);
+            chip->hasSecondOutput = [this, lfo]
+            {
+                const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+                return shape != nullptr && LfoSimShapes::isSim ((int) shape->load());
+            };
+        }
         chip->setShortName (spec.shortName);
         content.addAndMakeVisible (*chip);
         chip->setVisible (spec.revealKind < 0);

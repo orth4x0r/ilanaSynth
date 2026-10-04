@@ -3356,6 +3356,18 @@ int runUiTests()
                         if (tagB.isEmpty() || ! display->getLocalBounds().toFloat().contains (tagB))
                             problems.add (juce::String (shape) + ": no output B tag");
                     }
+                    // The LFO's source chip carries a "B" for output B too.
+                    {
+                        std::vector<ModSourceChip*> chips;
+                        findAll<ModSourceChip> (*editor, chips);
+                        for (auto* chip : chips)
+                            if (chip->getSourceIndex() == (int) Mod::Source::Lfo1)
+                            {
+                                settle (100);
+                                if (! chip->isCompact() && (chip->getSecondOutputBounds().isEmpty() || chip->secondIndex != (int) Mod::Source::Lfo1B))
+                                    problems.add ("LFO 1's chip has no B");
+                            }
+                    }
                     expect (problems.isEmpty(), "every simulated LFO shape's knobs show name, dial and value apart, no control overlaps, "
                                                 "and output B has its tag" + (problems.isEmpty() ? juce::String() : " (" + problems.joinIntoString ("; ") + ")"));
                     setShape (0, shapeBefore);
@@ -4732,6 +4744,20 @@ int main (int argc, char** argv)
 
         settle (500);
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
+
+        // Steps, edited on the LFO graph, and the MSEG card's editor.
+        shape->setValueNotifyingHost (shape->convertTo0to1 ((float) LfoShapes::Steps));
+        settle (400);
+        save (*editor, outDir.getChildFile ("lfo-steps.png"));
+        if (auto* page = pages->getCurrentPage())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+            {
+                thumbs->onSelect (IlanaSynthAudioProcessor::numLfos);
+                settle (400);
+                save (*editor, outDir.getChildFile ("lfo-mseg.png"));
+                thumbs->onSelect (0);
+            }
+        shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
     }
 
     // The LFO pool, every card revealed, the last one selected.

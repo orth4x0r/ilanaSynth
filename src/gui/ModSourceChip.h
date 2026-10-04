@@ -51,6 +51,21 @@ public:
     // chip glows with it. Optional.
     std::function<float()> valueProvider;
 
+    // An LFO whose shape has a second output: a small "B" at the chip's right
+    // end drags that output (LFO n B) instead. Optional.
+    std::function<bool()> hasSecondOutput;
+    int secondIndex = 0;
+
+    // The "B" sub-chip's bounds, empty while there is none (the UI test reads it).
+    juce::Rectangle<float> getSecondOutputBounds() const
+    {
+        if (compact || hasSecondOutput == nullptr || ! hasSecondOutput())
+            return {};
+
+        const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
+        return { bounds.getRight() - 19.0f, bounds.getY() + 3.0f, 16.0f, bounds.getHeight() - 6.0f };
+    }
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
@@ -93,16 +108,44 @@ public:
         g.setColour (colour);
         g.fillEllipse (dot);
 
+        const auto second = getSecondOutputBounds();
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
+        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f))
+                                    .withTrimmedRight (second.isEmpty() ? 3 : 22),
                           juce::Justification::centred, 1, 0.85f);
+
+        if (! second.isEmpty())
+        {
+            const auto hot = highlightedModSource() == secondIndex;
+            g.setColour (colour.withAlpha (hot ? 0.35f : 0.15f));
+            g.fillRoundedRectangle (second, 3.0f);
+            g.setColour (colour.withAlpha (0.8f));
+            g.drawRoundedRectangle (second.reduced (0.5f), 3.0f, 1.0f);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("B", second, juce::Justification::centred);
+        }
     }
 
-    void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = index; }
+    // Which output the mouse is over: the "B" sub-chip's, or the chip's own.
+    int sourceAt (juce::Point<float> position) const
+    {
+        return getSecondOutputBounds().contains (position) ? secondIndex : index;
+    }
+
+    void mouseEnter (const juce::MouseEvent& event) override { highlightedModSource() = sourceAt (event.position); }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        if (highlightedModSource() != sourceAt (event.position))
+        {
+            highlightedModSource() = sourceAt (event.position);
+            repaint();
+        }
+    }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (highlightedModSource() == index)
+        if (highlightedModSource() == index || (secondIndex != 0 && highlightedModSource() == secondIndex))
             highlightedModSource() = 0;
     }
 
@@ -121,15 +164,17 @@ public:
             togglePinned();
     }
 
-    void mouseDrag (const juce::MouseEvent&) override
+    void mouseDrag (const juce::MouseEvent& event) override
     {
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (getLocalBounds(), true, 1.0f);
+                const auto second = getSecondOutputBounds();
+                const auto dragsSecond = second.contains (event.mouseDownPosition);
+                auto image = createComponentSnapshot (dragsSecond ? second.toNearestInt() : getLocalBounds(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
-                container->startDragging ("modsource:" + juce::String (index), this,
+                container->startDragging ("modsource:" + juce::String (dragsSecond ? secondIndex : index), this,
                                           juce::ScaledImage (image), true);
             }
         }
@@ -148,6 +193,12 @@ private:
         if (pinnedNow != wasPinned)
         {
             wasPinned = pinnedNow;
+            changed = true;
+        }
+
+        if (const auto second = ! compact && hasSecondOutput != nullptr && hasSecondOutput(); second != showsSecond)
+        {
+            showsSecond = second;
             changed = true;
         }
 
@@ -177,6 +228,7 @@ private:
     int index = 0;
     bool compact = false;
     bool wasPinned = false;
+    bool showsSecond = false;
     float hover = 0.0f;
     float activity = 0.0f;
 };

@@ -779,8 +779,12 @@ public:
         if (selected == msegId)
         {
             msegEditor.setBounds (displayArea);
-            // LOOP on the left, RATE beside it, as an LFO's SYNC and RATE.
-            layoutRow (inner, { &msegLoop, &msegRate, nullptr, nullptr });
+            // LOOP where an LFO's SYNC is, RATE where its RATE is.
+            auto options = inner.removeFromLeft (inner.getWidth() / 2);
+            const auto rowHeight = juce::jmin (options.getHeight() / 3, 13 + 24 + 14);
+            msegLoop.setBounds (options.removeFromTop (rowHeight).withWidth (options.getWidth() / 3).reduced (3, 1));
+            inner.removeFromLeft (8);
+            layoutRow (inner.removeFromTop ((inner.getHeight() - 8) / 2), { &msegRate, nullptr, nullptr });
             return;
         }
 
@@ -816,16 +820,13 @@ public:
         c.kick.setBounds (options.removeFromTop (rowHeight).withWidth (options.getWidth() / 3).reduced (3, 1));
 
         inner.removeFromLeft (8);
+        // RATE, START, SMOOTH on the top row, level with SHAPE (as on the
+        // physics and chaos shapes, whose own knobs fill the row below).
+        const auto knobHeight = (inner.getHeight() - 8) / 2;
+        layoutRow (inner.removeFromTop (knobHeight), { c.rate.layoutItem(), &c.phase, &c.smooth });
+        inner.removeFromTop (8);
         if (LfoShapes::isPhysics (shape))
-        {
-            // RATE, START, SMOOTH over the two physics knobs, on one grid.
-            const auto knobHeight = (inner.getHeight() - 8) / 2;
-            layoutRow (inner.removeFromTop (knobHeight), { c.rate.layoutItem(), &c.phase, &c.smooth });
-            inner.removeFromTop (8);
             layoutRow (inner.removeFromTop (knobHeight), { &c.physA, &c.physB, nullptr });
-        }
-        else
-            layoutRow (inner, { c.rate.layoutItem(), &c.phase, &c.smooth });
 
         c.rate.matchBounds();
     }

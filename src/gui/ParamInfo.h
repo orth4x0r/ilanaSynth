@@ -532,7 +532,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("fm_noise") && id != "fm_noise_color")
         return "The noise operator: how much noise frequency-modulates this oscillator (breath, grit, cymbals).";
     if (id == "fm_noise_color")
-        return "Noise operator colour: dark rumble to full white noise.";
+        return "Colour of the noise that modulates (the NOISE FM row): dark rumble to full white noise. "
+               "The NOISE you hear, in SUB + NOISE on PLAY and OSC, is a separate source.";
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
         return "DAHDSR: a wait after the note starts before the attack.";
     if (id.endsWith ("_hold"))

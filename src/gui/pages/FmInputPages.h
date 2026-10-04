@@ -551,7 +551,8 @@ public:
         if (inputsChanged || cellsChanged)
             repaint (matrixCard);
 
-        if (refreshShown() || tuneChanged || diagram.getMinimumHeight() != lastDiagramMinimum)
+        if (refreshShown() || tuneChanged || diagram.getMinimumHeight() != lastDiagramMinimum
+            || anyOperatorEnv() != lastAnyOperatorEnv)
         {
             updateOperatorVisibility();
             resized();
@@ -643,13 +644,13 @@ public:
         algorithms.setBounds (area.removeFromTop (42));
         area.removeFromTop (8);
 
-        // The operator card has one height for its kind (the Operator Env's
-        // and PITCH & LFO's, or a plain operator's), whatever the algorithm,
-        // so auditioning algorithms never moves it (I7-10); the diagram sizes
-        // its nodes to what is left.
+        // The operator card has one height for the patch (the Operator Env's
+        // when any operator plays one, else a plain operator's), whatever the
+        // algorithm or the operator picked, so auditioning algorithms never
+        // moves it (I7-10); the diagram sizes its nodes to what is left.
         lastDiagramMinimum = diagram.getMinimumHeight();
-        const auto egShown = ! voicePage && usesOperatorEnv (selectedOperator);
-        const auto wanted = voicePage || egShown ? operatorEnvCardHeight : 176;
+        lastAnyOperatorEnv = anyOperatorEnv();
+        const auto wanted = voicePage || anyOperatorEnv() ? operatorEnvCardHeight : 176;
         operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (wanted, area.getHeight() - 150)));
         area.removeFromBottom (8);
         diagram.setBounds (area);
@@ -677,8 +678,14 @@ public:
             return "DX7 ALGORITHM " + juce::String (dx7);
 
         const auto matching = processorRef.findMatchingFmAlgorithm();
+        if (matching >= 0 && matching < FmAlgorithms::numBasic)
+            return FmAlgorithmStrip::basicName (matching);
         if (matching >= 0 && matching < (int) FmAlgorithms::all().size())
             return FmAlgorithms::all()[(size_t) matching].name;
+
+        // One that no tile matches names the nearest (V7-14).
+        if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
+            return "CUSTOM: NEAR " + FmAlgorithmStrip::basicName (near);
 
         for (const auto source : shown)
             for (const auto target : shown)
@@ -1270,7 +1277,9 @@ private:
         }
 
         g.setColour (noiseColour());
-        g.drawText ("NOISE", noiseHead.withHeight (18), juce::Justification::centredLeft);
+        // Noise as a modulator, with its own colour: the NOISE you hear (SUB +
+        // NOISE on PLAY and OSC) is a separate, white source (V7-30).
+        g.drawText ("NOISE FM", noiseHead.withHeight (18), juce::Justification::centredLeft);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
         const auto colourText = juce::Rectangle<int> (noiseColourKnob->getRight() + 2, noiseColourKnob->getY() + 2,
@@ -1356,6 +1365,7 @@ private:
     std::array<int, OscillatorIds::count * 3> lastTune {};
     std::vector<int> shown;
     int selectedOperator = 0, tabsLeft = 0, lastDiagramMinimum = 0;
+    bool lastAnyOperatorEnv = false;
     juce::String lastAlgorithmLabel, hoverAlgorithm;
 };
 

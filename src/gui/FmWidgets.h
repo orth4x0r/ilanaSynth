@@ -66,6 +66,56 @@ public:
     }
     int dx7NumberAt (int cell) const { return page == basic ? 0 : cell + 1 + (page == dx7High ? 16 : 0); }
 
+    // A BASIC tile's short name: B1-B9, as the heading writes it (V7-14).
+    static juce::String basicName (int index)
+    {
+        return "B" + juce::String (index + 1) + " " + juce::String (FmAlgorithms::all()[(size_t) index].name).toUpperCase();
+    }
+
+    // The BASIC tile nearest a routing no tile matches: the same routes
+    // between operators, with the fewest heard/silent differences (Neuro's
+    // OSC 2 into OSC 1 with both heard is "near B1 2-Op Stack"). -1 when the
+    // patch has no routes or no tile has its routes.
+    static int nearestBasic (const IlanaSynthAudioProcessor& processor)
+    {
+        const auto routed = [&processor] (int source, int target)
+        {
+            return processor.apvts.getRawParameterValue (IlanaSynthAudioProcessor::fmRouteId (source, target))->load() > 0.001f;
+        };
+        auto best = -1, bestCost = 0, anyRoute = 0;
+        for (int source = 0; source < OscillatorIds::count; ++source)
+            for (int target = 0; target < OscillatorIds::count; ++target)
+                anyRoute += source != target && routed (source, target) ? 1 : 0;
+        if (anyRoute == 0)
+            return -1;
+
+        for (int index = 0; index < FmAlgorithms::numBasic; ++index)
+        {
+            const auto& algorithm = FmAlgorithms::all()[(size_t) index];
+            auto same = true;
+            for (int source = 0; source < OscillatorIds::count && same; ++source)
+                for (int target = 0; target < OscillatorIds::count && same; ++target)
+                    same = source == target || routed (source, target) == FmAlgorithms::hasRoute (algorithm, source, target);
+            if (! same)
+                continue;
+
+            auto cost = algorithm.numOperators;
+            for (int op = 0; op < algorithm.numOperators; ++op)
+            {
+                const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) op]);
+                const auto on = processor.apvts.getRawParameterValue (prefix + "_on")->load() > 0.5f;
+                const auto out = processor.apvts.getRawParameterValue (prefix + "_out")->load() > 0.5f;
+                cost += (on && out) != FmAlgorithms::isCarrier (algorithm, op) ? 10 : 0;
+            }
+            if (best < 0 || cost < bestCost)
+            {
+                best = index;
+                bestCost = cost;
+            }
+        }
+        return best;
+    }
+
     bool isLit (int cell) const
     {
         return page == basic ? cell == matching && matchingDx7 == 0 : dx7NumberAt (cell) == matchingDx7;
@@ -77,6 +127,7 @@ public:
         // a change (an offscreen snapshot never runs it).
         matching = processorRef.findMatchingFmAlgorithm();
         matchingDx7 = processorRef.findMatchingDx7Algorithm();
+        const auto near = matching < 0 && matchingDx7 == 0 ? nearestBasic (processorRef) : -1;
         const auto shown = shownCount();
         for (int index = 0; index < getNumCells(); ++index)
         {
@@ -92,22 +143,36 @@ public:
             g.setColour (lit ? accent() : juce::Colours::white.withAlpha (hovered ? 0.35f : 0.12f));
             g.drawRoundedRectangle (cell.reduced (0.5f), 5.0f, lit ? 1.6f : 1.0f);
 
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            if (page != basic)
+            // The routing no tile matches is near this one: a dashed outline
+            // (the heading says "near B1 ...").
+            if (page == basic && index == near && ! lit)
             {
-                // The DX7's own number.
-                g.setColour (lit ? accent() : IlanaTheme::Ui::text2);
-                g.drawText (juce::String (dx7NumberAt (index)), cell.reduced (3.0f, 1.0f).toNearestInt(), juce::Justification::topLeft);
-            }
-            // Picking it adds oscillators: say how many (UI review 6, S6-45).
-            if (algorithm.numOperators > shown)
-            {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.drawText ("+" + juce::String (algorithm.numOperators - shown), cell.reduced (3.0f, 1.0f).toNearestInt(),
-                            juce::Justification::topRight);
+                juce::Path outline;
+                outline.addRoundedRectangle (cell.reduced (0.5f), 5.0f);
+                juce::Path dashed;
+                const float dashes[] { 3.0f, 3.0f };
+                juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+                g.setColour (accent().withAlpha (0.7f));
+                g.fillPath (dashed);
             }
 
-            paintAlgorithm (g, algorithm, cell.withTrimmedTop (page == basic ? 4.0f : 11.0f).reduced (3.0f, 3.0f), lit);
+            // Its name in short: the DX7's own number, or B1-B9 on BASIC
+            // (V7-14).
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setColour (lit ? accent() : IlanaTheme::Ui::text2);
+            g.drawText (page == basic ? "B" + juce::String (index + 1) : juce::String (dx7NumberAt (index)),
+                        cell.reduced (3.0f, 1.0f).toNearestInt(), juce::Justification::topLeft);
+            // Picking it adds oscillators: say so (UI review 6, S6-45; the
+            // tooltip names them, V7-14).
+            if (algorithm.numOperators > shown)
+            {
+                const auto extra = algorithm.numOperators - shown;
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (page == basic ? "+" + juce::String (extra) + " OSC" : "+" + juce::String (extra),
+                            cell.reduced (3.0f, 1.0f).toNearestInt(), juce::Justification::topRight);
+            }
+
+            paintAlgorithm (g, algorithm, cell.withTrimmedTop (11.0f).reduced (3.0f, 3.0f), lit);
         }
     }
 
@@ -198,7 +263,7 @@ public:
             hover = index;
             setTooltip (index >= 0 ? describeCell (index) : defaultTooltip());
             if (onHoverChanged != nullptr)
-                onHoverChanged (index >= 0 ? juce::String (algorithmAt (index).name) : juce::String());
+                onHoverChanged (index >= 0 ? (page == basic ? basicName (index) : juce::String (algorithmAt (index).name)) : juce::String());
             repaint();
         }
     }
@@ -255,7 +320,7 @@ private:
     juce::String describeCell (int index) const
     {
         const auto& algorithm = algorithmAt (index);
-        auto text = page == basic ? juce::String (algorithm.name) + " (" + juce::String (algorithm.numOperators) + " operators)"
+        auto text = page == basic ? "B" + juce::String (index + 1) + " " + algorithm.name + " (" + juce::String (algorithm.numOperators) + " operators)"
                                   : juce::String (algorithm.name) + ": " + FmAlgorithms::dx7Description (dx7NumberAt (index));
         if (algorithm.numOperators > shownCount())
             text << ". Adds OSC " << (shownCount() + 1) << (algorithm.numOperators - shownCount() > 1 ? "-" + juce::String (algorithm.numOperators) : juce::String())

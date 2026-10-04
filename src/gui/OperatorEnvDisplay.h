@@ -313,8 +313,12 @@ public:
         g.drawDashedLine ({ geo.keyUpX, geo.plot.getY(), geo.keyUpX, geo.plot.getBottom() }, dashes, 2, 1.0f);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
-        g.drawText ("KEY UP", juce::Rectangle<float> (geo.keyUpX + 3.0f, geo.plot.getY(), 60.0f, 12.0f).toNearestInt(),
-                    juce::Justification::centredLeft);
+        // Right of the line, or left of it when the release is too short
+        // (a narrow graph) to hold the words.
+        const auto keyUpWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "KEY UP") + 2.0f;
+        const auto keyUpLeft = geo.keyUpX + 3.0f + keyUpWidth > geo.plot.getRight() ? geo.keyUpX - 3.0f - keyUpWidth : geo.keyUpX + 3.0f;
+        g.drawText ("KEY UP", juce::Rectangle<float> (keyUpLeft, geo.plot.getY(), keyUpWidth, 12.0f).toNearestInt(),
+                    juce::Justification::centredLeft, false);
 
         if (isPitch())
         {
@@ -378,7 +382,8 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
         const auto corner = bounds.reduced (8.0f, 3.0f).withHeight (12.0f).toNearestInt();
-        g.drawText (isPitch() ? "PITCH, at C3" : "C3, velocity 100", corner, juce::Justification::centredRight);
+        g.drawText (IlanaTheme::fittedHint (isPitch() ? "PITCH, at C3" : "C3, velocity 100", g.getCurrentFont(), (float) corner.getWidth()),
+                    corner, juce::Justification::centredRight, false);
         const auto flat = std::all_of (curve.values.begin(), curve.values.end(),
                                        [this] (double v) { return std::abs (v - curve.values.front()) < 1.0e-9; });
         if (flat && dragHandle < 0)

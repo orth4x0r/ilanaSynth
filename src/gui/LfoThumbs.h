@@ -683,11 +683,7 @@ private:
         const auto rateText = synced ? divisions[juce::jlimit (0, divisions.size() - 1, (int) readParam (lfo, "_div"))]
                                      : describeValue ("lfo" + juce::String (lfo + 1) + "_rate", readParam (lfo, "_rate")); // as the RATE knob shows it
 
-        // The hovered card's "x" takes the rate's corner.
         const auto targets = cachedTargets (lfo);
-        paintTitleRow (g, hovered ? titleRow.withTrimmedRight (18.0f) : titleRow, "LFO " + juce::String (lfo + 1), rateText, targets,
-                       colour, active, isRouted (lfo));
-
         const auto plot = inner.reduced (0.0f, 3.0f);
         const auto shape = (int) readParam (lfo, "_shape");
 
@@ -697,6 +693,11 @@ private:
 
         const auto phase = (double) processorRef.getLfoPhase (lfo);
         paintDot (g, plot, colour, phase, shapeValue (lfo, shape, phase));
+
+        // Over the trace: a target tag too long for the title line drops
+        // onto the plot. The hovered card's "x" takes the rate's corner.
+        paintTitleRow (g, hovered ? titleRow.withTrimmedRight (18.0f) : titleRow, "LFO " + juce::String (lfo + 1), rateText, targets,
+                       colour, active, isRouted (lfo));
 
         if (const auto tag = outputBTag (lfo, card); ! tag.isEmpty())
         {
@@ -726,9 +727,6 @@ private:
         auto inner = card.reduced (8.0f, 5.0f);
         const auto titleRow = inner.removeFromTop (16.0f);
         const auto targets = extraTargets[extra];
-        paintTitleRow (g, titleRow, info.title, info.rateText != nullptr ? info.rateText() : juce::String(), targets, info.colour,
-                       active, targets.isNotEmpty());
-
         const auto plot = inner.reduced (0.0f, 3.0f);
 
         if (info.valueAt != nullptr)
@@ -741,6 +739,9 @@ private:
                 paintDot (g, plot, info.colour, phase, info.valueAt (phase));
             }
         }
+
+        paintTitleRow (g, titleRow, info.title, info.rateText != nullptr ? info.rateText() : juce::String(), targets, info.colour,
+                       active, targets.isNotEmpty());
     }
 
     void timerCallback() override

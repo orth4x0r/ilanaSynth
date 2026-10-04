@@ -598,7 +598,7 @@ private:
         area.removeFromLeft (34.0f);
 
         // The blocks after the filters, right to left, sized to the width.
-        const auto blocksAfter = 2.4f + (layout.westAfter ? 1.0f : 0.0f) + (hasPost ? 1.0f : 0.0f);
+        const auto blocksAfter = 2.4f + (layout.westAfter ? 1.0f : 0.0f) + (hasPost ? 1.3f : 0.0f);
         const auto blockWidth = juce::jlimit (34.0f, 52.0f, area.getWidth() / (blocksAfter + 2.6f));
         const auto gap = juce::jlimit (10.0f, 18.0f, blockWidth * 0.35f);
         const auto centreY = area.getCentreY();
@@ -611,7 +611,7 @@ private:
         area.removeFromRight (gap);
         if (hasPost)
         {
-            layout.post = place (blockWidth * 1.2f);
+            layout.post = place (blockWidth * 1.45f);
             area.removeFromRight (gap);
         }
         layout.res = place (blockWidth);
@@ -791,7 +791,7 @@ private:
         g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, hovered ? 1.8f : 1.2f);
         g.setColour (lit ? colour : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawFittedText (text, box.toNearestInt(), juce::Justification::centred, 1, 0.8f);
+        g.drawFittedText (text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
     }
 
     void timerCallback() override

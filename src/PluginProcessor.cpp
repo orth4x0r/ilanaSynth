@@ -572,6 +572,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     gatePhase = 0.0;
     gateEnvelope = 1.0f;
     gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
     duckEnvelope = 0.0f;
 
     for (int channel = 0; channel < 2; ++channel)
@@ -647,6 +648,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     reverb.setSampleRate (sampleRate);
     reverb.reset();
+    reverbDryScratch.setSize (2, samplesPerBlock, false, false, true);
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
     for (auto& module : awCategoryModules)
         module.prepare (sampleRate, samplesPerBlock);
@@ -716,6 +718,7 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     gatePhase = 0.0;
     gateEnvelope = 1.0f;
     gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
     duckEnvelope = 0.0f;
     for (int channel = 0; channel < 2; ++channel)
     {

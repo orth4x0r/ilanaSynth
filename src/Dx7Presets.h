@@ -85,7 +85,11 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     set ("f1_drive", 1);
     set ("f1_env", 0);
     set ("f2_cutoff", 20000);
-    set ("fx_slot1", 13); // a reverb at mix 0, for SPACE
+    // A reverb at mix 0 for SPACE, switched on: KEEP DRY makes it the dry
+    // signal exactly until SPACE opens it (review 7, I7-4).
+    set ("fx_slot1", 13);
+    set ("fx_reverb_on", 1);
+    set ("fx_reverb_keep_dry", 1);
     set ("fx_reverb_mix", 0);
     set ("master", 3.0f); // Dexed's own loudness (E.PIANO 1 measured against it)
 
@@ -157,8 +161,8 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     // The wheel and pressure add vibrato, as a DX7's do with their range at
     // 99 on PITCH (the LFO's PITCH DEPTH, scaled by PITCH SENS). They move
     // nothing until touched.
-    routeFrom (Mod::Source::ModWheel, "Op LFO Pitch Depth", 1.0f);
-    routeFrom (Mod::Source::Aftertouch, "Op LFO Pitch Depth", 1.0f);
+    routeFrom (Mod::Source::ModWheel, "OP LFO Pitch Depth", 1.0f);
+    routeFrom (Mod::Source::Aftertouch, "OP LFO Pitch Depth", 1.0f);
     return out;
 }
 

@@ -1202,6 +1202,11 @@ private:
     juce::AudioBuffer<float> fxBand;
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
+    // KEEP DRY's wet copy, and how long its wet is still added after MIX
+    // reaches 0 (review 7); reverbWetOnly while that copy is processed.
+    juce::AudioBuffer<float> reverbDryScratch;
+    int reverbKeepDryHold = 0;
+    bool reverbWetOnly = false;
     std::atomic<float> compGainReduction { 1.0f };
     std::atomic<float> limiterGainReduction { 1.0f };
     std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };

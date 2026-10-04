@@ -1340,8 +1340,8 @@ private:
         }
     }
 
-    // Rows tall enough to show every note of the clip, if 0.6 of the usual
-    // height will do, then centred on them.
+    // Rows tall enough to show every note of the clip, down to 9 px (the
+    // notes keep their names), then the view that shows the most of them.
     void fitPitchToNotes()
     {
         rowScale = 1.0f;
@@ -1359,7 +1359,7 @@ private:
             const auto span = highest - lowest + 3; // a row spare at each side
 
             if (span > visibleRows())
-                rowScale = juce::jlimit (0.6f, 1.0f, gridBounds().getHeight() / (12.0f * (float) span));
+                rowScale = juce::jlimit (0.75f, 1.0f, gridBounds().getHeight() / (12.0f * (float) span));
         }
 
         centreOnNotes();
@@ -1384,6 +1384,25 @@ private:
 
         const auto rows = visibleRows();
         lowNote = juce::jlimit (0, 128 - rows, centre - rows / 2);
+
+        // A clip wider than the rows: the window holding the most notes,
+        // the one nearest the centre among equals (the edge markers count
+        // the rest).
+        auto best = -1;
+
+        for (auto low = juce::jmax (0, lowNote - rows); low <= juce::jmin (128 - rows, lowNote + rows); ++low)
+        {
+            auto inView = 0;
+
+            for (const auto& n : clip.notes)
+                inView += n.note >= low && n.note < low + rows ? 1 : 0;
+
+            if (inView > best || (inView == best && std::abs (low - (centre - rows / 2)) < std::abs (lowNote - (centre - rows / 2))))
+            {
+                best = inView;
+                lowNote = low;
+            }
+        }
     }
 
     float beatToX (float beat) const { return gridBounds().getX() + gridBounds().getWidth() * (beat - viewStart) / viewBeats(); }

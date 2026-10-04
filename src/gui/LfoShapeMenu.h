@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <functional>
 
 #include "../PluginProcessor.h"
@@ -25,14 +26,24 @@ inline bool isLegacy (int shape)
 }
 
 // The name shown for a shape (the parameter's own text, with its accents
-// and the legacy ones marked).
+// and the legacy ones marked). The drawn shapes are one system (UI review
+// 7, S7-7 / V7-19): Draw, Steps and MSEG, the points-and-curves shape (the
+// parameter's "Curve") that any LFO can be. S&H is the current one; the
+// first is "S&H (stepped)", not "(classic)", which read as deprecated
+// (I7-44).
 inline juce::String displayName (int shape, const juce::String& parameterText)
 {
     if (shape == LfoSimShapes::Rossler)
         return juce::String (juce::CharPointer_UTF8 ("R\xc3\xb6ssler"));
     if (shape == LfoSimShapes::Henon)
         return juce::String (juce::CharPointer_UTF8 ("H\xc3\xa9non Map"));
-    if (shape == LfoShapes::SampleHold || shape == LfoShapes::SmoothRandom || shape == LfoShapes::Drunk)
+    if (shape == LfoShapes::Curve)
+        return "MSEG";
+    if (shape == LfoSimShapes::RandomHold)
+        return "S&H";
+    if (shape == LfoShapes::SampleHold)
+        return "S&H (stepped)";
+    if (shape == LfoShapes::SmoothRandom || shape == LfoShapes::Drunk)
         return parameterText + " (classic)";
     return parameterText;
 }
@@ -111,6 +122,45 @@ inline void show (juce::ComboBox& box, const IlanaSynthAudioProcessor& processor
                             if (picked != nullptr)
                                 picked (id - 1);
                         });
+}
+
+// The Operator Env's LFO (the DX7's) in the pool LFOs' words and order (UI
+// review 7, I7-18): Sine, Triangle, Saw Up, Saw Down, Square, then S&H. Its
+// parameter keeps the DX7's order (Triangle, Saw Down, Saw Up, Square, Sine,
+// S&H); only the names and the popup's order change.
+inline const std::array<int, 6>& operatorLfoOrder()
+{
+    static const std::array<int, 6> order { 4, 0, 2, 1, 3, 5 };
+    return order;
+}
+
+inline void applyOperatorLfo (ComboControl& control)
+{
+    auto& box = control.getComboBox();
+    static const char* const names[] { "Triangle", "Saw Down", "Saw Up", "Square", "Sine", "S&H" };
+    for (int i = 0; i < box.getNumItems() && i < 6; ++i)
+        box.changeItemText (box.getItemId (i), names[i]);
+
+    control.setPopupOverride ([&box]
+    {
+        juce::PopupMenu menu;
+        const auto current = box.getSelectedId() - 1;
+        menu.addSectionHeader ("Basic");
+        for (const auto wave : operatorLfoOrder())
+        {
+            if (wave == 5)
+                menu.addSectionHeader ("Random");
+            if (wave < box.getNumItems())
+                menu.addItem (wave + 1, box.getItemText (wave), true, wave == current);
+        }
+        juce::Component::SafePointer<juce::ComboBox> safeBox (&box);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&box).withMinimumWidth (box.getWidth()),
+                            [safeBox] (int id)
+                            {
+                                if (safeBox != nullptr && id > 0)
+                                    safeBox->setSelectedId (id, juce::sendNotificationSync);
+                            });
+    });
 }
 
 // Gives an LFO's SHAPE control the display names and the grouped popup.

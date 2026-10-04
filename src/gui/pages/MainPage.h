@@ -204,6 +204,7 @@ public:
             const auto prefix = "lfo" + juce::String (lfo + 1);
             auto set = std::make_unique<ControlSet>();
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
+            LfoShapeMenu::apply (static_cast<ComboControl&> (*set->items.back()), p); // MOD's names and grouped list (I7-44)
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
 

@@ -230,7 +230,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         if (id == "opeg_lfo_delay")
         {
             if (dx <= 0)
-                return "Off";
+                return "0 ms";
             const auto a = 99 - juce::jlimit (0, 99, dx);
             const auto first = (16 + (a & 15)) << (1 + (a >> 4));
             const auto second = juce::jmax (0x80, first & 0xff80);
@@ -249,10 +249,11 @@ inline juce::String describeValue (const juce::String& id, float value)
         return asPercent();
     if (isOscParameter (id, "_pd_env_amt"))
         return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + "%";
+    // A time of 0 is "0 ms": "Off" is for switches (UI review 7, S7-29).
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
-        return value <= 0.0005f ? juce::String ("Off") : asSeconds();
+        return value <= 0.0005f ? juce::String ("0 ms") : asSeconds();
     if (id.endsWith ("_hold"))
-        return value <= 0.0005f ? juce::String ("Off") : asSeconds();
+        return value <= 0.0005f ? juce::String ("0 ms") : asSeconds();
     if (id.endsWith ("_keyrate"))
         return asPercent();
 

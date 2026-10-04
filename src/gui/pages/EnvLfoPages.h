@@ -179,19 +179,6 @@ private:
     EffectRules effectRules { processorRef };
 };
 
-// Scrolls a sideways card bar so the given card is in view.
-inline void scrollToCard (juce::Viewport& view, juce::Rectangle<int> card)
-{
-    if (card.isEmpty())
-        return;
-
-    const auto x = view.getViewPositionX();
-    if (card.getX() < x)
-        view.setViewPosition (card.getX(), 0);
-    else if (card.getRight() > x + view.getViewWidth())
-        view.setViewPosition (card.getRight() - view.getViewWidth(), 0);
-}
-
 // An LFO's RATE (UI review 4, V12 and S22): Hz while free-running, note
 // values (1/16, 1/8T...) while SYNC is on. Two knobs share one place, one
 // on the RATE parameter and one on DIVISION, and SYNC picks which is shown;
@@ -321,12 +308,58 @@ public:
           e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xff5b8cff), false),
           e4Curve (p.apvts, "e4_curve", curveLabel, juce::Colour (0xff5b8cff), false)
     {
-        // One card per envelope in the patch and a "+" (no 1-16 ruler: UI
-        // review 6, V6-8). Past what fits, the cards scroll sideways.
-        thumbView.setViewedComponent (&thumbs, false);
-        thumbView.setScrollBarsShown (false, true);
-        thumbView.setScrollBarThickness (6);
-        addAndMakeVisible (thumbView);
+        // One card per envelope in the patch, the Operator Env's two, and a
+        // "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits, cards fold
+        // into a "N MORE" card; the pool never scrolls (UI review 7, V7-17).
+        addAndMakeVisible (thumbs);
+
+        // OP ENV and OP PITCH, pool members edited below like the others
+        // (UI review 7, I7-7): greyed with "unused" while no oscillator
+        // plays the Operator Env.
+        {
+            const auto anyOperator = [&p] { return FmOperatorInfo::anyOperatorEnv (p); };
+            EnvThumbBar::ExtraCard opEnv;
+            opEnv.title = "OP ENV";
+            opEnv.colour = OperatorPool::colour();
+            opEnv.isActive = anyOperator;
+            opEnv.tooltip = "OP ENV\nThe Operator Env: the DX7 envelope each oscillator on it plays (its level). Click to edit it "
+                            "below, an operator at a time. It shapes its operators only, so it isn't a modulation source.";
+            opEnv.paintShape = [this] (juce::Graphics& g, juce::Rectangle<float> plot, bool active)
+            {
+                const auto onEnv = OperatorPool::operatorsOnEnv (processorRef);
+                const auto osc = opEditor.isPitch() || onEnv.empty() ? (onEnv.empty() ? 0 : onEnv.front()) : opEditor.getSelectedOperator();
+                OperatorPool::paintEnvelopeShape (g, plot, OperatorPool::envelopeShape (processorRef, FmOperatorInfo::prefixOf (osc), opEnvShape).values,
+                                                  OperatorPool::colour(), active);
+            };
+            opEnv.targets = [&p]
+            {
+                const auto count = (int) OperatorPool::operatorsOnEnv (p).size();
+                return count == 0 ? juce::String() : juce::String (count) + (count == 1 ? " operator" : " operators");
+            };
+            thumbs.addExtraCard (std::move (opEnv));
+
+            EnvThumbBar::ExtraCard opPitch;
+            opPitch.title = "OP PITCH";
+            opPitch.source = Mod::Source::OpPitchEnv;
+            opPitch.colour = OperatorPool::colour();
+            opPitch.isActive = anyOperator;
+            opPitch.tooltip = "OP PITCH\nThe Operator Env's pitch envelope, for the whole voice. Click to edit it below; drag it onto "
+                              "a knob to modulate that knob too (source: Op Pitch Env).";
+            opPitch.paintShape = [this] (juce::Graphics& g, juce::Rectangle<float> plot, bool active)
+            {
+                OperatorPool::paintEnvelopeShape (g, plot, OperatorPool::envelopeShape (processorRef, {}, opPitchShape).values,
+                                                  OperatorPool::colour(), active);
+            };
+            opPitch.targets = [this, &p]
+            {
+                juce::StringArray fixed;
+                if (OperatorPool::envelopeShape (p, {}, opPitchShape).moves && FmOperatorInfo::anyOperatorEnv (p))
+                    fixed.add ("Op pitch");
+                return describeModTargets (processorRef, Mod::Source::OpPitchEnv, fixed);
+            };
+            thumbs.addExtraCard (std::move (opPitch));
+        }
+        addChildComponent (opEditor);
 
         addAll (*this, ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display,
                 ampA, ampD, ampS, ampR, ampVel, ampCurve,
@@ -372,7 +405,14 @@ public:
             extraUnits.push_back (std::move (extra));
         }
 
-        selected = juce::jlimit (0, (int) units.size() - 1, settings.getIntValue ("envSelected", 0));
+        selected = juce::jlimit (0, opPitchId, settings.getIntValue ("envSelected", 0));
+
+        // AMP ENV's controls dim on a DX7 voice, whose operators play the
+        // Operator Env (UI review 7, I7-8, V7-24); its graph dims itself.
+        for (auto* knob : units[0].knobs)
+            if (knob != nullptr)
+                ampRules.add (*knob, [&p] { return FmOperatorInfo::ampEnvelopeInUse (p); },
+                              "unused: every oscillator plays the Operator Env (OP ENV)");
 
         thumbs.onSelect = [this] (int index) { select (index); };
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
@@ -385,12 +425,16 @@ public:
     // set (UI review 6, I6-22): CURVE, as on the LFO and the matrix.
     static constexpr const char* curveLabel = "CURVE";
 
+    // OP ENV and OP PITCH after ENV 1-16.
+    static constexpr int opEnvId = 16;
+    static constexpr int opPitchId = 17;
+
     // Shows an envelope, adding its card when the patch doesn't have it yet.
     void select (int index)
     {
-        selected = juce::jlimit (0, (int) units.size() - 1, index);
+        selected = juce::jlimit (0, opPitchId, index);
 
-        if (! envelopeShown (processorRef, selected))
+        if (selected < opEnvId && ! envelopeShown (processorRef, selected))
         {
             processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, selected, true);
             thumbs.refreshLayout();
@@ -410,11 +454,15 @@ public:
         auto area = getLocalBounds();
 
         thumbs.setViewWidth (area.getWidth());
-        const auto thumbWidth = thumbs.getPreferredWidth();
-        const auto scrolls = thumbWidth > area.getWidth();
-        thumbView.setBounds (area.removeFromTop (cardHeight + (scrolls ? thumbView.getScrollBarThickness() + 2 : 0)));
-        thumbs.setSize (thumbWidth, cardHeight);
+        thumbs.setBounds (area.removeFromTop (cardHeight));
         area.removeFromTop (8);
+
+        if (selected >= opEnvId)
+        {
+            panel = {};
+            opEditor.setBounds (area);
+            return;
+        }
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
         units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 47 / 100 /* the LFO display above splits at the same place */).reduced (2));
@@ -449,19 +497,23 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        if (panel.isEmpty())
+        if (panel.isEmpty() || selected >= opEnvId)
             return;
 
         const auto colour = colourOf (selected);
+        const auto unusedAmp = selected == 0 && ! FmOperatorInfo::ampEnvelopeInUse (processorRef);
 
-        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
+        IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (unusedAmp ? 0.15f : 0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
         IlanaTheme::paintCardHeader (g, header, envelopeTitle (selected),
-                                     "drag the graph or the knobs; the dot on a segment sets its curve", colour, 0);
+                                     unusedAmp ? "unused: every oscillator plays the Operator Env (edit it on OP ENV)"
+                                               : "drag the graph or the knobs; the dot on a segment sets its curve",
+                                     colour, 0);
     }
 
     int getSelected() const { return selected; }
     EnvThumbBar& getThumbs() { return thumbs; }
+    OperatorEnvEditor& getOperatorEditor() { return opEditor; }
 
     // ENV 1-16's colours, 0-based.
     static juce::Colour colourOf (int env)
@@ -479,14 +531,26 @@ private:
     }
 
     // A patch loaded, or an envelope removed, can take away the one shown.
+    // A patch whose operators all play the Operator Env (a DX7 voice)
+    // opens on OP ENV rather than the unused AMP ENV (UI review 7, I7-8).
     void timerCallback() override
     {
-        if (isShowing() && ! envelopeShown (processorRef, selected))
+        const auto ampUsed = FmOperatorInfo::ampEnvelopeInUse (processorRef);
+        if (ampUsed != ampWasUsed)
+        {
+            ampWasUsed = ampUsed;
+            if (! ampUsed && selected == 0)
+            {
+                select (opEnvId);
+                return;
+            }
+            repaint();
+        }
+
+        ampRules.apply();
+
+        if (isShowing() && selected < opEnvId && ! envelopeShown (processorRef, selected))
             updateVisibility();
-        // Cards added or taken away elsewhere (a patch, PLAY, the matrix):
-        // the row's width follows, so no scrollbar is left over.
-        else if (thumbs.getPreferredWidth() != thumbs.getWidth())
-            resized();
     }
 
     struct ExtraUnit
@@ -521,7 +585,7 @@ private:
     {
         // A remembered selection can point at an envelope this patch doesn't
         // show: the first card shown instead.
-        if (! envelopeShown (processorRef, selected))
+        if (selected < opEnvId && ! envelopeShown (processorRef, selected))
             for (int env = 0; env < (int) units.size(); ++env)
                 if (envelopeShown (processorRef, env))
                 {
@@ -539,19 +603,23 @@ private:
                     knob->setVisible (visible);
         }
 
+        if (selected >= opEnvId)
+            opEditor.setPitch (selected == opPitchId);
+        opEditor.setVisible (selected >= opEnvId);
+
         thumbs.setSelected (selected);
         resized();
-
-        scrollToCard (thumbView, thumbs.boundsOfCard (selected));
-
         repaint();
     }
 
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
-    juce::Viewport thumbView;
     EnvThumbBar thumbs;
+    OperatorEnvEditor opEditor { processorRef };
+    OperatorPool::ShapeCache opEnvShape, opPitchShape;
+    EffectRules ampRules { processorRef };
+    bool ampWasUsed = true;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
     KnobControl feA, feD, feS, feR, feVel, feCurve;
@@ -636,10 +704,12 @@ class LfoSection : public juce::Component,
                    private IlanaAnim::FrameTimer
 {
 public:
-    // The cards past the LFOs: the MSEG, and the Clocked S&H once routed
-    // (edited here, beside the LFOs: UI review 6, V5-7 / I6-21).
+    // The cards past the LFOs: the patch's MSEG while it is used, the
+    // Clocked S&H once routed (edited here, beside the LFOs: UI review 6,
+    // V5-7 / I6-21), and the Operator Env's LFO (UI review 7, I7-7).
     static constexpr int msegId = IlanaSynthAudioProcessor::numLfos;
     static constexpr int clockId = IlanaSynthAudioProcessor::numLfos + 1;
+    static constexpr int opLfoId = IlanaSynthAudioProcessor::numLfos + 2;
 
     LfoSection (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
         : processorRef (p),
@@ -649,20 +719,27 @@ public:
           msegLoop (p.apvts, "mseg_loop", "LOOP"),
           msegRate (p.apvts, "mseg_rate", "RATE", MsegEditor::colour(), false),
           clockView (p),
-          clockDiv (p.apvts, "clock_div", "DIVISION")
+          clockDiv (p.apvts, "clock_div", "DIVISION"),
+          opLfoEditor (p)
     {
-        // One card per LFO in the patch, a "+", then the MSEG (no 1-16
-        // ruler: UI review 6, V6-8). Past what fits, the cards scroll.
-        thumbView.setViewedComponent (&thumbs, false);
-        thumbView.setScrollBarsShown (false, true);
-        thumbView.setScrollBarThickness (6);
-        addAndMakeVisible (thumbView);
+        // One card per LFO in the patch, the modulators edited beside them,
+        // then a "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits,
+        // cards fold into a "N MORE" card; the pool never scrolls (V7-17).
+        addAndMakeVisible (thumbs);
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
 
+        // The MSEG module: every LFO can draw an MSEG now (SHAPE › MSEG:
+        // UI review 7, S7-7 / V7-19), so the patch's own four-point one has
+        // a card only while something uses it (a route, an oscillator's
+        // ENVELOPE) or it was opened from its chip.
         LfoThumbBar::ExtraCard mseg;
         mseg.title = "MSEG";
         mseg.source = Mod::Source::Mseg;
         mseg.colour = MsegEditor::colour();
+        mseg.isShown = [this] { return msegOpened || msegInUse(); };
+        mseg.tooltip = "MSEG\nThe patch's four-point MSEG, for older patches and as an oscillator's ENVELOPE (once per note). "
+                       "Click to edit it below; drag it onto a knob to modulate that knob. Any LFO can be a drawn MSEG too: "
+                       "SHAPE \xe2\x80\xba MSEG.";
         mseg.valueAt = [this] (double phase) { return msegValueAt ((float) phase); };
         mseg.phase = [this] { return (double) processorRef.getMsegPhase(); };
         mseg.rateText = [this] { return describeValue ("mseg_rate", read ("mseg_rate")); };
@@ -686,6 +763,31 @@ public:
             return parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String();
         };
         thumbs.addExtraCard (std::move (clock));
+
+        LfoThumbBar::ExtraCard opLfo;
+        opLfo.title = "OP LFO";
+        opLfo.source = Mod::Source::OpLfo;
+        opLfo.colour = OperatorPool::colour();
+        opLfo.isActive = [&p] { return FmOperatorInfo::anyOperatorEnv (p); };
+        opLfo.tooltip = "OP LFO\nThe Operator Env's LFO (the DX7's), for the whole voice. Click to edit it below; drag it onto a "
+                        "knob to modulate that knob too (source: Op LFO).";
+        opLfo.valueAt = [this] (double phase)
+        {
+            return OperatorPool::lfoWaveValue (juce::roundToInt (read ("opeg_lfo_wave")), phase);
+        };
+        opLfo.stepped = false;
+        opLfo.rateText = [this] { return describeValue ("opeg_lfo_speed", read ("opeg_lfo_speed")); };
+        opLfo.fixedUses = [this]
+        {
+            juce::StringArray uses;
+            if (read ("opeg_lfo_pmd") > 0.5f && read ("opeg_lfo_pms") > 0.5f)
+                uses.add ("Op pitch");
+            if (read ("opeg_lfo_amd") > 0.5f)
+                uses.add ("Op amp");
+            return uses;
+        };
+        thumbs.addExtraCard (std::move (opLfo));
+        addChildComponent (opLfoEditor);
 
         msegLoop.showAsSwitch();
         addChildComponent (msegEditor);
@@ -717,11 +819,12 @@ public:
             controlsList.push_back (std::move (controls));
         }
 
-        selected = juce::jlimit (0, clockId, settings.getIntValue ("lfoSelected", 0));
+        selected = juce::jlimit (0, opLfoId, settings.getIntValue ("lfoSelected", 0));
 
         thumbs.onSelect = [this] (int index)
         {
             selected = index;
+            msegOpened = msegOpened || index == msegId;
             settings.setValue ("lfoSelected", selected);
             updateVisibility();
         };
@@ -756,38 +859,44 @@ public:
         auto area = getLocalBounds();
 
         thumbs.setViewWidth (area.getWidth());
-        const auto thumbWidth = thumbs.getPreferredWidth();
-        const auto scrolls = thumbWidth > area.getWidth();
-        thumbView.setBounds (area.removeFromTop (cardHeight + (scrolls ? thumbView.getScrollBarThickness() + 2 : 0)));
-        thumbs.setSize (thumbWidth, cardHeight);
+        thumbs.setBounds (area.removeFromTop (cardHeight));
         area.removeFromTop (8);
 
+        if (selected == opLfoId)
+        {
+            panel = {};
+            opLfoEditor.setBounds (area);
+            return;
+        }
+
         // The same split for every shape (and as the envelopes below).
-        const auto displayArea = area.removeFromLeft (area.getWidth() * 47 / 100).reduced (2);
+        const auto displayArea = area.removeFromLeft (area.getWidth() * OperatorPool::graphPercent / 100).reduced (2);
         area.removeFromLeft (8);
 
-        // Control panel: options across the top, knobs underneath.
+        // Control panel: the options on a top row, the knobs filling the
+        // rest (UI review 7, V7-29 / S7-26: no half-empty panel).
         panel = area;
         auto inner = panel.reduced (10, 6);
         inner.removeFromTop (20);
+        constexpr int optionsHeight = 13 + 24 + 14;
 
         if (selected == msegId)
         {
             msegEditor.setBounds (displayArea);
-            // LOOP where an LFO's SYNC is, RATE where its RATE is.
-            auto options = inner.removeFromLeft (inner.getWidth() / 2);
-            const auto rowHeight = juce::jmin (options.getHeight() / 3, 13 + 24 + 14);
-            msegLoop.setBounds (options.removeFromTop (rowHeight).withWidth (options.getWidth() / 3).reduced (3, 1));
-            inner.removeFromLeft (8);
-            layoutRow (inner.removeFromTop ((inner.getHeight() - 8) / 2), { &msegRate, nullptr, nullptr });
+            // LOOP where an LFO's SYNC is, RATE where its RATE is; a line
+            // under them says what plays it.
+            auto options = inner.removeFromTop (optionsHeight);
+            msegLoop.setBounds (options.withWidth (options.getWidth() / 3).reduced (3, 1));
+            inner.removeFromBottom (18);
+            layoutRow (inner.withWidth (inner.getWidth() / 3), { &msegRate });
             return;
         }
 
         if (selected == clockId)
         {
             clockView.setBounds (displayArea);
-            auto options = inner.removeFromLeft (inner.getWidth() / 2);
-            clockDiv.setBounds (options.removeFromTop (options.getHeight() / 3).reduced (3, 1));
+            auto options = inner.removeFromTop (optionsHeight);
+            clockDiv.setBounds (options.removeFromLeft (options.getWidth() / 2).reduced (3, 1));
             return;
         }
 
@@ -803,32 +912,30 @@ public:
             return;
         }
 
-        // Options stacked on the left, the knobs on the right.
-        auto options = inner.removeFromLeft (inner.getWidth() / 2);
-        const auto rowHeight = juce::jmin (options.getHeight() / 3, 13 + 24 + 14);
-        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
-        auto toggles = options.removeFromTop (rowHeight);
-        const auto toggleWidth = toggles.getWidth() / 3;
-        c.sync.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
-        c.retrig.setBounds (toggles.removeFromLeft (toggleWidth).reduced (3, 1));
-        c.key.setBounds (toggles.reduced (3, 1));
-        c.kick.setBounds (options.removeFromTop (rowHeight).withWidth (options.getWidth() / 3).reduced (3, 1));
+        // SHAPE and its switches on the top row; RATE, START and SMOOTH
+        // (and a physics shape's two) filling the rest, centred.
+        auto options = inner.removeFromTop (optionsHeight);
+        c.shape.setBounds (options.removeFromLeft (options.getWidth() / 2).reduced (3, 1));
+        const auto physicsKick = shape == LfoShapes::Pendulum;
+        const auto toggleWidth = options.getWidth() / (physicsKick ? 4 : 3);
+        c.sync.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.retrig.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
+        c.key.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
+        if (physicsKick)
+            c.kick.setBounds (options.reduced (3, 1));
 
-        inner.removeFromLeft (8);
-        // RATE, START, SMOOTH on the top row, level with SHAPE (as on the
-        // physics and chaos shapes, whose own knobs fill the row below).
-        const auto knobHeight = (inner.getHeight() - 8) / 2;
-        layoutRow (inner.removeFromTop (knobHeight), { c.rate.layoutItem(), &c.phase, &c.smooth });
-        inner.removeFromTop (8);
+        inner.removeFromTop (6);
         if (LfoShapes::isPhysics (shape))
-            layoutRow (inner.removeFromTop (knobHeight), { &c.physA, &c.physB, nullptr });
+            layoutRow (inner, { c.rate.layoutItem(), &c.phase, &c.smooth, &c.physA, &c.physB });
+        else
+            layoutRow (inner, { c.rate.layoutItem(), &c.phase, &c.smooth });
 
         c.rate.matchBounds();
     }
 
     void paint (juce::Graphics& g) override
     {
-        if (panel.isEmpty())
+        if (panel.isEmpty() || selected == opLfoId)
             return;
 
         auto header = panel.reduced (12, 0).withHeight (26);
@@ -842,12 +949,22 @@ public:
             auto playedBy = selected == msegId ? envelopeUses (16, 17) : juce::StringArray();
             playedBy.add (describeModTargets (processorRef, selected == msegId ? Mod::Source::Mseg : Mod::Source::ClockSh));
             playedBy.removeEmptyStrings();
-            const auto subtitle = playedBy.isEmpty() ? juce::String ("drag its card onto a knob, or pick it as an oscillator's ENVELOPE")
+            const auto subtitle = playedBy.isEmpty() ? juce::String ("the patch's four-point MSEG; drag its card onto a knob")
                                                      : "played by: " + playedBy.joinIntoString (", ");
             IlanaTheme::paintCardHeader (g, header, selected == msegId ? "MSEG" : "CLOCKED S&H",
                                          selected == msegId ? subtitle : "a new random value on every step of DIVISION; drives "
                                                                              + playedBy.joinIntoString (", "),
                                          colour, 0);
+
+            // What the MSEG's LOOP means, and where the drawn shapes are.
+            if (selected == msegId)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                g.drawText (juce::String (read ("mseg_loop") > 0.5f ? "LOOP on: it cycles at RATE" : "LOOP off: it runs once and holds (once per note as an ENVELOPE)")
+                                + juce::String (juce::CharPointer_UTF8 (". Any LFO can draw its own: SHAPE \xe2\x80\xba MSEG.")),
+                            panel.reduced (14, 6).removeFromBottom (14), juce::Justification::centredLeft, true);
+            }
             return;
         }
 
@@ -868,11 +985,12 @@ public:
         return IlanaSynthAudioProcessor::lfoColour (index);
     }
 
-    // Shows an LFO (or the MSEG), adding its card when the patch doesn't
-    // have it yet.
+    // Shows an LFO (or the MSEG, or OP LFO), adding its card when the patch
+    // doesn't have it yet.
     void select (int index)
     {
-        selected = juce::jlimit (0, clockId, index);
+        selected = juce::jlimit (0, opLfoId, index);
+        msegOpened = msegOpened || selected == msegId;
 
         if (selected < msegId && ! processorRef.isLfoShown (selected))
         {
@@ -889,6 +1007,7 @@ public:
     LfoRateControl& getRateControl (int lfo) { return controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, lfo)]->rate; }
     LfoThumbBar& getThumbs() { return thumbs; }
     juce::Rectangle<int> getPanelBounds() const { return panel; }
+    OperatorLfoEditor& getOperatorEditor() { return opLfoEditor; }
 
 private:
     struct Controls
@@ -971,6 +1090,13 @@ private:
             cumulative += duration;
         }
         return levels[3];
+    }
+
+    // The MSEG module plays a part: routed, or an oscillator's ENVELOPE or
+    // warp envelope.
+    bool msegInUse() const
+    {
+        return ! modSlotsUsing (processorRef, { Mod::Source::Mseg }).empty() || ! envelopeUses (16, 17).isEmpty();
     }
 
     // Oscillators that play (or warp with) an envelope choice, for the
@@ -1106,9 +1232,9 @@ private:
     {
         // A remembered selection can point at a card this patch doesn't
         // show: the first LFO shown instead, else the MSEG.
-        if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardShown (selected)))
+        if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardInPool (selected)))
         {
-            selected = msegId;
+            selected = opLfoId;
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
                 if (processorRef.isLfoShown (lfo))
                 {
@@ -1117,6 +1243,7 @@ private:
                 }
         }
 
+        opLfoEditor.setVisible (selected == opLfoId);
         msegEditor.setVisible (selected == msegId);
         msegLoop.setVisible (selected == msegId);
         msegRate.setVisible (selected == msegId);
@@ -1154,7 +1281,6 @@ private:
 
         thumbs.setSelected (selected);
         resized();
-        scrollToCard (thumbView, thumbs.boundsOfCard (selected));
         repaint();
     }
 
@@ -1163,10 +1289,8 @@ private:
     void timerCallback() override
     {
         // A card that went (a patch load, the Clocked S&H unrouted).
-        if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardShown (selected)))
+        if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardInPool (selected)))
             updateVisibility();
-        else if (thumbs.getPreferredWidth() != thumbs.getWidth())
-            resized();
 
         if (selected >= msegId)
         {
@@ -1197,7 +1321,6 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
-    juce::Viewport thumbView;
     LfoThumbBar thumbs;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
@@ -1206,6 +1329,8 @@ private:
     KnobControl msegRate;
     ClockShView clockView;
     ComboControl clockDiv;
+    OperatorLfoEditor opLfoEditor;
+    bool msegOpened = false;
     int selected = 0;
     int lastShape = -1;
 };
@@ -1215,19 +1340,10 @@ class EnvLfoPage : public juce::Component
 public:
     EnvLfoPage (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
         : lfoSection (p, settingsRef),
-          envSection (p, settingsRef),
-          opEnvCard (p, OperatorPoolCard::Kind::envelope),
-          opPitchCard (p, OperatorPoolCard::Kind::pitch),
-          opLfoCard (p, OperatorPoolCard::Kind::lfo)
+          envSection (p, settingsRef)
     {
         addAndMakeVisible (lfoSection);
         addAndMakeVisible (envSection);
-        // The Operator Env's cards on the headings' lines, while it plays.
-        for (auto* card : { &opEnvCard, &opPitchCard, &opLfoCard })
-        {
-            addChildComponent (*card);
-            card->onShownChanged = [this] { resized(); };
-        }
     }
 
     void selectLfo (int index) { lfoSection.select (index); }
@@ -1263,24 +1379,11 @@ public:
         area.removeFromTop (headingHeight + 8);
         envSection.setBounds (area);
         lfoSection.setBounds (lfoArea);
-
-        const auto placeCards = [] (int x, int y, std::initializer_list<OperatorPoolCard*> cards)
-        {
-            for (auto* card : cards)
-            {
-                card->setVisible (card->isWanted());
-                card->setBounds (x, y + 2, card->getIdealWidth(), headingHeight - 4);
-                x += card->getIdealWidth() + 8;
-            }
-        };
-        placeCards (headingX + IlanaTheme::cardTitleWidth ("LFO") + 8, 12, { &opLfoCard });
-        placeCards (headingX + IlanaTheme::cardTitleWidth ("ENVELOPES") + 8, lfoBottom + 4, { &opEnvCard, &opPitchCard });
     }
 
 private:
     LfoSection lfoSection;
     EnvSection envSection;
-    OperatorPoolCard opEnvCard, opPitchCard, opLfoCard;
     int lfoBottom = 0;
 };
 } // namespace

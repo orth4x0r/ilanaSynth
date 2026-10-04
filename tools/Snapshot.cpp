@@ -1817,22 +1817,58 @@ int runUiTests()
                 pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
             expect (pitchShown, "PITCH & LFO shows the pitch envelope's graph");
 
-            // The MOD pools carry the Operator Env's cards while it plays.
+            // The MOD pools carry OP ENV, OP PITCH and OP LFO as pool cards,
+            // edited in place (UI review 7, I7-7); a DX7 voice opens on OP
+            // ENV rather than the unused AMP ENV (I7-8).
             pages->showPage ("ENV/LFO");
-            settle (300);
-            std::vector<OperatorPoolCard*> cards;
-            findAll<OperatorPoolCard> (*editor, cards);
-            auto shownCards = 0;
-            for (auto* card : cards)
-                shownCards += visibleInTree (card) ? 1 : 0;
-            expect (shownCards == 3, "a DX7 voice shows OP ENV, OP PITCH and OP LFO in the MOD pools ("
-                                         + juce::String (shownCards) + ")");
-            processor.loadFactoryPreset (neuroWobble);
-            settle (300);
-            shownCards = 0;
-            for (auto* card : cards)
-                shownCards += visibleInTree (card) ? 1 : 0;
-            expect (shownCards == 0, "a patch without the Operator Env shows none of its cards");
+            settle (600);
+            {
+                auto* modPage = pages->getCurrentPage();
+                auto* lfoCards = modPage != nullptr ? findChild<LfoThumbBar> (*modPage) : nullptr;
+                auto* envCards = modPage != nullptr ? findChild<EnvThumbBar> (*modPage) : nullptr;
+                const auto opLfoCard = IlanaSynthAudioProcessor::numLfos + 2;
+                const auto inPools = lfoCards != nullptr && envCards != nullptr && envCards->isCardInPool (16) && envCards->isCardInPool (17)
+                                     && lfoCards->isCardInPool (opLfoCard);
+                std::vector<OperatorEnvEditor*> envEditors;
+                findAll<OperatorEnvEditor> (*editor, envEditors);
+                auto opensOnOpEnv = false;
+                for (auto* candidate : envEditors)
+                    opensOnOpEnv = opensOnOpEnv || (visibleInTree (candidate) && ! candidate->isPitch() && visibleInTree (&candidate->getGraph()));
+                expect (inPools && opensOnOpEnv, "a DX7 voice has OP ENV, OP PITCH and OP LFO as MOD pool cards and opens on OP ENV");
+
+                // OP PITCH opens the pitch envelope's graph, OP LFO its panel
+                // with the shape list in the pool LFOs' order.
+                if (inPools)
+                {
+                    envCards->onSelect (17);
+                    lfoCards->onSelect (opLfoCard);
+                    settle (300);
+                    auto pitchShown = false;
+                    for (auto* candidate : envEditors)
+                        pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch() && candidate->getGraph().isPitch());
+                    std::vector<OperatorLfoEditor*> lfoEditors;
+                    findAll<OperatorLfoEditor> (*editor, lfoEditors);
+                    auto lfoShown = false, names = false;
+                    for (auto* candidate : lfoEditors)
+                        if (visibleInTree (candidate))
+                        {
+                            lfoShown = true;
+                            auto& box = candidate->getShape().getComboBox();
+                            names = box.getItemText (4) == "Sine" && box.getItemText (5) == "S&H";
+                        }
+                    expect (pitchShown && lfoShown && names, "OP PITCH and OP LFO open their editors in the MOD pools, the LFO's "
+                                                             "shapes named as the pool LFOs' are");
+                    envCards->onSelect (0);
+                    lfoCards->onSelect (0);
+                    settle (100);
+                }
+
+                processor.loadFactoryPreset (neuroWobble);
+                settle (300);
+                const auto stillThere = lfoCards != nullptr && envCards != nullptr && envCards->isCardInPool (16) && lfoCards->isCardInPool (opLfoCard);
+                expect (stillThere && ! FmOperatorInfo::anyOperatorEnv (processor),
+                        "a patch without the Operator Env keeps its cards in the pools, greyed as unused");
+            }
             pages->showPage ("FM");
             settle (200);
         }
@@ -4380,16 +4416,62 @@ int runUiTests()
                     return shown;
                 };
 
-                // One card per LFO / envelope in the patch, then "+" (no 1-16
-                // ruler: V6-8), and the MSEG's card after the LFOs'.
-                auto cardsMatch = thumbs->isCardShown (LfoThumbBar::plusId) && thumbs->isCardShown (numLfos);
+                // One card per LFO / envelope in the patch, then the extra
+                // cards, then "+" last (no 1-16 ruler: V6-8; I7-30).
+                auto cardsMatch = thumbs->isCardShown (LfoThumbBar::plusId)
+                                  && thumbs->boundsOfCard (LfoThumbBar::plusId).getX() > thumbs->boundsOfCard (numLfos + 2).getX();
                 for (int lfo = 0; lfo < numLfos; ++lfo)
-                    cardsMatch = cardsMatch && thumbs->isCardShown (lfo) == processor.isLfoShown (lfo);
+                    cardsMatch = cardsMatch && thumbs->isCardInPool (lfo) == processor.isLfoShown (lfo);
                 auto envCardsMatch = envCards->isCardShown (EnvThumbBar::plusId);
                 for (int env = 0; env < 16; ++env)
-                    envCardsMatch = envCardsMatch && envCards->isCardShown (env) == envelopeShown (processor, env);
+                    envCardsMatch = envCardsMatch && envCards->isCardInPool (env) == envelopeShown (processor, env);
                 expect (cardsMatch && envCardsMatch,
-                        "the pools show one card per LFO / envelope in the patch, a '+', and the MSEG card");
+                        "the pools show one card per LFO / envelope in the patch, OP LFO, and a '+' last");
+
+                // A full pool never scrolls sideways: cards past what fits
+                // fold into a "N MORE" card, the selected one keeps a place
+                // (UI review 7, V7-17 / S7-40).
+                {
+                    std::vector<bool> lfosBefore, envsBefore;
+                    for (int lfo = 0; lfo < numLfos; ++lfo)
+                        lfosBefore.push_back (processor.isRevealed (M::Lfo, lfo));
+                    for (int env = 0; env < 16; ++env)
+                        envsBefore.push_back (processor.isRevealed (M::Envelope, env));
+                    for (int lfo = 0; lfo < numLfos; ++lfo)
+                        processor.setRevealed (M::Lfo, lfo, true);
+                    for (int env = 0; env < 16; ++env)
+                        processor.setRevealed (M::Envelope, env, true);
+                    thumbs->refreshLayout();
+                    envCards->refreshLayout();
+                    thumbs->onSelect (13);
+                    envCards->onSelect (14);
+                    settle (200);
+                    const auto inside = [] (juce::Component& bar, juce::Rectangle<int> card)
+                    {
+                        return ! card.isEmpty() && bar.getLocalBounds().contains (card);
+                    };
+                    const auto lfoFolded = thumbs->getFoldedCards(), envFolded = envCards->getFoldedCards();
+                    const auto fits = thumbs->getWidth() <= thumbs->getParentWidth() && envCards->getWidth() <= envCards->getParentWidth();
+                    expect (fits && ! lfoFolded.empty() && ! envFolded.empty() && inside (*thumbs, thumbs->boundsOfCard (13))
+                                && inside (*envCards, envCards->boundsOfCard (14)) && inside (*thumbs, thumbs->boundsOfCard (PoolCards::overflowId))
+                                && inside (*envCards, envCards->boundsOfCard (PoolCards::overflowId)),
+                            "full pools fold into a MORE card instead of scrolling, the selected card in view ("
+                                + juce::String ((int) lfoFolded.size()) + " LFO cards and " + juce::String ((int) envFolded.size()) + " envelope cards folded)");
+                    for (int lfo = 0; lfo < numLfos; ++lfo)
+                        processor.setRevealed (M::Lfo, lfo, lfosBefore[(size_t) lfo]);
+                    for (int env = 0; env < 16; ++env)
+                        processor.setRevealed (M::Envelope, env, envsBefore[(size_t) env]);
+                    thumbs->onSelect (0);
+                    envCards->onSelect (0);
+                    thumbs->refreshLayout();
+                    envCards->refreshLayout();
+                    settle (200);
+                }
+
+                // Times of 0 read "0 ms": "Off" is for switches (S7-29).
+                expect (describeValue ("amp_delay", 0.0f) == "0 ms" && describeValue ("fe_hold", 0.0f) == "0 ms"
+                            && describeValue ("opeg_lfo_delay", 0.0f) == "0 ms",
+                        "an envelope's DELAY / HOLD and the Op LFO's DELAY at 0 read 0 ms, not Off");
 
                 // "+" adds the next LFO and opens it; its x takes it away
                 // again at once while nothing routes it.
@@ -4581,6 +4663,25 @@ int runUiTests()
                         mseg = candidate;
                     if (mseg != nullptr)
                     {
+                        // GRID snaps the time (UI review 7, I7-30): point 2
+                        // lands on a column; then free, it follows the mouse.
+                        {
+                            const auto plotArea = mseg->getPlotArea();
+                            const auto from = mseg->getPointPosition (1);
+                            const auto to = juce::Point<float> (plotArea.getX() + plotArea.getWidth() * 0.3f, from.y);
+                            auto& component = static_cast<juce::Component&> (*mseg);
+                            component.mouseDown (event (component, from, false));
+                            component.mouseDrag (event (component, to, true));
+                            const auto landed = mseg->getPointPosition (1);
+                            component.mouseUp (event (component, to, true));
+                            settle (50);
+                            const auto column = (landed.x - plotArea.getX()) / plotArea.getWidth() * (float) mseg->getGridDivisions();
+                            processor.getUndoManager().undo();
+                            settle (50);
+                            expect (mseg->getGridDivisions() == 8 && std::abs (column - std::round (column)) < 0.05f,
+                                    "the MSEG's GRID 8 snaps a dragged point to a column (" + juce::String (column, 2) + ")");
+                        }
+                        mseg->setGridDivisions (0);
                         const auto from = mseg->getPointPosition (1);
                         // Up or down to +0.3 (clear of the level's limits), a
                         // little sideways.
@@ -4599,6 +4700,7 @@ int runUiTests()
                         expect (landed.getDistanceFrom (to) < 3.0f && steps.size() == 1 && mseg->getPointPosition (1).getDistanceFrom (from) < 1.0f,
                                 "the MSEG card opens its editor; point 2 follows the mouse (" + juce::String (landed.getDistanceFrom (to), 1)
                                     + " px off) in one undo step");
+                        mseg->setGridDivisions (8);
                     }
                     else
                     {

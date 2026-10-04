@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -591,7 +592,7 @@ private:
     {
         const auto area = layoutArea();
         const auto rows = (float) getStackRows();
-        const auto slot = area.getWidth() / (float) widestRow();
+        const auto slot = area.getWidth() / (float) columns().count;
         const auto byWidth = (slot - captionWidth - 10.0f) * 0.5f;
         // The top and bottom nodes touch the area's edges at the most.
         const auto byHeight = rows > 1.0f ? (area.getHeight() - stackGap * (rows - 1.0f)) / (2.0f * rows)
@@ -644,14 +645,80 @@ private:
         return level;
     }
 
-    int widestRow() const
+    // Each operator's column, as a DX7 algorithm chart: every modulator
+    // belongs over the deepest operator it drives, its stack straight over
+    // that one; operators side by side get columns left to right, and one
+    // under several modulators is centred under them (V8-7). A modulator
+    // driving several sits over their middle when that column is free in
+    // its row.
+    struct Columns
     {
+        std::array<float, OscillatorIds::count> x {};
+        int count = 1;
+    };
+
+    Columns columns() const
+    {
+        const auto shown = shownOscillators();
         const auto levels = stackLevels();
-        std::array<int, OscillatorIds::count> perRow {};
-        auto widest = 1;
-        for (const auto osc : shownOscillators())
-            widest = juce::jmax (widest, ++perRow[(size_t) levels[(size_t) osc]]);
-        return widest;
+        const auto isShown = [&shown] (int osc) { return std::find (shown.begin(), shown.end(), osc) != shown.end(); };
+        const auto routed = [&] (int source, int target)
+        {
+            return source != target && isShown (source) && isShown (target) && read (routeId (source, target)) > 0.001f;
+        };
+
+        std::array<int, OscillatorIds::count> parent;
+        parent.fill (-1);
+        for (const auto osc : shown)
+            if (levels[(size_t) osc] > 0)
+                for (const auto target : shown)
+                    if (routed (osc, target) && levels[(size_t) target] < levels[(size_t) osc]
+                        && (parent[(size_t) osc] < 0 || levels[(size_t) target] > levels[(size_t) parent[(size_t) osc]]))
+                        parent[(size_t) osc] = target;
+
+        Columns result;
+        auto next = 0.0f;
+        std::function<void (int)> place = [&] (int osc)
+        {
+            std::vector<int> children;
+            for (const auto other : shown)
+                if (parent[(size_t) other] == osc)
+                    children.push_back (other);
+            if (children.empty())
+            {
+                result.x[(size_t) osc] = next;
+                next += 1.0f;
+                return;
+            }
+            for (const auto child : children)
+                place (child);
+            result.x[(size_t) osc] = (result.x[(size_t) children.front()] + result.x[(size_t) children.back()]) * 0.5f;
+        };
+        for (const auto osc : shown)
+            if (parent[(size_t) osc] < 0)
+                place (osc);
+
+        for (const auto osc : shown)
+        {
+            std::vector<int> targets;
+            for (const auto target : shown)
+                if (routed (osc, target) && levels[(size_t) target] < levels[(size_t) osc])
+                    targets.push_back (target);
+            if (targets.size() < 2)
+                continue;
+            auto middle = 0.0f;
+            for (const auto target : targets)
+                middle += result.x[(size_t) target];
+            middle /= (float) targets.size();
+            auto free = true;
+            for (const auto other : shown)
+                free = free && (other == osc || levels[(size_t) other] != levels[(size_t) osc] || std::abs (result.x[(size_t) other] - middle) >= 1.0f);
+            if (free)
+                result.x[(size_t) osc] = middle;
+        }
+
+        result.count = juce::jmax (1, (int) next);
+        return result;
     }
 
     // The area operators are placed in: the hint's strip at the bottom goes
@@ -691,80 +758,19 @@ private:
         if (shown.empty())
             return centres;
 
-        // DX stacks. Each row's slots are as wide as the widest row allows;
-        // a node sits left of its slot's centre, its caption on the right.
+        // DX stacks on the columns' grid; a node sits left of its slot's
+        // centre, its caption on the right.
         const auto geo = geometry();
         const auto radius = geo.radius;
         const auto levels = stackLevels();
-        const auto rows = getStackRows();
         const auto area = layoutArea();
-        const auto slot = area.getWidth() / (float) widestRow();
+        const auto grid = columns();
+        const auto slot = area.getWidth() / (float) grid.count;
         const auto captionShift = juce::jmin ((captionWidth + 6.0f) * 0.5f, slot * 0.25f);
-        const auto rise = geo.rise;
-        const auto bottomY = geo.bottomY;
 
-        for (int row = 0; row < rows; ++row)
-        {
-            std::vector<std::pair<float, int>> placed; // desired slot centre, operator
-            for (const auto osc : shown)
-            {
-                if (levels[(size_t) osc] != row)
-                    continue;
-                // The bottom row in order; above it, straight over what
-                // each drives.
-                auto desired = 0.0f;
-                auto targets = 0;
-                if (row > 0)
-                    for (const auto target : shown)
-                        if (target != osc && levels[(size_t) target] < row && read (routeId (osc, target)) > 0.001f)
-                        {
-                            desired += centres[(size_t) target].x + captionShift;
-                            ++targets;
-                        }
-                placed.push_back ({ targets > 0 ? desired / (float) targets : -1.0f, osc });
-            }
-            if (placed.empty())
-                continue;
-
-            const auto rowWidth = slot * (float) placed.size();
-            auto x = area.getCentreX() - rowWidth * 0.5f + slot * 0.5f;
-            for (auto& item : placed)
-            {
-                if (item.first < 0.0f)
-                    item.first = x;
-                x += slot;
-            }
-            std::stable_sort (placed.begin(), placed.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
-
-            // Keep a slot apart, as close to the wishes as fits: operators
-            // that want one place share it, spread evenly around it.
-            struct Cluster { float left; int count; };
-            std::vector<Cluster> clusters;
-            for (const auto& item : placed)
-            {
-                clusters.push_back ({ item.first, 1 });
-                while (clusters.size() > 1)
-                {
-                    const auto last = clusters.back();
-                    auto& previous = clusters[clusters.size() - 2];
-                    if (previous.left + slot * (float) previous.count <= last.left)
-                        break;
-                    const auto count = previous.count + last.count;
-                    previous.left = (previous.left * (float) previous.count
-                                     + (last.left - slot * (float) previous.count) * (float) last.count) / (float) count;
-                    previous.count = count;
-                    clusters.pop_back();
-                }
-            }
-            std::vector<float> xs;
-            for (const auto& cluster : clusters)
-                for (int i = 0; i < cluster.count; ++i)
-                    xs.push_back (cluster.left + slot * (float) i);
-
-            const auto y = bottomY - rise * (float) row;
-            for (size_t i = 0; i < placed.size(); ++i)
-                centres[(size_t) placed[i].second] = { xs[i] - captionShift, y };
-        }
+        for (const auto osc : shown)
+            centres[(size_t) osc] = { area.getX() + slot * (grid.x[(size_t) osc] + 0.5f) - captionShift,
+                                      geo.bottomY - geo.rise * (float) levels[(size_t) osc] };
 
         // The whole picture (nodes, captions and feedback loops) centred
         // across the area, and pulled inside it.

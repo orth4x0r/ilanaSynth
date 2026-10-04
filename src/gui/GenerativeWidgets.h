@@ -710,7 +710,10 @@ public:
                 const auto hovered = lane == hoverLane && step == hoverStep;
                 g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : 0.045f) * (active ? 1.0f : 0.6f)));
                 g.fillRoundedRectangle (cell, 2.0f);
-                const auto fill = laneColour (lane).withAlpha ((playing || hovered ? 1.0f : 0.78f) * cellAlpha);
+                // Off, the bars also lose most of their colour, so they read
+                // as stored, not playing (I8-24), while the values stay clear.
+                const auto fill = (on ? laneColour (lane) : laneColour (lane).interpolatedWith (IlanaTheme::Ui::text2, 0.6f))
+                                      .withAlpha ((playing || hovered ? 1.0f : 0.78f) * cellAlpha);
 
                 if (lane == pitch)
                 {

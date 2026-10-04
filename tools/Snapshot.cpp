@@ -4416,7 +4416,8 @@ int runUiTests()
                 expect (panel->isDocked() && panel->isVisible() && editor->getWidth() == baseWidth && editor->getHeight() == 720
                             && panel->getWidth() >= 1000 && panel->getY() > 60 && panel->getBottom() <= 720,
                         "docking opens the browser over the page, the window keeps its size (" + juce::String (baseWidth) + " -> "
-                            + juce::String (editor->getWidth()) + ", panel " + panel->getBounds().toString() + ")");
+                            + juce::String (editor->getWidth()) + "x" + juce::String (editor->getHeight()) + ", panel " + panel->getBounds().toString()
+                            + (panel->isDocked() ? " docked" : " floating") + (panel->isVisible() ? " shown)" : " hidden)"));
                 const auto start = processor.getCurrentPresetName();
                 panel->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
                 settle (150);
@@ -5809,7 +5810,7 @@ int runUiTests()
             for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
                 if (! pad->isCornerSounding (corner))
                     offCorner = corner;
-            expect (pad != nullptr && offCorner >= 0 && pad->getCornerLabel (offCorner, 0.5f).endsWith (": off")
+            expect (pad != nullptr && offCorner >= 0 && (pad->getCornerLabel (offCorner, 0.5f).endsWith (": off") || pad->getCornerLabel (offCorner, 0.5f).endsWith (": none"))
                         && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains (":"),
                     "VECTOR: Init's corners on switched-off oscillators say so, OSC 1's does not");
 

@@ -314,10 +314,11 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
         // Right of the line, or left of it when the release is too short
-        // (a narrow graph) to hold the words.
+        // (a narrow graph) to hold the words; on its own line under the
+        // corner caption (V7-41).
         const auto keyUpWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "KEY UP") + 2.0f;
         const auto keyUpLeft = geo.keyUpX + 3.0f + keyUpWidth > geo.plot.getRight() ? geo.keyUpX - 3.0f - keyUpWidth : geo.keyUpX + 3.0f;
-        g.drawText ("KEY UP", juce::Rectangle<float> (keyUpLeft, geo.plot.getY(), keyUpWidth, 12.0f).toNearestInt(),
+        g.drawText ("KEY UP", juce::Rectangle<float> (keyUpLeft, geo.plot.getY() + 13.0f, keyUpWidth, 12.0f).toNearestInt(),
                     juce::Justification::centredLeft, false);
 
         if (isPitch())
@@ -388,14 +389,19 @@ public:
                                        [this] (double v) { return std::abs (v - curve.values.front()) < 1.0e-9; });
         if (flat && dragHandle < 0)
         {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            // Under the line the handles sit on (the pitch's centre, an
-            // operator's floor).
+            // Above the line the handles sit on (the pitch's centre, an
+            // operator's floor), on a backdrop the KEY UP line passes
+            // under (I7-34).
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
+            const auto words = juce::String (isPitch() ? "No pitch movement: drag a point" : "No movement: drag a point");
             const auto line = isPitch() ? geo.y (0.0) : geo.plot.getBottom();
-            const auto text = juce::Rectangle<float> (geo.plot.getX(), isPitch() ? line + 10.0f : line - 34.0f, geo.plot.getWidth(), 16.0f);
-            g.drawText (isPitch() ? "No pitch movement: drag a point up or down" : "No movement: drag a point",
-                        text.toNearestInt(), juce::Justification::centred);
+            const auto width = juce::jmin (geo.plot.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (font, words) + 12.0f);
+            const auto text = juce::Rectangle<float> (width, 18.0f).withCentre ({ geo.plot.getCentreX(), line - 22.0f });
+            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+            g.fillRoundedRectangle (text, 4.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (font);
+            g.drawFittedText (words, text.toNearestInt(), juce::Justification::centred, 1, 0.9f);
         }
 
         if (readout.isNotEmpty())
@@ -437,7 +443,7 @@ public:
         frozen = layout();
         rateParameter = parameterFor (dragHandle, false);
         levelParameter = parameterFor (dragHandle, true);
-        processorRef.beginEdit (juce::String ("Op Env ") + OperatorEnv::rateName (dragHandle));
+        processorRef.beginEdit (juce::String ("OP ENV ") + OperatorEnv::rateName (dragHandle));
         for (auto* parameter : { rateParameter, levelParameter })
             if (parameter != nullptr)
                 parameter->beginChangeGesture();
@@ -459,7 +465,7 @@ public:
 
         // Across: the stage's time, back through the square-root scale from
         // where it starts (the release from the key going up).
-        const auto start = dragHandle == 3 ? geo.keyUpX : geo.stageX[(size_t) dragHandle];
+        const auto start = (dragHandle == 3 ? geo.keyUpX : geo.stageX[(size_t) dragHandle]) + minimumStageWidth;
         const auto units = juce::jmax (0.0f, event.position.x - start) / geo.scale;
         set (rateParameter, OperatorEnv::rateForSeconds (settings, dragHandle, (double) (units * units)));
         // Up and down: its level.
@@ -490,7 +496,7 @@ public:
         const auto handle = findHandle (event.position);
         if (handle < 0)
             return;
-        processorRef.performEdit (juce::String ("Reset Op Env ") + OperatorEnv::rateName (handle), [this, handle]
+        processorRef.performEdit (juce::String ("Reset OP ENV ") + OperatorEnv::rateName (handle), [this, handle]
         {
             for (auto* parameter : { parameterFor (handle, false), parameterFor (handle, true) })
                 if (parameter != nullptr)
@@ -546,12 +552,16 @@ private:
     };
 
     static constexpr float holdUnits = 0.55f;
+    // Each stage at least this wide, so short stages' handles never pile up
+    // (V7-9); time runs on the square-root scale beyond it.
+    static constexpr float minimumStageWidth = 14.0f;
     static float timeUnits (double seconds) { return (float) std::sqrt (juce::jmax (0.0, seconds)); }
 
     Geometry layout() const
     {
         Geometry geo;
-        geo.plot = getLocalBounds().toFloat().reduced (12.0f, 14.0f).withTrimmedTop (2.0f);
+        // The time labels go under the plot (V7-9), not in it.
+        geo.plot = getLocalBounds().toFloat().reduced (12.0f, 6.0f).withTrimmedTop (10.0f).withTrimmedBottom (13.0f);
         geo.pitch = isPitch();
         geo.stageEnd = curve.stageEnd;
 
@@ -566,7 +576,8 @@ private:
         auto total = holdUnits;
         for (int stage = 0; stage < 4; ++stage)
             total += timeUnits (curve.stageSeconds (stage));
-        geo.scale = frozen.has_value() ? frozen->scale : geo.plot.getWidth() / juce::jmax (1.6f, total * 1.12f);
+        geo.scale = frozen.has_value() ? frozen->scale
+                                       : (geo.plot.getWidth() - 4.0f * minimumStageWidth) / juce::jmax (1.6f, total * 1.12f);
 
         auto x = geo.plot.getX();
         for (int stage = 0; stage < 4; ++stage)
@@ -577,7 +588,7 @@ private:
                 geo.keyUpX = x + geo.scale * holdUnits;
                 x = geo.keyUpX;
             }
-            x += geo.scale * timeUnits (curve.stageSeconds (stage));
+            x += minimumStageWidth + geo.scale * timeUnits (curve.stageSeconds (stage));
         }
         geo.stageX[4] = x;
         return geo;
@@ -630,6 +641,8 @@ private:
                 }
                 g.setColour (juce::Colours::white.withAlpha (0.06f));
                 g.fillRect (juce::Rectangle<float> (1.0f, geo.plot.getHeight()).withPosition (x, geo.plot.getY()));
+                g.setColour (juce::Colours::white.withAlpha (0.18f));
+                g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, geo.plot.getBottom()));
 
                 const auto text = (inRelease ? "+" : "") + OperatorEnv::formatSeconds (seconds);
                 const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
@@ -639,7 +652,7 @@ private:
                     continue;
                 labelled.push_back (span);
                 g.setColour (IlanaTheme::Ui::text3);
-                g.drawText (text, juce::Rectangle<float> (span.getStart(), geo.plot.getBottom() - 13.0f, width, 12.0f),
+                g.drawText (text, juce::Rectangle<float> (span.getStart() - 3.0f, geo.plot.getBottom() + 1.0f, width, 12.0f),
                             juce::Justification::centredLeft);
             }
     }

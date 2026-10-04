@@ -154,7 +154,7 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                 "the tour names the Felt Hammer Board, not the retired GRAND PIANO");
         expect (labels.contains (juce::String (FilterType::Count) + " FILTERS"), "the tour's filter count is the code's ("
                                                                                      + juce::String (FilterType::Count) + ")");
-        for (const auto* name : { "DX7 BANKS + OPERATOR EG", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
+        for (const auto* name : { "DX7 BANKS + OPERATOR ENV", "AIRWINDOWS", "SF2 / SFZ", "VOCODER", "CLIP SEQUENCER" })
             expect (labels.contains (name), juce::String ("the tour lists ") + name);
 
         auto* tutorial = findChild<TutorialOverlay> (editor);
@@ -1700,7 +1700,7 @@ int runUiTests()
                 {
                     const auto routing = processor.readModSlot (slot);
                     routes += (routing.source == Mod::Source::ModWheel || routing.source == Mod::Source::Aftertouch)
-                                      && Mod::getDestinationNames()[routing.destination] == "Op LFO Pitch Depth"
+                                      && Mod::getDestinationNames()[routing.destination] == "OP LFO Pitch Depth"
                                   ? 1 : 0;
                 }
                 wheel += routes == 2 ? 1 : 0;
@@ -1807,7 +1807,7 @@ int runUiTests()
             // PITCH & LFO opens the voice's pitch envelope.
             findAll<juce::TextButton> (*editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "PITCH & LFO" && visibleInTree (button))
+                if (button->getButtonText() == "VOICE PITCH & LFO" && visibleInTree (button))
                     button->triggerClick();
             settle (300);
             graphs.clear();
@@ -5746,7 +5746,7 @@ int main (int argc, char** argv)
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*page, buttons);
         for (auto* button : buttons)
-            if (button->getButtonText() == "PITCH & LFO" && button->onClick != nullptr)
+            if (button->getButtonText() == "VOICE PITCH & LFO" && button->onClick != nullptr)
             {
                 button->onClick();
                 settle (300);
@@ -6042,7 +6042,7 @@ int main (int argc, char** argv)
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*page, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "PITCH & LFO" && button->isVisible() && button->onClick != nullptr)
+                if (button->getButtonText() == "VOICE PITCH & LFO" && button->isVisible() && button->onClick != nullptr)
                 {
                     button->onClick();
                     settle (300);

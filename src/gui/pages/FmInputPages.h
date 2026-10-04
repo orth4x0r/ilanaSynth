@@ -84,6 +84,100 @@ private:
     bool dot = true, quiet = false, shortText = false;
 };
 
+// The voice's pitch envelope and LFO, at the operator card's right edge: an
+// outlined button, not a seventh operator pill (I7-42); lit in outline while
+// its page is open, quiet while nothing plays the Operator Env.
+class VoicePageButton : public juce::TextButton
+{
+public:
+    VoicePageButton (const juce::String& text, juce::Colour colourIn) : juce::TextButton (text), colour (colourIn)
+    {
+        setClickingTogglesState (false);
+    }
+
+    void setQuiet (bool shouldBeQuiet)
+    {
+        if (quiet != shouldBeQuiet)
+        {
+            quiet = shouldBeQuiet;
+            repaint();
+        }
+    }
+
+    int getIdealWidth() const
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), getButtonText()) + 22;
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto active = getToggleState();
+        const auto hover = over || down ? 1.0f : 0.0f;
+        g.setColour (juce::Colours::white.withAlpha (0.02f + 0.04f * hover));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (active ? colour : (quiet ? IlanaTheme::Ui::line : IlanaTheme::Ui::text3.withAlpha (0.6f + 0.4f * hover)));
+        g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, active ? 1.4f : 1.0f);
+        g.setColour (active ? colour : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text.withAlpha (0.82f + 0.18f * hover));
+        g.setFont (juce::Font (IlanaTheme::pillFont()));
+        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred, false);
+    }
+
+private:
+    juce::Colour colour;
+    bool quiet = false;
+};
+
+// TRANSPOSE beside SCALE SHIFT (I7-15): moves every oscillator's SEMI (not
+// those at a fixed frequency) by a semitone, or an octave with shift, in one
+// undo step, as a DX7 voice's TRANSPOSE did on import.
+class TransposeControl : public juce::Component
+{
+public:
+    explicit TransposeControl (juce::Colour colourIn) : colour (colourIn)
+    {
+        for (auto* button : { &down, &up })
+        {
+            button->setTooltip ("Transpose the whole voice: every oscillator's SEMI (fixed-frequency ones stay). "
+                                "Shift-click for an octave.");
+            button->setColour (juce::TextButton::textColourOffId, colour);
+            addAndMakeVisible (*button);
+        }
+        down.onClick = [this] { shift (-1); };
+        up.onClick = [this] { shift (1); };
+    }
+
+    std::function<void (int)> onShift;
+
+    void resized() override
+    {
+        auto area = getLocalBounds().withTrimmedTop (13 + 6);
+        auto row = area.removeFromTop (24).withSizeKeepingCentre (juce::jmin (getWidth(), 66), 24);
+        down.setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (1, 0));
+        up.setBounds (row.reduced (1, 0));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        g.drawText ("TRANSPOSE", getLocalBounds().removeFromTop (13), juce::Justification::centred, false);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawText ("all SEMI", getLocalBounds().withTop (up.getBottom() + 2).removeFromTop (16), juce::Justification::centred, false);
+    }
+
+private:
+    void shift (int direction)
+    {
+        if (onShift != nullptr)
+            onShift (direction * (juce::ModifierKeys::currentModifiers.isShiftDown() ? 12 : 1));
+    }
+
+    juce::Colour colour;
+    juce::TextButton down { juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92")) }, up { "+" };
+};
+
 // FM between six oscillators: the algorithms, the operator diagram and the
 // selected operator's settings on the left; the full matrix of amounts on the
 // right (rows = from, columns = to, plus the noise operator), with the FM
@@ -156,7 +250,7 @@ class FmPage : public juce::Component,
         }
         std::vector<juce::Component*> egScaling()
         {
-            return { eg[8].get(), eg[9].get(), eg[11].get(), eg[10].get(), eg[12].get(), eg[15].get(), eg[14].get(), &level, nullptr };
+            return { eg[8].get(), eg[9].get(), eg[11].get(), eg[10].get(), eg[12].get(), eg[15].get(), eg[14].get(), &level };
         }
         static bool isStageControl (size_t index) { return index < 8 || index == 13; }
     };
@@ -172,10 +266,12 @@ class FmPage : public juce::Component,
               pitchDepth (state, "opeg_lfo_pmd", "PITCH DEPTH", colour, false),
               pitchSens (state, "opeg_lfo_pms", "PITCH SENS", colour, false),
               ampDepth (state, "opeg_lfo_amd", "AMP DEPTH", colour, false),
-              scaleShift (state, OperatorEg::keyOffsetId, "SCALE SHIFT", colour, false)
+              scaleShift (state, OperatorEg::keyOffsetId, "SCALE SHIFT", colour, false),
+              transpose (colour)
         {
             retrig.showAsSwitch();
-            static const char* const labels[] { "ATTACK", "DECAY 1", "DECAY 2", "RELEASE", "PITCH 1", "PITCH 2", "SUSTAIN", "END" };
+            // The same stage names as the operators' envelope (I7-13).
+            static const char* const labels[] { "ATTACK", "DECAY 1", "DECAY 2", "RELEASE", "PEAK", "MID", "SUSTAIN", "END" };
             for (size_t i = 0; i < 8; ++i)
                 stages[i] = std::make_unique<KnobControl> (state, OperatorEg::voiceFields()[i].suffix, labels[i], colour, false);
         }
@@ -183,16 +279,17 @@ class FmPage : public juce::Component,
         ComboControl shape;
         ToggleControl retrig;
         KnobControl rate, delay, pitchDepth, pitchSens, ampDepth, scaleShift;
+        TransposeControl transpose;
         std::array<std::unique_ptr<KnobControl>, 8> stages;
 
         std::vector<juce::Component*> all()
         {
-            std::vector<juce::Component*> list { &shape, &retrig, &rate, &delay, &pitchDepth, &pitchSens, &ampDepth, &scaleShift };
+            std::vector<juce::Component*> list { &shape, &retrig, &rate, &delay, &pitchDepth, &pitchSens, &ampDepth, &scaleShift, &transpose };
             for (auto& knob : stages)
                 list.push_back (knob.get());
             return list;
         }
-        std::vector<juce::Component*> lfoBottom() { return { &pitchDepth, &pitchSens, &ampDepth, &scaleShift }; }
+        std::vector<juce::Component*> lfoBottom() { return { &pitchDepth, &pitchSens, &ampDepth, &scaleShift, &transpose }; }
         std::vector<juce::Component*> pitchStages()
         {
             std::vector<juce::Component*> list;
@@ -316,6 +413,8 @@ public:
                                 "Operator Env follows them. Also in MOD's envelope and LFO pools.");
         voiceButton.onClick = [this] { selectVoicePage(); };
         addAndMakeVisible (voiceButton);
+        voice.transpose.onShift = [this] (int semitones) { transposeAll (semitones); };
+        setUpDepthText();
 
         refreshShown();
         refreshFmInputs (true);
@@ -400,8 +499,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText ("SCALE SHIFT moves only the keys the operators' scaling follows: transpose with each oscillator's "
-                        "SEMI, or the octave on PLAY.",
+            g.drawText ("SCALE SHIFT moves only the keys the operators' scaling follows; TRANSPOSE moves every oscillator's SEMI.",
                         voiceHint, juce::Justification::centredLeft, true);
         }
 
@@ -545,12 +643,14 @@ public:
         algorithms.setBounds (area.removeFromTop (42));
         area.removeFromTop (8);
 
-        // The operator card takes what it needs and the diagram never less
-        // than its stack of operators needs (UI review 6, I6-1).
+        // The operator card has one height for its kind (the Operator Env's
+        // and PITCH & LFO's, or a plain operator's), whatever the algorithm,
+        // so auditioning algorithms never moves it (I7-10); the diagram sizes
+        // its nodes to what is left.
         lastDiagramMinimum = diagram.getMinimumHeight();
         const auto egShown = ! voicePage && usesOperatorEnv (selectedOperator);
-        const auto wanted = voicePage ? 262 : egShown ? 262 : 176;
-        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (wanted, area.getHeight() - lastDiagramMinimum - 8)));
+        const auto wanted = voicePage || egShown ? operatorEnvCardHeight : 176;
+        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (wanted, area.getHeight() - 150)));
         area.removeFromBottom (8);
         diagram.setBounds (area);
 
@@ -673,6 +773,7 @@ private:
     void setRateText (KnobControl& knob, const juce::String& prefix, int stage)
     {
         auto& slider = knob.getSlider();
+        FmOperatorInfo::reverseRateKnob (slider);
         const auto original = slider.valueFromTextFunction;
         slider.textFromValueFunction = [this, prefix, stage] (double value)
         {
@@ -714,8 +815,74 @@ private:
         slider.updateText();
     }
 
+    // TRANSPOSE: every shown oscillator's SEMI, but those at a fixed
+    // frequency, in one undo step.
+    void transposeAll (int semitones)
+    {
+        processorRef.performEdit (semitones > 0 ? "Transpose up" : "Transpose down", [this, semitones]
+        {
+            for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            {
+                const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+                if (! processorRef.isOscillatorShown (osc) || juce::roundToInt (read (prefix + "_tune")) == OscTuning::Fixed)
+                    continue;
+                if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processorRef.apvts.getParameter (prefix + "_semi")))
+                {
+                    const auto now = parameter->convertFrom0to1 (parameter->getValue());
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (now + (float) semitones));
+                    parameter->endChangeGesture();
+                }
+            }
+        });
+    }
+
+    // LOW and HIGH DEPTH in dB: the level change an octave below or above
+    // SCALE KEY along its curve, as the engine scales it (I7-12).
+    void setUpDepthText()
+    {
+        for (int op = 0; op < OscillatorIds::count; ++op)
+        {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) op]);
+            for (const auto high : { false, true })
+            {
+                auto* knob = operators[(size_t) op]->egKnob (high ? 10 : 9);
+                if (knob == nullptr)
+                    continue;
+                knob->getSlider().textFromValueFunction = [this, prefix, high] (double value)
+                {
+                    const auto depth = juce::jlimit (0, 99, juce::roundToInt (value));
+                    if (depth == 0)
+                        return juce::String ("0 dB");
+                    const auto breakPoint = juce::roundToInt (read (prefix + "_eg_break"));
+                    const auto curve = juce::roundToInt (read (prefix + (high ? "_eg_rcurve" : "_eg_lcurve")));
+                    const auto note = breakPoint + 21 + (high ? 12 : -12);
+                    const auto units = Dx7::scaleLevel (note, breakPoint, high ? 0 : depth, high ? depth : 0, curve, curve);
+                    const auto db = units * 6.0206 / 8.0;
+                    return (db > 0.05 ? "+" : "") + describeFixed ((float) db, 1) + " dB";
+                };
+                knob->getSlider().updateText();
+            }
+        }
+    }
+
+    void refreshDepthText()
+    {
+        const auto prefix = FmOperatorInfo::prefixOf (selectedOperator);
+        const std::array<int, 3> now { juce::roundToInt (read (prefix + "_eg_break")), juce::roundToInt (read (prefix + "_eg_lcurve")),
+                                       juce::roundToInt (read (prefix + "_eg_rcurve")) };
+        if (now == lastDepthInputs && selectedOperator == lastDepthOperator)
+            return;
+        lastDepthInputs = now;
+        lastDepthOperator = selectedOperator;
+        for (const auto index : { 9, 10 })
+            if (auto* knob = operators[(size_t) selectedOperator]->egKnob ((size_t) index))
+                knob->getSlider().updateText();
+    }
+
     void refreshEgKnobs()
     {
+        refreshDepthText();
         for (auto& entry : egKnobs)
         {
             if (! entry.knob->isVisible())
@@ -823,10 +990,12 @@ private:
 
         // Rows of the Operator Env's knobs along the bottom, on one grid.
         const auto rowHeight = [&inner] (int rows, int above) { return juce::jlimit (56, 76, (inner.getHeight() - above) / rows); };
+        // (Labels on one line: menus beside the knobs read on the same
+        // baseline, I7-14.)
         const auto layoutGrid = [] (juce::Rectangle<int> row, std::vector<juce::Component*> items, size_t columns)
         {
             items.resize (columns, nullptr);
-            layoutRow (row, items);
+            layoutRow (row, items, true);
         };
 
         if (voicePage)
@@ -836,7 +1005,9 @@ private:
             auto stages = inner.removeFromBottom (height);
             inner.removeFromBottom (4);
             layoutGrid (stages, voice.pitchStages(), 9);
-            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 4 / 9).withTrimmedLeft (8).reduced (0, 2));
+            // The graph a third of the width, as on an operator, so the
+            // LFO's two rows keep their names whole.
+            egGraph.setBounds (inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2));
             auto top = inner.removeFromTop (inner.getHeight() / 2);
             // SHAPE two columns wide, so its wave's name fits.
             layoutRow (top, { &voice.shape, nullptr, &voice.retrig, &voice.rate, &voice.delay });
@@ -854,7 +1025,8 @@ private:
             envTabs.setBounds (envTabLine.removeFromLeft (envTabs.getIdealWidth()).withSizeKeepingCentre (envTabs.getIdealWidth(), 20));
             envTabLine.removeFromLeft (12);
             inner.removeFromBottom (4);
-            layoutGrid (row, envTabs.getSelected() == 0 ? controls.egStages() : controls.egScaling(), 9);
+            // The scaling tab on eight columns, so its longer names fit.
+            layoutGrid (row, envTabs.getSelected() == 0 ? controls.egStages() : controls.egScaling(), envTabs.getSelected() == 0 ? 9 : 8);
             // The graph beside the tuning menus and knobs.
             egGraph.setBounds (inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2));
         }
@@ -1001,9 +1173,9 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawFittedText (anyOperatorEnv() ? "On the Operator Env a modulator's depth is its LEVEL; a cell scales it. "
-                                             "Hover a dot to add a route."
-                                           : "Each cell is how deeply its row modulates its column. Hover a dot to add a route.",
+        g.drawFittedText (anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
+                                                                             "\xc3\x97 this cell. Hover a dot to add a route."))
+                                           : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
                           topNote, juce::Justification::topLeft, 2, 1.0f);
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
@@ -1113,7 +1285,7 @@ private:
         g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("OSC 1 \xc3\x97 OSC 2")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
                     juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
@@ -1151,6 +1323,7 @@ private:
     }
 
     static constexpr int headWidth = 76;
+    static constexpr int operatorEnvCardHeight = 240;
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, OscillatorIds::count> fmIn {}, playing {};
@@ -1159,7 +1332,9 @@ private:
     OperatorEnvDisplay egGraph;
     VoiceControls voice;
     std::vector<EgKnob> egKnobs;
-    OperatorPill voiceButton { "PITCH & LFO", fmColour(), false };
+    VoicePageButton voiceButton { "VOICE PITCH & LFO", fmColour() };
+    std::array<int, 3> lastDepthInputs {};
+    int lastDepthOperator = -1;
     CardTabs pageTabs;
     CardTabs envTabs { { "STAGES", "KEYS & VELOCITY" }, { fmColour(), fmColour() }, false };
     bool voicePage = false;

@@ -2,6 +2,10 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
+#include <complex>
+#include <vector>
+
 #include "../PluginProcessor.h"
 #include "../dsp/airwindows/Categories.h"
 #include "IlanaLookAndFeel.h"
@@ -11,14 +15,17 @@
 // module's parameters (and its live gain reduction where the processor
 // measures one): a transfer curve for drive / amp / crush and the Airwindows
 // saturators, in-out curves with GR meters for comp / OTT / limiter, echoes
-// on a beat grid for the delay and a decay curve for the reverb. The
-// formulas mirror src/processor/Effects.cpp; the display never changes sound.
+// on a beat grid for the delay, a decay curve for the reverb, and (UI review
+// 6) the vowel's formants, the comb's teeth, the chorus's delay sweep, the
+// phaser's notches, the vocoder's bands and the Airwindows echoes' and
+// spaces' impulse responses. The formulas mirror src/processor/Effects.cpp
+// (and JUCE's chorus and phaser); the display never changes sound.
 class FxDisplay : public juce::Component,
                   public juce::SettableTooltipClient,
                   private IlanaAnim::FrameTimer
 {
 public:
-    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb };
+    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb, vowel, comb, chorus, phaser, vocoder, airwindowsImpulse };
 
     explicit FxDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
@@ -49,6 +56,12 @@ public:
             case 9: return Kind::delay;
             case 13: return Kind::reverb;
             case 32: case 33: return Kind::airwindowsTransfer; // AW Tape, AW Saturation
+            case 27: return Kind::vowel;
+            case 5: return Kind::comb;
+            case 7: return Kind::chorus;
+            case 6: return Kind::phaser;
+            case 31: return Kind::vocoder;
+            case 34: case 35: return Kind::airwindowsImpulse; // AW Reverb (spaces), AW Delay (echo)
             default: return Kind::none;
         }
     }
@@ -70,6 +83,12 @@ public:
             case Kind::dynamics:           paintDynamics (g); break;
             case Kind::delay:              paintDelay (g); break;
             case Kind::reverb:             paintReverb (g); break;
+            case Kind::vowel:              paintVowel (g); break;
+            case Kind::comb:               paintComb (g); break;
+            case Kind::chorus:             paintChorus (g); break;
+            case Kind::phaser:             paintPhaser (g); break;
+            case Kind::vocoder:            paintVocoder (g); break;
+            case Kind::airwindowsImpulse:  paintImpulse (g); break;
             case Kind::none:               break;
         }
     }
@@ -104,10 +123,15 @@ private:
     {
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto line = getLocalBounds().reduced (8, 0).removeFromTop (16).withTrimmedTop (3);
-        g.drawText (left, line, juce::Justification::centredLeft);
+        auto line = getLocalBounds().reduced (8, 0).removeFromTop (16).withTrimmedTop (3);
+        // The right-hand reading keeps its room; a long left one ends in "..."
+        // rather than running into it.
         if (right.isNotEmpty())
+        {
             g.drawText (right, line, juce::Justification::centredRight);
+            line.removeFromRight (juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), right) + 6);
+        }
+        g.drawText (left, line, juce::Justification::centredLeft, true);
     }
 
     void strokeCurve (juce::Graphics& g, const juce::Path& curve, juce::Rectangle<float> plot, float baselineY) const
@@ -615,12 +639,310 @@ private:
         g.strokePath (curveFor (highTime), juce::PathStrokeType (1.0f));
         strokeCurve (g, curveFor (lowTime), plot, plot.getBottom());
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("HIGHS", juce::Rectangle<float> (toX (juce::jmin (highTime, shownTime) * 0.45f), toY (-60.0f * 0.45f * juce::jmin (highTime, shownTime) / highTime) - 2.0f, 40.0f, 12.0f),
-                    juce::Justification::centredLeft);
+        // A legend in the top right, off the curves (UI review 6, V6-25).
+        {
+            auto legend = juce::Rectangle<float> (plot.getRight() - 64.0f, plot.getY() + 2.0f, 62.0f, 22.0f);
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.85f));
+            g.fillRoundedRectangle (legend, 3.0f);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (const auto& [highs, text] : { std::pair<bool, const char*> { false, "LOWS" }, { true, "HIGHS" } })
+            {
+                auto line = legend.removeFromTop (11.0f);
+                const auto sample = line.removeFromLeft (16.0f).reduced (3.0f, 0.0f);
+                g.setColour (highs ? colour.withAlpha (0.4f) : colour);
+                g.fillRect (sample.withSizeKeepingCentre (sample.getWidth(), highs ? 1.0f : 1.6f));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (text, line, juce::Justification::centredLeft);
+            }
+        }
         const auto seconds = gated ? juce::String ("gated") : "RT60 " + juce::String (lowTime, lowTime < 10.0f ? 1 : 0) + " s";
         paintCaption (g, "DECAY", seconds);
+    }
+
+    // ---- Shared: a response over frequency, in dB ----
+    static float logX (juce::Rectangle<float> plot, double frequency, double low, double high)
+    {
+        return plot.getX() + (float) (std::log (frequency / low) / std::log (high / low)) * plot.getWidth();
+    }
+
+    void paintFrequencyGrid (juce::Graphics& g, juce::Rectangle<float> plot, double low, double high) const
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto frequency : { 100.0, 1000.0, 10000.0 })
+            if (frequency > low && frequency < high)
+                g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (logX (plot, frequency, low, high), plot.getY()));
+    }
+
+    // The magnitude of `response` from low to high Hz, dB in [floor, top].
+    template <typename Response>
+    juce::Path responsePath (juce::Rectangle<float> plot, double low, double high, float floor, float top, Response response) const
+    {
+        juce::Path path;
+        const auto steps = juce::jmax (32, (int) plot.getWidth());
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto frequency = low * std::pow (high / low, (double) i / (double) steps);
+            const auto db = juce::jlimit (floor, top, (float) (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (response (frequency))))));
+            const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) steps,
+                                            plot.getBottom() - (db - floor) / (top - floor) * plot.getHeight());
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        return path;
+    }
+
+    // ---- Vowel: the three formant band-passes (src/processor/Effects.cpp) ----
+    void paintVowel (juce::Graphics& g)
+    {
+        static const float formant1[5] { 800.0f, 400.0f, 350.0f, 450.0f, 325.0f };
+        static const float formant2[5] { 1150.0f, 1600.0f, 1700.0f, 800.0f, 700.0f };
+        const auto morph = juce::jlimit (0.0f, 1.0f, param ("fx_vowel_morph"));
+        const auto mix = param ("fx_vowel_mix");
+        const auto position = morph * 4.0f;
+        const auto index = juce::jlimit (0, 3, (int) position);
+        const auto frac = position - (float) index;
+        const auto f1 = (double) (formant1[index] + (formant1[index + 1] - formant1[index]) * frac);
+        const auto f2 = (double) (formant2[index] + (formant2[index + 1] - formant2[index]) * frac);
+        const auto f3 = f2 * 2.4;
+        const auto bandPass = [] (double frequency, double centre, double resonance)
+        {
+            const std::complex<double> s (0.0, frequency / centre);
+            const auto k = 2.0 - 2.0 * resonance;
+            return s / (s * s + k * s + 1.0);
+        };
+
+        const auto plot = plotArea();
+        constexpr double low = 100.0, high = 8000.0;
+        paintFrequencyGrid (g, plot, low, high);
+        const auto curve = responsePath (plot, low, high, -24.0f, 12.0f, [&] (double f)
+        {
+            const auto wet = bandPass (f, f1, 0.82) + 0.7 * bandPass (f, f2, 0.82) + 0.35 * bandPass (f, f3, 0.8);
+            return 1.0 + (wet - 1.0) * (double) mix;
+        });
+        strokeCurve (g, curve, plot, plot.getBottom());
+
+        // The formants' places, named.
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (const auto& [frequency, name] : { std::pair<double, const char*> { f1, "F1" }, { f2, "F2" }, { f3, "F3" } })
+        {
+            const auto x = logX (plot, frequency, low, high);
+            g.setColour (colour.withAlpha (0.3f));
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (name, juce::Rectangle<float> (x + 2.0f, plot.getBottom() - 11.0f, 20.0f, 10.0f), juce::Justification::centredLeft);
+        }
+
+        static const char* const vowels[] { "A", "E", "I", "O", "U" };
+        const auto nearest = juce::jlimit (0, 4, juce::roundToInt (position));
+        paintCaption (g, "FORMANTS", juce::String ("VOWEL  ") + vowels[nearest]);
+    }
+
+    // ---- Comb: x + MIX * the fed-back delay (src/processor/Effects.cpp) ----
+    // On a linear axis (the first eight teeth), where they sit evenly.
+    void paintComb (juce::Graphics& g)
+    {
+        const auto frequency = (double) juce::jlimit (20.0f, 2000.0f, param ("fx_comb_freq"));
+        const auto feedback = (double) juce::jlimit (0.0f, 0.97f, param ("fx_comb_feedback"));
+        const auto mix = (double) param ("fx_comb_mix");
+        const auto plot = plotArea();
+        constexpr int teeth = 8;
+        constexpr float floor = -24.0f, top = 18.0f;
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (int tooth = 1; tooth < teeth; ++tooth)
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + plot.getWidth() * (float) tooth / (float) teeth, plot.getY()));
+
+        juce::Path curve;
+        const auto steps = juce::jmax (64, (int) plot.getWidth() * 4);
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto f = frequency * teeth * (double) i / (double) steps;
+            const auto delayed = std::polar (1.0, -juce::MathConstants<double>::twoPi * f / frequency);
+            const auto response = 1.0 + mix * delayed / (1.0 - feedback * delayed);
+            const auto db = juce::jlimit (floor, top, (float) (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (response)))));
+            const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) steps,
+                                            plot.getBottom() - (db - floor) / (top - floor) * plot.getHeight());
+            if (i == 0)
+                curve.startNewSubPath (point);
+            else
+                curve.lineTo (point);
+        }
+        strokeCurve (g, curve, plot, plot.getBottom());
+        paintCaption (g, "TEETH", "every " + juce::String (juce::roundToInt (frequency)) + " Hz");
+    }
+
+    // ---- Chorus: JUCE's delay sweep, 7 ms +- 10 ms x DEPTH at RATE ----
+    void paintChorus (juce::Graphics& g)
+    {
+        const auto rate = juce::jmax (0.01f, param ("fx_chorus_rate"));
+        const auto depth = juce::jlimit (0.0f, 1.0f, param ("fx_chorus_depth"));
+        const auto plot = plotArea();
+        // Two cycles (at least half a second), delay 0..20 ms up the side.
+        const auto seconds = juce::jmax (0.5f, 2.0f / rate);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto ms : { 5.0f, 10.0f, 15.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - ms / 20.0f * plot.getHeight()));
+
+        juce::Path sweep;
+        const auto steps = juce::jmax (32, (int) plot.getWidth());
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto t = seconds * (float) i / (float) steps;
+            const auto ms = juce::jmax (1.0f, 7.0f + 10.0f * depth * std::sin (juce::MathConstants<float>::twoPi * rate * t));
+            const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) steps,
+                                            plot.getBottom() - juce::jlimit (0.0f, 20.0f, ms) / 20.0f * plot.getHeight());
+            if (i == 0)
+                sweep.startNewSubPath (point);
+            else
+                sweep.lineTo (point);
+        }
+        g.setColour (colour);
+        g.strokePath (sweep, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        paintCaption (g, "DELAY SWEEP", "7 ms " + juce::String (juce::CharPointer_UTF8 ("\xc2\xb1 ")) + juce::String (10.0f * depth, 1) + " ms");
+    }
+
+    // ---- Phaser: JUCE's six all-passes, at the sweep's ends and middle ----
+    void paintPhaser (juce::Graphics& g)
+    {
+        const auto depth = juce::jlimit (0.0f, 1.0f, param ("fx_phaser_depth"));
+        const auto feedback = (double) param ("fx_phaser_feedback");
+        const auto mix = (double) param ("fx_phaser_mix");
+        const auto plot = plotArea();
+        constexpr double low = 20.0, high = 20000.0;
+        const auto centre = std::log10 (800.0 / 20.0) / 3.0;
+        const auto cutoffAt = [&] (double lfo) { return 20.0 * std::pow (1000.0, juce::jlimit (0.0, 1.0, centre + (double) depth * 0.5 * lfo)); };
+        const auto responseAt = [&] (double cutoff)
+        {
+            return [cutoff, feedback, mix] (double f)
+            {
+                const std::complex<double> s (0.0, f / cutoff);
+                const auto allPass = std::pow ((1.0 - s) / (1.0 + s), 6.0);
+                return (1.0 - mix) + mix * allPass / (1.0 + feedback * allPass);
+            };
+        };
+
+        paintFrequencyGrid (g, plot, low, high);
+        // The band the notches sweep through, then its ends faint.
+        const auto from = logX (plot, cutoffAt (-1.0), low, high), to = logX (plot, cutoffAt (1.0), low, high);
+        g.setColour (colour.withAlpha (0.08f));
+        g.fillRect (juce::Rectangle<float> (from, plot.getY(), juce::jmax (1.0f, to - from), plot.getHeight()));
+        g.setColour (colour.withAlpha (0.3f));
+        for (const auto lfo : { -1.0, 1.0 })
+            g.strokePath (responsePath (plot, low, high, -30.0f, 12.0f, responseAt (cutoffAt (lfo))), juce::PathStrokeType (1.0f));
+        g.setColour (colour);
+        g.strokePath (responsePath (plot, low, high, -30.0f, 12.0f, responseAt (cutoffAt (0.0))),
+                      juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        paintCaption (g, "NOTCHES", juce::String (param ("fx_phaser_rate"), 2) + " Hz");
+    }
+
+    // ---- Vocoder: each band's level now (the modulator's envelope) ----
+    std::array<float, 24> bandLevels {};
+
+    void paintVocoder (juce::Graphics& g)
+    {
+        const auto count = juce::jlimit (4, 24, (int) param ("fx_voc_bands"));
+        const auto plot = plotArea();
+        const auto width = plot.getWidth() / (float) count;
+        auto peak = 1.0e-4f;
+        for (int b = 0; b < count; ++b)
+            peak = juce::jmax (peak, bandLevels[(size_t) b]);
+
+        for (int b = 0; b < count; ++b)
+        {
+            const auto bar = juce::Rectangle<float> (plot.getX() + width * (float) b, plot.getY(), width, plot.getHeight()).reduced (1.0f, 0.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRoundedRectangle (bar, 1.5f);
+            const auto level = juce::jlimit (0.0f, 1.0f, bandLevels[(size_t) b] / juce::jmax (0.05f, peak));
+            if (level > 0.01f)
+            {
+                g.setColour (colour.withAlpha (0.4f + 0.55f * level));
+                g.fillRoundedRectangle (bar.withTop (bar.getBottom() - bar.getHeight() * level), 1.5f);
+            }
+        }
+
+        // The modulator as the MODULATOR menu names it, or the formant shift
+        // when there is one (both don't fit beside the band count).
+        static const char* const sources[] { "INPUT, ELSE TALK", "INPUT", "TALK" };
+        const auto formant = param ("fx_voc_formant");
+        paintCaption (g, juce::String (count) + " BANDS",
+                      std::abs (formant) < 0.05f ? juce::String (sources[juce::jlimit (0, 2, (int) param ("fx_voc_source"))])
+                                                 : "FORMANT " + juce::String (formant > 0.0f ? "+" : "") + juce::String (formant, 1) + " st");
+    }
+
+    // ---- Airwindows echoes and spaces: the algorithm's own impulse response ----
+    std::vector<float> impulseEnvelope;
+    float impulseSeconds = 2.0f;
+
+    void measureImpulse()
+    {
+        impulseEnvelope.clear();
+        const auto category = airwindows::categoryForFxType (type);
+        if (category < 0)
+            return;
+
+        const auto& module = airwindows::categoryModules()[(size_t) category];
+        const juce::String prefix = juce::String ("fx_") + module.id;
+        const auto choice = juce::jlimit (0, (int) module.algorithms.size() - 1, (int) param (prefix + "_algo"));
+        const auto& info = airwindows::registry()[(size_t) module.algorithms[(size_t) choice]];
+        auto run = info.create();
+        if (run == nullptr)
+            return;
+
+        constexpr double rate = 44100.0;
+        impulseSeconds = type == 34 ? 4.0f : 2.5f;
+        run->prepare (rate);
+        for (int k = 0; k < info.numKnobs; ++k)
+            run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
+
+        const auto total = (int) (rate * impulseSeconds);
+        std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
+        left[0] = right[0] = 0.8f;
+        run->process (left.data(), right.data(), total);
+
+        constexpr int columns = 220;
+        impulseEnvelope.assign (columns, 0.0f);
+        for (int i = 0; i < total; ++i)
+        {
+            auto& cell = impulseEnvelope[(size_t) juce::jmin (columns - 1, i * columns / total)];
+            const auto v = std::abs (std::isfinite (left[(size_t) i]) ? left[(size_t) i] : 0.0f)
+                           + std::abs (std::isfinite (right[(size_t) i]) ? right[(size_t) i] : 0.0f);
+            cell = juce::jmax (cell, v * 0.5f);
+        }
+    }
+
+    void paintImpulse (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (auto t = 0.5f; t < impulseSeconds; t += 0.5f)
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + t / impulseSeconds * plot.getWidth(), plot.getY()));
+
+        auto peak = 1.0e-6f;
+        for (const auto v : impulseEnvelope)
+            peak = juce::jmax (peak, v);
+
+        if (! impulseEnvelope.empty() && peak > 1.0e-5f)
+        {
+            // Levels in dB over 48 dB below the loudest moment, as bars.
+            const auto width = plot.getWidth() / (float) impulseEnvelope.size();
+            g.setColour (colour);
+            for (size_t i = 0; i < impulseEnvelope.size(); ++i)
+            {
+                const auto db = juce::Decibels::gainToDecibels (impulseEnvelope[i] / peak, -60.0f);
+                const auto height = juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f) * plot.getHeight();
+                if (height > 0.5f)
+                    g.fillRect (juce::Rectangle<float> (plot.getX() + width * (float) i, plot.getBottom() - height, juce::jmax (1.0f, width - 0.5f), height));
+            }
+        }
+        else
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText ("no tail at these settings", plot, juce::Justification::centred);
+        }
+
+        paintCaption (g, type == 34 ? "IMPULSE" : "ECHOES", juce::String (impulseSeconds, 1) + " s");
     }
 
     // ---- Polling ----
@@ -641,6 +963,11 @@ private:
         static const char* const delayIds[] { "fx_delay_time", "fx_delay_time_r", "fx_delay_sync", "fx_delay_div", "fx_delay_feedback",
                                               "fx_delay_pingpong", "fx_taps_on", "fx_taps_pattern", "fx_taps_mix" };
         static const char* const reverbIds[] { "fx_reverb_type", "fx_reverb_size", "fx_reverb_damping" };
+        static const char* const vowelIds[] { "fx_vowel_morph", "fx_vowel_mix" };
+        static const char* const combIds[] { "fx_comb_freq", "fx_comb_feedback", "fx_comb_mix" };
+        static const char* const chorusIds[] { "fx_chorus_rate", "fx_chorus_depth" };
+        static const char* const phaserIds[] { "fx_phaser_rate", "fx_phaser_depth", "fx_phaser_feedback", "fx_phaser_mix" };
+        static const char* const vocoderIds[] { "fx_voc_bands", "fx_voc_source", "fx_voc_formant" };
 
         switch (kind)
         {
@@ -652,6 +979,12 @@ private:
                 mixIn ((float) processorRef.getCurrentBpm());
                 break;
             case Kind::reverb: for (auto* id : reverbIds) mixIn (param (id)); break;
+            case Kind::vowel: for (auto* id : vowelIds) mixIn (param (id)); break;
+            case Kind::comb: for (auto* id : combIds) mixIn (param (id)); break;
+            case Kind::chorus: for (auto* id : chorusIds) mixIn (param (id)); break;
+            case Kind::phaser: for (auto* id : phaserIds) mixIn (param (id)); break;
+            case Kind::vocoder: for (auto* id : vocoderIds) mixIn (param (id)); break;
+            case Kind::airwindowsImpulse:
             case Kind::airwindowsTransfer:
                 if (const auto category = airwindows::categoryForFxType (type); category >= 0)
                 {
@@ -679,7 +1012,25 @@ private:
             lastSignature = now;
             if (kind == Kind::airwindowsTransfer)
                 measureAirwindows();
+            if (kind == Kind::airwindowsImpulse)
+                measureImpulse();
             dirty = true;
+        }
+
+        // The vocoder's bands follow the modulator (smoothed, falling back
+        // to rest once nothing plays).
+        if (kind == Kind::vocoder)
+        {
+            const auto live = processorRef.getOutputPeak() > 1.0e-5f;
+            auto moving = false;
+            for (size_t b = 0; b < bandLevels.size(); ++b)
+            {
+                const auto target = live ? processorRef.getVocoderBandLevel ((int) b) : 0.0f;
+                const auto next = smooth ? bandLevels[b] + (target - bandLevels[b]) * 0.4f : target;
+                moving = moving || std::abs (next - bandLevels[b]) > 1.0e-4f;
+                bandLevels[b] = std::abs (next) < 1.0e-5f ? 0.0f : next;
+            }
+            dirty = dirty || moving;
         }
 
         if (kind == Kind::dynamics)

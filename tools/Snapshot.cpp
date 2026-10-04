@@ -49,6 +49,7 @@
 #include "gui/PoolIndexRow.h"
 #include "gui/RemapEditor.h"
 #include "gui/FxDisplays.h"
+#include "gui/FxLibrary.h"
 
 namespace
 {
@@ -1143,27 +1144,71 @@ int runUiTests()
                 delay = button;
         }
 
-        expect (reverb != nullptr, "the empty rack shows quick-add buttons");
+        expect (reverb != nullptr && delay != nullptr, "the empty rack shows the effect library");
 
         if (reverb != nullptr)
         {
             reverb->triggerClick();
             settle (400);
             const auto* slot1 = processor.apvts.getRawParameterValue ("fx_slot1");
-            expect (slot1 != nullptr && (int) slot1->load() == 13, "quick-add REVERB puts a reverb in slot 1");
-            // With an effect loaded the picks move under the rack's rows.
-            const auto* page = pages->getCurrentPage();
-            expect (reverb->isVisible() && page != nullptr && reverb->getX() < 330 && reverb->getY() > 100,
-                    "quick-add buttons move under the rack once it has an effect");
-            // The rack takes each effect once: REVERB greys out, DELAY goes into slot 2.
-            expect (! reverb->isEnabled() && delay != nullptr && delay->isEnabled(),
-                    "a type already in the rack is greyed out in the library");
-            if (delay != nullptr)
-                delay->triggerClick();
-            settle (400);
-            const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
-            expect (slot2 != nullptr && (int) slot2->load() == 9, "a second quick-add goes into slot 2");
+            expect (slot1 != nullptr && (int) slot1->load() == 13, "the library's REVERB puts a reverb in slot 1");
+            // One view of the chain (S5-18, S6-25): with an effect loaded the
+            // library leaves the page; + ADD EFFECT opens it in a call-out.
+            std::vector<FxLibraryButton*> libraryButtons;
+            findAll<FxLibraryButton> (*editor, libraryButtons);
+            expect (std::none_of (libraryButtons.begin(), libraryButtons.end(), [] (FxLibraryButton* b) { return visibleInTree (b); }),
+                    "no library or chain list beside the cards once the rack has an effect");
+
+            juce::TextButton* addEffect = nullptr;
+            textButtons.clear();
+            findAll<juce::TextButton> (*editor, textButtons);
+            for (auto* button : textButtons)
+                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
+                    addEffect = button;
+            expect (addEffect != nullptr, "the FX toolbar has + ADD EFFECT");
+
+            if (addEffect != nullptr)
+            {
+                addEffect->triggerClick();
+                // (Briefly: a call-out closes itself within 200 ms while the
+                // process isn't in front, as under xvfb.)
+                settle (80);
+                FxLibraryView* callout = nullptr;
+                std::vector<FxLibraryView*> views;
+                findAll<FxLibraryView> (*editor, views);
+                for (auto* view : views)
+                    if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                        callout = view;
+                expect (callout != nullptr, "+ ADD EFFECT opens the library in a call-out");
+
+                if (callout != nullptr)
+                {
+                    auto* inRack = callout->findButton (13);
+                    expect (inRack != nullptr && inRack->isEnabled() && inRack->getInRackSlot() == 0
+                                && inRack->getTooltip().contains ("slot 1"),
+                            "a type already in the rack has an in-rack dot and says where, not greyed out (V6-25)");
+                    auto* spaces = callout->findButton (34);
+                    expect (spaces != nullptr && spaces->getButtonText() == "SPACES" && spaces->getTooltip().contains ("Airwindows"),
+                            "Airwindows effects are named by their job with an Airwindows note (S6-27)");
+                    if (auto* addDelay = callout->findButton (9))
+                        addDelay->triggerClick();
+                    settle (400);
+                    const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
+                    expect (slot2 != nullptr && (int) slot2->load() == 9, "a pick from the call-out goes into the next empty slot");
+                    views.clear();
+                    findAll<FxLibraryView> (*editor, views);
+                    expect (std::none_of (views.begin(), views.end(), [] (FxLibraryView* v) { return v->getName() == "FX LIBRARY" && visibleInTree (v); }),
+                            "the call-out closes after a pick");
+                }
+            }
         }
+
+        // The names: by job, the catch-all "Airwindows (all)", no "AW" prefix.
+        auto awPrefix = false;
+        for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
+            awPrefix = awPrefix || fxTypeName (type).startsWith ("AW ") || fxTypeName (type) == "-";
+        expect (! awPrefix && fxTypeName (30) == "Airwindows (all)" && fxTypeName (35) == "Echoes",
+                "every effect has a library name, none starts with AW, the catch-all is \"Airwindows (all)\"");
     }
 
     // FX cards (UI review 4, batch D): sized to their controls, a display
@@ -1255,8 +1300,8 @@ int runUiTests()
         pages->showPage ("FX");
         loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
         checkCards ("3 effects", true);
-        expect (shownDisplays() == 2, "Drive and OTT cards show a display, Vowel none");
-        expect (findButtons ("S").size() == 3, "each card header has a solo button");
+        expect (shownDisplays() == 3, "Vowel, Drive and OTT cards each show a display");
+        expect (findButtons ("SOLO").size() == 3, "each card header has a SOLO button");
         loadFx ({ 27, 2, 20, 13 });
         checkCards ("4 effects", false);
         loadFx ({ 9, 4, 13, 21 });
@@ -1284,25 +1329,26 @@ int runUiTests()
         taps->setValueNotifyingHost (0.0f);
 
         // Solo is a visible button in the card header.
-        if (auto soloButtons = findButtons ("S"); ! soloButtons.empty())
+        if (auto soloButtons = findButtons ("SOLO"); ! soloButtons.empty())
         {
             soloButtons.front()->triggerClick();
             settle (200);
-            expect (processor.apvts.getRawParameterValue ("fx_slot1_solo")->load() > 0.5f, "the header's S button solos its slot");
+            expect (processor.apvts.getRawParameterValue ("fx_slot1_solo")->load() > 0.5f, "the header's SOLO button solos its slot");
             soloButtons.front()->triggerClick();
             settle (200);
         }
 
-        // The slot blend sits in the selected card, not beside CHAIN.
+        // SLOT BLEND on every card (S6-25), in the stack.
         {
             std::vector<juce::Slider*> sliders;
             findAll<juce::Slider> (*editor, sliders);
             auto* viewport = stackViewport();
-            auto inCard = false;
+            auto inCards = 0;
             for (auto* slider : sliders)
-                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider))
-                    inCard = viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent();
-            expect (inCard, "SLOT BLEND is in the selected card's header");
+                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider)
+                    && viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent())
+                    ++inCards;
+            expect (inCards == 4, "every card's header has its SLOT BLEND (" + juce::String (inCards) + " of 4)");
         }
 
         // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
@@ -1347,6 +1393,110 @@ int runUiTests()
         }
         else
             expect (false, "the FX toolbar has a DICE FX button");
+
+        // UI review 6: small cards two to a row (S6-26), a split group with
+        // its crossovers inline (S5-18, I6-27), a duplicate that says what it
+        // is with REMOVE, the new displays, reorder by dragging a header.
+        {
+            const auto setParam = [&processor] (const juce::String& id, float plain)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+            };
+            const auto readParam = [&processor] (const juce::String& id)
+            {
+                const auto* value = processor.apvts.getRawParameterValue (id);
+                return value != nullptr ? value->load() : 0.0f;
+            };
+            const auto typeButtons = [&]
+            {
+                std::vector<FxTypeButton*> found, shown;
+                findAll<FxTypeButton> (*editor, found);
+                for (auto* button : found)
+                    if (visibleInTree (button))
+                        shown.push_back (button);
+                std::sort (shown.begin(), shown.end(), [] (FxTypeButton* a, FxTypeButton* b)
+                           { return a->getY() != b->getY() ? a->getY() < b->getY() : a->getX() < b->getX(); });
+                return shown;
+            };
+
+            loadFx ({ 27, 2, 20 });
+            auto titles = typeButtons();
+            auto* viewport = stackViewport();
+            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getY() == titles[1]->getY()
+                        && titles[1]->getX() > viewport->getWidth() / 3,
+                    "Vowel and Drive sit side by side as half-width cards");
+            // The lone half card at the end keeps its width; + ADD EFFECT
+            // takes the other half (no knobs stranded across a full card).
+            if (titles.size() == 3 && viewport != nullptr)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                auto ottMixRight = 0;
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == "fx_ott_mix" && visibleInTree (knob))
+                        ottMixRight = knob->getRight();
+                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && ottMixRight < viewport->getWidth() / 2,
+                        "a lone half card at the end of the chain stays half width, + ADD EFFECT beside it");
+            }
+
+            loadFx ({ 7, 2, 13, 20 });
+            setParam ("fx_slot2_band", 1.0f);
+            setParam ("fx_slot3_band", 3.0f);
+            settle (300);
+            std::vector<CrossoverStrip*> strips;
+            findAll<CrossoverStrip> (*editor, strips);
+            const auto shownStrips = std::count_if (strips.begin(), strips.end(), [] (CrossoverStrip* s) { return visibleInTree (s); });
+            expect (shownStrips == 1, "two banded slots in a row form one split group with its crossovers (" + juce::String ((int) shownStrips) + ")");
+            checkCards ("a split group", false);
+            setParam ("fx_slot2_band", 0.0f);
+            setParam ("fx_slot3_band", 0.0f);
+
+            loadFx ({ 20, 2, 20 });
+            auto removes = findButtons ("REMOVE");
+            expect (removes.size() == 1, "a duplicate card offers REMOVE");
+            if (! removes.empty())
+            {
+                processor.getUndoManager().beginNewTransaction();
+                removes.front()->triggerClick();
+                settle (300);
+                expect ((int) readParam ("fx_slot3") == 0 && (int) readParam ("fx_slot1") == 20
+                            && processor.getUndoManager().getUndoDescription() == "Remove OTT",
+                        "REMOVE takes the duplicate out as one undo step (" + processor.getUndoManager().getUndoDescription() + ")");
+            }
+
+            loadFx ({ 27, 5, 7, 6 });
+            expect (shownDisplays() == 4, "vowel, comb, chorus and phaser each show a display");
+            loadFx ({ 31, 35, 34 });
+            expect (shownDisplays() == 3, "the vocoder and the Airwindows echoes and spaces show displays");
+
+            // Drag Vowel's header onto OTT's card: Drive, OTT, Vowel.
+            loadFx ({ 27, 2, 20 });
+            titles = typeButtons();
+            auto* content = viewport != nullptr ? viewport->getViewedComponent() : nullptr;
+            if (titles.size() == 3 && content != nullptr)
+            {
+                auto source = juce::Desktop::getInstance().getMainMouseSource();
+                const auto now = juce::Time::getCurrentTime();
+                const auto from = juce::Point<float> ((float) titles[0]->getRight() + 12.0f, (float) titles[0]->getBounds().getCentreY());
+                const auto to = juce::Point<float> ((float) titles[2]->getRight() + 40.0f, (float) titles[2]->getBounds().getCentreY() + 40.0f);
+                const auto make = [&] (juce::Point<float> at, bool dragged)
+                {
+                    return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             content, content, now, from, now, 1, dragged);
+                };
+                processor.getUndoManager().beginNewTransaction();
+                content->mouseDown (make (from, false));
+                content->mouseDrag (make (to, true));
+                content->mouseUp (make (to, true));
+                settle (300);
+                expect ((int) readParam ("fx_slot1") == 2 && (int) readParam ("fx_slot2") == 20 && (int) readParam ("fx_slot3") == 27
+                            && processor.getUndoManager().getUndoDescription() == "Move Vowel",
+                        "dragging a card's header reorders the chain as one undo step");
+            }
+            else
+                expect (false, "three FX cards to drag");
+        }
 
         // The live meters: OTT and the limiter report gain while audio runs.
         {
@@ -2563,79 +2713,172 @@ int runUiTests()
                 "the PHYSICAL tab greys, with its reason, when no oscillator is physical");
     }
 
-    // M8.4: the type grid turns to the page holding a new model.
+    // (Plain-value parameter access for the review-6 FILTER checks below.)
+    const auto setParam = [&processor] (const juce::String& id, float plain)
     {
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Steiner));
-        pages->showPage ("FILTER");
-        settle (200);
-        std::vector<FilterTypeGrid*> grids;
-        findAll<FilterTypeGrid> (*editor, grids);
-        auto onSecond = false;
-        for (auto* grid : grids)
-        {
-            grid->repaint();
-            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
-            juce::Graphics g (image);
-            grid->paintEntireComponent (g, false);
-            onSecond = onSecond || grid->getPage() == 1;
-        }
-        expect (! grids.empty() && onSecond, "the filter type grid shows the page with the new models");
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+    const auto readParam = [&processor] (const juce::String& id)
+    {
+        const auto* value = processor.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
 
-        // Every type has a short name, and an Airwindows model opens its page.
-        expect (FilterTypeGrid::shortNames().size() == FilterType::Count, "every filter type has a short name in the grid");
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) FilterType::Disperser));
-        settle (200);
-        auto onAirwindows = false;
-        for (auto* grid : grids)
+    // UI review 6 (V5-17, S5-12, S6-20): the filter type is one compact
+    // picker per filter (no 12-button grids), every model once in its menu,
+    // the analogue models under ANALOG, and arrows that step through it as
+    // one undo step each.
+    {
+        processor.loadFactoryPreset (0);
+        pages->showPage ("FILTER");
+        settle (300);
+        std::vector<FilterTypePicker*> pickers;
+        findAll<FilterTypePicker> (*editor, pickers);
+        auto shownPickers = 0;
+        for (auto* picker : pickers)
+            shownPickers += visibleInTree (picker) && picker->getHeight() <= 30 ? 1 : 0;
+        expect (shownPickers == 2, "FILTER shows one compact type picker per filter (" + juce::String (shownPickers) + ")");
+
+        auto order = FilterTypes::order();
+        std::sort (order.begin(), order.end());
+        expect ((int) order.size() == FilterType::Count && std::adjacent_find (order.begin(), order.end()) == order.end()
+                    && order.front() == 0 && order.back() == FilterType::Count - 1,
+                "the type menu lists every filter model exactly once");
+        expect (FilterTypes::shortNames().size() == FilterType::Count, "every filter type has a short name");
+        auto analogue = true;
+        for (const auto type : { FilterType::LadderLow, FilterType::LadderHigh, FilterType::DiodeLow, FilterType::Ms20Low,
+                                 FilterType::MoogDrive, FilterType::Acid303, FilterType::Sem })
+            analogue = analogue && FilterTypes::getPageName (FilterTypes::pageOf (type)) == "ANALOG";
+        expect (analogue, "Ladder, Diode, MS-20, Moog, 303 and SEM are under ANALOG");
+        expect (FilterTypes::displayName (FilterType::AwZLow).startsWith ("Smooth") && FilterTypes::shortNames()[FilterType::AwYNotLow] == "RESO LP",
+                "the Airwindows filters are named by what they do");
+
+        if (! pickers.empty())
         {
-            juce::Image image (juce::Image::ARGB, juce::jmax (1, grid->getWidth()), juce::jmax (1, grid->getHeight()), true);
-            juce::Graphics g (image);
-            grid->paintEntireComponent (g, false);
-            onAirwindows = onAirwindows || grid->getPage() == 3;
+            auto* picker = pickers.front();
+            const auto before = juce::roundToInt (readParam ("f1_type"));
+            clearHistory();
+            const juce::Point<float> nextArrow ((float) picker->getWidth() - 6.0f, (float) picker->getHeight() * 0.5f);
+            static_cast<juce::Component*> (picker)->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), nextArrow,
+                                                                                 juce::ModifierKeys(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, picker, picker,
+                                                                                 juce::Time::getCurrentTime(), nextArrow, juce::Time::getCurrentTime(), 1, false));
+            settle (100);
+            const auto after = juce::roundToInt (readParam ("f1_type"));
+            const auto steps = undoSteps();
+            expect (after == FilterTypes::stepFrom (before, 1) && after != before && steps.size() == 1 && steps[0] == "Filter 1 type",
+                    "the picker's next arrow steps Filter 1 to the next model, one undo step (" + juce::String (before) + " -> "
+                        + juce::String (after) + ")");
+            processor.getUndoManager().undo();
+            settle (100);
+            expect (juce::roundToInt (readParam ("f1_type")) == before, "undo brings the filter type back");
         }
-        expect (onAirwindows, "the filter type grid shows the AIRWINDOWS page for the Disperser");
-        if (auto* parameter = processor.apvts.getParameter ("f1_type"))
-            parameter->setValueNotifyingHost (0.0f);
     }
 
-    // M8.3: the FILTER page's WEST tab shows the west-coast card.
+    // UI review 6 (I6-15, I6-16): WEST is its own card, shown beside Filter 2
+    // (not a hidden tab); with PLACE Replace Filter 2, Filter 2's card dims
+    // and the graph and flow drop Filter 2.
     {
         pages->showPage ("FILTER");
         settle (200);
+        const auto visibleKnob = [&editor] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob))
+                    return knob;
+            return (KnobControl*) nullptr;
+        };
         std::vector<CardTabs*> cardTabs;
         findAll<CardTabs> (*editor, cardTabs);
-        CardTabs* westTabs = nullptr;
+        auto westTabs = false;
         for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                westTabs = bar;
-        expect (westTabs != nullptr, "the FILTER page has FILTER 2 / WEST tabs");
-        if (westTabs != nullptr)
+            westTabs = westTabs || (visibleInTree (bar) && bar->getNames().contains ("WEST"));
+        expect (! westTabs && visibleKnob ("west_fold") != nullptr && visibleKnob ("west_decay") != nullptr && visibleKnob ("f2_cutoff") != nullptr,
+                "FILTER shows WEST as its own card beside Filter 2, no FILTER 2 / WEST tabs");
+
+        auto* f2Cutoff = visibleKnob ("f2_cutoff");
+        const auto litBefore = f2Cutoff != nullptr && f2Cutoff->getAlpha() > 0.99f;
+        setParam ("west_on", 1.0f);
+        setParam ("west_pos", 1.0f);
+        settle (400);
+        const auto dimmed = f2Cutoff != nullptr && f2Cutoff->getAlpha() < 0.6f;
+        auto markerFor2 = 1;
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr)
+            markerFor2 = display->filterAt (display->getMarkerCentres()[1]);
+        setParam ("west_pos", 0.0f);
+        setParam ("west_on", 0.0f);
+        settle (400);
+        expect (litBefore && dimmed && markerFor2 == 0 && f2Cutoff->getAlpha() > 0.99f,
+                "WEST in Filter 2's place dims Filter 2's card and the graph stops offering Filter 2's marker");
+    }
+
+    // UI review 6 (V6-18, S6-21): the graph's markers sit on their filter's
+    // response, 8 px inside the plot: Init's two filters, open at 20 kHz,
+    // are high on the right (not in the bottom corner) and fanned apart.
+    {
+        processor.loadFactoryPreset (0);
+        pages->showPage ("FILTER");
+        settle (300);
+        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr && visibleInTree (display))
         {
-            const auto visibleKnob = [&editor] (const juce::String& id)
-            {
-                std::vector<KnobControl*> knobs;
-                findAll<KnobControl> (*editor, knobs);
-                for (auto* knob : knobs)
-                    if (knob->getParameterId() == id)
-                    {
-                        auto shown = true;
-                        for (juce::Component* c = knob; c != nullptr && c->getParentComponent() != nullptr; c = c->getParentComponent())
-                            shown = shown && c->isVisible();
-                        if (shown)
-                            return true;
-                    }
-                return false;
-            };
-            westTabs->setSelected (1, true);
-            settle (200);
-            expect (visibleKnob ("west_fold") && visibleKnob ("west_decay") && ! visibleKnob ("f2_cutoff"),
-                    "the WEST tab shows FOLD and DECAY in Filter 2's place");
-            westTabs->setSelected (0, true);
-            settle (200);
-            expect (visibleKnob ("f2_cutoff") && ! visibleKnob ("west_fold"), "the FILTER 2 tab brings Filter 2 back");
+            const auto markers = display->getMarkerCentres();
+            const auto plot = display->getLocalBounds().toFloat().reduced (10.0f, 12.0f);
+            const auto inset = plot.reduced (8.0f);
+            expect (inset.contains (markers[0]) && inset.contains (markers[1]) && markers[0].getDistanceFrom (markers[1]) >= 10.0f
+                        && markers[0].y < plot.getCentreY() && markers[1].y < plot.getCentreY(),
+                    "Init: the open filters' markers sit high on the response, inside the plot, apart ("
+                        + markers[0].toString() + " / " + markers[1].toString() + ")");
         }
+        else
+            expect (false, "FILTER shows the response graph");
+
+        // BALANCE does nothing in serial: dimmed and disabled (V6-18).
+        setParam ("filters_parallel", 0.0f);
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* balance = nullptr;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "filter_balance" && visibleInTree (knob))
+                balance = knob;
+        const auto serialOff = balance != nullptr && ! balance->isEnabled() && balance->getAlpha() < 0.99f;
+        setParam ("filters_parallel", 1.0f);
+        settle (300);
+        expect (serialOff && balance->isEnabled(), "BALANCE is disabled in serial and enabled in parallel");
+        setParam ("filters_parallel", 0.0f);
+        settle (200);
+    }
+
+    // UI review 6 (S6-16): in SIGNAL FLOW an oscillator with OUT off is an
+    // FM modulator, not a source into the filters (checked through its
+    // tooltip, which names what it modulates).
+    {
+        setParam ("osc2_on", 1.0f);
+        setParam ("osc2_out", 0.0f);
+        setParam ("fm_amount", 0.5f); // OSC 2 > OSC 1
+        pages->showPage ("FILTER");
+        settle (400);
+        std::vector<SignalFlow*> flows;
+        findAll<SignalFlow> (*editor, flows);
+        juce::String tip;
+        for (auto* flow : flows)
+        {
+            if (! visibleInTree (flow))
+                continue;
+            for (int y = 2; y < flow->getHeight() && tip.isEmpty(); y += 2)
+            {
+                const juce::Point<float> at (16.0f, (float) y);
+                flow->mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f, 0.0f,
+                                                   0.0f, 0.0f, flow, flow, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false));
+                if (flow->getTooltip().startsWith ("OSC 2"))
+                    tip = flow->getTooltip();
+            }
+        }
+        expect (tip.contains ("isn't heard") && tip.contains ("OSC 1"), "SIGNAL FLOW shows OSC 2 (OUT off) as OSC 1's FM modulator ('" + tip + "')");
+        processor.loadFactoryPreset (0);
+        settle (200);
     }
 
     // Knobs, chips, the filter graph, the browser and SUB + NOISE (UI review 1 fixes).
@@ -5268,6 +5511,57 @@ int main (int argc, char** argv)
                 settle (900);
                 save (*editor, outDir.getChildFile ("fx-" + juce::String (type).paddedLeft ('0', 2) + ".png"));
             }
+
+            // UI review 6: a split group (drive on the lows, reverb on the
+            // highs) and a duplicate card, then the rack as it was.
+            std::array<float, 3 * IlanaSynthAudioProcessor::numFxSlots> kept {};
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                for (int k = 0; k < 3; ++k)
+                    kept[(size_t) (slot * 3 + k)] = processor.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + (k == 0 ? "" : (k == 1 ? "_band" : "_bypass")))->getValue();
+            const auto setBand = [&] (int slot, int band)
+            {
+                auto* parameter = processor.apvts.getParameter ("fx_slot" + juce::String (slot) + "_band");
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) band));
+            };
+            const int splitRack[] { 7, 2, 13, 20, 0, 0, 0, 0, 0, 0 };
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, splitRack[slot]);
+                setBand (slot + 1, 0);
+            }
+            setBand (2, 1);
+            setBand (3, 3);
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-split.png"));
+            processor.assignFxSlot (5, 20); // a second OTT
+            settle (600);
+            if (auto* viewport = findChild<juce::Viewport> (*pages->getCurrentPage()))
+                viewport->setViewPosition (0, 10000);
+            settle (100);
+            save (*editor, outDir.getChildFile ("fx-duplicate.png"));
+            // A mid / side group, then the empty rack with its library.
+            const int midSideRack[] { 2, 7, 13, 0, 0, 0, 0, 0, 0, 0 };
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, midSideRack[slot]);
+                setBand (slot + 1, 0);
+            }
+            setBand (2, 5);
+            setBand (3, 4);
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-midside.png"));
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, 0);
+                setBand (slot + 1, 0);
+            }
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-empty.png"));
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                for (int k = 0; k < 3; ++k)
+                    processor.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + (k == 0 ? "" : (k == 1 ? "_band" : "_bypass")))
+                        ->setValueNotifyingHost (kept[(size_t) (slot * 3 + k)]);
+            settle (300);
         }
     }
 
@@ -5392,22 +5686,20 @@ int main (int argc, char** argv)
         settle (200);
     }
 
-    // M8.3: the WEST card (FILTER page, FILTER 2 / WEST tabs).
+    // M8.3: the WEST card (its own card on the FILTER page), after the
+    // filters, then in Filter 2's place.
     {
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (1.0f);
         pages->showPage ("FILTER");
-        std::vector<CardTabs*> cardTabs;
-        if (auto* page = pages->getCurrentPage())
-            findAll<CardTabs> (*page, cardTabs);
-        for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                bar->setSelected (1, true);
         settle (500);
         save (*editor, outDir.getChildFile ("filter-west.png"));
-        for (auto* bar : cardTabs)
-            if (bar->getNames().contains ("WEST"))
-                bar->setSelected (0, true);
+        if (auto* parameter = processor.apvts.getParameter ("west_pos"))
+            parameter->setValueNotifyingHost (1.0f);
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-west-replace.png"));
+        if (auto* parameter = processor.apvts.getParameter ("west_pos"))
+            parameter->setValueNotifyingHost (0.0f);
         if (auto* parameter = processor.apvts.getParameter ("west_on"))
             parameter->setValueNotifyingHost (0.0f);
     }

@@ -136,6 +136,8 @@ public:
 
     // M8.3: the loudest voice's WEST gate conductance, for the card.
     float getWestGateLevel() const { return westGateDisplay.load(); }
+    // The vocoder's band levels as it last ran (FX display; 0 while idle).
+    float getVocoderBandLevel (int band) const { return juce::isPositiveAndBelow (band, (int) vocoderBandDisplay.size()) ? vocoderBandDisplay[(size_t) band].load() : 0.0f; }
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
@@ -916,6 +918,7 @@ private:
     // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
     std::array<LfoSim, (size_t) numLfos> lfoSims;
     std::atomic<float> westGateDisplay { 0.0f };
+    std::array<std::atomic<float>, 24> vocoderBandDisplay {};
     // M8.5
     void updateEvolveAndVector (int numSamples);
     MacroEvolve evolve, vectorDrift;

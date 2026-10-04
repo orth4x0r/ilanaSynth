@@ -1269,6 +1269,16 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        // A menu without a name (PLAY's strips: its value says what it is)
+        // is just the box.
+        if (label.getText().isEmpty())
+        {
+            label.setBounds ({});
+            combo.setBounds (area.withSizeKeepingCentre (area.getWidth(), juce::jmin (24, area.getHeight())));
+            return;
+        }
+
         label.setBounds (area.removeFromTop (13));
         combo.setBounds (area.removeFromTop (24));
     }

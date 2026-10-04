@@ -53,7 +53,7 @@ public:
             // nothing: it is greyed and says so (UI review 4, S27).
             const auto sounding = isCornerSounding (c);
 
-            if (sounding)
+            if (sounding && read ("vec_on") > 0.5f)
             {
                 const auto radius = area.getWidth() * (0.12f + 0.3f * weights[(size_t) c]);
                 juce::ColourGradient glow (accent.withAlpha (0.35f * weights[(size_t) c] + 0.05f), corners[c],
@@ -171,11 +171,21 @@ public:
         return read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f;
     }
 
+    // "OSC 1  25%" while the vector plays; "OSC 4 (none)" for an
+    // oscillator the patch doesn't have, "(off)" for one switched off; no
+    // share while the vector is off (UI review 6, V29).
     juce::String getCornerLabel (int corner, float weight) const
     {
-        const auto name = "OSC " + juce::String (processorRef.getVectorCorner (corner) + 1);
-        return isCornerSounding (corner) ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%"
-                                         : name + " (off)";
+        const auto osc = processorRef.getVectorCorner (corner);
+        const auto name = "OSC " + juce::String (osc + 1);
+
+        if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+            return name + " (none)";
+
+        if (! isCornerSounding (corner))
+            return name + " (off)";
+
+        return read ("vec_on") > 0.5f ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%" : name;
     }
 
 private:

@@ -1,0 +1,181 @@
+#pragma once
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <functional>
+#include <vector>
+
+#include "IlanaLookAndFeel.h"
+
+// A row of tabs that say what each holds: a colour tag (lit while that part
+// sounds), a name and a quiet state after it ("WAVETABLE", "OFF",
+// "CARRIER"). OSC's oscillators and its shared sections use it.
+class StateTabs : public juce::Component,
+                  public juce::SettableTooltipClient
+{
+public:
+    struct Item
+    {
+        juce::String name, state;
+        juce::Colour colour;
+        bool lit = true;
+        juce::String tooltip;
+
+        bool operator== (const Item& other) const
+        {
+            return name == other.name && state == other.state && colour == other.colour && lit == other.lit && tooltip == other.tooltip;
+        }
+    };
+
+    std::function<void (int)> onSelect, onMenu;
+
+    StateTabs() { setRepaintsOnMouseActivity (true); }
+
+    void setItems (std::vector<Item> newItems)
+    {
+        if (newItems == items)
+            return;
+
+        items = std::move (newItems);
+        selected = juce::jlimit (0, juce::jmax (0, (int) items.size() - 1), selected);
+        repaint();
+    }
+
+    void setSelected (int index)
+    {
+        if (index != selected)
+        {
+            selected = index;
+            repaint();
+        }
+    }
+
+    int getSelected() const { return selected; }
+    int getNumItems() const { return (int) items.size(); }
+    const Item& getItem (int index) const { return items[(size_t) juce::jlimit (0, (int) items.size() - 1, index)]; }
+
+    int getIdealWidth() const { return widthAt (0); }
+
+    juce::Rectangle<int> getTabBounds (int index) const
+    {
+        const auto level = stateLevel();
+        auto x = 0;
+        for (int i = 0; i < index; ++i)
+            x += tabWidth (i, level) + gap;
+        return { x, 0, tabWidth (index, level), getHeight() };
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto mouse = getMouseXYRelative();
+
+        for (int i = 0; i < (int) items.size(); ++i)
+        {
+            const auto& item = items[(size_t) i];
+            const auto tab = getTabBounds (i).toFloat().reduced (0.5f, 1.5f);
+            const auto active = i == selected;
+            const auto hover = isMouseOver() && tab.contains (mouse.toFloat());
+            const auto radius = tab.getHeight() * 0.5f;
+
+            g.setColour (active ? IlanaTheme::Ui::raised.interpolatedWith (item.colour, 0.2f)
+                                : IlanaTheme::Ui::panel.interpolatedWith (juce::Colours::white, hover ? 0.05f : 0.0f));
+            g.fillRoundedRectangle (tab, radius);
+            g.setColour (active ? item.colour.withAlpha (0.85f) : IlanaTheme::Ui::line.interpolatedWith (item.colour, hover ? 0.4f : 0.0f));
+            g.drawRoundedRectangle (tab.reduced (0.5f), radius, 1.0f);
+
+            auto area = tab.reduced (12.0f, 0.0f);
+            const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ area.getX() + 3.5f, area.getCentreY() });
+            g.setColour (item.lit ? item.colour : item.colour.withAlpha (0.35f));
+            if (item.lit)
+                g.fillEllipse (dot);
+            else
+                g.drawEllipse (dot.reduced (0.5f), 1.2f);
+            area.removeFromLeft (13.0f);
+
+            g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
+            g.drawText (item.name, area, juce::Justification::centredLeft);
+
+            if (item.state.isNotEmpty() && showsState (i, stateLevel()))
+            {
+                area.removeFromLeft ((float) nameWidth (i) + 7.0f);
+                g.setColour (active ? item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f) : IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText (item.state, area, juce::Justification::centredLeft);
+            }
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        for (int i = 0; i < (int) items.size(); ++i)
+            if (getTabBounds (i).contains (event.getPosition()))
+            {
+                if (event.mods.isPopupMenu())
+                {
+                    if (onMenu != nullptr)
+                        onMenu (i);
+                    return;
+                }
+
+                setSelected (i);
+
+                if (onSelect != nullptr)
+                    onSelect (i);
+
+                return;
+            }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        juce::String tip;
+        for (int i = 0; i < (int) items.size(); ++i)
+            if (getTabBounds (i).contains (event.getPosition()))
+                tip = items[(size_t) i].tooltip;
+        setTooltip (tip);
+    }
+
+private:
+    static constexpr int gap = 6;
+
+    int nameWidth (int index) const
+    {
+        // Rounded up, with a pixel spare, so the text never ellipsises.
+        return 2 + (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)),
+                                                                            items[(size_t) index].name));
+    }
+
+    // Short of room, the states go quiet: first on the tabs not chosen,
+    // then on all of them (the tooltips still say them).
+    bool showsState (int index, int level) const { return level == 0 || (level == 1 && index == selected); }
+
+    int tabWidth (int index, int level) const
+    {
+        const auto& state = items[(size_t) index].state;
+        const auto stateWidth = state.isEmpty() || ! showsState (index, level)
+                                    ? 0
+                                    : 9 + (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), state));
+        return 24 + 13 + nameWidth (index) + stateWidth;
+    }
+
+    int widthAt (int level) const
+    {
+        auto width = 0;
+        for (int i = 0; i < (int) items.size(); ++i)
+            width += tabWidth (i, level) + gap;
+        return juce::jmax (0, width - gap);
+    }
+
+    int stateLevel() const
+    {
+        for (int level = 0; level < 2; ++level)
+            if (widthAt (level) <= getWidth())
+                return level;
+
+        return 2;
+    }
+
+    std::vector<Item> items;
+    int selected = 0;
+};

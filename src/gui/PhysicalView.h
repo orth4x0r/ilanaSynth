@@ -11,6 +11,8 @@
 
 #include <array>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
@@ -301,3 +303,49 @@ private:
     unsigned lastNotes = 0;
     float bodyGlow = 0.0f;
 };
+
+// The physical oscillator's controls, one list for its OSC card and the
+// PHYSICAL page (UI review 6, S13, I6-18): rows named for the part of the
+// instrument, each control as its parameter suffix and label, for the
+// exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
+// hammer has no pick, pickup or buzz).
+struct PhysicalSpec
+{
+    const char* suffix;
+    const char* label;
+};
+
+inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalControlRows (int excite)
+{
+    if (excite == 7 || excite == 8)
+        return { { "STRING", { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_damper", "DAMPER" } } },
+                 { "HAMMER & PICKUP", { { "_excite", "EXCITE" }, { "_hammer_hard", "HAMMER" }, { "_ep_distance", "DISTANCE" },
+                                        { "_ep_position", "OFFSET" } } } };
+
+    const auto piano = excite == 9;
+    std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
+                                       { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
+                                       { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } };
+    std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
+
+    if (! piano)
+        exciter.push_back ({ "_string_slap", "SLAP" });
+
+    exciter.push_back ({ "_string_excite_pos", "EXCITE POS" });
+
+    if (! piano)
+        exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
+
+    if (excite == 5 || piano)
+        exciter.push_back ({ "_hammer_hard", "HAMMER" });
+    else if (excite == 4)
+        exciter.insert (exciter.end(), { { "_bow_pressure", "BOW PRESS" }, { "_bow_speed", "BOW SPEED" } });
+    else if (excite == 10)
+        exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
+
+    if (! piano)
+        exciter.insert (exciter.end(), { { "_string_pickup", "PICKUP" }, { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+
+    return { { "STRING", string }, { "EXCITER", exciter } };
+}

@@ -36,6 +36,7 @@
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
 #include "gui/ModHoverPopup.h"
+#include "gui/StateTabs.h"
 #include "gui/ClipEditor.h"
 #include "gui/ConfirmOverlay.h"
 #include "gui/LfoSimView.h"
@@ -425,6 +426,24 @@ int runUiTests()
         card->mouseUp (event);
         settle (200);
         return true;
+    };
+
+    // OSC's tab for an oscillator, clicked (UI review 6: one oscillator at
+    // a time on OSC).
+    const auto selectOscTab = [&editor] (int osc)
+    {
+        std::vector<StateTabs*> rows;
+        findAll<StateTabs> (*editor, rows);
+        for (auto* tabs : rows)
+            for (int i = 0; i < tabs->getNumItems(); ++i)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr)
+                {
+                    tabs->setSelected (i);
+                    tabs->onSelect (i);
+                    settle (200);
+                    return true;
+                }
+        return false;
     };
 
     // Pages inside a tab: MATRIX is under MOD, and the scope opens over any page.
@@ -885,24 +904,47 @@ int runUiTests()
             return false;
         };
 
-        // A switched-off oscillator folds to its title line.
+        const auto mainKnob = [&] (const juce::String& id) -> KnobControl*
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == id)
+                    return knob;
+            return nullptr;
+        };
+
+        // A switched-off oscillator keeps its strip, greyed: nothing folds
+        // to fit (UI review 6, V19, S8).
         const juce::String osc3 (OscillatorIds::prefixes[2]);
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (0.0f);
         settle (300);
-        expect (! shownOnMain (osc3 + "_level"), "MAIN folds a switched-off OSC 3");
+        expect (mainKnob (osc3 + "_level") != nullptr && ! mainKnob (osc3 + "_level")->isEnabled() && toggleFor (osc3 + "_on") != nullptr,
+                "MAIN greys a switched-off OSC 3 in its own strip");
 
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (1.0f);
         settle (300);
 
-        // Three open cards may not fit with the rest: OSC 3 then folds to
-        // fit, and opens on a click on its title.
-        const auto osc3Folded = ! shownOnMain (osc3 + "_level") && toggleFor (osc3 + "_on") != nullptr;
-        if (osc3Folded)
-            clickCardTitle (osc3 + "_on");
         expect (shownOnMain (osc3 + "_level") && ! shownOnMain ("osc4_level") && toggleFor ("osc4_on") == nullptr,
-                juce::String ("MAIN shows OSC 3 and hides OSC 4 by default") + (osc3Folded ? " (OSC 3 folded to fit; its title opened it)" : ""));
+                "MAIN shows OSC 3 and hides OSC 4 by default");
+
+        // Every strip is the same height, and the next one to add is one
+        // button in the first empty slot (UI review 6, S33).
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            auto adds = 0;
+            for (auto* button : buttons)
+                if (visibleInTree (button) && button->getButtonText().contains ("ADD OSC"))
+                    ++adds;
+            expect (adds == 1, "PLAY offers one ADD OSC button (" + juce::String (adds) + ")");
+            auto* level1 = mainKnob ("osc1_level");
+            auto* level3 = mainKnob (osc3 + "_level");
+            expect (level1 != nullptr && level3 != nullptr && level1->getHeight() == level3->getHeight(),
+                    "PLAY's oscillator strips share one size");
+        }
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)
             processor.addOscillator (osc);
@@ -916,8 +958,6 @@ int runUiTests()
                 on->setValueNotifyingHost (1.0f);
 
             settle (400);
-            if (! shownOnMain (prefix + "_level"))
-                clickCardTitle (prefix + "_on"); // folded to fit: open it
             std::vector<KnobControl*> mainKnobs;
             findAll<KnobControl> (*editor, mainKnobs);
             auto level = false, grainSize = false;
@@ -1847,11 +1887,58 @@ int runUiTests()
         std::vector<KnobControl*> knobs;
         if (page != nullptr)
             findAll<KnobControl> (*page, knobs);
-        auto evolveKnobs = 0;
-        for (auto* knob : knobs)
-            if (knob->getParameterId().endsWith ("_evolve"))
-                ++evolveKnobs;
-        expect (evolveKnobs == Mod::numMacros, "EVOLVE has a knob for each macro");
+        // EVOLVE: a row for each macro that evolves, "+ MACRO" for the rest
+        // (UI review 6, S36).
+        const auto evolveRows = [&knobs]
+        {
+            auto count = 0;
+            for (auto* knob : knobs)
+                if (knob->getParameterId().endsWith ("_evolve") && visibleInTree (knob))
+                    ++count;
+            return count;
+        };
+        auto evolving = 0;
+        for (int m = 0; m < Mod::numMacros; ++m)
+            evolving += processor.apvts.getRawParameterValue ("macro" + juce::String (m + 1) + "_evolve")->load() > 0.0005f ? 1 : 0;
+        expect (evolveRows() == evolving, "EVOLVE has a row for each evolving macro only (" + juce::String (evolveRows()) + " of "
+                                              + juce::String (evolving) + ")");
+        if (page != nullptr)
+        {
+            const auto before = evolveRows();
+            auto* evolve = processor.apvts.getParameter ("macro" + juce::String (Mod::numMacros) + "_evolve");
+            const auto evolveWas = evolve->getValue();
+            evolve->setValueNotifyingHost (0.5f);
+            settle (200);
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*page, buttons);
+            auto addMacro = false;
+            for (auto* button : buttons)
+                addMacro = addMacro || (visibleInTree (button) && button->getButtonText().contains ("MACRO"));
+            expect (evolveRows() == juce::jmin (Mod::numMacros, before + (evolveWas > 0.0005f ? 0 : 1)) && addMacro,
+                    "a macro that evolves gets its EVOLVE row; + MACRO offers the others");
+            evolve->setValueNotifyingHost (evolveWas);
+
+            // VEC X / VEC Y to drag, while the vector is on.
+            const auto chipsShown = [page]
+            {
+                std::vector<ModSourceChip*> chips;
+                findAll<ModSourceChip> (*page, chips);
+                auto shown = 0;
+                for (auto* chip : chips)
+                    shown += visibleInTree (chip) && (chip->getSourceIndex() == (int) Mod::Source::VectorX
+                                                      || chip->getSourceIndex() == (int) Mod::Source::VectorY) ? 1 : 0;
+                return shown;
+            };
+            auto* vecOn = processor.apvts.getParameter ("vec_on");
+            const auto wasOn = vecOn->getValue();
+            vecOn->setValueNotifyingHost (1.0f);
+            settle (200);
+            const auto onChips = chipsShown();
+            vecOn->setValueNotifyingHost (0.0f);
+            settle (200);
+            expect (onChips == 2 && chipsShown() == 0, "VECTOR shows VEC X / VEC Y chips while it is on, not while off");
+            vecOn->setValueNotifyingHost (wasOn);
+        }
         std::vector<juce::TextButton*> buttons;
         if (page != nullptr)
             findAll<juce::TextButton> (*page, buttons);
@@ -1882,12 +1969,7 @@ int runUiTests()
         for (int i = 0; i < 300 && processor.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering; ++i)
             settle (50);
         settle (300);
-        {
-            std::vector<KnobControl*> shownKnobs;
-            findAll<KnobControl> (*editor, shownKnobs);
-            if (std::none_of (shownKnobs.begin(), shownKnobs.end(), [] (KnobControl* k) { return k->getParameterId() == "osc2_level" && visibleInTree (k); }))
-                clickCardTitle ("osc2_on"); // folded to fit: open it
-        }
+        selectOscTab (1);
         std::vector<KnobControl*> knobs;
         findAll<KnobControl> (*editor, knobs);
         auto sampleShown = false;
@@ -1915,8 +1997,75 @@ int runUiTests()
         for (auto* knob : knobs)
             bound = bound || (knob->getParameterId() == physicalPrefix + "_string_decay" && visibleInTree (knob));
         expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Felt Hammer Board's string (" + physicalPrefix + ")");
+
+        // One control list for the PHYSICAL page and the OSC card (UI
+        // review 6, S13, I6-18), the moving string in the card (V24), the
+        // body and soundboard as links, not a second set of controls (S14).
+        SectionPage* oscSection = nullptr;
+        {
+            std::vector<SectionPage*> sections;
+            findAll<SectionPage> (*editor, sections);
+            for (auto* section : sections)
+                if (section->indexOf ("PHYSICAL") >= 0)
+                    oscSection = section;
+        }
+        expect (oscSection != nullptr && ! oscSection->switcher.isItemDimmed (oscSection->indexOf ("PHYSICAL")),
+                "the PHYSICAL tab is lit while an oscillator is physical");
+        juce::StringArray pageIds, listIds;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob))
+                pageIds.add (knob->getParameterId());
+        const auto excite = juce::roundToInt (processor.apvts.getRawParameterValue (physicalPrefix + "_excite")->load());
+        for (const auto& row : physicalControlRows (excite))
+            for (const auto& spec : row.second)
+                if (dynamic_cast<juce::AudioParameterFloat*> (processor.apvts.getParameter (physicalPrefix + spec.suffix)) != nullptr)
+                    listIds.add (physicalPrefix + spec.suffix);
+        expect (! pageIds.isEmpty() && pageIds == listIds, "PHYSICAL shows the physical control list (" + pageIds.joinIntoString (" ") + ")");
+
+        juce::StringArray pageButtons;
+        {
+            std::vector<juce::TextButton*> buttons;
+            if (page != nullptr)
+                findAll<juce::TextButton> (*page, buttons);
+            for (auto* button : buttons)
+                if (visibleInTree (button))
+                    pageButtons.add (button->getButtonText());
+        }
+        std::vector<ToggleControl*> pageToggles;
+        if (page != nullptr)
+            findAll<ToggleControl> (*page, pageToggles);
+        auto bodySwitch = false;
+        for (auto* toggle : pageToggles)
+            bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
+        expect (pageButtons.contains ("FILTER") && pageButtons.contains ("ACOUSTIC KEYS") && ! bodySwitch,
+                "PHYSICAL links to the body (FILTER) and the soundboard (ACOUSTIC KEYS) instead of repeating them");
+
+        pages->showPage ("OSC");
+        settle (300);
+        selectOscTab (physicalPrefix.getTrailingIntValue() - 1);
+        std::vector<KnobControl*> oscKnobs;
+        findAll<KnobControl> (*editor, oscKnobs);
+        juce::StringArray missing;
+        for (const auto& id : listIds)
+        {
+            auto* parameter = processor.apvts.getParameter (id);
+            if (dynamic_cast<juce::AudioParameterFloat*> (parameter) == nullptr)
+                continue;
+            if (std::none_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
+                missing.add (id);
+        }
+        std::vector<PhysicalView*> views;
+        findAll<PhysicalView> (*editor, views);
+        auto stringShown = false;
+        for (auto* view : views)
+            stringShown = stringShown || visibleInTree (view);
+        expect (missing.isEmpty() && stringShown,
+                "the OSC card shows the same physical controls and the moving string (missing: " + missing.joinIntoString (", ") + ")");
+
         processor.loadFactoryPreset (neuroWobble);
-        settle (200);
+        settle (600);
+        expect (oscSection != nullptr && oscSection->switcher.isItemDimmed (oscSection->indexOf ("PHYSICAL")),
+                "the PHYSICAL tab greys, with its reason, when no oscillator is physical");
     }
 
     // M8.4: the type grid turns to the page holding a new model.
@@ -2406,7 +2555,8 @@ int runUiTests()
             settle (500);
         }
 
-        // SUB + NOISE folds to one line while both are off, and opens for either.
+        // SUB + NOISE keeps its slot whatever is on (nothing folds: UI
+        // review 6, V7, V19); the sub's controls follow its switch.
         {
             pages->showPage ("MAIN");
             const auto set = [&] (const char* id, float value)
@@ -2414,34 +2564,29 @@ int runUiTests()
                 if (auto* parameter = processor.apvts.getParameter (id))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
             };
-            const auto noiseShown = [&]
+            const auto shown = [&] (const juce::String& id) -> KnobControl*
             {
                 std::vector<KnobControl*> knobs;
                 findAll<KnobControl> (*editor, knobs);
                 for (auto* knob : knobs)
-                    if (visibleInTree (knob) && knob->getParameterId() == "noise_level")
-                        return true;
-                return false;
+                    if (visibleInTree (knob) && knob->getParameterId() == id)
+                        return knob;
+                return nullptr;
             };
 
             processor.loadFactoryPreset (0);
             set ("subosc_on", 0.0f);
             set ("noise_level", 0.0f);
             settle (600);
-            expect (! noiseShown(), "PLAY folds SUB + NOISE to one line while both are off");
-            auto* output = findChild<OutputView> (*editor);
-            expect (output != nullptr && visibleInTree (output) && output->getHeight() >= 44,
-                    "the freed space shows the live output view");
-            set ("noise_level", 0.3f);
-            settle (600);
-            expect (noiseShown(), "turning the noise up opens SUB + NOISE");
-            set ("noise_level", 0.0f);
+            auto* subLevel = shown ("subosc_level");
+            expect (shown ("noise_level") != nullptr && subLevel != nullptr && subLevel->getAlpha() < 0.9f,
+                    "SUB + NOISE stays in its slot while both are off, the sub greyed");
             set ("subosc_on", 1.0f);
             settle (600);
-            expect (noiseShown(), "switching the sub on opens SUB + NOISE");
+            subLevel = shown ("subosc_level");
+            expect (subLevel != nullptr && subLevel->getAlpha() > 0.99f, "switching the sub on lights its controls");
             set ("subosc_on", 0.0f);
-            settle (600);
-            expect (! noiseShown(), "SUB + NOISE folds again when both are off");
+            settle (300);
         }
 
         // Dragging the filter graph: across for cutoff, up and down for resonance, one gesture each.
@@ -2555,19 +2700,61 @@ int runUiTests()
                 expect (std::abs (processor.apvts.getRawParameterValue ("osc1_warp_amt")->load() - 0.4f) < 0.001f,
                         "without a warp the vertical drag changes nothing");
 
+            }
+
+            // On OSC the display opens in 3D, its views a WAVE | 3D | SPEC
+            // control, its table named with arrows on it (UI review 5, V6,
+            // V27; review 6, V21, V40).
+            pages->showPage ("OSC");
+            settle (300);
+            waves.clear();
+            findAll<WaveDisplay> (*editor, waves);
+            wave = nullptr;
+            for (auto* candidate : waves)
+                if (visibleInTree (candidate) && candidate->getOscIndex() == 0)
+                    wave = candidate;
+            expect (wave != nullptr && wave->getViewMode() == 1, "OSC opens OSC 1's display in 3D");
+
+            if (wave != nullptr)
+            {
                 std::vector<juce::TextButton*> keys;
                 findAll<juce::TextButton> (*wave, keys);
-                juce::StringArray seen;
-                for (int i = 0; i < 3 && ! keys.empty(); ++i)
+                const auto key = [&keys] (const juce::String& text) -> juce::TextButton*
                 {
-                    seen.add (keys.front()->getButtonText());
-                    keys.front()->triggerClick();
-                    settle (60);
-                    const auto image = wave->createComponentSnapshot (wave->getLocalBounds());
-                    juce::ignoreUnused (image);
-                }
-                expect (seen.joinIntoString (",") == "WAVE,3D,SPEC" && wave->getViewMode() == 0,
-                        "the view key cycles WAVE, 3D and SPEC (" + seen.joinIntoString (",") + ")");
+                    for (auto* button : keys)
+                        if (button->getButtonText() == text && visibleInTree (button))
+                            return button;
+                    return nullptr;
+                };
+                juce::StringArray seen;
+                for (const auto* name : { "WAVE", "3D", "SPEC" })
+                    if (auto* button = key (name))
+                    {
+                        button->triggerClick();
+                        settle (60);
+                        seen.add (juce::String (wave->getViewMode()));
+                        const auto image = wave->createComponentSnapshot (wave->getLocalBounds());
+                        juce::ignoreUnused (image);
+                    }
+                expect (seen.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
+                expect (wave->getFrameReadout().isEmpty(), "SPEC shows no frame readout");
+                if (auto* button = key ("3D"))
+                    button->triggerClick();
+                settle (60);
+                expect (wave->getFrameReadout().startsWith ("FRAME"), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
+
+                const auto table = [&processor] { return juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()); };
+                const auto before = table();
+                const auto nameBefore = wave->getTableName();
+                if (auto* next = key (">"))
+                    next->triggerClick();
+                settle (100);
+                const auto after = table();
+                if (auto* previous = key ("<"))
+                    previous->triggerClick();
+                settle (100);
+                expect (after != before && table() == before && wave->getTableName() == nameBefore && nameBefore.isNotEmpty(),
+                        "the display's arrows step the table and back (" + nameBefore + ")");
             }
 
             processor.loadFactoryPreset (0);
@@ -3300,21 +3487,50 @@ int runUiTests()
         editor->setSize (1060, 720);
         settle (300);
 
-        // The DX7 voice's six oscillators don't fit open: the lower ones fold
-        // to their titles; a click on one opens it (another folds instead),
-        // still with no knob cut.
+        // The DX7 voice's six operators: six strips on PLAY, each showing
+        // its RATIO (it is an operator: UI review 6, V3, I6-5), nothing
+        // cut; on OSC the OSC 4 tab shows OSC 4 alone.
         loadNamed ("E.PIANO 1 (ROM1A)");
-        for (const auto* page : { "MAIN", "OSC" })
         {
-            pages->showPage (page);
+            pages->showPage ("MAIN");
             settle (400);
-            const auto osc4FoldedBefore = findKnob ("osc4_level") == nullptr && toggleFor ("osc4_on") != nullptr;
-            clickCardTitle ("osc4_on");
             juce::StringArray clipped;
             clippedKnobs (clipped);
-            expect (osc4FoldedBefore && findKnob ("osc4_level") != nullptr && findKnob ("osc1_level") != nullptr && clipped.isEmpty(),
-                    juce::String (page) + ": DX7 OSC 4 is folded to fit; a click on its title opens it, nothing cut ("
+            auto ratios = 0;
+            for (const auto* prefix : OscillatorIds::prefixes)
+                ratios += findKnob (juce::String (prefix) + "_ratio") != nullptr ? 1 : 0;
+            expect (ratios == OscillatorIds::count && clipped.isEmpty(),
+                    "MAIN: the DX7 voice's six operators each show their RATIO (" + juce::String (ratios) + "), nothing cut ("
                         + clipped.joinIntoString (", ") + ")");
+
+            // AMP ENV plays nothing here: greyed, with the reason and a way
+            // to the Operator EG (V42, S3).
+            {
+                std::vector<CardTabs*> bars;
+                findAll<CardTabs> (*editor, bars);
+                for (auto* bar : bars)
+                    if (visibleInTree (bar) && bar->getNames().contains ("AMP ENV"))
+                        bar->setSelected (0, true);
+                settle (300);
+            }
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            auto opEnv = false;
+            for (auto* button : buttons)
+                opEnv = opEnv || (visibleInTree (button) && button->getButtonText() == "EDIT OP ENV");
+            auto* attack = findKnob ("amp_attack");
+            expect (opEnv && attack != nullptr && attack->getAlpha() < 0.9f,
+                    "MAIN: on a DX7 voice the AMP ENV is greyed and EDIT OP ENV shows (" + juce::String ((int) opEnv) + ", "
+                        + (attack != nullptr ? juce::String (attack->getAlpha(), 2) : juce::String ("no knob")) + ")");
+
+            pages->showPage ("OSC");
+            settle (400);
+            selectOscTab (3);
+            clipped.clear();
+            clippedKnobs (clipped);
+            expect (findKnob ("osc4_ratio") != nullptr && findKnob ("osc1_level") == nullptr && clipped.isEmpty(),
+                    "OSC: the OSC 4 tab shows OSC 4's RATIO alone, nothing cut (" + clipped.joinIntoString (", ") + ")");
+            selectOscTab (0);
         }
 
         // No remove button on an oscillator's title (S16): it is on the
@@ -3331,6 +3547,22 @@ int runUiTests()
                 crosses += visibleInTree (button) && (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97"))
                                                       || button->getButtonText() == "x") ? 1 : 0;
             expect (crosses == 0, juce::String (page) + ": no remove button on the oscillator titles");
+
+            // One way to add an oscillator (S33); on OSC one oscillator at a
+            // time, behind its tab (V19).
+            auto adds = 0;
+            for (auto* button : buttons)
+                adds += visibleInTree (button) && button->getButtonText().contains ("ADD OSC") ? 1 : 0;
+            auto switches = 0;
+            for (const auto* prefix : OscillatorIds::prefixes)
+                switches += toggleFor (juce::String (prefix) + "_on") != nullptr ? 1 : 0;
+            auto shown = 0;
+            for (int osc = 0; osc < OscillatorIds::count; ++osc)
+                shown += processor.isOscillatorShown (osc) ? 1 : 0;
+            expect (adds == 1 && switches == (juce::String (page) == "OSC" ? 1 : shown),
+                    juce::String (page) + ": one ADD OSC button (" + juce::String (adds) + "), "
+                        + (juce::String (page) == "OSC" ? "the chosen oscillator's switch" : "a switch per oscillator") + " ("
+                        + juce::String (switches) + ")");
         }
 
         // The filter graph's markers: the set cutoff's, solid, inside the
@@ -3460,9 +3692,23 @@ int runUiTests()
             for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
                 if (! pad->isCornerSounding (corner))
                     offCorner = corner;
-            expect (pad != nullptr && offCorner >= 0 && pad->getCornerLabel (offCorner, 0.5f).endsWith ("(off)")
-                        && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains ("(off)"),
-                    "VECTOR: Init's corners on switched-off oscillators read '(off)', OSC 1's does not");
+            expect (pad != nullptr && offCorner >= 0 && pad->getCornerLabel (offCorner, 0.5f).endsWith (")")
+                        && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains ("("),
+                    "VECTOR: Init's corners on switched-off oscillators say so, OSC 1's does not");
+
+            // An oscillator the patch doesn't have reads "(none)"; no share
+            // shows while the vector is off (UI review 6, V29).
+            auto none = false;
+            for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
+                if (! processor.isOscillatorShown (processor.getVectorCorner (corner)))
+                    none = pad->getCornerLabel (corner, 0.5f).endsWith ("(none)");
+            auto* vecOn = processor.apvts.getParameter ("vec_on");
+            const auto wasOn = vecOn->getValue();
+            vecOn->setValueNotifyingHost (0.0f);
+            settle (100);
+            expect (none && pad != nullptr && ! pad->getCornerLabel (0, 0.5f).contains ("%"),
+                    "VECTOR: a corner without its oscillator reads '(none)'; no shares while the vector is off");
+            vecOn->setValueNotifyingHost (wasOn);
         }
 
         // The synced RATE knob takes modulation for RATE (V14).
@@ -4137,15 +4383,8 @@ int main (int argc, char** argv)
         for (auto* wave : waves)
             if (visibleInTree (wave) && wave->getOscIndex() == 0)
             {
-                std::vector<juce::TextButton*> keys;
-                findAll<juce::TextButton> (*wave, keys);
-                if (! keys.empty())
-                {
-                    keys.front()->triggerClick();
-                    settle (60);
-                    keys.front()->triggerClick();
-                    settle (300);
-                }
+                wave->setViewMode (2);
+                settle (300);
             }
         std::vector<KnobControl*> knobs;
         findAll<KnobControl> (*editor, knobs);

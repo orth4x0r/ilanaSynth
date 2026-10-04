@@ -57,6 +57,8 @@ public:
     // "STEPS", "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
+    // An oscillator's Operator EG: the FM page with that operator chosen.
+    void showOperatorEnvelope (int op);
     juce::String getCurrentPageId() const;
     juce::StringArray getPageIds() const;
     juce::Component* getCurrentPage() const;
@@ -212,6 +214,7 @@ public:
     void addPoolSource (int chipIndex);
 
 private:
+    std::function<void (int)> editOperator;
     std::unique_ptr<KeyboardStrip> keyboard;
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
     juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip

@@ -132,12 +132,14 @@ private:
     float appear = 1.0f;
 };
 
-// The MSEG's four stages, edited the way the LFO curve and the envelopes
-// are (UI review 6, I6-21 and I6-22): drag a point and it follows the mouse
-// (up and down is its level; sideways moves the boundary between the stages
-// either side of it, so the cycle keeps its length), the value shows while
-// dragging, double-click resets a point, right-click for shapes. The time
-// ruler sits below the plot.
+// The MSEG's four stages, edited the way the LFO's MSEG shape and the
+// envelopes are (UI review 6, I6-21 and I6-22): drag a point and it follows
+// the mouse (up and down is its level; sideways moves the boundary between
+// the stages either side of it, so the cycle keeps its length), the value
+// shows while dragging, double-click resets a point, right-click for shapes.
+// GRID snaps a dragged point's time to columns, as on the LFO graph (UI
+// review 7, I7-30: display only, not an audio parameter). The time ruler
+// sits under the graph's frame.
 class MsegEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    public IlanaAnim::PageAnimated,
@@ -147,9 +149,9 @@ public:
     explicit MsegEditor (IlanaSynthAudioProcessor& processor)
         : processorRef (processor)
     {
-        setTooltip ("MSEG\nDrag a point: up and down sets its level, sideways moves it in time. Double-click a point to reset it; "
-                    "right-click for shapes. The ruler gives the time into one cycle at the current RATE; the line and dot "
-                    "show where it is now.");
+        setTooltip ("MSEG\nDrag a point: up and down sets its level, sideways moves it in time (GRID, top right, sets the snap). "
+                    "Double-click a point to reset it; right-click for shapes. The ruler gives the time into one cycle at the "
+                    "current RATE; the line and dot show where it is now.");
         startTimerHz (24);
     }
 
@@ -170,7 +172,7 @@ public:
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
         g.addTransform (juce::AffineTransform::translation (0.0f, (1.0f - juce::jlimit (0.0f, 1.0f, appear)) * 10.0f));
 
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (rulerHeight + 2.0f), 6.0f);
 
         const auto plot = plotArea();
         const auto centreY = plot.getCentreY();
@@ -180,6 +182,17 @@ public:
         g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre ({ plot.getCentreX(), centreY }));
 
         paintTimeGrid (g, plot, centreY, halfHeight);
+
+        // The snap columns, and GRID's own control.
+        if (gridDivisions > 0)
+        {
+            g.setColour (colour().withAlpha (0.07f));
+            for (int column = 1; column < gridDivisions; ++column)
+                g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight())
+                                .withPosition (plot.getX() + plot.getWidth() * (float) column / (float) gridDivisions, plot.getY()));
+        }
+        IlanaTheme::paintPill (g, gridChipBounds(), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
+                               colour(), gridDivisions > 0, gridChipBounds().contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
 
         juce::Path path;
         const auto points = pointPositions();
@@ -242,13 +255,35 @@ public:
     // of a cycle) at which it starts.
     juce::Point<float> getPointPosition (int index) const { return pointPositions()[(size_t) juce::jlimit (0, 3, index)]; }
     juce::Rectangle<float> getPlotArea() const { return plotArea(); }
+    int getGridDivisions() const { return gridDivisions; }
+    void setGridDivisions (int divisions) { gridDivisions = divisions; repaint(); }
 
 private:
-    static constexpr float rulerHeight = 15.0f;
+    static constexpr float rulerHeight = 14.0f;
 
     juce::Rectangle<float> plotArea() const
     {
-        return getLocalBounds().toFloat().reduced (12.0f, 0.0f).withTrimmedTop (12.0f).withTrimmedBottom (rulerHeight + 6.0f);
+        return getLocalBounds().toFloat().reduced (12.0f, 0.0f).withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 2.0f + 8.0f);
+    }
+
+    juce::Rectangle<float> gridChipBounds() const
+    {
+        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (70.0f).reduced (6.0f, 3.0f);
+    }
+
+    void showGridMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Snap to grid");
+        for (const auto divisions : { 0, 4, 8, 16, 32 })
+            menu.addItem (200 + divisions, divisions == 0 ? juce::String ("Off") : juce::String (divisions) + " columns",
+                          true, gridDivisions == divisions);
+        juce::Component::SafePointer<MsegEditor> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis] (int result)
+        {
+            if (safeThis != nullptr && result >= 200)
+                safeThis->setGridDivisions (result - 200);
+        });
     }
 
     float totalTime() const
@@ -336,7 +371,7 @@ private:
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
         g.setFont (font);
         auto lastLabelRight = -1.0e9f;
-        const auto rulerY = plot.getBottom() + 5.0f;
+        const auto rulerY = (float) getHeight() - rulerHeight + 2.0f;
 
         for (int tick = 0; (double) tick * step <= cycle + 1.0e-9; ++tick)
         {
@@ -345,7 +380,7 @@ private:
             g.setColour (juce::Colours::white.withAlpha (tick == 0 ? 0.0f : 0.05f));
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
             g.setColour (juce::Colours::white.withAlpha (0.18f));
-            g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, plot.getBottom() + 1.0f));
+            g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 3.0f));
 
             const auto text = timeText (seconds);
             const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
@@ -469,6 +504,12 @@ private:
             return;
         }
 
+        if (gridChipBounds().contains (event.position))
+        {
+            showGridMenu();
+            return;
+        }
+
         dragHandle = findHandle (event.position);
 
         if (dragHandle >= 0)
@@ -502,7 +543,10 @@ private:
             for (int i = 0; i < dragHandle - 1; ++i)
                 before += readTime (i);
             const auto shared = readTime (dragHandle - 1) + readTime (dragHandle);
-            const auto wanted = juce::jlimit (0.0f, 1.0f, (event.position.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth())) * total - before;
+            auto fraction = juce::jlimit (0.0f, 1.0f, (event.position.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()));
+            if (gridDivisions > 0)
+                fraction = std::round (fraction * (float) gridDivisions) / (float) gridDivisions;
+            const auto wanted = fraction * total - before;
             const auto first = juce::jlimit (juce::jmax (minTime, shared - maxTime), juce::jmin (maxTime, shared - minTime), wanted);
             setParameter ("mseg_time" + juce::String (dragHandle), first);
             setParameter ("mseg_time" + juce::String (dragHandle + 1), shared - first);
@@ -588,5 +632,6 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     int dragHandle = -1;
     int hoverHandle = -1;
+    int gridDivisions = 8;
     float appear = 1.0f;
 };

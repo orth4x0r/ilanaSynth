@@ -13,6 +13,7 @@
 #include "IlanaLookAndFeel.h"
 #include "ParamInfo.h"
 #include "AnimationUtils.h"
+#include "FmOperatorInfo.h"
 
 class EnvelopeDisplay : public juce::Component,
                         public juce::SettableTooltipClient,
@@ -30,8 +31,8 @@ public:
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse). Drag the dot on the attack, decay or "
                     "release to curve that segment alone (CURVE curves all three); double-click a handle or a dot to "
-                    "reset it.\nTime runs on a square-root scale: the ruler gives the time since the note started, and "
-                    "after the sustain since the key was let go (+). The dot is the last note played.");
+                    "reset it.\nTime runs on a square-root scale: the ruler under the graph gives the time since the note "
+                    "started, and after KEY UP the time since the key was let go (+100 ms). The dot is the last note played.");
         startTimerHz (30);
     }
 
@@ -62,7 +63,9 @@ public:
             g.fillRoundedRectangle (bounds.expanded (4.0f), 8.0f);
         }
 
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        // The well frames the plot only; the time ruler sits under it,
+        // outside the frame (UI review 7, V7-23).
+        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (rulerHeight + 2.0f), 6.0f);
 
         const auto geo = layoutGeometry();
 
@@ -175,13 +178,14 @@ public:
         }
     }
 
-    // The plot inside the well: the time ruler sits below it (UI review 6,
-    // V6-17), so tick labels never meet the curve, its handles or DELAY.
+    // The plot inside the well: the time ruler sits below the well (UI
+    // review 6, V6-17; review 7, V7-23), so tick labels never meet the
+    // curve, its handles or DELAY, and read as an axis.
     static constexpr float rulerHeight = 14.0f;
 
     juce::Rectangle<float> getPlotArea() const
     {
-        return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 6.0f).reduced (12.0f, 0.0f);
+        return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 2.0f + 8.0f).reduced (12.0f, 0.0f);
     }
 
     // Where a handle is drawn (0-3 the stages, 4-6 the curve dots), and the
@@ -392,6 +396,24 @@ private:
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
         g.setFont (font);
         std::vector<juce::Range<float>> labelled;
+        const auto rulerY = (float) getHeight() - rulerHeight;
+
+        // KEY UP, where the release starts: a dashed line through the plot
+        // and its name on the ruler, so the release's "+" times read as
+        // after it (UI review 7, V7-23 / S7-28).
+        {
+            const float dashes[] { 3.0f, 3.0f };
+            g.setColour (juce::Colours::white.withAlpha (0.2f));
+            g.drawDashedLine ({ geo.xS, geo.yTop, geo.xS, geo.yBottom }, dashes, 2, 1.0f);
+            const auto boldFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (boldFont, "KEY UP") + 4.0f;
+            const auto left = juce::jlimit (geo.plot.getX() - 8.0f, geo.plot.getRight() + 8.0f - width, geo.xS - width * 0.5f);
+            labelled.push_back ({ left, left + width });
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (boldFont);
+            g.drawText ("KEY UP", juce::Rectangle<float> (left, rulerY + 2.0f, width, 12.0f), juce::Justification::centred);
+            g.setFont (font);
+        }
 
         for (const auto inRelease : { false, true })
         {
@@ -408,7 +430,7 @@ private:
                 if (! decade)
                 {
                     g.setColour (juce::Colours::white.withAlpha (0.12f));
-                    g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, geo.yBottom - 4.0f));
+                    g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 1.0f));
                     continue;
                 }
 
@@ -426,8 +448,8 @@ private:
 
                 labelled.push_back (span);
                 g.setColour (IlanaTheme::Ui::text3);
-                g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, geo.yBottom + 1.0f));
-                g.drawText (text, juce::Rectangle<float> (span.getStart(), geo.yBottom + 4.0f, width, 12.0f), juce::Justification::centredLeft);
+                g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, rulerY - 1.0f));
+                g.drawText (text, juce::Rectangle<float> (span.getStart(), rulerY + 2.0f, width, 12.0f), juce::Justification::centredLeft);
             }
         }
     }
@@ -454,6 +476,12 @@ private:
 
     void timerCallback() override
     {
+        // The amp envelope on a DX7 voice shapes nothing: drawn faint, as
+        // its knobs are, on PLAY and MOD alike (UI review 7, V7-24).
+        if (paramPrefix == "amp")
+            if (const auto alpha = FmOperatorInfo::ampEnvelopeInUse (processorRef) ? 1.0f : 0.4f; getAlpha() != alpha)
+                setAlpha (alpha);
+
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)

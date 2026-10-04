@@ -135,6 +135,108 @@ inline void paintPlus (juce::Graphics& g, juce::Rectangle<float> card, bool hove
     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::display, true));
     g.drawText ("+", card, juce::Justification::centred);
 }
+
+// A pool never scrolls sideways (UI review 7, V7-17 / S7-40): the cards
+// narrow to minimumWidth, and past that the ones that don't fit fold into a
+// "N MORE" card (a menu of them) before the "+", as the chip bar folds its
+// chips. The selected card always keeps a place.
+inline constexpr float overflowWidth = 62.0f;
+inline constexpr int overflowId = -3;
+
+struct Placed
+{
+    int id = -1;  // a card, overflowId or the bar's plus id
+    juce::Rectangle<float> bounds;
+};
+
+// `ids` in their order; `folded` gets the ones in the overflow menu.
+inline std::vector<Placed> layout (const std::vector<int>& ids, int selected, bool withPlus, int plusId, float viewWidth,
+                                   float height, std::vector<int>& folded)
+{
+    folded.clear();
+    const auto view = juce::jmax (1.0f, viewWidth);
+    const auto count = (int) ids.size();
+    const auto plusPart = withPlus ? plusWidth + gap : 0.0f;
+    auto width = cardWidth ((int) view, count, withPlus);
+    auto shown = ids;
+
+    if (count > 1 && (float) count * width + (float) (count - 1) * gap + plusPart > view + 0.5f)
+    {
+        const auto room = view - plusPart - overflowWidth - gap;
+        const auto fit = juce::jlimit (1, count - 1, (int) std::floor ((room + gap) / (minimumWidth + gap)));
+        shown.assign (ids.begin(), ids.begin() + fit);
+        if (std::find (ids.begin(), ids.end(), selected) != ids.end() && std::find (shown.begin(), shown.end(), selected) == shown.end())
+            shown.back() = selected;
+        for (const auto id : ids)
+            if (std::find (shown.begin(), shown.end(), id) == shown.end())
+                folded.push_back (id);
+        width = juce::jmax (40.0f, (room - gap * (float) (fit - 1)) / (float) fit);
+    }
+
+    std::vector<Placed> items;
+    auto x = 0.0f;
+    for (const auto id : shown)
+    {
+        items.push_back ({ id, { x, 0.0f, width, height } });
+        x += width + gap;
+    }
+    if (! folded.empty())
+    {
+        items.push_back ({ overflowId, { x, 0.0f, overflowWidth, height } });
+        x += overflowWidth + gap;
+    }
+    if (withPlus)
+        items.push_back ({ plusId, { x, 0.0f, plusWidth, height } });
+    return items;
+}
+
+inline void paintOverflow (juce::Graphics& g, juce::Rectangle<float> card, int count, bool hovered)
+{
+    IlanaTheme::paintWell (g, card, 6.0f);
+    if (hovered)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRoundedRectangle (card, 6.0f);
+    }
+    g.setColour (hovered ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+    auto area = card.reduced (4.0f, 6.0f);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+    g.drawText (juce::String (count) + " MORE", area.removeFromTop (area.getHeight() * 0.55f), juce::Justification::centredBottom);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+    g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe")), area, juce::Justification::centredTop);
+}
+
+// The overflow card's menu: the folded cards by name; `picked` gets the id.
+inline void showOverflowMenu (juce::Component& target, juce::Rectangle<int> card, const std::vector<int>& folded,
+                              std::function<juce::String (int)> titleOf, std::function<void (int)> picked)
+{
+    juce::PopupMenu menu;
+    for (size_t i = 0; i < folded.size(); ++i)
+        menu.addItem ((int) i + 1, titleOf (folded[i]));
+    juce::Component::SafePointer<juce::Component> safeTarget (&target);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (target.localAreaToGlobal (card)),
+                        [safeTarget, folded, picked = std::move (picked)] (int result)
+                        {
+                            if (safeTarget != nullptr && result > 0 && result <= (int) folded.size() && picked != nullptr)
+                                picked (folded[(size_t) result - 1]);
+                        });
+}
+
+// A card that is in the pool but plays no part now (the Operator Env's
+// cards on a patch without an operator on it): a small "unused" tag at the
+// right of its title line. Returns the width it took.
+inline float paintUnusedTag (juce::Graphics& g, juce::Rectangle<float> titleRow)
+{
+    const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+    const auto width = juce::GlyphArrangement::getStringWidth (font, "unused") + 10.0f;
+    const auto box = titleRow.removeFromRight (width).withSizeKeepingCentre (width, 13.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.fillRoundedRectangle (box, 6.5f);
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (font);
+    g.drawText ("unused", box, juce::Justification::centred);
+    return width + 6.0f;
+}
 } // namespace PoolCards
 
 // The patch's LFOs at a glance, Phase Plant style: one card per LFO in the
@@ -183,6 +285,8 @@ public:
         std::function<juce::String()> rateText;        // right of the title (null: none)
         std::function<juce::StringArray()> fixedUses;  // what it drives outside the matrix
         bool stepped = false;                          // draws as held steps
+        std::function<bool()> isActive;                // null: always; else greyed and "unused" while false
+        juce::String tooltip;                          // empty: the default
     };
 
     void addExtraCard (ExtraCard card) { extras.push_back (std::move (card)); }
@@ -191,13 +295,18 @@ public:
     std::function<void (int)> onSelect;
     std::function<void()> onLayoutChanged;
 
-    // The width the bar is seen through: four cards fill it.
+    // The width the bar is seen through: four cards fill it. It never needs
+    // more (cards past what fits fold into the overflow card).
     void setViewWidth (int width) { viewWidth = width; }
 
-    int getPreferredWidth() const
+    int getPreferredWidth() const { return viewWidth; }
+
+    // The cards folded into the overflow card right now (the UI test).
+    std::vector<int> getFoldedCards() const
     {
-        const auto items = layoutItems();
-        return items.empty() ? viewWidth : juce::jmax (viewWidth, (int) std::ceil (items.back().bounds.getRight()));
+        std::vector<int> folded;
+        layoutItems (folded);
+        return folded;
     }
 
     // Where a card sits (an LFO index, or numLfos + an extra card's position).
@@ -211,6 +320,16 @@ public:
     }
 
     bool isCardShown (int id) const { return ! boundsOfCard (id).isEmpty(); }
+
+    // In the pool, on screen or folded into the overflow card.
+    bool isCardInPool (int id) const
+    {
+        if (id >= 0 && id < IlanaSynthAudioProcessor::numLfos)
+            return processorRef.isLfoShown (id);
+        const auto extra = id - IlanaSynthAudioProcessor::numLfos;
+        const auto shown = visibleExtras();
+        return std::find (shown.begin(), shown.end(), extra) != shown.end();
+    }
 
     void setSelected (int index)
     {
@@ -229,10 +348,13 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        for (const auto& item : layoutItems())
+        std::vector<int> folded;
+        for (const auto& item : layoutItems (folded))
         {
             if (item.id == plusId)
                 PoolCards::paintPlus (g, item.bounds, hoverIndex == plusId);
+            else if (item.id == PoolCards::overflowId)
+                PoolCards::paintOverflow (g, item.bounds, (int) folded.size(), hoverIndex == PoolCards::overflowId);
             else if (item.id >= IlanaSynthAudioProcessor::numLfos)
                 paintExtraCard (g, item.id - IlanaSynthAudioProcessor::numLfos, item.bounds);
             else
@@ -253,6 +375,25 @@ public:
             && (event.mods.isPopupMenu() || PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position)))
         {
             removeLfo (index);
+            return;
+        }
+
+        if (index == PoolCards::overflowId)
+        {
+            std::vector<int> folded;
+            layoutItems (folded);
+            juce::Component::SafePointer<LfoThumbBar> safeThis (this);
+            PoolCards::showOverflowMenu (*this, boundsOfCard (PoolCards::overflowId), folded,
+                                         [this] (int id) { return titleOf (id); },
+                                         [safeThis] (int id)
+                                         {
+                                             if (safeThis == nullptr)
+                                                 return;
+                                             safeThis->selected = id;
+                                             if (safeThis->onSelect != nullptr)
+                                                 safeThis->onSelect (id);
+                                             safeThis->layoutChanged();
+                                         });
             return;
         }
 
@@ -283,7 +424,7 @@ public:
     {
         const auto index = indexAt (event.getMouseDownPosition());
 
-        if (index < 0 || index == plusId || event.getDistanceFromDragStart() < 6)
+        if (index < 0 || event.getDistanceFromDragStart() < 6)
             return;
 
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
@@ -314,7 +455,7 @@ public:
             hoverIndex = index;
             hoverRemove = overRemove;
             hoverB = overB;
-            highlightedModSource() = index >= 0 && index != plusId ? (int) (overB ? Mod::lfoBSourceFor (index) : sourceOf (index)) : 0;
+            highlightedModSource() = index >= 0 ? (int) (overB ? Mod::lfoBSourceFor (index) : sourceOf (index)) : 0;
             setTooltip (tooltipFor (index));
             repaint();
         }
@@ -333,11 +474,7 @@ public:
 private:
     static constexpr float gap = PoolCards::gap;
 
-    struct Item
-    {
-        int id = -1;  // an LFO, numLfos + an extra card, or plusId
-        juce::Rectangle<float> bounds;
-    };
+    using Item = PoolCards::Placed;  // an LFO, numLfos + an extra card, plusId or the overflow
 
     std::vector<int> visibleLfos() const
     {
@@ -357,44 +494,27 @@ private:
         return visible;
     }
 
-    // Cards left to right: the LFOs, the "+", then the extra cards.
-    std::vector<Item> layoutItems() const
+    // Cards left to right: the LFOs, then the extra cards, then the "+" (UI
+    // review 7, I7-30), with the overflow card before it when they don't fit.
+    std::vector<Item> layoutItems (std::vector<int>& folded) const
     {
-        const auto lfos = visibleLfos();
-        const auto shownExtras = visibleExtras();
-        const auto withPlus = (int) lfos.size() < IlanaSynthAudioProcessor::numLfos;
-        const auto width = PoolCards::cardWidth (viewWidth > 0 ? viewWidth : getWidth(), (int) (lfos.size() + shownExtras.size()), withPlus);
-        const auto height = (float) getHeight();
-        std::vector<Item> items;
-        auto x = 0.0f;
-
-        for (const auto lfo : lfos)
-        {
-            items.push_back ({ lfo, { x, 0.0f, width, height } });
-            x += width + gap;
-        }
-
-        if (withPlus)
-        {
-            items.push_back ({ plusId, { x, 0.0f, PoolCards::plusWidth, height } });
-            x += PoolCards::plusWidth + gap;
-        }
-
-        // The extras sit at the right end of the view when there's room, so
-        // they read as apart from the LFOs and don't move as LFOs come and go.
-        const auto extrasWidth = (float) shownExtras.size() * (width + gap) - gap;
-        x = juce::jmax (x, (float) (viewWidth > 0 ? viewWidth : getWidth()) - extrasWidth);
-
-        for (const auto extra : shownExtras)
-        {
-            items.push_back ({ IlanaSynthAudioProcessor::numLfos + extra, { x, 0.0f, width, height } });
-            x += width + gap;
-        }
-
-        return items;
+        auto ids = visibleLfos();
+        const auto withPlus = (int) ids.size() < IlanaSynthAudioProcessor::numLfos;
+        for (const auto extra : visibleExtras())
+            ids.push_back (IlanaSynthAudioProcessor::numLfos + extra);
+        return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
+                                  folded);
     }
 
-    int numCards() const { return (int) layoutItems().size(); }
+    std::vector<Item> layoutItems() const
+    {
+        std::vector<int> folded;
+        return layoutItems (folded);
+    }
+
+    // Changes when a card comes or goes (not with what fits: folding needs
+    // only a repaint).
+    int numCards() const { return (int) (visibleLfos().size() + visibleExtras().size()); }
 
     // An LFO index, numLfos + an extra card, plusId for the "+" card, or -1.
     int indexAt (juce::Point<int> position) const
@@ -411,14 +531,32 @@ private:
         return id < IlanaSynthAudioProcessor::numLfos ? Mod::lfoSourceFor (id) : extras[(size_t) (id - IlanaSynthAudioProcessor::numLfos)].source;
     }
 
+    juce::String titleOf (int id) const
+    {
+        return id >= IlanaSynthAudioProcessor::numLfos ? extras[(size_t) (id - IlanaSynthAudioProcessor::numLfos)].title
+                                                       : "LFO " + juce::String (id + 1);
+    }
+
+    bool isExtraActive (int extra) const
+    {
+        const auto& info = extras[(size_t) extra];
+        return info.isActive == nullptr || info.isActive();
+    }
+
     juce::String tooltipFor (int id) const
     {
         if (id == plusId)
             return "Add an LFO";
+        if (id == PoolCards::overflowId)
+            return "More cards than fit: click for the rest";
         if (id < 0)
             return {};
         if (id >= IlanaSynthAudioProcessor::numLfos)
-            return extras[(size_t) (id - IlanaSynthAudioProcessor::numLfos)].title + "\nClick to edit it below; drag it onto a knob to modulate that knob.";
+        {
+            const auto& info = extras[(size_t) (id - IlanaSynthAudioProcessor::numLfos)];
+            return info.tooltip.isNotEmpty() ? info.tooltip
+                                             : info.title + "\nClick to edit it below; drag it onto a knob to modulate that knob.";
+        }
         if (hoverRemove)
             return isRouted (id) ? "Remove LFO " + juce::String (id + 1) + " (asks first: it is routed)" : "Remove LFO " + juce::String (id + 1);
         if (hoverB)
@@ -729,15 +867,27 @@ private:
         const auto targets = extraTargets[extra];
         const auto plot = inner.reduced (0.0f, 3.0f);
 
+        const auto inUse = isExtraActive (extra);
+
         if (info.valueAt != nullptr)
         {
-            paintTrace (g, plot, info.colour, active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f), info.stepped, info.valueAt);
+            paintTrace (g, plot, info.colour, ! inUse ? 0.22f : active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f), info.stepped,
+                        info.valueAt);
 
-            if (info.phase != nullptr)
+            if (info.phase != nullptr && inUse)
             {
                 const auto phase = juce::jlimit (0.0, 0.999999, info.phase());
                 paintDot (g, plot, info.colour, phase, info.valueAt (phase));
             }
+        }
+
+        // Greyed, with "unused" in place of its rate, while nothing it
+        // drives plays.
+        if (! inUse)
+        {
+            const auto taken = PoolCards::paintUnusedTag (g, titleRow);
+            paintTitleRow (g, titleRow.withTrimmedRight (taken), info.title, {}, {}, IlanaTheme::Ui::text3, false, false);
+            return;
         }
 
         paintTitleRow (g, titleRow, info.title, info.rateText != nullptr ? info.rateText() : juce::String(), targets, info.colour,

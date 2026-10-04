@@ -74,25 +74,18 @@ inline juce::String oscList (const std::vector<int>& oscs, const juce::String& b
     return names.joinIntoString (", ");
 }
 
-// "CARRIER", "MOD > 1, 3", "OUT, MOD > 2" or "SILENT" for an operator;
-// "FM FROM 2" or "FM INTO 1" for an oscillator in an FM route; empty for
-// a plain oscillator.
+// "OUT", "MOD > 1, 3", "OUT, MOD > 2" or "SILENT": an oscillator's part in
+// the FM routing, in the FM diagram's words, whether or not it is an
+// operator (I8-19); empty for an oscillator in no FM route.
 inline juce::String describe (const IlanaSynthAudioProcessor& p, int osc)
 {
-    if (! isOperator (p, osc))
-    {
-        if (const auto from = sources (p, osc); ! from.empty())
-            return "FM FROM " + oscList (from, {});
-        if (const auto into = targets (p, osc); ! into.empty())
-            return "FM INTO " + oscList (into, {});
+    const auto modulated = targets (p, osc);
+    if (! isOperator (p, osc) && modulated.empty() && sources (p, osc).empty())
         return {};
-    }
 
     const auto out = read (p, prefix (osc) + "_out") > 0.5f;
-    const auto modulated = targets (p, osc);
-
     if (modulated.empty())
-        return out ? "CARRIER" : "SILENT";
+        return out ? "OUT" : "SILENT";
 
     juce::StringArray numbers;
     for (const auto target : modulated)
@@ -526,10 +519,13 @@ public:
         // The oscillators' analogue drift (the vector pad's drift is WANDER:
         // UI review 6, I6-25).
         drift = std::make_unique<KnobControl> (p.apvts, "drift", "ANALOG DRIFT");
+        // The switch is the sub's alone, and says so; the noise has its
+        // own level and colour beside it (V8-14, V8-15).
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", IlanaTheme::accent(), true);
+        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", IlanaTheme::accent(), true);
         noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
-        addChildComponents (subShape, subOctave, *subOscLevel, *noiseStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
+        noiseColourStrip = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
+        addChildComponents (subShape, subOctave, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
                             symOn, symAmount, symDecay, symCount, symManual,
                             sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         for (auto& note : symNotes)
@@ -676,6 +672,15 @@ public:
 
         if (! sharedCard.isEmpty())
             IlanaTheme::paintRecessedPanel (g, sharedCard.toFloat(), 6.0f);
+
+        // The header switch is the sub's alone: its name beside it.
+        if (subOscOn->isVisible())
+        {
+            const auto pill = subOscOn->getBounds().withTrimmedTop (13);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText ("SUB", juce::Rectangle<int> (pill.getX() - 44, pill.getY(), 40, pill.getHeight()), juce::Justification::centredRight);
+        }
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
@@ -1050,7 +1055,7 @@ private:
     {
         switch (index)
         {
-            case 0: return { &subShape, &subOctave, subOscLevel.get(), noiseStrip.get(), nullptr, nullptr, nullptr, nullptr };
+            case 0: return { &subShape, &subOctave, subOscLevel.get(), noiseStrip.get(), noiseColourStrip.get(), nullptr, nullptr, nullptr };
             case 1: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
             case 2: return { &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                              symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };
@@ -1368,6 +1373,10 @@ private:
                                static_cast<juce::Component*> (subOscLevel.get()) })
             if (control != nullptr && control->getAlpha() != (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha))
                 control->setAlpha (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha);
+        // COLOUR does nothing while there is no noise.
+        const auto colourAlpha = readFloat ("noise_level") > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
+        if (noiseColourStrip->getAlpha() != colourAlpha)
+            noiseColourStrip->setAlpha (colourAlpha);
 
         const auto boardOn = readBool ("sb_on");
         sbModel.setAlpha (boardOn ? 1.0f : IlanaTheme::dimmedAlpha);
@@ -1596,7 +1605,7 @@ private:
 
     // The dedicated sub and the noise.
     std::unique_ptr<ToggleControl> subOscOn;
-    std::unique_ptr<KnobControl> subOscLevel, noiseStrip;
+    std::unique_ptr<KnobControl> subOscLevel, noiseStrip, noiseColourStrip;
 
     std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
     ComboControl subShape, subOctave;

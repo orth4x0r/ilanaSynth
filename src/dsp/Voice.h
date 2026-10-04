@@ -298,6 +298,7 @@ struct VoiceParams
     int subOscRoute = 0;
     const Wavetable* subOscTable = nullptr;
     float noiseLevel = 0.0f;
+    float noiseColour = 1.0f;     // review 8 (V8-15): the heard noise's colour, 0 dark .. 1 white (as before)
 
     FilterParams filter1;
     FilterParams filter2;
@@ -664,6 +665,7 @@ private:
     juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> noiseSmooth;
+    float noiseLow = 0.0f; // the heard noise's low-pass, while NOISE COLOUR is under white
     juce::SmoothedValue<float> oscEnableSmooth[VoiceParams::numOscillators];
     WavetableOscillator subOsc;
     juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;

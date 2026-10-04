@@ -392,6 +392,17 @@ public:
         noiseColourKnob->setSizeRole (IlanaTheme::KnobSize::mini);
         addAndMakeVisible (*noiseColourKnob);
 
+        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("MORE: RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM")));
+        moreButton.setTooltip ("RING MOD and SYNC 2 TO 1 (OSC 1 and OSC 2 only) and the NOISE FM row: classic FM extras a DX7 "
+                               "voice doesn't use.");
+        moreButton.onClick = [this]
+        {
+            extrasOpen = true;
+            resized();
+            repaint();
+        };
+        addChildComponent (moreButton);
+
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_tune", "_amp_env", "_on" })
                 tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + suffix));
@@ -494,6 +505,15 @@ public:
                         juce::Justification::centredRight, true);
         }
 
+        if (! voicePage && ! usesOperatorEnv (selectedOperator))
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto envelope = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
+            g.drawText ("Edit " + envelope + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here.",
+                        ampHint, juce::Justification::centredLeft, true);
+        }
+
         if (voicePage)
         {
             g.setColour (IlanaTheme::Ui::text3);
@@ -551,7 +571,7 @@ public:
             repaint (matrixCard);
 
         if (refreshShown() || tuneChanged || diagram.getMinimumHeight() != lastDiagramMinimum
-            || anyOperatorEnv() != lastAnyOperatorEnv)
+            || anyOperatorEnv() != lastAnyOperatorEnv || matrixExtrasShown() != lastExtrasShown)
         {
             updateOperatorVisibility();
             resized();
@@ -631,7 +651,12 @@ public:
     {
         auto area = getLocalBounds().reduced (12);
 
-        matrixCard = area.removeFromRight (area.getWidth() * 44 / 100);
+        // The matrix as wide as its cells (one cell size for every patch,
+        // V8-35), at least as wide as its FM MODE line; the rest goes to
+        // the diagram and the operator card.
+        const auto count = juce::jmax (1, (int) shown.size());
+        matrixCard = area.removeFromRight (juce::jlimit (minimumMatrixWidth, area.getWidth() * 44 / 100,
+                                                         20 + headWidth + count * cellWidth));
         area.removeFromRight (10);
 
         // Left column: algorithms (one row, its pages on the heading's line),
@@ -643,20 +668,28 @@ public:
         algorithms.setBounds (area.removeFromTop (42));
         area.removeFromTop (8);
 
-        // The operator card has one height for the patch (the Operator Env's
-        // when any operator plays one, else a plain operator's), whatever the
-        // algorithm or the operator picked, so auditioning algorithms never
-        // moves it (I7-10); the diagram sizes its nodes to what is left.
+        // The operator card has one height on every patch, whatever the
+        // algorithm, the operator picked, its envelope or the voice panel,
+        // so nothing above it ever moves (I7-10, I8-11); the diagram sizes
+        // its nodes to what is left.
         lastDiagramMinimum = diagram.getMinimumHeight();
         lastAnyOperatorEnv = anyOperatorEnv();
-        const auto wanted = voicePage || anyOperatorEnv() ? operatorEnvCardHeight : 176;
-        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (wanted, area.getHeight() - 150)));
+        lastExtrasShown = matrixExtrasShown();
+        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (operatorCardHeight, area.getHeight() - 150)));
         area.removeFromBottom (8);
         diagram.setBounds (area);
 
         layoutOperatorCard();
         layoutMatrix();
     }
+
+    juce::Rectangle<int> getOperatorCardBounds() const { return operatorCard; }
+    juce::Rectangle<int> getMatrixCardBounds() const { return matrixCard; }
+    juce::Rectangle<int> getMatrixCellBounds (int source, int target) const
+    {
+        return source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target];
+    }
+    bool areMatrixExtrasShown() const { return ringMod->isVisible(); }
 
 private:
     float read (const juce::String& id) const
@@ -916,7 +949,15 @@ private:
 
     void updateOperatorVisibility()
     {
-        voiceButton.setQuiet (! anyOperatorEnv());
+        // The voice panel exists only while an oscillator plays the
+        // Operator Env (review 8: DX7 parts only where used).
+        voiceButton.setVisible (anyOperatorEnv());
+        if (voicePage && ! anyOperatorEnv())
+        {
+            voicePage = false;
+            operatorButtons[(size_t) selectedOperator]->setToggleState (true, juce::dontSendNotification);
+            voiceButton.setToggleState (false, juce::dontSendNotification);
+        }
 
         for (int op = 0; op < OscillatorIds::count; ++op)
         {
@@ -957,6 +998,26 @@ private:
             egGraph.setSource ({}, fmColour());
         else
             egGraph.setSource (OscillatorIds::prefixes[(size_t) selectedOperator], FmDiagram::oscColour (selectedOperator));
+
+        // Another envelope's graph for an operator not on the Operator Env
+        // (none for MSEG, which has no stages to draw).
+        const auto envelope = voicePage || usesOperatorEnv (selectedOperator)
+                                  ? -1
+                                  : juce::roundToInt (read (FmOperatorInfo::prefixOf (selectedOperator) + "_amp_env"));
+        const auto graphed = envelope >= 0 && envelope < 16 ? envelope : -1;
+        if (graphed != ampGraphEnvelope || selectedOperator != ampGraphOperator)
+        {
+            ampGraphEnvelope = graphed;
+            ampGraphOperator = selectedOperator;
+            ampGraph.reset();
+            if (graphed >= 0)
+            {
+                static const char* const prefixes[] { "amp", "fe", "f2e", "me", "e4" };
+                const auto prefix = graphed < 5 ? juce::String (prefixes[graphed]) : "env" + juce::String (graphed + 1);
+                ampGraph = std::make_unique<EnvelopeDisplay> (processorRef, prefix, FmDiagram::oscColour (selectedOperator));
+                addAndMakeVisible (*ampGraph);
+            }
+        }
     }
 
     void layoutOperatorCard()
@@ -967,9 +1028,12 @@ private:
         // then PITCH & LFO past a rule (I6-38).
         {
             auto tabs = operatorCard.reduced (12, 0).withHeight (26).withSizeKeepingCentre (operatorCard.getWidth() - 24, 20);
-            const auto voiceWidth = voiceButton.getIdealWidth();
-            voiceButton.setBounds (tabs.removeFromRight (voiceWidth));
-            tabs.removeFromRight (14);
+            if (voiceButton.isVisible())
+            {
+                const auto voiceWidth = voiceButton.getIdealWidth();
+                voiceButton.setBounds (tabs.removeFromRight (voiceWidth));
+                tabs.removeFromRight (14);
+            }
             // "OSC 1" while the title and a line about the operator fit
             // beside them, else just the numbers.
             const auto widthOf = [this] (bool asShort)
@@ -1036,6 +1100,19 @@ private:
             // The graph beside the tuning menus and knobs.
             egGraph.setBounds (inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2));
         }
+        else
+        {
+            // Its envelope's graph where the Operator Env's would be, and a
+            // line under the knobs on where that envelope is edited.
+            ampHint = inner.removeFromBottom (16).withTrimmedLeft (2);
+            inner.removeFromBottom (4);
+            const auto graph = inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2);
+            if (ampGraph != nullptr)
+                ampGraph->setBounds (graph);
+            ampHint.setRight (graph.getX() - 8);
+            // The menus and knobs at their natural height, not stretched.
+            inner = inner.withHeight (juce::jmin (inner.getHeight(), 46 + 4 + 96));
+        }
         const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
 
         auto topRow = inner.removeFromTop (46);
@@ -1072,54 +1149,71 @@ private:
         layoutRow (inner, bottom);
     }
 
+    // RING MOD, SYNC 2 TO 1 and the NOISE FM row mean nothing to a DX7
+    // voice: on a patch whose oscillators play the Operator Env they fold
+    // behind a MORE line unless one is in use (S8-21).
+    bool matrixExtrasInUse() const
+    {
+        auto used = read ("ring_mod") > 0.0005f || read ("hard_sync") > 0.5f;
+        for (const auto osc : shown)
+            used = used || read ("fm_noise" + juce::String (osc + 1)) > 0.0005f;
+        return used;
+    }
+
+    bool matrixExtrasShown() const { return ! anyOperatorEnv() || extrasOpen || matrixExtrasInUse(); }
+
     void layoutMatrix()
     {
+        const auto extras = matrixExtrasShown();
         auto inner = matrixCard.reduced (10, 0);
         inner.removeFromTop (26);
-        inner.removeFromBottom (8);
 
         // The FM style across the top, a note on what sets the depth beside
         // it; OSC 1 and OSC 2's ring mod and sync in a row under the matrix
         // (V6-14).
         auto top = inner.removeFromTop (44);
-        mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 3)).reduced (3, 2));
+        mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 2)).reduced (3, 2));
         topNote = top.withTrimmedLeft (12).withTrimmedTop (13);
         inner.removeFromTop (6);
-
-        pairRow = inner.removeFromBottom (62);
-        inner.removeFromBottom (6);
-        {
-            auto row = pairRow.reduced (4, 0);
-            hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
-            ringMod->setBounds (row.removeFromRight (80));
-            pairText = row.withTrimmedRight (8);
-        }
 
         for (int source = 0; source < OscillatorIds::count; ++source)
         {
             const auto sourceShown = std::find (shown.begin(), shown.end(), source) != shown.end();
             outs[(size_t) source]->setVisible (sourceShown);
-            noiseKnobs[(size_t) source]->setVisible (sourceShown);
+            noiseKnobs[(size_t) source]->setVisible (sourceShown && extras);
 
             for (int target = 0; target < OscillatorIds::count; ++target)
                 knobs[(size_t) source][(size_t) target]->setVisible (
                     sourceShown && std::find (shown.begin(), shown.end(), target) != shown.end());
         }
+        noiseColourKnob->setVisible (extras);
+        ringMod->setVisible (extras);
+        hardSync.setVisible (extras);
+        moreButton.setVisible (! extras);
 
+        // One cell size for every patch: the grid (row names and cells)
+        // centred across the card, the card as tall as what it holds.
         const auto count = juce::jmax (1, (int) shown.size());
-        auto heads = inner.removeFromTop (18);
-        heads.removeFromLeft (headWidth);
-        const auto columnWidth = heads.getWidth() / count;
+        const auto rows = count + (extras ? 1 : 0);
+        const auto bottomHeight = extras ? 62 + 6 : 28;
+        const auto rowHeight = juce::jmin (cellHeight, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
+        const auto columnWidth = juce::jmin (cellWidth, (inner.getWidth() - headWidth) / count);
+        const auto gridWidth = headWidth + columnWidth * count;
+        // The grid centred between the FM MODE line and the bottom row.
+        const auto gridHeight = 22 + rowHeight * rows;
+        auto grid = juce::Rectangle<int> (inner.getX() + (inner.getWidth() - gridWidth) / 2,
+                                          inner.getY() + juce::jmax (0, (inner.getHeight() - bottomHeight - 8 - gridHeight) / 2),
+                                          gridWidth, gridHeight);
 
+        auto heads = grid.removeFromTop (18);
+        heads.removeFromLeft (headWidth);
         for (const auto i : shown)
             columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
 
-        inner.removeFromTop (4);
+        grid.removeFromTop (4);
 
-        const auto rowHeight = inner.getHeight() / (count + 1);
-
-        // Short cells (six oscillators) get compact knobs, their values
-        // drawn in the cell's corner: the knob's own value box overlapped it.
+        // Short cells get compact knobs, their values drawn in the cell's
+        // corner: the knob's own value box overlapped it.
         compactCells = rowHeight < 82;
         const auto layoutCells = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
         {
@@ -1151,7 +1245,7 @@ private:
 
         for (const auto source : shown)
         {
-            auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
+            auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
             auto head = row.removeFromLeft (headWidth);
             rowHeads[(size_t) source] = layoutHead (head);
             // The row's name, then its OUT switch with that name above it.
@@ -1163,14 +1257,38 @@ private:
                          [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
         }
 
-        auto row = inner.removeFromTop (rowHeight).reduced (0, 3);
-        auto head = row.removeFromLeft (headWidth);
-        noiseHead = layoutHead (head);
-        // NOISE, then its colour: a small dial with its name and value.
-        noiseColourKnob->setBounds (noiseHead.getX() - 2, noiseHead.getY() + 20, 30, 30);
-        layoutCells (row,
-                     [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
-                     [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
+        noiseHead = {};
+        for (auto& cell : noiseCells)
+            cell = {};
+        if (extras)
+        {
+            auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
+            auto head = row.removeFromLeft (headWidth);
+            noiseHead = layoutHead (head);
+            // NOISE, then its colour: a small dial with its name and value.
+            noiseColourKnob->setBounds (noiseHead.getX() - 2, noiseHead.getY() + 20, 30, 30);
+            layoutCells (row,
+                         [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
+                         [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
+        }
+
+        // Along the card's bottom: OSC 1 x OSC 2's pair controls, or the
+        // MORE line that opens them.
+        inner.removeFromBottom (8);
+        pairRow = {};
+        pairText = {};
+        if (extras)
+        {
+            pairRow = inner.removeFromBottom (62);
+            auto row = pairRow.reduced (4, 0);
+            hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
+            ringMod->setBounds (row.removeFromRight (80));
+            pairText = row.withTrimmedRight (8);
+        }
+        else
+        {
+            moreButton.setBounds (inner.removeFromBottom (22).withSizeKeepingCentre (juce::jmin (inner.getWidth() - 8, 260), 22));
+        }
     }
 
     void paintMatrix (juce::Graphics& g)
@@ -1182,7 +1300,7 @@ private:
         g.drawFittedText (anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
                                                                              "\xc3\x97 this cell. Hover a dot to add a route."))
                                            : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
-                          topNote, juce::Justification::topLeft, 2, 1.0f);
+                          topNote, juce::Justification::topLeft, 3, 1.0f);
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
         // an empty one is a dot until the mouse is over it.
@@ -1228,7 +1346,8 @@ private:
                     paintFeedbackGlyph (g, cell.reduced (6.0f, 5.0f).withSize (11.0f, 11.0f), FmDiagram::oscColour (source));
             }
 
-            paintCell (-1, source, noiseCells[(size_t) source].toFloat(), noiseColour());
+            if (! noiseHead.isEmpty())
+                paintCell (-1, source, noiseCells[(size_t) source].toFloat(), noiseColour());
         }
 
         // Each amount under its knob (compact cells), or a DX7 feedback's
@@ -1236,7 +1355,7 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         for (const auto target : shown)
         {
-            for (int source = -1; source < OscillatorIds::count; ++source)
+            for (int source = noiseHead.isEmpty() ? 0 : -1; source < OscillatorIds::count; ++source)
             {
                 if (source >= 0 && std::find (shown.begin(), shown.end(), source) == shown.end())
                     continue;
@@ -1275,6 +1394,9 @@ private:
                         juce::Justification::centredLeft);
         }
 
+        if (noiseHead.isEmpty())
+            return;
+
         g.setColour (noiseColour());
         // Noise as a modulator, with its own colour: the NOISE you hear (SUB +
         // NOISE on PLAY and OSC) is a separate, white source (V7-30).
@@ -1298,7 +1420,7 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawFittedText ("RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
-                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 6), juce::Justification::topLeft, 2, 1.0f);
+                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 3, 1.0f);
     }
 
     // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import
@@ -1331,7 +1453,10 @@ private:
     }
 
     static constexpr int headWidth = 76;
-    static constexpr int operatorEnvCardHeight = 240;
+    static constexpr int operatorCardHeight = 240;
+    // Matrix cells: one size for every patch, about the size six
+    // oscillators leave (V8-6, V8-35).
+    static constexpr int cellWidth = 56, cellHeight = 52, minimumMatrixWidth = 410;
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, OscillatorIds::count> fmIn {}, playing {};
@@ -1353,13 +1478,18 @@ private:
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
     std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
-    bool compactCells = false;
+    bool compactCells = false, extrasOpen = false, lastExtrasShown = true;
+    juce::TextButton moreButton;
+    // An operator on another envelope shows that envelope where an Operator
+    // Env operator shows its own (one card anatomy, I8-11, V8-6).
+    std::unique_ptr<EnvelopeDisplay> ampGraph;
+    int ampGraphEnvelope = -1, ampGraphOperator = -1;
     std::unique_ptr<KnobControl> noiseColourKnob;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<std::unique_ptr<OperatorPill>, OscillatorIds::count> operatorButtons;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, envTabLine, pairRow, pairText, voiceHint;
+    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, envTabLine, pairRow, pairText, voiceHint, ampHint;
     std::vector<std::atomic<float>*> tuneValues;
     std::array<int, OscillatorIds::count * 3> lastTune {};
     std::vector<int> shown;

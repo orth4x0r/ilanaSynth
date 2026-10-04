@@ -219,12 +219,28 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
                     && centreX (knobFor ("osc1_frame")) == centreX (knobFor (osc3 + "_frame")),
                 "PLAY: SEMI, LEVEL, FRAME in the same columns on an FM oscillator and a plain one");
-        // A wavetable in an FM route but tuned in semitones is an
-        // oscillator with FM, not an operator (V7-15).
+        // SUB + NOISE: the switch names the sub, which is all it switches,
+        // and the noise has its COLOUR beside its level (V8-14, V8-15).
+        {
+            std::vector<ToggleControl*> toggles;
+            findAll<ToggleControl> (editor, toggles);
+            auto subSwitch = false;
+            for (auto* toggle : toggles)
+                subSwitch = subSwitch || (visibleInTree (toggle) && toggle->getButton().getButtonText() == "SUB");
+            auto* noise = knobFor ("noise_level");
+            auto* colour = knobFor ("noise_color", "COLOUR");
+            expect (subSwitch && noise != nullptr && colour != nullptr && centreX (colour) > centreX (noise)
+                        && std::abs (editor.getLocalArea (colour, colour->getLocalBounds()).getCentreY()
+                                     - editor.getLocalArea (noise, noise->getLocalBounds()).getCentreY()) < 2,
+                    "PLAY: SUB + NOISE's switch reads SUB, and COLOUR sits beside NOISE");
+        }
+
+        // A wavetable in an FM route reads its part in the FM diagram's
+        // words, operator or not (I8-19).
         editor.showPage ("OSC");
         settle (300);
-        expect (oscTabState (0) == "FM FROM 2" && oscTabState (1) == "FM INTO 1",
-                "OSC: Neuro Wobble's oscillators read FM FROM 2 / FM INTO 1, not CARRIER (" + oscTabState (0) + ", " + oscTabState (1) + ")");
+        expect (oscTabState (0) == "OUT" && oscTabState (1) == "OUT, MOD > 1",
+                "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram (" + oscTabState (0) + ", " + oscTabState (1) + ")");
     }
 
     // A DX7 voice: each strip shows the operator's LEVEL in dB (the FM
@@ -2068,7 +2084,7 @@ int runUiTests()
             processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
             juce::Rectangle<int> firstDiagramBounds;
             auto cardFixed = true;
-            for (const auto number : { 1, 2, 3, 5, 14, 17, 18, 32 })
+            for (int number = 1; number <= 32; ++number)
             {
                 processor.applyDx7Algorithm (number);
                 settle (150);
@@ -2100,6 +2116,45 @@ int runUiTests()
                         firstDiagramBounds = diagram->getBounds();
                     cardFixed = cardFixed && diagram->getBounds() == firstDiagramBounds;
                 }
+                // Review 8 (V8-7): each stack stands straight, as a DX7
+                // chart (an operator driving only one that it alone drives
+                // sits right over it), halos never meet, and no depth sits
+                // on an arrowhead.
+                auto straight = diagram != nullptr, halosApart = diagram != nullptr, headsClear = diagram != nullptr;
+                if (diagram != nullptr)
+                {
+                    const auto nodes = diagram->getNodeBounds();
+                    const auto routed = [&] (int a, int b)
+                    {
+                        return a != b && processor.apvts.getRawParameterValue (FmDiagram::routeId (a, b))->load() > 0.001f;
+                    };
+                    for (int m = 0; m < 6 && nodes.size() == 6; ++m)
+                        for (int t = 0; t < 6; ++t)
+                        {
+                            if (! routed (m, t))
+                                continue;
+                            auto drivers = 0, driven = 0;
+                            for (int other = 0; other < 6; ++other)
+                            {
+                                drivers += routed (other, t) ? 1 : 0;
+                                driven += routed (m, other) ? 1 : 0;
+                            }
+                            if (drivers == 1 && driven == 1)
+                                straight = straight && std::abs (nodes[(size_t) m].getCentreX() - nodes[(size_t) t].getCentreX()) < 1.0f
+                                           && nodes[(size_t) m].getBottom() + 12.0f < nodes[(size_t) t].getY();
+                        }
+                    const auto halo = diagram->getHaloRoom();
+                    for (size_t i = 0; i < nodes.size(); ++i)
+                        for (size_t j = i + 1; j < nodes.size(); ++j)
+                            halosApart = halosApart && ! nodes[i].expanded (halo).intersects (nodes[j].expanded (halo));
+                    for (const auto& label : diagram->getAmountLabelBoundsList())
+                        for (const auto& path : diagram->getRoutePathsList())
+                            for (size_t k = path.size() - 2; k < path.size(); ++k)
+                                headsClear = headsClear && ! label.intersects (juce::Line<float> (path[k - 1], path[k]));
+                }
+                expect (straight, "DX7 algorithm " + juce::String (number) + "'s stacks stand straight over what they drive");
+                expect (halosApart, "DX7 algorithm " + juce::String (number) + "'s node halos never meet");
+                expect (headsClear, "DX7 algorithm " + juce::String (number) + "'s depth labels sit off the arrowheads");
                 expect (apart, "DX7 algorithm " + juce::String (number) + "'s stack fits the diagram without overlaps");
                 expect (labelsClear, "DX7 algorithm " + juce::String (number) + "'s depth labels sit clear of nodes, captions and each other" + badLabels);
             }
@@ -2115,6 +2170,85 @@ int runUiTests()
                         "a basic FM patch draws full-size OSC n nodes");
             expect (FmAlgorithmStrip::nearestBasic (processor) == 0,
                     "a one-modulator routing that no tile matches is named after the nearest tile (B1)");
+
+            // Review 8. One operator card height on every patch and for
+            // every kind of operator, panel and tab (I8-11): the diagram
+            // above it never moves. An off oscillator's node shows no tuning
+            // or level (S8-36). One matrix cell size on every patch, and the
+            // card no taller than its rows (V8-6, V8-35). The ring mod, sync
+            // and noise rows fold away on a DX7 voice (S8-21). No PITCH & LFO
+            // panel on a patch without the Operator Env.
+            {
+                const auto diagramBounds = [&]
+                {
+                    auto* diagram = findChild<FmDiagram> (*editor);
+                    return diagram != nullptr ? diagram->getBounds() : juce::Rectangle<int>();
+                };
+                const auto knobBounds = [&] (const juce::String& id)
+                {
+                    std::vector<KnobControl*> all;
+                    findAll<KnobControl> (*editor, all);
+                    for (auto* knob : all)
+                        if (visibleInTree (knob) && knob->getParameterId() == id)
+                            return knob->getBounds();
+                    return juce::Rectangle<int>();
+                };
+                const auto clickButton = [&] (const juce::String& text)
+                {
+                    std::vector<juce::TextButton*> all;
+                    findAll<juce::TextButton> (*editor, all);
+                    for (auto* button : all)
+                        if (button->getButtonText() == text && visibleInTree (button))
+                        {
+                            button->triggerClick();
+                            settle (250);
+                            return true;
+                        }
+                    return false;
+                };
+                const auto heightOnNeuro = diagramBounds().getHeight();
+                auto* neuroDiagram = findChild<FmDiagram> (*editor);
+                const auto offCaption = neuroDiagram != nullptr && neuroDiagram->getCaptionTexts().size() == 3
+                                        && neuroDiagram->getCaptionTexts()[2].isEmpty() && neuroDiagram->getCaptionTexts()[0].isNotEmpty();
+                expect (offCaption, "FM: an off oscillator's node shows no tuning or level captions (S8-36)");
+                const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
+                expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"), "FM: a basic patch shows RING MOD, SYNC and NOISE FM");
+                expect (! clickButton ("VOICE PITCH & LFO"), "FM: no PITCH & LFO panel on a patch without the Operator Env");
+                std::vector<EnvelopeDisplay*> graphs;
+                findAll<EnvelopeDisplay> (*editor, graphs);
+                expect (std::any_of (graphs.begin(), graphs.end(), [] (EnvelopeDisplay* graph) { return visibleInTree (graph); }),
+                        "FM: an Amp Env operator's card shows its envelope where an Operator Env one shows its own");
+                clickButton ("OSC 2");
+                const auto sameOnOsc2 = diagramBounds().getHeight() == heightOnNeuro;
+
+                processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
+                settle (300);
+                clickButton ("OSC 1");
+                auto sameKinds = sameOnOsc2 && diagramBounds().getHeight() == heightOnNeuro;
+                std::vector<CardTabs*> tabs;
+                findAll<CardTabs> (*editor, tabs);
+                for (auto* tab : tabs)
+                    if (visibleInTree (tab) && tab->getNames().contains ("KEYS & VELOCITY"))
+                    {
+                        tab->setSelected (1, true);
+                        settle (250);
+                        sameKinds = sameKinds && diagramBounds().getHeight() == heightOnNeuro;
+                        tab->setSelected (0, true);
+                    }
+                expect (clickButton ("VOICE PITCH & LFO"), "FM: a DX7 voice has the PITCH & LFO panel");
+                sameKinds = sameKinds && diagramBounds().getHeight() == heightOnNeuro;
+                clickButton ("OSC 2");
+                expect (sameKinds, "FM: the operator card keeps one height on every patch, operator kind, panel and tab (I8-11)");
+
+                const auto dxCell = knobBounds ("fm_amount"), dxNext = knobBounds ("fm_fb2");
+                expect (! neuroCell.isEmpty() && neuroCell.getWidth() == dxCell.getWidth()
+                            && neuroNext.getX() - neuroCell.getX() == dxNext.getX() - dxCell.getX(),
+                        "FM: matrix cells are one size on a three- and a six-oscillator patch (V8-35: "
+                            + neuroCell.toString() + " / " + dxCell.toString() + ")");
+                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("MORE: RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM")))
+                            && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
+                        "FM: a DX7 voice folds RING MOD, SYNC and NOISE FM behind MORE (S8-21)");
+            }
 
             // The operator card speaks the synth's words: a rate as a time, a
             // level as dB, the output as LEVEL and the oscillator level as TRIM.
@@ -6523,6 +6657,13 @@ int main (int argc, char** argv)
         processor.applyDx7Algorithm (1);
         settle (400);
         save (*editor, outDir.getChildFile ("fm-dx7-algorithm-1.png"));
+        // ILANA_SNAPSHOT_FM_ALGORITHMS="5,18,32": more DX7 algorithms.
+        for (const auto& number : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FM_ALGORITHMS", ""), ",", ""))
+        {
+            processor.applyDx7Algorithm (number.getIntValue());
+            settle (300);
+            save (*editor, outDir.getChildFile ("fm-dx7-algorithm-" + number + ".png"));
+        }
         // OSC 2's WARP FM from OSC 1, drawn dashed beside the routes.
         for (const auto& [id, value] : { std::pair<const char*, float> { "osc2_warp", (float) Warp::Fm }, { "osc2_warp_amt", 0.5f } })
             if (auto* parameter = processor.apvts.getParameter (id))

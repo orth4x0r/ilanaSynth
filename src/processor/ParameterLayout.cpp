@@ -1106,5 +1106,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // follows MIX as before.
     addBool ("fx_reverb_keep_dry", "Reverb Keep Dry", false);
 
+    // Review 8 (V8-15): the heard noise's colour (SUB + NOISE), on the FM
+    // noise's scale. White, as in every older patch.
+    addFloat ("noise_color", "Noise Colour", 0.0f, 1.0f, 1.0f);
+
     return layout;
 }

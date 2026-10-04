@@ -59,6 +59,8 @@ public:
         std::function<bool()> isShown;                             // null: always
         std::function<void (juce::Graphics&, juce::Rectangle<float>, bool active)> paintShape;
         std::function<juce::String()> targets;                     // what it drives, for the title row
+        std::function<bool()> isActive;                            // null: always; else greyed and "unused" while false
+        juce::String tooltip;                                      // empty: the default
     };
 
     void addExtraCard (ExtraCard card) { extras.push_back (std::move (card)); }
@@ -78,19 +80,33 @@ public:
         return {};
     }
 
-    // The width the bar is seen through: four cards fill it.
+    // The width the bar is seen through: four cards fill it. It never needs
+    // more (cards past what fits fold into the overflow card).
     void setViewWidth (int width) { viewWidth = width; }
 
-    int getPreferredWidth() const
+    int getPreferredWidth() const { return viewWidth; }
+
+    // The cards folded into the overflow card right now (the UI test).
+    std::vector<int> getFoldedCards() const
     {
-        const auto items = layoutItems();
-        return items.empty() ? viewWidth : juce::jmax (viewWidth, (int) std::ceil (items.back().bounds.getRight()));
+        std::vector<int> folded;
+        layoutItems (folded);
+        return folded;
     }
 
     // Whether the envelope plays a part, and a relayout after a card is added.
     bool isEnvelopeInUse (int env) const { return isInUse (env); }
     void refreshLayout() { layoutChanged(); }
     bool isCardShown (int env) const { return ! boundsOfCard (env).isEmpty(); }
+
+    // In the pool, on screen or folded into the overflow card.
+    bool isCardInPool (int id) const
+    {
+        if (id >= 0 && id < (int) envs.size())
+            return envelopeShown (processorRef, id);
+        const auto extra = id - (int) envs.size();
+        return extra >= 0 && extra < (int) extras.size() && (extras[(size_t) extra].isShown == nullptr || extras[(size_t) extra].isShown());
+    }
 
     // For the UI test: what a click on a card's "x" does, and where it is
     // (empty for a card that can't be removed).
@@ -108,10 +124,13 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        for (const auto& item : layoutItems())
+        std::vector<int> folded;
+        for (const auto& item : layoutItems (folded))
         {
             if (item.id == plusId)
                 PoolCards::paintPlus (g, item.bounds, hoverIndex == plusId);
+            else if (item.id == PoolCards::overflowId)
+                PoolCards::paintOverflow (g, item.bounds, (int) folded.size(), hoverIndex == PoolCards::overflowId);
             else if (item.id >= (int) envs.size())
                 paintExtraCard (g, item.id - (int) envs.size(), item.bounds);
             else
@@ -132,6 +151,26 @@ public:
             && (event.mods.isPopupMenu() || (canRemove (index) && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position))))
         {
             removeEnvelope (index);
+            return;
+        }
+
+        if (index == PoolCards::overflowId)
+        {
+            std::vector<int> folded;
+            layoutItems (folded);
+            juce::Component::SafePointer<EnvThumbBar> safeThis (this);
+            PoolCards::showOverflowMenu (*this, boundsOfCard (PoolCards::overflowId), folded,
+                                         [this] (int id) { return id < (int) envs.size() ? envs[(size_t) id].title
+                                                                                         : extras[(size_t) (id - (int) envs.size())].title; },
+                                         [safeThis] (int id)
+                                         {
+                                             if (safeThis == nullptr)
+                                                 return;
+                                             safeThis->selected = id;
+                                             if (safeThis->onSelect != nullptr)
+                                                 safeThis->onSelect (id);
+                                             safeThis->layoutChanged();
+                                         });
             return;
         }
 
@@ -209,11 +248,7 @@ public:
 private:
     static constexpr float gap = PoolCards::gap;
 
-    struct Item
-    {
-        int id = -1;  // an envelope, envs.size() + an extra card, or plusId
-        juce::Rectangle<float> bounds;
-    };
+    using Item = PoolCards::Placed;  // an envelope, envs.size() + an extra card, plusId or the overflow
 
     std::vector<int> visibleEnvelopes() const
     {
@@ -224,42 +259,35 @@ private:
         return visible;
     }
 
-    std::vector<Item> layoutItems() const
+    std::vector<int> visibleExtras() const
     {
-        const auto visible = visibleEnvelopes();
-        std::vector<int> shownExtras;
+        std::vector<int> shown;
         for (int extra = 0; extra < (int) extras.size(); ++extra)
             if (extras[(size_t) extra].isShown == nullptr || extras[(size_t) extra].isShown())
-                shownExtras.push_back (extra);
-
-        const auto withPlus = visible.size() < envs.size();
-        const auto width = PoolCards::cardWidth (viewWidth > 0 ? viewWidth : getWidth(), (int) (visible.size() + shownExtras.size()), withPlus);
-        const auto height = (float) getHeight();
-        std::vector<Item> items;
-        auto x = 0.0f;
-
-        for (const auto env : visible)
-        {
-            items.push_back ({ env, { x, 0.0f, width, height } });
-            x += width + gap;
-        }
-
-        if (withPlus)
-        {
-            items.push_back ({ plusId, { x, 0.0f, PoolCards::plusWidth, height } });
-            x += PoolCards::plusWidth + gap;
-        }
-
-        for (const auto extra : shownExtras)
-        {
-            items.push_back ({ (int) envs.size() + extra, { x, 0.0f, width, height } });
-            x += width + gap;
-        }
-
-        return items;
+                shown.push_back (extra);
+        return shown;
     }
 
-    int numCards() const { return (int) layoutItems().size(); }
+    // The envelopes, then the extra cards, then the "+" (as the LFO pool),
+    // with the overflow card before it when they don't fit.
+    std::vector<Item> layoutItems (std::vector<int>& folded) const
+    {
+        auto ids = visibleEnvelopes();
+        const auto withPlus = ids.size() < envs.size();
+        for (const auto extra : visibleExtras())
+            ids.push_back ((int) envs.size() + extra);
+        return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
+                                  folded);
+    }
+
+    std::vector<Item> layoutItems() const
+    {
+        std::vector<int> folded;
+        return layoutItems (folded);
+    }
+
+    // Changes when a card comes or goes (not with what fits).
+    int numCards() const { return (int) (visibleEnvelopes().size() + visibleExtras().size()); }
 
     int indexAt (juce::Point<int> position) const
     {
@@ -274,10 +302,15 @@ private:
     {
         if (index == plusId)
             return "Add an envelope";
+        if (index == PoolCards::overflowId)
+            return "More cards than fit: click for the rest";
         if (index < 0)
             return {};
         if (index >= (int) envs.size())
-            return extras[(size_t) (index - (int) envs.size())].title + "\nClick to edit it below.";
+        {
+            const auto& info = extras[(size_t) (index - (int) envs.size())];
+            return info.tooltip.isNotEmpty() ? info.tooltip : info.title + "\nClick to edit it below.";
+        }
         const auto& title = envs[(size_t) index].title;
         if (hoverRemove)
             return isInUse (index) ? "Remove " + title + " (asks first: it is in use)" : "Remove " + title;
@@ -452,7 +485,13 @@ private:
         auto inner = card.reduced (8.0f, 5.0f);
         auto titleRow = inner.removeFromTop (16.0f);
         const auto removable = hovered && canRemove (env);
-        paintTitle (g, removable ? titleRow.withTrimmedRight (18.0f) : titleRow, info.title, cachedTargets (env), colour, active, inUse);
+        // The amp envelope on a DX7 voice: a short "unused" tag that fits
+        // the narrowest card (UI review 7, I7-8), the shape greyed.
+        const auto unusedAmp = info.source == Mod::Source::AmpEnv && ! inUse;
+        if (unusedAmp)
+            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow));
+        paintTitle (g, removable ? titleRow.withTrimmedRight (18.0f) : titleRow, info.title, unusedAmp ? juce::String() : cachedTargets (env),
+                    colour, active, inUse);
 
         // ADSR outline on a compressed time axis so long and short stages
         // both stay readable.
@@ -498,12 +537,26 @@ private:
         const auto active = id == selected;
         const auto targets = info.targets != nullptr ? info.targets() : juce::String();
 
+        const auto inUse = info.isActive == nullptr || info.isActive();
+
         paintFrame (g, card, info.colour, active, id == hoverIndex);
         auto inner = card.reduced (8.0f, 5.0f);
-        paintTitle (g, inner.removeFromTop (14.0f), info.title, targets, info.colour, active, targets.isNotEmpty());
+        auto titleRow = inner.removeFromTop (16.0f);
+
+        // Greyed, with "unused", while nothing it shapes plays.
+        if (! inUse)
+            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow));
+        paintTitle (g, titleRow, info.title, inUse ? targets : juce::String(), inUse ? info.colour : IlanaTheme::Ui::text3, active && inUse,
+                    inUse && targets.isNotEmpty());
 
         if (info.paintShape != nullptr)
+        {
+            if (! inUse)
+                g.beginTransparencyLayer (0.35f);
             info.paintShape (g, inner.reduced (0.0f, 3.0f), active);
+            if (! inUse)
+                g.endTransparencyLayer();
+        }
     }
 
     // The cards repaint often; what they drive is re-read four times a second.
@@ -534,7 +587,7 @@ private:
         if (info.source == Mod::Source::AmpEnv && FmOperatorInfo::ampEnvelopeInUse (processorRef))
             fixed.add ("Amp");
         else if (info.source == Mod::Source::AmpEnv)
-            fixed.add ("unused (Op Env)");
+            fixed.add ("unused");
         if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
             fixed.add ("Filter 1");
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)

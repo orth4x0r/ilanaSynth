@@ -18,6 +18,11 @@ public:
 
     std::function<void (int)> onSelect;
     std::function<void()> onOpen;
+    // Set for tabs that are engines with their own power (SEQ's PATTERN,
+    // review 7, V7-11): each tab's state is drawn as a small switch inside
+    // the pill, and a click on it calls this instead of selecting the tab.
+    // One place for "on" (the switch) and one for "shown" (the fill).
+    std::function<void (int)> onToggle;
 
     int getSelected() const { return selected; }
     const juce::StringArray& getNames() const { return names; }
@@ -104,7 +109,16 @@ public:
             IlanaTheme::paintPill (g, pill, {}, colour, active, hover);
             g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
             g.setFont (IlanaTheme::pillFont());
-            g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace), juce::Justification::centred);
+            g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace()), juce::Justification::centred);
+
+            if (onToggle != nullptr)
+            {
+                // A switch, not a light: it is the engine's power.
+                const auto overSwitch = isMouseOver() && switchBounds (i).expanded (2.0f).contains (mouse);
+                IlanaTheme::paintSwitch (g, switchBounds (i), isTabOn (i) ? 1.0f : 0.0f, colour, overSwitch ? 1.0f : 0.0f);
+                continue;
+            }
+
             IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, isTabOn (i));
         }
 
@@ -133,6 +147,12 @@ public:
     {
         for (int i = 0; i < names.size(); ++i)
         {
+            if (onToggle != nullptr && hasDots() && switchBounds (i).expanded (3.0f, 4.0f).contains (event.position))
+            {
+                onToggle (i);
+                return;
+            }
+
             if (pillBounds (i).contains (event.position))
             {
                 setSelected (i, true);
@@ -146,7 +166,25 @@ public:
 
     void mouseMove (const juce::MouseEvent& event) override
     {
-        setTooltip (hasOpen && openBounds().contains (event.position) ? "Open the full page for this section" : juce::String());
+        juce::String tip;
+
+        for (int i = 0; i < names.size() && onToggle != nullptr && hasDots(); ++i)
+            if (switchBounds (i).expanded (3.0f, 4.0f).contains (event.position))
+                tip = names[i] + " is " + (isTabOn (i) ? "on" : "off") + "\nClick the switch to turn " + names[i]
+                    + (isTabOn (i) ? " off." : " on.");
+            else if (pillBounds (i).contains (event.position))
+                tip = "Show " + names[i] + "'s settings (the switch in the tab turns it on or off)";
+
+        setTooltip (hasOpen && openBounds().contains (event.position) ? juce::String ("Open the full page for this section") : tip);
+        repaint(); // the switch under the pointer
+    }
+
+    // Where tab `index`'s switch sits (the UI test clicks it).
+    juce::Rectangle<float> switchBounds (int index) const
+    {
+        const auto pill = pillBounds (index);
+        const auto height = juce::jlimit (6.0f, 10.0f, pill.getHeight() - 8.0f);
+        return juce::Rectangle<float> (height * 1.8f, height).withPosition (pill.getX() + (float) padding() * 0.5f, pill.getCentreY() - height * 0.5f);
     }
 
 private:
@@ -155,14 +193,15 @@ private:
 
     static constexpr int idealPadding = 16;
 
-    static constexpr int dotSpace = 10;
+    // The dot, or the wider switch, left of the name.
+    int dotSpace() const { return onToggle != nullptr ? 22 : 10; }
 
     bool hasDots() const { return ! tabOn.empty(); }
 
     int textWidth (int index) const
     {
         return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index])
-             + (hasDots() ? dotSpace : 0);
+             + (hasDots() ? dotSpace() : 0);
     }
 
     int widthWith (int padding) const

@@ -2721,6 +2721,64 @@ int runUiTests()
                     && steps.size() == 1 && steps[0] == "Quantise clip notes" && ! roll.quantise(),
                 "QUANTISE puts every note's start on the 1/16 grid in one undo step, and then has nothing to do (" + starts (shown) + ")");
 
+        // Review 7 (S7-18): DRAW. A click on empty space places a note (no
+        // double-click), a drag paints a run along the grid; each one undo
+        // step. D toggles it.
+        {
+            Clip empty;
+            empty.bars = 2;
+            processor.getClipState().setClip (0, empty);
+            processor.clipsEdited();
+        }
+        roll.reload (true);
+        roll.setGrid (ClipEditor::defaultGrid);
+        roll.keyPressed (juce::KeyPress ('d'));
+        const auto drawOn = roll.isDrawMode();
+        clearHistory();
+        gesture (roll, { x (0.1f), roll.yForNote (60) }, { x (0.1f), roll.yForNote (60) });
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (drawOn && shown.notes.size() == 1 && std::abs (shown.notes[0].start) < 1.0e-4f && shown.notes[0].note == 60
+                    && steps.size() == 1,
+                "DRAW (the D key) places a note with a single click, in one undo step (" + starts (shown) + ")");
+        clearHistory();
+        gesture (roll, { x (2.1f), roll.yForNote (62) }, { x (5.5f), roll.yForNote (62) });
+        steps = undoSteps();
+        shown = processor.getClipState().getClip (0);
+        expect (shown.notes.size() == 5 && steps.size() == 1 && steps[0] == "Draw clip notes",
+                "a drag in DRAW paints a run of notes on beats 2-5 in one undo step (" + starts (shown) + ")");
+        roll.keyPressed (juce::KeyPress ('d'));
+        clearHistory();
+        gesture (roll, { x (7.1f), roll.yForNote (64) }, { x (7.1f), roll.yForNote (64) });
+        expect (! roll.isDrawMode() && processor.getClipState().getClip (0).notes.size() == 5 && undoSteps().isEmpty(),
+                "with DRAW off a single click on empty space writes nothing again");
+
+        // Review 7 (S7-17): the roll opens fitted to the clip's notes, counts
+        // the notes scrolled out of view at its edges, and a click on a
+        // count brings them back.
+        {
+            Clip wide;
+            wide.bars = 2;
+            for (const auto note : { 55, 57, 60, 62, 64, 67 })
+                wide.notes.push_back ({ (float) (note % 8), 0.5f, note, 100 });
+            processor.getClipState().setClip (0, wide);
+            processor.clipsEdited();
+        }
+        roll.reload (true);
+        const auto fitted = roll.notesOutOfView();
+        juce::MouseWheelDetails scroll {};
+        scroll.deltaY = 1.0f;
+        for (int i = 0; i < 12; ++i)
+            roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), scroll);
+        const auto scrolled = roll.notesOutOfView();
+        const auto low = roll.getLowestShownNote();
+        gesture (roll, { roll.getGridArea().getRight() - 26.0f, roll.getGridArea().getBottom() - 12.0f },
+                 { roll.getGridArea().getRight() - 26.0f, roll.getGridArea().getBottom() - 12.0f });
+        expect (fitted.first == 0 && fitted.second == 0, "the clip roll opens with every note of the clip in view");
+        expect (scrolled.second > 0 && roll.getLowestShownNote() < low && roll.notesOutOfView().second < scrolled.second,
+                "scrolled up, the roll counts the notes below the view (" + juce::String (scrolled.second)
+                    + "), and a click on that count scrolls down to them");
+
         processor.loadFactoryPreset (0);
         settle (100);
     }
@@ -2867,6 +2925,82 @@ int runUiTests()
             settle (300);
             expect (arpGate != nullptr && arpGate->getAlpha() > 0.99f && ! engineTabs->isTabOn (2), "and lights again once PROB SEQ is off");
 
+            // Review 7 (V7-11, I7-36): each engine's power is the switch in
+            // its tab; the engines' rows have no switch of their own. A click
+            // on a tab's switch toggles that engine (one undo step) without
+            // changing the tab shown; a click on its name shows it.
+            {
+                std::vector<ToggleControl*> toggles;
+                findAll<ToggleControl> (*editor, toggles);
+                juce::StringArray rowSwitches;
+                for (auto* toggle : toggles)
+                    for (const auto* id : { "arp_on", "euc_on", "pseq_on", "clip_on" })
+                        if (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter (id)->getName (64)))
+                            rowSwitches.add (id);
+                expect (rowSwitches.isEmpty(), "the PATTERN engines have no switch in their rows (" + rowSwitches.joinIntoString (" ") + ")");
+
+                const auto click = [] (juce::Component& component, juce::Point<float> position)
+                {
+                    const juce::MouseEvent down (juce::Desktop::getInstance().getMainMouseSource(), position, {}, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                 &component, &component, juce::Time::getCurrentTime(), position, juce::Time::getCurrentTime(),
+                                                 1, false);
+                    component.mouseDown (down);
+                    component.mouseUp (down);
+                };
+                engineTabs->setSelected (0, true);
+                processor.getUndoManager().clearUndoHistory();
+                click (*engineTabs, engineTabs->switchBounds (1).getCentre());
+                settle (100);
+                const auto steps = processor.getUndoManager().getUndoDescriptions();
+                const auto euclidOn = processor.apvts.getRawParameterValue ("euc_on")->load() > 0.5f;
+                expect (euclidOn && engineTabs->isTabOn (1) && engineTabs->getSelected() == 0 && steps.size() == 1
+                            && steps[0] == "EUCLID on",
+                        "the switch in EUCLID's tab turns EUCLID on in one undo step and leaves ARP shown ('"
+                            + steps.joinIntoString ("', '") + "')");
+                click (*engineTabs, engineTabs->switchBounds (1).getCentre());
+                settle (100);
+                expect (processor.apvts.getRawParameterValue ("euc_on")->load() < 0.5f && ! engineTabs->isTabOn (1),
+                        "a second click on the switch turns EUCLID off");
+                click (*engineTabs, { engineTabs->switchBounds (2).getRight() + 20.0f, engineTabs->switchBounds (2).getCentreY() });
+                settle (100);
+                expect (engineTabs->getSelected() == 2 && processor.apvts.getRawParameterValue ("pseq_on")->load() < 0.5f,
+                        "a click on PROB SEQ's name shows it without switching it on");
+                {
+                    std::vector<KnobControl*> knobs;
+                    findAll<KnobControl> (*editor, knobs);
+                    juce::String label;
+                    for (auto* knob : knobs)
+                        if (knob->getParameterId() == "pseq_length")
+                            label = knob->getLabelText();
+                    expect (label == "STEPS", "PROB SEQ's step count is STEPS, as the arp's (I7-29: '" + label + "')");
+                }
+
+                // An engine shown while off says so in the header (no plate
+                // over its display: S7-19).
+                auto* chain = findChild<NoteChainView> (*editor);
+                juce::String offNote;
+                if (chain != nullptr)
+                    chain->stages (offNote);
+                expect (offNote.startsWith ("PROB SEQ is off"), "the PATTERN header says the shown engine is off ('" + offNote + "')");
+
+                // S7-37: the note follows the chain when EUCLID drives the clip.
+                set ("arp_on", 0.0f);
+                set ("euc_on", 1.0f);
+                set ("clip_on", 1.0f);
+                engineTabs->setSelected (3, true);
+                settle (200);
+                juce::String clipNote;
+                if (chain != nullptr)
+                    chain->stages (clipNote);
+                expect (clipNote == "EUCLID's hits trigger the clip; CLIP supplies the notes",
+                        "with EUCLID and CLIP on the header says how they combine ('" + clipNote + "')");
+                set ("euc_on", 0.0f);
+                set ("clip_on", 0.0f);
+                set ("arp_on", 1.0f);
+                engineTabs->setSelected (0, true);
+                settle (200);
+            }
+
             // The arp's lanes (S6-23): a drag down VELOCITY over steps 3-5
             // draws them in one undo step; the defaults leave every step as
             // it was.
@@ -2899,6 +3033,10 @@ int runUiTests()
                 lanes->mouseDown (event (*lanes, lanes->cellCentre (-1, 11), false));
                 lanes->mouseUp (event (*lanes, lanes->cellCentre (-1, 11), false));
                 expect (read ("arp_steps") == 12, "clicking step 12's number loops 12 arp steps");
+                // S7-19: a colour per lane.
+                expect (lanes->laneColour (0) != lanes->laneColour (1) && lanes->laneColour (1) != lanes->laneColour (2)
+                            && lanes->laneColour (0) != lanes->laneColour (2),
+                        "the arp's VELOCITY, GATE and PITCH lanes each have their own colour");
                 for (const auto* id : { "arp_steps", "arp_vel3", "arp_vel5" })
                     set (id, processor.apvts.getParameter (id)->convertFrom0to1 (processor.apvts.getParameter (id)->getDefaultValue()));
             }
@@ -7096,7 +7234,9 @@ int main (int argc, char** argv)
             if (auto* roll = findChild<ClipEditor> (*editor))
             {
                 roll->reload (true);
-                roll->keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));
+                // Review 7 (V7-38): part of the clip selected (the second
+                // bar), so picked and unpicked notes show side by side.
+                roll->selectStartingIn (4.0f, 8.0f);
                 settle (200);
                 save (*editor, outDir.getChildFile ("gen-clip-selected.png"));
                 roll->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));

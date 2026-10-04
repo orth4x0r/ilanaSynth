@@ -14,12 +14,15 @@
 // it. Double-click empty space to add a note (on the GRID, at the last
 // velocity set), click a note to select it (shift-click adds), drag on empty
 // space to select a group, drag notes to move them and a note's right edge
-// to resize, right-click to delete. Keys: Ctrl+A, Delete, Ctrl+C / V / D,
-// Q quantises, arrows nudge (shift: an octave or a bar). The wheel scrolls
-// the pitches, Alt+wheel zooms them, Ctrl+wheel zooms in time, shift+wheel
-// scrolls it. Edits go
-// straight to the patch's clips (ClipState), one undo step per click, drag
-// or key; a note placed or picked plays briefly.
+// to resize, right-click to delete. DRAW (D) makes a click place a note and a
+// drag paint a run of them (review 7, S7-18). Keys: Ctrl+A, Delete,
+// Ctrl+C / V / D, Q quantises, arrows nudge (shift: an octave or a bar). The
+// wheel scrolls the pitches, Alt+wheel zooms them, Ctrl+wheel zooms in time,
+// shift+wheel scrolls it; the bar at the right edge scrolls the pitches too.
+// The roll opens fitted to the clip's notes, and notes out of view are
+// counted at the top and bottom edges (S7-17). Edits go straight to the
+// patch's clips (ClipState), one undo step per click, drag or key; a note
+// placed or picked plays briefly.
 class ClipEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    private IlanaAnim::FrameTimer
@@ -45,10 +48,11 @@ public:
     ClipEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip ("Clip piano roll. Double-click to add a note, click to select (shift adds), drag empty space to select "
-                    "several. Drag to move, drag the right edge to resize, right-click to delete. Delete, Ctrl+C / V / D, "
-                    "Q quantises, arrows nudge (shift: octave / bar). Drag the lane below for velocity. Wheel: pitch, "
-                    "Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to scroll. Click a key to hear it.");
+        setTooltip ("Clip piano roll. Double-click to add a note (DRAW or D: a click adds, a drag paints a run), click to "
+                    "select (shift adds), drag empty space to select several. Drag to move, drag the right edge to resize, "
+                    "right-click to delete. Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar). Drag "
+                    "the lane below for velocity. Wheel: pitch, Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to "
+                    "scroll. Click a key to hear it.");
         setWantsKeyboardFocus (true);
         reload (true);
         startTimerHz (30);
@@ -63,6 +67,49 @@ public:
     }
 
     int getGrid() const { return gridIndex; }
+
+    // DRAW: a click on empty space places a note, a drag paints a run.
+    void setDrawMode (bool shouldDraw)
+    {
+        if (drawMode == shouldDraw)
+            return;
+
+        drawMode = shouldDraw;
+
+        if (onDrawModeChanged != nullptr)
+            onDrawModeChanged (drawMode);
+
+        repaint();
+    }
+
+    bool isDrawMode() const { return drawMode; }
+    std::function<void (bool)> onDrawModeChanged;
+
+    // Notes of the clip above and below the rows shown (the edge markers).
+    std::pair<int, int> notesOutOfView() const
+    {
+        auto above = 0, below = 0;
+        const auto highest = lowNote + visibleRows() - 1;
+
+        for (const auto& n : clip.notes)
+        {
+            above += n.note > highest ? 1 : 0;
+            below += n.note < lowNote ? 1 : 0;
+        }
+
+        return { above, below };
+    }
+
+    // Selects the notes starting in [from, to) beats (the snapshot tool).
+    void selectStartingIn (float from, float to)
+    {
+        selected.assign (clip.notes.size(), false);
+
+        for (size_t i = 0; i < clip.notes.size(); ++i)
+            selected[i] = clip.notes[i].start >= from && clip.notes[i].start < to;
+
+        repaint();
+    }
     float getZoom() const { return zoom; }
     const Clip& getShownClip() const { return clip; }
 
@@ -84,6 +131,16 @@ public:
         viewStart = centre - viewBeats() * 0.5f;
         clampView();
         repaint();
+    }
+
+    void resized() override
+    {
+        // The roll opens on its notes once it has a size (S7-17), and keeps
+        // them in view through a resize until the pitches are scrolled.
+        if (! pitchViewTouched)
+            fitPitchToNotes();
+        else
+            lowNote = juce::jlimit (0, 128 - visibleRows(), lowNote);
     }
 
     void zoomToFit()
@@ -242,9 +299,12 @@ public:
         g.fillRect (grid.getX() - 1.0f, ruler.getY(), 1.0f, lane.getBottom() - ruler.getY());
         g.fillRect (keys.getX(), grid.getY() - 1.0f, grid.getRight() - keys.getX(), 1.0f);
 
-        // What the roll is waiting for, on a plate in the grid.
-        const auto message = ! on ? juce::String ("CLIP OFF: switch CLIP on to play these notes")
-                           : clip.notes.empty() ? juce::String ("EMPTY: double-click to add a note, or IMPORT MIDI")
+        paintPitchScroll (g, grid, rows);
+
+        // What the roll is waiting for, on a plate in the grid (CLIP off only
+        // dims the notes: the PATTERN header says it is off).
+        const auto message = clip.notes.empty() ? juce::String (drawMode ? "EMPTY: click to place a note, drag to paint a run, or IMPORT MIDI"
+                                                                         : "EMPTY: double-click to add a note (or DRAW), or IMPORT MIDI")
                                                 : juce::String();
 
         if (message.isNotEmpty() && dragMode == Drag::none)
@@ -269,7 +329,10 @@ public:
         setMouseCursor (laneBounds().contains (event.position)            ? juce::MouseCursor::UpDownResizeCursor
                         : rulerBounds().contains (event.position)         ? juce::MouseCursor::LeftRightResizeCursor
                         : keysBounds().contains (event.position)          ? juce::MouseCursor::PointingHandCursor
+                        : pitchScrollBounds().contains (event.position)
+                              || markerAt (event.position) != 0          ? juce::MouseCursor::PointingHandCursor
                         : hit >= 0 && onResizeEdge (hit, event.position) ? juce::MouseCursor::LeftRightResizeCursor
+                        : hit < 0 && drawMode && gridBounds().contains (event.position) ? juce::MouseCursor::CrosshairCursor
                                                                            : juce::MouseCursor::NormalCursor);
         repaint(); // the row under the pointer
     }
@@ -286,6 +349,34 @@ public:
 
         const auto position = event.position;
         const auto grid = gridBounds();
+
+        // An edge marker brings its notes into view; the bar at the right
+        // edge scrolls the pitches.
+        if (const auto marker = markerAt (position); marker != 0)
+        {
+            showOutOfView (marker > 0);
+            return;
+        }
+
+        if (pitchScrollBounds().expanded (2.0f, 0.0f).contains (position))
+        {
+            dragMode = Drag::pitchScroll;
+            scrollOrigin = (float) lowNote;
+            pitchViewTouched = true;
+            const auto rows = visibleRows();
+            const auto thumb = pitchThumb();
+
+            // A click off the thumb jumps it there first.
+            if (! thumb.contains (position))
+            {
+                lowNote = juce::jlimit (0, 128 - rows, juce::roundToInt ((grid.getBottom() - position.y) / grid.getHeight() * 128.0f
+                                                                         - (float) rows * 0.5f));
+                scrollOrigin = (float) lowNote;
+                repaint();
+            }
+
+            return;
+        }
 
         // The ruler: drag to scroll in time, double-click to fit the clip.
         if (rulerBounds().contains (position))
@@ -305,6 +396,7 @@ public:
         if (keysBounds().contains (position))
         {
             dragMode = Drag::keys;
+            pitchViewTouched = true;
             scrollOrigin = (float) lowNote;
             audition (yToNote (position.y), lastVelocity);
             return;
@@ -374,6 +466,35 @@ public:
         if (! grid.contains (position))
             return;
 
+        // DRAW: a click places a note in the cell under it, dragging on
+        // paints a run along the grid at the pointer's pitch (Alt: stretches
+        // the placed note instead).
+        if (drawMode)
+        {
+            if ((int) clip.notes.size() >= ClipState::maxNotes)
+                return;
+
+            const auto stretch = event.mods.isAltDown();
+            startGesture (stretch ? Drag::resize : Drag::paint, stretch ? "Add clip note" : "Draw clip notes");
+            ClipNote n;
+            n.start = floorToGrid (xToBeat (position.x));
+            n.length = lastLength;
+            n.note = yToNote (position.y);
+            n.velocity = lastVelocity;
+            constrain (n);
+            clip.notes.push_back (n);
+            selectOnly ((int) clip.notes.size() - 1);
+            dragHit = (int) clip.notes.size() - 1;
+            dragOrigin = clip;
+            dragNote = n.note;
+            paintOrigin = n.start;
+            paintCells.clear();
+            paintCells.push_back (0);
+            commit();
+            audition (n.note, n.velocity);
+            return;
+        }
+
         // A double-click on empty space adds a note in the grid cell under
         // it; dragging on moves it.
         if (event.getNumberOfClicks() >= 2)
@@ -417,6 +538,21 @@ public:
             viewStart = scrollOrigin - (float) event.getDistanceFromDragStartX() / gridBounds().getWidth() * viewBeats();
             clampView();
             repaint();
+            return;
+        }
+
+        if (dragMode == Drag::pitchScroll)
+        {
+            const auto rows = visibleRows();
+            lowNote = juce::jlimit (0, 128 - rows, juce::roundToInt (scrollOrigin - (float) event.getDistanceFromDragStartY()
+                                                                                     / gridBounds().getHeight() * 128.0f));
+            repaint();
+            return;
+        }
+
+        if (dragMode == Drag::paint)
+        {
+            paintRun (position);
             return;
         }
 
@@ -508,6 +644,10 @@ public:
         const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
         const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
 
+        if (event.mods.isAltDown() || ! (event.mods.isCommandDown() || event.mods.isCtrlDown() || event.mods.isShiftDown()
+                                         || std::abs (wheel.deltaX) > std::abs (wheel.deltaY)))
+            pitchViewTouched = true;
+
         if (event.mods.isAltDown())
         {
             // Zoom the pitches (taller or shorter rows) around the pointer's note.
@@ -582,6 +722,12 @@ public:
         if (letter == 'Q' && ! modifiers.isAltDown())
             return quantise();
 
+        if (letter == 'D' && ! modifiers.isAltDown())
+        {
+            setDrawMode (! drawMode);
+            return true;
+        }
+
         const auto shift = modifiers.isShiftDown();
 
         if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
@@ -612,8 +758,17 @@ public:
         selected.assign (clip.notes.size(), false); // the order may have changed
         clampView();
 
+        // A clip opened (or replaced from outside: a preset, an import, an
+        // undo) fits its notes, unless the pitches were scrolled by hand and
+        // some of its notes are still in view.
+        const auto [above, below] = notesOutOfView();
+        const auto noneInView = ! clip.notes.empty() && above + below == (int) clip.notes.size();
+
         if (changedClip || force)
-            centreOnNotes();
+            pitchViewTouched = false;
+
+        if (changedClip || force || ! pitchViewTouched || noneInView)
+            fitPitchToNotes();
 
         repaint();
     }
@@ -763,7 +918,7 @@ private:
     static constexpr float rulerHeight = 18.0f;
     static constexpr float headSize = 5.0f; // a velocity stem's head
     static constexpr int auditionMs = 250;
-    enum class Drag { none, move, resize, velocity, select, scroll, keys };
+    enum class Drag { none, move, resize, velocity, select, scroll, keys, pitchScroll, paint };
 
     struct Clipboard
     {
@@ -913,10 +1068,8 @@ private:
             g.fillPath (marker);
         }
 
-        // The corner over the keys: the grid in use.
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText (gridName (gridIndex), ruler.withRight (grid.getX() - 4.0f).withTrimmedLeft (4.0f).toNearestInt(),
-                    juce::Justification::centredLeft, false);
+        // (The corner over the keys stays empty: GRID is the menu below the
+        // roll, review 7, S7-38.)
     }
 
     // One note: a block in its row (velocity sets its strength), a stem in
@@ -926,10 +1079,13 @@ private:
     void paintNote (juce::Graphics& g, const ClipNote& n, bool isSelected, bool anySelected, bool on,
                     juce::Rectangle<float> grid, juce::Rectangle<float> lane, float rowHeight) const
     {
+        // With a selection made the others go grey and faint, so the picked
+        // notes read at a glance (review 7, V7-38).
         const auto shade = 0.5f + 0.5f * (float) n.velocity / 127.0f;
-        const auto strength = (on ? 1.0f : 0.6f) * (anySelected && ! isSelected ? 0.55f : 1.0f);
-        const auto fill = isSelected ? colour.interpolatedWith (juce::Colours::white, 0.4f)
-                                     : colour.withAlpha (shade * strength);
+        const auto stepsBack = anySelected && ! isSelected;
+        const auto strength = (on ? 1.0f : 0.6f) * (stepsBack ? 0.4f : 1.0f);
+        const auto fill = isSelected ? colour.interpolatedWith (juce::Colours::white, 0.45f)
+                                     : (stepsBack ? colour.withMultipliedSaturation (0.35f) : colour).withAlpha (shade * strength);
 
         // Its velocity: a stem with a head at the level.
         const auto x = beatToX (n.start);
@@ -955,13 +1111,13 @@ private:
 
         if (isSelected)
         {
-            g.setColour (colour.withAlpha (0.35f));
-            g.fillRoundedRectangle (r.expanded (2.0f), 3.5f);
+            g.setColour (colour.withAlpha (0.45f));
+            g.fillRoundedRectangle (r.expanded (2.5f), 4.0f);
         }
 
         g.setColour (fill);
         g.fillRoundedRectangle (r, 2.0f);
-        g.setColour (isSelected ? juce::Colours::white : juce::Colours::black.withAlpha (0.45f));
+        g.setColour (isSelected ? juce::Colours::white : juce::Colours::black.withAlpha (stepsBack ? 0.25f : 0.45f));
         g.drawRoundedRectangle (r.reduced (isSelected ? 0.75f : 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
 
         // A wide enough note names itself.
@@ -1033,6 +1189,182 @@ private:
     // of them.
     int visibleRows() const { return juce::jlimit (8, 72, juce::roundToInt (gridBounds().getHeight() / (12.0f * rowScale))); }
 
+    // The bar at the grid's right edge: the rows shown out of the 128, the
+    // clip's pitch span marked on its track.
+    juce::Rectangle<float> pitchScrollBounds() const
+    {
+        const auto grid = gridBounds();
+        return { grid.getRight() + 1.5f, grid.getY(), 4.0f, grid.getHeight() };
+    }
+
+    juce::Rectangle<float> pitchThumb() const
+    {
+        const auto track = pitchScrollBounds();
+        const auto rows = (float) visibleRows();
+        const auto top = track.getBottom() - track.getHeight() * ((float) lowNote + rows) / 128.0f;
+        return { track.getX(), top, track.getWidth(), juce::jmax (8.0f, track.getHeight() * rows / 128.0f) };
+    }
+
+    void paintPitchScroll (juce::Graphics& g, juce::Rectangle<float> grid, int rows) const
+    {
+        const auto track = pitchScrollBounds();
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRoundedRectangle (track, 2.0f);
+
+        if (! clip.notes.empty())
+        {
+            auto lowest = 127, highest = 0;
+
+            for (const auto& n : clip.notes)
+            {
+                lowest = juce::jmin (lowest, n.note);
+                highest = juce::jmax (highest, n.note);
+            }
+
+            const auto y = [&track] (float note) { return track.getBottom() - track.getHeight() * note / 128.0f; };
+            g.setColour (colour.withAlpha (0.55f));
+            g.fillRect (juce::Rectangle<float> (track.getX() + 1.0f, y ((float) highest + 1.0f), 2.0f,
+                                                juce::jmax (2.0f, y ((float) lowest) - y ((float) highest + 1.0f))));
+        }
+
+        const auto hovered = isMouseOver() && pitchScrollBounds().expanded (2.0f, 0.0f).contains (getMouseXYRelative().toFloat());
+        g.setColour (juce::Colours::white.withAlpha (dragMode == Drag::pitchScroll || hovered ? 0.6f : 0.35f));
+        g.drawRoundedRectangle (pitchThumb().reduced (0.5f), 2.0f, 1.0f);
+
+        // Notes above or below the rows shown: "▲ 3" / "▼ 2" at the edges.
+        const auto [above, below] = notesOutOfView();
+
+        for (const auto up : { true, false })
+        {
+            const auto count = up ? above : below;
+
+            if (count == 0)
+                continue;
+
+            const auto plate = markerBounds (up);
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.92f));
+            g.fillRoundedRectangle (plate, 8.0f);
+            g.setColour (colour.withAlpha (0.8f));
+            g.drawRoundedRectangle (plate.reduced (0.5f), 8.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::String (juce::CharPointer_UTF8 (up ? "\xe2\x96\xb2 " : "\xe2\x96\xbc ")) + juce::String (count),
+                        plate.toNearestInt(), juce::Justification::centred, false);
+        }
+
+        juce::ignoreUnused (grid, rows);
+    }
+
+    juce::Rectangle<float> markerBounds (bool up) const
+    {
+        const auto grid = gridBounds();
+        const auto plate = juce::Rectangle<float> (40.0f, 16.0f);
+        return up ? plate.withPosition (grid.getRight() - 46.0f, grid.getY() + 4.0f)
+                  : plate.withPosition (grid.getRight() - 46.0f, grid.getBottom() - 20.0f);
+    }
+
+    // +1 over the "above" marker, -1 over the "below" one, else 0.
+    int markerAt (juce::Point<float> position) const
+    {
+        const auto [above, below] = notesOutOfView();
+
+        if (above > 0 && markerBounds (true).contains (position))
+            return 1;
+
+        return below > 0 && markerBounds (false).contains (position) ? -1 : 0;
+    }
+
+    // Scrolls just far enough to bring the nearest notes out of view above
+    // (or below) to the edge.
+    void showOutOfView (bool up)
+    {
+        const auto rows = visibleRows();
+        const auto highest = lowNote + rows - 1;
+        auto target = up ? 128 : -1;
+
+        for (const auto& n : clip.notes)
+            target = up ? (n.note > highest ? juce::jmin (target, n.note) : target)
+                        : (n.note < lowNote ? juce::jmax (target, n.note) : target);
+
+        if (target < 0 || target > 127)
+            return;
+
+        // Up: the nearest note above lands a row under the top; down: the
+        // nearest below a row over the foot.
+        lowNote = juce::jlimit (0, 128 - rows, up ? target - rows + 2 : target - 1);
+        pitchViewTouched = true;
+        repaint();
+    }
+
+    // DRAW's run: a note in every grid cell the pointer crosses (cells of the
+    // last length, on the grid), at the pointer's pitch, never two in one cell.
+    void paintRun (juce::Point<float> position)
+    {
+        const auto spacing = juce::jmax (gridStep(), ceilToGrid (lastLength));
+        const auto cell = (int) std::floor ((xToBeat (position.x) - paintOrigin) / spacing + 1.0e-4f);
+        const auto last = paintCells.empty() ? 0 : paintCells.back();
+        const auto direction = cell >= last ? 1 : -1;
+        auto added = false;
+
+        for (auto c = last; c != cell + direction; c += direction)
+        {
+            const auto start = paintOrigin + (float) c * spacing;
+
+            if (std::find (paintCells.begin(), paintCells.end(), c) != paintCells.end()
+                || start < -1.0e-4f || start > (float) lengthBeats() - shortestNote() + 1.0e-4f
+                || (int) clip.notes.size() >= ClipState::maxNotes)
+                continue;
+
+            ClipNote n;
+            n.start = start;
+            n.length = lastLength;
+            n.note = yToNote (position.y);
+            n.velocity = lastVelocity;
+            constrain (n);
+            clip.notes.push_back (n);
+            selected.push_back (true);
+            paintCells.push_back (c);
+            added = true;
+        }
+
+        if (added)
+        {
+            commit();
+            const auto note = clip.notes.back().note;
+
+            if (note != dragNote)
+            {
+                dragNote = note;
+                audition (note, lastVelocity);
+            }
+        }
+    }
+
+    // Rows tall enough to show every note of the clip, down to 9 px (the
+    // notes keep their names), then the view that shows the most of them.
+    void fitPitchToNotes()
+    {
+        rowScale = 1.0f;
+
+        if (! clip.notes.empty() && getHeight() > 0)
+        {
+            auto lowest = 127, highest = 0;
+
+            for (const auto& n : clip.notes)
+            {
+                lowest = juce::jmin (lowest, n.note);
+                highest = juce::jmax (highest, n.note);
+            }
+
+            const auto span = highest - lowest + 3; // a row spare at each side
+
+            if (span > visibleRows())
+                rowScale = juce::jlimit (0.75f, 1.0f, gridBounds().getHeight() / (12.0f * (float) span));
+        }
+
+        centreOnNotes();
+    }
+
     void centreOnNotes()
     {
         auto centre = 60;
@@ -1052,6 +1384,25 @@ private:
 
         const auto rows = visibleRows();
         lowNote = juce::jlimit (0, 128 - rows, centre - rows / 2);
+
+        // A clip wider than the rows: the window holding the most notes,
+        // the one nearest the centre among equals (the edge markers count
+        // the rest).
+        auto best = -1;
+
+        for (auto low = juce::jmax (0, lowNote - rows); low <= juce::jmin (128 - rows, lowNote + rows); ++low)
+        {
+            auto inView = 0;
+
+            for (const auto& n : clip.notes)
+                inView += n.note >= low && n.note < low + rows ? 1 : 0;
+
+            if (inView > best || (inView == best && std::abs (low - (centre - rows / 2)) < std::abs (lowNote - (centre - rows / 2))))
+            {
+                best = inView;
+                lowNote = low;
+            }
+        }
     }
 
     float beatToX (float beat) const { return gridBounds().getX() + gridBounds().getWidth() * (beat - viewStart) / viewBeats(); }
@@ -1254,6 +1605,10 @@ private:
     int lowNote = 48;
     int gridIndex = defaultGrid;
     float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
+    bool drawMode = false;
+    bool pitchViewTouched = false; // the pitches scrolled or zoomed by hand
+    float paintOrigin = 0.0f;      // DRAW: the first note's start
+    std::vector<int> paintCells;   // DRAW: the cells painted, in order
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;
     int dragHit = -1, dragNote = -1;

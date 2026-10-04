@@ -4,12 +4,12 @@ The rules every page follows, so a control looks and reads the same wherever it 
 
 ## On/off switches
 - **A card's own module** (WEST, BODY, VECTOR, SUB + NOISE, an FX card, an oscillator): the switch sits in the card header, at the right (`IlanaTheme::cardSwitchBounds`).
-- **A tabbed card's engines** (SEQ's ARP / PROB SEQ / CLIP, the FM operators): the tab says whether its engine is on with the on dot (below); the engine's switch is in its tab, not in the body.
+- **A tabbed card's engines** (SEQ's ARP / PROB SEQ / CLIP, the FM operators): the engine's switch is in its tab, not in the body. Where a click in the tab is the engine's power (`CardTabs::onToggle`, SEQ's PATTERN tabs), the tab draws a small switch left of its name, clicked apart from the tab itself; otherwise the tab shows the on dot (below).
 - **A part inside a card** (SNAP TO KEY, STRUM, SPRAY): a switch in its sub-box header, with the state word after it.
 - Never state "on" or "off" in text without a switch beside it.
 
 ## The on dot
-- Every tab that names something that can be switched on or off shows one indicator: a lit dot with a halo while on, a quiet ring while off (`IlanaTheme::paintOnDot`, used by `CardTabs`, `StateTabs` and the FM operator pills).
+- Every tab that names something that can be switched on or off shows one indicator: a lit dot with a halo while on, a quiet ring while off (`IlanaTheme::paintOnDot`, used by `CardTabs`, `StateTabs` and the FM operator pills), or, in a `CardTabs` with `onToggle`, the tab's switch in its place.
 - Tabs that name things that are always on (AMP ENV / FILT ENV, F1 / F2) have no dot.
 
 ## Captions and hints

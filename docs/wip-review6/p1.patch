@@ -2444,17 +2444,10 @@ index 5d43bb8..ad2a0be 100644
 +    float leaveSeconds = 0.0f;
  };
 diff --git a/src/gui/ParamControls.h b/src/gui/ParamControls.h
-index f6b1df3..ca31d20 100644
+index f6b1df3..1f01698 100644
 --- a/src/gui/ParamControls.h
 +++ b/src/gui/ParamControls.h
-@@ -1,4 +1,6 @@
- #pragma once
-+#include <iostream>
-+#define DBG_RING_PRINT std::cout << "RINGDBG " << travel << " " << dragStartDepth << " " << depth << " slot " << dragSlot << std::endl;
- 
- #include <juce_audio_processors/juce_audio_processors.h>
- 
-@@ -7,6 +9,7 @@
+@@ -7,6 +7,7 @@
  #include "../PluginProcessor.h"
  #include "AnimationUtils.h"
  #include "IlanaLookAndFeel.h"
@@ -2462,7 +2455,7 @@ index f6b1df3..ca31d20 100644
  #include "ParamInfo.h"
  
  struct ModRingConfig
-@@ -110,15 +113,12 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
+@@ -110,15 +111,12 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
  inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processor, Mod::Source source,
                                          juce::StringArray targets = {})
  {
@@ -2480,7 +2473,7 @@ index f6b1df3..ca31d20 100644
      }
  
      if (targets.isEmpty())
-@@ -227,6 +227,9 @@ struct ModHoverHooks
+@@ -227,6 +225,9 @@ struct ModHoverHooks
      // True while the mouse is on the knob's card (or dragging a row, or its
      // menu is open), so the card stays when the mouse moves onto it.
      std::function<bool (const juce::Component&)> engaged;
@@ -2490,7 +2483,7 @@ index f6b1df3..ca31d20 100644
  };
  
  inline ModHoverHooks& modHoverHooks()
-@@ -241,11 +244,13 @@ inline juce::String& knobClipboard()
+@@ -241,11 +242,13 @@ inline juce::String& knobClipboard()
      return value;
  }
  
@@ -2509,7 +2502,7 @@ index f6b1df3..ca31d20 100644
  class ModDotStrip : public juce::Component,
                      public juce::SettableTooltipClient
  {
-@@ -256,6 +261,7 @@ public:
+@@ -256,6 +259,7 @@ public:
          int source = 0;
          float depth = 0.0f;
          bool bypass = false;
@@ -2517,7 +2510,7 @@ index f6b1df3..ca31d20 100644
      };
  
      std::function<void (int slot, float depth)> onDepthChange;
-@@ -267,6 +273,8 @@ public:
+@@ -267,6 +271,8 @@ public:
      // A depth drag's start and end (one undo step).
      std::function<void (int source)> onDragStart;
      std::function<void()> onDragEnd;
@@ -2526,7 +2519,7 @@ index f6b1df3..ca31d20 100644
  
      void setDots (const std::vector<Dot>& newDots)
      {
-@@ -278,22 +286,33 @@ public:
+@@ -278,22 +284,33 @@ public:
          repaint();
      }
  
@@ -2566,7 +2559,7 @@ index f6b1df3..ca31d20 100644
  
              // Fill shows the depth: a pie from 12 o'clock, clockwise for
              // positive and anticlockwise for negative.
-@@ -302,27 +321,30 @@ public:
+@@ -302,27 +319,32 @@ public:
  
              juce::Path pie;
              const auto angle = juce::jlimit (-1.0f, 1.0f, dot.depth) * juce::MathConstants<float>::twoPi;
@@ -2608,7 +2601,9 @@ index f6b1df3..ca31d20 100644
 +            g.drawEllipse (area.reduced (0.5f), 1.0f);
 +            g.setColour (IlanaTheme::Ui::text);
 +            g.setFont (IlanaTheme::font (9.5f, true));
-+            g.drawText ("+" + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f), juce::Justification::centred);
++            // (With no room for any badge, it just counts the routings.)
++            g.drawText ((numShown() > 0 ? "+" : "") + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f),
++                        juce::Justification::centred);
          }
      }
  
@@ -2783,7 +2778,7 @@ index f6b1df3..ca31d20 100644
  
          attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, slider);
  
-@@ -639,6 +710,17 @@ public:
+@@ -639,6 +710,19 @@ public:
      // The modulation destination whose depth the knob's ring shows (0: none).
      int getRingDestination() const { return ringConfig.destination; }
      int getNumRoutings() const { return (int) routings.size(); }
@@ -2797,11 +2792,22 @@ index f6b1df3..ca31d20 100644
 +        return rotaryArea().getCentre().getPointOnCircumference (ringRadius (ring), angle);
 +    }
 +    juce::Component& getRingOverlay() { return ringOverlay; }
++    // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
++    void syncRoutings() { refreshRoutings(); }
 +    ModDotStrip& getDotStrip() { return dotStrip; }
      // Whether a mod slot routes this source into the knob, and whether the
      // source pinned by a chip click is one of them (the knob is lit).
      bool isDrivenBy (int source) const { return routesFrom (source); }
-@@ -756,14 +838,14 @@ public:
+@@ -714,7 +798,7 @@ public:
+         modCardHeld = held;
+         if (modHoverHooks().show != nullptr && ! routings.empty())
+         {
+-            modHoverHooks().show (*this, ringConfig.destination, parameter != nullptr ? parameter->getName (40) : label.getText());
++            modHoverHooks().show (*this, ringConfig.destination, ModNames::destination (ringConfig.destination).toUpperCase());
+             modCardOpen = true;
+         }
+     }
+@@ -756,14 +840,14 @@ public:
          }
  
          // A hovered or pinned source lights up every knob it modulates: a
@@ -2819,7 +2825,7 @@ index f6b1df3..ca31d20 100644
              const juce::Graphics::ScopedSaveState clip (g);
              g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
              g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
-@@ -776,49 +858,97 @@ public:
+@@ -776,49 +860,97 @@ public:
              g.fillRoundedRectangle (knobBounds.toFloat().reduced (2.0f), 6.0f);
          }
  
@@ -2827,7 +2833,11 @@ index f6b1df3..ca31d20 100644
 -            return;
 +        paintRings (g, highlighted);
 +    }
-+
+ 
+-        const auto lineWidth = 2.0f;
+-        const auto arcRadius = knobRadius - lineWidth * 0.5f;
+-        const auto startAngle = juce::MathConstants<float>::pi * 1.2f;
+-        const auto endAngle = juce::MathConstants<float>::pi * 2.8f;
 +    // The knob's modulation rings (Vital and Serum 2 style): one concentric
 +    // ring per routing, outward from just outside the value arc, in the
 +    // source's colour. Each spans the range its routing can sweep from the
@@ -2838,11 +2848,7 @@ index f6b1df3..ca31d20 100644
 +    {
 +        const auto count = numRings();
 +        const auto knobRadius = knobRadiusFor (knobBounds);
- 
--        const auto lineWidth = 2.0f;
--        const auto arcRadius = knobRadius - lineWidth * 0.5f;
--        const auto startAngle = juce::MathConstants<float>::pi * 1.2f;
--        const auto endAngle = juce::MathConstants<float>::pi * 2.8f;
++
 +        if (count == 0 || knobRadius < 8.0f)
 +            return;
  
@@ -2953,7 +2959,7 @@ index f6b1df3..ca31d20 100644
      }
  
      void resized() override
-@@ -903,6 +1033,176 @@ public:
+@@ -903,6 +1035,197 @@ public:
      }
  
  private:
@@ -2966,7 +2972,24 @@ index f6b1df3..ca31d20 100644
 +    static constexpr int maxRings = 3;
 +
 +    int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
-+    float ringRadius (int index) const { return knobRadiusFor (knobBounds) - 1.0f + (float) index * ringPitch; }
++
++    // A knob in a narrow cell has little room either side of its dial: the
++    // rings close up (and at worst step in over the value arc) rather than
++    // run off the knob's edge.
++    float ringRadius (int index) const
++    {
++        const auto count = numRings();
++        const auto centreX = rotaryArea().getCentreX();
++        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 1.5f;
++        auto base = knobRadiusFor (knobBounds) - 1.0f;
++        auto pitch = ringPitch;
++
++        if (count > 1)
++            pitch = juce::jlimit (2.0f, ringPitch, (room - base) / (float) (count - 1));
++
++        base = juce::jmin (base, room - pitch * (float) (count - 1));
++        return base + (float) index * pitch;
++    }
 +    float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
 +
 +    // The ring under a point (local to the knob), or -1: within the ring band
@@ -2991,7 +3014,12 @@ index f6b1df3..ca31d20 100644
 +        if (angle > juce::MathConstants<float>::pi * 0.8f && angle < juce::MathConstants<float>::pi * 1.2f)
 +            return -1;
 +
-+        return juce::jlimit (0, count - 1, juce::roundToInt ((distance - ringRadius (0)) / ringPitch));
++        auto nearest = 0;
++        for (int i = 1; i < count; ++i)
++            if (std::abs (distance - ringRadius (i)) < std::abs (distance - ringRadius (nearest)))
++                nearest = i;
++
++        return nearest;
 +    }
 +
 +    // Catches presses on the rings (over the slider); the rest of the knob
@@ -3042,7 +3070,6 @@ index f6b1df3..ca31d20 100644
 +            const auto fine = event.mods.isShiftDown() ? 0.2f : 1.0f;
 +            const auto travel = (float) (event.getDistanceFromDragStartX() - event.getDistanceFromDragStartY());
 +            const auto depth = juce::jlimit (-1.0f, 1.0f, dragStartDepth + travel * 0.006f * fine);
-+            DBG_RING_PRINT
 +
 +            if (juce::isPositiveAndBelow (owner.draggedRing, (int) owner.routings.size()))
 +                owner.routings[(size_t) owner.draggedRing].depth = depth;
@@ -3130,7 +3157,7 @@ index f6b1df3..ca31d20 100644
      float knobRadiusFor (juce::Rectangle<int>) const
      {
          // Deliberately not reduced like the knob itself: the mod ring sits
-@@ -940,16 +1240,24 @@ private:
+@@ -940,16 +1263,32 @@ private:
          return true;
      }
  
@@ -3140,14 +3167,23 @@ index f6b1df3..ca31d20 100644
      {
          const auto area = rotaryArea();
          const auto radius = knobRadiusFor (knobBounds);
-+        dotStrip.setMaxVisible ((int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch);
-         const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
+-        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
 -        const auto x = (int) (area.getCentreX() + radius + 3.0f);
 -        const auto y = (int) (area.getCentreY() - radius + 2.0f);
 +        const auto x = (int) (area.getCentreX() + outerRingRadius() + 1.0f);
-+        const auto y = (int) (area.getCentreY() - radius);
++        auto y = (int) (area.getCentreY() - radius);
++
++        // Beside the rings, a column of badges as tall as the dial. A knob
++        // too narrow for that gets one badge in its top corner: the routing's
++        // own, or the count of them (the rings still show each one).
++        const auto roomBeside = getWidth() - x >= ModDotStrip::stripWidth - 3;
++        dotStrip.setMaxVisible (roomBeside ? (int) (area.getHeight() + 2.0f) / ModDotStrip::dotPitch : 1);
  
 -        dotStrip.setBounds (juce::jmin (x, getWidth() - 12), y, 12, height);
++        if (! roomBeside)
++            y -= ModDotStrip::dotPitch / 2;
++
++        const auto height = juce::jmax (ModDotStrip::dotPitch, dotStrip.getPreferredHeight());
 +        dotStrip.setBounds (juce::jmin (x, getWidth() - ModDotStrip::stripWidth), juce::jmax (0, y), ModDotStrip::stripWidth, height);
          dotStrip.setVisible (! routings.empty() && ! compact);
 +
@@ -3158,7 +3194,7 @@ index f6b1df3..ca31d20 100644
      }
  
      // Re-reads which mod slots route into this knob. Cheap (raw parameter
-@@ -963,14 +1271,16 @@ private:
+@@ -963,14 +1302,16 @@ private:
          auto strongest = 0.0f;
          dominantSource = 0;
  
@@ -3177,7 +3213,7 @@ index f6b1df3..ca31d20 100644
  
              if (! slot.bypass && std::abs (slot.depth) > strongest)
              {
-@@ -983,9 +1293,11 @@ private:
+@@ -983,9 +1324,10 @@ private:
                               || ! std::equal (found.begin(), found.end(), routings.begin(),
                                                [] (const auto& a, const auto& b)
                                                { return a.slot == b.slot && a.source == b.source && a.bypass == b.bypass
@@ -3186,12 +3222,11 @@ index f6b1df3..ca31d20 100644
  
 -        if (! changed)
 +        // Mid-drag the ring keeps its own depth (the parameter catches up).
-+        if (parameterId == "f1_cutoff") std::cout << "REFRESH changed " << changed << " dragged " << draggedRing << " n " << found.size() << std::endl;
 +        if (! changed || draggedRing >= 0)
              return;
  
          routings = std::move (found);
-@@ -1003,23 +1315,8 @@ private:
+@@ -1003,23 +1345,8 @@ private:
  
          if (ringConfig.destination != 0)
          {
@@ -3217,7 +3252,7 @@ index f6b1df3..ca31d20 100644
              menu.addSubMenu ("Modulate with", sourceMenu);
  
              if (! routings.empty())
-@@ -1027,7 +1324,7 @@ private:
+@@ -1027,7 +1354,7 @@ private:
                  juce::PopupMenu removeMenu;
  
                  for (const auto& dot : routings)
@@ -3226,7 +3261,7 @@ index f6b1df3..ca31d20 100644
                                                               + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
  
                  menu.addSubMenu ("Remove modulation", removeMenu);
-@@ -1184,7 +1481,18 @@ private:
+@@ -1184,7 +1511,18 @@ private:
          }
  
          const auto highlighted = highlightedModSource() * 1000 + pinnedModSource();
@@ -3246,7 +3281,7 @@ index f6b1df3..ca31d20 100644
  
          if (std::abs (modValue - lastModValue) > 0.002f || highlighted != lastHighlighted)
          {
-@@ -1201,6 +1509,9 @@ private:
+@@ -1201,6 +1539,9 @@ private:
      juce::Slider slider;
      juce::Label label;
      ModDotStrip dotStrip;
@@ -3798,10 +3833,10 @@ index ba39f4a..ff1d38c 100644
  
 diff --git a/tools/ModulationUiTests.h b/tools/ModulationUiTests.h
 new file mode 100644
-index 0000000..639a025
+index 0000000..fc1f122
 --- /dev/null
 +++ b/tools/ModulationUiTests.h
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,311 @@
 +// UI review 6, P1 (modulation): the depth rings and badges on a knob, the
 +// eight-macro strip and its cards, and the matrix's names, Uni/Bi, idle rows
 +// and merging. Included from Snapshot.cpp after its helpers (findAll,
@@ -3859,6 +3894,8 @@ index 0000000..639a025
 +        routeSlot (1, Mod::Source::Lfo2, Mod::Destination::Filter1Cutoff, -0.4f);
 +        settle (300);
 +        auto* cutoff = findKnob ("f1_cutoff");
++        if (cutoff != nullptr)
++            cutoff->syncRoutings();
 +        expect (cutoff != nullptr && cutoff->getNumRoutings() == 2 && cutoff->getNumRings() == 2,
 +                "a knob with two routings draws two depth rings");
 +
@@ -3871,14 +3908,9 @@ index 0000000..639a025
 +                        && ! overlay.hitTest ((int) centre.x, (int) centre.y),
 +                    "a press on a ring is the ring's, a press on the dial is the knob's");
 +
-+            for (int i = 0; i < Mod::maxSlots; ++i)
-+                if (processor.readModSlot (i).destination == (int) Mod::Destination::Filter1Cutoff)
-+                    std::cout << "DEBUG slot " << i << " src " << (int) processor.readModSlot (i).source << " depth " << processor.readModSlot (i).depth << std::endl;
 +            clearHistory();
 +            overlay.mouseDown (mouseAt (overlay, start, start));
-+            const auto beforeDrag = processor.readModSlot (0).depth;
 +            overlay.mouseDrag (mouseAt (overlay, start.translated (0.0f, -50.0f), start));
-+            std::cout << "DEBUG ring " << beforeDrag << " -> " << processor.readModSlot (0).depth << " / " << processor.readModSlot (1).depth << std::endl;
 +            overlay.mouseUp (mouseAt (overlay, start.translated (0.0f, -50.0f), start));
 +            settle (100);
 +            const auto dragged = processor.readModSlot (0).depth;
@@ -3891,6 +3923,7 @@ index 0000000..639a025
 +                        + "% as one undo step, and leaves LFO 2's alone");
 +
 +            const auto other = overlay.getLocalPoint (cutoff, cutoff->getRingPoint (1, 0.7f));
++            cutoff->syncRoutings();
 +            overlay.mouseDoubleClick (mouseAt (overlay, other, other, 2));
 +            settle (100);
 +            expect (processor.readModSlot (1).source == Mod::Source::Lfo2 && std::abs (processor.readModSlot (1).depth) < 1.0e-4f,
@@ -3906,6 +3939,7 @@ index 0000000..639a025
 +        cutoff = findKnob ("f1_cutoff");
 +        if (cutoff != nullptr)
 +        {
++            cutoff->syncRoutings();
 +            auto& strip = cutoff->getDotStrip();
 +            expect (ModDotStrip::dotSize >= 14 && cutoff->getNumRoutings() == 9 && cutoff->getNumRings() == 3 && strip.hasOverflow()
 +                        && strip.getNumShown() < 9 && strip.getHeight() <= cutoff->getHeight(),
@@ -3991,10 +4025,17 @@ index 0000000..639a025
 +                    "MACRO 1's card lists its two targets and warns '" + warnings.joinIntoString ("; ") + "'; the strip marks it");
 +            card->close();
 +
++            processor.assignFxSlot (1, 13); // Reverb (which switches it on)
++            set ("fx_reverb_on", 0.0f);
++            settle (100);
++            const auto inRackButOff = ModNames::whyDestinationIsIdle (processor, (int) Mod::Destination::FxReverbMix);
 +            set ("fx_reverb_on", 1.0f);
 +            settle (700);
-+            expect (macro1->getNumIdleTargets() == 0 || ModNames::whyDestinationIsIdle (processor, (int) Mod::Destination::FxReverbMix).isNotEmpty(),
-+                    "switching the reverb on clears the macro's warning (or names why it still can't be heard)");
++            expect (inRackButOff.contains ("switched off") && macro1->getNumIdleTargets() == 0
++                        && ModNames::whyDestinationIsIdle (processor, (int) Mod::Destination::FxReverbMix).isEmpty(),
++                    "with the reverb in the rack but off the card still warns ('" + inRackButOff
++                        + "'); switching it on clears the macro's warning");
++            processor.assignFxSlot (1, 0);
 +        }
 +        else
 +        {
@@ -4004,8 +4045,8 @@ index 0000000..639a025
 +        set ("fx_reverb_on", 0.0f);
 +    }
 +
-+    // The matrix: display names, Aux: none, Uni/Bi, dimmed idle rows, a
-+    // live bar and merging repeated rows (V5-8, S5-9, S6-29, S6-30, I6-14).
++    // The matrix: display names, Aux: none, Uni/Bi, dimmed idle rows and
++    // merging repeated rows (V5-8, S5-9, S6-29, S6-30, I6-14).
 +    {
 +        editor.showPage ("MATRIX");
 +        settle (400);
@@ -4054,15 +4095,13 @@ index 0000000..639a025
 +                    "UNI | BI sets unipolar and bipolar, and a second click goes back to Auto");
 +        }
 +
-+        // A playing LFO routing shows a live bar.
-+        routeSlot (2, Mod::Source::Lfo1, Mod::Destination::Filter1Reso, 0.8f);
-+        processor.processBlock (*std::make_unique<juce::AudioBuffer<float>> (2, 512), *std::make_unique<juce::MidiBuffer>());
-+        settle (300);
-+
 +        // Two rows with the same source and destination: MERGE REPEATS
 +        // folds them into one with the summed depth, as one undo step.
 +        routeSlot (3, Mod::Source::Lfo4, Mod::Destination::Filter1Reso, 0.2f);
 +        routeSlot (4, Mod::Source::Lfo4, Mod::Destination::Filter1Reso, 0.3f);
++        editor.showPage ("MAIN"); // (the page reads its rows as it's shown)
++        settle (100);
++        editor.showPage ("MATRIX");
 +        settle (400);
 +        juce::TextButton* merge = nullptr;
 +        buttons.clear();

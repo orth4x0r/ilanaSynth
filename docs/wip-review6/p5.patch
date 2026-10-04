@@ -1583,7 +1583,7 @@ index 350dfba..28d52ec 100644
              const auto before = meterGr;
 diff --git a/src/gui/FxLibrary.h b/src/gui/FxLibrary.h
 new file mode 100644
-index 0000000..cc62774
+index 0000000..c4b0b22
 --- /dev/null
 +++ b/src/gui/FxLibrary.h
 @@ -0,0 +1,584 @@
@@ -1982,7 +1982,7 @@ index 0000000..cc62774
 +        {
 +            juce::Graphics::ScopedSaveState state (g);
 +            g.reduceClipRegion (bounds.withWidth (bounds.getWidth() * amount).toNearestInt());
-+            g.setColour (colour.withAlpha (isEnabled() ? 0.32f : 0.15f));
++            g.setColour (colour.withAlpha (isEnabled() ? 0.22f : 0.1f));
 +            g.fillRoundedRectangle (bounds, radius);
 +        }
 +        g.setColour (isMouseOverOrDragging() ? colour.withAlpha (0.8f) : IlanaTheme::Ui::line.brighter (0.15f));
@@ -2562,7 +2562,7 @@ index 9beb6c2..6b0e722 100644
  
      IlanaSynthAudioProcessor& processorRef;
 diff --git a/src/gui/pages/FxPage.h b/src/gui/pages/FxPage.h
-index 22b5f5d..39a98de 100644
+index 22b5f5d..5bf8b43 100644
 --- a/src/gui/pages/FxPage.h
 +++ b/src/gui/pages/FxPage.h
 @@ -243,10 +243,6 @@ public:
@@ -3637,7 +3637,7 @@ index 22b5f5d..39a98de 100644
 +    // family's display on the left where the module has one. Cards whose
 +    // controls fit in half the width sit two to a row (S6-26).
 +    static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
-+    static constexpr int splitHeaderHeight = 36, splitInsetLeft = 18, splitInsetRight = 6;
++    static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
 +    static constexpr int blendWidth = 104, soloWidth = 52, bandWidth = 100, knobColumn = 84;
 +
 +    static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
@@ -3772,7 +3772,7 @@ index 22b5f5d..39a98de 100644
          std::array<bool, 64> placed {};
  
          for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
-@@ -1229,178 +1001,181 @@ private:
+@@ -1229,178 +1001,182 @@ private:
              panel.type = type;
              panel.duplicate = placed[(size_t) type];
              placed[(size_t) type] = true;
@@ -3852,7 +3852,8 @@ index 22b5f5d..39a98de 100644
 +                        if (const auto band = getSlotBand (cards[k].slot); band >= 1 && band <= 3)
 +                            used[(size_t) band - 1] = true;
 +                    auto& strip = *crossoverStrips[stripIndex++];
-+                    strip.setBounds (juce::Rectangle<int> (splitInsetLeft + 150, top + 7, width - splitInsetLeft - 150 - 14, splitHeaderHeight - 12));
++                    // (Clear of the first cards' on switches, whose label space rises above them.)
++                    strip.setBounds (juce::Rectangle<int> (splitInsetLeft + 150, top + 6, width - splitInsetLeft - 150 - 14, 20));
 +                    strip.setBandsUsed (used);
 +                    strip.setVisible (true);
                  }
@@ -4087,7 +4088,7 @@ index 22b5f5d..39a98de 100644
      void layoutCardHeader (const StackPanel& panel)
      {
          auto& header = cardHeaders[(size_t) panel.slot];
-@@ -1408,61 +1183,28 @@ private:
+@@ -1408,61 +1184,28 @@ private:
          const auto lineY = top + 5;
  
          header.type.setTitle (getSlotName (panel.type).toUpperCase(), isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : fxColour (panel.type));
@@ -4165,7 +4166,7 @@ index 22b5f5d..39a98de 100644
      }
  
      int firstEmptySlot() const
-@@ -1474,60 +1216,75 @@ private:
+@@ -1474,60 +1217,75 @@ private:
          return -1;
      }
  
@@ -4274,7 +4275,7 @@ index 22b5f5d..39a98de 100644
  
              if (selected && ! off)
                  IlanaTheme::paintGlow (g, bounds, 8.0f, colour, 1.0f);
-@@ -1540,65 +1297,214 @@ private:
+@@ -1540,65 +1298,214 @@ private:
                  g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.2f);
              }
  
@@ -4523,7 +4524,7 @@ index 22b5f5d..39a98de 100644
          }
      }
  
-@@ -1607,13 +1513,8 @@ private:
+@@ -1607,13 +1514,8 @@ private:
      void timerCallback() override
      {
          const auto ticks = frameTicks();
@@ -4538,7 +4539,7 @@ index 22b5f5d..39a98de 100644
  
          const auto showingA = processorRef.isShowingChainA();
  
-@@ -1623,12 +1524,10 @@ private:
+@@ -1623,12 +1525,10 @@ private:
              chainBButton.setToggleState (! showingA, juce::dontSendNotification);
          }
  
@@ -4553,7 +4554,7 @@ index 22b5f5d..39a98de 100644
              const auto type = getSlotType (slot);
  
              if (type != lastTypes[(size_t) slot])
-@@ -1637,64 +1536,51 @@ private:
+@@ -1637,64 +1537,51 @@ private:
                  dropSlot = slot;
                  dropFlash = 1.0f;
              }
@@ -4640,7 +4641,7 @@ index 22b5f5d..39a98de 100644
      juce::StringArray slotNames;
      std::vector<std::vector<juce::Component*>> slotGroups;
  
-@@ -1702,15 +1588,22 @@ private:
+@@ -1702,15 +1589,22 @@ private:
      FxStackContent stackContent;
      juce::Rectangle<int> addEffectCard;
      std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
@@ -4665,7 +4666,7 @@ index 22b5f5d..39a98de 100644
      };
      std::array<CardHeader, IlanaSynthAudioProcessor::numFxSlots> cardHeaders;
      std::array<std::unique_ptr<FxDisplay>, IlanaSynthAudioProcessor::numFxSlots> displays;
-@@ -1786,41 +1679,30 @@ private:
+@@ -1786,41 +1680,30 @@ private:
  
          return changed;
      }
@@ -4877,7 +4878,7 @@ index 6b2282c..82a86e9 100644
  
  // Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.
 diff --git a/tools/Snapshot.cpp b/tools/Snapshot.cpp
-index 1251afe..3ce4055 100644
+index 1251afe..b3c704b 100644
 --- a/tools/Snapshot.cpp
 +++ b/tools/Snapshot.cpp
 @@ -44,6 +44,7 @@
@@ -4888,7 +4889,7 @@ index 1251afe..3ce4055 100644
  
  namespace
  {
-@@ -967,27 +968,69 @@ int runUiTests()
+@@ -967,27 +968,71 @@ int runUiTests()
                  delay = button;
          }
  
@@ -4932,12 +4933,14 @@ index 1251afe..3ce4055 100644
 +            if (addEffect != nullptr)
 +            {
 +                addEffect->triggerClick();
-+                settle (400);
++                // (Briefly: a call-out closes itself within 200 ms while the
++                // process isn't in front, as under xvfb.)
++                settle (80);
 +                FxLibraryView* callout = nullptr;
 +                std::vector<FxLibraryView*> views;
 +                findAll<FxLibraryView> (*editor, views);
 +                for (auto* view : views)
-+                    if (view->getName() == "FX LIBRARY" && view->isShowing())
++                    if (view->getName() == "FX LIBRARY" && visibleInTree (view))
 +                        callout = view;
 +                expect (callout != nullptr, "+ ADD EFFECT opens the library in a call-out");
 +
@@ -4957,7 +4960,7 @@ index 1251afe..3ce4055 100644
 +                    expect (slot2 != nullptr && (int) slot2->load() == 9, "a pick from the call-out goes into the next empty slot");
 +                    views.clear();
 +                    findAll<FxLibraryView> (*editor, views);
-+                    expect (std::none_of (views.begin(), views.end(), [] (FxLibraryView* v) { return v->getName() == "FX LIBRARY" && v->isShowing(); }),
++                    expect (std::none_of (views.begin(), views.end(), [] (FxLibraryView* v) { return v->getName() == "FX LIBRARY" && visibleInTree (v); }),
 +                            "the call-out closes after a pick");
 +                }
 +            }
@@ -4972,7 +4975,7 @@ index 1251afe..3ce4055 100644
      }
  
      // FX cards (UI review 4, batch D): sized to their controls, a display
-@@ -1079,8 +1122,8 @@ int runUiTests()
+@@ -1079,8 +1124,8 @@ int runUiTests()
          pages->showPage ("FX");
          loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
          checkCards ("3 effects", true);
@@ -4983,7 +4986,7 @@ index 1251afe..3ce4055 100644
          loadFx ({ 27, 2, 20, 13 });
          checkCards ("4 effects", false);
          loadFx ({ 9, 4, 13, 21 });
-@@ -1108,25 +1151,26 @@ int runUiTests()
+@@ -1108,25 +1153,26 @@ int runUiTests()
          taps->setValueNotifyingHost (0.0f);
  
          // Solo is a visible button in the card header.
@@ -5017,7 +5020,7 @@ index 1251afe..3ce4055 100644
          }
  
          // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
-@@ -1172,6 +1216,97 @@ int runUiTests()
+@@ -1172,6 +1218,97 @@ int runUiTests()
          else
              expect (false, "the FX toolbar has a DICE FX button");
  
@@ -5115,7 +5118,7 @@ index 1251afe..3ce4055 100644
          // The live meters: OTT and the limiter report gain while audio runs.
          {
              loadFx ({ 20, 21 });
-@@ -1919,79 +2054,172 @@ int runUiTests()
+@@ -1919,79 +2056,172 @@ int runUiTests()
          settle (200);
      }
  
@@ -5266,8 +5269,7 @@ index 1251afe..3ce4055 100644
 +        pages->showPage ("FILTER");
 +        settle (300);
 +        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr && visibleInTree (display))
-         {
--            const auto visibleKnob = [&editor] (const juce::String& id)
++        {
 +            const auto markers = display->getMarkerCentres();
 +            const auto plot = display->getLocalBounds().toFloat().reduced (10.0f, 12.0f);
 +            const auto inset = plot.reduced (8.0f);
@@ -5309,7 +5311,8 @@ index 1251afe..3ce4055 100644
 +        findAll<SignalFlow> (*editor, flows);
 +        juce::String tip;
 +        for (auto* flow : flows)
-+        {
+         {
+-            const auto visibleKnob = [&editor] (const juce::String& id)
 +            if (! visibleInTree (flow))
 +                continue;
 +            for (int y = 2; y < flow->getHeight() && tip.isEmpty(); y += 2)
@@ -5347,7 +5350,7 @@ index 1251afe..3ce4055 100644
      }
  
      // Knobs, chips, the filter graph, the browser and SUB + NOISE (UI review 1 fixes).
-@@ -4347,6 +4575,39 @@ int main (int argc, char** argv)
+@@ -4347,6 +4577,39 @@ int main (int argc, char** argv)
                  settle (900);
                  save (*editor, outDir.getChildFile ("fx-" + juce::String (type).paddedLeft ('0', 2) + ".png"));
              }
@@ -5387,7 +5390,7 @@ index 1251afe..3ce4055 100644
          }
      }
  
-@@ -4456,22 +4717,20 @@ int main (int argc, char** argv)
+@@ -4456,22 +4719,20 @@ int main (int argc, char** argv)
          settle (200);
      }
  

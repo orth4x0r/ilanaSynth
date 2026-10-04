@@ -3099,7 +3099,7 @@ index 6217ec8..0f5c43f 100644
      float appear = 1.0f;
  };
 diff --git a/src/gui/pages/EnvLfoPages.h b/src/gui/pages/EnvLfoPages.h
-index 3436f23..569da1e 100644
+index 3436f23..b25b0b4 100644
 --- a/src/gui/pages/EnvLfoPages.h
 +++ b/src/gui/pages/EnvLfoPages.h
 @@ -2,8 +2,6 @@
@@ -3338,7 +3338,7 @@ index 3436f23..569da1e 100644
 +            updateVisibility();
 +        // Cards added or taken away elsewhere (a patch, PLAY, the matrix):
 +        // the row's width follows, so no scrollbar is left over.
-+        else if (isShowing() && thumbs.getPreferredWidth() != thumbs.getWidth())
++        else if (thumbs.getPreferredWidth() != thumbs.getWidth())
 +            resized();
      }
  

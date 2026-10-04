@@ -244,7 +244,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text.withAlpha (dim));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            const auto name = sourceMode ? ModNames::destination (row.destination) : ModNames::sourceUpper (row.source, &processorRef);
+            const auto name = sourceMode ? ModNames::destination (row.destination, processorRef) : ModNames::sourceUpper (row.source, &processorRef);
             g.drawFittedText (name, line.removeFromLeft (nameWidth()), juce::Justification::centredLeft, 1, 0.85f);
 
             const auto depthText = (row.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (row.depth * 100.0f)) + "%";

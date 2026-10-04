@@ -5533,7 +5533,7 @@ void runM4Tests()
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
             check (choice != nullptr && choice->getAllValueStrings().size() >= 7
-                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer (classic)"
+                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Bright Hammer"
                        && choice->getAllValueStrings()[6] == "Osc In",
                    juce::String (id) + " appends Hammer and Osc In after Bow");
         }

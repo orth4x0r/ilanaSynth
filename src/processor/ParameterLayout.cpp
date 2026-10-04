@@ -4,7 +4,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
-    const auto addFloat = [&layout] (const juce::String& id, const juce::String& name, float min, float max,
+    // Hosts show the oscillators as the pages do, "OSC 1 Level" (UI review
+    // 8, I8-40); the names below keep the shorter "Osc1" spelling.
+    const auto hostName = [] (juce::String name)
+    {
+        for (int osc = 1; osc <= 6; ++osc)
+            name = name.replace ("Osc" + juce::String (osc), "OSC " + juce::String (osc));
+        return name;
+    };
+
+    const auto addFloat = [&layout, hostName] (const juce::String& id, const juce::String& name, float min, float max,
                                      float def, float skew = 1.0f, float interval = 0.0f)
     {
         // Continuous unless a step is asked for: a fixed step of a thousandth
@@ -12,7 +21,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         // moved in 20 Hz steps, comb tunings sat cents off).
         const juce::NormalisableRange<float> range (min, max, juce::jmax (0.0f, interval), skew);
         layout.add (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID { id, 1 }, name, range, def,
+            juce::ParameterID { id, 1 }, hostName (name), range, def,
             juce::AudioParameterFloatAttributes()
                 .withStringFromValueFunction ([id] (float value, int) { return describeValue (id, value); })
                 // Typed values ("97 %", "250 ms", "1.2 kHz"): the number, read in
@@ -106,10 +115,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // Integer parameters use the same value text as the others (units, note
     // names, "3 strings"), which ParamInfo already describes for them.
-    const auto addInt = [&layout] (const juce::String& id, const juce::String& name, int min, int max, int def)
+    const auto addInt = [&layout, hostName] (const juce::String& id, const juce::String& name, int min, int max, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { id, 1 }, name, min, max, def,
+            juce::ParameterID { id, 1 }, hostName (name), min, max, def,
             juce::AudioParameterIntAttributes()
                 .withStringFromValueFunction ([id] (int value, int) { return describeValue (id, (float) value); })
                 .withValueFromStringFunction ([id, min, max] (const juce::String& text)
@@ -148,10 +157,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                 })));
     };
 
-    const auto addBool = [&layout] (const juce::String& id, const juce::String& name, bool def)
+    const auto addBool = [&layout, hostName] (const juce::String& id, const juce::String& name, bool def)
     {
         layout.add (std::make_unique<juce::AudioParameterBool> (
-            juce::ParameterID { id, 1 }, name, def));
+            juce::ParameterID { id, 1 }, hostName (name), def));
     };
 
     // Choices (modes, types, sources, destinations, shapes, FX slots) are not
@@ -159,11 +168,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // list that grows in an update would move recorded lanes to other
     // entries. Saved states keep the index and load unchanged; the knobs,
     // switches and macros stay automatable.
-    const auto addChoice = [&layout] (const juce::String& id, const juce::String& name,
+    const auto addChoice = [&layout, hostName] (const juce::String& id, const juce::String& name,
                                       const juce::StringArray& choices, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterChoice> (
-            juce::ParameterID { id, 1 }, name, choices, def,
+            juce::ParameterID { id, 1 }, hostName (name), choices, def,
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
     };
 
@@ -227,7 +236,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -368,7 +377,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -696,7 +705,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);

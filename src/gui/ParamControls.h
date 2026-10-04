@@ -905,7 +905,7 @@ public:
         modCardHeld = held;
         if (modHoverHooks().show != nullptr && ! routings.empty())
         {
-            modHoverHooks().show (*this, ringConfig.destination, ModNames::destination (ringConfig.destination).toUpperCase());
+            modHoverHooks().show (*this, ringConfig.destination, displayName().toUpperCase());
             modCardOpen = true;
         }
     }
@@ -1808,7 +1808,8 @@ private:
     juce::String displayName() const
     {
         if (ringConfig.destination != 0)
-            return ModNames::destination (ringConfig.destination);
+            return processorRef != nullptr ? ModNames::destination (ringConfig.destination, *processorRef)
+                                           : ModNames::destination (ringConfig.destination);
         return parameter != nullptr ? ModNames::detail::paramName (parameterId, parameter->getName (64)).full() : parameterId;
     }
 

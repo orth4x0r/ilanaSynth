@@ -161,7 +161,7 @@ public:
         g.setColour (colour);
         g.drawFittedText (ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1, 0.8f);
         g.setColour (IlanaTheme::Ui::text);
-        g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination), info.removeFromTop (24),
+        g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination, processorRef), info.removeFromTop (24),
                           juce::Justification::centredLeft, 1, 0.8f);
 
         info.removeFromTop (8);
@@ -293,7 +293,7 @@ public:
         juce::PopupMenu menu;
         const auto routing = processorRef.readModSlot (slot);
         menu.addSectionHeader (ModNames::source ((int) routing.source, &processorRef) + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
-                               + ModNames::destination (routing.destination));
+                               + ModNames::destination (routing.destination, processorRef));
 
         for (const auto other : visibleRows)
         {
@@ -604,7 +604,7 @@ private:
         const auto key = [&] (int index) -> juce::String
         {
             const auto slot = processorRef.readModSlot (index);
-            return sort == Sort::source ? ModNames::source ((int) slot.source, &processorRef) : ModNames::destination (slot.destination);
+            return sort == Sort::source ? ModNames::source ((int) slot.source, &processorRef) : ModNames::destination (slot.destination, processorRef);
         };
 
         std::stable_sort (used.begin(), used.end(), [&] (int a, int b)

@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -196,6 +197,48 @@ inline juce::String formatSeconds (double seconds, bool endless = false)
     return describeNumber ((float) seconds, 1) + " s";
 }
 
+// A stage's time as its knob reads it. A flat stage (the same level at both
+// ends) takes no time whatever its rate, so its knob would read "0 ms" at
+// every angle (UI review 8, I8-3); it reads instead the time a full sweep
+// (silence to full, or the whole pitch range) takes at its rate, and says
+// it is flat, so the knob always shows what it holds.
+struct StageTime
+{
+    double seconds = 0.0;
+    bool endless = false, flat = false;
+};
+
+inline StageTime stageTime (const Settings& s, int stage)
+{
+    stage = juce::jlimit (0, 3, stage);
+    const auto actual = run (s, stage);
+    StageTime result { actual.stageSeconds (stage), actual.endless[(size_t) stage], false };
+    const auto& values = actual.values;
+    const auto from = (size_t) juce::jlimit (0, (int) values.size() - 1, actual.stageStart (stage));
+    const auto to = (size_t) juce::jlimit (0, (int) values.size() - 1, actual.stageEnd[(size_t) stage]);
+    if (result.endless || values.empty() || std::abs (values[to] - values[from]) > 1.0e-6)
+        return result;
+
+    // The same rate over the whole range: from the top to the bottom (or,
+    // for the attack, up from where the note starts).
+    auto full = s;
+    if (! full.pitch)
+        full.outLevel = 127 << 5;
+    if (stage == 0)
+    {
+        full.levels[0] = 99;
+        if (full.pitch)
+            full.levels[3] = 0;
+    }
+    else
+    {
+        full.levels[(size_t) stage - 1] = 99;
+        full.levels[(size_t) stage] = 0;
+    }
+    const auto sweep = run (full, stage);
+    return { sweep.stageSeconds (stage), sweep.endless[(size_t) stage], true };
+}
+
 // The rate (0-99) whose stage takes closest to `seconds`, the rest as set:
 // a stage takes longer as its rate falls.
 inline int rateForSeconds (Settings s, int stage, double seconds)
@@ -203,8 +246,8 @@ inline int rateForSeconds (Settings s, int stage, double seconds)
     const auto timeFor = [&s, stage] (int rate)
     {
         s.rates[(size_t) stage] = rate;
-        const auto result = run (s, stage);
-        return result.endless[(size_t) stage] ? 1.0e9 : result.stageSeconds (stage);
+        const auto result = stageTime (s, stage);
+        return result.endless ? 1.0e9 : result.seconds;
     };
     auto lo = 0, hi = 99; // timeFor falls from lo to hi
     while (hi - lo > 1)
@@ -234,14 +277,17 @@ inline juce::String formatLevel (const Settings& s, int level)
         return (semitones > 0.04 ? "+" : semitones < -0.04 ? "-" : "") + describeFixed ((float) std::abs (semitones), 1) + " st";
     }
     const auto db = levelValue (s, level) * 6.0206;
-    return db < -90.0 ? juce::String ("-inf dB") : describeFixed ((float) db, 1) + " dB";
+    return db < -90.0 ? silentDecibels() : describeFixed ((float) db, 1) + " dB";
 }
 } // namespace OperatorEnv
 
 // The graph: drag a point across for its stage's time (the rate) and up or
 // down for its level; double-click resets them. Time runs on a square-root
 // scale per stage, as on the synth's other envelope graphs, with the same
-// ticks; the dot is the last note played.
+// ruler under the frame (KEY UP on it, the release's times after it as
+// "+100 ms": UI review 8, I8-7, I8-28, V8-8); the dot is the last note
+// played. Read-only (OSC's picture of the operator), a click opens the
+// editor instead.
 class OperatorEnvDisplay : public juce::Component,
                            public juce::SettableTooltipClient,
                            private IlanaAnim::FrameTimer
@@ -260,6 +306,12 @@ public:
         prefix = newPrefix;
         colour = newColour;
         hasSettings = false;
+        if (readOnly)
+        {
+            setTooltip ("This operator's OP ENV, as it plays C3 at velocity 100. Click to edit it (FM page).");
+            refresh();
+            return;
+        }
         setTooltip (prefix.isEmpty()
                         ? juce::String ("The pitch envelope every oscillator on the Operator Env follows. Drag a point: across "
                                         "for its time, up or down for its pitch; double-click to reset it. Shown for C3.")
@@ -271,6 +323,25 @@ public:
 
     const juce::String& getPrefix() const { return prefix; }
     bool isPitch() const { return prefix.isEmpty(); }
+
+    // A picture only (no handles): a click calls onOpen.
+    void setReadOnly (bool shouldBeReadOnly)
+    {
+        readOnly = shouldBeReadOnly;
+        hoverHandle = -1;
+        hasSettings = false;
+        setSource (prefix, colour);
+        setMouseCursor (readOnly ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    bool isReadOnly() const { return readOnly; }
+    std::function<void()> onOpen;
+
+    // The frame around the plot; the time ruler sits under it (the UI test
+    // checks that no handle sits on the ruler).
+    juce::Rectangle<float> getFrameBounds() const { return getLocalBounds().toFloat().withTrimmedBottom (rulerHeight + 2.0f); }
+    juce::Rectangle<float> getPlotBounds() const { return layout().plot; }
 
     // Re-reads the patch; repaints when the shape changed.
     void refresh()
@@ -300,39 +371,31 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        // The well frames the plot only; the ruler sits under it, as on
+        // every envelope graph.
+        IlanaTheme::paintWell (g, getFrameBounds(), 6.0f);
         if (curve.values.empty())
             return;
 
         const auto geo = layout();
         paintTicks (g, geo);
 
-        // The key goes up: a dashed line across the hold.
-        g.setColour (juce::Colours::white.withAlpha (0.22f));
-        const float dashes[] { 3.0f, 3.0f };
-        g.drawDashedLine ({ geo.keyUpX, geo.plot.getY(), geo.keyUpX, geo.plot.getBottom() }, dashes, 2, 1.0f);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (IlanaTheme::Ui::text3);
-        // Right of the line, or left of it when the release is too short
-        // (a narrow graph) to hold the words; on its own line under the
-        // corner caption (V7-41).
-        const auto keyUpWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "KEY UP") + 2.0f;
-        const auto keyUpLeft = geo.keyUpX + 3.0f + keyUpWidth > geo.plot.getRight() ? geo.keyUpX - 3.0f - keyUpWidth : geo.keyUpX + 3.0f;
-        g.drawText ("KEY UP", juce::Rectangle<float> (keyUpLeft, geo.plot.getY() + 13.0f, keyUpWidth, 12.0f).toNearestInt(),
-                    juce::Justification::centredLeft, false);
-
         if (isPitch())
         {
-            // The note itself, and how far the scale reaches.
+            // The note itself, and how far the scale reaches: an axis in
+            // the gutter left of the plot.
             g.setColour (juce::Colours::white.withAlpha (0.14f));
             g.drawHorizontalLine (juce::roundToInt (geo.y (0.0)), geo.plot.getX(), geo.plot.getRight());
             g.setColour (IlanaTheme::Ui::text3);
-            g.drawText ("+" + describeFixed ((float) (geo.span * 12.0), 1) + " st",
-                        juce::Rectangle<float> (geo.plot.getX() + 2.0f, geo.plot.getY(), 60.0f, 12.0f).toNearestInt(),
-                        juce::Justification::centredLeft);
-            g.drawText ("-" + describeFixed ((float) (geo.span * 12.0), 1) + " st",
-                        juce::Rectangle<float> (geo.plot.getX() + 2.0f, geo.plot.getBottom() - 24.0f, 60.0f, 12.0f).toNearestInt(),
-                        juce::Justification::centredLeft);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto reach = describeFixed ((float) (geo.span * 12.0), 1);
+            const auto gutter = juce::Rectangle<float> (bounds.getX() + 2.0f, geo.plot.getY(), geo.plot.getX() - bounds.getX() - 6.0f,
+                                                        geo.plot.getHeight());
+            g.drawText ("+" + reach, gutter.withHeight (12.0f).toNearestInt(), juce::Justification::centredRight, false);
+            g.drawText ("0 st", gutter.withHeight (12.0f).withCentre ({ gutter.getCentreX(), geo.y (0.0) }).toNearestInt(),
+                        juce::Justification::centredRight, false);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x88\x92") + reach, gutter.withTop (gutter.getBottom() - 12.0f).toNearestInt(),
+                        juce::Justification::centredRight, false);
         }
 
         juce::Path path;
@@ -354,9 +417,9 @@ public:
         g.setColour (colour);
         g.strokePath (path, juce::PathStrokeType (1.8f));
 
-        // Stage handles.
+        // Stage handles (a read-only picture has none).
         const auto handles = getHandlePositions();
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < (readOnly ? 0 : 4); ++i)
         {
             const auto active = hoverHandle == i || dragHandle == i;
             if (active)
@@ -393,10 +456,15 @@ public:
             // operator's floor), on a backdrop the KEY UP line passes
             // under (I7-34).
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
-            const auto words = juce::String (isPitch() ? "No pitch movement: drag a point" : "No movement: drag a point");
+            const auto words = juce::String (readOnly ? (isPitch() ? "No pitch movement" : "No movement")
+                                                      : (isPitch() ? "No pitch movement: drag a point" : "No movement: drag a point"));
             const auto line = isPitch() ? geo.y (0.0) : geo.plot.getBottom();
             const auto width = juce::jmin (geo.plot.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (font, words) + 12.0f);
-            const auto text = juce::Rectangle<float> (width, 18.0f).withCentre ({ geo.plot.getCentreX(), line - 22.0f });
+            // Past the key-up line when it fits there, so the line doesn't
+            // run through the words (I8-28).
+            const auto afterKeyUp = juce::Range<float> (geo.keyUpX + 6.0f, geo.plot.getRight());
+            const auto centreX = afterKeyUp.getLength() >= width ? afterKeyUp.getStart() + afterKeyUp.getLength() * 0.5f : geo.plot.getCentreX();
+            const auto text = juce::Rectangle<float> (width, 18.0f).withCentre ({ centreX, line - 22.0f });
             g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
             g.fillRoundedRectangle (text, 4.0f);
             g.setColour (IlanaTheme::Ui::text2);
@@ -419,6 +487,8 @@ public:
 
     void mouseMove (const juce::MouseEvent& event) override
     {
+        if (readOnly)
+            return;
         const auto handle = findHandle (event.position);
         if (handle != hoverHandle)
         {
@@ -436,6 +506,12 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        if (readOnly)
+        {
+            if (onOpen != nullptr && ! event.mods.isPopupMenu())
+                onOpen();
+            return;
+        }
         dragHandle = findHandle (event.position);
         if (dragHandle < 0)
             return;
@@ -493,6 +569,8 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        if (readOnly)
+            return;
         const auto handle = findHandle (event.position);
         if (handle < 0)
             return;
@@ -551,6 +629,8 @@ private:
         }
     };
 
+    // The ruler under the frame, as EnvelopeDisplay's.
+    static constexpr float rulerHeight = 14.0f;
     static constexpr float holdUnits = 0.55f;
     // Each stage at least this wide, so short stages' handles never pile up
     // (V7-9); time runs on the square-root scale beyond it.
@@ -560,9 +640,13 @@ private:
     Geometry layout() const
     {
         Geometry geo;
-        // The time labels go under the plot (V7-9), not in it.
-        geo.plot = getLocalBounds().toFloat().reduced (12.0f, 6.0f).withTrimmedTop (10.0f).withTrimmedBottom (13.0f);
+        // Inside the frame, the ruler under it (V7-9, I8-7): room at the
+        // top for the corner caption, at the right for the last handle, and
+        // for the pitch a gutter for its axis.
         geo.pitch = isPitch();
+        geo.plot = getFrameBounds().reduced (12.0f, 8.0f).withTrimmedTop (10.0f).withTrimmedRight (4.0f);
+        if (geo.pitch)
+            geo.plot = geo.plot.withTrimmedLeft (juce::jmin (34.0f, geo.plot.getWidth() * 0.18f));
         geo.stageEnd = curve.stageEnd;
 
         if (geo.pitch)
@@ -626,6 +710,25 @@ private:
             return span > 0.0 && seconds < span ? geo.keyUpX + (float) (seconds / span) * (geo.stageX[4] - geo.keyUpX) : -1.0f;
         };
 
+        const auto rulerY = (float) getHeight() - rulerHeight;
+
+        // KEY UP, where the release starts: a dashed line through the plot
+        // and its name on the ruler, so the release's "+" times read as
+        // after it (as EnvelopeDisplay draws it).
+        {
+            const float dashes[] { 3.0f, 3.0f };
+            g.setColour (juce::Colours::white.withAlpha (0.22f));
+            g.drawDashedLine ({ geo.keyUpX, geo.plot.getY(), geo.keyUpX, geo.plot.getBottom() }, dashes, 2, 1.0f);
+            const auto boldFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (boldFont, "KEY UP") + 4.0f;
+            const auto left = juce::jlimit (geo.plot.getX() - 8.0f, geo.plot.getRight() + 8.0f - width, geo.keyUpX - width * 0.5f);
+            labelled.push_back ({ left, left + width });
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (boldFont);
+            g.drawText ("KEY UP", juce::Rectangle<float> (left, rulerY + 2.0f, width, 12.0f), juce::Justification::centred);
+            g.setFont (font);
+        }
+
         for (const auto inRelease : { false, true })
             for (const auto seconds : { 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002 })
             {
@@ -636,13 +739,11 @@ private:
                 if (! decade)
                 {
                     g.setColour (juce::Colours::white.withAlpha (0.12f));
-                    g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, geo.plot.getBottom() - 4.0f));
+                    g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 1.0f));
                     continue;
                 }
                 g.setColour (juce::Colours::white.withAlpha (0.06f));
                 g.fillRect (juce::Rectangle<float> (1.0f, geo.plot.getHeight()).withPosition (x, geo.plot.getY()));
-                g.setColour (juce::Colours::white.withAlpha (0.18f));
-                g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, geo.plot.getBottom()));
 
                 const auto text = (inRelease ? "+" : "") + OperatorEnv::formatSeconds (seconds);
                 const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
@@ -652,8 +753,8 @@ private:
                     continue;
                 labelled.push_back (span);
                 g.setColour (IlanaTheme::Ui::text3);
-                g.drawText (text, juce::Rectangle<float> (span.getStart() - 3.0f, geo.plot.getBottom() + 1.0f, width, 12.0f),
-                            juce::Justification::centredLeft);
+                g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, rulerY - 1.0f));
+                g.drawText (text, juce::Rectangle<float> (span.getStart(), rulerY + 2.0f, width, 12.0f), juce::Justification::centredLeft);
             }
     }
 
@@ -750,4 +851,5 @@ private:
     juce::RangedAudioParameter* levelParameter = nullptr;
     juce::String readout;
     float lastPlayed = -1.0f;
+    bool readOnly = false;
 };

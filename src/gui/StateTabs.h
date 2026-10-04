@@ -55,6 +55,10 @@ public:
     const Item& getItem (int index) const { return items[(size_t) juce::jlimit (0, (int) items.size() - 1, index)]; }
 
     int getIdealWidth() const { return widthAt (0); }
+    // The width with every state quiet, and with the names cut to their
+    // last word (the narrowest it draws).
+    int getQuietWidth() const { return widthAt (2); }
+    int getShortWidth() const { return widthAt (3); }
 
     juce::Rectangle<int> getTabBounds (int index) const
     {
@@ -83,18 +87,18 @@ public:
             g.setColour (active ? item.colour.withAlpha (0.85f) : IlanaTheme::Ui::line.interpolatedWith (item.colour, hover ? 0.4f : 0.0f));
             g.drawRoundedRectangle (tab.reduced (0.5f), radius, 1.0f);
 
-            auto area = tab.reduced (12.0f, 0.0f);
+            auto area = tab.reduced (stateLevel() >= 3 ? 8.0f : 12.0f, 0.0f);
             // The same on indicator as every switchable tab (review 7).
             IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
             area.removeFromLeft (13.0f);
 
             g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
-            g.drawText (item.name, area, juce::Justification::centredLeft);
+            g.drawText (shownName (i, stateLevel()), area, juce::Justification::centredLeft);
 
             if (item.state.isNotEmpty() && showsState (i, stateLevel()))
             {
-                area.removeFromLeft ((float) nameWidth (i) + 7.0f);
+                area.removeFromLeft ((float) nameWidth (i, stateLevel()) + 7.0f);
                 g.setColour (active ? item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f) : IlanaTheme::Ui::text3);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (item.state, area, juce::Justification::centredLeft);
@@ -135,11 +139,19 @@ public:
 private:
     static constexpr int gap = 6;
 
-    int nameWidth (int index) const
+    // Shortest of all, a name keeps its last word ("OSC 3" as "3", where an
+    // oscillator picker sits in a tight header: UI review 8, I8-10).
+    juce::String shownName (int index, int level) const
+    {
+        const auto& name = items[(size_t) index].name;
+        return level >= 3 ? name.fromLastOccurrenceOf (" ", false, false) : name;
+    }
+
+    int nameWidth (int index, int level = 0) const
     {
         // Rounded up, with a pixel spare, so the text never ellipsises.
         return 2 + (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)),
-                                                                            items[(size_t) index].name));
+                                                                            shownName (index, level)));
     }
 
     // Short of room, the states go quiet: first on the tabs not chosen,
@@ -152,7 +164,7 @@ private:
         const auto stateWidth = state.isEmpty() || ! showsState (index, level)
                                     ? 0
                                     : 9 + (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), state));
-        return 24 + 13 + nameWidth (index) + stateWidth;
+        return (level >= 3 ? 16 : 24) + 13 + nameWidth (index, level) + stateWidth;
     }
 
     int widthAt (int level) const
@@ -165,11 +177,11 @@ private:
 
     int stateLevel() const
     {
-        for (int level = 0; level < 2; ++level)
+        for (int level = 0; level < 3; ++level)
             if (widthAt (level) <= getWidth())
                 return level;
 
-        return 2;
+        return 3;
     }
 
     std::vector<Item> items;

@@ -26,6 +26,10 @@ inline bool isAirwindowsKnob (const juce::String& id)
     return id.startsWith ("fx_aw") && tail.length() == 2 && tail[0] == 'p' && juce::CharacterFunctions::isDigit (tail[1]);
 }
 
+// A silent level, the one spelling everywhere: "−∞ dB" (a true minus and
+// infinity, UI review 8, V8-8).
+inline juce::String silentDecibels() { return juce::String::fromUTF8 ("\xe2\x88\x92\xe2\x88\x9e dB"); }
+
 inline juce::String describeFixed (float value, int decimals)
 {
     const auto scale = std::pow (10.0f, (float) decimals);
@@ -215,7 +219,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         for (int stage = 1; stage <= 4; ++stage)
         {
             if (isOscParameter (id, ("_eg_l" + juce::String (stage)).toRawUTF8()))
-                return dx <= 0 ? juce::String ("-inf dB")
+                return dx <= 0 ? silentDecibels()
                                : describeFixed ((float) (((Dx7::scaleOutLevel (dx) >> 1) - 63) * 6.0206 / 4.0), 1) + " dB";
             if (id == "opeg_pitch_l" + juce::String (stage))
             {
@@ -224,7 +228,7 @@ inline juce::String describeValue (const juce::String& id, float value)
             }
         }
         if (isOscParameter (id, "_eg_out"))
-            return dx <= 0 ? juce::String ("-inf dB") : describeFixed ((float) ((Dx7::scaleOutLevel (dx) - 127) * 6.0206 / 8.0), 1) + " dB";
+            return dx <= 0 ? silentDecibels() : describeFixed ((float) ((Dx7::scaleOutLevel (dx) - 127) * 6.0206 / 8.0), 1) + " dB";
         if (id == "opeg_lfo_speed")
             return describeNumber ((float) Dx7::Lfo::hz (dx), 2) + " Hz";
         if (id == "opeg_lfo_delay")
@@ -246,9 +250,11 @@ inline juce::String describeValue (const juce::String& id, float value)
         // (the FM page shows them in dB an octave from SCALE KEY).
         if (isOscParameter (id, "_eg_rate_key") || isOscParameter (id, "_eg_vel"))
             return juce::String (juce::roundToInt (juce::jlimit (0, 7, dx) * 100.0 / 7.0)) + "%";
+        // Amp mod as the share of the full depth each step gives (the
+        // engine's table: 0, 26, 43, 100 %); "Off" is for switches (V8-32).
         if (isOscParameter (id, "_eg_ams"))
         {
-            static const char* const names[] { "Off", "Low", "Mid", "Full" };
+            static const char* const names[] { "0%", "26%", "43%", "100%" };
             return names[juce::jlimit (0, 3, dx)];
         }
         if (id == "opeg_lfo_pms")
@@ -474,15 +480,15 @@ inline juce::String describeParameter (const juce::String& id)
         return "How much the level changes above SCALE KEY, along HIGH CURVE, shown as the change an octave above it "
                "(the DX7's RIGHT DEPTH, 0-99).";
     if (isOscParameter (id, "_eg_lcurve") || isOscParameter (id, "_eg_rcurve"))
-        return "Keyboard scaling curve away from SCALE KEY: -Lin and -Exp get quieter, +Exp and +Lin louder "
-               "(straight or exponential; the DX7's -LIN to +LIN).";
+        return "Keyboard scaling curve away from SCALE KEY: Down gets quieter, Up louder, along a straight (linear) or "
+               "curved (exponential) line (the DX7's -LIN, -EXP, +EXP and +LIN).";
     if (isOscParameter (id, "_eg_rate_key"))
         return "Key rate: higher notes run this operator's envelope faster, by up to 100% (the DX7's RATE SCALING, 0-7).";
     if (isOscParameter (id, "_eg_vel"))
         return "Velocity: how much softer playing lowers this operator's level, from 0% to 100% (the DX7's KEY VELOCITY "
                "SENSITIVITY, 0-7).";
     if (isOscParameter (id, "_eg_ams"))
-        return "Amp modulation: how much the OP LFO's AMP DEPTH moves this operator, Off to Full (the DX7's AMS, 0-3) "
+        return "Amp modulation: how much the OP LFO's AMP DEPTH moves this operator, 0% to 100% (the DX7's AMS, 0-3) "
                "(tremolo on a carrier, wah on a modulator).";
     if (id == "opeg_lfo_speed")
         return "OP LFO rate (the DX7's LFO SPEED, 0-99: about 0.06 to 49 Hz).";
@@ -496,7 +502,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "opeg_lfo_sync")
         return "OP LFO retrigger (the DX7's KEY SYNC): each note starts the LFO from the top of its cycle.";
     if (id == "opeg_lfo_wave")
-        return "OP LFO shape: triangle, saw down, saw up, square, sine or sample and hold.";
+        return "OP LFO shape: sine, triangle, saw up, saw down, square or sample and hold.";
     if (id == "opeg_lfo_pms")
         return "Pitch sensitivity: how far PITCH DEPTH, the wheel and pressure bend the pitch, shown as the vibrato at full "
                "depth (the DX7's PMS, 0-7).";

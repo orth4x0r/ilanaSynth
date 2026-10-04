@@ -540,6 +540,19 @@ private:
         const auto inUse = info.isActive == nullptr || info.isActive();
 
         paintFrame (g, card, info.colour, active, id == hoverIndex);
+
+        // A card that isn't a source (OP ENV) has a dashed edge: it opens
+        // its editor but drags nowhere (UI review 8, V8-11).
+        if (info.source == Mod::Source::None && ! active)
+        {
+            juce::Path outline, dashed;
+            outline.addRoundedRectangle (card.reduced (0.5f), 6.0f);
+            const float dashes[] { 3.0f, 3.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour ((inUse ? info.colour : IlanaTheme::Ui::text3).withAlpha (0.55f));
+            g.fillPath (dashed);
+        }
+
         auto inner = card.reduced (8.0f, 5.0f);
         auto titleRow = inner.removeFromTop (16.0f);
 

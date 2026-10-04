@@ -66,8 +66,8 @@ public:
             // Four columns in one order for every mode (UI review 7, V7-26,
             // S7-3): the pitch (SEMI, or a wavetable's RATIO or FIXED), LEVEL,
             // then the mode's two main knobs. An operator on the Operator Env
-            // shows its LEVEL in dB (the FM card's), the oscillator's own
-            // level as TRIM, and FINE (I7-2, I7-19).
+            // follows the FM card's order: RATIO, FINE, its LEVEL in dB, the
+            // oscillator's own level as TRIM (I7-2, I7-19; review 8, V8-5).
             strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
             strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
@@ -75,7 +75,7 @@ public:
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
-            strip->operatorEnvKnobs = { knob ("_eg_out", "LEVEL"), knob ("_level", "TRIM"), knob ("_fine", "FINE") };
+            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "LEVEL"), knob ("_level", "TRIM") };
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table);
             oscColumn.addChildComponent (*strip->excite);
@@ -636,7 +636,9 @@ private:
 
         strip.table->setVisible (shown && mode == 0);
         strip.excite->setVisible (shown && mode == 1);
-        strip.mode->setVisible (shown);
+        // An operator names itself where the MODE menu goes (its mode is
+        // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
+        strip.mode->setVisible (shown && ! strip.opEg);
         strip.on->setVisible (shown);
         // An operator on the Operator Env shows its envelope instead.
         wave (index).setVisible (shown && ! strip.opEg);
@@ -976,7 +978,13 @@ private:
                         strip.shownOn && strip.opEg ? juce::String ("OP ENV") : juce::String());
 
             if (strip.opEg)
-                strip.thumb.paint (g, stripColumns (card).picture.toFloat(), tint, strip.shownOn);
+            {
+                const auto columns = stripColumns (card);
+                strip.thumb.paint (g, columns.picture.toFloat(), tint, strip.shownOn);
+                g.setColour (strip.shownOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.drawFittedText ("OPERATOR", columns.menus.withHeight (24).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+            }
         }
 
         // The next oscillator to add: a slim dashed row round its button.

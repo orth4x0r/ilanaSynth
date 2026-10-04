@@ -602,15 +602,9 @@ public:
           view (p)
     {
         addAndMakeVisible (view);
-        for (int i = 0; i < OscillatorIds::count; ++i)
-        {
-            auto& button = oscButtons[(size_t) i];
-            button.setButtonText ("OSC " + juce::String (i + 1));
-            button.setClickingTogglesState (false);
-            IlanaTheme::makePill (button, IlanaTheme::oscColour (i));
-            button.onClick = [this, i] { choose (i, true); };
-            addAndMakeVisible (button);
-        }
+        // The one oscillator picker (UI review 8, I8-10).
+        oscPicker.onPick = [this] (int i) { choose (i, true); };
+        addAndMakeVisible (oscPicker);
         makePhysical.setButtonText ("SWITCH TO PHYSICAL");
         makePhysical.setTooltip ("Puts this oscillator in Physical mode.");
         makePhysical.onClick = [this]
@@ -720,13 +714,8 @@ public:
             emptyCard = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 900), juce::jmin (area.getHeight(), 600));
             auto inner = emptyCard.reduced (14, 0);
             inner.removeFromTop (38);
-            auto shownButtons = 0;
-            for (auto& button : oscButtons)
-                shownButtons += button.isVisible() ? 1 : 0;
-            auto picker = inner.removeFromTop (30).withSizeKeepingCentre (juce::jmax (1, shownButtons) * 96, 30);
-            for (auto& button : oscButtons)
-                if (button.isVisible())
-                    button.setBounds (picker.removeFromLeft (96).reduced (3, 3));
+            const auto pickerWidth = juce::jmin (inner.getWidth(), oscPicker.getIdealWidth());
+            oscPicker.setBounds (inner.removeFromTop (30).withSizeKeepingCentre (pickerWidth, 26));
             makePhysical.setBounds (juce::Rectangle<int> (240, 34).withCentre ({ emptyCard.getCentreX(), emptyCard.getBottom() - 40 }));
             inner.removeFromTop (6);
             inner.removeFromBottom (130); // the message and the switch
@@ -801,9 +790,8 @@ public:
         auto inner = viewCard.reduced (10, 0);
         inner.removeFromTop (30);
         auto picker = inner.removeFromTop (30);
-        for (auto& button : oscButtons)
-            if (button.isVisible())
-                button.setBounds (picker.removeFromLeft (juce::jmin (84, picker.getWidth() / OscillatorIds::count)).reduced (3, 3));
+        oscPicker.setBounds (picker.withWidth (juce::jmin (picker.getWidth(), oscPicker.getIdealWidth())).withSizeKeepingCentre (
+            juce::jmin (picker.getWidth(), oscPicker.getIdealWidth()), 26));
         inner.removeFromTop (6);
         inner.removeFromBottom (10);
 
@@ -946,8 +934,7 @@ private:
         if (pickup != nullptr)
             pickup->setVisible (electric);
 
-        for (int i = 0; i < OscillatorIds::count; ++i)
-            oscButtons[(size_t) i].setToggleState (i == chosen, juce::dontSendNotification);
+        oscPicker.setSelectedOsc (chosen);
         updateAvailability();
         resized();
         repaint();
@@ -963,13 +950,15 @@ private:
             control->setVisible (physical);
         if (pickup != nullptr)
             pickup->setVisible (physical && (shownExcite == 7 || shownExcite == 8));
+        std::vector<int> shownOscs;
         for (int i = 0; i < OscillatorIds::count; ++i)
-        {
-            auto& button = oscButtons[(size_t) i];
-            button.setVisible (processorRef.isOscillatorShown (i));
-            button.setAlpha (isPhysical (i) ? 1.0f : 0.5f);
-            button.setTooltip (isPhysical (i) ? juce::String() : "OSC " + juce::String (i + 1) + " is not Physical");
-        }
+            if (processorRef.isOscillatorShown (i))
+                shownOscs.push_back (i);
+        // Lit while Physical; the others greyed, to switch over.
+        oscPicker.setOscillators (shownOscs, [this] (int i) { return isPhysical (i); },
+                                  [this] (int i) { return isPhysical (i) ? "Edit OSC " + juce::String (i + 1) + "'s string"
+                                                                         : "OSC " + juce::String (i + 1) + " is not Physical"; });
+        oscPicker.setSelectedOsc (chosen);
 
         // The PHYSICAL tab greys while no oscillator has a string (UI
         // review 6, V23, S37); it still opens, to offer the switch.
@@ -1006,7 +995,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     PhysicalView view;
-    std::array<juce::TextButton, OscillatorIds::count> oscButtons;
+    OscPicker oscPicker;
     juce::TextButton makePhysical, bodyLink, boardLink;
     std::unique_ptr<ComboControl> excite;
     juce::String excitePrefix, pickupPrefix;

@@ -247,7 +247,7 @@ private:
             if (slot.source == source && slot.isActive())
                 if (const auto why = ModNames::whyDestinationIsIdle (processorRef, slot.destination); why.isNotEmpty())
                 {
-                    text << (count > 0 ? "; " : "") << ModNames::destination (slot.destination) << " (" << why << ")";
+                    text << (count > 0 ? "; " : "") << ModNames::destination (slot.destination, processorRef) << " (" << why << ")";
                     ++count;
                 }
         }

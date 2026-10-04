@@ -238,6 +238,22 @@ void runDx7AlgorithmTest()
                  && juce::roundToInt (read (processor, "osc6_fb_type")) == FmFeedback::Dx7;
     }
     check (allSet, "operator EG: each DX7 algorithm sets its routing, keeps DX7 feedback, and is found again" + (miss.isNotEmpty() ? " (" + miss + ")" : juce::String()));
+
+    // Review 7 (I7-9): the feedback level moves with the algorithm. STRINGS 1
+    // has feedback 7 (50%) on OSC 2 under algorithm 2; algorithm 1 puts it
+    // on OSC 6, and back on 2 it is 50% on OSC 2 again.
+    if (const auto strings = presetIndex ("STRINGS 1 (ROM1A)"); strings >= 0)
+    {
+        processor.loadFactoryPreset (strings);
+        const auto before = read (processor, "fm_fb2");
+        processor.applyDx7Algorithm (1);
+        const auto moved = read (processor, "fm_fb6");
+        processor.applyDx7Algorithm (2);
+        const auto back = read (processor, "fm_fb2");
+        check (before > 0.4f && std::abs (moved - before) < 1.0e-4f && std::abs (back - before) < 1.0e-4f,
+               "operator EG: changing the algorithm keeps the feedback level (" + juce::String (before, 3) + " -> "
+                   + juce::String (moved, 3) + " -> " + juce::String (back, 3) + ")");
+    }
 }
 
 // Turning a knob while a note sounds moves the Operator Env at once, as
@@ -316,7 +332,7 @@ void runSourcesTest()
            "operator EG: Op LFO and Op Pitch Env are named sources");
     check (destination > 0 && difference (playEdited (plain, 1.0), playEdited (routed, 1.0)) > 0.001f,
            "operator EG: the Op LFO modulates a destination through the matrix");
-    for (const auto* name : { "Osc1 Op Env Level", "Osc6 Op Env Attack Rate", "Op LFO Rate", "Op LFO Pitch Depth", "Op Pitch Env Level 1" })
+    for (const auto* name : { "Osc1 OP ENV Level", "Osc6 OP ENV Attack", "OP LFO Rate", "OP LFO Pitch Depth", "OP PITCH Peak" })
         check (Mod::getDestinationNames().contains (name), juce::String ("operator EG: \"") + name + "\" is a destination");
 }
 } // namespace OperatorEgTests

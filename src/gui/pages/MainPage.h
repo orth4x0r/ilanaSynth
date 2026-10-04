@@ -190,7 +190,7 @@ public:
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
 
         opEgButton.setButtonText ("EDIT OP ENV");
-        opEgButton.setTooltip ("Open the Operator EG on the FM page");
+        opEgButton.setTooltip ("Open the Operator Env on the FM page");
         opEgButton.onClick = [this]
         {
             if (onEditOperator != nullptr)
@@ -815,7 +815,7 @@ private:
                 return {};
         }
 
-        return operatorEg == playing ? "Not used: the OSCs play their Op EG"
+        return operatorEg == playing ? "Not used: the OSCs play their OP ENV"
                                      : "Not used: the OSCs play other envelopes";
     }
 

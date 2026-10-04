@@ -534,7 +534,7 @@ private:
         if (info.source == Mod::Source::AmpEnv && FmOperatorInfo::ampEnvelopeInUse (processorRef))
             fixed.add ("Amp");
         else if (info.source == Mod::Source::AmpEnv)
-            fixed.add ("unused (Op Env)");
+            fixed.add ("unused (OP ENV)");
         if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
             fixed.add ("Filter 1");
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)

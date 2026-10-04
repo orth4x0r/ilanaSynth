@@ -26,8 +26,8 @@ public:
     static const std::vector<NewFeature>& whatsNew()
     {
         static const std::vector<NewFeature> list {
-            { "DX7 BANKS + OPERATOR EG", "FM", "288 DX7 voices load as normal patches (find them by sound in the browser, or under its DX7 chip); "
-                                                "any oscillator can use the DX7's envelope (ENVELOPE: Operator EG). Import more .syx banks from the browser." },
+            { "DX7 BANKS + OPERATOR ENV", "FM", "288 DX7 voices load as normal patches (find them by sound in the browser, or under its DX7 chip); "
+                                                "any oscillator can use the DX7's envelope (ENVELOPE: Operator Env). Import more .syx banks from the browser." },
             { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters on the FILTER page." },
             { juce::String (FilterType::Count) + " FILTERS", "FILTER", "The filter list, grouped by family on the FILTER page." },
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },

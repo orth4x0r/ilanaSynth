@@ -481,15 +481,17 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         for (int osc = 0; osc < 6; ++osc)
         {
             const juce::String prefix (prefixes[osc]);
-            const auto name = "Osc" + juce::String (osc + 1) + " Op Env ";
+            const auto name = "Osc" + juce::String (osc + 1) + " OP ENV ";
             add (prefix + "_eg_out", name + "Level");
-            add (prefix + "_eg_r1", name + "Attack Rate");
-            add (prefix + "_eg_r4", name + "Release Rate");
+            // Review 7: times, as the knobs read them (a positive amount
+            // lengthens the stage; the processor turns it into a slower rate).
+            add (prefix + "_eg_r1", name + "Attack");
+            add (prefix + "_eg_r4", name + "Release");
         }
-        add ("opeg_lfo_speed", "Op LFO Rate");
-        add ("opeg_lfo_pmd", "Op LFO Pitch Depth");
-        add ("opeg_lfo_amd", "Op LFO Amp Depth");
-        add ("opeg_pitch_l1", "Op Pitch Env Level 1");
+        add ("opeg_lfo_speed", "OP LFO Rate");
+        add ("opeg_lfo_pmd", "OP LFO Pitch Depth");
+        add ("opeg_lfo_amd", "OP LFO Amp Depth");
+        add ("opeg_pitch_l1", "OP PITCH Peak");
         return true;
     }();
     juce::ignoreUnused (extended);

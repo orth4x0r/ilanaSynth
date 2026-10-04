@@ -24,9 +24,9 @@ public:
     OperatorPoolCard (IlanaSynthAudioProcessor& p, Kind kindIn) : processorRef (p), kind (kindIn)
     {
         setTooltip (kind == Kind::envelope ? "The Operator Env: the DX7 envelope each operator on it plays. Click to edit it on FM."
-                    : kind == Kind::pitch  ? "The Operator Env's pitch envelope (source: Op Pitch Env). Click to edit it on FM; "
+                    : kind == Kind::pitch  ? "The Operator Env's pitch envelope (source: OP PITCH). Click to edit it on FM; "
                                              "drag it onto a knob to modulate that too."
-                                           : "The Operator Env's LFO (source: Op LFO). Click to edit it on FM; drag it onto a "
+                                           : "The Operator Env's LFO (source: OP LFO). Click to edit it on FM; drag it onto a "
                                              "knob to modulate that too.");
         setRepaintsOnMouseActivity (true);
         refresh();

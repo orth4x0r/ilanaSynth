@@ -22,9 +22,6 @@ public:
           clockDiv (p.apvts, "clock_div", "S&H CLOCK", msegColour(), false),
           processorRef (p),
           arpLanes (p, arpColour()),
-          // Each engine's switch is named and sits in its own controls row
-          // (review 6, I6-15): one header switch read as the whole card's.
-          arpOn (p.apvts, "arp_on", "ARP"),
           arpMode (p.apvts, "arp_mode", "MODE"),
           arpDiv (p.apvts, "arp_div", "RATE"),
           arpOctaves (p.apvts, "arp_octaves", "OCTAVES", arpColour(), true),
@@ -42,7 +39,6 @@ public:
           sprayStrum (p.apvts, "spray_strum", "DIRECTION"),
           engineTabs ({ "ARP", "EUCLID", "PROB SEQ", "CLIP" }, { arpColour(), euclidColour(), pseqColour(), clipColour() }, false),
           euclidDisplay (p, euclidColour()),
-          eucOn (p.apvts, "euc_on", "EUCLID"),
           eucTarget (p.apvts, "euc_target", "TARGET"),
           eucDiv (p.apvts, "euc_div", "RATE"),
           eucSteps (p.apvts, "euc_steps", "STEPS", euclidColour(), true),
@@ -50,12 +46,11 @@ public:
           eucRotate (p.apvts, "euc_rotate", "ROTATE", euclidColour(), true),
           eucGate (p.apvts, "euc_gate", "GATE", euclidColour(), true),
           pseqEditor (p, pseqColour()),
-          pseqOn (p.apvts, "pseq_on", "PROB SEQ"),
           pseqDiv (p.apvts, "pseq_div", "RATE"),
-          pseqLength (p.apvts, "pseq_length", "LENGTH", pseqColour(), true),
+          // STEPS, as the arp's (review 7, I7-29).
+          pseqLength (p.apvts, "pseq_length", "STEPS", pseqColour(), true),
           pseqGate (p.apvts, "pseq_gate", "GATE", pseqColour(), true),
           clipEditor (p, clipColour()),
-          clipOn (p.apvts, "clip_on", "CLIP"),
           clipIndex (p.apvts, "clip_index", "SLOT"),
           clipMode (p.apvts, "clip_mode", "MODE"),
           clipBars (p, "LENGTH"),
@@ -77,9 +72,9 @@ public:
                 *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity, sprayStrum, *strumTime);
 
         // The Generative card: ARP, EUCLID and PROB SEQ share one card.
-        addAll (*this, engineTabs, euclidDisplay, eucOn, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
-                pseqEditor, pseqOn, pseqDiv, pseqLength, pseqGate, clipEditor, clipOn, clipIndex, clipMode, clipBars,
-                clipGrid, clipImport);
+        addAll (*this, engineTabs, euclidDisplay, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
+                pseqEditor, pseqDiv, pseqLength, pseqGate, clipEditor, clipIndex, clipMode, clipBars,
+                clipGrid, clipImport, clipDraw);
         clipImport.setButtonText ("IMPORT MIDI");
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
@@ -91,9 +86,19 @@ public:
         clipExpand.setTooltip ("Expand\nGives the piano roll the page: GENERATE folds to its title line until you collapse "
                                "the roll again (or click GENERATE's title).");
         clipExpand.onClick = [this] { setClipExpanded (! clipExpanded); };
+        clipDraw.setTooltip ("Draw (D)\nA click on empty space places a note (at the last length used); a drag paints a run "
+                             "of them along the GRID, at the pointer's pitch. Alt+drag stretches the placed note instead. "
+                             "Off: double-click places a note and a drag selects.");
+        clipDraw.setClickingTogglesState (true);
+        clipDraw.onClick = [this] { clipEditor.setDrawMode (clipDraw.getToggleState()); };
+        clipEditor.onDrawModeChanged = [this] (bool on) { clipDraw.setToggleState (on, juce::dontSendNotification); };
         addAll (*this, arpSteps, noteChain, scaleSwitch, strumSwitch, clipZoom, clipQuantise, clipExpand);
         noteChain.onOpenEngine = [this] (int engine) { engineTabs.setSelected (engine, true); };
         engineTabs.onSelect = [this] (int) { showEngineTab(); };
+        // Each engine's power is the switch in its tab (review 7, V7-11 and
+        // I7-36): the tab's fill says which engine is shown, the switch
+        // whether it plays. No second switch in the engine's row.
+        engineTabs.onToggle = [this] (int engine) { toggleEngine (engine); };
 
         addAndMakeVisible (step1);
         addAndMakeVisible (step2);
@@ -133,10 +138,11 @@ public:
         msegLoop.showAsSwitch();
         genSnap.showAsSwitch();
         addAll (*this, mseg, msegLoop, msegRate, clockDiv,
-                arpLanes, arpOn, arpMode, arpDiv, arpOctaves, arpGate);
+                arpLanes, arpMode, arpDiv, arpOctaves, arpGate);
 
         // Open on whichever part of the card is switched on.
         engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : readOn ("clip_on") ? 3 : 0, false);
+        updateEngineSwitches();
         showEngineTab();
 
         if (part == Part::notes)
@@ -151,9 +157,9 @@ public:
         else
         {
             for (auto* control : std::initializer_list<juce::Component*> {
-                     &engineTabs, &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
-                     &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                     &clipGrid, &clipImport, &arpLanes, &arpOn, &arpMode, &arpDiv,
+                     &engineTabs, &euclidDisplay, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
+                     &pseqEditor, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipIndex, &clipMode, &clipBars,
+                     &clipGrid, &clipImport, &clipDraw, &arpLanes, &arpMode, &arpDiv,
                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
                      sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get(),
                      &arpSteps, &noteChain, &scaleSwitch, &strumSwitch, &clipZoom, &clipQuantise, &clipExpand })
@@ -251,7 +257,7 @@ public:
         IlanaTheme::paintCard (g, generateCard.toFloat(), 7.0f, generateColour().withAlpha (0.35f));
 
         // PATTERN's header: the title, then the note path (NoteChainView),
-        // then the engines' tabs, each lit while its engine is on.
+        // then the engines' tabs, each with its engine's switch.
         IlanaTheme::paintCardTitle (g, arpCard.reduced (12, 0).removeFromTop (26), "PATTERN", tabColour);
 
         const auto summary = generateSummary();
@@ -407,11 +413,11 @@ public:
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
 
-        // Every engine's row on one seven-column grid: its switch first, then
-        // its settings, packed from the left.
-        layoutRow (controls, { &arpOn, &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, &arpSteps });
-        layoutRow (controls, { &eucOn, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
-        layoutRow (controls, { &pseqOn, &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
+        // Every engine's row on one six-column grid, packed from the left
+        // (the switches are in the tabs).
+        layoutRow (controls, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, &arpSteps });
+        layoutRow (controls, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
+        layoutRow (controls, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
 
         // The clip's row is menus and buttons only (nine columns): the
         // piano roll takes the height the other engines' knobs need.
@@ -419,14 +425,15 @@ public:
             constexpr int menuHeight = 13 + 24;
             const auto clipRow = controls.withTrimmedTop (controls.getHeight() - menuHeight - 6);
             clipEditor.setBounds (display.withBottom (clipRow.getY() - 6));
-            layoutRow (clipRow, { &clipOn, &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr });
+            layoutRow (clipRow, { &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr, nullptr });
 
             // The buttons line up with the menus' boxes.
             const auto column = clipRow.getWidth() / 9;
-            auto cell = clipGrid.getBounds().translated (column * 2, 0).withTrimmedTop (13).withHeight (24);
-            clipQuantise.setBounds (cell);
-            clipImport.setBounds (cell.translated (column, 0));
-            clipExpand.setBounds (cell.translated (column * 2, 0));
+            auto cell = clipZoom.getBounds().translated (column, 0).withTrimmedTop (13).withHeight (24);
+            clipDraw.setBounds (cell);
+            clipQuantise.setBounds (cell.translated (column, 0));
+            clipImport.setBounds (cell.translated (column * 2, 0));
+            clipExpand.setBounds (cell.translated (column * 3, 0));
         }
 
         layoutGenerate();
@@ -655,9 +662,7 @@ private:
         // The engine tabs light while their engine is on (review 6, I6-15).
         if (part == Part::notes)
         {
-            const char* const engineSwitches[] { "arp_on", "euc_on", "pseq_on", "clip_on" };
-            for (int engine = 0; engine < 4; ++engine)
-                engineTabs.setTabOn (engine, readOn (engineSwitches[engine]));
+            updateEngineSwitches();
 
             // The boxes' titles and notes follow their switches.
             const auto signature = (scaleSwitch.isOn() ? 1 : 0) | (strumSwitch.isOn() ? 2 : 0) | (readOn ("spray_on") ? 4 : 0)
@@ -694,20 +699,21 @@ private:
             return;
 
         const auto tab = engineTabs.getSelected();
+        noteChain.setShownEngine (tab);
 
-        for (auto* control : std::initializer_list<juce::Component*> { &arpLanes, &arpOn, &arpMode, &arpDiv, &arpOctaves,
+        for (auto* control : std::initializer_list<juce::Component*> { &arpLanes, &arpMode, &arpDiv, &arpOctaves,
                                                                         &arpGate, &arpChance, &arpSteps })
             control->setVisible (tab == 0);
 
-        for (auto* control : std::initializer_list<juce::Component*> { &euclidDisplay, &eucOn, &eucTarget, &eucDiv, &eucSteps,
+        for (auto* control : std::initializer_list<juce::Component*> { &euclidDisplay, &eucTarget, &eucDiv, &eucSteps,
                                                                         &eucHits, &eucRotate, &eucGate })
             control->setVisible (tab == 1);
 
-        for (auto* control : std::initializer_list<juce::Component*> { &pseqEditor, &pseqOn, &pseqDiv, &pseqLength, &pseqGate })
+        for (auto* control : std::initializer_list<juce::Component*> { &pseqEditor, &pseqDiv, &pseqLength, &pseqGate })
             control->setVisible (tab == 2);
 
-        for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipOn, &clipIndex, &clipMode, &clipBars,
-                                                                        &clipGrid, &clipImport, &clipZoom, &clipQuantise, &clipExpand })
+        for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipIndex, &clipMode, &clipBars,
+                                                                        &clipGrid, &clipImport, &clipZoom, &clipDraw, &clipQuantise, &clipExpand })
             control->setVisible (tab == 3);
 
         // An expanded roll folds GENERATE only while CLIP is shown.
@@ -727,6 +733,43 @@ private:
         repaint();
     }
 
+    void updateEngineSwitches()
+    {
+        const char* const engineSwitches[] { "arp_on", "euc_on", "pseq_on", "clip_on" };
+        for (int engine = 0; engine < 4; ++engine)
+            engineTabs.setTabOn (engine, readOn (engineSwitches[engine]));
+    }
+
+    // A tab's switch: the engine's on parameter, one undo step.
+    void toggleEngine (int engine)
+    {
+        const char* const ids[] { "arp_on", "euc_on", "pseq_on", "clip_on" };
+        const char* const names[] { "ARP", "EUCLID", "PROB SEQ", "CLIP" };
+
+        if (! juce::isPositiveAndBelow (engine, 4))
+            return;
+
+        if (auto* parameter = processorRef.apvts.getParameter (ids[engine]))
+        {
+            const auto on = parameter->getValue() < 0.5f;
+            processorRef.performEdit (juce::String (names[engine]) + (on ? " on" : " off"), [parameter, on]
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (on ? 1.0f : 0.0f);
+                parameter->endChangeGesture();
+            });
+        }
+
+        updateEngineSwitches();
+        effectRules.apply();
+        repaint();
+    }
+
+public:
+    // The UI test turns the engines on and off through their tabs' switches.
+    CardTabs& getEngineTabs() { return engineTabs; }
+
+private:
     bool generateFolded() const { return part == Part::notes && clipExpanded && engineTabs.getSelected() == 3; }
 
     std::vector<juce::Component*> generateControls()
@@ -782,7 +825,6 @@ private:
     KnobControl clockDiv;
     IlanaSynthAudioProcessor& processorRef;
     ArpLanesEditor arpLanes;
-    ToggleControl arpOn;
     ComboControl arpMode, arpDiv;
     KnobControl arpOctaves, arpGate, arpChance;
     ComboControl genScale, genRoot;
@@ -791,15 +833,12 @@ private:
     std::unique_ptr<KnobControl> sprayCount, sprayRange, spraySpread, sprayChance, sprayVelocity, strumTime;
     CardTabs engineTabs;
     EuclidDisplay euclidDisplay;
-    ToggleControl eucOn;
     ComboControl eucTarget, eucDiv;
     KnobControl eucSteps, eucHits, eucRotate, eucGate;
     ProbSeqEditor pseqEditor;
-    ToggleControl pseqOn;
     ComboControl pseqDiv;
     KnobControl pseqLength, pseqGate;
     ClipEditor clipEditor;
-    ToggleControl clipOn;
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
     ClipGridControl clipGrid;
@@ -808,7 +847,7 @@ private:
     NoteChainView noteChain;
     ChoiceSwitch scaleSwitch, strumSwitch;
     ClipZoomControl clipZoom;
-    juce::TextButton clipQuantise, clipExpand { "EXPAND" };
+    juce::TextButton clipQuantise, clipExpand { "EXPAND" }, clipDraw { "DRAW" };
     bool clipExpanded = false;
     int boxSignature = -1;
     static constexpr int boxHeaderHeight = 24;

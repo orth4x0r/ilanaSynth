@@ -25,10 +25,10 @@ public:
           traceColour (traceColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into a Curve with the same points and edit it.  "
-                    "Draw: drag to draw.  Steps: drag across the steps to set them.  Curve: click to add points, drag them, "
+        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into an MSEG with the same points and edit it.  "
+                    "Draw: drag to draw.  Steps: drag across the steps to set them.  MSEG: click to add points, drag them, "
                     "drag the dot on a line to curve it, double-click to delete.  GRID (top right) sets the snap; "
-                    "right-click for shapes.  The value shows while you drag.");
+                    "right-click for shapes.  The value shows while you drag; the ruler under the graph is one cycle.");
 
         juce::Random random (lfoIndex * 1234 + 7);
 
@@ -59,7 +59,7 @@ public:
             g.fillRoundedRectangle (bounds.expanded (4.0f), 8.0f);
         }
 
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        IlanaTheme::paintWell (g, wellArea(), 6.0f);
 
         if (const auto simShape = (int) readParam ("_shape"); LfoSimShapes::isSim (simShape))
         {
@@ -69,11 +69,13 @@ public:
 
         if ((int) readParam ("_shape") == LfoShapes::Steps)
         {
-            paintSteps (g, bounds);
+            paintSteps (g, wellArea());
             return;
         }
 
-        const auto plot = bounds.reduced (10.0f, 14.0f);
+        const auto plot = plotArea();
+        if (! LfoShapes::isPhysics ((int) readParam ("_shape")))
+            paintTimeRuler (g, plot);
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.42f;
         const auto shape = (int) readParam ("_shape");
@@ -297,12 +299,12 @@ public:
 
         if (convertHint > 0.0f)
         {
-            hint = "now a Curve with the same points (undo puts the " + convertedFrom + " back)";
+            hint = "now an MSEG with the same points (undo puts the " + convertedFrom + " back)";
             hintAlpha = juce::jmin (1.0f, convertHint * 2.0f);
         }
         else if (convertsToCurve (shape) && isMouseOver())
         {
-            hint = "drag to edit: the wave becomes a Curve";
+            hint = "drag to edit: the wave becomes an MSEG";
             hintAlpha = 0.8f;
         }
 
@@ -552,7 +554,86 @@ private:
 private:
     // ---- Curve shape editing --------------------------------------------
 
-    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().reduced (10.0f, 14.0f); }
+    // The well frames the graph; the ruler (one cycle's time, or the step
+    // numbers) sits under it, outside the frame, as on the envelope graphs
+    // (UI review 7, S7-26 / I7-29). A simulated shape draws its own scope
+    // in the whole area.
+    static constexpr float rulerHeight = 14.0f;
+
+    juce::Rectangle<float> wellArea() const
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        return LfoSimShapes::isSim ((int) readParam ("_shape")) ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
+    }
+
+    juce::Rectangle<float> plotArea() const { return wellArea().reduced (10.0f, 14.0f); }
+
+    // One cycle's ruler under the graph: its time at RATE in Hz, or note
+    // values while SYNC is on, at the quarters.
+    void paintTimeRuler (juce::Graphics& g, juce::Rectangle<float> plot) const
+    {
+        const auto rulerY = (float) getHeight() - rulerHeight;
+        const auto synced = readParam ("_sync") > 0.5f;
+        juce::StringArray labels;
+
+        if (synced)
+        {
+            const auto* division = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1) + "_div");
+            const auto name = division != nullptr ? division->getCurrentValueAsText() : juce::String ("1/4");
+            const auto denominator = name.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+            const auto plain = name.startsWith ("1/") && denominator > 0 && name.containsOnly ("0123456789/");
+            for (int quarter = 0; quarter <= 4; ++quarter)
+            {
+                if (quarter == 0)
+                    labels.add ("0");
+                else if (quarter == 4)
+                    labels.add (name);
+                else if (plain)
+                {
+                    // quarter / (4 * denominator), reduced.
+                    auto top = quarter, bottom = 4 * denominator;
+                    while (top % 2 == 0 && bottom % 2 == 0)
+                        top /= 2, bottom /= 2;
+                    labels.add (juce::String (top) + "/" + juce::String (bottom));
+                }
+                else
+                    labels.add (quarter == 2 ? juce::String (juce::CharPointer_UTF8 ("\xc2\xbd")) : juce::String());
+            }
+        }
+        else
+        {
+            const auto rate = juce::jmax (0.001f, readParam ("_rate"));
+            for (int quarter = 0; quarter <= 4; ++quarter)
+            {
+                const auto seconds = (double) quarter * 0.25 / (double) rate;
+                labels.add (quarter == 0 ? juce::String ("0 ms")
+                                         : seconds < 1.0 ? juce::String (juce::roundToInt (seconds * 1000.0)) + " ms"
+                                                         : juce::String (seconds, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + " s");
+            }
+        }
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (font);
+        auto lastRight = -1.0e9f;
+        for (int quarter = 0; quarter <= 4; ++quarter)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) quarter / 4.0f;
+            g.setColour (juce::Colours::white.withAlpha (quarter == 0 || quarter == 4 ? 0.0f : 0.04f));
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
+            const auto& text = labels[quarter];
+            if (text.isEmpty())
+                continue;
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
+            const auto left = juce::jlimit (0.0f, (float) getWidth() - width, x - width * 0.5f);
+            if (left < lastRight + 6.0f)
+                continue;
+            lastRight = left + width;
+            g.setColour (juce::Colours::white.withAlpha (0.18f));
+            g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 1.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (text, juce::Rectangle<float> (left, rulerY + 2.0f, width, 12.0f), juce::Justification::centred);
+        }
+    }
 
     juce::Point<float> pointToScreen (const LfoCurve::Point& point) const
     {
@@ -700,7 +781,7 @@ private:
         juce::PopupMenu menu;
 
         if (converting)
-            menu.addItem (400, "Edit as a curve (same points)");
+            menu.addItem (400, "Edit as an MSEG (same points)");
 
         menu.addSubMenu ("Load shape", shapes);
         menu.addSubMenu ("Snap to grid", grid);
@@ -805,7 +886,7 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         g.drawText ("click: add   drag: move   dot on a line: curve   double-click: delete   right-click: shapes",
-                    getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
+                    wellArea().toNearestInt().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
     }
 
     // Simulated physics output across physicsCycles cycles, one value per
@@ -854,7 +935,7 @@ private:
 
     void setCustomPoint (juce::Point<float> position)
     {
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+        const auto plot = plotArea();
 
         if (plot.getWidth() <= 1.0f)
             return;
@@ -870,7 +951,7 @@ private:
 
     void setStepPoint (juce::Point<float> position)
     {
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+        const auto plot = plotArea();
 
         if (plot.getWidth() <= 1.0f)
             return;
@@ -906,6 +987,10 @@ private:
         const auto halfHeight = plot.getHeight() * 0.42f;
         const auto stepWidth = plot.getWidth() / 16.0f;
         const auto playing = juce::jlimit (0, 15, (int) (processorRef.getLfoPhase (index) * 16.0f));
+        // The step under the mouse lights as well, as an arp lane's does.
+        const auto mouse = getMouseXYRelative().toFloat();
+        const auto hovered = isMouseOver() && plot.getWidth() > 1.0f
+                                 ? juce::jlimit (0, 15, (int) ((mouse.x - plot.getX()) / plot.getWidth() * 16.0f)) : -1;
 
         g.setColour (juce::Colours::white.withAlpha (0.04f));
         for (const auto level : { -1.0f, -0.5f, 0.5f, 1.0f })
@@ -920,7 +1005,7 @@ private:
             const auto value = readParam (("_step" + juce::String (step + 1)).toRawUTF8());
             const auto x = plot.getX() + (float) step * stepWidth;
             const auto y = centreY - value * halfHeight;
-            const auto lit = step == playing || step == draggedStep;
+            const auto lit = step == playing || step == draggedStep || step == hovered;
 
             g.setColour (traceColour.withAlpha (lit ? 0.95f : 0.6f));
             g.fillRect (juce::Rectangle<float> (x + 1.5f, juce::jmin (y, centreY), juce::jmax (1.0f, stepWidth - 3.0f),
@@ -932,11 +1017,13 @@ private:
                 g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
             }
 
-            if (step % 4 == 0)
+            // Every step numbered on the ruler under the graph, as the arp's
+            // lanes are (UI review 7, I7-29); every fourth where they crowd.
+            if (stepWidth >= 16.0f || step % 4 == 0)
             {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.drawText (juce::String (step + 1), juce::Rectangle<float> (x + 2.0f, plot.getBottom() + 1.0f, stepWidth, 12.0f),
-                            juce::Justification::centredLeft);
+                g.setColour (step % 4 == 0 || lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+                g.drawText (juce::String (step + 1), juce::Rectangle<float> (x, (float) getHeight() - rulerHeight + 2.0f, stepWidth, 12.0f),
+                            juce::Justification::centred);
             }
         }
 

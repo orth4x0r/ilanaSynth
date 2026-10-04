@@ -259,7 +259,7 @@ public:
 
         g.setColour (textColour);
         g.setFont (IlanaTheme::pillFont());
-        g.drawFittedText (getButtonText(), text, juce::Justification::centredLeft, 1, 0.9f);
+        IlanaTheme::drawFitted (g, getButtonText(), text, juce::Justification::centredLeft, 1);
     }
 
 private:

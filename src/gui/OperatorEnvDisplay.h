@@ -401,7 +401,7 @@ public:
             g.fillRoundedRectangle (text, 4.0f);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (font);
-            g.drawFittedText (words, text.toNearestInt(), juce::Justification::centred, 1, 0.9f);
+            IlanaTheme::drawFitted (g, words, text.toNearestInt(), juce::Justification::centred, 1);
         }
 
         if (readout.isNotEmpty())

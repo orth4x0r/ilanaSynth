@@ -105,7 +105,7 @@ public:
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
             g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
             g.setFont (font);
-            g.drawFittedText (name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1, 0.8f);
+            IlanaTheme::drawFitted (g, name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1);
 
             markBounds = {};
             if (idleTargets > 0)

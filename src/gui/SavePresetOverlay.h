@@ -286,9 +286,9 @@ public:
             area.removeFromTop (8);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawFittedText ("You already have a preset with this name. Overwriting replaces it with the sound playing now; "
-                              "Cancel goes back to change the name.",
-                              area.removeFromTop (60), juce::Justification::topLeft, 3, 1.0f);
+            IlanaTheme::drawFitted (g, "You already have a preset with this name. Overwriting replaces it with the sound playing now; "
+                              "CANCEL goes back to change the name.",
+                              area.removeFromTop (60), juce::Justification::topLeft, 3);
             return;
         }
 
@@ -489,8 +489,8 @@ private:
         asking = shouldAsk;
         for (auto* component : std::initializer_list<juce::Component*> { &nameField, &tagsField, &categoryBox, &authorField, &commentField })
             component->setVisible (! asking);
-        saveButton.setButtonText (asking ? "Overwrite" : "Save");
-        cancelButton.setButtonText ("Cancel");
+        saveButton.setButtonText (asking ? "OVERWRITE" : "SAVE");
+        cancelButton.setButtonText ("CANCEL");
         saveButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
         saveButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
 
@@ -540,7 +540,7 @@ private:
     juce::StringArray suggestions;
     juce::Rectangle<int> noteArea, chipArea, authorLabel, hoveredChip;
     juce::ComboBox categoryBox;
-    juce::TextButton saveButton { "Save" }, cancelButton { "Cancel" };
+    juce::TextButton saveButton { "SAVE" }, cancelButton { "CANCEL" };
     juce::File target;
     juce::String note;
     bool noteIsWarning = false;

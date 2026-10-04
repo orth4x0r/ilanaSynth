@@ -73,7 +73,9 @@ public:
         if (strip)
         {
             processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
-            drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.8f), true);
+            // Quiet: it sits under the preset name, the most-read text, and
+            // moves all the time (review 8, S8-41).
+            drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.45f), true);
             return;
         }
 

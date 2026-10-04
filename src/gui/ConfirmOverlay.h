@@ -5,8 +5,9 @@
 #include "IlanaLookAndFeel.h"
 
 // A small confirm over the whole window, in the theme (UI review 4, S1):
-// a title, one line of text, a "Don't ask again" tick and two buttons, or
-// three with an alternative ("Save and load", review 6). Return confirms,
+// a title, one line of text, a "Don't show this again" tick and two
+// buttons, or three with an alternative ("SAVE AND LOAD", review 6). Button
+// names are upper case, as everywhere in the UI (review 8, S8-23). Return confirms,
 // Esc or a click outside the panel cancels. The editor shows it before a
 // preset load or a new random patch replaces an edited patch, and to report
 // a DX7 bank import.
@@ -17,7 +18,7 @@ public:
     {
         confirmButton.onClick = [this] { finish (true); };
         cancelButton.onClick = [this] { finish (false); };
-        cancelButton.setButtonText ("Cancel");
+        cancelButton.setButtonText ("CANCEL");
         alternativeButton.onClick = [this]
         {
             auto done = std::move (alternative);
@@ -29,7 +30,8 @@ public:
                 done();
         };
 
-        dontAskAgain.setButtonText ("Don't ask again");
+        // The tour's words for the same tick (review 8, S8-23).
+        dontAskAgain.setButtonText ("Don't show this again");
         dontAskAgain.setColour (juce::ToggleButton::textColourId, IlanaTheme::Ui::text2);
 
         for (auto* component : std::initializer_list<juce::Component*> { &confirmButton, &cancelButton, &dontAskAgain })
@@ -70,9 +72,9 @@ public:
         message = messageText;
         callback = std::move (callbackIn);
         alternative = choices.onAlternative;
-        confirmButton.setButtonText (choices.confirmText);
-        cancelButton.setButtonText (choices.cancelText);
-        alternativeButton.setButtonText (choices.alternativeText);
+        confirmButton.setButtonText (choices.confirmText.toUpperCase());
+        cancelButton.setButtonText (choices.cancelText.toUpperCase());
+        alternativeButton.setButtonText (choices.alternativeText.toUpperCase());
         alternativeButton.setVisible (choices.alternativeText.isNotEmpty() && alternative != nullptr);
         dontAskAgain.setVisible (choices.offerDontAsk);
         dontAskAgain.setToggleState (false, juce::dontSendNotification);
@@ -173,7 +175,7 @@ public:
         area.removeFromTop (6);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawFittedText (message, area.removeFromTop (messageHeight (area.getWidth())), juce::Justification::topLeft, 2, 1.0f);
+        IlanaTheme::drawFitted (g, message, area.removeFromTop (messageHeight (area.getWidth())), juce::Justification::topLeft, 2);
     }
 
     void mouseDown (const juce::MouseEvent& event) override

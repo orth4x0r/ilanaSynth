@@ -202,7 +202,7 @@ public:
             // a quiet label, so the page doesn't say it twice.
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("PREVIEW  -  Physical oscillators only", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
+            g.drawText (juce::String::fromUTF8 ("PREVIEW  \xc2\xb7  Physical oscillators only"), bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
         }
     }
 

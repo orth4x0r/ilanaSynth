@@ -81,8 +81,9 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (juce::String (unison) + (unison == 1 ? " VOICE   -   " : " VOICES   -   ") + juce::String (juce::roundToInt (detune)) + " ct   -   "
-                            + juce::String (juce::roundToInt (spread * 100.0f)) + "% WIDTH",
+            const auto dot = juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "));
+            g.drawText (juce::String (unison) + (unison == 1 ? " VOICE" : " VOICES") + dot + juce::String (juce::roundToInt (detune)) + " ct"
+                            + dot + juce::String (juce::roundToInt (spread * 100.0f)) + "% WIDTH",
                         header.toNearestInt(), juce::Justification::centredRight);
 
             g.setColour (juce::Colours::white.withAlpha (0.07f));
@@ -119,7 +120,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("VOICE SPREAD   -   " + juce::String (processorRef.getActiveVoiceCount()) + " / 16 VOICES",
+        g.drawText ("VOICE SPREAD" + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + juce::String (processorRef.getActiveVoiceCount()) + " / 16 VOICES",
                     widthBar.withY (globalY - 18.0f).withWidth (220.0f).toNearestInt(),
                     juce::Justification::centredLeft);
     }
@@ -452,7 +453,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText (on ? "RUNNING   -   GATE " + juce::String (juce::roundToInt (gate * 100.0f)) + "%"
+        g.drawText (on ? "RUNNING" + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + "GATE " + juce::String (juce::roundToInt (gate * 100.0f)) + "%"
                        : "ARP OFF",
                     plot.withHeight (16.0f).toNearestInt(),
                     juce::Justification::topRight);

@@ -169,6 +169,137 @@ inline juce::FontOptions font (float height, bool bold = false, bool tabular = f
     return tabular ? options.withFeatureEnabled ("tnum") : options;
 }
 
+// The UI test's other probe (UI review 8, V8-12 / I8-25): while armed, every
+// text drawFitted() below had to shrink, and every one it still had to cut.
+struct TextFitProbe
+{
+    bool armed = false;
+    juce::StringArray shrunk, cut;
+    juce::StringArray cutDetails; // "text: needs N px of M at H"
+};
+
+inline TextFitProbe& textFitProbe()
+{
+    static TextFitProbe probe;
+    return probe;
+}
+
+// Text in a box, the one way the UI fits text that may be too long (UI review
+// 8, V8-12): never squeezed sideways (JUCE's fitted text condenses glyphs,
+// which reads as a broken font next to normal text). A line that doesn't fit
+// tries, in turn, until it does:
+//   1. a smaller size, down to `floorHeight` (the floor for its kind: the
+//      interactive one for values, menus and buttons);
+//   2. the same, with its letters set a little closer (tracking, up to
+//      0.06 of the height between letters: spacing, not narrower glyphs);
+//   3. for a value with a unit ("-30.9 dB"), the number alone, the unit
+//      left to the tooltip and the label;
+//   4. down to the passive floor (still 9 px at 75 %), tracked;
+//   5. wrapped onto its other lines where it may take more, else cut with
+//      an ellipsis.
+// The probe records every line that had to change and every one cut.
+inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, float room, float floor)
+{
+    const auto scale = juce::jmax (0.25f, uiScaleRef());
+    const auto width = juce::GlyphArrangement::getStringWidth (font, line);
+    floor = juce::jmin (font.getHeight(), floor);
+
+    // Width follows height closely, so one step lands near the fit; snap
+    // down to whole device pixels, as font() does, so the glyphs stay crisp.
+    auto height = juce::jmax (floor, std::floor (font.getHeight() * room / juce::jmax (1.0f, width) * scale) / scale);
+    auto smaller = font.withHeight (height);
+
+    while (height > floor && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f)
+    {
+        height = juce::jmax (floor, height - 1.0f / scale);
+        smaller = font.withHeight (height);
+    }
+
+    for (auto tracking = -0.01f; tracking >= -0.0601f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
+         tracking -= 0.01f)
+        smaller = font.withHeight (height).withExtraKerningFactor (tracking);
+
+    return smaller;
+}
+
+inline bool fitsIn (const juce::Font& font, const juce::String& line, float room)
+{
+    return juce::GlyphArrangement::getStringWidth (font, line) <= room + 0.01f;
+}
+
+inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                        juce::Justification justification, int maximumLines = 1,
+                        float floorHeight = TextSize::minPassive)
+{
+    if (area.isEmpty() || text.isEmpty())
+        return;
+
+    if (text.containsAnyOf ("\r\n"))
+    {
+        g.drawFittedText (text, area, justification, juce::jmax (1, maximumLines), 1.0f);
+        return;
+    }
+
+    auto line = text.trim();
+    const auto font = g.getCurrentFont();
+    const auto room = (float) area.getWidth();
+
+    if (fitsIn (font, line, room))
+    {
+        g.drawText (line, area, justification, false);
+        return;
+    }
+
+    auto fitted = fittedFont (font, line, room, floorHeight);
+
+    if (! fitsIn (fitted, line, room))
+    {
+        // A number with a unit after a space: the number alone.
+        const auto number = line.upToLastOccurrenceOf (" ", false, false);
+        const auto unit = line.fromLastOccurrenceOf (" ", false, false);
+        const auto isValue = number.isNotEmpty() && unit.length() <= 3 && ! unit.containsAnyOf ("0123456789")
+                             && number.retainCharacters ("0123456789").isNotEmpty()
+                             && number.removeCharacters ("0123456789.,+-:/").removeCharacters (juce::String::fromUTF8 ("\xe2\x88\x92\xc3\x97")).isEmpty();
+
+        if (isValue && fitsIn (fittedFont (font, number, room, floorHeight), number, room))
+        {
+            line = number;
+            fitted = fittedFont (font, line, room, floorHeight);
+        }
+        else
+        {
+            fitted = fittedFont (font, line, room, TextSize::minPassive);
+        }
+    }
+
+    const auto fits = fitsIn (fitted, line, room);
+
+    if (! fits && maximumLines > 1)
+    {
+        g.drawFittedText (line, area, justification, maximumLines, 1.0f);
+        return;
+    }
+
+    if (auto& probe = textFitProbe(); probe.armed)
+    {
+        (fits ? probe.shrunk : probe.cut).addIfNotAlreadyThere (text.trim());
+        if (! fits)
+            probe.cutDetails.add (line + ": needs " + juce::String (juce::GlyphArrangement::getStringWidth (fitted, line), 1) + " of "
+                                  + juce::String (room, 1) + " px at " + juce::String (fitted.getHeight(), 2));
+    }
+
+    g.setFont (fitted);
+    g.drawText (line, area, justification, ! fits);
+    g.setFont (font);
+}
+
+inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                        juce::Justification justification, int maximumLines = 1,
+                        float floorHeight = TextSize::minPassive)
+{
+    drawFitted (g, text, area.toNearestInt(), justification, maximumLines, floorHeight);
+}
+
 inline void paintPageBackground (juce::Graphics& g, juce::Rectangle<int> bounds)
 {
     g.setColour (Ui::bg);
@@ -282,10 +413,15 @@ inline int cardTitleWidth (const juce::String& text)
     return juce::GlyphArrangement::getStringWidthInt (juce::Font (font (TextSize::body, true)), text) + 30;
 }
 
-// A card's title: its tag, then the name in the text colour.
+// A card's title: its tag, then the name in the text colour. A card with no
+// family colour (a grey or white one: OUTPUT, SIGNAL FLOW) has no tag, so
+// no grey dot reads as "switched off" beside the on dots (review 8, I8-32).
+inline bool hasFamilyColour (juce::Colour colour) { return colour.getSaturation() > 0.15f; }
+
 inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& text, juce::Colour colour)
 {
-    paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
+    if (hasFamilyColour (colour))
+        paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
     g.setColour (Ui::text);
     g.setFont (font (TextSize::body, true));
     g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
@@ -480,10 +616,12 @@ public:
         return regularTypeface;
     }
 
+    // Every menu's text the same size from 18 px boxes up (review 8, S8-22:
+    // a 19 px EXCITE box drew "Piano Hammer" a size down from its
+    // neighbours); only shorter boxes go to the interactive floor.
     juce::Font getComboBoxFont (juce::ComboBox& box) override
     {
-        return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, IlanaTheme::TextSize::body,
-                                                           (float) box.getHeight() * 0.72f)));
+        return juce::Font (IlanaTheme::font (box.getHeight() >= 18 ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::minInteractive));
     }
 
     juce::Font getPopupMenuFont() override
@@ -754,17 +892,30 @@ public:
         if (button.getProperties().contains ("switch") || button.getProperties().contains ("pill"))
             return;
 
+        juce::ignoreUnused (highlighted, down);
+        g.setFont (getTextButtonFont (button, button.getHeight()));
+
         if (button.getToggleState() && button.isEnabled())
         {
             const auto onColour = button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f);
-            g.setFont (getTextButtonFont (button, button.getHeight()));
             g.setColour (onColour.interpolatedWith (juce::Colours::white, 0.55f));
-            g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (4, 2),
-                              juce::Justification::centred, 1, 0.8f);
+            IlanaTheme::drawFitted (g, button.getButtonText(), button.getLocalBounds().reduced (4, 2),
+                                    juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
             return;
         }
 
-        LookAndFeel_V4::drawButtonText (g, button, highlighted, down);
+        // The stock text's insets (LookAndFeel_V2), drawn through the one
+        // fitting rule instead of its condensed two-line fit.
+        const auto yIndent = juce::jmin (4, button.proportionOfHeight (0.3f));
+        const auto cornerSize = juce::jmin (button.getHeight(), button.getWidth()) / 2;
+        const auto fontHeight = juce::roundToInt (getTextButtonFont (button, button.getHeight()).getHeight() * 0.6f);
+        const auto leftIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnLeft() ? 4 : 2));
+        const auto rightIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnRight() ? 4 : 2));
+        g.setColour (button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId)
+                         .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
+        IlanaTheme::drawFitted (g, button.getButtonText(),
+                                juce::Rectangle<int> (leftIndent, yIndent, button.getWidth() - leftIndent - rightIndent, button.getHeight() - yIndent * 2),
+                                juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
     }
 
     void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
@@ -815,9 +966,13 @@ public:
             g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
             g.setFont (font);
             const auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
-            g.drawFittedText (label.getText(), textArea, label.getJustificationType(),
-                              juce::jmax (1, (int) ((float) textArea.getHeight() / font.getHeight())),
-                              label.getMinimumHorizontalScale());
+            // Never condensed (V8-12): shrunk to the floor, then cut. A value
+            // or a combo's text is clicked, so it keeps the interactive floor.
+            const auto interactive = label.isEditable() || dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
+                                     || dynamic_cast<juce::ComboBox*> (label.getParentComponent()) != nullptr;
+            IlanaTheme::drawFitted (g, label.getText(), textArea, label.getJustificationType(),
+                                    juce::jmax (1, (int) ((float) textArea.getHeight() / font.getHeight())),
+                                    interactive ? IlanaTheme::TextSize::minInteractive : IlanaTheme::TextSize::minPassive);
         }
     }
 

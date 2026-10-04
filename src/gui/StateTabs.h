@@ -20,10 +20,15 @@ public:
         juce::Colour colour;
         bool lit = true;
         juce::String tooltip;
+        // The on dot is a switch's state only (UI-CONVENTIONS; review 8,
+        // I8-21): a tab for something with no switch of its own (VOICE)
+        // has none, rather than a dot lit by "some value is above 0".
+        bool dot = true;
 
         bool operator== (const Item& other) const
         {
-            return name == other.name && state == other.state && colour == other.colour && lit == other.lit && tooltip == other.tooltip;
+            return name == other.name && state == other.state && colour == other.colour && lit == other.lit && tooltip == other.tooltip
+                && dot == other.dot;
         }
     };
 
@@ -85,8 +90,11 @@ public:
 
             auto area = tab.reduced (12.0f, 0.0f);
             // The same on indicator as every switchable tab (review 7).
-            IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
-            area.removeFromLeft (13.0f);
+            if (item.dot)
+            {
+                IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
+                area.removeFromLeft (13.0f);
+            }
 
             g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
@@ -152,7 +160,7 @@ private:
         const auto stateWidth = state.isEmpty() || ! showsState (index, level)
                                     ? 0
                                     : 9 + (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), state));
-        return 24 + 13 + nameWidth (index) + stateWidth;
+        return 24 + (items[(size_t) index].dot ? 13 : 0) + nameWidth (index) + stateWidth;
     }
 
     int widthAt (int level) const

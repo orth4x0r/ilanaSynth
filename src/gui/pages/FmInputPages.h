@@ -1179,10 +1179,10 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawFittedText (anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
+        IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
                                                                              "\xc3\x97 this cell. Hover a dot to add a route."))
                                            : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
-                          topNote, juce::Justification::topLeft, 2, 1.0f);
+                          topNote, juce::Justification::topLeft, 2);
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
         // an empty one is a dot until the mouse is over it.
@@ -1297,8 +1297,8 @@ private:
                     juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawFittedText ("RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
-                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 6), juce::Justification::topLeft, 2, 1.0f);
+        IlanaTheme::drawFitted (g, "RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
+                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 6), juce::Justification::topLeft, 2);
     }
 
     // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import

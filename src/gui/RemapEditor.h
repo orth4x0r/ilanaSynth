@@ -112,8 +112,8 @@ public:
         g.fillRoundedRectangle (bounds, 6.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawFittedText ("REMAP  " + titleText(), bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f).toNearestInt(),
-                          juce::Justification::centredLeft, 1, 0.85f);
+        IlanaTheme::drawFitted (g, "REMAP  " + titleText(), bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f).toNearestInt(),
+                          juce::Justification::centredLeft, 1);
 
         const auto plot = plotArea();
         IlanaTheme::paintWell (g, plot.expanded (6.0f), 5.0f);

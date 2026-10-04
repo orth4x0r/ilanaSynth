@@ -392,6 +392,17 @@ public:
     int getListRowHeight() const { return list.getRowHeight(); }
 
     void clickChip (const juce::String& key) { chipClicked (key); }
+    juce::Rectangle<int> getChipBounds (const juce::String& key) const { return chips.getChipBounds (key); }
+    int getChipRowWidth() const { return chips.getWidth(); }
+
+    juce::String getChipLabel (const juce::String& key) const
+    {
+        for (const auto& chip : chips.entries)
+            if (chip.key == key)
+                return chip.label;
+
+        return {};
+    }
 
     void clickRow (int row, int x)
     {
@@ -456,7 +467,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawFittedText (filterKey == favouritesKey && search.isEmpty() && selectedTags.isEmpty()
+            IlanaTheme::drawFitted (g, filterKey == favouritesKey && search.isEmpty() && selectedTags.isEmpty()
                                   ? juce::String ("No favourites yet. Click the star on a preset to add it.")
                                   : juce::String ("No presets match. Clear the search or a chip to see more."),
                               list.getBounds().reduced (16, 0), juce::Justification::centred, 2);
@@ -623,7 +634,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawFittedText ("Pick a preset to see who made it, its tags and what its macros do.", area,
+            IlanaTheme::drawFitted (g, "Pick a preset to see who made it, its tags and what its macros do.", area,
                               juce::Justification::centredTop, 3);
             return;
         }
@@ -634,7 +645,7 @@ private:
         {
             const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
             const auto oneLine = juce::GlyphArrangement::getStringWidthInt (titleFont, shownNames[index]) <= area.getWidth();
-            g.drawFittedText (shownNames[index], area.removeFromTop (oneLine ? 26 : 46), juce::Justification::topLeft, 2, 0.9f);
+            IlanaTheme::drawFitted (g, shownNames[index], area.removeFromTop (oneLine ? 26 : 46), juce::Justification::topLeft, 2);
         }
 
         {
@@ -656,8 +667,8 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawFittedText ("Also in " + alsoIn[(size_t) index].joinIntoString (", "), area.removeFromTop (18),
-                              juce::Justification::centredLeft, 1, 0.9f);
+            IlanaTheme::drawFitted (g, "Also in " + alsoIn[(size_t) index].joinIntoString (", "), area.removeFromTop (18),
+                              juce::Justification::centredLeft, 1);
         }
 
         const auto& info = infoFor (index);
@@ -675,7 +686,7 @@ private:
             area.removeFromTop (4);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawFittedText (info.comment, area.removeFromTop (64), juce::Justification::topLeft, 4, 1.0f);
+            IlanaTheme::drawFitted (g, info.comment, area.removeFromTop (64), juce::Justification::topLeft, 4);
         }
 
         const auto heading = [&g, &area] (const juce::String& text)
@@ -890,6 +901,16 @@ private:
             return bottom;
         }
 
+        // Where a chip is drawn (empty when it isn't), for the UI test.
+        juce::Rectangle<int> getChipBounds (const juce::String& key) const
+        {
+            for (const auto& box : layout (getWidth()))
+                if (box.key == key)
+                    return box.bounds;
+
+            return {};
+        }
+
         // The keys of the chips drawn (tags folded away aren't).
         juce::StringArray getShownKeys() const
         {
@@ -977,6 +998,32 @@ private:
                 return juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, text) + 20);
             };
 
+            // The DX7 chip and its banks keep to one line (review 8, S8-28:
+            // DEXED01 wrapped onto a row of its own): the bank chips give up
+            // padding, down to half, before any of them wraps.
+            auto bankPadding = 20;
+            {
+                auto fixed = 0, text = 0, banks = 0, chips = 0;
+                for (const auto& entry : entries)
+                {
+                    if (entry.kind == tag)
+                        continue;
+                    ++chips;
+                    if (entry.kind == bank)
+                    {
+                        text += juce::GlyphArrangement::getStringWidthInt (f, entry.label);
+                        ++banks;
+                    }
+                    else
+                    {
+                        fixed += widthOf (entry.label);
+                    }
+                }
+                const auto room = width - fixed - text - gap * juce::jmax (0, chips - 1) - (banks > 0 ? groupGap - gap : 0);
+                if (banks > 0)
+                    bankPadding = juce::jlimit (10, 20, room / banks);
+            }
+
             auto x = 0, y = 0;
             auto previousKind = -1;
             auto tagCount = 0;
@@ -988,7 +1035,8 @@ private:
 
             for (const auto& entry : entries)
             {
-                const auto w = widthOf (entry.label);
+                const auto w = entry.kind == bank ? juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, entry.label) + bankPadding)
+                                                  : widthOf (entry.label);
                 const auto newGroup = previousKind >= 0 && previousKind != (int) entry.kind;
 
                 // The tags get a line of their own under the DX7 and bank
@@ -1219,8 +1267,16 @@ private:
     // its first copy is filtered away.
     bool isHiddenRepeat (int i) const
     {
+        return bankFilter.isEmpty() && repeatsACandidate (i);
+    }
+
+    // A voice whose first copy is among the candidates: the DX7 chip never
+    // counts it, with or without a bank picked (review 8, S8-27 / V8-25: the
+    // chip read 270 in one view and 288 in the other).
+    bool repeatsACandidate (int i) const
+    {
         const auto original = repeats[i];
-        return bankFilter.isEmpty() && original >= 0 && (size_t) original < candidateMask.size() && candidateMask[(size_t) original];
+        return original >= 0 && (size_t) original < candidateMask.size() && candidateMask[(size_t) original];
     }
 
     // The preset's macro names. The loaded one reads them from the patch
@@ -1378,7 +1434,8 @@ private:
         // red: review 7), and not at all while its bank chip is on.
         if (banks[presetIndex].isNotEmpty() && bankFilter.isEmpty())
         {
-            g.setColour (selected ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            const auto shared = sharedNames.contains (shownNames[presetIndex].toLowerCase());
+            g.setColour (selected || shared ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (banks[presetIndex], juce::Rectangle<int> (layout.bankLeft, 0, 80, height), juce::Justification::centredLeft);
         }
@@ -1660,7 +1717,7 @@ private:
         juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon,
                                             "Delete preset",
                                             "Move '" + name + "' to the recycle bin?",
-                                            "Delete", "Cancel", this,
+                                            "DELETE", "CANCEL", this,
                                             juce::ModalCallbackFunction::create ([safeThis, file] (int result)
                                             {
                                                 if (result == 1 && safeThis != nullptr)
@@ -1725,7 +1782,7 @@ private:
         for (auto i : candidates)
             if (banks[i].isNotEmpty())
             {
-                dx7Count += isHiddenRepeat (i) ? 0 : 1;
+                dx7Count += repeatsACandidate (i) ? 0 : 1;
 
                 if (! seenBanks.contains (banks[i]))
                     seenBanks.add (banks[i]);
@@ -1955,6 +2012,19 @@ private:
 
         sortFiltered();
 
+        // Names listed more than once (different DX7 voices with one name,
+        // "Oboe" in ROM2A and ROM4A): their rows show the bank brighter, so
+        // they read apart (review 8, V8-25).
+        {
+            std::map<juce::String, int> seen;
+            for (auto i : filtered)
+                ++seen[shownNames[i].toLowerCase()];
+            sharedNames.clear();
+            for (const auto& [name, count] : seen)
+                if (count > 1)
+                    sharedNames.add (name);
+        }
+
         {
             const juce::ScopedValueSetter<bool> quiet (suppressLoad, true);
             list.updateContent();
@@ -2074,6 +2144,7 @@ private:
     std::vector<juce::StringArray> tagLists, alsoIn;
     juce::Array<int> repeats;
     std::vector<bool> candidateMask;
+    juce::StringArray sharedNames;
     const int factoryCount = processorRef.getFactoryPresetNames().size();
     std::map<int, juce::StringArray> macroTextCache;
     std::map<int, IlanaSynthAudioProcessor::PresetInfo> infoCache;

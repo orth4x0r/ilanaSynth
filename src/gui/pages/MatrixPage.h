@@ -159,10 +159,10 @@ public:
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
         g.setColour (colour);
-        g.drawFittedText (ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1, 0.8f);
+        IlanaTheme::drawFitted (g, ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1);
         g.setColour (IlanaTheme::Ui::text);
-        g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination), info.removeFromTop (24),
-                          juce::Justification::centredLeft, 1, 0.8f);
+        IlanaTheme::drawFitted (g, juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination), info.removeFromTop (24),
+                          juce::Justification::centredLeft, 1);
 
         info.removeFromTop (8);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -176,7 +176,7 @@ public:
             "Click to add a point, drag the middle dots to bend, double-click to remove.",
         };
         for (const auto& line : lines)
-            g.drawFittedText (line, info.removeFromTop (20), juce::Justification::centredLeft, 1, 0.85f);
+            IlanaTheme::drawFitted (g, line, info.removeFromTop (20), juce::Justification::centredLeft, 1);
     }
 
     // A click on a sortable heading.

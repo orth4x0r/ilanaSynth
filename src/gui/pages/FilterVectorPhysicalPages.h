@@ -52,7 +52,7 @@ public:
         g.drawRoundedRectangle (note.toFloat().reduced (0.5f), 6.0f, 1.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawFittedText ("Replaced by WEST: its PLACE is Replace Filter 2.\nThese settings come back when WEST runs after the filters.",
+        IlanaTheme::drawFitted (g, "Replaced by WEST (its PLACE is Replaces F2).\nThese settings come back when WEST runs after the filters.",
                           note.reduced (10, 2), juce::Justification::centred, 2);
     }
 
@@ -386,7 +386,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawFittedText ("No macro evolves. + MACRO lets one drift on its own within a range.",
+            IlanaTheme::drawFitted (g, "No macro evolves. + MACRO lets one drift on its own within a range.",
                               addMacro.getBounds().translated (0, -50).withHeight (40).withX (evolveCard.getX() + 14)
                                   .withWidth (evolveCard.getWidth() - 28),
                               juce::Justification::centred, 2);

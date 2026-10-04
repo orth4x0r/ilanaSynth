@@ -224,6 +224,9 @@ public:
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;
     juce::StringArray getAllPresetBanks() const;
+    // For each preset, the earlier one it repeats parameter for parameter
+    // (the ROM cartridges carry some DX7 voices twice), or -1.
+    juce::Array<int> getPresetRepeats() const;
     // Who made a preset and what its author says about it (user presets
     // carry what Save As asked for; factory presets name their source).
     struct PresetInfo
@@ -239,7 +242,7 @@ public:
     // from user preset files for the browser. Message thread only.
     static juce::StringArray getPresetCategoryChoices()
     {
-        return { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
+        return { "Bass", "Lead", "Brass", "Wind", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
     }
 
     void setPresetMeta (const juce::String& category, const juce::String& tags)

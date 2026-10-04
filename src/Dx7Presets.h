@@ -8,6 +8,7 @@
 // banks (Dx7Banks.h), File > Import DX7 bank, and patches saved by the old
 // DX7 mode (their "Dx7" child, converted on load).
 
+#include <array>
 #include <cstring>
 #include <deque>
 #include <string>
@@ -51,6 +52,24 @@ inline std::string fmId (int source, int target) // 1-based
 // the modulators past it.
 constexpr float opLevel = 0.5f;
 inline const char* const macroNames[4] { "BRIGHT", "TONE", "DRIFT", "SPACE" };
+
+// The four macros named for the kind of sound (UI review 7: every voice
+// showed BRIGHT, TONE, DRIFT, SPACE). Only the names change: the first
+// still deepens the modulators, the second closes the filter, the third
+// detunes and the fourth opens the reverb.
+inline std::array<const char*, 4> macroNamesFor (const juce::String& soundCategory)
+{
+    if (soundCategory == "Keys")  return { "BARK", "DARKEN", "WOBBLE", "ROOM" };
+    if (soundCategory == "Bass")  return { "GROWL", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "Pluck") return { "TWANG", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "Pad")   return { "SHIMMER", "DARKEN", "DRIFT", "SPACE" };
+    if (soundCategory == "Brass") return { "BLARE", "DARKEN", "DETUNE", "HALL" };
+    if (soundCategory == "Wind")  return { "BREATHY", "DARKEN", "DETUNE", "HALL" };
+    if (soundCategory == "Drums") return { "CLANG", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "FX")    return { "METAL", "DARKEN", "DRIFT", "SPACE" };
+    if (soundCategory == "Lead")  return { "EDGE", "DARKEN", "DETUNE", "SPACE" };
+    return { macroNames[0], macroNames[1], macroNames[2], macroNames[3] };
+}
 
 // The voice's envelope side as Operator EG parameters (each one byte of the
 // voice, see OperatorEgParams.h).
@@ -172,7 +191,7 @@ inline std::vector<Value> values (const Dx7::Voice& v)
 inline const char* soundCategory (const juce::String& voiceName, const Dx7::Voice* voice = nullptr)
 {
     static const std::pair<const char*, const char*> keywords[] {
-        { "BASSOON", "Lead" }, { "BASS", "Bass" }, { "FRETLESS", "Bass" },
+        { "BASSOON", "Wind" }, { "BASS", "Bass" }, { "FRETLESS", "Bass" },
         { "B.DRM", "Drums" }, { "DRUM", "Drums" }, { "SNAR", "Drums" }, { "TIMPANI", "Drums" }, { "BLOCK", "Drums" },
         { "COW BELL", "Drums" }, { "COWBELL", "Drums" }, { "STEEL DRUM", "Pluck" },
         { "PIANO", "Keys" }, { "PNO", "Keys" }, { "E.P", "Keys" }, { "GRAND", "Keys" }, { "HONKY", "Keys" },
@@ -185,9 +204,9 @@ inline const char* soundCategory (const juce::String& voiceName, const Dx7::Voic
         { "STRING", "Pad" }, { "STRG", "Pad" }, { "STGS", "Pad" }, { "STG", "Pad" }, { "ORCH", "Pad" }, { "VOICE", "Pad" },
         { "VOX", "Pad" }, { "CHOIR", "Pad" }, { "SHIMMER", "Pad" }, { "EVOLUTION", "Pad" }, { "WATER", "Pad" }, { "PAD", "Pad" },
         { "VIOLA", "Pad" }, { "BOW", "Pad" },
-        { "BRASS", "Lead" }, { "BRS", "Lead" }, { "HORN", "Lead" }, { "TRUMPET", "Lead" }, { "TBONE", "Lead" },
-        { "SAX", "Lead" }, { "FLUTE", "Lead" }, { "PICCOLO", "Lead" }, { "OBOE", "Lead" }, { "CLARINET", "Lead" },
-        { "RECORDER", "Lead" }, { "HARMONICA", "Lead" }, { "HRMNCA", "Lead" }, { "LEAD", "Lead" }, { "SAW", "Lead" },
+        { "BRASS", "Brass" }, { "BRS", "Brass" }, { "HORN", "Brass" }, { "TRUMPET", "Brass" }, { "TBONE", "Brass" },
+        { "SAX", "Wind" }, { "FLUTE", "Wind" }, { "PICCOLO", "Wind" }, { "OBOE", "Wind" }, { "CLARINET", "Wind" },
+        { "RECORDER", "Wind" }, { "HARMONICA", "Wind" }, { "HRMNCA", "Wind" }, { "LEAD", "Lead" }, { "SAW", "Lead" },
         { "TRAIN", "FX" }, { "TAKE OFF", "FX" }, { "LASER", "FX" }, { "EXPLOSION", "FX" }, { "HELENS", "FX" },
         { "PRIX", "FX" }, { "GRAND PRIX", "FX" }, { "PLUCK BASS", "Bass" }, { "WASP", "FX" }, { "DESCENT", "FX" }, { "OCTAVE WAR", "FX" }, { "GOTCHA", "FX" }, { "BOAR", "FX" },
         { "ERUPT", "FX" }, { "THUNDER", "FX" }, { "ENCOUNTER", "FX" }, { "RUMBLE", "FX" }, { "SWP", "FX" },
@@ -243,9 +262,10 @@ inline std::vector<FactoryPreset> bankPresets()
         {
             const auto voice = Dx7::unpack (bank.data + i * 128);
             FactoryPreset preset { intern (Dx7::name (voice) + " (" + bank.label + ")"), values (voice) };
-            preset.macroNames = { macroNames[0], macroNames[1], macroNames[2], macroNames[3] };
             preset.category = "DX7";
             preset.browseCategory = soundCategory (Dx7::name (voice), &voice);
+            const auto named = macroNamesFor (preset.browseCategory);
+            preset.macroNames = { named[0], named[1], named[2], named[3] };
             list.push_back (std::move (preset));
         }
     return list;

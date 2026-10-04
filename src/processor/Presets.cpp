@@ -1,5 +1,8 @@
 #include "ProcessorInternal.h"
 
+#include <cstring>
+#include <map>
+
 namespace
 {
 // The automatic timbre macro's name (see applyDefaultMacros): FM depth when
@@ -225,6 +228,50 @@ juce::StringArray IlanaSynthAudioProcessor::getAllPresetBanks() const
     }
 
     return banks;
+}
+
+juce::Array<int> IlanaSynthAudioProcessor::getPresetRepeats() const
+{
+    // The factory DX7 voices only (288, worked out once): the same values
+    // in the same order are the same patch, whatever the name.
+    static const auto factory = []
+    {
+        const auto& presets = Presets::getFactoryPresets();
+        juce::Array<int> repeats;
+        std::map<std::string, int> first;
+
+        for (size_t i = 0; i < presets.size(); ++i)
+        {
+            repeats.add (-1);
+
+            if (presets[i].category == nullptr || std::strcmp (presets[i].category, "DX7") != 0)
+                continue;
+
+            std::string key;
+
+            for (const auto& value : presets[i].values)
+            {
+                std::uint32_t bits = 0;
+                std::memcpy (&bits, &value.value, sizeof (bits));
+                key += value.id;
+                key += '=' + std::to_string (bits) + ';';
+            }
+
+            if (const auto found = first.find (key); found != first.end())
+                repeats.set ((int) i, found->second);
+            else
+                first[key] = (int) i;
+        }
+
+        return repeats;
+    }();
+
+    auto repeats = factory;
+
+    for (int i = getUserPresetFiles().size(); --i >= 0;)
+        repeats.add (-1);
+
+    return repeats;
 }
 
 IlanaSynthAudioProcessor::PresetInfo IlanaSynthAudioProcessor::getPresetInfo (int index) const

@@ -26,9 +26,12 @@
 // a tag chip on a row filters too. A row's tooltip names its macros.
 // DOCK opens the browser over the page area instead (the window keeps its
 // size): categories on the left, the list in the middle, and the selected
-// preset's details (author, comment, tags, macros) on the right; loading
-// never closes it, picking a tab does. FLOAT returns it to the drop-down,
-// the cross closes it.
+// preset's details (author, comment, tags, macros) on the right. The keys
+// are the same (review 7): Enter keeps the preset and closes it, Esc
+// closes it; a click or double-click only loads, and picking a tab closes
+// it too. FLOAT returns it to the drop-down, the cross closes it. A voice a
+// later DX7 cartridge repeats is listed once ("also in ROM4A"), and under
+// its own bank's chip.
 class PresetPanel : public juce::Component,
                     private juce::ListBoxModel,
                     private juce::KeyListener,
@@ -142,6 +145,8 @@ public:
     // DOCK / FLOAT pressed (true: dock over the page), and the docked cross.
     std::function<void (bool)> onDockRequest;
     std::function<void()> onDockedClose;
+    // The drop-down finished closing (a browsing session ended).
+    std::function<void()> onClosed;
 
     // Docked: a panel over the page area that stays open (no scrim, outside
     // clicks and Esc leave it alone). Undocked: the drop-down.
@@ -186,14 +191,30 @@ public:
         categories = processorRef.getAllPresetCategories();
         tags = processorRef.getAllPresetTags();
         banks = processorRef.getAllPresetBanks();
+        repeats = processorRef.getPresetRepeats();
         shownNames.clear();
         tagLists.clear();
+        alsoIn.assign ((size_t) names.size(), {});
 
         for (int i = 0; i < names.size(); ++i)
         {
             shownNames.add (banks[i].isNotEmpty() ? Presets::dx7DisplayName (names[i]) : names[i]);
-            tagLists.push_back (tagsOf (tags[i]));
+            auto tagList = tagsOf (tags[i]);
+
+            // Every DX7 voice is FM: the tag would tell nothing (review 7).
+            if (banks[i].isNotEmpty())
+            {
+                tagList.removeString ("FM", true);
+                tagList.removeString ("DX7", true);
+            }
+
+            tagLists.push_back (tagList);
         }
+
+        // A voice a later cartridge repeats lists that bank ("also in ROM4A").
+        for (int i = 0; i < names.size(); ++i)
+            if (const auto original = repeats[i]; juce::isPositiveAndBelow (original, names.size()))
+                alsoIn[(size_t) original].add (banks[i] + (shownNames[i] != shownNames[original] ? " (as " + shownNames[i] + ")" : juce::String()));
 
         rebuildSidebar();
         rebuild();
@@ -246,9 +267,18 @@ public:
         startTimerHz (60);
     }
 
+    // Docked, closing is the editor's (it gives the page back).
     void close()
     {
-        if (! isVisible() || docked)
+        if (docked)
+        {
+            if (isVisible() && onDockedClose != nullptr)
+                onDockedClose();
+
+            return;
+        }
+
+        if (! isVisible())
             return;
 
         closing = true;
@@ -393,14 +423,14 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        const auto count = juce::String (filtered.size()) + " of " + juce::String (names.size());
+        const auto count = juce::String (filtered.size()) + " of " + juce::String (names.size() - repeatCount());
+        // The same keys docked and floating (review 7).
         const auto keys = juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close"));
 
         if (docked)
         {
             g.drawText (count, header.withTrimmedLeft (84), juce::Justification::centredLeft);
-            g.drawText (juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  click loads  \xc2\xb7  a tab closes it")),
-                        header.withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 20), juce::Justification::centred);
+            g.drawText (keys, header.withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 20), juce::Justification::centred);
         }
         else
         {
@@ -490,10 +520,7 @@ public:
     {
         if (key == juce::KeyPress::escapeKey)
         {
-            if (docked)
-                unfocusAllComponents();
-            else
-                close();
+            close();
             return true;
         }
 
@@ -625,6 +652,14 @@ private:
             }
         }
 
+        if (! alsoIn[(size_t) index].isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawFittedText ("Also in " + alsoIn[(size_t) index].joinIntoString (", "), area.removeFromTop (18),
+                              juce::Justification::centredLeft, 1, 0.9f);
+        }
+
         const auto& info = infoFor (index);
         area.removeFromTop (6);
 
@@ -674,21 +709,29 @@ private:
             area.setTop (y + 24);
         }
 
+        // The macros that have a name (all eight on the loaded preset),
+        // each with its number.
         const auto macros = macroListFor (index, names[index] == processorRef.getCurrentPresetName());
+        auto named = 0;
 
-        if (! macros.isEmpty())
+        for (const auto& macro : macros)
+            named += macro.isNotEmpty() ? 1 : 0;
+
+        if (named > 0)
         {
             heading ("MACROS");
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
 
             for (int m = 0; m < macros.size(); ++m)
             {
+                if (macros[m].isEmpty())
+                    continue;
+
                 auto line = area.removeFromTop (18);
                 g.setColour (IlanaTheme::Ui::text3);
                 g.drawText (juce::String (m + 1), line.removeFromLeft (16), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
-                g.drawText (macros[m].isNotEmpty() ? macros[m] : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")),
-                            line, juce::Justification::centredLeft, true);
+                g.drawText (macros[m], line, juce::Justification::centredLeft, true);
             }
         }
     }
@@ -815,9 +858,9 @@ private:
     };
 
     // The filter chips above the list, in groups: the DX7 chip, then its
-    // banks while it is on, then the tags of the presets shown (most used
-    // first). Tags keep to the line the other chips end on; "+N" opens the
-    // rest, "Fewer" folds them again.
+    // banks while it is on, then (on a line of their own) the tags of the
+    // presets shown (most used first). Tags keep to one line; the "+N" chip
+    // opens the rest, "Fewer" folds them again.
     class ChipRow : public juce::Component
     {
     public:
@@ -871,7 +914,12 @@ private:
 
                 if (box.entry == nullptr)
                 {
-                    // "+N" / "Fewer": a text link, not a filter.
+                    // "+N" / "Fewer": a chip that opens or folds the rest
+                    // (review 7: it was bare text), not a filter.
+                    g.setColour (juce::Colours::white.withAlpha (hover ? 0.12f : 0.06f));
+                    g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+                    g.setColour (IlanaTheme::Ui::line.brighter (hover ? 0.6f : 0.3f));
+                    g.drawRoundedRectangle (bounds.reduced (0.5f), bounds.getHeight() * 0.5f, 1.0f);
                     g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
                     g.drawText (box.label, box.bounds, juce::Justification::centred);
                     continue;
@@ -942,6 +990,15 @@ private:
             {
                 const auto w = widthOf (entry.label);
                 const auto newGroup = previousKind >= 0 && previousKind != (int) entry.kind;
+
+                // The tags get a line of their own under the DX7 and bank
+                // chips (review 7: one row mixed the two).
+                if (entry.kind == tag && newGroup && x > 0)
+                {
+                    x = 0;
+                    y += chipHeight + gap;
+                }
+
                 auto startX = x + (x > 0 ? (newGroup ? groupGap : gap) : 0);
 
                 if (entry.kind == tag && ! expanded)
@@ -1023,6 +1080,8 @@ private:
     {
         if (category == "Bass") return juce::Colour (0xffff6b4a);
         if (category == "Lead") return juce::Colour (0xff5b8cff);
+        if (category == "Brass") return juce::Colour (0xffe8b04a);
+        if (category == "Wind") return juce::Colour (0xff7fc8d8);
         if (category == "Pluck") return juce::Colour (0xffffd447);
         if (category == "Pad") return juce::Colour (0xffb28aff);
         if (category == "Drone") return juce::Colour (0xff6fe3c1);
@@ -1084,7 +1143,7 @@ private:
 
     void rebuildSidebar()
     {
-        static const juce::StringArray order { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
+        static const juce::StringArray order { "Bass", "Lead", "Brass", "Wind", "Pluck", "Pad", "Keys", "Chords", "Arp",
                                                "Drone", "Drums", "FX", "FX Input", "Generative", "Other" };
         juce::StringArray present;
 
@@ -1114,7 +1173,7 @@ private:
         }
 
         std::vector<Sidebar::Entry> entries;
-        entries.push_back ({ "", "All", names.size(), IlanaTheme::accent(), false });
+        entries.push_back ({ "", "All", names.size() - repeatCount(), IlanaTheme::accent(), false });
         entries.push_back ({ favouritesKey, "Favourites", favourites, juce::Colour (0xffffd447), false });
         entries.push_back ({ userKey, "User", users, juce::Colours::white.withAlpha (0.6f), false });
 
@@ -1139,10 +1198,29 @@ private:
     {
         auto count = 0;
 
-        for (const auto& item : categories)
-            count += item == category ? 1 : 0;
+        for (int i = 0; i < categories.size(); ++i)
+            count += categories[i] == category && repeats[i] < 0 ? 1 : 0;
 
         return count;
+    }
+
+    // The voices a cartridge repeats, left out of the counts.
+    int repeatCount() const
+    {
+        auto count = 0;
+
+        for (auto original : repeats)
+            count += original >= 0 ? 1 : 0;
+
+        return count;
+    }
+
+    // A repeated voice is listed only under its own bank's chip, or when
+    // its first copy is filtered away.
+    bool isHiddenRepeat (int i) const
+    {
+        const auto original = repeats[i];
+        return bankFilter.isEmpty() && original >= 0 && (size_t) original < candidateMask.size() && candidateMask[(size_t) original];
     }
 
     // The preset's macro names. The loaded one reads them from the patch
@@ -1154,7 +1232,7 @@ private:
         {
             juce::StringArray live;
 
-            for (int macro = 0; macro < 4; ++macro)
+            for (int macro = 0; macro < Mod::numMacros; ++macro)
                 live.add (processorRef.apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString());
 
             return live;
@@ -1241,7 +1319,7 @@ private:
         layout.bankLeft = layout.nameRight + 8;
         auto after = layout.nameRight;
 
-        if (banks[presetIndex].isNotEmpty())
+        if (banks[presetIndex].isNotEmpty() && bankFilter.isEmpty())
         {
             const juce::Font bankFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             after = layout.bankLeft + juce::GlyphArrangement::getStringWidthInt (bankFont, banks[presetIndex]);
@@ -1296,10 +1374,11 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::title, isCurrent));
         g.drawText (shownNames[presetIndex], juce::Rectangle<int> (32, 0, layout.nameRight - 32, height), juce::Justification::centredLeft, true);
 
-        // A DX7 voice's bank, dim beside its name.
-        if (banks[presetIndex].isNotEmpty())
+        // A DX7 voice's bank, dim beside its name (in text3, not the DX7
+        // red: review 7), and not at all while its bank chip is on.
+        if (banks[presetIndex].isNotEmpty() && bankFilter.isEmpty())
         {
-            g.setColour (dx7Colour().withAlpha (selected ? 0.95f : 0.7f));
+            g.setColour (selected ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (banks[presetIndex], juce::Rectangle<int> (layout.bankLeft, 0, 80, height), juce::Justification::centredLeft);
         }
@@ -1333,6 +1412,9 @@ private:
 
         if (! macros.isEmpty())
             text << "\nMacros: " << macros.joinIntoString (juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")));
+
+        if (! alsoIn[(size_t) presetIndex].isEmpty())
+            text << "\nAlso in " << alsoIn[(size_t) presetIndex].joinIntoString (", ");
 
         const auto& info = infoFor (presetIndex);
 
@@ -1418,8 +1500,9 @@ private:
 
     void listBoxItemDoubleClicked (int row, const juce::MouseEvent& event) override
     {
+        // Docked, a double-click only loads: the panel is there to stay.
         if (event.x >= 30 && tagAt (row, event.x).isEmpty())
-            loadRow (row, true);
+            loadRow (row, ! docked);
     }
 
     void returnKeyPressed (int lastRowSelected) override { loadRow (lastRowSelected, true); }
@@ -1435,10 +1518,7 @@ private:
 
         if (key == juce::KeyPress::escapeKey)
         {
-            if (docked)
-                unfocusAllComponents();
-            else
-                close();
+            close();
             return true;
         }
 
@@ -1447,8 +1527,6 @@ private:
 
     void loadRow (int row, bool closeAfter)
     {
-        closeAfter = closeAfter && ! docked;
-
         if (! juce::isPositiveAndBelow (row, filtered.size()))
         {
             if (closeAfter)
@@ -1647,7 +1725,7 @@ private:
         for (auto i : candidates)
             if (banks[i].isNotEmpty())
             {
-                ++dx7Count;
+                dx7Count += isHiddenRepeat (i) ? 0 : 1;
 
                 if (! seenBanks.contains (banks[i]))
                     seenBanks.add (banks[i]);
@@ -1778,7 +1856,7 @@ private:
 
     void sortFiltered()
     {
-        static const juce::StringArray categoryOrder { "Init", "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp",
+        static const juce::StringArray categoryOrder { "Init", "Bass", "Lead", "Brass", "Wind", "Pluck", "Pad", "Keys", "Chords", "Arp",
                                                        "Drone", "Drums", "FX", "FX Input", "Generative", "Other", "User" };
         const auto rank = [] (const juce::String& category)
         {
@@ -1844,15 +1922,23 @@ private:
         const auto words = juce::StringArray::fromTokens (query, " ", "");
         juce::Array<int> candidates;
 
+        candidateMask.assign ((size_t) names.size(), false);
+
         for (int i = 0; i < names.size(); ++i)
             if (passesCategory (i) && matchesSearch (i, words))
+            {
                 candidates.add (i);
+                candidateMask[(size_t) i] = true;
+            }
 
         rebuildChips (candidates);
 
         for (auto i : candidates)
         {
             if (dx7Only && banks[i].isEmpty())
+                continue;
+
+            if (isHiddenRepeat (i))
                 continue;
 
             if (bankFilter.isNotEmpty() && banks[i] != bankFilter)
@@ -1916,6 +2002,10 @@ private:
                 setVisible (false);
                 scrim.setVisible (false);
                 stopTimer();
+
+                if (onClosed != nullptr)
+                    onClosed();
+
                 return;
             }
         }
@@ -1981,7 +2071,9 @@ private:
     bool isUserPreset (int index) const { return index >= factoryCount; }
 
     juce::StringArray names, shownNames, categories, tags, banks;
-    std::vector<juce::StringArray> tagLists;
+    std::vector<juce::StringArray> tagLists, alsoIn;
+    juce::Array<int> repeats;
+    std::vector<bool> candidateMask;
     const int factoryCount = processorRef.getFactoryPresetNames().size();
     std::map<int, juce::StringArray> macroTextCache;
     std::map<int, IlanaSynthAudioProcessor::PresetInfo> infoCache;

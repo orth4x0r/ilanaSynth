@@ -377,19 +377,54 @@ public:
         area.removeFromLeft (10);
         auto right = area;
 
-        // The added oscillators' strips and SUB + NOISE, all one height (taller
-        // when there are fewer), with one slim "+ ADD OSC" row between them
-        // while a slot is free (UI review 7, V7-4, S7-2). The column scrolls
-        // only when even the smallest strips don't fit.
+        // The added oscillators' strips and SUB + NOISE, with one slim
+        // "+ ADD OSC" row between them while a slot is free (UI review 7,
+        // V7-4, S7-2). A strip's height depends on the window only, not on
+        // how many oscillators there are (three fit with the ADD row and
+        // SUB + NOISE; past that the column scrolls), so adding one moves
+        // nothing (UI review 8, S8-24, S8-8). A switched-off oscillator
+        // folds to a slim strip with its switch (V8-17).
         oscView.setBounds (left);
-        const auto numStrips = (int) std::count (shownStrips.begin(), shownStrips.end(), true) + 1;
         const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
-        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight,
-                                              (left.getHeight() - addRow - slotGap * (numStrips - 1)) / numStrips);
-        const auto columnHeight = numStrips * slotHeight + (numStrips - 1) * slotGap + addRow;
+        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, (left.getHeight() - addRowHeight - slotGap * 4) / 4);
+        auto columnHeight = 0, lastWholeBottom = 0;
+        std::vector<int> cardTops;
+        const auto addCard = [&] (int height)
+        {
+            columnHeight += columnHeight > 0 ? slotGap : 0;
+            cardTops.push_back (columnHeight);
+            columnHeight += height;
+            if (columnHeight <= left.getHeight())
+                lastWholeBottom = columnHeight;
+        };
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (shownStrips[(size_t) osc])
+                addCard (isFolded (osc) ? foldedHeight : slotHeight);
+        if (addRow > 0)
+            addCard (addRowHeight);
+        addCard (slotHeight);
         const auto scrolls = columnHeight > left.getHeight();
-        oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0),
-                           juce::jmax (columnHeight, left.getHeight()));
+        // A scrolling column ends its view at a strip's foot, so no strip
+        // shows cut in half (V13, S8).
+        if (scrolls && lastWholeBottom > left.getHeight() / 2)
+            oscView.setBounds (left.withHeight (lastWholeBottom));
+        oscView.setSingleStepSizes (16, slotHeight + slotGap);
+        // The column's foot is padded so that scrolled to its end the view
+        // also starts at a strip's top, and the view snaps to a strip's top.
+        const auto viewHeight = oscView.getHeight();
+        auto paddedHeight = juce::jmax (columnHeight, left.getHeight());
+        auto snappedY = 0;
+        if (scrolls)
+        {
+            const auto lastTop = *std::find_if (cardTops.begin(), cardTops.end(),
+                                                [&] (int top) { return columnHeight - top <= viewHeight; });
+            paddedHeight = juce::jmax (columnHeight, lastTop + viewHeight);
+            for (const auto top : cardTops)
+                if (top <= juce::jmin (oscView.getViewPositionY() + slotHeight / 2, lastTop))
+                    snappedY = top;
+        }
+        oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0), paddedHeight);
+        oscView.setViewPosition (0, snappedY);
         auto column = oscColumn.getLocalBounds();
         addOscButton.setVisible (false);
         addRowArea = {};
@@ -400,7 +435,7 @@ public:
 
             if (shownStrips[(size_t) osc])
             {
-                oscCards[(size_t) osc] = column.removeFromTop (slotHeight);
+                oscCards[(size_t) osc] = column.removeFromTop (isFolded (osc) ? foldedHeight : slotHeight);
                 column.removeFromTop (slotGap);
             }
 
@@ -601,6 +636,23 @@ private:
             resized();
     }
 
+    // A switched-off oscillator's strip folds to its title, what it plays
+    // and its switch (UI review 8, V8-17); switching it on unfolds it.
+    bool isFolded (int osc) const { return shownStrips[(size_t) osc] && ! strips[(size_t) osc]->shownOn; }
+
+    // What a folded strip plays: "Wavetable · Basic".
+    juce::String foldedSummary (int osc) const
+    {
+        const auto& strip = *strips[(size_t) osc];
+        const auto mode = juce::jmax (0, strip.shownMode);
+        auto text = strip.mode->getComboBox().getText();
+        const auto detail = mode == 0 ? strip.table->getComboBox().getText()
+                                       : mode == 1 ? strip.excite->getComboBox().getText() : juce::String();
+        if (detail.isNotEmpty())
+            text << juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) << detail;
+        return text;
+    }
+
     int firstEmptySlot() const
     {
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -621,6 +673,15 @@ private:
 
         for (auto& entry : strip.allKnobs)
             entry.second->setVisible (false);
+
+        if (isFolded (index))
+        {
+            for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
+                                   (juce::Component*) strip.excite.get(), (juce::Component*) &wave (index) })
+                control->setVisible (false);
+            strip.on->setVisible (true);
+            return;
+        }
 
         std::vector<juce::Component*> controls { strip.mode.get(), strip.table.get(), strip.excite.get(), &wave (index) };
 
@@ -909,6 +970,10 @@ private:
             return;
 
         strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, card.getCentreY() - 1));
+
+        if (isFolded (index))
+            return;
+
         const auto columns = stripColumns (card);
         wave (index).setBounds (columns.picture);
         auto menus = columns.menus;
@@ -972,11 +1037,34 @@ private:
 
             const auto& strip = *strips[(size_t) osc];
             IlanaTheme::paintCard (g, card.toFloat(), 6.0f, strip.shownOn ? tint : tint.withAlpha (0.3f));
-            paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String ("OFF"),
-                        strip.shownOn && strip.opEg ? juce::String ("OP ENV") : juce::String());
+
+            if (isFolded (osc))
+            {
+                // One line: the dimmed title, what it plays, the switch.
+                const auto line = card.withSizeKeepingCentre (card.getWidth(), 16);
+                IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, tint.withAlpha (0.4f));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+                g.drawText (name, line.withX (card.getX() + 24).withWidth (titleWidth - 16), juce::Justification::centredLeft);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                const auto columns = stripColumns (card);
+                g.drawText (foldedSummary (osc), line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()),
+                            juce::Justification::centredLeft, true);
+                continue;
+            }
+
+            paintTitle (card, name, tint, strip.shownOn, strip.role, {});
 
             if (strip.opEg)
-                strip.thumb.paint (g, stripColumns (card).picture.toFloat(), tint, strip.shownOn);
+            {
+                // The picture is the Operator Env, not the wave: say so in
+                // its corner (UI review 8, I8-37).
+                const auto picture = stripColumns (card).picture;
+                strip.thumb.paint (g, picture.toFloat(), tint, strip.shownOn);
+                g.setColour (IlanaTheme::Ui::text2.withAlpha (strip.shownOn ? 1.0f : 0.5f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("OP ENV", picture.reduced (7, 5).removeFromTop (12), juce::Justification::topRight);
+            }
         }
 
         // The next oscillator to add: a slim dashed row round its button.
@@ -1042,7 +1130,7 @@ private:
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = 36;
-    static constexpr int minSlotHeight = 62, maxSlotHeight = 120;
+    static constexpr int minSlotHeight = 104, maxSlotHeight = 140, foldedHeight = 40;
     static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.35f;

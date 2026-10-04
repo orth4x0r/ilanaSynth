@@ -351,7 +351,12 @@ public:
             if (isAirwindowsFxType (type))
                 tip << "\n" << airwindowsBadgeTip (type);
             button->setTooltip (tip);
+            // The all-in-one module only while a patch already uses it: the
+            // family cards' AIRWINDOWS models are the one way in (I8-33).
+            if (button->getKind() == FxLibraryButton::Kind::more)
+                button->setVisible (slot >= 0);
         }
+        repaint();
     }
 
     // The button that adds a type (an Airwindows model's AW button too).
@@ -373,7 +378,8 @@ public:
         }
 
         // A hairline over the row under the columns.
-        if (! moreRow.isEmpty())
+        if (! moreRow.isEmpty() && std::any_of (buttons.begin(), buttons.end(), [] (const auto& b)
+                                                { return b->getKind() == FxLibraryButton::Kind::more && b->isVisible(); }))
         {
             g.setColour (IlanaTheme::Ui::line);
             g.fillRect (moreRow.toFloat().withHeight (1.0f).translated (0.0f, -(float) groupGap * 0.5f));

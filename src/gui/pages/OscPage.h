@@ -676,6 +676,19 @@ public:
 
         if (! sharedCard.isEmpty())
             IlanaTheme::paintRecessedPanel (g, sharedCard.toFloat(), 6.0f);
+
+        // SUB + NOISE's two halves, each named at its left.
+        for (const auto& [area, name] : sharedLabels)
+        {
+            g.setColour (name == "SUB" ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawFittedText (name, area, juce::Justification::topLeft, 1);
+        }
+        for (const auto& divider : sharedDividers)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRect (divider);
+        }
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
@@ -763,7 +776,8 @@ private:
     int selected = 0, sharedSelected = 0;
     juce::String shownRole;
     juce::Rectangle<int> oscCard, sharedCard, controlBay, subtitleArea;
-    std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels;
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels, sharedLabels;
+    std::vector<juce::Rectangle<int>> sharedDividers;
 
     bool readBool (const juce::String& id) const
     {
@@ -1043,14 +1057,43 @@ private:
         const auto switchBounds = IlanaTheme::cardSwitchBounds (sharedCard, header.getCentreY());
         subOscOn->setBounds (switchBounds);
         symOn.setBounds (switchBounds);
-        layoutSlots (sharedCard.withTrimmedTop (sharedHeaderHeight).reduced (8, 0).withTrimmedBottom (4), sharedItems (sharedSelected));
+        sharedLabels.clear();
+        sharedDividers.clear();
+        auto row = sharedCard.withTrimmedTop (sharedHeaderHeight).reduced (8, 0).withTrimmedBottom (4);
+
+        // SUB + NOISE in two named halves (the sub's controls, then after
+        // the gap the noise's), so its row reads as two small modules
+        // rather than four knobs and an empty half (UI review 8, S8-29).
+        if (sharedSelected == 0)
+        {
+            const auto items = sharedItems (0);
+            const auto split = std::find (items.begin(), items.end(), nullptr);
+            std::vector<juce::Component*> sub (items.begin(), split), noise;
+            for (auto it = split; it != items.end(); ++it)
+                if (*it != nullptr)
+                    noise.push_back (*it);
+            auto half = row.removeFromLeft (row.getWidth() / 2);
+            sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
+            for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, "SUB", &sub },
+                                               { &row, "NOISE", &noise } })
+            {
+                sharedLabels.push_back ({ area->removeFromLeft (rowLabelWidth - 24).reduced (8, 0).withTrimmedTop (3).withHeight (18), name });
+                while (group->size() < 4)
+                    group->push_back (nullptr);
+                layoutSlots (*area, *group);
+            }
+            return;
+        }
+
+        layoutSlots (row, sharedItems (sharedSelected));
     }
 
     std::vector<juce::Component*> sharedItems (int index)
     {
         switch (index)
         {
-            case 0: return { &subShape, &subOctave, subOscLevel.get(), noiseStrip.get(), nullptr, nullptr, nullptr, nullptr };
+            // (The sub's controls, then the noise's after the gap.)
+            case 0: return { &subShape, &subOctave, subOscLevel.get(), nullptr, noiseStrip.get() };
             case 1: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
             case 2: return { &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                              symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };

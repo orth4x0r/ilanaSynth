@@ -75,7 +75,9 @@ public:
           reverbWidth (p.apvts, "fx_reverb_width", "WIDTH"),
           reverbMix (p.apvts, "fx_reverb_mix", "MIX"),
           // Q1's dry-stays-dry mode (review 7, I7-4): the DX7 voices' SPACE.
-          reverbKeepDry (p.apvts, "fx_reverb_keep_dry", "KEEP DRY"),
+          // Says what it does to MIX: the wet goes on top of the dry, and MIX
+          // then reads WET (UI review 8, V8-33).
+          reverbKeepDry (p.apvts, "fx_reverb_keep_dry", "WET ON TOP"),
           flangerRate (p.apvts, "fx_flanger_rate", "RATE"),
           flangerDepth (p.apvts, "fx_flanger_depth", "DEPTH"),
           flangerFeedback (p.apvts, "fx_flanger_feedback", "FEEDBACK"),
@@ -405,6 +407,11 @@ public:
             if (auto* blend = p.apvts.getParameter (prefix + "_mix"))
                 header.blendAttachment = std::make_unique<juce::SliderParameterAttachment> (*blend, header.blend, nullptr);
             stackContent.addChildComponent (header.blend);
+            // The slot's dry / wet as a MIX knob in the card's row, where the
+            // effect has no MIX of its own: one widget, one name and one
+            // place for dry / wet on every card (UI review 8, S8-6).
+            header.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX", IlanaTheme::accent(), false);
+            stackContent.addChildComponent (*header.mix);
 
             header.model.onSwitch = [this, slot]
             {
@@ -473,6 +480,19 @@ public:
         }
     }
 
+    // Cards cut by the foot of a scrolling rack fade out there, so they read
+    // as more below rather than clipped by OUTPUT (UI review 8, S8-14, V8-19).
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! stackView.isVisible() || stackView.getViewPositionY() + stackView.getHeight() >= stackContent.getHeight() - 2)
+            return;
+
+        const auto foot = stackView.getBounds().removeFromBottom (28).toFloat();
+        const auto background = IlanaTheme::Ui::bg;
+        g.setGradientFill (juce::ColourGradient (background.withAlpha (0.0f), 0.0f, foot.getY(), background, 0.0f, foot.getBottom(), false));
+        g.fillRect (foot);
+    }
+
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
@@ -488,10 +508,13 @@ public:
             chainBButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
             left.removeFromLeft (8);
             copyChainButton.setBounds (left.removeFromLeft (92).reduced (0, 3));
+            // The chain's dice and its file with the chain buttons, as one
+            // toolbar, not across the page (UI review 8, S8-40).
+            left.removeFromLeft (16);
+            diceButton.setBounds (left.removeFromLeft (64).reduced (0, 3));
+            left.removeFromLeft (6);
+            fileButton.setBounds (left.removeFromLeft (104).reduced (0, 3));
         }
-        fileButton.setBounds (toolbar.removeFromRight (104).reduced (0, 3));
-        toolbar.removeFromRight (6);
-        diceButton.setBounds (toolbar.removeFromRight (64).reduced (0, 3));
 
         area.removeFromTop (8);
 
@@ -682,6 +705,11 @@ private:
         // here (picking it would only mirror that slot's settings).
         for (const auto& group : fxLibraryGroups())
         {
+            // The all-in-one Airwindows module is kept for the patches that
+            // use it; new ones pick an effect's AIRWINDOWS model instead (UI
+            // review 8, I8-33).
+            if (group.column < 0 && slotHoldingType (30, -1) < 0)
+                continue;
             menu.addSectionHeader (group.title);
             for (const auto& entry : group.entries)
                 for (const auto type : { entry.type, entry.twin })
@@ -955,6 +983,24 @@ private:
         return items;
     }
 
+    // A card's row: its module's controls, then the slot's MIX where the
+    // effect has none of its own (in the family's colour), or BLEND on an
+    // old patch that set the slot's dry / wet beside the effect's MIX.
+    std::vector<juce::Component*> cardItems (const StackPanel& panel, ToggleControl** power = nullptr) const
+    {
+        auto items = rowItems (panel.type, power);
+        if (showsSlotMix (panel))
+        {
+            auto& knob = *cardHeaders[(size_t) panel.slot].mix;
+            const auto name = hasOwnMix (panel.type) ? "BLEND" : "MIX";
+            if (knob.getLabelText() != name)
+                knob.setLabelText (name);
+            knob.setIdentityColour (fxColour (panel.type));
+            items.push_back (&knob);
+        }
+        return items;
+    }
+
     static bool hasCardDisplay (int type) { return type == 29 || FxDisplay::hasDisplay (type); }
 
     static int displayWidthFor (int type, bool half)
@@ -967,7 +1013,7 @@ private:
     // The header's controls, right to left from the on switch.
     int headerControlsWidth (const StackPanel& panel) const
     {
-        return 8 + 48 + (showsBand (panel.slot) ? bandWidth + 6 : 0) + soloWidth + 6 + (showsBlend (panel) ? blendWidth + 10 : 4)
+        return 8 + 48 + (showsBand (panel.slot) ? bandWidth + 6 : 0) + soloWidth + 6 + 4
                + (panel.type == 13 && ! panel.duplicate ? 82 : 0);
     }
 
@@ -981,11 +1027,16 @@ private:
     // group); the type menu sets it otherwise (S7-15).
     bool showsBand (int slot) const { return getSlotBand (slot) != 0; }
 
-    // BLEND only where the effect has no MIX of its own, or once it is set
-    // below 100 % (V7-7, S7-15: one dry/wet per card).
-    bool showsBlend (const StackPanel& panel) const
+    // The slot's MIX knob only where the effect has no MIX of its own, or
+    // once it is set below 100 % (V7-7, S7-15: one dry/wet per card); never
+    // on a duplicate card, which does nothing of its own (V8-38).
+    bool hasOwnMix (int type) const { return juce::isPositiveAndBelow (type, (int) ownMix.size()) && ownMix[(size_t) type]; }
+
+    bool showsSlotMix (const StackPanel& panel) const
     {
-        if (panel.duplicate || ! juce::isPositiveAndBelow (panel.type, (int) ownMix.size()) || ! ownMix[(size_t) panel.type])
+        if (panel.duplicate)
+            return false;
+        if (! hasOwnMix (panel.type))
             return true;
         const auto* blend = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (panel.slot + 1) + "_mix");
         return blend != nullptr && blend->load() < 0.995f;
@@ -1008,7 +1059,7 @@ private:
         if (panel.duplicate)
             return header;
 
-        const auto items = rowItems (panel.type);
+        const auto items = cardItems (panel);
         if (items.size() > 8 || panel.type == 16)
             return std::numeric_limits<int>::max();
 
@@ -1020,7 +1071,7 @@ private:
         if (panel.duplicate)
             return cardHeaderHeight + 66;
 
-        const auto rows = rowItems (panel.type).size() > 8 ? 2 : 1;
+        const auto rows = cardItems (panel).size() > 8 ? 2 : 1;
         auto height = cardHeaderHeight + rows * cardRowHeight + cardPadding;
         if (panel.type == 9 && tapsEnabled())
             height += 56;
@@ -1038,7 +1089,8 @@ private:
             slotSwitch->setVisible (false);
         for (auto& header : cardHeaders)
             for (juce::Component* item : { (juce::Component*) &header.type, (juce::Component*) &header.solo, (juce::Component*) &header.band,
-                                           (juce::Component*) &header.blend, (juce::Component*) &header.remove, (juce::Component*) &header.model })
+                                           (juce::Component*) &header.blend, (juce::Component*) &header.remove, (juce::Component*) &header.model,
+                                           (juce::Component*) header.mix.get() })
                 item->setVisible (false);
         for (auto& display : displays)
             display->setVisible (false);
@@ -1128,15 +1180,31 @@ private:
     }
 
     // Cards from..to in rows: two half cards side by side (the same
-    // height), anything else across the whole width. A card's width is its
-    // own (S7-16): a half card with no half card after it stays half width,
-    // with + ADD EFFECT beside it at the end of the chain.
+    // height), anything else across the whole width. One rule for widths
+    // (UI review 8, S8-14, V8-19): cards pair up two to a row only at the
+    // top level and only in pairs; a half card with no partner takes the
+    // whole width, except the chain's last with + ADD EFFECT beside it;
+    // inside a split group every card is full width.
     int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
         const auto halfWidth = (width - cardGap) / 2;
+        const auto inGroup = x > 0;
 
         for (auto k = from; k < to; ++k)
-            cards[k].half = naturalWidth (cards[k]) <= halfWidth;
+            cards[k].half = ! inGroup && naturalWidth (cards[k]) <= halfWidth;
+
+        // A lone half card (no half neighbour to pair with) goes full width.
+        for (auto k = from; k < to;)
+        {
+            if (cards[k].half && k + 1 < to && cards[k + 1].half)
+            {
+                k += 2;
+                continue;
+            }
+            if (cards[k].half && ! (k + 1 == to && addTileAtEnd))
+                cards[k].half = false;
+            ++k;
+        }
 
         for (auto k = from; k < to;)
         {
@@ -1193,7 +1261,9 @@ private:
         body.removeFromTop (cardHeaderHeight);
 
         ToggleControl* power = nullptr;
-        const auto items = rowItems (type, &power);
+        const auto items = cardItems (panel, &power);
+        if (showsSlotMix (panel))
+            cardHeaders[(size_t) slot].mix->setVisible (true);
 
         if (power != nullptr)
             power->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
@@ -1238,7 +1308,12 @@ private:
             for (auto* item : items)
                 menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
             const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * 110 + menus * 40);
-            layoutRow (rowsArea.removeFromTop (cardRowHeight).withSizeKeepingCentre (maxWidth, cardRowHeight), items, false, 1.4f);
+            // A row led by a menu (an ALGORITHM) starts at the row's left, so
+            // the menu stays put when the card switches model (UI review 8,
+            // I8-33); a row of knobs is centred.
+            const auto ledByMenu = ! items.empty() && dynamic_cast<ComboControl*> (items.front()) != nullptr;
+            auto row = rowsArea.removeFromTop (cardRowHeight);
+            layoutRow (ledByMenu ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, cardRowHeight), items, false, 1.4f);
         }
 
         body.removeFromTop (cardPadding);
@@ -1278,18 +1353,9 @@ private:
         header.solo.setBounds (right - soloWidth, lineY, soloWidth, 20);
         header.solo.setVisible (true);
         right -= soloWidth + 6;
-        if (showsBlend (panel))
-        {
-            header.blend.setBounds (right - blendWidth, lineY, blendWidth, 20);
-            header.blend.setTint (fxColour (panel.type));
-            header.blend.setVisible (true);
-            right -= blendWidth + 10;
-        }
-        else
-        {
-            header.blend.setBounds (right, lineY, 0, 20); // (the subtitle stops here)
-            right -= 4;
-        }
+        // (The slot's dry / wet is a MIX knob in the row now, S8-6.)
+        header.blend.setBounds (right, lineY, 0, 20); // (the subtitle stops here)
+        right -= 4;
 
         if (panel.type == 13 && ! panel.duplicate)
         {
@@ -1424,7 +1490,12 @@ private:
             {
                 g.drawText ("off", subtitle, juce::Justification::centredLeft, true);
             }
-            else if (const auto cpu = processorRef.getFxSlotCpu (panel.slot); cpu > 0.0005f && subtitle.getWidth() >= 70)
+            // The slot's CPU only when it is worth a look (above 2 %) or the
+            // card is under the mouse: beside every name it was noise (UI
+            // review 8, V8-34).
+            else if (const auto cpu = processorRef.getFxSlotCpu (panel.slot);
+                     (cpu > 0.02f || (cpu > 0.0005f && stackContent.isMouseOver (true) && panel.bounds.contains (stackContent.getMouseXYRelative())))
+                     && subtitle.getWidth() >= 70)
             {
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true));
                 g.drawText ("CPU " + juce::String (cpu * 100.0f, 1) + "%", subtitle, juce::Justification::centredLeft, true);
@@ -1655,7 +1726,11 @@ private:
         // and then for their CPU readouts.
         auto dirty = flashing;
         if (changeGate.check (processorRef.getUiEpoch()))
+        {
             dirty = updateModuleDimming() || dirty;
+            if (const auto mixName = reverbKeepDry.getButton().getToggleState() ? "WET" : "MIX"; reverbMix.getLabelText() != mixName)
+                reverbMix.setLabelText (mixName);
+        }
         cpuTicks += ticks;
         if (cpuTicks > 30.0f)
         {
@@ -1692,6 +1767,7 @@ private:
         juce::TextButton solo { "SOLO" };
         juce::ComboBox band;
         BlendSlider blend;
+        std::unique_ptr<KnobControl> mix;
         juce::TextButton remove { "REMOVE" };
         FxModelSwitch model;
         std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
@@ -1767,6 +1843,12 @@ private:
                     item->setAlpha (itemAlpha);
                     changed = true;
                 }
+            }
+
+            if (auto& mix = *cardHeaders[(size_t) panel.slot].mix; mix.getAlpha() != alpha)
+            {
+                mix.setAlpha (alpha);
+                changed = true;
             }
         }
 
@@ -1923,6 +2005,21 @@ private:
         return "Airwindows " + juce::String (info.name) + " (" + info.category + ")\nClick to choose another algorithm.";
     }
 
+    // An Airwindows knob's tooltip: the plugin's name for it, and why it
+    // reads in % (the plugins give their controls no unit: UI review 8,
+    // I8-34).
+    static juce::String airwindowsKnobTip (const airwindows::Info& info, int k)
+    {
+        return airwindowsKnobLabel (info.knobs[k].name) + " (Airwindows " + juce::String (info.name) + ")\n"
+               "The plugin's own control, shown as 0 to 100 % of its range: Airwindows gives it no unit.";
+    }
+
+    static void setKnobTip (KnobControl& knob, const juce::String& tip)
+    {
+        knob.setTooltip (tip);
+        knob.getSlider().setTooltip (tip);
+    }
+
     // The chosen algorithm's knobs carry its own names; the rest hide.
     void updateAirwindowsKnobs (bool loaded)
     {
@@ -1933,7 +2030,10 @@ private:
         {
             const auto used = k < info.numKnobs && ! isAirwindowsDryWet (info.knobs[k].name);
             if (used)
+            {
                 knobs[k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
+                setKnobTip (*knobs[k], airwindowsKnobTip (info, k));
+            }
             knobs[k]->setVisible (loaded && used);
         }
 
@@ -2032,7 +2132,10 @@ private:
         {
             const auto used = k < info.numKnobs && ! isAirwindowsDryWet (info.knobs[k].name);
             if (used)
+            {
                 controls.knobs[(size_t) k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
+                setKnobTip (*controls.knobs[(size_t) k], airwindowsKnobTip (info, k));
+            }
             controls.knobs[(size_t) k]->setVisible (loaded && used);
         }
 

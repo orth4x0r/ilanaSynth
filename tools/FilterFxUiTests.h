@@ -194,11 +194,15 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         }
         settle (400);
     };
+    // (The slot's dry / wet: a MIX knob in the card's row since UI review
+    // 8, S8-6.)
     const auto shownBlends = [&editor]
     {
-        std::vector<BlendSlider*> blends;
-        findAll<BlendSlider> (editor, blends);
-        return (int) std::count_if (blends.begin(), blends.end(), [] (BlendSlider* b) { return visibleInTree (b) && ! b->getBounds().isEmpty(); });
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        return (int) std::count_if (knobs.begin(), knobs.end(), [] (KnobControl* k)
+                                    { return k->getParameterId().startsWith ("fx_slot") && k->getParameterId().endsWith ("_mix")
+                                             && visibleInTree (k) && ! k->getBounds().isEmpty(); });
     };
     const auto shownBands = [&editor]
     {
@@ -230,8 +234,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         settle (300);
         expect (shownBands() == 2, "the two banded slots show their band menus (" + juce::String (shownBands()) + ")");
 
-        // S7-16: one + ADD EFFECT (the tile), not one in the toolbar too; a
-        // half card keeps its width with a full card after it.
+        // S7-16: one + ADD EFFECT (the tile), not one in the toolbar too.
         loadFx ({ 7, 13 }); // Chorus (half), Reverb (full)
         std::vector<FxTypeButton*> titles;
         findAll<FxTypeButton> (editor, titles);
@@ -245,8 +248,10 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     (knob->getParameterId() == "fx_chorus_mix" ? chorusRight : reverbRight) = knob->getRight();
         }
         auto* stack = titles.empty() ? nullptr : titles.front()->getParentComponent();
-        expect (stack != nullptr && chorusRight > 0 && chorusRight < stack->getWidth() / 2 && reverbRight > stack->getWidth() / 2,
-                "a half card (Chorus) stays half width before a full card (Reverb)");
+        // (UI review 8, S8-14, V8-19: a half card without a partner takes the
+        // whole width.)
+        expect (stack != nullptr && chorusRight > stack->getWidth() / 2 && reverbRight > stack->getWidth() / 2,
+                "a half card (Chorus) without a partner takes the full width before a full card (Reverb)");
         expect (shownButtons ("+ ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
 
         // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.

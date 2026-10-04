@@ -44,7 +44,13 @@ public:
     std::function<void()> onShownChanged;
     bool isWanted() const { return wanted; }
 
-    int getIdealWidth() const { return 214; }
+    // Wide enough for its detail ("5.4 Hz Sine  -> FM") in full.
+    int getIdealWidth() const
+    {
+        const auto text = detail + juce::String (juce::CharPointer_UTF8 ("  \xe2\x86\x92 FM"));
+        const auto textWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::tiny), text);
+        return juce::jlimit (214, 340, 16 + 12 + 66 + 52 + 8 + textWidth + 6);
+    }
 
     Mod::Source getSource() const { return kind == Kind::lfo ? Mod::Source::OpLfo : Mod::Source::OpPitchEnv; }
 
@@ -189,9 +195,12 @@ private:
 
         if (nowShape != shape || nowDetail != detail)
         {
+            const auto widthBefore = getIdealWidth();
             shape = std::move (nowShape);
             detail = nowDetail;
             repaint();
+            if (getIdealWidth() != widthBefore && onShownChanged != nullptr)
+                onShownChanged();
         }
     }
 

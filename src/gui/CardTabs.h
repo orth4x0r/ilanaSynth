@@ -22,6 +22,19 @@ public:
     int getSelected() const { return selected; }
     const juce::StringArray& getNames() const { return names; }
 
+    // Replaces the pills (a pool that grows and shrinks: PLAY's envelope
+    // tabs); the selection is kept in range, without notifying.
+    void setNames (juce::StringArray newNames, std::vector<juce::Colour> newColours)
+    {
+        if (newNames == names && newColours == colours)
+            return;
+
+        names = std::move (newNames);
+        colours = std::move (newColours);
+        selected = names.isEmpty() ? selected : juce::jlimit (0, names.size() - 1, selected);
+        repaint();
+    }
+
     void setSelected (int index, bool notify)
     {
         // With no pills (open button only) the index is just remembered.

@@ -55,7 +55,7 @@ public:
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
     // Pages by id ("MAIN", "VECTOR", "OSC", "PHYSICAL", "FILTER", "ENV/LFO",
-    // "STEPS", "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
+    // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
     // An oscillator's Operator EG: the FM page with that operator chosen.
@@ -165,6 +165,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, (size_t) Mod::Source::Count> usedModSources {};
+    std::vector<bool> chipSecondOutputs; // the LFO chips showing a "B" (they lay out wider)
     IlanaLookAndFeel lookAndFeel;
     juce::TooltipWindow tooltipWindow { this, 900 };
     Content content;

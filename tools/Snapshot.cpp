@@ -46,7 +46,8 @@
 #include "gui/LfoSimView.h"
 #include "gui/LogoComponent.h"
 #include "gui/LfoDisplay.h"
-#include "gui/PoolIndexRow.h"
+#include "gui/LfoShapeMenu.h"
+#include "gui/SequencerEditors.h"
 #include "gui/RemapEditor.h"
 #include "gui/FxDisplays.h"
 #include "gui/FxLibrary.h"
@@ -529,9 +530,12 @@ int runUiTests()
     settle (200);
     expect (pages->getCurrentPageId() == "MATRIX" && pages->getCurrentPage() != nullptr && visibleInTree (pages->getCurrentPage()),
             "MATRIX opens inside MOD");
+    // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): MOD has two
+    // pages, and the old id opens ENV / LFO.
     pages->showPage ("STEPS");
     settle (200);
-    expect (pages->getCurrentPageId() == "STEPS" && visibleInTree (pages->getCurrentPage()), "STEPS & MSEG opens inside MOD");
+    expect (pages->getCurrentPageId() == "ENV/LFO" && ! pages->getPageIds().contains ("STEPS"),
+            "MOD is ENV / LFO and MATRIX; the old STEPS id opens ENV / LFO");
     {
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
@@ -985,7 +989,7 @@ int runUiTests()
             set ("amp_release", 0.5f);
 
             // Mirror of the display's geometry.
-            const auto plot = amp->getLocalBounds().toFloat().reduced (12.0f, 14.0f);
+            const auto plot = amp->getPlotArea();
             const auto total = std::sqrt (0.25f) + std::sqrt (0.3f) + 0.55f + std::sqrt (0.5f);
             const auto scale = plot.getWidth() / juce::jmax (1.6f, total * 1.15f);
             const auto xA = plot.getX() + scale * std::sqrt (0.25f);
@@ -4207,36 +4211,53 @@ int runUiTests()
             setShape (0, LfoShapes::Triangle);
         }
 
-        // STEPS & MSEG: a row whose LFO plays another shape offers "Use on
-        // LFO n", which sets it to Steps as one undo step.
+        // Steps are an LFO shape edited in that LFO's own graph (UI review 6,
+        // V6-20 / I6-20): a drag on a bar sets that step, one undo step.
         {
-            pages->showPage ("STEPS");
-            settle (400);
-            juce::TextButton* use = nullptr;
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
-            for (auto* button : buttons)
-                if (button->getButtonText().startsWith ("Use on LFO ") && visibleInTree (button) && button->getWidth() > 20)
-                    use = use == nullptr ? button : use;
+            pages->showPage ("ENV/LFO");
+            settle (200);
+            auto* lfoPage = pages->getCurrentPage();
+            auto* thumbs = lfoPage != nullptr ? findChild<LfoThumbBar> (*lfoPage) : nullptr;
+            const auto shapeBefore = readShape (0);
+            setShape (0, LfoShapes::Steps);
+            if (thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+            settle (200);
 
-            expect (use != nullptr, "STEPS & MSEG offers a 'Use on LFO n' button for a row whose LFO isn't playing Steps");
+            std::vector<LfoDisplay*> lfoDisplays;
+            if (lfoPage != nullptr)
+                findAll<LfoDisplay> (*lfoPage, lfoDisplays);
+            LfoDisplay* shown = nullptr;
+            for (auto* display : lfoDisplays)
+                if (visibleInTree (display))
+                    shown = display;
 
-            if (use != nullptr)
+            if (shown != nullptr)
             {
-                const auto lfo = use->getButtonText().fromLastOccurrenceOf (" ", false, false).getIntValue() - 1;
-                const auto before = readShape (lfo);
+                auto* step5 = processor.apvts.getParameter ("lfo1_step5");
+                const auto stepBefore = step5->getValue();
+                const auto plot = shown->getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+                const juce::Point<float> at (plot.getX() + plot.getWidth() * 4.5f / 16.0f, plot.getCentreY() - plot.getHeight() * 0.42f * 0.5f);
                 clearHistory();
-                use->triggerClick();
-                settle (300);
+                auto& component = static_cast<juce::Component&> (*shown);
+                component.mouseDown (event (component, at, false));
+                component.mouseDrag (event (component, at, true));
+                component.mouseUp (event (component, at, true));
+                settle (50);
+                const auto value = step5->convertFrom0to1 (step5->getValue());
                 const auto steps = undoSteps();
-                const auto after = readShape (lfo);
-                const auto hidden = ! use->isVisible();
                 processor.getUndoManager().undo();
-                expect (after == LfoShapes::Steps && steps.size() == 1 && steps[0] == "LFO " + juce::String (lfo + 1) + " shape"
-                            && hidden && readShape (lfo) == before,
-                        "'Use on LFO " + juce::String (lfo + 1) + "' sets its shape to Steps in one undo step ('"
-                            + steps.joinIntoString ("', '") + "'), the button goes, undo restores it");
+                expect (std::abs (value - 0.5f) < 0.05f && steps.size() == 1 && std::abs (step5->getValue() - stepBefore) < 0.001f,
+                        "a Steps LFO's graph edits its steps: a drag on bar 5 sets it to " + juce::String (value, 2)
+                            + " (want 0.50) in one undo step, undo puts it back");
             }
+            else
+            {
+                expect (false, "ENV/LFO shows LFO 1's graph");
+            }
+
+            setShape (0, shapeBefore);
+            settle (100);
         }
 
         // One RATE knob: while synced it shows the division, on MOD and PLAY.
@@ -4290,46 +4311,380 @@ int runUiTests()
             }
         }
 
-        // The pools' index rows: one click opens any LFO or envelope, adding
-        // it to the patch when needed.
+        // UI review 6, P4: the MOD page's pools, LFO panels, MSEG and
+        // envelope graphs.
         {
+            using M = IlanaSynthAudioProcessor::Module;
+            constexpr auto numLfos = IlanaSynthAudioProcessor::numLfos;
             pages->showPage ("ENV/LFO");
             settle (300);
-            std::vector<PoolIndexRow*> rows;
-            findAll<PoolIndexRow> (*editor, rows);
-            rows.erase (std::remove_if (rows.begin(), rows.end(), [] (PoolIndexRow* row) { return ! visibleInTree (row) || row->getWidth() < 100; }),
-                        rows.end());
-            std::sort (rows.begin(), rows.end(), [] (PoolIndexRow* a, PoolIndexRow* b) { return a->getScreenY() < b->getScreenY(); });
-            expect (rows.size() == 2 && rows[0]->getCount() == 16 && rows[1]->getCount() == 16,
-                    "ENV / LFO shows a 1-16 index row above the LFO cards and above the envelope cards");
+            auto* modPage = pages->getCurrentPage();
+            auto* thumbs = modPage != nullptr ? findChild<LfoThumbBar> (*modPage) : nullptr;
+            auto* envCards = modPage != nullptr ? findChild<EnvThumbBar> (*modPage) : nullptr;
+            expect (thumbs != nullptr && envCards != nullptr, "ENV / LFO has its LFO and envelope pools");
 
-            if (rows.size() == 2)
+            if (thumbs != nullptr && envCards != nullptr)
             {
-                using M = IlanaSynthAudioProcessor::Module;
-                const auto lfoShownBefore = processor.isLfoShown (9);
-                rows[0]->pick (9);
-                settle (100);
-                std::vector<LfoDisplay*> lfoDisplays;
-                findAll<LfoDisplay> (*pages->getCurrentPage(), lfoDisplays);
-                auto shownDisplays = 0;
-                for (auto* display : lfoDisplays)
-                    shownDisplays += visibleInTree (display) ? 1 : 0;
-                expect (! lfoShownBefore && processor.isLfoShown (9) && rows[0]->getSelected() == 9 && rows[0]->getState (9).shown
-                            && shownDisplays == 1,
-                        "clicking 10 in the LFO row adds LFO 10 and opens it");
+                const auto click = [&event] (juce::Component& component, juce::Point<float> at)
+                {
+                    component.mouseDown (event (component, at, false));
+                    component.mouseUp (event (component, at, false));
+                };
+                const auto visibleOf = [&modPage] (auto* dummy)
+                {
+                    using Type = std::remove_pointer_t<decltype (dummy)>;
+                    std::vector<Type*> all, shown;
+                    findAll<Type> (*modPage, all);
+                    for (auto* component : all)
+                        if (visibleInTree (component) && component->getWidth() > 0)
+                            shown.push_back (component);
+                    return shown;
+                };
 
-                const auto envShownBefore = processor.isRevealed (M::Envelope, 12);
-                rows[1]->pick (12);
-                settle (100);
-                expect (! envShownBefore && processor.isRevealed (M::Envelope, 12) && rows[1]->getSelected() == 12
-                            && rows[0]->getState (0).inUse && rows[1]->getState (0).inUse,
-                        "clicking 13 in the envelope row adds ENV 13 and opens it; LFO 1 and the amp envelope show as in use");
+                // One card per LFO / envelope in the patch, then "+" (no 1-16
+                // ruler: V6-8), and the MSEG's card after the LFOs'.
+                auto cardsMatch = thumbs->isCardShown (LfoThumbBar::plusId) && thumbs->isCardShown (numLfos);
+                for (int lfo = 0; lfo < numLfos; ++lfo)
+                    cardsMatch = cardsMatch && thumbs->isCardShown (lfo) == processor.isLfoShown (lfo);
+                auto envCardsMatch = envCards->isCardShown (EnvThumbBar::plusId);
+                for (int env = 0; env < 16; ++env)
+                    envCardsMatch = envCardsMatch && envCards->isCardShown (env) == envelopeShown (processor, env);
+                expect (cardsMatch && envCardsMatch,
+                        "the pools show one card per LFO / envelope in the patch, a '+', and the MSEG card");
 
-                processor.setRevealed (M::Lfo, 9, false);
-                processor.setRevealed (M::Envelope, 12, false);
-                rows[0]->pick (0);
-                rows[1]->pick (0);
-                settle (100);
+                // "+" adds the next LFO and opens it; its x takes it away
+                // again at once while nothing routes it.
+                auto hidden = -1;
+                for (int lfo = numLfos - 1; lfo >= 0; --lfo)
+                    if (! processor.isLfoShown (lfo))
+                        hidden = lfo;
+                if (hidden >= 0)
+                {
+                    click (*thumbs, thumbs->boundsOfCard (LfoThumbBar::plusId).getCentre().toFloat());
+                    settle (100);
+                    const auto added = processor.isLfoShown (hidden) && thumbs->isCardShown (hidden);
+                    std::vector<LfoDisplay*> lfoDisplays;
+                    findAll<LfoDisplay> (*modPage, lfoDisplays);
+                    auto opened = 0;
+                    for (int lfo = 0; lfo < (int) lfoDisplays.size(); ++lfo)
+                        opened += visibleInTree (lfoDisplays[(size_t) lfo]) ? 1 : 0;
+                    expect (added && opened == 1, "'+' adds LFO " + juce::String (hidden + 1) + " and opens it");
+
+                    clearHistory();
+                    const auto removeAt = thumbs->removeButtonOf (hidden).getCentre().toFloat();
+                    thumbs->mouseMove (event (*thumbs, removeAt, false));
+                    click (*thumbs, removeAt);
+                    settle (100);
+                    expect (! processor.isLfoShown (hidden) && ! thumbs->isCardShown (hidden) && undoSteps().isEmpty(),
+                            "the hover x on an unrouted LFO removes its card at once (nothing to undo)");
+
+                    // A routed one asks first, naming what it drives, and
+                    // takes its routes with it in one undo step.
+                    processor.setRevealed (M::Lfo, hidden, true);
+                    auto slot = -1;
+                    for (int index = 0; index < Mod::maxSlots && slot < 0; ++index)
+                        if (processor.readModSlot (index).source == Mod::Source::None)
+                            slot = index;
+                    processor.setModSlotValue (slot, "src", (float) (int) Mod::lfoSourceFor (hidden));
+                    processor.setModSlotValue (slot, "dst", 1.0f);
+                    processor.setModSlotValue (slot, "amt", 0.3f);
+                    settle (100);
+                    juce::String heading, action;
+                    poolRemovalHook() = [&heading, &action] (const juce::String& h, const juce::String& a, std::function<void()> remove)
+                    {
+                        heading = h;
+                        action = a;
+                        remove();
+                    };
+                    clearHistory();
+                    thumbs->requestRemove (hidden);
+                    settle (100);
+                    poolRemovalHook() = nullptr;
+                    const auto name = "LFO " + juce::String (hidden + 1);
+                    const auto steps = undoSteps();
+                    const auto cleared = processor.readModSlot (slot).source == Mod::Source::None;
+                    processor.getUndoManager().undo();
+                    settle (50);
+                    const auto restored = processor.readModSlot (slot).source == Mod::lfoSourceFor (hidden);
+                    expect (heading.startsWith (name + " drives ") && action == "Remove " + name + " and its route" && cleared
+                                && steps.size() == 1 && steps[0] == "Remove " + name && restored,
+                            "the x on a routed LFO asks ('" + heading + "' / '" + action + "'), removes it with its route as '"
+                                + steps.joinIntoString ("', '") + "', undo brings the route back");
+                    processor.clearModSlot (slot);
+                    processor.setRevealed (M::Lfo, hidden, false);
+                    settle (100);
+                }
+
+                // The envelope pool: the x on a routed envelope asks too.
+                {
+                    processor.setRevealed (M::Envelope, 6, true);
+                    envCards->refreshLayout();
+                    auto slot = -1;
+                    for (int index = 0; index < Mod::maxSlots && slot < 0; ++index)
+                        if (processor.readModSlot (index).source == Mod::Source::None)
+                            slot = index;
+                    processor.setModSlotValue (slot, "src", (float) (int) envelopeSource (6));
+                    processor.setModSlotValue (slot, "dst", 1.0f);
+                    processor.setModSlotValue (slot, "amt", 0.3f);
+                    settle (100);
+                    juce::String heading;
+                    poolRemovalHook() = [&heading] (const juce::String& h, const juce::String&, std::function<void()> remove)
+                    {
+                        heading = h;
+                        remove();
+                    };
+                    clearHistory();
+                    envCards->requestRemove (6);
+                    settle (100);
+                    poolRemovalHook() = nullptr;
+                    const auto gone = ! envelopeShown (processor, 6) && processor.readModSlot (slot).source == Mod::Source::None;
+                    processor.getUndoManager().undo();
+                    settle (50);
+                    expect (heading.startsWith ("ENV 7 ") && gone && processor.readModSlot (slot).source == envelopeSource (6),
+                            "the x on a routed envelope asks ('" + heading + "'), removes it and its route, undo restores the route");
+                    processor.clearModSlot (slot);
+                    processor.setRevealed (M::Envelope, 6, false);
+                    envCards->refreshLayout();
+                    settle (100);
+                }
+
+                // Every simulated shape's panel: names, dials and values
+                // clear of each other (V6-11 / S6-12), all inside the LFO
+                // section, and output B a draggable tag on the graph (I6-24).
+                {
+                    const auto shapeBefore = readShape (0);
+                    const auto envTop = envCards->getScreenY();
+                    juce::StringArray problems;
+                    for (int shape = LfoSimShapes::RandomHold; shape <= LfoSimShapes::Friction; ++shape)
+                    {
+                        setShape (0, shape);
+                        thumbs->onSelect (0);
+                        settle (150);
+
+                        std::vector<juce::Component*> controls;
+                        for (auto* knob : visibleOf ((KnobControl*) nullptr))
+                        {
+                            if (knob->getScreenY() >= envTop)
+                                continue;
+                            controls.push_back (knob);
+                            if (knob->getDialSize() < IlanaTheme::KnobSize::minimum || knob->getHeight() < 13 + IlanaTheme::KnobSize::minimum + 16)
+                                problems.add (juce::String (shape) + ":" + knob->getLabelText() + " dial " + juce::String (knob->getDialSize())
+                                              + " in " + juce::String (knob->getHeight()) + " px");
+                        }
+                        for (auto* combo : visibleOf ((ComboControl*) nullptr))
+                            if (combo->getScreenY() < envTop)
+                                controls.push_back (combo);
+                        for (auto* toggle : visibleOf ((ToggleControl*) nullptr))
+                            if (toggle->getScreenY() < envTop)
+                                controls.push_back (toggle);
+
+                        for (size_t a = 0; a < controls.size(); ++a)
+                        {
+                            if (controls[a]->getScreenBounds().getBottom() > envTop)
+                                problems.add (juce::String (shape) + ": a control runs into the envelopes");
+                            for (size_t b = a + 1; b < controls.size(); ++b)
+                                if (controls[a]->getScreenBounds().intersects (controls[b]->getScreenBounds()))
+                                    problems.add (juce::String (shape) + ": two controls overlap");
+                        }
+
+                        LfoDisplay* display = nullptr;
+                        for (auto* candidate : visibleOf ((LfoDisplay*) nullptr))
+                            display = candidate;
+                        const auto tagB = display != nullptr ? display->getOutputTagBounds (1) : juce::Rectangle<float>();
+                        if (tagB.isEmpty() || ! display->getLocalBounds().toFloat().contains (tagB))
+                            problems.add (juce::String (shape) + ": no output B tag");
+                    }
+                    // The LFO's source chip carries a "B" for output B too.
+                    {
+                        std::vector<ModSourceChip*> chips;
+                        findAll<ModSourceChip> (*editor, chips);
+                        for (auto* chip : chips)
+                            if (chip->getSourceIndex() == (int) Mod::Source::Lfo1)
+                            {
+                                settle (100);
+                                if ((chip->getSecondOutputBounds().isEmpty() || chip->secondIndex != (int) Mod::Source::Lfo1B))
+                                    problems.add ("LFO 1's chip has no B");
+                            }
+                    }
+                    expect (problems.isEmpty(), "every simulated LFO shape's knobs show name, dial and value apart, no control overlaps, "
+                                                "and output B has its tag" + (problems.isEmpty() ? juce::String() : " (" + problems.joinIntoString ("; ") + ")"));
+                    setShape (0, shapeBefore);
+                    settle (100);
+                }
+
+                // The SHAPE list is grouped for display only: every shape in
+                // one group, the box's items still in parameter order.
+                {
+                    std::vector<int> counts (30, 0);
+                    for (const auto& group : LfoShapeMenu::groups())
+                        for (const auto shape : group.shapes)
+                            if (juce::isPositiveAndBelow (shape, 30))
+                                ++counts[(size_t) shape];
+                    auto eachOnce = std::all_of (counts.begin(), counts.end(), [] (int count) { return count == 1; });
+                    ComboControl* shapeBox = nullptr;
+                    for (auto* combo : visibleOf ((ComboControl*) nullptr))
+                        if (combo->getComboBox().getNumItems() == 30)
+                            shapeBox = combo;
+                    auto inOrder = shapeBox != nullptr;
+                    for (int item = 0; shapeBox != nullptr && item < 30; ++item)
+                        inOrder = inOrder && shapeBox->getComboBox().getItemId (item) == item + 1;
+                    expect (eachOnce && inOrder && shapeBox->getComboBox().getItemText (LfoSimShapes::Rossler).contains ("ssler"),
+                            "the LFO SHAPE list groups every shape once and keeps the saved indices");
+                }
+
+                // The MSEG is a card in the LFO pool, edited in the LFO's
+                // place; a dragged point follows the mouse, one undo step.
+                {
+                    thumbs->onSelect (numLfos);
+                    settle (200);
+                    MsegEditor* mseg = nullptr;
+                    for (auto* candidate : visibleOf ((MsegEditor*) nullptr))
+                        mseg = candidate;
+                    if (mseg != nullptr)
+                    {
+                        const auto from = mseg->getPointPosition (1);
+                        // Up or down to +0.3 (clear of the level's limits), a
+                        // little sideways.
+                        const auto plotArea = mseg->getPlotArea();
+                        const auto to = juce::Point<float> (from.x + 8.0f, plotArea.getCentreY() - 0.3f * plotArea.getHeight() * 0.5f);
+                        clearHistory();
+                        auto& component = static_cast<juce::Component&> (*mseg);
+                        component.mouseDown (event (component, from, false));
+                        component.mouseDrag (event (component, to, true));
+                        const auto landed = mseg->getPointPosition (1);
+                        component.mouseUp (event (component, to, true));
+                        settle (50);
+                        const auto steps = undoSteps();
+                        processor.getUndoManager().undo();
+                        settle (50);
+                        expect (landed.getDistanceFrom (to) < 3.0f && steps.size() == 1 && mseg->getPointPosition (1).getDistanceFrom (from) < 1.0f,
+                                "the MSEG card opens its editor; point 2 follows the mouse (" + juce::String (landed.getDistanceFrom (to), 1)
+                                    + " px off) in one undo step");
+                    }
+                    else
+                    {
+                        expect (false, "the MSEG card opens the MSEG editor");
+                    }
+                    thumbs->onSelect (0);
+                    settle (100);
+                }
+
+                // Envelope graphs: the time ruler sits below the plot
+                // (V6-17), and each segment's dot curves that segment alone,
+                // with its value beside it while dragged (V5-18).
+                {
+                    envCards->onSelect (0);
+                    settle (150);
+                    EnvelopeDisplay* amp = nullptr;
+                    for (auto* candidate : visibleOf ((EnvelopeDisplay*) nullptr))
+                        amp = candidate;
+                    if (amp != nullptr)
+                    {
+                        const auto plot = amp->getPlotArea();
+                        const auto read = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+                        const auto curvesBefore = std::array<float, 3> { read ("amp_curve"), read ("amp_dcurve"), read ("amp_rcurve") };
+                        const auto from = amp->getHandlePosition (EnvelopeDisplay::firstCurveHandle);
+                        const auto to = from + juce::Point<float> (0.0f, -12.0f);
+                        clearHistory();
+                        auto& component = static_cast<juce::Component&> (*amp);
+                        component.mouseDown (event (component, from, false));
+                        component.mouseDrag (event (component, to, true));
+                        const auto readout = amp->getReadout();
+                        const auto landed = amp->getHandlePosition (EnvelopeDisplay::firstCurveHandle);
+                        component.mouseUp (event (component, to, true));
+                        settle (50);
+                        const auto changed = read ("amp_acurve");
+                        const auto others = std::array<float, 3> { read ("amp_curve"), read ("amp_dcurve"), read ("amp_rcurve") };
+                        const auto steps = undoSteps();
+                        processor.getUndoManager().undo();
+                        settle (50);
+                        expect (plot.getBottom() + EnvelopeDisplay::rulerHeight <= (float) amp->getHeight() && plot.getY() > 0.0f,
+                                "the envelope's time ruler is below its plot");
+                        expect (changed > 0.05f && others == curvesBefore && readout.startsWith ("ATTACK CURVE")
+                                    && landed.getDistanceFrom (to) < 3.0f && steps.size() == 1 && std::abs (read ("amp_acurve")) < 0.001f,
+                                "the attack's curve dot bends the attack alone (" + juce::String (changed, 2) + ", '" + readout
+                                    + "', the dot " + juce::String (landed.getDistanceFrom (to), 1) + " px from the mouse), one undo step");
+                    }
+                    else
+                    {
+                        expect (false, "ENV / LFO shows the amp envelope's graph");
+                    }
+                }
+
+                // PLAY's envelope tabs are the pool's envelopes (S6-34).
+                {
+                    processor.setRevealed (M::Envelope, 6, true);
+                    pages->showPage ("MAIN");
+                    settle (400);
+                    juce::StringArray names;
+                    if (auto* page = pages->getCurrentPage())
+                    {
+                        std::vector<CardTabs*> cardTabs;
+                        findAll<CardTabs> (*page, cardTabs);
+                        for (auto* tabs : cardTabs)
+                            if (tabs->getNames().contains ("AMP ENV"))
+                                names = tabs->getNames();
+                    }
+                    juce::StringArray want;
+                    for (int env = 0; env < 16; ++env)
+                        if (envelopeShown (processor, env))
+                            want.add (env < 4 ? juce::StringArray { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV" }[env] : "ENV " + juce::String (env + 1));
+                    const auto overflow = names.size() > 0 && names[names.size() - 1].startsWith ("+");
+                    auto matches = names.size() > 0;
+                    for (int tab = 0; tab < names.size() - (overflow ? 1 : 0); ++tab)
+                        matches = matches && want.contains (names[tab]);
+                    matches = matches && (overflow || names == want) && (names.contains ("ENV 7") || overflow);
+                    expect (matches, "PLAY's envelope tabs follow the pool (" + names.joinIntoString (", ") + "; pool: " + want.joinIntoString (", ") + ")");
+                    processor.setRevealed (M::Envelope, 6, false);
+                    pages->showPage ("ENV/LFO");
+                    settle (200);
+                }
+
+                // No routing to an LFO or envelope that isn't in its pool:
+                // a knob's "Modulate with" lists the pool's (and offers the
+                // next as "New LFO"), the matrix greys the rest out.
+                {
+                    KnobControl* knob = nullptr;
+                    for (auto* candidate : visibleOf ((KnobControl*) nullptr))
+                        if (knob == nullptr && candidate->getRingDestination() != 0)
+                            knob = candidate;
+                    auto hiddenLfo = -1;
+                    for (int lfo = numLfos - 1; lfo >= 0; --lfo)
+                        if (! processor.isLfoShown (lfo))
+                            hiddenLfo = lfo;
+                    auto hiddenEnv = -1;
+                    for (int env = 15; env >= 0; --env)
+                        if (! envelopeShown (processor, env))
+                            hiddenEnv = env;
+                    juce::StringArray offered;
+                    if (knob != nullptr)
+                    {
+                        const auto menu = knob->buildModulateWithMenu();
+                        for (juce::PopupMenu::MenuItemIterator item (menu, true); item.next();)
+                            if (item.getItem().itemID != 0)
+                                offered.add (item.getItem().text);
+                    }
+                    const auto names = Mod::getSourceNames();
+                    auto onlyPool = knob != nullptr && hiddenLfo >= 0 && hiddenEnv >= 0;
+                    for (int source = 1; source < names.size() && onlyPool; ++source)
+                        if (offered.contains (names[source]) && ! modSourceInPatch (processor, (Mod::Source) source))
+                            onlyPool = false;
+                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("Amp Env")
+                               && ! offered.contains (names[(int) Mod::lfoSourceFor (hiddenLfo)])
+                               && offered.contains ("New LFO  (LFO " + juce::String (hiddenLfo + 1) + ")");
+
+                    MatrixRow row (processor, 0);
+                    std::vector<bool> inPatch ((size_t) names.size(), true);
+                    for (int source = 1; source < names.size(); ++source)
+                        inPatch[(size_t) source] = modSourceInPatch (processor, (Mod::Source) source);
+                    row.setSourcesInPatch (inPatch);
+                    const auto lfoItem = (int) Mod::lfoSourceFor (hiddenLfo) + 1;
+                    const auto greyed = hiddenLfo >= 0 && ! row.isSourceItemEnabled (lfoItem)
+                                        && row.isSourceItemEnabled ((int) Mod::Source::Lfo1 + 1)
+                                        && row.isSourceItemEnabled ((int) Mod::Source::ModWheel + 1);
+                    expect (onlyPool && greyed, "knob menus offer only the pools' LFOs and envelopes (" + juce::String (offered.size())
+                                                    + " items) and a New LFO; the matrix greys out LFO " + juce::String (hiddenLfo + 1));
+                }
             }
         }
 
@@ -5799,6 +6154,20 @@ int main (int argc, char** argv)
 
         settle (500);
         save (*editor, outDir.getChildFile ("lfo-curve.png"));
+
+        // Steps, edited on the LFO graph, and the MSEG card's editor.
+        shape->setValueNotifyingHost (shape->convertTo0to1 ((float) LfoShapes::Steps));
+        settle (400);
+        save (*editor, outDir.getChildFile ("lfo-steps.png"));
+        if (auto* page = pages->getCurrentPage())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+            {
+                thumbs->onSelect (IlanaSynthAudioProcessor::numLfos);
+                settle (400);
+                save (*editor, outDir.getChildFile ("lfo-mseg.png"));
+                thumbs->onSelect (0);
+            }
+        shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
     }
 
     // The LFO pool, every card revealed, the last one selected.
@@ -5818,8 +6187,11 @@ int main (int argc, char** argv)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
     }
 
-    // M8.1: the simulated LFO shapes, each with its picture and named knobs.
+    // M8.1: the simulated LFO shapes, each with its picture and named knobs
+    // (the envelope pool back to the patch's, so the chips show in full).
     {
+        for (int env = 3; env < 16; ++env)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
         pages->showPage ("ENV/LFO");
         if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)

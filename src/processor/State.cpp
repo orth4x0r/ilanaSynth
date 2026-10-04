@@ -375,13 +375,15 @@ bool IlanaSynthAudioProcessor::isLfoShown (int index) const
     if (isRevealed (Module::Lfo, index))
         return true;
 
+    // Routed by its A or its B output.
     const auto source = Mod::lfoSourceFor (index);
+    const auto sourceB = Mod::lfoBSourceFor (index);
 
     for (int slot = 0; slot < Mod::maxSlots; ++slot)
     {
         const auto routing = readModSlot (slot);
 
-        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source || routing.source == sourceB || routing.aux == sourceB))
             return true;
     }
 

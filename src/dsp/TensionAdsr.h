@@ -18,6 +18,11 @@ public:
         // default to zero, which skips their stages entirely.
         float delay = 0.0f;
         float hold = 0.0f;
+        // UI review 6 (V5-18): each curved stage's own bend, added to CURVE
+        // (and clamped like it). All zero bends the three alike, as before.
+        float attackCurve = 0.0f;
+        float decayCurve = 0.0f;
+        float releaseCurve = 0.0f;
     };
 
     void setSampleRate (double newSampleRate) { sampleRate = juce::jmax (1.0, newSampleRate); }
@@ -33,10 +38,18 @@ public:
         params.delay = juce::jmax (0.0f, params.delay);
         params.hold = juce::jmax (0.0f, params.hold);
 
-        const auto newExponent = std::exp2 (-(double) params.curve * 2.0);
-        if (newExponent != exponent)
+        const auto exponentFor = [this] (float offset)
+        {
+            return std::exp2 (-(double) juce::jlimit (-1.0f, 1.0f, params.curve + offset) * 2.0);
+        };
+        const auto newAttack = exponentFor (params.attackCurve);
+        const auto newDecay = exponentFor (params.decayCurve);
+        const auto newRelease = exponentFor (params.releaseCurve);
+        if (newAttack != attackExponent || newDecay != decayExponent || newRelease != releaseExponent)
             lineValid = false;
-        exponent = newExponent;
+        attackExponent = newAttack;
+        decayExponent = newDecay;
+        releaseExponent = newRelease;
     }
 
     void reset()
@@ -148,7 +161,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress, length, 1.0);
+                    currentValue = attackStart + (1.0f - attackStart) * (float) shaped (progress, length, 1.0, attackExponent);
                 }
 
                 break;
@@ -168,7 +181,7 @@ public:
                 {
                     const auto progress = position / length;
                     currentValue = params.sustain
-                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress, length, -1.0);
+                                   + (1.0f - params.sustain) * (float) shaped (1.0 - progress, length, -1.0, decayExponent);
                 }
 
                 break;
@@ -191,7 +204,7 @@ public:
                 else
                 {
                     const auto progress = position / length;
-                    currentValue = releaseStart * (float) shaped (1.0 - progress, length, -1.0);
+                    currentValue = releaseStart * (float) shaped (1.0 - progress, length, -1.0, releaseExponent);
                 }
 
                 break;
@@ -214,13 +227,14 @@ private:
     // and followed on a straight line in between, wherever the curve is
     // gentle enough that the line stays within maxLineError of it (the
     // error of a chord: |f''| span^2 / 8, f'' = e (e - 1) x^(e - 2)). Short
-    // stages and the steep end near zero are computed every sample.
-    double shaped (double progress, double length, double direction)
+    // stages and the steep end near zero are computed every sample. The
+    // line belongs to the exponent it was made for (the stages can differ).
+    double shaped (double progress, double length, double direction, double exponent)
     {
         if (exponent == 1.0)
             return progress;
 
-        if (lineValid && progress >= lineLow && progress <= lineHigh)
+        if (lineValid && lineExponent == exponent && progress >= lineLow && progress <= lineHigh)
             return lineLowValue + (progress - lineLow) * lineSlope;
 
         const auto value = std::pow (progress, exponent);
@@ -241,6 +255,7 @@ private:
             if (bend * span * span * 0.125 <= maxLineError)
             {
                 lineValid = true;
+                lineExponent = exponent;
                 lineLow = low;
                 lineHigh = high;
                 lineLowValue = lowValue;
@@ -254,7 +269,7 @@ private:
     static constexpr double spanSteps = 16.0;
     static constexpr double maxLineError = 1.0e-7;
     bool lineValid = false;
-    double lineLow = 0.0, lineHigh = 0.0, lineLowValue = 0.0, lineSlope = 0.0;
+    double lineExponent = 1.0, lineLow = 0.0, lineHigh = 0.0, lineLowValue = 0.0, lineSlope = 0.0;
 
     enum class Stage
     {
@@ -271,7 +286,7 @@ private:
     Stage stage = Stage::Idle;
     double sampleRate = 44100.0;
     double position = 0.0;
-    double exponent = 1.0;
+    double attackExponent = 1.0, decayExponent = 1.0, releaseExponent = 1.0;
     float currentValue = 0.0f;
     float releaseStart = 0.0f;
     float attackStart = 0.0f;

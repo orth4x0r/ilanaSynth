@@ -13,6 +13,7 @@
 // reverse. The live source shows as a line across the plot and a dot where
 // it meets the curve. The matrix docks it under its row; X closes it.
 class RemapEditor : public juce::Component,
+                    public juce::SettableTooltipClient,
                     private juce::Timer
 {
 public:
@@ -20,6 +21,10 @@ public:
         : processorRef (p), slotIndex (slotIndexIn), colour (colourIn)
     {
         curve = processorRef.getModRemap (slotIndex);
+        // The LFO curve's gestures and words.
+        setTooltip ("Remap\nThe source's range runs left to right, what the routing sends bottom to top.  Click to add a point, "
+                    "drag it, drag the dot on a line to curve it, double-click to delete (or straighten); right-click for "
+                    "shapes.  The value shows while you drag.");
 
         shapesButton.setButtonText (juce::String::fromUTF8 ("SHAPES  \xe2\x96\xbe"));
         shapesButton.setTooltip ("Curve presets, flip and reverse");
@@ -181,6 +186,19 @@ public:
             g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (at));
         }
 
+        // The dragged point or curve's value beside it, as on the LFO graph.
+        if (dragPoint >= 0 && dragPoint < (int) curve.points.size())
+        {
+            const auto& point = curve.points[(size_t) dragPoint];
+            paintReadout (g, pointToScreen (point), "IN " + juce::String (juce::roundToInt (point.x * 100.0f)) + "%  OUT "
+                                                        + (point.y >= 0.0f ? "+" : "") + juce::String (point.y, 2), plot);
+        }
+        else if (dragTension >= 0 && dragTension + 1 < (int) curve.points.size())
+        {
+            const auto tension = curve.points[(size_t) dragTension].tension;
+            paintReadout (g, tensionHandle (dragTension), "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2), plot);
+        }
+
         // Axis ends: the source's range left to right, what it sends bottom to top.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
@@ -281,6 +299,21 @@ public:
     }
 
 private:
+    void paintReadout (juce::Graphics& g, juce::Point<float> anchor, const juce::String& text, juce::Rectangle<float> area) const
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 14.0f;
+        auto box = juce::Rectangle<float> (width, 17.0f).withCentre ({ anchor.x, anchor.y - 18.0f });
+        if (box.getY() < area.getY())
+            box.setY (anchor.y + 10.0f);
+        box.setX (juce::jlimit (area.getX(), juce::jmax (area.getX(), area.getRight() - width), box.getX()));
+        g.setColour (juce::Colours::black.withAlpha (0.7f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.3f));
+        g.setFont (font);
+        g.drawText (text, box, juce::Justification::centred);
+    }
+
     juce::String editName() const { return "Remap curve " + juce::String (slotIndex + 1); }
 
     void timerCallback() override

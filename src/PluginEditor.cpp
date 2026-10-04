@@ -33,6 +33,7 @@
 #include "gui/ClipEditor.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
+#include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -255,7 +256,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     // Seven tabs; the ones holding several pages switch them from the tab
     // row (PLAY: overview and vector, OSC: oscillators and the physical
-    // view, MOD: envelopes and LFOs, step LFOs and MSEG, the matrix).
+    // view, MOD: envelopes, LFOs and the MSEG, the matrix).
     const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
     {
         auto* section = new SectionPage();
@@ -278,7 +279,6 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("OSC", { { "OSC", "OSCILLATORS", new OscPageViewport (p) }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
-                         { "STEPS", "STEPS & MSEG", new SeqPage (p, SeqPage::Part::modulators) },
                          { "MATRIX", "MATRIX", new MatrixPage (p) } });
     auto* fmPage = new FmPage (p);
     addSection ("FM", { { "FM", "FM", fmPage } });
@@ -756,6 +756,16 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
         }
     }
 
+    // An LFO chip widens for its "B" while its shape has a second output.
+    std::vector<bool> seconds (chips.size());
+    for (size_t i = 0; i < chips.size(); ++i)
+        seconds[i] = chips[i]->hasSecondOutput != nullptr && chips[i]->hasSecondOutput();
+    if (seconds != chipSecondOutputs)
+    {
+        chipSecondOutputs = seconds;
+        changed = true;
+    }
+
     if (changed)
         resized();
 }
@@ -781,6 +791,16 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
 
         return processorRef.getSourceDisplayValue ((int) source);
     };
+    // A simulated LFO shape's second output gets a "B" on its chip.
+    if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 0)
+    {
+        chip->secondIndex = (int) Mod::lfoBSourceFor (lfo);
+        chip->hasSecondOutput = [this, lfo]
+        {
+            const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+            return shape != nullptr && LfoSimShapes::isSim ((int) shape->load());
+        };
+    }
     return chip;
 }
 
@@ -1295,6 +1315,14 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
     if (id == "SCOPE")
     {
         setScopeOpen (true);
+        return;
+    }
+
+    // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): its old id
+    // opens there.
+    if (id == "STEPS")
+    {
+        showPage ("ENV/LFO");
         return;
     }
 

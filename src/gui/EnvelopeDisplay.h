@@ -28,10 +28,10 @@ public:
           curveColour (curveColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("Drag a handle to set its stage (it follows the mouse), drag the curve to bend the tension, "
-                    "double-click a handle to reset it.\nTime runs on a square-root scale: the ticks give the time since "
-                    "the note started, and after the sustain since the key was let go (+). The dot is the last note "
-                    "played.");
+        setTooltip ("Drag a handle to set its stage (it follows the mouse). Drag the dot on the attack, decay or "
+                    "release to curve that segment alone (CURVE curves all three); double-click a handle or a dot to "
+                    "reset it.\nTime runs on a square-root scale: the ruler gives the time since the note started, and "
+                    "after the sustain since the key was let go (+). The dot is the last note played.");
         startTimerHz (30);
     }
 
@@ -82,7 +82,10 @@ public:
             g.setColour (curveColour.withAlpha (0.06f));
             g.fillRect (band);
             g.setColour (curveColour.withAlpha (0.55f));
-            g.drawText (name, band.withTrimmedTop (band.getHeight() - 16.0f).toNearestInt(), juce::Justification::centred);
+            // At the top of its stretch, clear of the ruler below the plot;
+            // only where it fits (a sliver of delay is just the band).
+            if (to - from >= (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), name) + 6.0f)
+                g.drawText (name, band.withTrimmedTop (10.0f).withHeight (12.0f).toNearestInt(), juce::Justification::centred);
         }
 
         auto filled = path;
@@ -113,13 +116,15 @@ public:
                                .withCentre (handles[i]));
         }
 
-        // Tension handles sit on the middle of each curved segment; kept
-        // subtle so they read as part of the curve until hovered.
+        // Curve dots sit on the middle of each curved segment, one per
+        // segment; kept subtle so they read as part of the curve until
+        // hovered.
         const auto tensionPoints = tensionHandlePositions (geo);
-        const auto tensionActive = hoverHandle == 4 || dragHandle == 4;
 
-        for (const auto& point : tensionPoints)
+        for (int segment = 0; segment < 3; ++segment)
         {
+            const auto& point = tensionPoints[(size_t) segment];
+            const auto tensionActive = hoverHandle == firstCurveHandle + segment || dragHandle == firstCurveHandle + segment;
             g.setColour (juce::Colours::black.withAlpha (tensionActive ? 0.6f : 0.4f));
             g.fillEllipse (juce::Rectangle<float> (tensionActive ? 9.0f : 6.0f, tensionActive ? 9.0f : 6.0f)
                                .withCentre (point));
@@ -148,17 +153,42 @@ public:
             g.fillRect (juce::Rectangle<float> (8.0f, 2.0f).withPosition (geo.plot.getRight() - 8.0f, monitorY - 1.0f));
         }
 
-        if (readout.isNotEmpty())
+        // The value being dragged, beside the handle (left of it near the
+        // right edge, below it near the top), inside the plot.
+        if (readout.isNotEmpty() && dragHandle >= 0)
         {
-            const auto readoutBounds = juce::Rectangle<float> (geo.plot.getX() + 4.0f, geo.plot.getY() + 2.0f, 220.0f, 16.0f);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto anchor = handlePosition (geo, dragHandle);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, readout) + 12.0f;
+            auto box = juce::Rectangle<float> (width, 16.0f).withPosition (anchor.x + 10.0f, anchor.y - 24.0f);
+            if (box.getRight() > geo.plot.getRight())
+                box.setX (anchor.x - 10.0f - width);
+            if (box.getY() < geo.plot.getY())
+                box.setY (anchor.y + 10.0f);
+            box = box.constrainedWithin (getLocalBounds().toFloat().reduced (2.0f));
 
-            g.setColour (juce::Colours::black.withAlpha (0.55f));
-            g.fillRoundedRectangle (readoutBounds, 4.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.7f));
+            g.fillRoundedRectangle (box, 4.0f);
             g.setColour (curveColour.withAlpha (0.95f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (readout, readoutBounds.toNearestInt(), juce::Justification::centredLeft);
+            g.setFont (font);
+            g.drawText (readout, box.toNearestInt(), juce::Justification::centred);
         }
     }
+
+    // The plot inside the well: the time ruler sits below it (UI review 6,
+    // V6-17), so tick labels never meet the curve, its handles or DELAY.
+    static constexpr float rulerHeight = 14.0f;
+
+    juce::Rectangle<float> getPlotArea() const
+    {
+        return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 6.0f).reduced (12.0f, 0.0f);
+    }
+
+    // Where a handle is drawn (0-3 the stages, 4-6 the curve dots), and the
+    // readout while one is dragged; the UI test reaches these.
+    juce::Point<float> getHandlePosition (int handle) const { return handlePosition (layoutGeometry(), handle); }
+    const juce::String& getReadout() const { return readout; }
+    static constexpr int firstCurveHandle = 4;
 
 private:
     struct Geometry
@@ -168,7 +198,8 @@ private:
         // end, sustain end, release end.
         float x0 = 0.0f, xStart = 0.0f, xA = 0.0f, xH = 0.0f, xD = 0.0f, xS = 0.0f, xR = 0.0f;
         float yTop = 0.0f, yBottom = 0.0f, ySustain = 0.0f;
-        float exponent = 1.0f;
+        // The attack's, decay's and release's bends.
+        std::array<float, 3> exponents { 1.0f, 1.0f, 1.0f };
         float scale = 1.0f;
     };
 
@@ -177,11 +208,11 @@ private:
         juce::Path path;
         path.startNewSubPath (geo.x0, geo.yBottom);
         path.lineTo (geo.xStart, geo.yBottom);
-        addSegment (path, geo.xStart, geo.yBottom, geo.xA, geo.yTop, true, geo.exponent);
+        addSegment (path, geo.xStart, geo.yBottom, geo.xA, geo.yTop, true, geo.exponents[0]);
         path.lineTo (geo.xH, geo.yTop);
-        addSegment (path, geo.xH, geo.yTop, geo.xD, geo.ySustain, false, geo.exponent);
+        addSegment (path, geo.xH, geo.yTop, geo.xD, geo.ySustain, false, geo.exponents[1]);
         path.lineTo (geo.xS, geo.ySustain);
-        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponent);
+        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponents[2]);
         return path;
     }
 
@@ -222,7 +253,7 @@ private:
     Geometry layoutGeometry() const
     {
         Geometry geo;
-        geo.plot = getLocalBounds().toFloat().reduced (12.0f, 14.0f);
+        geo.plot = getPlotArea();
 
         const auto scale = dragHandle >= 0 && dragHandle < 4 ? frozenScale : fitScale (geo.plot);
         const auto sustain = readValue ("sustain");
@@ -237,7 +268,8 @@ private:
         geo.yTop = geo.plot.getY();
         geo.yBottom = geo.plot.getBottom();
         geo.ySustain = geo.yBottom - sustain * geo.plot.getHeight();
-        geo.exponent = std::exp2 (-readCurve() * 2.0f);
+        for (int segment = 0; segment < 3; ++segment)
+            geo.exponents[(size_t) segment] = std::exp2 (-segmentCurve (segment) * 2.0f);
         geo.scale = scale;
 
         return geo;
@@ -255,15 +287,35 @@ private:
     {
         return {
             juce::Point<float> { (geo.xStart + geo.xA) * 0.5f,
-                                 juce::jmap (std::pow (0.5f, geo.exponent), geo.yBottom, geo.yTop) },
+                                 juce::jmap (std::pow (0.5f, geo.exponents[0]), geo.yBottom, geo.yTop) },
             juce::Point<float> { (geo.xH + geo.xD) * 0.5f,
                                  geo.yBottom - (readValue ("sustain")
-                                                + (1.0f - readValue ("sustain")) * std::pow (0.5f, geo.exponent))
+                                                + (1.0f - readValue ("sustain")) * std::pow (0.5f, geo.exponents[1]))
                                                     * geo.plot.getHeight() },
             juce::Point<float> { (geo.xS + geo.xR) * 0.5f,
-                                 geo.yBottom - readValue ("sustain") * std::pow (0.5f, geo.exponent)
+                                 geo.yBottom - readValue ("sustain") * std::pow (0.5f, geo.exponents[2])
                                                    * geo.plot.getHeight() }
         };
+    }
+
+    juce::Point<float> handlePosition (const Geometry& geo, int handle) const
+    {
+        if (handle >= firstCurveHandle)
+            return tensionHandlePositions (geo)[(size_t) juce::jlimit (0, 2, handle - firstCurveHandle)];
+        return stageHandles (geo)[(size_t) juce::jlimit (0, 3, handle)];
+    }
+
+    // The curved segment (4 attack, 5 decay, 6 release) under an x, or -1
+    // over the flat delay, hold and sustain.
+    static int segmentAt (const Geometry& geo, float x)
+    {
+        if (x >= geo.xStart && x <= geo.xA)
+            return firstCurveHandle;
+        if (x >= geo.xH && x <= geo.xD)
+            return firstCurveHandle + 1;
+        if (x >= geo.xS && x <= geo.xR)
+            return firstCurveHandle + 2;
+        return -1;
     }
 
 public:
@@ -288,10 +340,10 @@ private:
         switch (stage)
         {
             case 0: return juce::Point<float> (geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom);
-            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - std::pow (u, geo.exponent) * height);
+            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - std::pow (u, geo.exponents[0]) * height);
             case 2: return juce::Point<float> (geo.xA + u * (geo.xH - geo.xA), geo.yTop);
             case 3: return juce::Point<float> (geo.xH + u * (geo.xD - geo.xH),
-                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - std::pow (1.0f - u, geo.exponent)));
+                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - std::pow (1.0f - u, geo.exponents[1])));
             case 4: return juce::Point<float> (geo.xD + 0.25f * (geo.xS - geo.xD), geo.ySustain);
             default: return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
                                                 geo.yBottom - juce::jlimit (0.0f, 1.0f, readMonitor()) * height);
@@ -374,7 +426,8 @@ private:
 
                 labelled.push_back (span);
                 g.setColour (IlanaTheme::Ui::text3);
-                g.drawText (text, juce::Rectangle<float> (span.getStart(), geo.yBottom - 13.0f, width, 12.0f), juce::Justification::centredLeft);
+                g.fillRect (juce::Rectangle<float> (1.0f, 4.0f).withPosition (x, geo.yBottom + 1.0f));
+                g.drawText (text, juce::Rectangle<float> (span.getStart(), geo.yBottom + 4.0f, width, 12.0f), juce::Justification::centredLeft);
             }
         }
     }
@@ -428,6 +481,14 @@ private:
 
     float readCurve() const { return readValue ("curve"); }
 
+    // A segment's bend (0 attack, 1 decay, 2 release): CURVE plus its own,
+    // clamped as the envelope does.
+    float segmentCurve (int segment) const
+    {
+        const char* const suffixes[] { "acurve", "dcurve", "rcurve" };
+        return juce::jlimit (-1.0f, 1.0f, readCurve() + readValue (suffixes[juce::jlimit (0, 2, segment)]));
+    }
+
     juce::RangedAudioParameter* parameterFor (const char* suffix) const
     {
         return dynamic_cast<juce::RangedAudioParameter*> (processorRef.apvts.getParameter (paramPrefix + "_" + suffix));
@@ -441,6 +502,9 @@ private:
             case 1: return "decay";
             case 2: return "sustain";
             case 3: return "release";
+            case 4: return "acurve";
+            case 5: return "dcurve";
+            case 6: return "rcurve";
             default: return "curve";
         }
     }
@@ -468,14 +532,17 @@ private:
         if (best >= 0)
             return best;
 
-        for (const auto& tensionPoint : tensionHandlePositions (geo))
-            if (tensionPoint.getDistanceFrom (position) < 12.0f)
-                return 4;
+        const auto tensionPoints = tensionHandlePositions (geo);
+        for (int segment = 0; segment < 3; ++segment)
+            if (tensionPoints[(size_t) segment].getDistanceFrom (position) < 12.0f)
+                return firstCurveHandle + segment;
 
         return -1;
     }
 
-    bool isNearCurve (juce::Point<float> position) const
+    // The curved segment whose line is near `position` (dragging the line
+    // bends it, as its dot does), or -1.
+    int curveSegmentNear (juce::Point<float> position) const
     {
         const auto geo = layoutGeometry();
 
@@ -484,15 +551,15 @@ private:
         juce::Point<float> nearest;
         const auto distance = path.getNearestPoint (position, nearest);
 
-        return distance < 10.0f;
+        return distance < 10.0f ? segmentAt (geo, nearest.x) : -1;
     }
 
     void mouseMove (const juce::MouseEvent& event) override
     {
         auto hovered = findHandle (event.position);
 
-        if (hovered < 0 && isNearCurve (event.position))
-            hovered = 4;
+        if (hovered < 0)
+            hovered = curveSegmentNear (event.position);
 
         if (hovered != hoverHandle)
         {
@@ -519,11 +586,11 @@ private:
     {
         dragHandle = findHandle (event.position);
 
-        if (dragHandle < 0 && isNearCurve (event.position))
-            dragHandle = 4;
+        if (dragHandle < 0)
+            dragHandle = curveSegmentNear (event.position);
 
         lastMousePosition = event.position;
-        frozenScale = fitScale (getLocalBounds().toFloat().reduced (12.0f, 14.0f));
+        frozenScale = fitScale (getPlotArea());
 
         if (dragHandle >= 0)
         {
@@ -607,9 +674,31 @@ private:
 
             default:
             {
-                // Tension: drag up for a snappier, more exponential curve.
-                const auto delta = event.position.y - lastMousePosition.y;
-                dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta * 0.004f);
+                // A segment's curve: its dot follows the mouse up and down
+                // (up bows the segment up). Where the segment is too flat to
+                // place the dot by, the drag moves it by distance instead.
+                const auto segment = dragHandle - firstCurveHandle;
+                const auto sustain = readValue ("sustain");
+                const auto height = geo.plot.getHeight();
+                const auto level = (geo.yBottom - event.position.y) / juce::jmax (1.0f, height);
+                const auto low = segment == 0 ? 0.0f : segment == 1 ? sustain : 0.0f;
+                const auto high = segment == 0 ? 1.0f : segment == 1 ? 1.0f : sustain;
+
+                if ((high - low) * height >= 8.0f)
+                {
+                    // The dot is the segment at its middle: low + span * 0.5^e.
+                    const auto fraction = juce::jlimit (std::pow (0.5f, 4.0f), std::pow (0.5f, 0.25f), (level - low) / (high - low));
+                    const auto exponent = std::log (fraction) / std::log (0.5f);
+                    const auto bend = -std::log2 (exponent) * 0.5f;
+                    const auto range = dragParameter->getNormalisableRange();
+                    dragNormalised = dragParameter->convertTo0to1 (juce::jlimit (range.start, range.end, bend - readCurve()));
+                }
+                else
+                {
+                    const auto delta = event.position.y - lastMousePosition.y;
+                    dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta * 0.004f);
+                }
+
                 dragParameter->setValueNotifyingHost (dragNormalised);
                 break;
             }
@@ -624,8 +713,8 @@ private:
     {
         auto handle = findHandle (event.position);
 
-        if (handle < 0 && isNearCurve (event.position))
-            handle = 4;
+        if (handle < 0)
+            handle = curveSegmentNear (event.position);
 
         if (handle < 0)
             return;
@@ -649,12 +738,23 @@ private:
             return;
         }
 
+        // A segment's curve reads as the bend it plays (CURVE plus its own),
+        // in the words the knob uses.
+        if (dragHandle >= firstCurveHandle)
+        {
+            const char* const names[] { "ATTACK", "DECAY", "RELEASE" };
+            const auto segment = juce::jlimit (0, 2, dragHandle - firstCurveHandle);
+            const auto bend = segmentCurve (segment);
+            readout = juce::String (names[segment]) + " CURVE  " + (bend >= 0.005f ? "+" : "") + juce::String (bend, 2);
+            return;
+        }
+
         const auto id = paramPrefix + "_" + suffixForHandle (dragHandle);
         const auto value = dragParameter->convertFrom0to1 (dragParameter->getValue());
-        const auto label = dragHandle == 4 ? juce::String ("TENSION")
-                                           : juce::String (suffixForHandle (dragHandle)).toUpperCase();
-
-        readout = label + "  " + describeValue (id, value);
+        readout = juce::String (suffixForHandle (dragHandle)).toUpperCase() + "  " + describeValue (id, value);
+        // The decay handle sets the sustain too.
+        if (dragHandle == 1)
+            readout << "  SUSTAIN " << describeValue (paramPrefix + "_sustain", readValue ("sustain"));
     }
 
     IlanaSynthAudioProcessor& processorRef;

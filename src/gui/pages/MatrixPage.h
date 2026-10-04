@@ -616,6 +616,7 @@ private:
     void updateRows (bool force = false)
     {
         refreshMacroNames();
+        refreshPoolSources();
 
         auto used = sortedSlots();
 
@@ -780,6 +781,23 @@ private:
         }
     }
 
+    // Greys out the LFOs and envelopes that aren't in their pools.
+    void refreshPoolSources()
+    {
+        std::vector<bool> inPatch ((size_t) Mod::getSourceNames().size(), true);
+
+        for (size_t source = 1; source < inPatch.size(); ++source)
+            inPatch[source] = modSourceInPatch (processorRef, (Mod::Source) source);
+
+        if (inPatch != shownPoolSources)
+        {
+            shownPoolSources = inPatch;
+
+            for (auto& row : rows)
+                row->setSourcesInPatch (inPatch);
+        }
+    }
+
     Sort sort = Sort::slot;
     bool descending = false, viaExpanded = false;
     int numDuplicates = 0, numIdle = 0;
@@ -788,6 +806,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     juce::StringArray shownMacroNames;
+    std::vector<bool> shownPoolSources;
     juce::Viewport viewport;
     juce::Component list;
     std::vector<std::unique_ptr<MatrixRow>> rows;

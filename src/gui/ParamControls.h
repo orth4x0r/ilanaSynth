@@ -9,6 +9,7 @@
 #include "IlanaLookAndFeel.h"
 #include "ModNames.h"
 #include "ParamInfo.h"
+#include "ModulePool.h"
 
 struct ModRingConfig
 {
@@ -1379,6 +1380,54 @@ private:
         repaint();
     }
 
+public:
+    // "Modulate with": LFOs, envelopes, macros and the rest, by their
+    // ModNames names (the UI test reads it).
+    juce::PopupMenu buildModulateWithMenu() const
+    {
+        juce::PopupMenu sourceMenu, lfoMenu, envMenu, macroMenu, otherMenu;
+
+        // Only the LFOs and envelopes in the pools (a source that has no
+        // card isn't offered); "New LFO" / "New envelope" adds the next.
+        // The LFOs' B outputs file under LFOs.
+        for (int i = 1; i < (int) Mod::Source::Count; ++i)
+        {
+            const auto source = (Mod::Source) i;
+            if (source == Mod::Source::InputEnv && ! IlanaSynthAudioProcessor::isEffectBuild)
+                continue;
+            if (! modSourceInPatch (*processorRef, source) && ! routesFrom (i))
+                continue;
+            const auto group = ModNames::groupOf (i);
+            auto& target = group == ModNames::SourceGroup::lfo || group == ModNames::SourceGroup::lfoB ? lfoMenu
+                         : group == ModNames::SourceGroup::envelope ? envMenu
+                         : group == ModNames::SourceGroup::macro ? macroMenu : otherMenu;
+            target.addItem (i + 1, ModNames::source (i, processorRef), true, routesFrom (i));
+        }
+
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (! processorRef->isLfoShown (lfo))
+            {
+                lfoMenu.addSeparator();
+                lfoMenu.addItem (6000 + lfo, "New LFO  (LFO " + juce::String (lfo + 1) + ")");
+                break;
+            }
+
+        for (int env = 0; env < 16; ++env)
+            if (! envelopeShown (*processorRef, env))
+            {
+                envMenu.addSeparator();
+                envMenu.addItem (6100 + env, "New envelope  (" + ModNames::source ((int) envelopeSource (env)) + ")");
+                break;
+            }
+
+        sourceMenu.addSubMenu ("LFOs", lfoMenu);
+        sourceMenu.addSubMenu ("Envelopes", envMenu);
+        sourceMenu.addSubMenu ("Macros", macroMenu);
+        sourceMenu.addSubMenu ("Performance and more", otherMenu);
+        return sourceMenu;
+    }
+
+private:
     void showModMenu()
     {
         if (processorRef == nullptr)
@@ -1388,9 +1437,7 @@ private:
 
         if (ringConfig.destination != 0)
         {
-            juce::PopupMenu sourceMenu;
-            ModNames::fillSourceMenu (sourceMenu, processorRef, [this] (int source) { return routesFrom (source); });
-            menu.addSubMenu ("Modulate with", sourceMenu);
+            menu.addSubMenu ("Modulate with", buildModulateWithMenu());
 
             if (! routings.empty())
             {
@@ -1445,6 +1492,7 @@ private:
                                 const auto name = result == 1000   ? juce::String ("Clear modulation")
                                                   : result == 2000 ? "Reset " + safeThis->label.getText()
                                                   : result == 3001 ? "Paste " + safeThis->label.getText()
+                                                  : result >= 6000 ? juce::String ("Add modulation")
                                                   : result >= 5000 ? juce::String ("Remove modulation")
                                                                    : juce::String ("Add modulation");
 
@@ -1478,6 +1526,17 @@ private:
                                 else if (result == 4000)
                                 {
                                     processor.startMacroLearn (safeThis->parameterId.getTrailingIntValue() - 1);
+                                }
+                                else if (result >= 6100)
+                                {
+                                    // A new envelope: into the pool, then routed.
+                                    processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, result - 6100, true);
+                                    processor.assignModSlot ((int) envelopeSource (result - 6100), safeThis->ringConfig.destination, 0.35f);
+                                }
+                                else if (result >= 6000)
+                                {
+                                    processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, result - 6000, true);
+                                    processor.assignModSlot ((int) Mod::lfoSourceFor (result - 6000), safeThis->ringConfig.destination, 0.35f);
                                 }
                                 else if (result >= 5000)
                                 {

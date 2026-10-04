@@ -56,6 +56,8 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
         case S::InputEnv:   return "Input Env";
         case S::VectorX:    return "Vector X";
         case S::VectorY:    return "Vector Y";
+        case S::OpLfo:      return "Op LFO";
+        case S::OpPitchEnv: return "Op Pitch";
         default:            break;
     }
 
@@ -134,7 +136,7 @@ inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcesso
         add (macros, (int) Mod::macroSourceFor (macro));
 
     for (const auto s : { S::Velocity, S::KeyTrack, S::Random, S::ModWheel, S::Aftertouch, S::Expression,
-                          S::Mseg, S::ClockSh, S::VectorX, S::VectorY, S::InputEnv })
+                          S::Mseg, S::ClockSh, S::VectorX, S::VectorY, S::OpLfo, S::OpPitchEnv, S::InputEnv })
         if (s != S::InputEnv || IlanaSynthAudioProcessor::isEffectBuild)
             add (performance, (int) s);
 

@@ -288,16 +288,14 @@ public:
           // (UI review 6, I6-25).
           drift (p.apvts, "vec_drift", "WANDER", colour(), true),
           driftRate (p.apvts, "vec_drift_rate", "WANDER RATE", colour(), true),
-          chipX ("Vector X", (int) Mod::Source::VectorX),
-          chipY ("Vector Y", (int) Mod::Source::VectorY)
+          chipX (ModNames::sourceUpper ((int) Mod::Source::VectorX), (int) Mod::Source::VectorX),
+          chipY (ModNames::sourceUpper ((int) Mod::Source::VectorY), (int) Mod::Source::VectorY)
     {
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
 
         // Vector X / Y as sources, to drag onto any knob, while the vector
         // plays (UI review 6, S36).
-        chipX.setShortName ("VEC X");
-        chipY.setShortName ("VEC Y");
         chipX.valueProvider = [this] { return processorRef.getVectorPosition().x; };
         chipY.valueProvider = [this] { return processorRef.getVectorPosition().y; };
         addChildComponent (chipX);
@@ -404,10 +402,11 @@ public:
         // The vector's on switch in its header, like every card's; the
         // source chips before it.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
-        auto chips = juce::Rectangle<int> (on.getX() - 8 - 2 * 74, vectorCard.getY() + 3, 2 * 74, 22);
-        chipX.setBounds (chips.removeFromLeft (70));
+        const auto chipWidth = (int) std::ceil (juce::jmax (chipX.getNaturalWidth(), chipY.getNaturalWidth()));
+        auto chips = juce::Rectangle<int> (on.getX() - 8 - 2 * chipWidth - 4, vectorCard.getY() + 3, 2 * chipWidth + 4, 22);
+        chipX.setBounds (chips.removeFromLeft (chipWidth));
         chips.removeFromLeft (4);
-        chipY.setBounds (chips.removeFromLeft (70));
+        chipY.setBounds (chips.removeFromLeft (chipWidth));
         auto toggles = inner.removeFromTop (40);
         path.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
         auto combos1 = inner.removeFromTop (44);

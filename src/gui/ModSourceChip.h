@@ -302,10 +302,10 @@ public:
         for (int i = 0; i < count; ++i, x += pitch)
         {
             g.setColour (modSourceColour (sources[(size_t) i]));
-            g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ x, bounds.getBottom() - 3.5f }));
+            g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ x, bounds.getBottom() - 3.0f }));
         }
 
-        auto text = getLocalBounds().reduced (6, 0).withTrimmedBottom (3);
+        auto text = getLocalBounds().reduced (6, 0).withTrimmedBottom (6);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
         const auto caret = text.removeFromRight (10).toFloat();

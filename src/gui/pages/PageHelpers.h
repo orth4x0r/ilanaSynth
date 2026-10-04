@@ -105,7 +105,9 @@ void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Recta
 
     g.setColour (IlanaTheme::Ui::text3);
     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-    g.drawText (subtitle, area.withTrimmedLeft (width + 16), juce::Justification::centredLeft, true);
+    const auto room = area.withTrimmedLeft (width + 16);
+    g.drawText (IlanaTheme::fittedHint (subtitle, juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), (float) room.getWidth()),
+                room, juce::Justification::centredLeft, false);
 }
 
 // Page headings sit where a card's title does: 12 px in from the card edge

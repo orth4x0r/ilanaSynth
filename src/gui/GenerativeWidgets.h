@@ -217,7 +217,7 @@ public:
         }
 
         g.setColour (juce::Colours::white.withAlpha (on ? 0.85f : 0.4f));
-        g.setFont (IlanaTheme::font (juce::jlimit (11.0f, 15.0f, radius * 0.32f), true));
+        g.setFont (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::tiny, 16.5f, radius * 0.35f), true));
         g.drawText ("E(" + juce::String (hits) + "," + juce::String (steps) + ")",
                     juce::Rectangle<float> (radius * 1.6f, 18.0f).withCentre (centre.translated (0.0f, -4.0f)),
                     juce::Justification::centred);

@@ -127,17 +127,25 @@ inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processo
 }
 
 // A small tag naming what a card drives, at the left of `area`'s bottom.
-inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text, juce::Colour colour)
+// A narrow card passes `below`, a row under its title: a tag that would be
+// cut short on the title line ("Filte...") moves there whole.
+inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text, juce::Colour colour,
+                            juce::Rectangle<float> below = {})
 {
+    const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+    const auto wanted = juce::GlyphArrangement::getStringWidth (font, text) + 12.0f;
+
+    if (wanted > area.getWidth() && ! below.isEmpty())
+        area = below;
+
     if (text.isEmpty() || area.getWidth() < 28.0f)
         return;
 
-    const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-    const auto width = juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidth (font, text) + 12.0f);
-    const auto tag = juce::Rectangle<float> (area.getX(), area.getBottom() - 13.0f, width, 13.0f);
+    const auto width = juce::jmin (area.getWidth(), wanted);
+    const auto tag = juce::Rectangle<float> (area.getX(), area.getBottom() - 15.0f, width, 15.0f);
 
     g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-    g.fillRoundedRectangle (tag, 6.5f);
+    g.fillRoundedRectangle (tag, 7.5f);
     g.setColour (colour.withAlpha (0.9f));
     g.setFont (font);
     g.drawFittedText (text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
@@ -333,7 +341,7 @@ public:
             // A macro's number, white with a dark outline so it reads on
             // both the yellow and the dark part of the pie.
             if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0)
-                paintOutlinedText (g, juce::String (macro + 1), area, 10.0f);
+                paintOutlinedText (g, juce::String (macro + 1), area, IlanaTheme::TextSize::tiny);
         }
 
         if (hasOverflow())
@@ -345,8 +353,9 @@ public:
             g.setColour (IlanaTheme::Ui::text2);
             g.drawEllipse (area.reduced (0.5f), 1.0f);
             g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (9.5f, true));
-            g.drawText ("+" + juce::String ((int) dots.size() - numShown()), area.translated (0.0f, 0.5f), juce::Justification::centred);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawFittedText ("+" + juce::String ((int) dots.size() - numShown()), area.expanded (1.0f, 0.0f).translated (0.0f, 0.5f).toNearestInt(),
+                              juce::Justification::centred, 1, 0.8f);
         }
     }
 
@@ -2087,13 +2096,24 @@ inline int preferredControlHeight (juce::Component* item, int width)
 // controls need, they sit as one band centred in it (labels on one line)
 // rather than hugging the top with the spare space below. oneLabelLine keeps
 // menus' and switches' names on the knobs' label line too (their boxes right
-// under), for a grid read by its labels (SEQ's GENERATE).
-inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& items, bool oneLabelLine = false)
+// under), for a grid read by its labels (SEQ's GENERATE). menuWeight > 1
+// gives each menu that much of a column against the others' one, for rows
+// whose menus hold long names beside short knob labels (FX algorithms).
+inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& items, bool oneLabelLine = false,
+                       float menuWeight = 1.0f)
 {
     if (items.empty())
         return;
 
-    const auto width = area.getWidth() / (int) items.size();
+    auto menus = 0;
+    for (auto* item : items)
+        menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
+    if (menus == (int) items.size())
+        menuWeight = 1.0f;
+
+    const auto shares = (float) ((int) items.size() - menus) + (float) menus * menuWeight;
+    const auto width = (int) ((float) area.getWidth() / shares);
+    const auto menuWidth = (int) ((float) width * menuWeight);
     auto band = 0;
 
     // (A null item is an empty column, so rows can share one grid.)
@@ -2135,7 +2155,7 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
 
     for (auto* item : items)
     {
-        auto cell = area.removeFromLeft (width).reduced (3);
+        auto cell = area.removeFromLeft (dynamic_cast<ComboControl*> (item) != nullptr ? menuWidth : width).reduced (3);
 
         if (item == nullptr)
             continue;

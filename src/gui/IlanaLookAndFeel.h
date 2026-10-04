@@ -69,24 +69,49 @@ namespace KnobSize
 }
 
 // The type scale (component units; the editor zooms them). Every text in the
-// UI uses one of these, so sizes stay consistent from page to page.
+// UI uses one of these, so sizes stay consistent from page to page. UI review
+// 6 (#46) raised the whole scale by 10 %, so that at 75 % zoom (0.75) tiny
+// text still renders 9 px tall.
 namespace TextSize
 {
-    inline constexpr float tiny    = 11.0f; // axis ticks, badges, hints
-    inline constexpr float label   = 11.5f; // knob and field labels
-    inline constexpr float body    = 13.0f; // values, menus, buttons
-    inline constexpr float title   = 14.5f; // tabs, section titles
-    inline constexpr float large   = 16.5f; // preset name
-    inline constexpr float display = 21.0f;
-    inline constexpr float hero    = 26.0f;
+    inline constexpr float tiny    = 12.1f;  // axis ticks, badges, hints
+    inline constexpr float label   = 12.65f; // knob and field labels
+    inline constexpr float body    = 14.3f;  // values, menus, buttons
+    inline constexpr float title   = 15.95f; // tabs, section titles
+    inline constexpr float large   = 18.15f; // preset name
+    inline constexpr float display = 23.1f;
+    inline constexpr float hero    = 28.6f;
 
     // The floors (UI review 4, S25), in the same units (a font's full
     // height; Manrope's letters are about 0.73 of it): no text a user clicks
     // is smaller than minInteractive (buttons, tabs, pills, menus), no other
     // text smaller than minPassive. The UI test walks every page's labels
     // and buttons against them.
-    inline constexpr float minInteractive = 12.5f;
+    inline constexpr float minInteractive = 13.75f;
     inline constexpr float minPassive     = tiny;
+
+    // The smallest zoom the editor offers, and the floor at it in screen
+    // pixels (UI review 5 #31, 6 #46): text that would draw smaller is left
+    // out (a hint) rather than shrunk. 12 units at 75 % is 9 px.
+    inline constexpr float smallestZoom  = 0.75f;
+    inline constexpr float screenFloorPx = 9.0f;
+    inline constexpr float zoomFloor     = screenFloorPx / smallestZoom;
+}
+
+// The UI test's probe: while armed, the smallest text drawn (in device
+// pixels, through font() below) and how often it went under a limit.
+struct FontProbe
+{
+    bool armed = false;
+    float smallest = 1.0e6f;
+    float limit = 0.0f;
+    int under = 0;
+};
+
+inline FontProbe& fontProbe()
+{
+    static FontProbe probe;
+    return probe;
 }
 
 // The fonts, released when JUCE shuts down (after the last editor closes)
@@ -129,9 +154,14 @@ inline juce::FontOptions font (float height, bool bold = false, bool tabular = f
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto deviceHeight = height * scale;
+    if (auto& probe = fontProbe(); probe.armed)
+    {
+        probe.smallest = juce::jmin (probe.smallest, deviceHeight);
+        probe.under += deviceHeight < probe.limit - 0.01f ? 1 : 0;
+    }
     const auto snapped = juce::jmax (1.0f, std::round (deviceHeight)) / scale;
     const auto typeface = bold ? boldTypefaceRef()
-                               : (deviceHeight < 15.0f ? mediumTypefaceRef() : regularTypefaceRef());
+                               : (deviceHeight < 16.5f ? mediumTypefaceRef() : regularTypefaceRef());
 
     const auto options = juce::FontOptions().withHeight (snapped)
                                             .withStyle (bold ? "Bold" : "Regular")
@@ -226,6 +256,20 @@ inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, cons
 // A card's header, the same everywhere: tag, title, then a quiet subtitle
 // right after the title (never pushed to the right edge, which belongs to the
 // card's tabs and its on switch).
+// A hint cut to the room it has: whole " · " parts are dropped from the end,
+// and a hint that still doesn't fit is left out rather than cut mid-word
+// ("Operator E...") or shrunk.
+inline juce::String fittedHint (const juce::String& hint, const juce::Font& f, float width)
+{
+    const auto dot = juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 "));
+    auto text = hint;
+
+    while (text.isNotEmpty() && juce::GlyphArrangement::getStringWidth (f, text) > width)
+        text = text.contains (dot) ? text.upToLastOccurrenceOf (dot, false, false) : juce::String();
+
+    return text;
+}
+
 inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& title,
                              const juce::String& subtitle, juce::Colour colour, int rightReserve = 100)
 {
@@ -237,7 +281,8 @@ inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, con
     auto area = header.withTrimmedLeft (cardTitleWidth (title)).withTrimmedRight (rightReserve); // 16 px after the title
     g.setColour (Ui::text3);
     g.setFont (font (TextSize::label));
-    g.drawText (subtitle, area, juce::Justification::centredLeft, true);
+    g.drawText (fittedHint (subtitle, juce::Font (font (TextSize::label)), (float) area.getWidth()), area,
+                juce::Justification::centredLeft, false);
 }
 
 // Where a card's on switch goes (a ToggleControl with its 13 px label
@@ -399,7 +444,8 @@ public:
 
     juce::Font getComboBoxFont (juce::ComboBox& box) override
     {
-        return juce::Font (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::body, (float) box.getHeight() * 0.72f)));
+        return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, IlanaTheme::TextSize::body,
+                                                           (float) box.getHeight() * 0.72f)));
     }
 
     juce::Font getPopupMenuFont() override
@@ -421,7 +467,7 @@ public:
         // A lone symbol ("×", "+") is a glyph a third the font's height:
         // draw it larger, so a remove or add button reads as one.
         if (const auto text = button.getButtonText(); text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
-            return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, 20.0f, (float) buttonHeight * 0.95f)));
+            return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, 22.0f, (float) buttonHeight * 0.95f)));
 
 
         // Never under the interactive floor, however short the button.

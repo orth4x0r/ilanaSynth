@@ -624,7 +624,8 @@ private:
         // What it drives, on the title line between the name and the rate
         // (in the lower corner it sat on the curve).
         const auto rateWidth = rateText.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), rateText);
-        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 16.0f).withTrimmedRight (rateWidth + 8.0f), targets, colour);
+        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 16.0f).withTrimmedRight (rateWidth + 8.0f), targets, colour,
+                        titleRow.translated (0.0f, titleRow.getHeight() + 3.0f));
     }
 
     void paintTrace (juce::Graphics& g, juce::Rectangle<float> plot, juce::Colour colour, float alpha, bool stepped,
@@ -675,7 +676,7 @@ private:
         paintFrame (g, card, colour, active, hovered);
 
         auto inner = card.reduced (8.0f, 5.0f);
-        auto titleRow = inner.removeFromTop (14.0f);
+        auto titleRow = inner.removeFromTop (16.0f);
 
         const auto synced = readParam (lfo, "_sync") > 0.5f;
         const juce::StringArray divisions { "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T", "1/8D", "1/16D" };
@@ -723,7 +724,7 @@ private:
         cachedTargets (0);
 
         auto inner = card.reduced (8.0f, 5.0f);
-        const auto titleRow = inner.removeFromTop (14.0f);
+        const auto titleRow = inner.removeFromTop (16.0f);
         const auto targets = extraTargets[extra];
         paintTitleRow (g, titleRow, info.title, info.rateText != nullptr ? info.rateText() : juce::String(), targets, info.colour,
                        active, targets.isNotEmpty());

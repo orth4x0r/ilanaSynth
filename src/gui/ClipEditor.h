@@ -819,10 +819,10 @@ private:
                 g.fillRect (key.getX(), key.getBottom() - 0.5f, key.getWidth(), 1.0f);
             }
 
-            if ((note % 12 == 0 || note == hoverNote) && rowHeight >= 7.0f)
+            if ((note % 12 == 0 || note == hoverNote) && rowHeight >= 9.0f)
             {
                 g.setColour (juce::Colour (0xff2a2d33));
-                g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, rowHeight + 1.0f), true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
                             key.withTrimmedRight (4.0f).toNearestInt(), juce::Justification::centredRight, false);
             }
@@ -845,10 +845,10 @@ private:
             g.fillRoundedRectangle (key, 1.5f);
 
             // The key under the pointer names itself (white keys do above).
-            if (note == hoverNote && rowHeight >= 7.0f)
+            if (note == hoverNote && rowHeight >= 9.0f)
             {
                 g.setColour (juce::Colour (0xff2a2d33));
-                g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, rowHeight + 1.0f), true));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
                             juce::Rectangle<float> (keys.getX(), y, keys.getWidth(), rowHeight).withTrimmedRight (4.0f).toNearestInt(),
                             juce::Justification::centredRight, false);
@@ -965,10 +965,10 @@ private:
         g.drawRoundedRectangle (r.reduced (isSelected ? 0.75f : 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
 
         // A wide enough note names itself.
-        if (r.getWidth() >= 30.0f && r.getHeight() >= 9.0f)
+        if (r.getWidth() >= 32.0f && r.getHeight() >= 9.0f)
         {
             g.setColour (juce::Colours::black.withAlpha (isSelected ? 0.85f : 0.7f * strength));
-            g.setFont (IlanaTheme::font (juce::jmin (IlanaTheme::TextSize::tiny, r.getHeight() + 1.0f), true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (juce::MidiMessage::getMidiNoteName (n.note, true, true, 3), r.withTrimmedLeft (4.0f).toNearestInt(),
                         juce::Justification::centredLeft, false);
         }

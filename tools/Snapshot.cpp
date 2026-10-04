@@ -241,6 +241,45 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                                      + (small.isEmpty() ? juce::String() : ": " + small.joinIntoString (", ")));
     }
 
+    // The 75 % floor (UI review 5 #31, 6 #46): every page (and the scope)
+    // painted at the smallest zoom, with the theme's font helper watching:
+    // no text drawn under 9 screen pixels.
+    {
+        auto* top = editor.getTopLevelComponent();
+        const auto before = top->getBounds();
+        top->setSize (795, 540);
+        settle (300);
+        auto& probe = IlanaTheme::fontProbe();
+        juce::StringArray under;
+        auto smallest = 1.0e6f;
+        const auto paintPage = [&] (const juce::String& page)
+        {
+            probe = {};
+            probe.armed = true;
+            probe.limit = IlanaTheme::TextSize::screenFloorPx;
+            editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+            probe.armed = false;
+            smallest = juce::jmin (smallest, probe.smallest);
+            if (probe.under > 0)
+                under.add (page + " (" + juce::String (probe.smallest, 2) + " px)");
+        };
+        for (const auto& page : editor.getPageIds())
+        {
+            editor.showPage (page);
+            settle (250);
+            paintPage (page);
+        }
+        editor.setScopeOpen (true);
+        settle (300);
+        paintPage ("SCOPE");
+        editor.setScopeOpen (false);
+        top->setBounds (before);
+        settle (300);
+        expect (under.isEmpty() && smallest < 1.0e5f, "at 75 % no text is drawn under " + juce::String (IlanaTheme::TextSize::screenFloorPx, 0)
+                                                          + " px (smallest " + juce::String (smallest, 2) + ")"
+                                                          + (under.isEmpty() ? juce::String() : ": " + under.joinIntoString (", ")));
+    }
+
     // The scope's meters (S23, V27): held peak numbers after sound, reset by
     // a click; the clip light starts dark. The header meter has its own.
     {

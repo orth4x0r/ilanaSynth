@@ -852,7 +852,9 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
         return sum + groupGap * (float) juce::jmax (0, groups - 1);
     };
 
-    const auto available = (float) row.getWidth();
+    // With the pool full there's no "+" to end the row: keep a group's gap
+    // clear at the end instead, so the last chip isn't flush with the edge.
+    const auto available = (float) row.getWidth() - (picker ? 0.0f : groupGap);
 
     while (widthOf (shown) > available)
     {

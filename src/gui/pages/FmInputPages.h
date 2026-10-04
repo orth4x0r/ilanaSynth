@@ -836,7 +836,7 @@ private:
             auto stages = inner.removeFromBottom (height);
             inner.removeFromBottom (4);
             layoutGrid (stages, voice.pitchStages(), 9);
-            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 5 / 9).withTrimmedLeft (8).reduced (0, 2));
+            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 4 / 9).withTrimmedLeft (8).reduced (0, 2));
             auto top = inner.removeFromTop (inner.getHeight() / 2);
             // SHAPE two columns wide, so its wave's name fits.
             layoutRow (top, { &voice.shape, nullptr, &voice.retrig, &voice.rate, &voice.delay });
@@ -856,7 +856,7 @@ private:
             inner.removeFromBottom (4);
             layoutGrid (row, envTabs.getSelected() == 0 ? controls.egStages() : controls.egScaling(), 9);
             // The graph beside the tuning menus and knobs.
-            egGraph.setBounds (inner.removeFromRight (inner.getWidth() * 2 / 5).withTrimmedLeft (8).reduced (0, 2));
+            egGraph.setBounds (inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2));
         }
         const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
 

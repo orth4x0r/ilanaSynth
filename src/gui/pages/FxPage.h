@@ -1176,8 +1176,12 @@ private:
         else
         {
             // A short row is centred in its space, not pinned left.
-            const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * 110);
-            layoutRow (rowsArea.removeFromTop (cardRowHeight).withSizeKeepingCentre (maxWidth, cardRowHeight), items);
+            // Menus (an Airwindows algorithm's long name) take a wider column.
+            auto menus = 0;
+            for (auto* item : items)
+                menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
+            const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * 110 + menus * 40);
+            layoutRow (rowsArea.removeFromTop (cardRowHeight).withSizeKeepingCentre (maxWidth, cardRowHeight), items, false, 1.4f);
         }
 
         body.removeFromTop (cardPadding);

@@ -998,7 +998,9 @@ private:
         {
             const auto depth = numFrames > 1 ? (float) f / (float) (numFrames - 1) : 0.0f;
             const auto inset = plot.getWidth() * 0.08f * depth;
-            const auto baseline = plot.getBottom() - 6.0f - depth * plot.getHeight() * 0.62f;
+            // The front frame's troughs stay inside the plot (on a tall
+            // plot a fixed 6 px margin let them run under the frame readout).
+            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.15f) - depth * plot.getHeight() * 0.62f;
             const auto amplitude = plot.getHeight() * 0.15f * (1.0f - depth * 0.35f);
             const auto* data = table->getFrameData (0, f);
             const auto highlight = f == currentFrame;

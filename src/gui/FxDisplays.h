@@ -124,14 +124,14 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         auto line = getLocalBounds().reduced (8, 0).removeFromTop (16).withTrimmedTop (3);
-        // The right-hand reading keeps its room; a long left one ends in "..."
-        // rather than running into it.
+        // The right-hand reading keeps its room; a left one too long for
+        // what's left is left out rather than cut short or run into it.
         if (right.isNotEmpty())
         {
             g.drawText (right, line, juce::Justification::centredRight);
-            line.removeFromRight (juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), right) + 6);
+            line.removeFromRight (juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), right) + 8);
         }
-        g.drawText (left, line, juce::Justification::centredLeft, true);
+        g.drawText (IlanaTheme::fittedHint (left, g.getCurrentFont(), (float) line.getWidth()), line, juce::Justification::centredLeft, false);
     }
 
     void strokeCurve (juce::Graphics& g, const juce::Path& curve, juce::Rectangle<float> plot, float baselineY) const

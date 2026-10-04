@@ -361,7 +361,7 @@ public:
 private:
     // The preset name is the header's centrepiece: a size up from the type
     // scale's "large".
-    static constexpr float nameSize = 19.0f;
+    static constexpr float nameSize = 21.0f;
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;

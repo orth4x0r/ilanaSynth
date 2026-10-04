@@ -345,18 +345,24 @@ private:
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
 
-        // The tips share the space evenly (no dead band under the last one).
-        const auto rowHeight = juce::jlimit (34, 48, area.getHeight() / juce::jmax (1, tips.size()));
+        // Each tip as tall as its lines, the same gap after each (a fixed
+        // row left a one-line tip with a gap under it that a wrapped one
+        // didn't have), never shrunk to fit.
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::body));
+        auto y = (float) area.getY() + 2.0f;
 
         for (const auto& tip : tips)
         {
-            auto row = area.removeFromTop (rowHeight).reduced (0, 2);
+            juce::GlyphArrangement lines;
+            lines.addJustifiedText (font, tip, (float) area.getX() + 14.0f, y + font.getAscent(), (float) area.getWidth() - 14.0f,
+                                    juce::Justification::left);
 
             g.setColour (IlanaTheme::accent().withAlpha (0.9f));
-            g.fillEllipse ((float) row.getX(), (float) row.getY() + 5.0f, 5.0f, 5.0f);
+            g.fillEllipse ((float) area.getX(), y + font.getAscent() * 0.5f, 5.0f, 5.0f);
 
             g.setColour (IlanaTheme::Ui::text);
-            g.drawFittedText (tip, row.withTrimmedLeft (14), juce::Justification::topLeft, 3, 1.0f);
+            lines.draw (g);
+            y = lines.getBoundingBox (0, -1, true).getBottom() + 12.0f;
         }
     }
 

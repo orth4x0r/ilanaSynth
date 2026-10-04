@@ -450,7 +450,7 @@ private:
         paintFrame (g, card, colour, active, hovered);
 
         auto inner = card.reduced (8.0f, 5.0f);
-        auto titleRow = inner.removeFromTop (14.0f);
+        auto titleRow = inner.removeFromTop (16.0f);
         const auto removable = hovered && canRemove (env);
         paintTitle (g, removable ? titleRow.withTrimmedRight (18.0f) : titleRow, info.title, cachedTargets (env), colour, active, inUse);
 

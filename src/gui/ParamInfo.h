@@ -623,8 +623,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_excite", false))
         return "String excitation: Burst plucks, Noise/Saw/Pulse sustain the string. "
                "Tine and Reed swap the string for an electric piano: a Rhodes-style tine or a Wurlitzer-style reed. "
-               "Piano strikes the string with a real felt hammer (it brightens as it compresses), with two polarisations "
-               "and the bass's bark; Hammer (classic) is the M4 model, kept for old patches.";
+               "Piano Hammer strikes the string with a real felt hammer (it brightens as it compresses), with two polarisations "
+               "and the bass's bark; Bright Hammer is the M4 model, kept for old patches.";
 
     if (isOscParameter (id, "_string_decay", false))
         return "How long the string rings.";

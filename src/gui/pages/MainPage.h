@@ -23,11 +23,10 @@ public:
     {
         const auto colours = [] (int osc) { return IlanaTheme::oscColour (osc); };
 
-        // The oscillators as fixed strips, one slot per oscillator and one for
-        // SUB + NOISE, always in the same place and never folded (UI review
-        // 5, S8; review 6, V19): a strip is a picture, MODE and TABLE (or
-        // EXCITE), four knobs and the switch. An oscillator not added yet is
-        // a dim empty slot; full editing is on OSC.
+        // The oscillators as strips in their order, then one "+ ADD OSC" row
+        // and SUB + NOISE (UI review 5, S8; review 6, V19; review 7, V7-4,
+        // S7-2: no empty slots): a strip is a picture, MODE and TABLE (or
+        // EXCITE), four knobs and the switch; full editing is on OSC.
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
@@ -44,6 +43,7 @@ public:
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
             strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "");
             strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "");
+            groupExciteMenu (*strip->excite);
             strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "");
             strip->table->setPopupOverride ([this, table = strip->table.get(), id = prefix + "_table", colour]
             {
@@ -63,21 +63,19 @@ public:
                 return strip->allKnobs.back().second.get();
             };
 
-            // Four knobs per mode, named and ordered as on OSC: wavetable,
-            // string, sample, granular, live; then an FM operator's (its
-            // tuning as RATIO or FIXED, no unison: UI review 6, V3, V42, S3).
-            strip->modeKnobs[0] = { knob ("_frame", "FRAME"), knob ("_level", "LEVEL"), knob ("_semi", "SEMI"), knob ("_unison", "UNISON") };
-            strip->modeKnobs[1] = { knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP"), knob ("_level", "LEVEL"),
-                                    knob ("_semi", "SEMI") };
-            strip->modeKnobs[2] = { knob ("_sample_start", "START"), knob ("_sample_end", "END"), knob ("_level", "LEVEL"),
-                                    knob ("_semi", "SEMI") };
-            strip->modeKnobs[3] = { knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE"), knob ("_grain_density", "DENSITY"),
-                                    knob ("_level", "LEVEL") };
+            // Four columns in one order for every mode (UI review 7, V7-26,
+            // S7-3): the pitch (SEMI, or a wavetable's RATIO or FIXED), LEVEL,
+            // then the mode's two main knobs. An operator on the Operator Env
+            // shows its LEVEL in dB (the FM card's), the oscillator's own
+            // level as TRIM, and FINE (I7-2, I7-19).
+            strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
+            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
+            strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
+            strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
+            strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
-            strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr, nullptr };
-            strip->operatorKnobs[0] = { knob ("_semi", "SEMI"), knob ("_level", "LEVEL"), knob ("_fine", "FINE"), knob ("_frame", "FRAME") };
-            strip->operatorKnobs[1] = { knob ("_ratio", "RATIO"), knob ("_level", "LEVEL"), knob ("_fine", "FINE"), knob ("_frame", "FRAME") };
-            strip->operatorKnobs[2] = { knob ("_fixed_hz", "FIXED"), knob ("_level", "LEVEL"), knob ("_fine", "FINE"), knob ("_frame", "FRAME") };
+            strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
+            strip->operatorEnvKnobs = { knob ("_eg_out", "LEVEL"), knob ("_level", "TRIM"), knob ("_fine", "FINE") };
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table);
             oscColumn.addChildComponent (*strip->excite);
@@ -85,8 +83,8 @@ public:
             strips.push_back (std::move (strip));
         }
 
-        // One way to add an oscillator: the first empty slot's button
-        // (UI review 6, S33).
+        // One way to add an oscillator: one row after the strips (UI review
+        // 6, S33; review 7, V7-4).
         addOscButton.setTooltip ("Add this oscillator, switched on");
         addOscButton.onClick = [this]
         {
@@ -379,24 +377,44 @@ public:
         area.removeFromLeft (10);
         auto right = area;
 
-        // Seven slots of one height (six oscillators, then SUB + NOISE) that
-        // share the column; it scrolls only when even the smallest strips
-        // don't fit (the keyboard open on a small window).
+        // The added oscillators' strips and SUB + NOISE, all one height (taller
+        // when there are fewer), with one slim "+ ADD OSC" row between them
+        // while a slot is free (UI review 7, V7-4, S7-2). The column scrolls
+        // only when even the smallest strips don't fit.
         oscView.setBounds (left);
-        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, (left.getHeight() - slotGap * numSlots) / numSlots);
-        const auto columnHeight = numSlots * slotHeight + (numSlots - 1) * slotGap;
+        const auto numStrips = (int) std::count (shownStrips.begin(), shownStrips.end(), true) + 1;
+        const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
+        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight,
+                                              (left.getHeight() - addRow - slotGap * (numStrips - 1)) / numStrips);
+        const auto columnHeight = numStrips * slotHeight + (numStrips - 1) * slotGap + addRow;
         const auto scrolls = columnHeight > left.getHeight();
         oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0),
                            juce::jmax (columnHeight, left.getHeight()));
         auto column = oscColumn.getLocalBounds();
         addOscButton.setVisible (false);
+        addRowArea = {};
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            oscCards[(size_t) osc] = column.removeFromTop (slotHeight);
-            column.removeFromTop (slotGap);
+            oscCards[(size_t) osc] = {};
+
+            if (shownStrips[(size_t) osc])
+            {
+                oscCards[(size_t) osc] = column.removeFromTop (slotHeight);
+                column.removeFromTop (slotGap);
+            }
+
             showStrip (osc);
             layoutStrip (osc, oscCards[(size_t) osc]);
+        }
+
+        if (const auto next = firstEmptySlot(); next >= 0)
+        {
+            addRowArea = column.removeFromTop (addRowHeight);
+            column.removeFromTop (slotGap);
+            addOscButton.setButtonText ("+  ADD OSC " + juce::String (next + 1));
+            addOscButton.setBounds (addRowArea.withSizeKeepingCentre (juce::jmin (160, addRowArea.getWidth() - 24), addRowHeight - 8));
+            addOscButton.setVisible (true);
         }
 
         subCard = column.removeFromTop (slotHeight);
@@ -485,18 +503,25 @@ private:
         std::unique_ptr<ToggleControl> on;
         std::unique_ptr<ComboControl> mode, excite, table;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
+        // The first column by TUNING (semitones, ratio, fixed Hz); the other
+        // three by mode, or the Operator Env's.
+        std::array<juce::Component*, 3> pitchKnobs {};
         std::array<std::vector<juce::Component*>, 5> modeKnobs;
-        // An FM operator's: by its TUNING (semitones, ratio, fixed Hz).
-        std::array<std::vector<juce::Component*>, 3> operatorKnobs;
+        std::vector<juce::Component*> operatorEnvKnobs;
         int shownMode = -1;
-        int shownOperator = -1; // the operator's tuning, or -1 for a plain oscillator
+        int shownTuning = 0; // a wavetable's TUNING (the pitch knob)
         bool shownOn = true;
         juce::String role;
         bool opEg = false;
+        OperatorEnvThumb thumb;
 
-        const std::vector<juce::Component*>& knobs() const
+        std::vector<juce::Component*> knobs() const
         {
-            return shownOperator >= 0 ? operatorKnobs[(size_t) shownOperator] : modeKnobs[(size_t) juce::jmax (0, shownMode)];
+            const auto mode = juce::jmax (0, shownMode);
+            std::vector<juce::Component*> result { mode == 4 ? nullptr : pitchKnobs[(size_t) (mode == 0 ? shownTuning : 0)] };
+            const auto& rest = opEg ? operatorEnvKnobs : modeKnobs[(size_t) mode];
+            result.insert (result.end(), rest.begin(), rest.end());
+            return result;
         }
     };
 
@@ -550,22 +575,23 @@ private:
             const auto mode = juce::jlimit (0, 4, readInt (prefix + "_mode"));
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
-            const auto op = OscRole::isOperator (processorRef, index) ? OscRole::tuning (processorRef, index) : -1;
+            const auto tuning = OscRole::tuning (processorRef, index);
             const auto role = OscRole::describe (processorRef, index);
-            const auto opEg = op >= 0 && OscRole::usesOperatorEg (processorRef, index);
+            const auto opEg = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
 
-            if (role != strip.role || opEg != strip.opEg)
+            if (role != strip.role || (opEg && strip.thumb.update (processorRef, index)))
             {
                 strip.role = role;
-                strip.opEg = opEg;
                 oscColumn.repaint();
             }
 
-            if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn || op != strip.shownOperator)
+            if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn || tuning != strip.shownTuning
+                || opEg != strip.opEg)
             {
                 strip.shownMode = mode;
                 strip.shownOn = on;
-                strip.shownOperator = op;
+                strip.shownTuning = tuning;
+                strip.opEg = opEg;
                 shownStrips[(size_t) index] = shown;
                 changed = true;
             }
@@ -598,6 +624,9 @@ private:
 
         std::vector<juce::Component*> controls { strip.mode.get(), strip.table.get(), strip.excite.get(), &wave (index) };
 
+        if (strip.opEg)
+            strip.thumb.update (processorRef, index);
+
         for (auto* item : strip.knobs())
             if (item != nullptr)
             {
@@ -609,7 +638,8 @@ private:
         strip.excite->setVisible (shown && mode == 1);
         strip.mode->setVisible (shown);
         strip.on->setVisible (shown);
-        wave (index).setVisible (shown);
+        // An operator on the Operator Env shows its envelope instead.
+        wave (index).setVisible (shown && ! strip.opEg);
 
         for (auto* control : controls)
         {
@@ -876,16 +906,7 @@ private:
         auto& strip = *strips[(size_t) index];
 
         if (! shownStrips[(size_t) index])
-        {
-            if (index == firstEmptySlot())
-            {
-                addOscButton.setButtonText ("+  ADD OSC " + juce::String (index + 1));
-                addOscButton.setBounds (card.withSizeKeepingCentre (juce::jmin (160, card.getWidth() - 24), 26));
-                addOscButton.setVisible (true);
-            }
-
             return;
-        }
 
         strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, card.getCentreY() - 1));
         const auto columns = stripColumns (card);
@@ -947,25 +968,26 @@ private:
             const auto name = "OSC " + juce::String (osc + 1);
 
             if (! shownStrips[(size_t) osc])
-            {
-                // An empty slot: a dashed outline and its name.
-                juce::Path outline, dashed;
-                outline.addRoundedRectangle (card.toFloat().reduced (1.0f), 6.0f);
-                const float dashes[] { 4.0f, 4.0f };
-                juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-                g.setColour (IlanaTheme::Ui::line.withAlpha (0.7f));
-                g.fillPath (dashed);
-
-                if (osc != firstEmptySlot())
-                    paintTitle (card, name, tint, false, "not added", {});
-
                 continue;
-            }
 
             const auto& strip = *strips[(size_t) osc];
             IlanaTheme::paintCard (g, card.toFloat(), 6.0f, strip.shownOn ? tint : tint.withAlpha (0.3f));
             paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String ("OFF"),
                         strip.shownOn && strip.opEg ? juce::String ("OP ENV") : juce::String());
+
+            if (strip.opEg)
+                strip.thumb.paint (g, stripColumns (card).picture.toFloat(), tint, strip.shownOn);
+        }
+
+        // The next oscillator to add: a slim dashed row round its button.
+        if (! addRowArea.isEmpty())
+        {
+            juce::Path outline, dashed;
+            outline.addRoundedRectangle (addRowArea.toFloat().reduced (1.0f), 6.0f);
+            const float dashes[] { 4.0f, 4.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.7f));
+            g.fillPath (dashed);
         }
 
         if (! subCard.isEmpty())
@@ -1017,10 +1039,12 @@ private:
     juce::TextButton addOscButton;
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1;
-    // The column: six oscillator slots and SUB + NOISE, all one height.
-    static constexpr int numSlots = OscillatorIds::count + 1, slotGap = 6;
-    static constexpr int minSlotHeight = 62, maxSlotHeight = 76;
+    // The column: the strips and SUB + NOISE, all one height, and the
+    // "+ ADD OSC" row.
+    static constexpr int slotGap = 6, addRowHeight = 36;
+    static constexpr int minSlotHeight = 62, maxSlotHeight = 120;
     static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46;
+    juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.35f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind
     // "+N", and the pool last seen.

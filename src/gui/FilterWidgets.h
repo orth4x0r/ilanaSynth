@@ -60,7 +60,7 @@ struct FilterTypes
         return { "LP", "BP", "HP", "NOTCH", "LADDER", "LAD HP", "DIODE", "MS-20", "COMB +", "COMB -", "FORMANT", "MORPH",
                  "LAD BP", "DRIVE", "SEM", "OTA LP", "OTA BP", "MS HP", "STEINER", "PHASER", "DAMPED", "MIX",
                  "VOWEL", "TALK", "TWIN",
-                 "303", "MOOG", "V MORPH", "BODY",
+                 "303", "MOOG", "V MORPH", "COMB BODY",
                  "SMOOTH LP", "SMOOTH HP", "SMOOTH BP", "MELT LP", "GRIT LP", "RESO LP", "ROUND LP", "HARD LP", "SLOPE LP",
                  "DISPERSE" };
     }

@@ -131,6 +131,284 @@ void expect (bool condition, const juce::String& message)
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
+// UI review 7, package Q4: PLAY's strips, the OSC card of an operator, SF2
+// zones, the exciters, BODY's names, VECTOR and PHYSICAL.
+void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
+{
+    const auto loadNamed = [&processor] (const juce::String& name)
+    {
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (name));
+        settle (500);
+    };
+    const auto setParam = [&processor] (const juce::String& id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+    const auto knobFor = [&editor] (const juce::String& id, const juce::String& label = {}) -> KnobControl*
+    {
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == id && visibleInTree (knob) && knob->getWidth() > 0
+                && (label.isEmpty() || knob->getLabelText() == label))
+                return knob;
+        return nullptr;
+    };
+    const auto centreX = [&editor] (juce::Component* c) { return c == nullptr ? -1 : editor.getLocalArea (c, c->getLocalBounds()).getCentreX(); };
+    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::TextButton*
+    {
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (editor, buttons);
+        for (auto* button : buttons)
+            if (visibleInTree (button) && button->getButtonText() == text)
+                return button;
+        return nullptr;
+    };
+    const auto selectOscTab = [&editor] (int osc)
+    {
+        std::vector<StateTabs*> rows;
+        findAll<StateTabs> (editor, rows);
+        for (auto* tabs : rows)
+            for (int i = 0; i < tabs->getNumItems(); ++i)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr)
+                {
+                    tabs->setSelected (i);
+                    tabs->onSelect (i);
+                    settle (200);
+                }
+    };
+    const auto oscTabState = [&editor] (int osc)
+    {
+        std::vector<StateTabs*> rows;
+        findAll<StateTabs> (editor, rows);
+        for (auto* tabs : rows)
+            for (int i = 0; i < tabs->getNumItems(); ++i)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1))
+                    return tabs->getItem (i).state;
+        return juce::String();
+    };
+    const auto oscWave = [&editor] (int osc) -> WaveDisplay*
+    {
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (editor, waves);
+        for (auto* wave : waves)
+            if (visibleInTree (wave) && wave->getOscIndex() == osc && ! wave->isCompact())
+                return wave;
+        return nullptr;
+    };
+
+    // PLAY: no empty slots, one slim ADD OSC row, the knobs in one order
+    // whatever the mode or FM role (V7-4, V7-26, S7-2, S7-3).
+    loadNamed ("Neuro Wobble");
+    editor.showPage ("MAIN");
+    settle (400);
+    {
+        // (OSC 3's parameters are "sub_".)
+        const juce::String osc3 (OscillatorIds::prefixes[2]);
+        auto* add = buttonNamed ("+  ADD OSC 4");
+        auto* level1 = knobFor ("osc1_level");
+        auto* level3 = knobFor (osc3 + "_level");
+        const auto addArea = add != nullptr ? editor.getLocalArea (add, add->getLocalBounds()) : juce::Rectangle<int>();
+        const auto level3Area = level3 != nullptr ? editor.getLocalArea (level3, level3->getLocalBounds()) : juce::Rectangle<int>();
+        expect (add != nullptr && add->getHeight() <= 32 && level3 != nullptr && addArea.getY() > level3Area.getBottom()
+                    && addArea.getY() - level3Area.getBottom() < 90,
+                "PLAY: one slim + ADD OSC 4 row right after OSC 3, no empty slots");
+        expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
+                    && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
+                    && centreX (knobFor ("osc1_frame")) == centreX (knobFor (osc3 + "_frame")),
+                "PLAY: SEMI, LEVEL, FRAME in the same columns on an FM oscillator and a plain one");
+        // A wavetable in an FM route but tuned in semitones is an
+        // oscillator with FM, not an operator (V7-15).
+        editor.showPage ("OSC");
+        settle (300);
+        expect (oscTabState (0) == "FM FROM 2" && oscTabState (1) == "FM INTO 1",
+                "OSC: Neuro Wobble's oscillators read FM FROM 2 / FM INTO 1, not CARRIER (" + oscTabState (0) + ", " + oscTabState (1) + ")");
+    }
+
+    // A DX7 voice: each strip shows the operator's LEVEL in dB (the FM
+    // card's), TRIM and FINE, its Operator Env instead of a sine, no FRAME
+    // (I7-2, I7-19).
+    loadNamed ("E.PIANO 1 (ROM1A)");
+    editor.showPage ("MAIN");
+    settle (400);
+    {
+        auto* level = knobFor ("osc2_eg_out", "LEVEL");
+        auto* trim = knobFor ("osc2_level", "TRIM");
+        const auto levelText = level != nullptr ? level->getSlider().getTextFromValue (level->getSlider().getValue()) : juce::String();
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (editor, waves);
+        auto compactWaves = 0;
+        for (auto* wave : waves)
+            compactWaves += visibleInTree (wave) && wave->isCompact() ? 1 : 0;
+        expect (level != nullptr && levelText.endsWith ("dB") && trim != nullptr && knobFor ("osc2_frame") == nullptr
+                    && centreX (knobFor ("osc2_ratio")) < centreX (level) && centreX (level) < centreX (trim)
+                    && centreX (trim) < centreX (knobFor ("osc2_fine")) && compactWaves == 0,
+                "PLAY: an operator strip is RATIO, LEVEL (" + levelText + "), TRIM, FINE, its Operator Env pictured, no FRAME");
+    }
+
+    // OSC: the operator's card is its Operator Env (the FM graph), LEVEL,
+    // pitch with TRIM and one WAVE row, no warp, spectral or unison spread;
+    // the one-frame sine shows as WAVE (I7-20, V7-16, V7-31, S7-12).
+    editor.showPage ("OSC");
+    settle (300);
+    selectOscTab (0);
+    {
+        std::vector<OperatorEnvDisplay*> graphs;
+        findAll<OperatorEnvDisplay> (editor, graphs);
+        auto graph = false;
+        for (auto* g : graphs)
+            graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
+        auto* wave = oscWave (0);
+        expect (graph && knobFor ("osc1_eg_out", "LEVEL") != nullptr && knobFor ("osc1_level", "TRIM") != nullptr
+                    && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
+                    && knobFor ("osc1_frame") == nullptr && buttonNamed ("EDIT OP ENV") != nullptr,
+                "OSC: an operator's card shows its Operator Env graph, LEVEL and TRIM, no wavetable warp or unison spread");
+        expect (wave != nullptr && wave->getViewMode() == 0 && wave->getFrameReadout().isEmpty(),
+                "OSC: a one-frame sine opens as WAVE, with no frame readout");
+
+        // EDIT OP ENV whatever the mode (I7-20).
+        setParam ("osc1_mode", 1.0f);
+        settle (400);
+        expect (buttonNamed ("EDIT OP ENV") != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
+        setParam ("osc1_mode", 0.0f);
+        settle (300);
+    }
+
+    // OSC rows packed from the top (S7-25): Init's three rows sit within
+    // about 3 x 110 px.
+    loadNamed ("Init");
+    editor.showPage ("OSC");
+    settle (400);
+    {
+        auto* frame = knobFor ("osc1_frame");
+        auto* unison = knobFor ("osc1_unison");
+        const auto spread = frame != nullptr && unison != nullptr
+                                ? editor.getLocalArea (unison, unison->getLocalBounds()).getY() - editor.getLocalArea (frame, frame->getLocalBounds()).getY()
+                                : 999;
+        expect (spread <= 2 * 112, "OSC: the card's rows are packed (SHAPE to UNISON " + juce::String (spread) + " px)");
+        expect (buttonNamed ("RESAMPLE") != nullptr && buttonNamed ("BOUNCE") == nullptr, "OSC: the resampler's button is RESAMPLE (I7-25)");
+
+        // Sample mode: a LOAD button, and an SF2 / SFZ's zones under the
+        // wave (I7-24).
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-q4-sfz");
+        folder.createDirectory();
+        {
+            juce::AudioBuffer<float> tone (1, 4410);
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (0, i, 0.5f * std::sin ((float) i * 0.06f));
+            juce::WavAudioFormat wav;
+            auto file = folder.getChildFile ("tone.wav");
+            file.deleteFile();
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 44100.0, 1, 16, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+                }
+            folder.getChildFile ("test.sfz").replaceWithText ("<region> sample=tone.wav lokey=36 hikey=59 pitch_keycenter=48\n"
+                                                              "<region> sample=tone.wav lokey=60 hikey=84 pitch_keycenter=72\n");
+        }
+        setParam ("osc1_mode", 2.0f);
+        settle (300);
+        const auto loaded = processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+        settle (400);
+        auto* wave = oscWave (0);
+        expect (buttonNamed ("LOAD") != nullptr, "OSC: Sample mode has a LOAD button");
+        expect (loaded && wave != nullptr && wave->getZoneCount() == 2, "OSC: an SFZ's two zones show under the sample ("
+                                                                            + juce::String (wave != nullptr ? wave->getZoneCount() : -1) + ")");
+        folder.deleteRecursively();
+
+        // The exciters: one name table, in groups; a hammer has no pick
+        // controls (I7-27).
+        setParam ("osc1_mode", 1.0f);
+        setParam ("osc1_excite", 5.0f);
+        settle (400);
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        juce::String hammerName;
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
+                hammerName = combo->getComboBox().getText();
+        expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
+                    && knobFor ("osc1_couple", "STRING COUPLING") != nullptr,
+                "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
+        setParam ("osc1_excite", 0.0f);
+        settle (300);
+        expect (knobFor ("osc1_string_pick_hardness") != nullptr, "OSC: a plucked burst has HARDNESS");
+        setParam ("osc1_mode", 0.0f);
+        settle (300);
+    }
+
+    // BODY by one name: the comb filter type is COMB BODY (I7-26).
+    expect (FilterTypeGrid::shortNames()[FilterType::CombBody] == "COMB BODY", "the comb body filter's short name is COMB BODY");
+
+    // VECTOR: off, every control dims and says why; on, VEC X / Y are in
+    // the chip bar (V7-21, I7-22).
+    loadNamed ("Init");
+    editor.showPage ("VECTOR");
+    settle (300);
+    {
+        setParam ("vec_on", 0.0f);
+        settle (300);
+        // The corners named as the pad names them, and showing it.
+        juce::StringArray corners;
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getComboBox().getNumItems() > 0 && combo->getComboBox().getItemText (0) == "OSC 1")
+                corners.add (combo->getComboBox().getText());
+        corners.sort (false);
+        const auto cornerTexts = corners.joinIntoString ("|");
+        auto* x = knobFor ("vec_x");
+        const auto dim = x != nullptr && x->getAlpha() < 0.9f && x->getSlider().getTooltip().contains ("VECTOR is off");
+        setParam ("vec_on", 1.0f);
+        settle (300);
+        const auto lit = x != nullptr && x->getAlpha() > 0.99f;
+        editor.showPage ("MAIN");
+        settle (300);
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (editor, chips);
+        auto barChips = 0;
+        for (auto* chip : chips)
+            barChips += visibleInTree (chip) && (chip->getSourceIndex() == (int) Mod::Source::VectorX
+                                                 || chip->getSourceIndex() == (int) Mod::Source::VectorY) ? 1 : 0;
+        setParam ("vec_on", 0.0f);
+        settle (300);
+        auto offChips = 0;
+        for (auto* chip : chips)
+            offChips += visibleInTree (chip) && chip->getSourceIndex() == (int) Mod::Source::VectorX ? 1 : 0;
+        expect (dim && lit, "VECTOR: off, X dims and says VECTOR is off; on, it lights");
+        expect (cornerTexts == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
+        expect (barChips == 2 && offChips == 0, "VEC X / VEC Y are in the chip bar while VECTOR is on (" + juce::String (barChips) + ")");
+    }
+
+    // PHYSICAL: the string across the page, the controls in a band under
+    // it, the piano's EXCITER on STRING's line (V7-33, V7-32, V7-29).
+    loadNamed ("Felt Hammer Board");
+    editor.showPage ("PHYSICAL");
+    settle (400);
+    {
+        auto* page = editor.getCurrentPage();
+        auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
+        auto* decay = knobFor ("osc1_string_decay");
+        auto* hammer = knobFor ("osc1_hammer_hard");
+        const auto sameLine = decay != nullptr && hammer != nullptr
+                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
+        expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine && buttonNamed ("FILTER") != nullptr,
+                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, BODY links to FILTER");
+        // The renamed exciter menu still shows its choice.
+        juce::String exciteText;
+        std::vector<ComboControl*> combos;
+        if (page != nullptr)
+            findAll<ComboControl> (*page, combos);
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
+                exciteText = combo->getComboBox().getText();
+        expect (exciteText == "Piano Hammer", "PHYSICAL: EXCITE reads Piano Hammer ('" + exciteText + "')");
+    }
+}
+
 void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
 {
     // The tour's "new in" list: the header's version, real pages, current
@@ -2695,8 +2973,8 @@ int runUiTests()
         findAll<juce::TextButton> (*editor, buttons);
         auto bounces = 0;
         for (auto* button : buttons)
-            bounces += button->getButtonText() == "BOUNCE" && visibleInTree (button) ? 1 : 0;
-        expect (bounces >= 1, "the switched-on oscillator cards have BOUNCE buttons (" + juce::String (bounces) + ")");
+            bounces += button->getButtonText() == "RESAMPLE" && visibleInTree (button) ? 1 : 0;
+        expect (bounces >= 1, "the switched-on oscillator cards have RESAMPLE buttons (" + juce::String (bounces) + ")");
 
         IlanaSynthAudioProcessor::BounceRequest request;
         request.targetOsc = 1;
@@ -5192,6 +5470,9 @@ int runUiTests()
 
     // Batch H (UI review 4: V19, V27, V28, S17, S20, S23, S25).
     runSmallThingsTests (processor, *pages);
+
+    // UI review 7, Q4: PLAY, OSC, PHYSICAL, VECTOR.
+    runPlayOscReview7Tests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();

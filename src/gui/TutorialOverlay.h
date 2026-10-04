@@ -39,7 +39,7 @@ public:
             { "CHAOS LFO SHAPES", "ENV/LFO", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
             { "WEST COAST", "FILTER", "A wavefolder and low-pass gate after (or in place of) the filters." },
             { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad, or let EVOLVE move them." },
-            { "BOUNCE", "OSC", "Resample the whole patch into an oscillator." },
+            { "RESAMPLE", "OSC", "Resample the whole patch into an oscillator." },
             { "WAVETABLE EDITOR", "OSC", "Draw and edit wavetables from an oscillator's table." }
         };
         return list;

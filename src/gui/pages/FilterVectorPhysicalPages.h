@@ -294,6 +294,27 @@ public:
         addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
 
+        // The corners name the oscillators as the pad does ("OSC 1").
+        for (auto* corner : { &cornerA, &cornerB, &cornerC, &cornerD })
+        {
+            auto& box = corner->getComboBox();
+            // (Read first: it only matches while the shown text is the item's.)
+            const auto selectedId = box.getSelectedId();
+            for (int item = 0; item < box.getNumItems(); ++item)
+                box.changeItemText (box.getItemId (item), box.getItemText (item).toUpperCase());
+            box.setSelectedId (0, juce::dontSendNotification);
+            box.setSelectedId (selectedId, juce::dontSendNotification);
+        }
+
+        // Off, the whole block dims and says why, as every card's controls
+        // do (one rule, EffectRules: UI review 7, V7-21).
+        for (juce::Component* control : { (juce::Component*) &path, (juce::Component*) &cornerA, (juce::Component*) &cornerB,
+                                          (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
+                                          (juce::Component*) &y, (juce::Component*) &drift, (juce::Component*) &driftRate })
+            effectRules.add (*control, effectRules.isOn ("vec_on"), "VECTOR is off");
+        effectRules.add (rate, [this] { return readParam ("vec_on") > 0.5f && readParam ("vec_path") > 0.5f; },
+                         "VECTOR or its PATH is off");
+
         // Vector X / Y as sources, to drag onto any knob, while the vector
         // plays (UI review 6, S36).
         chipX.valueProvider = [this] { return processorRef.getVectorPosition().x; };
@@ -339,7 +360,8 @@ public:
 
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
         IlanaTheme::paintCardHeader (g, header, "VECTOR",
-                                     chipX.isVisible() ? "four oscillators at the corners; drag" : "four oscillators at the corners",
+                                     chipX.isVisible() ? "four oscillators at the corners; drag X or Y onto a knob"
+                                                       : "four oscillators at the corners",
                                      colour(), vectorCard.getRight() - chipX.getX() + 6);
 
         header = evolveCard.reduced (12, 0).removeFromTop (28);
@@ -384,8 +406,10 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12);
-        // The pad gets most of the page: EVOLVE's rows need little width.
-        vectorCard = area.removeFromLeft (area.getWidth() * 70 / 100);
+        // The pad gets most of the page, square at the card's full height
+        // (no band above it: V7-21); EVOLVE's rows take the width left.
+        const auto padSide = area.getHeight() - 30 - 12;
+        vectorCard = area.removeFromLeft (juce::jlimit (area.getWidth() * 55 / 100, area.getWidth() * 72 / 100, padSide + 250 + 12 + 24));
         area.removeFromLeft (10);
         evolveCard = area;
 
@@ -516,16 +540,9 @@ private:
     void timerCallback() override
     {
         const auto active = readParam ("vec_on") > 0.5f;
-        for (juce::Component* c : { (juce::Component*) &path, (juce::Component*) &cornerA, (juce::Component*) &cornerB,
-                                     (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
-                                     (juce::Component*) &y, (juce::Component*) &rate, (juce::Component*) &drift,
-                                     (juce::Component*) &driftRate, (juce::Component*) &pad })
-        {
-            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
-            if (c->getAlpha() != alpha)
-                c->setAlpha (alpha);
-        }
-        rate.setAlpha (active && readParam ("vec_path") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
+        if (const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha; pad.getAlpha() != alpha)
+            pad.setAlpha (alpha);
+        effectRules.apply();
 
         if (chipX.isVisible() != active)
         {
@@ -540,6 +557,7 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    EffectRules effectRules { processorRef };
     VectorPadDisplay pad;
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
@@ -554,11 +572,12 @@ private:
 };
 
 // M8.7: the PHYSICAL page. The big view of one physical oscillator (the
-// first in Physical mode unless another is picked): its string moving, an
-// electric piano's pickup, and every string control, built from the same
-// list as its OSC card (UI review 6, S13, I6-18). The body and the
-// soundboard are edited in one place each (FILTER, OSC > ACOUSTIC KEYS):
-// here they are a summary with links (S14, I6-17).
+// first in Physical mode unless another is picked): its string moving
+// across the page, an electric piano's pickup, and under it its string and
+// exciter controls in a compact band, built from the same list as its OSC
+// card (UI review 6, S13, I6-18; review 7, V7-33, V7-29, V7-32). The body
+// and the soundboard are edited in one place each (FILTER, OSC > ACOUSTIC
+// KEYS): here they are one summary line with links (S14, I6-17).
 class PhysicalPage : public juce::Component,
                      private juce::Timer
 {
@@ -640,11 +659,8 @@ public:
         }
 
         IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-        IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
+        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
         title (viewCard, "PHYSICAL", "OSC " + juce::String (chosen + 1) + "'s string, moving as you play", colour());
-        title (stringCard, "OSC " + juce::String (chosen + 1), "the controls of its OSC card", colour());
-        title (bodyCard, "BODY", "", colour());
 
         for (const auto& [area, name] : rowLabels)
         {
@@ -653,17 +669,21 @@ public:
             g.drawText (name, area, juce::Justification::centredLeft);
         }
 
-        // The body and the soundboard: what they are set to, and where.
+        // The body and the soundboard: what they are set to, and where, on
+        // one line under the controls.
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (bodyLine.getX(), bodyLine.getY() - 1, stringCard.getRight() - 12 - bodyLine.getX(), 1);
         const auto summary = [&] (juce::Rectangle<int> line, const juce::String& name, bool isOn, const juce::String& choice)
         {
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (name, line.removeFromLeft (130), juce::Justification::centredLeft);
+            g.drawText (name, line.removeFromLeft (juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), name) + 10),
+                        juce::Justification::centredLeft);
             g.setColour (isOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             g.drawText (isOn ? "on, " + choice : juce::String ("off"), line, juce::Justification::centredLeft, true);
         };
-        summary (bodyLine.withRight (bodyLink.getX() - 6), "RESONATOR BODY", readParam ("res_on") > 0.5f, choiceName ("body_type"));
+        summary (bodyLine.withRight (bodyLink.getX() - 6), "BODY", readParam ("res_on") > 0.5f, choiceName ("body_type"));
         summary (boardLine.withRight (boardLink.getX() - 6), "SOUNDBOARD", readParam ("sb_on") > 0.5f, choiceName ("sb_model"));
     }
 
@@ -700,11 +720,68 @@ public:
         }
 
         emptyCard = {};
-        viewCard = area.removeFromLeft (area.getWidth() * 50 / 100);
-        area.removeFromLeft (10);
-        bodyCard = area.removeFromBottom (96);
+
+        // The controls in a band under the view: STRING, then EXCITER on
+        // the same line when it fits, each group named over its first
+        // control; the body line at the foot.
+        const auto columns = juce::jlimit (8, 14, (area.getWidth() - 24) / 88);
+        std::vector<std::vector<std::pair<juce::String, std::vector<juce::Component*>>>> lines;
+        auto used = columns;
+        for (const auto& row : layoutRows)
+        {
+            for (size_t first = 0; first < row.second.size(); first += (size_t) columns)
+            {
+                const auto count = juce::jmin ((int) row.second.size() - (int) first, columns);
+                if (used + (used > 0 ? 1 : 0) + count > columns)
+                {
+                    lines.emplace_back();
+                    used = 0;
+                }
+                used += (used > 0 ? 1 : 0) + count;
+                lines.back().push_back ({ first == 0 ? row.first : juce::String(),
+                                          { row.second.begin() + (long) first, row.second.begin() + (long) first + count } });
+            }
+        }
+        const auto lineHeight = 18 + 84;
+        stringCard = area.removeFromBottom (12 + (int) lines.size() * lineHeight + 8 + bodyLineHeight + 8);
         area.removeFromBottom (10);
-        stringCard = area;
+        viewCard = area;
+
+        {
+            auto band = stringCard.reduced (12, 0);
+            band.removeFromTop (12);
+            const auto cell = band.getWidth() / columns;
+
+            for (const auto& line : lines)
+            {
+                auto strip = band.removeFromTop (lineHeight);
+                auto labels = strip.removeFromTop (18);
+
+                for (size_t group = 0; group < line.size(); ++group)
+                {
+                    if (group > 0)
+                    {
+                        strip.removeFromLeft (cell);
+                        labels.removeFromLeft (cell);
+                    }
+                    const auto& [name, items] = line[group];
+                    rowLabels.push_back ({ labels.withWidth (cell * (int) items.size()).reduced (4, 0), name });
+                    labels.removeFromLeft (cell * (int) items.size());
+
+                    for (auto* item : items)
+                        item->setBounds (strip.removeFromLeft (cell).reduced (2, 2));
+                }
+            }
+
+            band.removeFromTop (8);
+            auto body = band.removeFromTop (bodyLineHeight);
+            bodyLine = body.removeFromLeft (body.getWidth() / 2);
+            boardLine = body.withTrimmedLeft (16);
+            bodyLink.setBounds (bodyLine.removeFromRight (100).withSizeKeepingCentre (100, 22));
+            boardLink.setBounds (boardLine.removeFromRight (130).withSizeKeepingCentre (130, 22));
+            bodyLine = bodyLine.withRight (bodyLink.getRight());
+            boardLine = boardLine.withRight (boardLink.getRight());
+        }
 
         auto inner = viewCard.reduced (10, 0);
         inner.removeFromTop (30);
@@ -723,37 +800,6 @@ public:
         }
 
         view.setBounds (inner);
-
-        // The rows, each named above its controls, on a grid of five.
-        auto controls = stringCard.reduced (10, 0);
-        controls.removeFromTop (30);
-        controls.removeFromBottom (8);
-        auto lines = 0;
-        for (const auto& row : layoutRows)
-            lines += ((int) row.second.size() + columns - 1) / columns;
-        const auto lineHeight = juce::jlimit (60, 96, (controls.getHeight() - (int) layoutRows.size() * 20) / juce::jmax (1, lines));
-
-        for (const auto& [name, items] : layoutRows)
-        {
-            rowLabels.push_back ({ controls.removeFromTop (20).reduced (4, 0), name });
-
-            for (size_t first = 0; first < items.size(); first += (size_t) columns)
-            {
-                auto line = controls.removeFromTop (lineHeight);
-                const auto cell = line.getWidth() / columns;
-
-                for (size_t k = first; k < juce::jmin (items.size(), first + (size_t) columns); ++k)
-                    items[k]->setBounds (line.removeFromLeft (cell).reduced (2, 2));
-            }
-        }
-
-        auto body = bodyCard.reduced (12, 0).withTrimmedTop (30).withTrimmedBottom (8);
-        bodyLine = body.removeFromTop (body.getHeight() / 2);
-        boardLine = body;
-        bodyLink.setBounds (bodyLine.removeFromRight (120).withSizeKeepingCentre (120, 22));
-        boardLink.setBounds (boardLine.removeFromRight (120).withSizeKeepingCentre (120, 22));
-        bodyLine = bodyLine.withRight (bodyLink.getRight());
-        boardLine = boardLine.withRight (boardLink.getRight());
     }
 
     int getChosenOscillator() const { return chosen; }
@@ -763,7 +809,7 @@ public:
     juce::StringArray getControlIds() const { return controlIds; }
 
 private:
-    static constexpr int columns = 5;
+    static constexpr int bodyLineHeight = 28;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 
@@ -832,6 +878,7 @@ private:
         if (excite == nullptr || excitePrefix != id) // not while its own menu may be calling back
         {
             excite = std::make_unique<ComboControl> (processorRef.apvts, id + "_excite", "EXCITE");
+            groupExciteMenu (*excite);
             addAndMakeVisible (*excite);
             excitePrefix = id;
         }
@@ -938,7 +985,7 @@ private:
             body != shownBody)
         {
             shownBody = body;
-            repaint (bodyCard);
+            repaint (stringCard);
         }
     }
 
@@ -956,6 +1003,6 @@ private:
     int chosen = 0, shownExcite = -1;
     float shownBody = -1.0f;
     bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyCard, bodyLine, boardLine;
+    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyLine, boardLine;
 };
 } // namespace

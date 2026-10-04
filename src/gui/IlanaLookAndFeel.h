@@ -238,6 +238,44 @@ inline void paintTag (juce::Graphics& g, juce::Point<float> centre, juce::Colour
     g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre));
 }
 
+// Whether a tab's switchable part is on (review 7, I7-37: one indicator on
+// every tab that names a switch, CardTabs and the FM operator pills): a lit
+// dot with a halo while on, a quiet ring while off.
+inline void paintOnDot (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, bool on)
+{
+    const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre);
+
+    if (on)
+    {
+        g.setColour (colour.withAlpha (0.3f));
+        g.fillEllipse (dot.expanded (2.5f));
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
+        g.fillEllipse (dot);
+    }
+    else
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.28f));
+        g.drawEllipse (dot.reduced (0.5f), 1.0f);
+    }
+}
+
+// A header caption (a card's or a section's subtitle) as the one grammar
+// headers use: a lower-case fragment without a full stop (review 7, I7-35;
+// hints under a control are sentences). See docs/UI-CONVENTIONS.md.
+inline juce::String captionFragment (const juce::String& text)
+{
+    auto fragment = text.trim();
+
+    if (fragment.endsWithChar ('.') && ! fragment.endsWith (".."))
+        fragment = fragment.dropLastCharacters (1);
+
+    if (fragment.length() > 1 && juce::CharacterFunctions::isUpperCase (fragment[0])
+        && juce::CharacterFunctions::isLowerCase (fragment[1]))
+        fragment = fragment.substring (0, 1).toLowerCase() + fragment.substring (1);
+
+    return fragment;
+}
+
 // Where a card title's subtitle can start: past the tag and the name.
 inline int cardTitleWidth (const juce::String& text)
 {
@@ -281,7 +319,7 @@ inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, con
     auto area = header.withTrimmedLeft (cardTitleWidth (title)).withTrimmedRight (rightReserve); // 16 px after the title
     g.setColour (Ui::text3);
     g.setFont (font (TextSize::label));
-    g.drawText (fittedHint (subtitle, juce::Font (font (TextSize::label)), (float) area.getWidth()), area,
+    g.drawText (fittedHint (captionFragment (subtitle), juce::Font (font (TextSize::label)), (float) area.getWidth()), area,
                 juce::Justification::centredLeft, false);
 }
 

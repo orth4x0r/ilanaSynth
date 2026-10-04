@@ -84,12 +84,8 @@ public:
             g.drawRoundedRectangle (tab.reduced (0.5f), radius, 1.0f);
 
             auto area = tab.reduced (12.0f, 0.0f);
-            const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ area.getX() + 3.5f, area.getCentreY() });
-            g.setColour (item.lit ? item.colour : item.colour.withAlpha (0.35f));
-            if (item.lit)
-                g.fillEllipse (dot);
-            else
-                g.drawEllipse (dot.reduced (0.5f), 1.2f);
+            // The same on indicator as every switchable tab (review 7).
+            IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
             area.removeFromLeft (13.0f);
 
             g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));

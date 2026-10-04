@@ -643,7 +643,7 @@ public:
         IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
         IlanaTheme::paintCard (g, bodyCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
         title (viewCard, "PHYSICAL", "OSC " + juce::String (chosen + 1) + "'s string, moving as you play", colour());
-        title (stringCard, "OSC " + juce::String (chosen + 1), "the controls of its OSC card", colour());
+        title (stringCard, "OSC " + juce::String (chosen + 1), "same controls as its OSC card", colour());
         title (bodyCard, "BODY", "", colour());
 
         for (const auto& [area, name] : rowLabels)

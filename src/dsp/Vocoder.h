@@ -111,6 +111,9 @@ public:
         }
     }
 
+    // A band's envelope follower (the modulator's level in it), for display.
+    float getBandLevel (int band) const { return juce::isPositiveAndBelow (band, activeBands) ? bands[(size_t) band].envelope : 0.0f; }
+
 private:
     struct Band
     {

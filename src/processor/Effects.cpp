@@ -1222,6 +1222,10 @@ void IlanaSynthAudioProcessor::processVocoder (juce::AudioBuffer<float>& buffer)
     auto* left = buffer.getWritePointer (0);
     auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
     vocoder.process (left, right, numSamples, modulator, settings);
+
+    // For the card's band display (read only; the sound doesn't change).
+    for (size_t band = 0; band < vocoderBandDisplay.size(); ++band)
+        vocoderBandDisplay[band].store (vocoder.getBandLevel ((int) band), std::memory_order_relaxed);
 }
 
 // Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.

@@ -44,6 +44,7 @@
 #include "gui/PoolIndexRow.h"
 #include "gui/RemapEditor.h"
 #include "gui/FxDisplays.h"
+#include "gui/FxLibrary.h"
 
 namespace
 {
@@ -967,27 +968,71 @@ int runUiTests()
                 delay = button;
         }
 
-        expect (reverb != nullptr, "the empty rack shows quick-add buttons");
+        expect (reverb != nullptr && delay != nullptr, "the empty rack shows the effect library");
 
         if (reverb != nullptr)
         {
             reverb->triggerClick();
             settle (400);
             const auto* slot1 = processor.apvts.getRawParameterValue ("fx_slot1");
-            expect (slot1 != nullptr && (int) slot1->load() == 13, "quick-add REVERB puts a reverb in slot 1");
-            // With an effect loaded the picks move under the rack's rows.
-            const auto* page = pages->getCurrentPage();
-            expect (reverb->isVisible() && page != nullptr && reverb->getX() < 330 && reverb->getY() > 100,
-                    "quick-add buttons move under the rack once it has an effect");
-            // The rack takes each effect once: REVERB greys out, DELAY goes into slot 2.
-            expect (! reverb->isEnabled() && delay != nullptr && delay->isEnabled(),
-                    "a type already in the rack is greyed out in the library");
-            if (delay != nullptr)
-                delay->triggerClick();
-            settle (400);
-            const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
-            expect (slot2 != nullptr && (int) slot2->load() == 9, "a second quick-add goes into slot 2");
+            expect (slot1 != nullptr && (int) slot1->load() == 13, "the library's REVERB puts a reverb in slot 1");
+            // One view of the chain (S5-18, S6-25): with an effect loaded the
+            // library leaves the page; + ADD EFFECT opens it in a call-out.
+            std::vector<FxLibraryButton*> libraryButtons;
+            findAll<FxLibraryButton> (*editor, libraryButtons);
+            expect (std::none_of (libraryButtons.begin(), libraryButtons.end(), [] (FxLibraryButton* b) { return visibleInTree (b); }),
+                    "no library or chain list beside the cards once the rack has an effect");
+
+            juce::TextButton* addEffect = nullptr;
+            textButtons.clear();
+            findAll<juce::TextButton> (*editor, textButtons);
+            for (auto* button : textButtons)
+                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
+                    addEffect = button;
+            expect (addEffect != nullptr, "the FX toolbar has + ADD EFFECT");
+
+            if (addEffect != nullptr)
+            {
+                addEffect->triggerClick();
+                // (Briefly: a call-out closes itself within 200 ms while the
+                // process isn't in front, as under xvfb.)
+                settle (80);
+                FxLibraryView* callout = nullptr;
+                std::vector<FxLibraryView*> views;
+                findAll<FxLibraryView> (*editor, views);
+                for (auto* view : views)
+                    if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                        callout = view;
+                expect (callout != nullptr, "+ ADD EFFECT opens the library in a call-out");
+
+                if (callout != nullptr)
+                {
+                    auto* inRack = callout->findButton (13);
+                    expect (inRack != nullptr && inRack->isEnabled() && inRack->getInRackSlot() == 0
+                                && inRack->getTooltip().contains ("slot 1"),
+                            "a type already in the rack has an in-rack dot and says where, not greyed out (V6-25)");
+                    auto* spaces = callout->findButton (34);
+                    expect (spaces != nullptr && spaces->getButtonText() == "SPACES" && spaces->getTooltip().contains ("Airwindows"),
+                            "Airwindows effects are named by their job with an Airwindows note (S6-27)");
+                    if (auto* addDelay = callout->findButton (9))
+                        addDelay->triggerClick();
+                    settle (400);
+                    const auto* slot2 = processor.apvts.getRawParameterValue ("fx_slot2");
+                    expect (slot2 != nullptr && (int) slot2->load() == 9, "a pick from the call-out goes into the next empty slot");
+                    views.clear();
+                    findAll<FxLibraryView> (*editor, views);
+                    expect (std::none_of (views.begin(), views.end(), [] (FxLibraryView* v) { return v->getName() == "FX LIBRARY" && visibleInTree (v); }),
+                            "the call-out closes after a pick");
+                }
+            }
         }
+
+        // The names: by job, the catch-all "Airwindows (all)", no "AW" prefix.
+        auto awPrefix = false;
+        for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
+            awPrefix = awPrefix || fxTypeName (type).startsWith ("AW ") || fxTypeName (type) == "-";
+        expect (! awPrefix && fxTypeName (30) == "Airwindows (all)" && fxTypeName (35) == "Echoes",
+                "every effect has a library name, none starts with AW, the catch-all is \"Airwindows (all)\"");
     }
 
     // FX cards (UI review 4, batch D): sized to their controls, a display
@@ -1079,8 +1124,8 @@ int runUiTests()
         pages->showPage ("FX");
         loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
         checkCards ("3 effects", true);
-        expect (shownDisplays() == 2, "Drive and OTT cards show a display, Vowel none");
-        expect (findButtons ("S").size() == 3, "each card header has a solo button");
+        expect (shownDisplays() == 3, "Vowel, Drive and OTT cards each show a display");
+        expect (findButtons ("SOLO").size() == 3, "each card header has a SOLO button");
         loadFx ({ 27, 2, 20, 13 });
         checkCards ("4 effects", false);
         loadFx ({ 9, 4, 13, 21 });
@@ -1108,25 +1153,26 @@ int runUiTests()
         taps->setValueNotifyingHost (0.0f);
 
         // Solo is a visible button in the card header.
-        if (auto soloButtons = findButtons ("S"); ! soloButtons.empty())
+        if (auto soloButtons = findButtons ("SOLO"); ! soloButtons.empty())
         {
             soloButtons.front()->triggerClick();
             settle (200);
-            expect (processor.apvts.getRawParameterValue ("fx_slot1_solo")->load() > 0.5f, "the header's S button solos its slot");
+            expect (processor.apvts.getRawParameterValue ("fx_slot1_solo")->load() > 0.5f, "the header's SOLO button solos its slot");
             soloButtons.front()->triggerClick();
             settle (200);
         }
 
-        // The slot blend sits in the selected card, not beside CHAIN.
+        // SLOT BLEND on every card (S6-25), in the stack.
         {
             std::vector<juce::Slider*> sliders;
             findAll<juce::Slider> (*editor, sliders);
             auto* viewport = stackViewport();
-            auto inCard = false;
+            auto inCards = 0;
             for (auto* slider : sliders)
-                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider))
-                    inCard = viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent();
-            expect (inCard, "SLOT BLEND is in the selected card's header");
+                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider)
+                    && viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent())
+                    ++inCards;
+            expect (inCards == 4, "every card's header has its SLOT BLEND (" + juce::String (inCards) + " of 4)");
         }
 
         // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
@@ -1171,6 +1217,97 @@ int runUiTests()
         }
         else
             expect (false, "the FX toolbar has a DICE FX button");
+
+        // UI review 6: small cards two to a row (S6-26), a split group with
+        // its crossovers inline (S5-18, I6-27), a duplicate that says what it
+        // is with REMOVE, the new displays, reorder by dragging a header.
+        {
+            const auto setParam = [&processor] (const juce::String& id, float plain)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+            };
+            const auto readParam = [&processor] (const juce::String& id)
+            {
+                const auto* value = processor.apvts.getRawParameterValue (id);
+                return value != nullptr ? value->load() : 0.0f;
+            };
+            const auto typeButtons = [&]
+            {
+                std::vector<FxTypeButton*> found, shown;
+                findAll<FxTypeButton> (*editor, found);
+                for (auto* button : found)
+                    if (visibleInTree (button))
+                        shown.push_back (button);
+                std::sort (shown.begin(), shown.end(), [] (FxTypeButton* a, FxTypeButton* b)
+                           { return a->getY() != b->getY() ? a->getY() < b->getY() : a->getX() < b->getX(); });
+                return shown;
+            };
+
+            loadFx ({ 27, 2, 20 });
+            auto titles = typeButtons();
+            auto* viewport = stackViewport();
+            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getY() == titles[1]->getY()
+                        && titles[1]->getX() > viewport->getWidth() / 3,
+                    "Vowel and Drive sit side by side as half-width cards");
+
+            loadFx ({ 7, 2, 13, 20 });
+            setParam ("fx_slot2_band", 1.0f);
+            setParam ("fx_slot3_band", 3.0f);
+            settle (300);
+            std::vector<CrossoverStrip*> strips;
+            findAll<CrossoverStrip> (*editor, strips);
+            const auto shownStrips = std::count_if (strips.begin(), strips.end(), [] (CrossoverStrip* s) { return visibleInTree (s); });
+            expect (shownStrips == 1, "two banded slots in a row form one split group with its crossovers (" + juce::String ((int) shownStrips) + ")");
+            checkCards ("a split group", false);
+            setParam ("fx_slot2_band", 0.0f);
+            setParam ("fx_slot3_band", 0.0f);
+
+            loadFx ({ 20, 2, 20 });
+            auto removes = findButtons ("REMOVE");
+            expect (removes.size() == 1, "a duplicate card offers REMOVE");
+            if (! removes.empty())
+            {
+                processor.getUndoManager().beginNewTransaction();
+                removes.front()->triggerClick();
+                settle (300);
+                expect ((int) readParam ("fx_slot3") == 0 && (int) readParam ("fx_slot1") == 20
+                            && processor.getUndoManager().getUndoDescription() == "Remove OTT",
+                        "REMOVE takes the duplicate out as one undo step (" + processor.getUndoManager().getUndoDescription() + ")");
+            }
+
+            loadFx ({ 27, 5, 7, 6 });
+            expect (shownDisplays() == 4, "vowel, comb, chorus and phaser each show a display");
+            loadFx ({ 31, 35, 34 });
+            expect (shownDisplays() == 3, "the vocoder and the Airwindows echoes and spaces show displays");
+
+            // Drag Vowel's header onto OTT's card: Drive, OTT, Vowel.
+            loadFx ({ 27, 2, 20 });
+            titles = typeButtons();
+            auto* content = viewport != nullptr ? viewport->getViewedComponent() : nullptr;
+            if (titles.size() == 3 && content != nullptr)
+            {
+                auto source = juce::Desktop::getInstance().getMainMouseSource();
+                const auto now = juce::Time::getCurrentTime();
+                const auto from = juce::Point<float> ((float) titles[0]->getRight() + 12.0f, (float) titles[0]->getBounds().getCentreY());
+                const auto to = juce::Point<float> ((float) titles[2]->getRight() + 40.0f, (float) titles[2]->getBounds().getCentreY() + 40.0f);
+                const auto make = [&] (juce::Point<float> at, bool dragged)
+                {
+                    return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             content, content, now, from, now, 1, dragged);
+                };
+                processor.getUndoManager().beginNewTransaction();
+                content->mouseDown (make (from, false));
+                content->mouseDrag (make (to, true));
+                content->mouseUp (make (to, true));
+                settle (300);
+                expect ((int) readParam ("fx_slot1") == 2 && (int) readParam ("fx_slot2") == 20 && (int) readParam ("fx_slot3") == 27
+                            && processor.getUndoManager().getUndoDescription() == "Move Vowel",
+                        "dragging a card's header reorders the chain as one undo step");
+            }
+            else
+                expect (false, "three FX cards to drag");
+        }
 
         // The live meters: OTT and the limiter report gain while audio runs.
         {
@@ -4440,6 +4577,39 @@ int main (int argc, char** argv)
                 settle (900);
                 save (*editor, outDir.getChildFile ("fx-" + juce::String (type).paddedLeft ('0', 2) + ".png"));
             }
+
+            // UI review 6: a split group (drive on the lows, reverb on the
+            // highs) and a duplicate card, then the rack as it was.
+            std::array<float, 3 * IlanaSynthAudioProcessor::numFxSlots> kept {};
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                for (int k = 0; k < 3; ++k)
+                    kept[(size_t) (slot * 3 + k)] = processor.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + (k == 0 ? "" : (k == 1 ? "_band" : "_bypass")))->getValue();
+            const auto setBand = [&] (int slot, int band)
+            {
+                auto* parameter = processor.apvts.getParameter ("fx_slot" + juce::String (slot) + "_band");
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) band));
+            };
+            const int splitRack[] { 7, 2, 13, 20, 0, 0, 0, 0, 0, 0 };
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, splitRack[slot]);
+                setBand (slot + 1, 0);
+            }
+            setBand (2, 1);
+            setBand (3, 3);
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-split.png"));
+            processor.assignFxSlot (5, 20); // a second OTT
+            settle (600);
+            if (auto* viewport = findChild<juce::Viewport> (*pages->getCurrentPage()))
+                viewport->setViewPosition (0, 10000);
+            settle (100);
+            save (*editor, outDir.getChildFile ("fx-duplicate.png"));
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                for (int k = 0; k < 3; ++k)
+                    processor.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + (k == 0 ? "" : (k == 1 ? "_band" : "_bypass")))
+                        ->setValueNotifyingHost (kept[(size_t) (slot * 3 + k)]);
+            settle (300);
         }
     }
 

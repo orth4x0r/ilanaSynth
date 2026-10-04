@@ -172,8 +172,8 @@ private:
         }
     }
 
-    // Whether the line would sit over the control (or over the part of it
-    // the mouse is on, for a big component such as a page).
+    // Whether the line would sit over the control under the mouse (a page
+    // or a big panel, which the line always overlaps, doesn't count).
     bool wouldCover (juce::Component* under) const
     {
         auto* parent = getParentComponent();

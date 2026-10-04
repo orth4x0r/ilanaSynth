@@ -49,7 +49,7 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "fx_voc_bands")
         return juce::String (juce::roundToInt (value)) + " bands";
     if (id == "fx_voc_width")
-        return "x" + describeNumber (value, 2);
+        return juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + describeNumber (value, 2);
     if (id == "fx_voc_attack" || id == "fx_voc_release")
         return describeNumber (value, 1) + " ms";
     if (id == "fx_voc_formant")
@@ -104,7 +104,7 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "f1_reso" || id == "f2_reso" || id == "arp_gate")
         return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id == "f1_drive" || id == "f2_drive")
-        return describeNumber (value, 1) + "x";
+        return juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + describeNumber (value, 1);
     if (id == "f1_env" || id == "f2_env")
         return (std::round (value * 10.0f) > 0.0f ? "+" : "") + describeFixed (value, 1) + " oct";
     if (id == "f1_keytrack" || id == "f2_keytrack" || id == "f1_fm" || id == "f2_fm")
@@ -112,7 +112,7 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     // M8.3: the WEST card.
     if (id == "west_decay")
-        return describeFixed (value, 2) + "x";
+        return juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + describeFixed (value, 2);
     if (id == "west_strike" || id == "west_open" || id == "west_fold" || id == "west_res")
         return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     if (id == "west_sym")
@@ -195,9 +195,9 @@ inline juce::String describeValue (const juce::String& id, float value)
         return juce::String (juce::roundToInt (value)) + " st";
 
     // M5 operators, M6 phase distortion, DAHDSR extras.
+    // A ratio as the FM page's diagram and headers write it (review 7, I7-33).
     if (isOscParameter (id, "_ratio"))
-        return "x" + (std::abs (std::round (value * 1000.0f) / 1000.0f) < 10.0f ? juce::String (std::round (value * 1000.0f) / 1000.0f, 3)
-                                                                                  : juce::String (std::round (value * 100.0f) / 100.0f, 2));
+        return juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + juce::String (std::round (value * 100.0f) / 100.0f, 2);
     if (isOscParameter (id, "_fixed_hz"))
         return std::round (value) >= 1000.0f ? juce::String (std::round (value / 10.0f) / 100.0f, 2) + " kHz"
                                              : (std::round (value * 100.0f) / 100.0f < 100.0f ? juce::String (std::round (value * 100.0f) / 100.0f, 2)
@@ -215,7 +215,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         for (int stage = 1; stage <= 4; ++stage)
         {
             if (isOscParameter (id, ("_eg_l" + juce::String (stage)).toRawUTF8()))
-                return dx <= 0 ? juce::String ("Off")
+                return dx <= 0 ? juce::String ("-inf dB")
                                : describeFixed ((float) (((Dx7::scaleOutLevel (dx) >> 1) - 63) * 6.0206 / 4.0), 1) + " dB";
             if (id == "opeg_pitch_l" + juce::String (stage))
             {
@@ -224,13 +224,13 @@ inline juce::String describeValue (const juce::String& id, float value)
             }
         }
         if (isOscParameter (id, "_eg_out"))
-            return dx <= 0 ? juce::String ("Off") : describeFixed ((float) ((Dx7::scaleOutLevel (dx) - 127) * 6.0206 / 8.0), 1) + " dB";
+            return dx <= 0 ? juce::String ("-inf dB") : describeFixed ((float) ((Dx7::scaleOutLevel (dx) - 127) * 6.0206 / 8.0), 1) + " dB";
         if (id == "opeg_lfo_speed")
             return describeNumber ((float) Dx7::Lfo::hz (dx), 2) + " Hz";
         if (id == "opeg_lfo_delay")
         {
             if (dx <= 0)
-                return "Off";
+                return "0 ms";
             const auto a = 99 - juce::jlimit (0, 99, dx);
             const auto first = (16 + (a & 15)) << (1 + (a >> 4));
             const auto second = juce::jmax (0x80, first & 0xff80);
@@ -239,6 +239,26 @@ inline juce::String describeValue (const juce::String& id, float value)
         }
         if (id == "opeg_lfo_pmd" || id == "opeg_lfo_amd")
             return juce::String (juce::roundToInt (dx * 100.0 / 99.0)) + "%";
+        // Review 7 (I7-12): the 0-7 and 0-3 scales in the synth's units. Key
+        // rate and velocity as a share of the most; amp mod in words; pitch
+        // sensitivity as the vibrato it gives at full PITCH DEPTH (the
+        // engine's table, about 4.6 st at 7); depths as a share of the most
+        // (the FM page shows them in dB an octave from SCALE KEY).
+        if (isOscParameter (id, "_eg_rate_key") || isOscParameter (id, "_eg_vel"))
+            return juce::String (juce::roundToInt (juce::jlimit (0, 7, dx) * 100.0 / 7.0)) + "%";
+        if (isOscParameter (id, "_eg_ams"))
+        {
+            static const char* const names[] { "Off", "Low", "Mid", "Full" };
+            return names[juce::jlimit (0, 3, dx)];
+        }
+        if (id == "opeg_lfo_pms")
+        {
+            static constexpr int table[] { 0, 10, 20, 33, 55, 92, 153, 255 };
+            const auto semitones = table[juce::jlimit (0, 7, dx)] * 99.0 * 256.0 / 16777216.0 * 12.0;
+            return dx <= 0 ? juce::String ("0 st") : juce::String (juce::CharPointer_UTF8 ("\xc2\xb1")) + describeNumber ((float) semitones, 2) + " st";
+        }
+        if (isOscParameter (id, "_eg_ldepth") || isOscParameter (id, "_eg_rdepth"))
+            return juce::String (juce::roundToInt (juce::jlimit (0, 99, dx) * 100.0 / 99.0)) + "%";
     }
     // DX7 break points: 0 is A-1, 39 is C3 (middle C).
     if (isOscParameter (id, "_eg_break"))
@@ -305,7 +325,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return describeFixed (value, 1) + " dB";
 
     if (id == "fx_drive_amount" || id == "fx_amp_drive")
-        return describeNumber (value, 1) + "x";
+        return juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + describeNumber (value, 1);
 
     if (id.endsWith ("_mix") || id.endsWith ("_amount") || id.endsWith ("_level") || id.endsWith ("_width")
         || id.endsWith ("_spread") || id.endsWith ("_sustain") || id.endsWith ("_velocity")
@@ -425,58 +445,62 @@ inline juce::String describeParameter (const juce::String& id)
         static const char* const levels[] { "PEAK", "MID", "SUSTAIN", "END" };
         const auto rate = juce::String (rates[stage - 1]), level = juce::String (levels[stage - 1]);
         if (isOscParameter (id, ("_eg_r" + juce::String (stage)).toRawUTF8()))
-            return rate + ": how fast the Operator Env moves to " + level + (stage == 4 ? ", after the key is released" : "")
-                   + ". The knob shows the time it takes on C3; the value is the DX7's R" + juce::String (stage)
-                   + " (0-99: 99 is instant, 0 never moves).";
+            return rate + ": how long the Operator Env takes to reach " + level + (stage == 4 ? ", after the key is released" : "")
+                   + ". Clockwise is longer, as on every envelope; the knob shows the time on C3. The value is the DX7's R"
+                   + juce::String (stage) + " (0-99, higher is faster: 99 is instant, 0 never moves).";
         if (isOscParameter (id, ("_eg_l" + juce::String (stage)).toRawUTF8()))
             return level + ": the Operator Env's level " + juce::String (stage)
                    + (stage == 3 ? ", held while the key is down" : stage == 4 ? ", where the release ends (and the note starts)" : "")
                    + ", in dB below its top. The value is the DX7's L" + juce::String (stage) + " (0-99).";
         if (id == "opeg_pitch_r" + juce::String (stage))
-            return rate + ": how fast the pitch envelope moves to its level " + juce::String (stage)
-                   + (stage == 4 ? ", after the key is released" : "") + ". The DX7's pitch R" + juce::String (stage) + " (0-99).";
+            return rate + ": how long the pitch envelope takes to reach " + level + (stage == 4 ? ", after the key is released" : "")
+                   + ". Clockwise is longer. The value is the DX7's pitch R" + juce::String (stage) + " (0-99, higher is faster).";
         if (id == "opeg_pitch_l" + juce::String (stage))
-            return "Pitch envelope level " + juce::String (stage) + ", in semitones from the note (the DX7's pitch L"
+            return level + ": the pitch envelope's level " + juce::String (stage) + ", in semitones from the note (the DX7's pitch L"
                    + juce::String (stage) + ", 0-99: 50 is the note, 0 and 99 about four octaves down and up). "
                    "Moves every ratio oscillator on the Operator Env.";
     }
     if (isOscParameter (id, "_eg_out"))
         return "The operator's level on the Operator Env (the DX7's OUTPUT LEVEL, 0-99): how loud a carrier is, how deep "
-               "a modulator modulates, in dB below 99. TRIM scales it on top (50% is this level).";
+               "a modulator modulates, in dB below 99. TRIM scales it on top (0 dB is this level).";
     if (isOscParameter (id, "_eg_break"))
         return "Keyboard scaling's centre key (the DX7's BREAK POINT): LOW and HIGH DEPTH change the level below and above it.";
     if (isOscParameter (id, "_eg_ldepth"))
-        return "How much the level changes below SCALE KEY, along LOW CURVE (the DX7's LEFT DEPTH, 0-99).";
+        return "How much the level changes below SCALE KEY, along LOW CURVE, shown as the change an octave below it "
+               "(the DX7's LEFT DEPTH, 0-99).";
     if (isOscParameter (id, "_eg_rdepth"))
-        return "How much the level changes above SCALE KEY, along HIGH CURVE (the DX7's RIGHT DEPTH, 0-99).";
+        return "How much the level changes above SCALE KEY, along HIGH CURVE, shown as the change an octave above it "
+               "(the DX7's RIGHT DEPTH, 0-99).";
     if (isOscParameter (id, "_eg_lcurve") || isOscParameter (id, "_eg_rcurve"))
-        return "Keyboard scaling curve away from SCALE KEY: -Linear and -Exp get quieter, +Exp and +Linear louder "
+        return "Keyboard scaling curve away from SCALE KEY: -Lin and -Exp get quieter, +Exp and +Lin louder "
                "(straight or exponential; the DX7's -LIN to +LIN).";
     if (isOscParameter (id, "_eg_rate_key"))
-        return "Key rate (the DX7's RATE SCALING, 0-7): higher notes run this operator's envelope faster.";
+        return "Key rate: higher notes run this operator's envelope faster, by up to 100% (the DX7's RATE SCALING, 0-7).";
     if (isOscParameter (id, "_eg_vel"))
-        return "Velocity sensitivity (0-7): how much softer playing lowers this operator's level.";
+        return "Velocity: how much softer playing lowers this operator's level, from 0% to 100% (the DX7's KEY VELOCITY "
+               "SENSITIVITY, 0-7).";
     if (isOscParameter (id, "_eg_ams"))
-        return "Amp modulation sensitivity (the DX7's AMS, 0-3): how much the Op LFO's AMP DEPTH moves this operator "
+        return "Amp modulation: how much the OP LFO's AMP DEPTH moves this operator, Off to Full (the DX7's AMS, 0-3) "
                "(tremolo on a carrier, wah on a modulator).";
     if (id == "opeg_lfo_speed")
-        return "Op LFO rate (the DX7's LFO SPEED, 0-99: about 0.06 to 49 Hz).";
+        return "OP LFO rate (the DX7's LFO SPEED, 0-99: about 0.06 to 49 Hz).";
     if (id == "opeg_lfo_delay")
-        return "Op LFO delay (the DX7's LFO DELAY, 0-99): the time after the key until the LFO is fully in.";
+        return "OP LFO delay (the DX7's LFO DELAY, 0-99): the time after the key until the LFO is fully in.";
     if (id == "opeg_lfo_pmd")
-        return "Op LFO pitch depth (the DX7's PMD, 0-99): vibrato on every ratio oscillator on the Operator Env, scaled "
+        return "OP LFO pitch depth (the DX7's PMD, 0-99): vibrato on every ratio oscillator on the Operator Env, scaled "
                "by PITCH SENS. The wheel and pressure add to it on DX7 voices.";
     if (id == "opeg_lfo_amd")
-        return "Op LFO amp depth (the DX7's AMD, 0-99): tremolo or wah on the operators whose AMP MOD is above 0.";
+        return "OP LFO amp depth (the DX7's AMD, 0-99): tremolo or wah on the operators whose AMP MOD is above 0.";
     if (id == "opeg_lfo_sync")
-        return "Op LFO retrigger (the DX7's KEY SYNC): each note starts the LFO from the top of its cycle.";
+        return "OP LFO retrigger (the DX7's KEY SYNC): each note starts the LFO from the top of its cycle.";
     if (id == "opeg_lfo_wave")
-        return "Op LFO shape: triangle, saw down, saw up, square, sine or sample and hold.";
+        return "OP LFO shape: triangle, saw down, saw up, square, sine or sample and hold.";
     if (id == "opeg_lfo_pms")
-        return "Pitch sensitivity (the DX7's PMS, 0-7): how far PITCH DEPTH, the wheel and pressure bend the pitch.";
+        return "Pitch sensitivity: how far PITCH DEPTH, the wheel and pressure bend the pitch, shown as the vibrato at full "
+               "depth (the DX7's PMS, 0-7).";
     if (id == OperatorEg::keyOffsetId)
         return "Shifts the key the operators' keyboard and rate scaling follow, in semitones (a DX7 voice's TRANSPOSE). "
-               "It doesn't change the pitch: transpose with the oscillators' SEMI or the global octave.";
+               "It doesn't change the pitch: transpose with TRANSPOSE beside it, or each oscillator's SEMI.";
     if (id == OperatorEg::dx7AlgorithmId)
         return "The DX7 algorithm the FM routing was set from (a DX7 voice or the grid's DX7 pages), for the FM page's label.";
     if (isOscParameter (id, "_tune"))
@@ -1085,6 +1109,10 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "fx_freeze_on" || id == "fx_freeze_mix")
         return "Spectral freeze: holds the current spectrum into a drone.";
+
+    if (id == "fx_reverb_keep_dry")
+        return "Keep the dry signal as it is and add the reverb on top (MIX 0 is the dry signal exactly), rather than "
+               "trading dry for wet as MIX rises. The DX7 voices use it, so their SPACE macro opens the reverb.";
 
     if (id == "fx_reverb_on" || id == "fx_reverb_size" || id == "fx_reverb_damping"
         || id == "fx_reverb_width" || id == "fx_reverb_mix")

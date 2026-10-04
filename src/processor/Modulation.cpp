@@ -1019,7 +1019,21 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
         if (Mod::extendedFmCellFor (Mod::paramDestinationFor (i)) >= 0)
             continue;
 
-        const auto offset = totals[Mod::paramDestinationFor (i)];
+        // The Operator Env's ATTACK and RELEASE are times on their knobs
+        // (review 7, I7-3): a positive amount lengthens the stage, so it
+        // lowers the DX7 rate the parameter stores.
+        static const auto reversed = []
+        {
+            std::vector<bool> flags;
+            for (const auto& entry : Mod::getParamDestinations())
+            {
+                const juce::String id (entry.id);
+                flags.push_back (id.endsWith ("_eg_r1") || id.endsWith ("_eg_r4"));
+            }
+            return flags;
+        }();
+        const auto offset = totals[Mod::paramDestinationFor (i)]
+                            * (juce::isPositiveAndBelow (i, (int) reversed.size()) && reversed[(size_t) i] ? -1.0f : 1.0f);
 
         if (offset != 0.0f && paramDestinations[(size_t) i].parameter != nullptr)
         {

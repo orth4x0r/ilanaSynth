@@ -4361,6 +4361,12 @@ int main (int argc, char** argv)
         processor.applyDx7Algorithm (1);
         settle (400);
         save (*editor, outDir.getChildFile ("fm-dx7-algorithm-1.png"));
+        // OSC 2's WARP FM from OSC 1, drawn dashed beside the routes.
+        for (const auto& [id, value] : { std::pair<const char*, float> { "osc2_warp", (float) Warp::Fm }, { "osc2_warp_amt", 0.5f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-warp.png"));
         return 0;
     }
 

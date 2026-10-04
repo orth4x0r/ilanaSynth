@@ -192,24 +192,32 @@ public:
                 continue;
             const auto from = centres[(size_t) source], to = centres[(size_t) target];
             const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
-            const juce::Point<float> normal (-direction.y, direction.x);
-            // Beside any matrix route between the same pair.
-            const auto offset = normal * -9.0f;
-            const juce::Line<float> line (from + direction * radius + offset, to - direction * (radius + 6.0f) + offset);
+            auto normal = juce::Point<float> (-direction.y, direction.x);
+            // A bow on the left of the pair (the captions are on the right),
+            // clear of any matrix route between them.
+            if (normal.x > 0.0f || (normal.x == 0.0f && normal.y > 0.0f))
+                normal = -normal;
+            const auto control = (from + to) * 0.5f + normal * radius * 2.2f;
+            const auto startDirection = (control - from) / juce::jmax (1.0f, from.getDistanceFrom (control));
+            const auto endDirection = (to - control) / juce::jmax (1.0f, to.getDistanceFrom (control));
+            const auto start = from + startDirection * radius, end = to - endDirection * (radius + 4.0f);
             juce::Path shaft, dashed;
-            shaft.startNewSubPath (line.getStart());
-            shaft.lineTo (line.getEnd());
+            shaft.startNewSubPath (start);
+            shaft.quadraticTo (control, end - endDirection * 6.0f);
             const float dashes[] { 5.0f, 4.0f };
             juce::PathStrokeType (1.6f).createDashedStroke (dashed, shaft, dashes, 2);
             juce::Path head;
-            head.addArrow ({ line.getEnd() - direction * 0.5f, line.getEnd() }, 0.0f, 9.0f, 9.0f);
-            g.setColour (oscColour (source).withAlpha (0.7f));
+            head.addArrow ({ end - endDirection * 7.0f, end }, 0.0f, 9.0f, 8.0f);
+            g.setColour (oscColour (source).withAlpha (0.75f));
             g.fillPath (dashed);
             g.fillPath (head);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto apex = (from + to) * 0.25f + control * 0.5f;
+            const auto labelBox = juce::Rectangle<float> (60.0f, 12.0f);
             g.drawText (warp == Warp::Fm ? "WARP FM" : "WARP RING",
-                        juce::Rectangle<float> (64.0f, 12.0f).withCentre (line.getPointAlongLineProportionally (0.5f) + normal * -9.0f),
-                        juce::Justification::centred);
+                        normal.x < -0.5f ? labelBox.withRightX (apex.x - 9.0f).withY (apex.y - 6.0f)
+                                         : labelBox.withCentre (apex + normal * 10.0f),
+                        normal.x < -0.5f ? juce::Justification::centredRight : juce::Justification::centred);
         }
 
         // The noise operator: a small node in the corner, drawn only while it

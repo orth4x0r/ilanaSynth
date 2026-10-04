@@ -14,6 +14,7 @@
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 #include "TableBrowser.h"
+#include "PhysicalView.h"
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
@@ -72,7 +73,12 @@ public:
             button.setClickingTogglesState (false);
             button.setTooltip (viewTips[view]);
             IlanaTheme::makePill (button, followsTheme ? IlanaTheme::accent() : traceColour);
-            button.onClick = [this, view] { setViewMode (view); };
+            button.onClick = [this, view]
+            {
+                viewPicked = true;
+                pickedTable = resolveTableIndex();
+                setViewMode (view);
+            };
             addChildComponent (button);
         }
 
@@ -193,11 +199,11 @@ public:
 
         const auto plot = bounds.reduced (10.0f, compact ? 5.0f : 10.0f);
 
-        if (viewMode == 1)
+        if (shownViewMode() == 1)
         {
             drawWaterfall (g, table, frame, plot);
         }
-        else if (viewMode == 2)
+        else if (shownViewMode() == 2)
         {
             const auto frameCount = table->getNumFrames();
             const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
@@ -230,7 +236,8 @@ public:
             // on it (UI review 4, V11): a slim scrubber along the plot's foot
             // and a readout under it say where in the table the cycle comes
             // from. (Unison shows on the UNISON knob, not as marks here.)
-            drawFramePosition (g, frameCount, frame, plot);
+            if (! isStaticTable (processorRef.getWavetable (tableIndex)))
+                drawFramePosition (g, frameCount, frame, plot);
         }
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
@@ -241,12 +248,12 @@ public:
     // UI test reads it).
     juce::String getFrameReadout() const
     {
-        if (viewMode == 2 || ! isTableMode() || isPhysicalString() || isElectricPiano())
+        if (shownViewMode() == 2 || ! isTableMode() || isPhysicalString() || isElectricPiano())
             return {};
 
         const auto* table = processorRef.getWavetable (resolveTableIndex());
 
-        if (table == nullptr || table->getNumFrames() <= 1)
+        if (table == nullptr || isStaticTable (table))
             return {};
 
         return frameText (table->getNumFrames(), displayedFrame);
@@ -299,7 +306,18 @@ public:
             return;
         }
 
+        showSampleMenu (*this);
+    }
+
+    // The sample menu: the factory samples, then a file (a sample, or an SF2
+    // / SFZ multisample). The display's right-click and the OSC card's LOAD
+    // button open it (UI review 7, I7-24).
+    void showSampleMenu (juce::Component& target)
+    {
         juce::PopupMenu menu;
+        constexpr int loadFileItem = 10000;
+        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+        menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
         const auto paramId = juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)])
@@ -309,13 +327,9 @@ public:
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
             menu.addItem (i + 1, SampleFactory::getFactorySampleName (i), true, current == i + 1);
 
-        constexpr int loadFileItem = 10000;
-        menu.addSeparator();
-        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
-
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
                             [safeThis, paramId] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
@@ -393,7 +407,16 @@ public:
     // The undo step's name for a drag or pick on this display.
     juce::String editName() const { return "OSC " + juce::String (oscIndex + 1) + " display"; }
 
-    int getViewMode() const { return viewMode; }
+    // A multisample's zone count (0 for a plain sample; the UI test).
+    int getZoneCount() const
+    {
+        const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
+        return sample != nullptr && sample->zones.size() > 1 ? (int) sample->zones.size() : 0;
+    }
+
+    // The view shown: a table whose frames are all one cycle shows as WAVE
+    // until a view is picked by hand.
+    int getViewMode() const { return shownViewMode(); }
     int getOscIndex() const { return oscIndex; }
     bool isDraggingWarp() const { return dragging && canDragWarp(); }
 
@@ -485,6 +508,44 @@ public:
     }
 
 private:
+    // A table whose frames are all the same cycle (a sine operator's): 3D
+    // and a frame readout say nothing about it (UI review 7, V7-31).
+    bool isStaticTable (const Wavetable* table) const
+    {
+        if (table == nullptr)
+            return true;
+
+        if (table != staticTable)
+        {
+            staticTable = table;
+            staticFrames = true;
+            const auto* first = table->getFrameData (0, 0);
+
+            for (int frame = 1; frame < table->getNumFrames() && staticFrames; ++frame)
+            {
+                const auto* data = table->getFrameData (0, frame);
+
+                for (int i = 1; i <= Wavetable::frameSize; ++i)
+                    if (std::abs (data[i] - first[i]) > 1.0e-4f)
+                    {
+                        staticFrames = false;
+                        break;
+                    }
+            }
+        }
+
+        return staticFrames;
+    }
+
+    int shownViewMode() const
+    {
+        if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
+            && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
+            return 0;
+
+        return viewMode;
+    }
+
     bool isSampleMode() const
     {
         const auto mode = modeId.isNotEmpty() ? readChoice (modeId) : 0;
@@ -512,7 +573,6 @@ private:
     void drawString (juce::Graphics& g, juce::Rectangle<float> area) const
     {
         const auto prefix = modeId.upToLastOccurrenceOf ("_mode", false, false);
-        static const char* const excites[] { "BURST", "NOISE", "SAW", "PULSE", "BOW", "HAMMER", "OSC IN", "TINE", "REED", "PIANO HAMMER", "FEEDBACK" };
         const auto excite = juce::jlimit (0, 10, readChoice (prefix + "_excite"));
         const auto position = readPlain (prefix + "_string_excite_pos");
         const auto strike = position > 0.005f ? juce::jlimit (0.02f, 0.5f, position) : 0.125f;
@@ -520,7 +580,7 @@ private:
         // Named in the header above the plot (not on it), the caption only
         // where both fit.
         if (! compact)
-            drawHeaderText (g, "STRING", juce::String (excites[excite]).toLowerCase() + " at "
+            drawHeaderText (g, "STRING", Exciters::name (excite).toLowerCase() + " at "
                                              + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + "%" : juce::String ("auto")));
 
         const auto left = area.getX() + 8.0f, right = area.getRight() - 8.0f, mid = area.getCentreY() + area.getHeight() * 0.18f;
@@ -709,7 +769,12 @@ private:
     void drawSample (juce::Graphics& g) const
     {
         const auto* sample = processorRef.getSampleForOsc (oscIndex);
-        const auto plot = wellArea().reduced (10.0f, compact ? 5.0f : 10.0f);
+        auto plot = wellArea().reduced (10.0f, compact ? 5.0f : 10.0f);
+
+        // A multisample's zones under the wave: keys across, velocity up
+        // (UI review 7, I7-24).
+        if (sample != nullptr && sample->zones.size() > 1 && ! compact && plot.getHeight() > 120.0f)
+            drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)
         {
@@ -848,7 +913,52 @@ private:
         }
 
         if (! compact)
-            drawHeaderText (g, sample->name, (reverse ? "REV " : "") + juce::String (loop ? "loop" : "1-shot"));
+            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + " zones, " : juce::String())
+                                                 + (reverse ? "REV " : "") + juce::String (loop ? "loop" : "1-shot"));
+    }
+
+    // The zones as boxes on a keyboard strip: the used key range across
+    // (octave lines, C notes named), velocity up; the zone middle C plays
+    // lit.
+    void drawZones (juce::Graphics& g, const SampleData& sample, juce::Rectangle<float> area) const
+    {
+        auto low = 127, high = 0;
+        for (const auto& zone : sample.zones)
+        {
+            low = juce::jmin (low, zone.loKey);
+            high = juce::jmax (high, zone.hiKey);
+        }
+        low = juce::jmax (0, low - low % 12);
+        high = juce::jmin (127, high + (11 - high % 12));
+
+        area.removeFromTop (6.0f);
+        const auto labels = area.removeFromBottom (11.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRoundedRectangle (area, 3.0f);
+        const auto keyWidth = area.getWidth() / (float) juce::jmax (1, high - low + 1);
+        const auto xOf = [&] (int key) { return area.getX() + (float) (key - low) * keyWidth; };
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (int key = low; key <= high; key += 12)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRect (xOf (key), area.getY(), 1.0f, area.getHeight());
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (juce::MidiMessage::getMidiNoteName (key, true, true, 3), juce::Rectangle<float> (xOf (key) + 2.0f, labels.getY(), 40.0f, labels.getHeight()),
+                        juce::Justification::centredLeft, false);
+        }
+
+        const auto* middle = sample.zoneFor (60, 100);
+        for (const auto& zone : sample.zones)
+        {
+            const auto box = juce::Rectangle<float> (xOf (zone.loKey), area.getBottom() - area.getHeight() * (float) zone.hiVel / 127.0f,
+                                                     (float) (zone.hiKey - zone.loKey + 1) * keyWidth,
+                                                     area.getHeight() * (float) (zone.hiVel - zone.loVel + 1) / 127.0f).reduced (0.5f);
+            g.setColour (traceColour.withAlpha (&zone == middle ? 0.55f : 0.22f));
+            g.fillRect (box);
+            g.setColour (traceColour.withAlpha (0.8f));
+            g.drawRect (box, 1.0f);
+        }
     }
 
     int resolveTableIndex() const
@@ -947,6 +1057,13 @@ private:
         }
 
         loadFlash = IlanaAnim::decay (loadFlash, 0.93f, frameTicks());
+
+        if (const auto view = shownViewMode(); view != lastShownView)
+        {
+            lastShownView = view;
+            updateViewButtons();
+            repaint();
+        }
 
         // Follow the frame parameter including any modulation (LFO, envelope,
         // macros), smoothed so morphs glide rather than jump.
@@ -1161,7 +1278,7 @@ private:
         for (int view = 0; view < 3; ++view)
         {
             viewButtons[(size_t) view].setVisible (table);
-            viewButtons[(size_t) view].setToggleState (view == viewMode, juce::dontSendNotification);
+            viewButtons[(size_t) view].setToggleState (view == shownViewMode(), juce::dontSendNotification);
         }
 
         previousTable.setVisible (table);
@@ -1262,9 +1379,9 @@ private:
                 if (canDragWarp())
                     readout << "   WARP " << juce::roundToInt (readPlain (warpAmountId()) * 100.0f) << "%";
             }
-            else if (viewMode == 2)
+            else if (shownViewMode() == 2)
                 readout = "HARMONICS 1-" + juce::String (juce::jlimit (8, 128, (int) ((wellArea().getWidth() - 20.0f) / 4.0f)));
-            else if (table->getNumFrames() > 1)
+            else if (! isStaticTable (table))
                 readout = frameText (table->getNumFrames(), displayedFrame);
         }
 
@@ -1427,6 +1544,11 @@ private:
     bool compact = false, pressInHeader = false;
     static constexpr int headerHeight = 20, footerHeight = 14;
     int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
+    bool viewPicked = false; // a view chosen by hand, kept for that table even when static
+    int pickedTable = -1;
+    int lastShownView = -1;
+    mutable const Wavetable* staticTable = nullptr;
+    mutable bool staticFrames = false;
     bool dragging = false;
     float dragStartY = 0.0f, warpAtDragStart = 0.0f;
     std::vector<juce::RangedAudioParameter*> openGestures;

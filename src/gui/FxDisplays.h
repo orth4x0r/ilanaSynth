@@ -44,6 +44,7 @@ public:
         type = newType;
         kind = kindFor (type);
         lastSignature = 0;
+        allInOneKind();
         repaint();
     }
 
@@ -56,6 +57,7 @@ public:
             case 9: return Kind::delay;
             case 13: return Kind::reverb;
             case 32: case 33: return Kind::airwindowsTransfer; // AW Tape, AW Saturation
+            case 30: return Kind::airwindowsTransfer; // the all-in-one module (an echo or space: its impulse, below)
             case 27: return Kind::vowel;
             case 5: return Kind::comb;
             case 7: return Kind::chorus;
@@ -236,16 +238,52 @@ private:
     int algorithmIndex = -1;
     std::vector<juce::Point<float>> measured;
 
-    void measureAirwindows()
+    // The Airwindows module's parameter prefix and chosen algorithm (its
+    // registry index), or -1: a category module, or the all-in-one module.
+    int airwindowsSource (juce::String& prefix) const
     {
+        if (type == 30)
+        {
+            prefix = "fx_aw";
+            return juce::jlimit (0, airwindows::count() - 1, (int) param ("fx_aw_algo"));
+        }
         const auto category = airwindows::categoryForFxType (type);
         if (category < 0)
+            return -1;
+        const auto& module = airwindows::categoryModules()[(size_t) category];
+        prefix = juce::String ("fx_") + module.id;
+        const auto choice = juce::jlimit (0, (int) module.algorithms.size() - 1, (int) param (prefix + "_algo"));
+        return module.algorithms[(size_t) choice];
+    }
+
+    // The all-in-one module draws as the family of its algorithm: an echo
+    // or a space as its impulse, anything else as its transfer curve
+    // (I7-28: it was the only card without a picture).
+    void allInOneKind()
+    {
+        if (type != 30)
+            return;
+        juce::String prefix;
+        const auto index = airwindowsSource (prefix);
+        const juce::String category (index >= 0 ? airwindows::registry()[(size_t) index].category : "");
+        kind = category == "Space" || category == "Delay" ? Kind::airwindowsImpulse : Kind::airwindowsTransfer;
+    }
+
+    // An impulse's length: a space's tail is longer than an echo's.
+    bool isSpace() const
+    {
+        juce::String prefix;
+        const auto index = airwindowsSource (prefix);
+        return index >= 0 && juce::String (airwindows::registry()[(size_t) index].category) == "Space";
+    }
+
+    void measureAirwindows()
+    {
+        juce::String prefix;
+        const auto index = airwindowsSource (prefix);
+        if (index < 0)
             return;
 
-        const auto& module = airwindows::categoryModules()[(size_t) category];
-        const juce::String prefix = juce::String ("fx_") + module.id;
-        const auto choice = juce::jlimit (0, (int) module.algorithms.size() - 1, (int) param (prefix + "_algo"));
-        const auto index = module.algorithms[(size_t) choice];
         const auto& info = airwindows::registry()[(size_t) index];
 
         if (index != algorithmIndex || algorithm == nullptr)
@@ -877,20 +915,18 @@ private:
     void measureImpulse()
     {
         impulseEnvelope.clear();
-        const auto category = airwindows::categoryForFxType (type);
-        if (category < 0)
+        juce::String prefix;
+        const auto index = airwindowsSource (prefix);
+        if (index < 0)
             return;
 
-        const auto& module = airwindows::categoryModules()[(size_t) category];
-        const juce::String prefix = juce::String ("fx_") + module.id;
-        const auto choice = juce::jlimit (0, (int) module.algorithms.size() - 1, (int) param (prefix + "_algo"));
-        const auto& info = airwindows::registry()[(size_t) module.algorithms[(size_t) choice]];
+        const auto& info = airwindows::registry()[(size_t) index];
         auto run = info.create();
         if (run == nullptr)
             return;
 
         constexpr double rate = 44100.0;
-        impulseSeconds = type == 34 ? 4.0f : 2.5f;
+        impulseSeconds = isSpace() ? 4.0f : 2.5f;
         run->prepare (rate);
         for (int k = 0; k < info.numKnobs; ++k)
             run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
@@ -942,7 +978,7 @@ private:
             g.drawText ("no tail at these settings", plot, juce::Justification::centred);
         }
 
-        paintCaption (g, type == 34 ? "IMPULSE" : "ECHOES", juce::String (impulseSeconds, 1) + " s");
+        paintCaption (g, isSpace() ? "IMPULSE" : "ECHOES", juce::String (impulseSeconds, 1) + " s");
     }
 
     // ---- Polling ----
@@ -986,9 +1022,8 @@ private:
             case Kind::vocoder: for (auto* id : vocoderIds) mixIn (param (id)); break;
             case Kind::airwindowsImpulse:
             case Kind::airwindowsTransfer:
-                if (const auto category = airwindows::categoryForFxType (type); category >= 0)
+                if (juce::String prefix; airwindowsSource (prefix) >= 0)
                 {
-                    const juce::String prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) category].id;
                     mixIn (param (prefix + "_algo"));
                     mixIn (param (prefix + "_mix"));
                     for (int k = 1; k <= airwindows::Module::numKnobs; ++k)
@@ -1010,6 +1045,7 @@ private:
         if (const auto now = signature(); now != lastSignature)
         {
             lastSignature = now;
+            allInOneKind();
             if (kind == Kind::airwindowsTransfer)
                 measureAirwindows();
             if (kind == Kind::airwindowsImpulse)

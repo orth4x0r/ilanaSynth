@@ -39,19 +39,17 @@ public:
         // off. MATERIAL and SIZE shape the modal bodies only (Classic is the
         // old comb bank); without the body only Strings coupling does
         // anything.
-        const auto resonating = effectRules.isOn ("res_on");
-        const auto modal = [this, resonating] { return resonating() && readValue ("body_type") > 0.5f; };
+        // UI review 7 (V7-34, S7-23): a module that is off draws every
+        // control at the off alpha, as WEST and PLAY's oscillators do; the
+        // rules below only judge the body's controls while it is on.
+        const auto modal = [this] { return readValue ("body_type") > 0.5f; };
         const auto couplingMode = [this] { return juce::roundToInt (readValue ("body_coupling_mode")); };
         // (BALANCE is also disabled in serial, below: V6-18, S6-21.)
         effectRules.add (balance, effectRules.isOn ("filters_parallel"), "the filters are in SERIAL");
-        for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
-            effectRules.add (*knob, resonating, "BODY is off");
-        effectRules.add (bodyType, resonating);
-        effectRules.add (bodyMaterial, modal, "BODY is off or Classic");
-        effectRules.add (bodySize, modal, "BODY is off or Classic");
-        effectRules.add (bodyCouplingMode, [resonating, couplingMode] { return resonating() || couplingMode() == 3; });
-        effectRules.add (bodyCoupling, [modal, couplingMode] { return couplingMode() == 3 || (couplingMode() != 0 && modal()); },
-                         "COUPLING is Off, or needs a modal BODY");
+        bodyRules.add (bodyMaterial, modal, "BODY is Classic");
+        bodyRules.add (bodySize, modal, "BODY is Classic");
+        bodyRules.add (bodyCoupling, [modal, couplingMode] { return couplingMode() == 3 || (couplingMode() != 0 && modal()); },
+                       "COUPLING is Off, or needs a modal BODY");
         startTimerHz (8);
     }
 
@@ -69,11 +67,12 @@ public:
         // Signal flow: a card like BODY beside it, the diagram and the
         // BALANCE knob inside; the subtitle says what BALANCE does now.
         {
-            const auto* parallel = processorRef.apvts.getRawParameterValue ("filters_parallel");
-            const auto active = parallel != nullptr && parallel->load() > 0.5f;
+            // (WEST in Filter 2's place is named as it: I7-32.)
+            const auto active = readValue ("filters_parallel") > 0.5f;
+            const juce::String second (filter2Replaced() ? "WEST" : "F2");
             IlanaTheme::paintCard (g, flowCard.toFloat(), 7.0f, IlanaTheme::Ui::text2.withAlpha (0.2f));
             IlanaTheme::paintCardHeader (g, flowCard.reduced (12, 0).removeFromTop (26), "SIGNAL FLOW",
-                                         active ? "parallel: BALANCE mixes F1 and F2" : "serial: F1 into F2",
+                                         active ? "parallel: BALANCE mixes F1 and " + second : "serial: F1 into " + second,
                                          IlanaTheme::Ui::text2, 0);
         }
 
@@ -101,12 +100,16 @@ public:
         top.removeFromTop (headingHeight);
         filterDisplay.setBounds (top);
         {
-            auto flowArea = flowCard.reduced (8, 0).withTrimmedTop (26).withTrimmedBottom (8);
-            auto balanceArea = flowArea.removeFromRight (78);
-            const auto balanceHeight = preferredControlHeight (&balance, balanceArea.getWidth() - 6);
-            balance.setBounds (balanceArea.withSizeKeepingCentre (balanceArea.getWidth(), juce::jmin (balanceArea.getHeight(), balanceHeight)));
-            flowArea.removeFromRight (4);
+            // The flow takes the card's width (its filters need it: I7-1);
+            // BALANCE sits in its lower right corner, under OUT.
+            const auto flowArea = flowCard.reduced (8, 0).withTrimmedTop (26).withTrimmedBottom (8);
             flow.setBounds (flowArea);
+            const auto balanceWidth = 70;
+            const auto balanceHeight = juce::jmin (juce::jmin (70, flowArea.getHeight() / 2), preferredControlHeight (&balance, balanceWidth - 6));
+            const auto corner = flowArea.withTrimmedLeft (flowArea.getWidth() - balanceWidth).withTrimmedTop (flowArea.getHeight() - balanceHeight - 4)
+                                    .withTrimmedBottom (4).withTrimmedRight (4);
+            balance.setBounds (corner);
+            flow.setReservedCorner (corner - flowArea.getPosition());
         }
         area.removeFromTop (8);
 
@@ -121,19 +124,18 @@ public:
 
         bottom.removeFromLeft (10);
         resonatorCard = bottom;
-        auto resArea = bottom.reduced (8, 0);
         // The on switch at the right of the header, as on the oscillator cards.
         resOn.setBounds (IlanaTheme::cardSwitchBounds (resonatorCard, resonatorCard.getY() + 13));
-        resArea.removeFromTop (26);
+        // The grid WEST's card uses (S7-24): its menus' row, then its knobs,
+        // so the two cards' rows line up side by side.
+        auto resArea = bottom.reduced (10, 0);
+        resArea.removeFromTop (30);
         resArea.removeFromBottom (4);
-        // Menus stacked on the left, the first label on the knobs' label line.
-        auto menus = resArea.removeFromLeft (juce::jmin (150, resArea.getWidth() / 5));
-        constexpr int menuHeight = 13 + 24 + 6;
-        const auto knobBand = preferredControlHeight (&resAmount, resArea.getWidth() / 7 - 6) + 6;
-        menus = menus.withTop (resArea.withSizeKeepingCentre (resArea.getWidth(), juce::jmin (resArea.getHeight(), knobBand)).getY() + 3)
-                     .withHeight (menuHeight * 2);
-        bodyType.setBounds (menus.removeFromTop (menuHeight).reduced (3, 0).withTrimmedBottom (6));
-        bodyCouplingMode.setBounds (menus.reduced (3, 0).withTrimmedBottom (6));
+        auto menuRow = resArea.removeFromTop (juce::jmin (52, resArea.getHeight() / 3));
+        const auto menuWidth = (menuRow.getWidth() - menuRow.getWidth() * 2 / 5) / 3;
+        bodyType.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 2));
+        bodyCouplingMode.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 2));
+        resArea.removeFromTop (2);
         layoutRow (resArea, { &resAmount, &resDecay, &bodyMaterial, &bodySize, &resOffset, &resKeytrack, &bodyCoupling });
     }
 
@@ -143,15 +145,43 @@ private:
     void timerCallback() override
     {
         const auto parallelNow = readValue ("filters_parallel") > 0.5f;
+        const auto replacedNow = filter2Replaced();
 
-        if (parallelNow != wasParallel)
+        if (parallelNow != wasParallel || replacedNow != wasReplaced)
         {
             wasParallel = parallelNow;
+            wasReplaced = replacedNow;
             repaint (flowCard);
         }
 
         // (A rule dims it first, while it is still enabled.)
         effectRules.apply();
+
+        // The body: off, everything at the off alpha (but COUPLING when it
+        // couples the strings, which works without it); on, its own rules.
+        if (readValue ("res_on") > 0.5f)
+        {
+            for (auto* control : std::initializer_list<juce::Component*> { &resAmount, &resDecay, &resOffset, &resKeytrack, &bodyType, &bodyCouplingMode })
+                if (control->getAlpha() != 1.0f)
+                    control->setAlpha (1.0f);
+            for (auto* knob : { &resAmount, &resDecay, &resOffset, &resKeytrack })
+                knob->setInactiveNote ({});
+            bodyRules.apply();
+        }
+        else
+        {
+            const auto strings = juce::roundToInt (readValue ("body_coupling_mode")) == 3;
+            for (auto* control : std::initializer_list<juce::Component*> { &resAmount, &resDecay, &resOffset, &resKeytrack, &bodyType,
+                                                                           &bodyMaterial, &bodySize, &bodyCouplingMode, &bodyCoupling })
+            {
+                const auto live = strings && (control == &bodyCouplingMode || control == &bodyCoupling);
+                const auto alpha = live ? 1.0f : FilterColours::offAlpha;
+                if (control->getAlpha() != alpha)
+                    control->setAlpha (alpha);
+                if (auto* knob = dynamic_cast<KnobControl*> (control))
+                    knob->setInactiveNote (live ? juce::String() : juce::String ("BODY is off"));
+            }
+        }
 
         // (Its tooltip keeps the rule's "no effect now" note.)
         if (balance.isEnabled() != parallelNow)
@@ -164,19 +194,21 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    bool filter2Replaced() const { return readValue ("west_on") > 0.5f && juce::roundToInt (readValue ("west_pos")) == 1; }
+
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
     FilterPanel panel1, panel2;
     WestPanel westPanel;
     SignalFlow flow;
     KnobControl balance;
-    bool wasParallel = false;
+    bool wasParallel = false, wasReplaced = false;
     ToggleControl resOn;
     KnobControl resAmount, resDecay, resOffset, resKeytrack;
     ComboControl bodyType, bodyCouplingMode;
     KnobControl bodyMaterial, bodySize, bodyCoupling;
     juce::Rectangle<int> flowCard, resonatorCard;
-    EffectRules effectRules { processorRef };
+    EffectRules effectRules { processorRef }, bodyRules { processorRef };
 };
 
 // Scrolls a sideways card bar so the given card is in view.

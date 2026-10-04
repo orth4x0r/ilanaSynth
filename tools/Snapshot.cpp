@@ -128,6 +128,7 @@ void expect (bool condition, const juce::String& message)
 }
 
 #include "ModulationUiTests.h"
+#include "FilterFxUiTests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -1215,7 +1216,7 @@ int runUiTests()
             for (auto* button : textButtons)
                 if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
                     addEffect = button;
-            expect (addEffect != nullptr, "the FX toolbar has + ADD EFFECT");
+            expect (addEffect != nullptr, "the rack has + ADD EFFECT");
 
             if (addEffect != nullptr)
             {
@@ -1237,8 +1238,10 @@ int runUiTests()
                     expect (inRack != nullptr && inRack->isEnabled() && inRack->getInRackSlot() == 0
                                 && inRack->getTooltip().contains ("slot 1"),
                             "a type already in the rack has an in-rack dot and says where, not greyed out (V6-25)");
+                    // (UI review 7, I7-28: Spaces is Reverb's Airwindows model, beside it.)
                     auto* spaces = callout->findButton (34);
-                    expect (spaces != nullptr && spaces->getButtonText() == "SPACES" && spaces->getTooltip().contains ("Airwindows"),
+                    expect (spaces != nullptr && spaces->getKind() == FxLibraryButton::Kind::airwindowsModel && spaces->getTooltip().contains ("Spaces")
+                                && spaces->getTooltip().contains ("Airwindows"),
                             "Airwindows effects are named by their job with an Airwindows note (S6-27)");
                     if (auto* addDelay = callout->findButton (9))
                         addDelay->triggerClick();
@@ -1388,7 +1391,8 @@ int runUiTests()
             settle (200);
         }
 
-        // SLOT BLEND on every card (S6-25), in the stack.
+        // SLOT BLEND in the card headers (S6-25), but only where the effect
+        // has no MIX of its own (UI review 7, V7-7): here the limiter's.
         {
             std::vector<juce::Slider*> sliders;
             findAll<juce::Slider> (*editor, sliders);
@@ -1398,7 +1402,7 @@ int runUiTests()
                 if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider)
                     && viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent())
                     ++inCards;
-            expect (inCards == 4, "every card's header has its SLOT BLEND (" + juce::String (inCards) + " of 4)");
+            expect (inCards == 1, "only the limiter's card (no MIX of its own) has a SLOT BLEND (" + juce::String (inCards) + " of 4)");
         }
 
         // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
@@ -1429,7 +1433,9 @@ int runUiTests()
 
         // DICE starts its own undo step, and undo brings the chain back.
         loadFx ({ 13, 9 });
-        if (auto dice = findButtons ("DICE FX"); ! dice.empty())
+        std::vector<DiceFxButton*> dice;
+        findAll<DiceFxButton> (*editor, dice);
+        if (! dice.empty())
         {
             processor.getUndoManager().beginNewTransaction();
             dice.front()->triggerClick();
@@ -1442,7 +1448,7 @@ int runUiTests()
                     "DICE FX is one undo step (" + described + ")");
         }
         else
-            expect (false, "the FX toolbar has a DICE FX button");
+            expect (false, "the FX toolbar has the FX dice");
 
         // UI review 6: small cards two to a row (S6-26), a split group with
         // its crossovers inline (S5-18, I6-27), a duplicate that says what it
@@ -2808,7 +2814,7 @@ int runUiTests()
                                  FilterType::MoogDrive, FilterType::Acid303, FilterType::Sem })
             analogue = analogue && FilterTypes::getPageName (FilterTypes::pageOf (type)) == "ANALOG";
         expect (analogue, "Ladder, Diode, MS-20, Moog, 303 and SEM are under ANALOG");
-        expect (FilterTypes::displayName (FilterType::AwZLow).startsWith ("Smooth") && FilterTypes::shortNames()[FilterType::AwYNotLow] == "RESO LP",
+        expect (FilterTypes::displayName (FilterType::AwZLow).startsWith ("Smooth") && FilterTypes::shortNames()[FilterType::AwYNotLow] == "Reso LP",
                 "the Airwindows filters are named by what they do");
 
         if (! pickers.empty())
@@ -5079,6 +5085,9 @@ int runUiTests()
     // Batch H (UI review 4: V19, V27, V28, S17, S20, S23, S25).
     runSmallThingsTests (processor, *pages);
 
+    // UI review 7, FILTER and FX.
+    runFilterFxTests (processor, *pages);
+
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -6291,8 +6300,25 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("filter-west-replace.png"));
         if (auto* parameter = processor.apvts.getParameter ("west_pos"))
             parameter->setValueNotifyingHost (0.0f);
-        if (auto* parameter = processor.apvts.getParameter ("west_on"))
-            parameter->setValueNotifyingHost (0.0f);
+
+        // UI review 7 (I7-1): the busiest SIGNAL FLOW: WEST, BODY, strings
+        // and board on, the filters in parallel, OSC 1 bypassing them.
+        const auto setPlain = [&processor] (const char* id, float plain)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+        };
+        const std::array<const char*, 5> busy { "res_on", "sym_on", "sb_on", "filters_parallel", "osc1_route" };
+        std::array<float, 5> before {};
+        for (size_t i = 0; i < busy.size(); ++i)
+            before[i] = processor.apvts.getRawParameterValue (busy[i])->load();
+        for (size_t i = 0; i < busy.size(); ++i)
+            setPlain (busy[i], i + 1 < busy.size() ? 1.0f : 3.0f);
+        settle (500);
+        save (*editor, outDir.getChildFile ("filter-flow-busy.png"));
+        for (size_t i = 0; i < busy.size(); ++i)
+            setPlain (busy[i], before[i]);
+        setPlain ("west_on", 0.0f);
     }
 
     // M8.6: an oscillator playing a bounce of the patch.

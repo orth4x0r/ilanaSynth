@@ -2193,7 +2193,15 @@ public:
     // act) names what to change, e.g. "SPECTRAL is Off".
     void add (juce::Component& control, Condition hasEffect, const juce::String& why = {})
     {
-        rules.push_back ({ &control, std::move (hasEffect), why });
+        rules.push_back ({ &control, std::move (hasEffect), why, {} });
+    }
+
+    // The same, for a control whose whole module is switched off: drawn at
+    // `offAlpha()` (e.g. FilterColours::offAlpha, lighter than one dimmed
+    // control) instead of IlanaTheme::dimmedAlpha while it doesn't act.
+    void add (juce::Component& control, Condition hasEffect, const juce::String& why, std::function<float()> offAlpha)
+    {
+        rules.push_back ({ &control, std::move (hasEffect), why, std::move (offAlpha) });
     }
 
     // Conditions on a parameter's plain value.
@@ -2213,7 +2221,7 @@ public:
                 continue;
 
             const auto acts = rule.hasEffect();
-            const auto alpha = acts ? 1.0f : IlanaTheme::dimmedAlpha;
+            const auto alpha = acts ? 1.0f : rule.offAlpha != nullptr ? rule.offAlpha() : IlanaTheme::dimmedAlpha;
 
             if (rule.control->getAlpha() != alpha)
                 rule.control->setAlpha (alpha);
@@ -2244,6 +2252,7 @@ private:
         juce::Component* control;
         Condition hasEffect;
         juce::String why;
+        std::function<float()> offAlpha;
     };
 
     const IlanaSynthAudioProcessor& processor;

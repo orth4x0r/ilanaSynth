@@ -1639,9 +1639,16 @@ void IlanaSynthAudioProcessor::randomizeFxChain()
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
     };
 
+    // Each effect at most once: the rack keeps one set of settings per type,
+    // so a second copy would only mirror the first (V7-42).
+    std::vector<bool> used ((size_t) typeCount + 1, false);
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount);
+        auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount);
+        while (type > 0 && used[(size_t) type])
+            type = 1 + random.nextInt (typeCount);
+        if (type > 0)
+            used[(size_t) type] = true;
         assignFxSlot (slot, type);
         set ("fx_slot" + juce::String (slot) + "_bypass", 0.0f);
         set ("fx_slot" + juce::String (slot) + "_mix", 0.6f + random.nextFloat() * 0.4f);

@@ -268,8 +268,9 @@ inline juce::String describeValue (const juce::String& id, float value)
 
     if (id == "filter_balance")
     {
+        // (A value, not an equation: V7-37.)
         if (juce::roundToInt (value * 100.0f) == 0)
-            return "F1 = F2";
+            return "Even";
 
         return value < 0.0f ? "F1 +" + juce::String (juce::roundToInt (-value * 100.0f)) + "%"
                             : "F2 +" + juce::String (juce::roundToInt (value * 100.0f)) + "%";

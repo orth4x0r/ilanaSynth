@@ -43,6 +43,12 @@ namespace FilterColours
 inline juce::Colour filter (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
 inline juce::Colour west() { return juce::Colour (0xffbfe35a); }
 inline juce::Colour body() { return IlanaTheme::accent(); }
+
+// A module switched off (WEST, BODY, an FX card) draws its controls at this
+// alpha, as PLAY's switched-off oscillators do: plainly off, still editable
+// (UI review 7, V7-34, S7-23). Lighter than IlanaTheme::dimmedAlpha, which
+// marks one control with no effect in a module that is on.
+inline constexpr float offAlpha = 0.35f;
 }
 
 // The filter models by what they are (UI review 6, V5-17, S5-12, S6-20):
@@ -52,17 +58,15 @@ inline juce::Colour body() { return IlanaTheme::accent(); }
 // strings are unchanged.
 struct FilterTypes
 {
-    // One per FilterType, in index order: the short name on PLAY's TYPE box.
-    // The Airwindows models are named by what they do (I6-26), their
-    // Airwindows names kept in displayName().
+    // One per FilterType, in index order: the name on PLAY's TYPE box, the
+    // FILTER page's own name (I7-40: "LP" on one page, "Low Pass" on the
+    // other read as two things) without an Airwindows model's plugin name.
     static juce::StringArray shortNames()
     {
-        return { "LP", "BP", "HP", "NOTCH", "LADDER", "LAD HP", "DIODE", "MS-20", "COMB +", "COMB -", "FORMANT", "MORPH",
-                 "LAD BP", "DRIVE", "SEM", "OTA LP", "OTA BP", "MS HP", "STEINER", "PHASER", "DAMPED", "MIX",
-                 "VOWEL", "TALK", "TWIN",
-                 "303", "MOOG", "V MORPH", "COMB BODY",
-                 "SMOOTH LP", "SMOOTH HP", "SMOOTH BP", "MELT LP", "GRIT LP", "RESO LP", "ROUND LP", "HARD LP", "SLOPE LP",
-                 "DISPERSE" };
+        juce::StringArray names;
+        for (int type = 0; type < FilterType::Count; ++type)
+            names.add (displayName (type).upToFirstOccurrenceOf (" (", false, false));
+        return names;
     }
 
     // The name in the picker and its menu: the model's full name; an
@@ -376,6 +380,13 @@ private:
 // off (an FM modulator) is not heard: it wires into the operators it
 // modulates, dashed (UI review 6, S6-16). WEST sits after the filters or in
 // Filter 2's place, as its PLACE says (I6-16).
+//
+// UI review 7 (I7-1, S7-1, I7-32, V7-35): the filters are laid out first and
+// never lose their width; only what is on is in the chain (WEST and BODY
+// while off are small dimmed stubs under it, still a click to switch on);
+// the bypass is drawn only while a source takes it, as a labelled lane over
+// the filters into the stage that really follows them; the SERIAL badge sits
+// over the gap between F1 and F2, clear of the wires.
 class SignalFlow : public juce::Component,
                    public juce::SettableTooltipClient,
                    private juce::Timer
@@ -387,21 +398,49 @@ public:
         startTimerHz (8);
     }
 
+    // A corner the page covers (the BALANCE knob): nothing but the chain's
+    // line passes through it.
+    void setReservedCorner (juce::Rectangle<int> corner) { reservedCorner = corner.toFloat(); }
+
+    // The filter blocks as drawn (F2's is WEST's while WEST takes its
+    // place), for the UI test.
+    std::array<juce::Rectangle<float>, 2> getFilterBlocks() const
+    {
+        const auto layout = computeLayout();
+        return { layout.f1, layout.westReplaces ? layout.west : layout.f2 };
+    }
+
+    // Every block's name and box, for the UI test.
+    std::vector<std::pair<juce::String, juce::Rectangle<float>>> getBlocks() const
+    {
+        const auto layout = computeLayout();
+        std::vector<std::pair<juce::String, juce::Rectangle<float>>> blocks { { "F1", layout.f1 } };
+        if (! layout.westReplaces)
+            blocks.push_back ({ "F2", layout.f2 });
+        if (! layout.west.isEmpty())
+            blocks.push_back ({ layout.westInChain ? "WEST" : "WEST (off)", layout.west });
+        if (! layout.res.isEmpty())
+            blocks.push_back ({ layout.bodyInChain ? "BODY" : "BODY (off)", layout.res });
+        if (! layout.post.isEmpty())
+            blocks.push_back ({ postLabel(), layout.post });
+        blocks.push_back ({ "OUT", layout.out });
+        return blocks;
+    }
+
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
         const auto layout = computeLayout();
         const auto parallel = read ("filters_parallel") > 0.5f;
-        const auto resOn = read ("res_on") > 0.5f;
-        const auto westOn = read ("west_on") > 0.5f;
         const auto mouse = getMouseXYRelative().toFloat();
         const auto over = isMouseOver();
         const auto count = (int) layout.sources.size();
         // Where Filter 2's wires land: WEST when it takes Filter 2's place.
         const auto f2Target = layout.westReplaces ? layout.west : layout.f2;
+        const auto afterFilters = firstAfterFilters (layout);
 
-        // Wires from each source: into the filters, or (an FM modulator)
-        // into its carriers.
+        // Wires from each source: into the filters, over them (bypass), or
+        // (an FM modulator) into its carriers.
         for (int row = 0; row < count; ++row)
         {
             const auto osc = layout.sources[(size_t) row];
@@ -427,7 +466,7 @@ public:
             };
 
             if (route == 3)
-                wireTo (layout.bypass);
+                drawBypassWire (g, start, layout.bypassY + yOffset * 0.5f, afterFilters, colour);
             else if (route == 2)
                 wireTo (f2Target);
             else if (route == 1 || ! parallel)
@@ -439,10 +478,9 @@ public:
             }
         }
 
-        // The chain: the filters, then WEST (after them), the body, the
-        // pedal strings and soundboard when on, and out.
+        // The chain: the filters, then what is on of WEST (after them), the
+        // body, the pedal strings and soundboard, and out.
         const auto chainColour = juce::Colours::white.withAlpha (0.5f);
-        const auto afterFilters = layout.westAfter ? layout.west : layout.res;
         const auto link = [&g] (juce::Rectangle<float> from, juce::Rectangle<float> to, juce::Colour colour)
         {
             drawWire (g, { from.getRight(), from.getCentreY() }, { to.getX(), to.getCentreY() }, colour);
@@ -459,16 +497,18 @@ public:
             link (f2Target, afterFilters, chainColour);
         }
 
-        link (layout.bypass, afterFilters, chainColour.withAlpha (0.25f));
-        if (layout.westAfter)
-            link (layout.west, layout.res, chainColour.withAlpha (westOn ? 0.5f : 0.3f));
-        if (! layout.post.isEmpty())
+        const auto chain = afterChain (layout);
+        for (size_t i = 0; i + 1 < chain.size(); ++i)
+            link (chain[i], chain[i + 1], chainColour);
+
+        if (layout.bypassUsed)
         {
-            link (layout.res, layout.post, chainColour);
-            link (layout.post, layout.out, chainColour);
+            // The lane's name on the lane, where it runs over the filters.
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("BYPASS", juce::Rectangle<float> (layout.f1.getX(), layout.bypassY - 12.0f, 60.0f, 10.0f),
+                        juce::Justification::centredLeft);
         }
-        else
-            link (layout.res, layout.out, chainColour);
 
         // Blocks.
         for (int row = 0; row < count; ++row)
@@ -484,15 +524,24 @@ public:
         drawBlock (g, layout.f1, "F1", FilterColours::filter (0), true, false);
         if (! layout.westReplaces)
             drawBlock (g, layout.f2, "F2", FilterColours::filter (1), true, false);
-        drawBlock (g, layout.west, "WEST", FilterColours::west(), westOn, over && layout.west.contains (mouse));
-        drawBlock (g, layout.res, "BODY", FilterColours::body(), resOn, over && layout.res.contains (mouse));
+        if (layout.westInChain)
+            drawBlock (g, layout.west, "WEST", FilterColours::west(), true, over && layout.west.contains (mouse));
+        else
+            drawStub (g, layout.west, "WEST", FilterColours::west(), over && layout.west.contains (mouse));
+        if (layout.bodyInChain)
+            drawBlock (g, layout.res, "BODY", FilterColours::body(), true, over && layout.res.contains (mouse));
+        else
+            drawStub (g, layout.res, "BODY", FilterColours::body(), over && layout.res.contains (mouse));
         if (! layout.post.isEmpty())
             drawBlock (g, layout.post, postLabel(), IlanaTheme::Ui::text2, true, false);
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("BYPASS", layout.bypass, juce::Justification::centred);
+        if (! layout.offCaption.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("OFF", layout.offCaption, juce::Justification::centredRight);
+        }
 
         // Serial / parallel badge.
         const auto badgeHover = over && layout.badge.contains (mouse);
@@ -500,7 +549,7 @@ public:
         g.fillRoundedRectangle (layout.badge, 8.0f);
         g.setColour (IlanaTheme::accent());
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText (parallel ? "PARALLEL" : "SERIAL", layout.badge, juce::Justification::centred);
+        g.drawFittedText (parallel ? "PARALLEL" : "SERIAL", layout.badge.toNearestInt(), juce::Justification::centred, 1, 0.8f);
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -546,15 +595,19 @@ public:
                 }
             }
 
+        const auto replaces = juce::roundToInt (read ("west_pos")) == 1;
         if (layout.west.contains (event.position))
-            tip = juce::String ("WEST: wavefolder into a low-pass gate, ") + (layout.westReplaces ? "in Filter 2's place" : "after the filters")
-                  + ". Click to switch it " + (read ("west_on") > 0.5f ? "off." : "on.");
+            tip = juce::String ("WEST: wavefolder into a low-pass gate, ") + (replaces ? "in Filter 2's place" : "after the filters")
+                  + (layout.westInChain ? ". Click to switch it off." : ". It is off: click to switch it on.");
         else if (layout.res.contains (event.position))
-            tip = juce::String ("BODY: the resonant body. Click to switch it ") + (read ("res_on") > 0.5f ? "off." : "on.");
+            tip = juce::String ("BODY: the resonant body, after the filters")
+                  + (layout.bodyInChain ? ". Click to switch it off." : ". It is off: click to switch it on.");
         else if (! layout.post.isEmpty() && layout.post.contains (event.position))
             tip = "After the voices: " + juce::String (read ("sym_on") > 0.5f ? "the sympathetic strings" : "")
                   + (read ("sym_on") > 0.5f && read ("sb_on") > 0.5f ? " and " : "") + (read ("sb_on") > 0.5f ? "the soundboard" : "")
                   + " (OSC > PHYSICAL).";
+        else if (layout.bypassUsed && std::abs (event.position.y - layout.bypassY) < 6.0f && event.position.x > layout.f1.getX())
+            tip = "Bypass: these sources go around the filters, straight into what follows them.";
 
         setTooltip (tip);
     }
@@ -567,9 +620,27 @@ private:
     {
         std::vector<int> sources;
         std::vector<juce::Rectangle<float>> osc;
-        juce::Rectangle<float> f1, f2, west, res, post, out, bypass, badge;
-        bool westAfter = true, westReplaces = false;
+        juce::Rectangle<float> f1, f2, west, res, post, out, badge, offCaption;
+        float bypassY = 0.0f;
+        bool westReplaces = false, westInChain = false, bodyInChain = false, bypassUsed = false;
     };
+
+    // The blocks after the filters, in order (OUT last).
+    static std::vector<juce::Rectangle<float>> afterChain (const Layout& layout)
+    {
+        std::vector<juce::Rectangle<float>> chain;
+        if (layout.westInChain && ! layout.westReplaces)
+            chain.push_back (layout.west);
+        if (layout.bodyInChain)
+            chain.push_back (layout.res);
+        if (! layout.post.isEmpty())
+            chain.push_back (layout.post);
+        chain.push_back (layout.out);
+        return chain;
+    }
+
+    // What the filters (and the bypass) feed: the first stage after them.
+    static juce::Rectangle<float> firstAfterFilters (const Layout& layout) { return afterChain (layout).front(); }
 
     Layout computeLayout() const
     {
@@ -580,73 +651,105 @@ private:
 
         layout.sources.push_back (subNoise);
         const auto count = (int) layout.sources.size();
-        layout.westReplaces = juce::roundToInt (read ("west_pos")) == 1;
-        layout.westAfter = ! layout.westReplaces;
+        // As the voice runs it: WEST replaces Filter 2 only while it is on.
+        const auto westOn = read ("west_on") > 0.5f;
+        layout.westReplaces = westOn && juce::roundToInt (read ("west_pos")) == 1;
+        layout.westInChain = westOn;
+        layout.bodyInChain = read ("res_on") > 0.5f;
         const auto hasPost = read ("sym_on") > 0.5f || read ("sb_on") > 0.5f;
+        const auto parallel = read ("filters_parallel") > 0.5f;
+        auto hasFm = false;
+        for (const auto osc : layout.sources)
+        {
+            hasFm = hasFm || ! isHeard (osc);
+            layout.bypassUsed = layout.bypassUsed || (isHeard (osc) && juce::roundToInt (read (routeId (osc))) == 3);
+        }
 
         auto area = getLocalBounds().toFloat().reduced (10.0f, 8.0f);
-        const auto blockHeight = juce::jmin (24.0f, area.getHeight() / 4.8f);
+        const auto blockHeight = juce::jmin (24.0f, area.getHeight() / 5.2f);
         const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / ((float) juce::jmax (4, count) * 1.25f));
         const auto rowGap = count > 1 ? (area.getHeight() - sourceHeight * (float) count) / (float) (count - 1) : 0.0f;
 
-        auto oscColumn = area.removeFromLeft (juce::jmin (70.0f, area.getWidth() * 0.18f));
+        auto oscColumn = area.removeFromLeft (juce::jmin (64.0f, area.getWidth() * 0.18f));
 
         for (int row = 0; row < count; ++row)
             layout.osc.push_back (oscColumn.withHeight (sourceHeight).withY (oscColumn.getY() + (float) row * (sourceHeight + rowGap)));
 
-        // Room for the FM loops and the wires' fan-in.
-        area.removeFromLeft (34.0f);
+        // Room for the FM loops (when any) and the wires' fan-in.
+        area.removeFromLeft (hasFm ? 30.0f : 20.0f);
 
-        // The blocks after the filters, right to left, sized to the width.
-        const auto blocksAfter = 2.4f + (layout.westAfter ? 1.0f : 0.0f) + (hasPost ? 1.3f : 0.0f);
-        const auto blockWidth = juce::jlimit (34.0f, 52.0f, area.getWidth() / (blocksAfter + 2.6f));
-        const auto gap = juce::jlimit (10.0f, 18.0f, blockWidth * 0.35f);
-        const auto centreY = area.getCentreY();
-        const auto place = [&] (float width)
+        // Widths in block units: the filters first (they never give way),
+        // then what follows them, every gap 0.4 of a block.
+        const auto westAfter = layout.westInChain && ! layout.westReplaces;
+        const auto filterUnits = parallel ? 1.1f : 2.2f;
+        const auto afterUnits = (westAfter ? 1.0f : 0.0f) + (layout.bodyInChain ? 1.0f : 0.0f) + (hasPost ? 1.45f : 0.0f) + 0.9f;
+        const auto afterCount = (westAfter ? 1 : 0) + (layout.bodyInChain ? 1 : 0) + (hasPost ? 1 : 0) + 1;
+        const auto gaps = (float) ((parallel ? 0 : 1) + afterCount);
+        const auto blockWidth = juce::jmin (54.0f, area.getWidth() / (filterUnits + afterUnits + gaps * 0.4f));
+        const auto filterWidth = blockWidth * 1.1f;
+        // What is left over widens the gaps (to a point), then the fan-in.
+        const auto used = blockWidth * (filterUnits + afterUnits + gaps * 0.4f);
+        const auto gap = blockWidth * 0.4f + juce::jmin (14.0f, (area.getWidth() - used) / juce::jmax (1.0f, gaps + 1.0f));
+        const auto centreY = area.getY() + area.getHeight() * 0.4f;
+        const auto onLine = [&] (float x, float width) { return juce::Rectangle<float> (x, centreY - blockHeight * 0.5f, width, blockHeight); };
+
+        // Right to left from OUT, then the filters before the first stage.
+        auto x = area.getRight();
+        const auto placeRight = [&] (float width)
         {
-            return area.removeFromRight (width).withSizeKeepingCentre (width, blockHeight).withY (centreY - blockHeight * 0.5f);
+            x -= width;
+            const auto box = onLine (x, width);
+            x -= gap;
+            return box;
         };
 
-        layout.out = place (blockWidth * 0.9f);
-        area.removeFromRight (gap);
+        layout.out = placeRight (blockWidth * 0.9f);
         if (hasPost)
-        {
-            layout.post = place (blockWidth * 1.45f);
-            area.removeFromRight (gap);
-        }
-        layout.res = place (blockWidth);
-        area.removeFromRight (gap);
-        if (layout.westAfter)
-        {
-            layout.west = place (blockWidth);
-            area.removeFromRight (gap);
-        }
-        area.removeFromRight (gap * 0.6f);
-
-        const auto parallel = read ("filters_parallel") > 0.5f;
-        const auto filterWidth = juce::jmin (blockWidth * 1.15f, area.getWidth() * 0.42f);
-        const auto top = area.getY();
-        const auto middle = centreY - blockHeight * 0.5f;
-        const auto bottom = area.getBottom() - blockHeight;
+            layout.post = placeRight (blockWidth * 1.45f);
+        if (layout.bodyInChain)
+            layout.res = placeRight (blockWidth);
+        if (westAfter)
+            layout.west = placeRight (blockWidth);
 
         if (parallel)
         {
-            const auto x = area.getCentreX() - filterWidth * 0.5f;
-            layout.f1 = { x, top, filterWidth, blockHeight };
-            layout.f2 = { x, middle, filterWidth, blockHeight };
-            layout.badge = juce::Rectangle<float> (x - 6.0f, (top + blockHeight + middle) * 0.5f - 8.0f, filterWidth + 12.0f, 16.0f);
+            const auto left = x - filterWidth;
+            layout.f1 = { left, centreY - 11.0f - blockHeight, filterWidth, blockHeight };
+            layout.f2 = { left, centreY + 11.0f, filterWidth, blockHeight };
+            layout.badge = juce::Rectangle<float> (left - 8.0f, centreY - 8.0f, filterWidth + 16.0f, 16.0f);
         }
         else
         {
-            layout.f1 = { area.getX(), middle, filterWidth, blockHeight };
-            layout.f2 = { area.getRight() - filterWidth, middle, filterWidth, blockHeight };
-            layout.badge = juce::Rectangle<float> (area.getCentreX() - 34.0f, top + 2.0f, 68.0f, 16.0f);
+            layout.f2 = onLine (x - filterWidth, filterWidth);
+            layout.f1 = onLine (layout.f2.getX() - gap - filterWidth, filterWidth);
+            const auto between = (layout.f1.getRight() + layout.f2.getX()) * 0.5f;
+            layout.badge = juce::Rectangle<float> (between - 26.0f, layout.f1.getY() - 20.0f, 52.0f, 16.0f);
         }
 
         if (layout.westReplaces)
             layout.west = layout.f2;
 
-        layout.bypass = juce::Rectangle<float> (area.getCentreX() - 30.0f, bottom, 60.0f, blockHeight);
+        layout.bypassY = area.getY() + 14.0f;
+
+        // Switched-off WEST and BODY: small dimmed stubs under the chain,
+        // clear of the corner the page covers.
+        const auto stubHeight = juce::jmin (18.0f, blockHeight);
+        auto stubX = layout.f1.getX() + 30.0f;
+        const auto stubY = area.getBottom() - stubHeight;
+        const auto addStub = [&]
+        {
+            auto stub = juce::Rectangle<float> (stubX, stubY, 44.0f, stubHeight);
+            if (! reservedCorner.isEmpty() && stub.intersects (reservedCorner))
+                stub.setX (juce::jmax (layout.f1.getX(), reservedCorner.getX() - 4.0f - stub.getWidth()));
+            stubX = stub.getRight() + 6.0f;
+            return stub;
+        };
+        if (! layout.westInChain)
+            layout.west = addStub();
+        if (! layout.bodyInChain)
+            layout.res = addStub();
+        if (! layout.westInChain || ! layout.bodyInChain)
+            layout.offCaption = { layout.f1.getX() - 4.0f, stubY, 30.0f, stubHeight };
         return layout;
     }
 
@@ -782,6 +885,36 @@ private:
         g.fillPath (head);
     }
 
+    // A bypassed source: up to a lane over the filters, across, and down
+    // into the stage after them.
+    static void drawBypassWire (juce::Graphics& g, juce::Point<float> from, float laneY, juce::Rectangle<float> target, juce::Colour colour)
+    {
+        const juce::Point<float> landing (target.getX() + juce::jmin (10.0f, target.getWidth() * 0.3f), target.getY());
+        juce::Path wire;
+        wire.startNewSubPath (from);
+        const auto rise = juce::jmax (12.0f, (landing.x - from.x) * 0.12f);
+        wire.cubicTo (from.x + rise, from.y, from.x + rise, laneY, from.x + rise * 2.0f, laneY);
+        wire.lineTo (landing.x - 8.0f, laneY);
+        wire.quadraticTo (landing.x, laneY, landing.x, landing.y);
+        g.setColour (colour);
+        g.strokePath (wire, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // A module that is off: its name, dimmed, in a dashed outline (a click
+    // still switches it on).
+    static void drawStub (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, juce::Colour colour, bool hovered)
+    {
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (box.reduced (0.5f), 4.0f);
+        const float dashes[] { 3.0f, 2.5f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (colour.withAlpha (hovered ? 0.7f : 0.3f));
+        g.fillPath (dashed);
+        g.setColour (hovered ? colour : IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawFittedText (text, box.reduced (3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
+    }
+
     static void drawBlock (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, juce::Colour colour,
                            bool lit, bool hovered)
     {
@@ -801,5 +934,6 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
+    juce::Rectangle<float> reservedCorner;
 };
 

@@ -185,8 +185,8 @@ private:
     static juce::String defaultTip()
     {
         return "Drag across the graph to set the nearest filter's cutoff, up or down for its resonance. "
-               "Each numbered marker sits on its filter's response at the cutoff; a faint curve and a hollow ring show "
-               "the cutoff as modulated now. A dashed curve is WEST's low-pass gate.";
+               "Each numbered marker sits on its filter's response at the cutoff; a faint curve and a hollow ring (tied "
+               "to its marker) show the cutoff as modulated now. A dashed curve is WEST's low-pass gate.";
     }
 
     static juce::Colour filterColour (int filterIndex) { return FilterColours::filter (filterIndex); }
@@ -234,7 +234,8 @@ private:
         // the cutoffs are equal), the pair kept inside the plot.
         auto& a = centres[0];
         auto& b = centres[1];
-        const auto gap = markerSize + 6.0f;
+        // (A clear gap between them, not two touching dots: V7-18.)
+        const auto gap = markerSize + 10.0f;
 
         if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced())
         {
@@ -506,17 +507,8 @@ private:
         g.drawLine ({ setCentre, live }, 1.0f);
         g.setColour (colour.withAlpha (0.55f));
         g.drawEllipse (juce::Rectangle<float> (markerSize - 1.0f, markerSize - 1.0f).withCentre (live), 1.3f);
-
-        // Labelled (S6-21): "MOD" over the ring, on the side away from the
-        // set marker, unless that side runs out of the plot.
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        auto right = live.x >= setCentre.x;
-        if (right && live.x + 34.0f > plot.getRight())
-            right = false;
-        else if (! right && live.x - 34.0f < plot.getX())
-            right = true;
-        g.drawText ("MOD", juce::Rectangle<float> (right ? live.x + 6.0f : live.x - 34.0f, juce::jmax (plot.getY() + 1.0f, live.y - 14.0f), 28.0f, 10.0f),
-                    right ? juce::Justification::centredLeft : juce::Justification::centredRight);
+        // (No "MOD" word: it landed on the curve or a marker wherever the
+        // modulation took it, V7-18 / S7-11. The ring's tooltip names it.)
     }
 
     // Drag anywhere on the graph: the nearest filter's marker follows the

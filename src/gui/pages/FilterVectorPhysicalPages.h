@@ -156,6 +156,15 @@ public:
           open (p.apvts, "west_open", "OPEN", colour(), true)
     {
         addAll (*this, on, position, mode, source, fold, symmetry, stages, decay, resonance, strike, open);
+
+        // "Replace Filter 2" squeezed the menu's font (I7-43); the saved
+        // choice string stays.
+        {
+            auto& box = position.getComboBox();
+            const auto selected = box.getSelectedId();
+            box.changeItemText (2, "Replaces F2");
+            box.setSelectedId (selected, juce::dontSendNotification);
+        }
         startTimerHz (30);
     }
 
@@ -170,8 +179,10 @@ public:
                                                                                                     : "wavefolder and low-pass gate, after the filters",
                                      colour(), 60);
 
-        // The fold's transfer curve and the gate's vactrol, lit by its level.
+        // The fold's transfer curve and the gate's vactrol, lit by its level
+        // (at the off alpha, as the controls, while WEST is off).
         const auto plot = picture.toFloat();
+        g.beginTransparencyLayer (read ("west_on") > 0.5f ? 1.0f : FilterColours::offAlpha);
         IlanaTheme::paintWell (g, plot, 5.0f);
         const auto curveArea = plot.withWidth (plot.getWidth() * 0.62f).reduced (8.0f, 6.0f);
         juce::Path curve;
@@ -212,6 +223,7 @@ public:
             g.setColour (colour());
             g.fillRoundedRectangle (lit, 3.0f);
         }
+        g.endTransparencyLayer();
     }
 
     void resized() override
@@ -249,7 +261,7 @@ private:
                                      (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
                                      (juce::Component*) &position })
         {
-            const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha;
+            const auto alpha = active ? 1.0f : FilterColours::offAlpha;
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
@@ -311,9 +323,12 @@ public:
         for (juce::Component* control : { (juce::Component*) &path, (juce::Component*) &cornerA, (juce::Component*) &cornerB,
                                           (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
                                           (juce::Component*) &y, (juce::Component*) &drift, (juce::Component*) &driftRate })
-            effectRules.add (*control, effectRules.isOn ("vec_on"), "VECTOR is off");
+            effectRules.add (*control, effectRules.isOn ("vec_on"), "VECTOR is off", [] { return FilterColours::offAlpha; });
+        // At the module-off alpha while VECTOR is off, the lighter dim of one
+        // idle control while only its PATH is (V7-34 with V7-21).
         effectRules.add (rate, [this] { return readParam ("vec_on") > 0.5f && readParam ("vec_path") > 0.5f; },
-                         "VECTOR or its PATH is off");
+                         "VECTOR or its PATH is off",
+                         [this] { return readParam ("vec_on") > 0.5f ? IlanaTheme::dimmedAlpha : FilterColours::offAlpha; });
 
         // Vector X / Y as sources, to drag onto any knob, while the vector
         // plays (UI review 6, S36).
@@ -540,7 +555,7 @@ private:
     void timerCallback() override
     {
         const auto active = readParam ("vec_on") > 0.5f;
-        if (const auto alpha = active ? 1.0f : IlanaTheme::dimmedAlpha; pad.getAlpha() != alpha)
+        if (const auto alpha = active ? 1.0f : FilterColours::offAlpha; pad.getAlpha() != alpha)
             pad.setAlpha (alpha);
         effectRules.apply();
 

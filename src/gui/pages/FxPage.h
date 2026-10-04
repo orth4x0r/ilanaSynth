@@ -251,15 +251,27 @@ public:
             box.setSelectedId (selected, juce::dontSendNotification);
         }
 
-        diceButton.setTooltip ("Random rack: new effects in every slot of this rack. Undo brings the old chain back.");
+        // Every FX knob in its family's colour, as the library and the card
+        // (I7-39); which effects have a MIX of their own (V7-7, S7-15).
+        for (size_t type = 0; type < slotGroups.size(); ++type)
+            for (auto* item : slotGroups[type])
+                if (auto* knob = dynamic_cast<KnobControl*> (item))
+                {
+                    knob->setIdentityColour (fxColour ((int) type));
+                    if (type < ownMix.size() && knob->getParameterId().endsWith ("_mix") && knob->getParameterId() != "fx_taps_mix")
+                        ownMix[type] = true;
+                }
+
+        diceButton.setTooltip ("Randomise the FX chain: new effects (each once) in every slot of this chain. Undo brings the old chain back.");
         diceButton.onClick = [this]
         {
             processorRef.getUndoManager().beginNewTransaction ("Dice FX chain");
             processorRef.randomizeFxChain();
         };
-        chainAButton.setTooltip ("Rack A: one of two FX chains this patch stores. Click to hear and edit it; rack B keeps its own settings.");
-        chainBButton.setTooltip ("Rack B: one of two FX chains this patch stores. Click to hear and edit it; rack A keeps its own settings.");
-        copyChainButton.setTooltip ("Copy this rack's whole chain over the other rack");
+        // Chains 1 and 2, named apart from the header's A / B compare (V7-22, S7-16).
+        chainAButton.setTooltip ("Chain 1: one of two FX chains this patch stores. Click to hear and edit it; chain 2 keeps its own settings.");
+        chainBButton.setTooltip ("Chain 2: one of two FX chains this patch stores. Click to hear and edit it; chain 1 keeps its own settings.");
+        copyChainButton.setTooltip ("Copy this chain over the other one");
         chainAButton.onClick = [this]
         {
             if (! processorRef.isShowingChainA())
@@ -280,27 +292,26 @@ public:
         {
             // The other rack is stored outside the parameters, so undo can't
             // bring it back: ask first.
-            const auto other = juce::String (processorRef.isShowingChainA() ? "B" : "A");
+            const auto other = juce::String (processorRef.isShowingChainA() ? "2" : "1");
             juce::Component::SafePointer<FxPage> safeThis (this);
-            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Copy to rack " + other,
-                                                "Replace rack " + other + "'s chain with a copy of this one?",
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Copy to chain " + other,
+                                                "Replace chain " + other + " with a copy of this one?",
                                                 "Copy", "Cancel", this,
                                                 juce::ModalCallbackFunction::create ([safeThis] (int result)
                                                 {
                                                     if (result != 1 || safeThis == nullptr)
                                                         return;
-                                                    safeThis->processorRef.getUndoManager().beginNewTransaction ("Copy FX rack");
+                                                    safeThis->processorRef.getUndoManager().beginNewTransaction ("Copy FX chain");
                                                     safeThis->processorRef.copyFxChainToOtherBank();
                                                     safeThis->chainABChanged();
                                                 }));
         };
-        addEffectButton.setTooltip ("Add an effect to the next empty slot: the library, every effect grouped by what it does");
-        addEffectButton.onClick = [this] { showLibrary (addEffectButton, addEffectButton.getLocalBounds()); };
-        addEffectButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised.interpolatedWith (IlanaTheme::accent(), 0.3f));
-        addEffectButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
-        fileButton.setTooltip ("Save this rack's chain to a file, or load one into it");
+        // The rack's one + ADD EFFECT is the tile after the last card (S7-16).
+        addEffectTile.onClick = [this] { showLibrary (addEffectTile, addEffectTile.getLocalBounds()); };
+        stackContent.addChildComponent (addEffectTile);
+        fileButton.setTooltip ("Save this chain to a file, or load one into it");
         fileButton.onClick = [this] { showFileMenu(); };
-        // The rack's own actions are quiet; ADD EFFECT leads (S5-18).
+        // The chain's own actions are quiet.
         for (auto* quiet : { &copyChainButton, &fileButton })
         {
             quiet->setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
@@ -325,7 +336,6 @@ public:
                                       });
         };
 
-        addAndMakeVisible (addEffectButton);
         addAndMakeVisible (diceButton);
         addAndMakeVisible (fileButton);
         IlanaTheme::makePill (chainAButton, IlanaTheme::accent());
@@ -394,6 +404,15 @@ public:
                 header.blendAttachment = std::make_unique<juce::SliderParameterAttachment> (*blend, header.blend, nullptr);
             stackContent.addChildComponent (header.blend);
 
+            header.model.onSwitch = [this, slot]
+            {
+                const auto other = fxTwinOf (getSlotType (slot));
+                if (other > 0 && slotHoldingType (other, slot) < 0)
+                    processorRef.performEdit ("Change effect to " + getSlotName (other), [this, slot, other] { processorRef.assignFxSlot (slot + 1, other); });
+                updateVisibility();
+            };
+            stackContent.addChildComponent (header.model);
+
             header.remove.setTooltip ("Take this duplicate out of the rack (the first card keeps the settings)");
             header.remove.onClick = [this, slot] { removeSlot (slot); };
             stackContent.addChildComponent (header.remove);
@@ -426,7 +445,6 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
-        paintSectionTitle (g, "CHAIN", { headingX, 17, 200, 14 }); // on the toolbar's centre line
 
         if (! outputStrip.isEmpty())
         {
@@ -457,35 +475,26 @@ public:
     {
         auto area = getLocalBounds().reduced (12);
 
-        // The toolbar: the racks on the left after CHAIN, adding and the
+        // The toolbar: the two chains on the left, the dice and the
         // chain's file on the right.
         auto toolbar = area.removeFromTop (24);
         {
             auto left = toolbar;
-            left.removeFromLeft (headingX - area.getX() + IlanaTheme::cardTitleWidth ("CHAIN") + 2);
-            chainAButton.setBounds (left.removeFromLeft (64).reduced (0, 2));
+            left.removeFromLeft (headingX - area.getX() - 2);
+            chainAButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
             left.removeFromLeft (4);
-            chainBButton.setBounds (left.removeFromLeft (64).reduced (0, 2));
+            chainBButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
             left.removeFromLeft (8);
             copyChainButton.setBounds (left.removeFromLeft (92).reduced (0, 3));
         }
         fileButton.setBounds (toolbar.removeFromRight (104).reduced (0, 3));
         toolbar.removeFromRight (6);
-        diceButton.setBounds (toolbar.removeFromRight (76).reduced (0, 3));
-        toolbar.removeFromRight (6);
-        addEffectButton.setBounds (toolbar.removeFromRight (124).reduced (0, 2));
+        diceButton.setBounds (toolbar.removeFromRight (64).reduced (0, 3));
 
         area.removeFromTop (8);
 
-        outputStrip = area.removeFromBottom (46);
-        area.removeFromBottom (6);
-        {
-            auto strip = outputStrip.reduced (6, 3);
-            strip.removeFromLeft (104); // the tagged OUTPUT title
-            softClip->setBounds (strip.removeFromLeft (120));
-            strip.removeFromLeft (10);
-            clipGain->setBounds (strip.removeFromLeft (160));
-        }
+        constexpr int outputHeight = 46, outputGap = 6;
+        auto stackArea = area.withTrimmedBottom (outputHeight + outputGap);
 
         // An empty rack shows the library in the stack's place (one view
         // of the chain, not a list beside the cards: S5-18, S6-25).
@@ -495,13 +504,31 @@ public:
 
         if (empty)
         {
-            auto box = area.reduced (12, 0);
+            auto box = stackArea.reduced (12, 0);
             emptyHeading = box.removeFromTop (60).withTrimmedTop (6);
             library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight())));
         }
 
-        stackView.setBounds (area);
+        // The cards take their own height, and OUTPUT follows the last of
+        // them (V7-29, S7-16: no empty band above it).
+        stackView.setBounds (stackArea);
         layoutStack();
+        if (! empty && stackNaturalHeight < stackArea.getHeight())
+        {
+            stackView.setBounds (stackArea.withHeight (stackNaturalHeight));
+            layoutStack();
+        }
+
+        outputStrip = empty ? area.withTop (area.getBottom() - outputHeight)
+                            : juce::Rectangle<int> (area.getX(), stackView.getBottom() + outputGap, area.getWidth(), outputHeight);
+        {
+            auto strip = outputStrip.reduced (6, 3);
+            strip.removeFromLeft (104); // the tagged OUTPUT title
+            softClip->setBounds (strip.removeFromLeft (120));
+            strip.removeFromLeft (10);
+            clipGain->setBounds (strip.removeFromLeft (160));
+        }
+        repaint();
     }
 
 private:
@@ -654,16 +681,17 @@ private:
         for (const auto& group : fxLibraryGroups())
         {
             menu.addSectionHeader (group.title);
-            for (const auto* list : { &group.classic, &group.airwindows })
-                for (const auto& entry : *list)
+            for (const auto& entry : group.entries)
+                for (const auto type : { entry.type, entry.twin })
                 {
-                    const auto holder = slotHoldingType (entry.type, slot);
-                    auto text = juce::String (entry.name);
-                    if (list == &group.airwindows && ! group.classic.empty())
-                        text << "  (Airwindows)";
+                    if (type < 0)
+                        continue;
+                    const auto holder = slotHoldingType (type, slot);
+                    auto text = type == entry.twin ? juce::String (entry.name) + ": Airwindows model (" + entry.twinName + ")"
+                                                   : juce::String (entry.name);
                     if (holder >= 0)
                         text << "  (in slot " << (holder + 1) << ")";
-                    menu.addItem (entry.type + 1, text, holder < 0, getSlotType (slot) == entry.type);
+                    menu.addItem (type + 1, text, holder < 0, getSlotType (slot) == type);
                 }
         }
 
@@ -856,9 +884,8 @@ private:
         loadIrButton.setVisible (shown[13]);
 
         library->refresh();
-        copyChainButton.setButtonText (processorRef.isShowingChainA() ? "COPY TO B" : "COPY TO A");
-        copyChainButton.setTooltip (processorRef.isShowingChainA() ? "Copy this rack's whole chain over rack B" : "Copy this rack's whole chain over rack A");
-        addEffectButton.setEnabled (firstEmptySlot() >= 0);
+        copyChainButton.setButtonText (processorRef.isShowingChainA() ? "COPY TO 2" : "COPY TO 1");
+        copyChainButton.setTooltip (processorRef.isShowingChainA() ? "Copy this whole chain over chain 2" : "Copy this whole chain over chain 1");
 
         resized();
     }
@@ -938,12 +965,37 @@ private:
     // The header's controls, right to left from the on switch.
     int headerControlsWidth (const StackPanel& panel) const
     {
-        return 8 + 48 + bandWidth + 6 + soloWidth + 6 + blendWidth + 10 + (panel.type == 13 && ! panel.duplicate ? 82 : 0);
+        return 8 + 48 + (showsBand (panel.slot) ? bandWidth + 6 : 0) + soloWidth + 6 + (showsBlend (panel) ? blendWidth + 10 : 4)
+               + (panel.type == 13 && ! panel.duplicate ? 82 : 0);
     }
 
     int titleWidth (const StackPanel& panel) const
     {
-        return 34 + IlanaTheme::cardTitleWidth (getSlotName (panel.type).toUpperCase()) + 4 + (showsAirwindowsBadge (panel.type) ? 96 : 0);
+        return 34 + IlanaTheme::cardTitleWidth (cardTitle (panel.type)) + 4
+               + (hasModelSwitch (panel.type) ? FxModelSwitch::preferredWidth + 12 : (showsAirwindowsBadge (panel.type) ? 96 : 0));
+    }
+
+    // The band menu only where a slot works on a band (inside a split
+    // group); the type menu sets it otherwise (S7-15).
+    bool showsBand (int slot) const { return getSlotBand (slot) != 0; }
+
+    // BLEND only where the effect has no MIX of its own, or once it is set
+    // below 100 % (V7-7, S7-15: one dry/wet per card).
+    bool showsBlend (const StackPanel& panel) const
+    {
+        if (panel.duplicate || ! juce::isPositiveAndBelow (panel.type, (int) ownMix.size()) || ! ownMix[(size_t) panel.type])
+            return true;
+        const auto* blend = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (panel.slot + 1) + "_mix");
+        return blend != nullptr && blend->load() < 0.995f;
+    }
+
+    // An effect and its Airwindows model switch on the card (I7-28); the
+    // card is titled by the effect ("REVERB", either model).
+    static bool hasModelSwitch (int type) { return fxTwinOf (type) > 0; }
+    juce::String cardTitle (int type) const
+    {
+        const auto base = isAirwindowsType (type) && hasModelSwitch (type) ? fxTwinOf (type) : type;
+        return getSlotName (base).toUpperCase();
     }
 
     // The width the card needs: its header, and its display and knobs side
@@ -984,7 +1036,7 @@ private:
             slotSwitch->setVisible (false);
         for (auto& header : cardHeaders)
             for (juce::Component* item : { (juce::Component*) &header.type, (juce::Component*) &header.solo, (juce::Component*) &header.band,
-                                           (juce::Component*) &header.blend, (juce::Component*) &header.remove })
+                                           (juce::Component*) &header.blend, (juce::Component*) &header.remove, (juce::Component*) &header.model })
                 item->setVisible (false);
         for (auto& display : displays)
             display->setVisible (false);
@@ -1058,23 +1110,25 @@ private:
 
         updateModuleDimming();
 
-        // A quiet card after the last effect (or beside a lone half card at
-        // the end) while the rack has room; the toolbar's + ADD EFFECT is
-        // the other way in.
+        // A quiet tile after the last effect (or beside a lone half card at
+        // the end) while the rack has room: the one + ADD EFFECT.
         if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
         {
             addEffectCard = { 0, y, width, 40 };
             y += 40 + cardGap;
         }
+        addEffectTile.setBounds (addEffectCard);
+        addEffectTile.setVisible (! addEffectCard.isEmpty());
 
+        stackNaturalHeight = y;
         stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
         stackContent.repaint();
     }
 
     // Cards from..to in rows: two half cards side by side (the same
-    // height), anything else across the whole width. A half card with no
-    // half card after it takes the whole width, so no row has a gap, except
-    // at the end of the chain, where + ADD EFFECT takes the other half.
+    // height), anything else across the whole width. A card's width is its
+    // own (S7-16): a half card with no half card after it stays half width,
+    // with + ADD EFFECT beside it at the end of the chain.
     int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
         const auto halfWidth = (width - cardGap) / 2;
@@ -1092,11 +1146,12 @@ private:
                 k += 2;
                 y += height + cardGap;
             }
-            else if (cards[k].half && k + 1 == to && addTileAtEnd)
+            else if (cards[k].half)
             {
                 const auto height = cardHeight (cards[k]);
                 placeCard (cards[k], { x, y, halfWidth, height });
-                addEffectCard = { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height };
+                if (k + 1 == to && addTileAtEnd)
+                    addEffectCard = { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height };
                 ++k;
                 y += height + cardGap;
             }
@@ -1204,7 +1259,7 @@ private:
         const auto top = panel.bounds.getY();
         const auto lineY = top + 5;
 
-        header.type.setTitle (getSlotName (panel.type).toUpperCase(), isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : fxColour (panel.type));
+        header.type.setTitle (cardTitle (panel.type), isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : fxColour (panel.type));
         header.type.setBounds (panel.bounds.getX() + 34, top + 4, header.type.preferredWidth(), 22);
         header.type.setVisible (true);
         header.type.setTooltip ("Slot " + juce::String (panel.slot + 1) + ": " + getSlotName (panel.type)
@@ -1212,21 +1267,51 @@ private:
                                 + (isAirwindowsType (panel.type) ? "\n" + airwindowsBadgeTip (panel.type) : juce::String()));
 
         auto right = IlanaTheme::cardSwitchBounds (panel.bounds, top + 14).getX() - 8;
-        header.band.setBounds (right - bandWidth, lineY, bandWidth, 20);
-        header.band.setVisible (true);
-        right -= bandWidth + 6;
+        if (showsBand (panel.slot))
+        {
+            header.band.setBounds (right - bandWidth, lineY, bandWidth, 20);
+            header.band.setVisible (true);
+            right -= bandWidth + 6;
+        }
         header.solo.setBounds (right - soloWidth, lineY, soloWidth, 20);
         header.solo.setVisible (true);
         right -= soloWidth + 6;
-        header.blend.setBounds (right - blendWidth, lineY, blendWidth, 20);
-        header.blend.setTint (fxColour (panel.type));
-        header.blend.setVisible (true);
-        right -= blendWidth + 10;
+        if (showsBlend (panel))
+        {
+            header.blend.setBounds (right - blendWidth, lineY, blendWidth, 20);
+            header.blend.setTint (fxColour (panel.type));
+            header.blend.setVisible (true);
+            right -= blendWidth + 10;
+        }
+        else
+        {
+            header.blend.setBounds (right, lineY, 0, 20); // (the subtitle stops here)
+            right -= 4;
+        }
 
         if (panel.type == 13 && ! panel.duplicate)
         {
             loadIrButton.setBounds (right - 76, lineY + 1, 76, 18);
             right -= 82;
+        }
+
+        // The model switch after the title, where it fits.
+        if (hasModelSwitch (panel.type) && ! panel.duplicate)
+        {
+            const auto switchX = header.type.getRight() + 6;
+            if (switchX + FxModelSwitch::preferredWidth <= right - 4)
+            {
+                const auto other = fxTwinOf (panel.type);
+                const auto holder = slotHoldingType (other, panel.slot);
+                header.model.setBounds (switchX, top + 7, FxModelSwitch::preferredWidth, 16);
+                header.model.setState (isAirwindowsType (panel.type), holder < 0, fxColour (panel.type));
+                header.model.setTooltip ("Model: " + getSlotName (isAirwindowsType (panel.type) ? other : panel.type) + " built in, or its Airwindows model, "
+                                         + getSlotName (isAirwindowsType (panel.type) ? panel.type : other) + ". Click the other to swap this slot's effect "
+                                         "(each keeps its own settings)."
+                                         + (holder >= 0 ? "\nThe other model is in slot " + juce::String (holder + 1) + " already." : juce::String())
+                                         + "\n" + airwindowsBadgeTip (isAirwindowsType (panel.type) ? panel.type : other));
+                header.model.setVisible (true);
+            }
         }
     }
 
@@ -1276,23 +1361,6 @@ private:
         for (const auto& group : splitGroups)
             paintSplitGroup (g, group);
 
-        if (! addEffectCard.isEmpty())
-        {
-            const auto card = addEffectCard.toFloat().reduced (0.5f);
-            g.setColour (IlanaTheme::Ui::panel.withAlpha (0.6f));
-            g.fillRoundedRectangle (card, 8.0f);
-            const float dashes[] { 4.0f, 4.0f };
-            juce::Path outline;
-            outline.addRoundedRectangle (card.reduced (0.5f), 8.0f);
-            juce::Path dashed;
-            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-            g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
-            g.fillPath (dashed);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("+  ADD EFFECT", addEffectCard, juce::Justification::centred);
-        }
-
         for (const auto& panel : stackPanels)
         {
             const auto colour = fxColour (panel.type);
@@ -1331,9 +1399,11 @@ private:
             // After the title: the Airwindows badge, "off", the slot's CPU,
             // as far as the header's controls leave room.
             auto subtitle = juce::Rectangle<int> (header.type.getRight() + 6, panel.bounds.getY(), 0, cardHeaderHeight);
-            subtitle.setRight (header.blend.getX() - 8);
+            subtitle.setRight ((panel.type == 13 && ! panel.duplicate ? loadIrButton.getX() : header.blend.getX()) - 8);
+            if (header.model.isVisible())
+                subtitle.setLeft (header.model.getRight() + 8);
 
-            if (showsAirwindowsBadge (panel.type) && subtitle.getWidth() >= 88)
+            if (showsAirwindowsBadge (panel.type) && ! hasModelSwitch (panel.type) && subtitle.getWidth() >= 88)
             {
                 const auto tag = subtitle.removeFromLeft (84).toFloat().withSizeKeepingCentre (84.0f, 16.0f);
                 g.setColour (colour.withAlpha (0.14f));
@@ -1436,12 +1506,6 @@ private:
     void stackMouseDown (const juce::MouseEvent& event)
     {
         const auto position = event.getPosition();
-
-        if (addEffectCard.contains (position))
-        {
-            showLibrary (stackContent, addEffectCard);
-            return;
-        }
 
         for (const auto& panel : stackPanels)
         {
@@ -1561,7 +1625,9 @@ private:
                 dropFlash = 1.0f;
             }
 
-            signature << type << ":" << getSlotBand (slot) << ",";
+            // (BLEND shows once it is below 100 % on a card with its own MIX.)
+            const auto* blend = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (slot + 1) + "_mix");
+            signature << type << ":" << getSlotBand (slot) << (blend != nullptr && blend->load() < 0.995f ? "b" : "") << ",";
         }
 
         signature += juce::String (airwindowsAlgorithm()); // its knobs differ
@@ -1625,6 +1691,7 @@ private:
         juce::ComboBox band;
         BlendSlider blend;
         juce::TextButton remove { "REMOVE" };
+        FxModelSwitch model;
         std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
         std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
         std::unique_ptr<juce::SliderParameterAttachment> blendAttachment;
@@ -1673,10 +1740,10 @@ private:
             if (panel.duplicate)
                 continue;
 
+            // (A switched-off card at the off alpha, as WEST and BODY: V7-34.)
             const auto off = isModuleOff (panel.slot);
-            const auto alpha = off ? IlanaTheme::dimmedAlpha : 1.0f;
-            cardHeaders[(size_t) panel.slot].type.setTitle (getSlotName (panel.type).toUpperCase(),
-                                                            off ? IlanaTheme::Ui::text3 : fxColour (panel.type));
+            const auto alpha = off ? FilterColours::offAlpha : 1.0f;
+            cardHeaders[(size_t) panel.slot].type.setTitle (cardTitle (panel.type), off ? IlanaTheme::Ui::text3 : fxColour (panel.type));
 
             for (auto* item : slotGroups[(size_t) panel.type])
             {
@@ -1717,15 +1784,17 @@ private:
     float cpuTicks = 0.0f;
     std::array<int, IlanaSynthAudioProcessor::numFxSlots> lastTypes {};
     juce::String lastSignature;
-    // The toolbar: + ADD EFFECT leads; RACK A / B, named apart from the
-    // header's COMPARE A/B.
-    juce::TextButton addEffectButton { "+ ADD EFFECT" };
-    juce::TextButton diceButton { "DICE FX" };
+    // The toolbar: CHAIN 1 / 2, named apart from the header's A / B
+    // compare; the dice as the header's, for the chain (V7-43).
+    DiceFxButton diceButton;
     juce::TextButton fileButton { "SAVE / LOAD" };
     juce::TextButton loadIrButton { "LOAD IR" };
-    juce::TextButton chainAButton { "RACK A" };
-    juce::TextButton chainBButton { "RACK B" };
-    juce::TextButton copyChainButton { "COPY TO B" };
+    juce::TextButton chainAButton { "CHAIN 1" };
+    juce::TextButton chainBButton { "CHAIN 2" };
+    juce::TextButton copyChainButton { "COPY TO 2" };
+    AddEffectTile addEffectTile;
+    std::array<bool, 64> ownMix {};
+    int stackNaturalHeight = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     ComboControl ampMode;

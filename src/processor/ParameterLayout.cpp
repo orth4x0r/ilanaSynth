@@ -743,10 +743,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     juce::StringArray ampEnvelopeChoices;
     // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "F2 Env"
+        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "Filter 2 Env"
                                 : env == 4 ? "Mod Env" : "Env " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
-    ampEnvelopeChoices.add ("Op EG"); // appended, index 17: the Operator EG (OperatorEgParams.h)
+    ampEnvelopeChoices.add ("Operator Env"); // appended, index 17: the Operator Env (OperatorEgParams.h)
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -1053,7 +1053,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                         "Osc" + juce::String (osc + 1) + " " + field.name);
     for (const auto& field : OperatorEg::voiceFields())
         addEgField (field, field.suffix, field.name);
-    addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
+    addInt (OperatorEg::keyOffsetId, "Op Env Scale Shift", -24, 24, 0);
+
+    // Review 6 (appended): the DX7 algorithm the FM routing came from (a
+    // .syx voice, or a click on the grid's DX7 page), 0 for none. Display
+    // only: DX7 algorithms 1-2, 3-4 and 5-6 share a routing here and differ
+    // only in where the feedback goes, so this names the one it was.
+    {
+        juce::StringArray algorithmNames { "None" };
+        for (int algorithm = 1; algorithm <= 32; ++algorithm)
+            algorithmNames.add ("DX7 " + juce::String (algorithm));
+        addChoice (OperatorEg::dx7AlgorithmId, "DX7 Algorithm", algorithmNames, 0);
+    }
 
     // The arp's step lanes (review 6): how many steps loop, and each step's
     // velocity, gate (a share of GATE; 0 rests) and transpose. The defaults

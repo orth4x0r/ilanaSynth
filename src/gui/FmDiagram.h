@@ -7,12 +7,15 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "FmOperatorInfo.h"
 
 // The FM matrix as operators: the patch's oscillators, with an arrow for every
 // route (thicker = deeper) and a loop for feedback. Drag from one oscillator
 // to another to add that route (or remove it if it's already there); drag
 // onto the same oscillator for feedback. Click an oscillator to switch its
-// output on or off (off = a silent modulator).
+// output on or off (off = a silent modulator). Four or more operators stand
+// in DX stacks (UI review 6): carriers along the bottom, each modulator one
+// row above the deepest operator it drives, as a DX7's algorithm chart.
 class FmDiagram : public juce::Component,
                   public juce::SettableTooltipClient,
                   private IlanaAnim::FrameTimer
@@ -113,14 +116,8 @@ public:
                 if (source == target)
                 {
                     // Feedback: a loop on the outside of the operator.
-                    const auto centre = centres[(size_t) source];
-                    auto outward = centre - getLocalBounds().toFloat().getCentre();
-                    const auto length = outward.getDistanceFromOrigin();
-                    outward = length > 1.0f ? outward / length : juce::Point<float> (0.0f, -1.0f);
-                    const auto loop = juce::Rectangle<float> (radius * 1.1f, radius * 1.1f)
-                                          .withCentre (centre + outward * radius * 1.25f);
                     g.setColour (colour);
-                    g.drawEllipse (loop, thickness);
+                    g.drawEllipse (feedbackLoop (source, centres, radius), thickness);
                     continue;
                 }
 
@@ -129,14 +126,27 @@ public:
                 auto to = centres[(size_t) target];
                 const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
                 const juce::Point<float> normal (-direction.y, direction.x);
-                const auto offset = normal * 7.0f;
+                const auto both = read (routeId (target, source)) > 0.001f;
+                const auto offset = normal * (both ? 7.0f : 0.0f);
                 from = from + direction * radius + offset;
                 to = to - direction * (radius + 6.0f) + offset;
 
+                // A route that would cross another operator bends around it.
+                const auto bend = bendFor (source, target, centres, radius);
                 juce::Path arrow;
-                arrow.addArrow ({ from, to }, thickness, 10.0f + thickness, 12.0f);
+                if (bend == 0.0f)
+                    arrow.addArrow ({ from, to }, thickness, 10.0f + thickness, 12.0f);
+                else
+                    addBentArrow (arrow, centres[(size_t) source], centres[(size_t) target], bend, radius, thickness);
                 g.setColour (colour);
                 g.fillPath (arrow);
+                if (bend != 0.0f)
+                {
+                    // Its label and flow ride the bend's middle.
+                    const auto middle = (centres[(size_t) source] + centres[(size_t) target]) * 0.5f + normal * bend * 0.5f;
+                    from = middle - direction * 4.0f;
+                    to = middle + direction * 4.0f;
+                }
 
                 // Energy flowing along the route: faster and brighter while notes play.
                 if (live)
@@ -157,10 +167,57 @@ public:
 
                 g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%",
-                            juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
-                            juce::Justification::centred);
+                const auto label = juce::String (juce::roundToInt (amount * 100.0f)) + "%";
+                if (isStacked())
+                    // Right of the arrow, in the gap between the rows (the
+                    // node's caption is beside the node itself).
+                    g.drawText (label, juce::Rectangle<float> (40.0f, 14.0f).withPosition ((from + to) * 0.5f + juce::Point<float> (std::abs (normal.x) * 7.0f + 2.0f, -7.0f)),
+                                juce::Justification::centredLeft);
+                else
+                    g.drawText (label, juce::Rectangle<float> (40.0f, 14.0f).withCentre ((from + to) * 0.5f + normal * 12.0f),
+                                juce::Justification::centred);
             }
+        }
+
+        // The OSC card's WARP FM and Ring: OSC 2 into OSC 1, OSC 1 into the
+        // others. Dashed, labelled, so all the FM in the patch shows here
+        // (UI review 6, I6-13).
+        for (const auto target : shown)
+        {
+            const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) target]);
+            const auto warp = juce::roundToInt (read (prefix + "_warp"));
+            const auto source = target == 0 ? 1 : 0;
+            if ((warp != Warp::Fm && warp != Warp::Ring) || read (prefix + "_warp_amt") < 0.001f
+                || std::find (shown.begin(), shown.end(), source) == shown.end())
+                continue;
+            const auto from = centres[(size_t) source], to = centres[(size_t) target];
+            const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
+            auto normal = juce::Point<float> (-direction.y, direction.x);
+            // A bow on the left of the pair (the captions are on the right),
+            // clear of any matrix route between them.
+            if (normal.x > 0.0f || (normal.x == 0.0f && normal.y > 0.0f))
+                normal = -normal;
+            const auto control = (from + to) * 0.5f + normal * radius * 2.2f;
+            const auto startDirection = (control - from) / juce::jmax (1.0f, from.getDistanceFrom (control));
+            const auto endDirection = (to - control) / juce::jmax (1.0f, to.getDistanceFrom (control));
+            const auto start = from + startDirection * radius, end = to - endDirection * (radius + 4.0f);
+            juce::Path shaft, dashed;
+            shaft.startNewSubPath (start);
+            shaft.quadraticTo (control, end - endDirection * 6.0f);
+            const float dashes[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.6f).createDashedStroke (dashed, shaft, dashes, 2);
+            juce::Path head;
+            head.addArrow ({ end - endDirection * 7.0f, end }, 0.0f, 9.0f, 8.0f);
+            g.setColour (oscColour (source).withAlpha (0.75f));
+            g.fillPath (dashed);
+            g.fillPath (head);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto apex = (from + to) * 0.25f + control * 0.5f;
+            const auto labelBox = juce::Rectangle<float> (60.0f, 12.0f);
+            g.drawText (warp == Warp::Fm ? "WARP FM" : "WARP RING",
+                        normal.x < -0.5f ? labelBox.withRightX (apex.x - 9.0f).withY (apex.y - 6.0f)
+                                         : labelBox.withCentre (apex + normal * 10.0f),
+                        normal.x < -0.5f ? juce::Justification::centredRight : juce::Justification::centred);
         }
 
         // The noise operator: a small node in the corner, drawn only while it
@@ -255,19 +312,30 @@ public:
             g.setColour (colour.withAlpha (on ? 1.0f : 0.35f));
             g.drawEllipse (circle.reduced (1.0f), hoverOsc == osc ? 2.6f : 1.8f);
 
+            // Its name, or in a small stacked node its number (as a DX7
+            // numbers its operators), which the colour names too.
             g.setColour (on ? juce::Colours::white : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OSC " + juce::String (osc + 1), circle.withTrimmedBottom (radius * 0.4f), juce::Justification::centred);
+            g.setFont (IlanaTheme::font (radius < 27.0f ? IlanaTheme::TextSize::body + 2.0f : IlanaTheme::TextSize::body, true));
+            g.drawText (radius < 27.0f ? juce::String (osc + 1) : "OSC " + juce::String (osc + 1),
+                        circle.withTrimmedBottom (radius * 0.4f), juce::Justification::centred);
 
             g.setColour (out ? colour : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (out ? "OUT" : "MOD", circle.withTrimmedTop (radius * 0.9f), juce::Justification::centred);
 
-            // Its tuning and level under it, so the graph reads without
-            // opening each operator (UI review 4, S14).
+            // Its tuning and level beside it (in stacks) or under it, so the
+            // graph reads without opening each operator (UI review 4, S14).
             g.setColour (on ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
-            g.drawText (getNodeCaption (osc), juce::Rectangle<float> (radius * 4.0f, 12.0f).withCentre ({ centre.x, circle.getBottom() + 9.0f }),
-                        juce::Justification::centred);
+            const auto caption = getCaptionBounds (osc, centres, radius);
+            if (isStacked())
+            {
+                g.drawText (FmOperatorInfo::tuningText (processorRef, osc), caption.withTrimmedBottom (caption.getHeight() * 0.5f).toNearestInt(),
+                            juce::Justification::bottomLeft);
+                g.drawText (FmOperatorInfo::levelText (processorRef, osc), caption.withTrimmedTop (caption.getHeight() * 0.5f).toNearestInt(),
+                            juce::Justification::topLeft);
+            }
+            else
+                g.drawText (getNodeCaption (osc), caption.toNearestInt(), juce::Justification::centred);
 
             // Oscillators that ignore FM: a dashed ring and a tag under them.
             if (! receivesFm (processorRef, osc))
@@ -282,9 +350,13 @@ public:
 
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("NO FM IN", juce::Rectangle<float> (radius * 3.0f, 12.0f)
-                                           .withCentre ({ centre.x, circle.getBottom() + 21.0f }),
-                            juce::Justification::centred);
+                if (isStacked())
+                    g.drawText ("NO FM IN", caption.withY (caption.getBottom()).withHeight (12.0f).toNearestInt(),
+                                juce::Justification::topLeft);
+                else
+                    g.drawText ("NO FM IN", juce::Rectangle<float> (radius * 3.0f, 12.0f)
+                                               .withCentre ({ centre.x, circle.getBottom() + 21.0f }),
+                                juce::Justification::centred);
             }
         }
     }
@@ -365,45 +437,160 @@ private:
 
 public:
     // "x1.00  50%": an operator's tuning (ratio, fixed Hz or semitones) and
-    // its level.
+    // its level (on the Operator Env, its output in dB), as PLAY and OSC
+    // read it too (FmOperatorInfo).
     juce::String getNodeCaption (int osc) const
     {
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)]);
-        const auto tune = juce::roundToInt (read (prefix + "_tune"));
-        juce::String tuning;
+        return FmOperatorInfo::tuningText (processorRef, osc) + "  " + FmOperatorInfo::levelText (processorRef, osc);
+    }
 
-        if (tune == OscTuning::Ratio)
-            tuning = "x" + juce::String (processorRef.getSnappedRatio (osc), 2);
-        else if (tune == OscTuning::Fixed)
-            tuning = juce::String (juce::roundToInt (read (prefix + "_fixed_hz"))) + " Hz";
-        else
-        {
-            const auto semi = juce::roundToInt (read (prefix + "_semi"));
-            tuning = (semi > 0 ? "+" : "") + juce::String (semi) + " st";
-        }
+    // DX stacks for four or more operators, a triangle for up to three.
+    bool isStacked() const { return shownOscillators().size() > 3; }
 
-        return tuning + "  " + juce::String (juce::roundToInt (read (prefix + "_level") * 100.0f)) + "%";
+    // How many rows the stacks take (1 for the triangle).
+    int getStackRows() const
+    {
+        const auto levels = stackLevels();
+        auto rows = 1;
+        for (const auto level : levels)
+            rows = juce::jmax (rows, level + 1);
+        return isStacked() ? rows : 1;
+    }
+
+    // The height under which nodes, captions and arrows would crowd.
+    int getMinimumHeight() const
+    {
+        return isStacked() ? getStackRows() * (2 * minimumStackRadius + (int) stackGap) + 12 : 150;
+    }
+
+    // Where each shown operator is drawn, and how big (for the UI test).
+    std::vector<juce::Rectangle<float>> getNodeBounds() const
+    {
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        std::vector<juce::Rectangle<float>> nodes;
+        for (const auto osc : shownOscillators())
+            nodes.push_back (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centres[(size_t) osc]));
+        return nodes;
+    }
+
+    std::vector<juce::Rectangle<float>> getCaptionBoundsList() const
+    {
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        std::vector<juce::Rectangle<float>> captions;
+        for (const auto osc : shownOscillators())
+            captions.push_back (getCaptionBounds (osc, centres, radius));
+        return captions;
     }
 
 private:
 
+    // A stacked node's smallest radius, and the room between rows for the
+    // arrow and its amount.
+    static constexpr int minimumStackRadius = 15;
+    static constexpr float stackGap = 20.0f;
+
     float operatorRadius() const
     {
+        if (isStacked())
+        {
+            const auto rows = (float) getStackRows();
+            const auto widest = (float) widestRow();
+            const auto rowHeight = layoutArea().getHeight() / rows;
+            // Room in each slot for the node and its caption beside it.
+            const auto slot = layoutArea().getWidth() / widest;
+            return juce::jlimit ((float) minimumStackRadius, 28.0f, juce::jmin ((rowHeight - stackGap) * 0.5f, (slot - 62.0f) * 0.5f));
+        }
         const auto size = (float) juce::jmin (getWidth(), getHeight() - (int) hintHeight);
-        return shownOscillators().size() <= 3 ? juce::jlimit (26.0f, 44.0f, size * 0.11f)
-                                              : juce::jlimit (20.0f, 36.0f, size * 0.085f);
+        return juce::jlimit (26.0f, 44.0f, size * 0.11f);
+    }
+
+    // The stacks' rows: 0 for the operators heard (and modulators that
+    // reach nothing shown), then each modulator one above the deepest it
+    // drives. Loops stop at the number of operators.
+    std::array<int, OscillatorIds::count> stackLevels() const
+    {
+        const auto shown = shownOscillators();
+        std::array<int, OscillatorIds::count> level;
+        level.fill (-1);
+        const auto isShown = [&shown] (int osc) { return std::find (shown.begin(), shown.end(), osc) != shown.end(); };
+        const auto routed = [&] (int source, int target)
+        {
+            return source != target && isShown (source) && isShown (target) && read (routeId (source, target)) > 0.001f;
+        };
+
+        for (const auto osc : shown)
+        {
+            auto drivesAny = false;
+            for (const auto target : shown)
+                drivesAny = drivesAny || routed (osc, target);
+            if (read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_out") > 0.5f || ! drivesAny)
+                level[(size_t) osc] = 0;
+        }
+
+        for (size_t pass = 0; pass < shown.size(); ++pass)
+            for (const auto source : shown)
+                for (const auto target : shown)
+                    if (routed (source, target) && level[(size_t) target] >= 0 && level[(size_t) source] != 0)
+                        level[(size_t) source] = juce::jmin ((int) shown.size() - 1,
+                                                             juce::jmax (level[(size_t) source], level[(size_t) target] + 1));
+
+        for (const auto osc : shown)
+            level[(size_t) osc] = juce::jmax (0, level[(size_t) osc]);
+        return level;
+    }
+
+    int widestRow() const
+    {
+        const auto levels = stackLevels();
+        std::array<int, OscillatorIds::count> perRow {};
+        auto widest = 1;
+        for (const auto osc : shownOscillators())
+            widest = juce::jmax (widest, ++perRow[(size_t) levels[(size_t) osc]]);
+        return widest;
+    }
+
+    // The area operators are placed in: the hint's strip at the bottom goes
+    // while there are no routes, and the noise node's corner while it plays.
+    juce::Rectangle<float> layoutArea() const
+    {
+        auto area = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+        if (! anyRouteShown())
+            area.removeFromBottom (hintHeight);
+        if (anyNoiseShown())
+            area.removeFromLeft (60.0f);
+        return area;
+    }
+
+    bool anyRouteShown() const
+    {
+        const auto shown = shownOscillators();
+        for (const auto source : shown)
+            for (const auto target : shown)
+                if (read (routeId (source, target)) > 0.001f)
+                    return true;
+        return false;
+    }
+
+    bool anyNoiseShown() const
+    {
+        for (const auto target : shownOscillators())
+            if (read ("fm_noise" + juce::String (target + 1)) > 0.001f)
+                return true;
+        return false;
     }
 
     std::array<juce::Point<float>, OscillatorIds::count> operatorCentres() const
     {
         const auto shown = shownOscillators();
         const auto count = (int) shown.size();
-        // The bottom strip holds the hint text and the noise node.
-        const auto bounds = getLocalBounds().toFloat().withTrimmedBottom (hintHeight).reduced (operatorRadius() * 1.6f);
         std::array<juce::Point<float>, OscillatorIds::count> centres {};
 
         if (count <= 3)
         {
+            // The bottom strip holds the hint text and the noise node.
+            const auto bounds = getLocalBounds().toFloat().withTrimmedBottom (hintHeight).reduced (operatorRadius() * 1.6f);
             // An upside-down triangle: OSC 1 and 2 on top, OSC 3 below.
             // It spans 1.5 x its vertical spread top to bottom; in a wide,
             // short area it widens (up to 2.2 x) rather than shrinking.
@@ -423,20 +610,127 @@ private:
             return centres;
         }
 
-        // More operators sit around a ring, which leaves room for arrows both
-        // ways. It starts half a step before the top, so four make a square
-        // and six a flat hexagon that uses a wide, short area well.
-        for (int i = 0; i < count; ++i)
+        // DX stacks. Each row's slots are as wide as the widest row allows,
+        // with room on the right of each node for its caption.
+        const auto levels = stackLevels();
+        const auto rows = getStackRows();
+        const auto area = layoutArea();
+        const auto rowHeight = area.getHeight() / (float) rows;
+        const auto slot = area.getWidth() / (float) widestRow();
+        const auto captionShift = juce::jmin (26.0f, slot * 0.25f); // node left of its slot's centre
+
+        for (int row = 0; row < rows; ++row)
         {
-            const auto angle = juce::MathConstants<float>::twoPi * ((float) i - 0.5f) / (float) count
-                               - juce::MathConstants<float>::halfPi;
-            centres[(size_t) shown[(size_t) i]] = bounds.getCentre()
-                                                  + juce::Point<float> (std::cos (angle) * bounds.getWidth() * 0.45f,
-                                                                        std::sin (angle) * bounds.getHeight() * 0.5f);
+            std::vector<std::pair<float, int>> placed; // desired x, operator
+            for (const auto osc : shown)
+            {
+                if (levels[(size_t) osc] != row)
+                    continue;
+                // The bottom row in order; above it, over what each drives.
+                auto desired = 0.0f;
+                auto targets = 0;
+                if (row > 0)
+                    for (const auto target : shown)
+                        if (target != osc && levels[(size_t) target] < row && read (routeId (osc, target)) > 0.001f)
+                        {
+                            desired += centres[(size_t) target].x + captionShift; // its slot's centre
+                            ++targets;
+                        }
+                placed.push_back ({ targets > 0 ? desired / (float) targets : -1.0f, osc });
+            }
+            if (placed.empty())
+                continue;
+
+            const auto rowWidth = slot * (float) placed.size();
+            auto x = area.getCentreX() - rowWidth * 0.5f + slot * 0.5f;
+            for (auto& item : placed)
+            {
+                if (item.first < 0.0f)
+                    item.first = x;
+                x += slot;
+            }
+            std::stable_sort (placed.begin(), placed.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
+
+            // Keep a slot apart, inside the area, as close to the wish as fits.
+            const auto left = area.getX() + slot * 0.5f, right = area.getRight() - slot * 0.5f;
+            std::vector<float> xs;
+            for (const auto& item : placed)
+                xs.push_back (juce::jmax (left, xs.empty() ? item.first : juce::jmax (item.first, xs.back() + slot)));
+            const auto over = xs.back() - right;
+            if (over > 0.0f)
+                for (auto& value : xs)
+                    value -= over;
+            for (size_t i = 1; i < xs.size(); ++i)
+                xs[i] = juce::jmax (xs[i], xs[i - 1] + slot);
+
+            const auto y = area.getBottom() - rowHeight * ((float) row + 0.5f);
+            for (size_t i = 0; i < placed.size(); ++i)
+                centres[(size_t) placed[i].second] = { xs[i] - captionShift, y };
         }
 
-
         return centres;
+    }
+
+    // A route's sideways bend (0: straight) when the straight line would run
+    // through another operator.
+    float bendFor (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
+    {
+        const juce::Line<float> line (centres[(size_t) source], centres[(size_t) target]);
+        for (const auto osc : shownOscillators())
+        {
+            if (osc == source || osc == target)
+                continue;
+            juce::Point<float> nearest;
+            if (line.getDistanceFromPoint (centres[(size_t) osc], nearest) < radius + 5.0f)
+            {
+                // Bow away from the operator in the way, by about a node.
+                const auto direction = (line.getEnd() - line.getStart()) / juce::jmax (1.0f, line.getLength());
+                const juce::Point<float> normal (-direction.y, direction.x);
+                const auto side = (centres[(size_t) osc] - nearest).getDotProduct (normal) > 0.0f ? -1.0f : 1.0f;
+                return side * radius * 2.6f;
+            }
+        }
+        return 0.0f;
+    }
+
+    static void addBentArrow (juce::Path& arrow, juce::Point<float> from, juce::Point<float> to, float bend, float radius, float thickness)
+    {
+        const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
+        const juce::Point<float> normal (-direction.y, direction.x);
+        const auto control = (from + to) * 0.5f + normal * bend;
+        const auto startDirection = (control - from) / juce::jmax (1.0f, from.getDistanceFrom (control));
+        const auto endDirection = (to - control) / juce::jmax (1.0f, to.getDistanceFrom (control));
+        const auto start = from + startDirection * radius;
+        const auto end = to - endDirection * (radius + 6.0f);
+        const auto head = 10.0f + thickness;
+        const auto shaftEnd = end - endDirection * head * 0.8f;
+
+        juce::Path shaft;
+        shaft.startNewSubPath (start);
+        shaft.quadraticTo (control, shaftEnd);
+        juce::PathStrokeType (thickness).createStrokedPath (arrow, shaft);
+        arrow.addArrow ({ shaftEnd - endDirection * 0.5f, end }, 0.0f, head, head);
+    }
+
+    juce::Rectangle<float> feedbackLoop (int osc, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
+    {
+        const auto centre = centres[(size_t) osc];
+        if (isStacked())
+            // On the left, touching the node, clear of the caption on the
+            // right and the arrows above and below.
+            return juce::Rectangle<float> (radius * 0.9f, radius * 0.9f).withCentre (centre + juce::Point<float> (-radius * 1.3f, 0.0f));
+        auto outward = centre - getLocalBounds().toFloat().getCentre();
+        const auto length = outward.getDistanceFromOrigin();
+        outward = length > 1.0f ? outward / length : juce::Point<float> (0.0f, -1.0f);
+        return juce::Rectangle<float> (radius * 1.1f, radius * 1.1f).withCentre (centre + outward * radius * 1.25f);
+    }
+
+    juce::Rectangle<float> getCaptionBounds (int osc, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
+    {
+        const auto centre = centres[(size_t) osc];
+        if (isStacked())
+            return { centre.x + radius + 5.0f, centre.y - 13.0f, 50.0f, 26.0f };
+        return juce::Rectangle<float> (radius * 4.0f, 12.0f).withCentre ({ centre.x, centre.y + radius + 9.0f });
     }
 
     juce::Rectangle<float> noiseNode() const

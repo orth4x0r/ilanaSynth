@@ -124,20 +124,25 @@ inline std::vector<Value> values (const Dx7::Voice& v)
                 set (fmId (s + 1, t + 1), 1.0f);
     if (r.feedbackOp >= 0 && v[135] > 0)
         set (fmId (r.feedbackOp + 1, r.feedbackOp + 1), std::exp2 (-(8.0f - (float) v[135])));
+    set (OperatorEg::dx7AlgorithmId, (float) (v[134] + 1));
 
     // Macros as mod slots: BRIGHT deepens the modulators, TONE closes the
     // filter, DRIFT detunes, SPACE opens the reverb.
     static const auto destinations = Mod::getDestinationNames();
     auto slot = 1;
-    const auto route = [&] (int macro, const juce::String& destination, float amount)
+    const auto routeFrom = [&] (Mod::Source source, const juce::String& destination, float amount)
     {
         const auto d = destinations.indexOf (destination);
         if (d <= 0)
             return;
         const auto prefix = "mod" + std::to_string (slot++);
-        set (prefix + "_src", (float) ((int) Mod::Source::Macro1 + macro));
+        set (prefix + "_src", (float) (int) source);
         set (prefix + "_dst", (float) d);
         set (prefix + "_amt", amount);
+    };
+    const auto route = [&] (int macro, const juce::String& destination, float amount)
+    {
+        routeFrom ((Mod::Source) ((int) Mod::Source::Macro1 + macro), destination, amount);
     };
     // With no modulators (organs, alg 32) BRIGHT lifts the upper carriers.
     auto anyModulator = false;
@@ -149,6 +154,11 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     route (1, "Filter1 Cutoff", -0.55f);
     route (2, "Drift", 0.6f);
     route (3, "Reverb Mix", 0.35f);
+    // The wheel and pressure add vibrato, as a DX7's do with their range at
+    // 99 on PITCH (the LFO's PITCH DEPTH, scaled by PITCH SENS). They move
+    // nothing until touched.
+    routeFrom (Mod::Source::ModWheel, "Op LFO Pitch Depth", 1.0f);
+    routeFrom (Mod::Source::Aftertouch, "Op LFO Pitch Depth", 1.0f);
     return out;
 }
 

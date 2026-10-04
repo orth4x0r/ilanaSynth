@@ -10,6 +10,7 @@
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
 #include "AnimationUtils.h"
+#include "FmOperatorInfo.h"
 
 // The patch's envelopes at a glance, Phase Plant style: the added and the
 // assigned ones, then a "+" card for the next. Cards keep one size (five fit
@@ -249,13 +250,14 @@ private:
         return 0.0f;
     }
 
-    // The amp envelope always plays; the filter envelopes count when their
+    // The amp envelope plays unless every oscillator is on the Operator Env
+    // (a DX7 voice: UI review 6, I6-2); the filter envelopes count when their
     // filter's env amount is set; any envelope counts when routed in the matrix.
     bool isInUse (int env) const
     {
         const auto& info = envs[(size_t) env];
 
-        if (info.source == Mod::Source::AmpEnv)
+        if (info.source == Mod::Source::AmpEnv && FmOperatorInfo::ampEnvelopeInUse (processorRef))
             return true;
 
         if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
@@ -267,7 +269,7 @@ private:
         // As an oscillator's amp envelope or its warp (DCW) envelope, whose
         // choices start with Off.
         for (const auto* prefix : OscillatorIds::prefixes)
-            if ((int) readParam (juce::String (prefix) + "_amp_env") == env
+            if (((int) readParam (juce::String (prefix) + "_amp_env") == env && info.source != Mod::Source::AmpEnv)
                 || (int) readParam (juce::String (prefix) + "_pd_env") == env + 1)
                 return true;
 
@@ -384,8 +386,10 @@ private:
         const auto& info = envs[(size_t) env];
         juce::StringArray fixed;
 
-        if (info.source == Mod::Source::AmpEnv)
+        if (info.source == Mod::Source::AmpEnv && FmOperatorInfo::ampEnvelopeInUse (processorRef))
             fixed.add ("Amp");
+        else if (info.source == Mod::Source::AmpEnv)
+            fixed.add ("unused (Op Env)");
         if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
             fixed.add ("Filter 1");
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)

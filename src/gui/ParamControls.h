@@ -203,6 +203,9 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case Mod::Source::InputEnv:   return juce::Colour (0xffc9b79c); // sand
         case Mod::Source::VectorX:    return juce::Colour (0xff7fe0d8);
         case Mod::Source::VectorY:    return juce::Colour (0xff6fb8ff);
+        // The Operator Env's: the FM page's amber, and a lighter one.
+        case Mod::Source::OpLfo:      return juce::Colour (0xffe3a56f);
+        case Mod::Source::OpPitchEnv: return juce::Colour (0xfff0c99a);
         default: break;
     }
 

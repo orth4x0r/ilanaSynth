@@ -27,6 +27,9 @@
 #include "PluginEditor.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/FmWidgets.h"
+#include "gui/FmDiagram.h"
+#include "gui/OperatorEnvDisplay.h"
+#include "gui/OperatorPoolCards.h"
 #include "gui/LfoThumbs.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/FilterDisplay.h"
@@ -1398,28 +1401,37 @@ int runUiTests()
             set ("osc2_level", 0.33f);
             settle (200);
 
+            // The DX7 page: cell 5 is DX7 algorithm 5, under its own number.
+            strip->setPage (FmAlgorithmStrip::dx7Low);
+            settle (100);
             auto source = juce::Desktop::getInstance().getMainMouseSource();
-            const auto at = strip->getCellCentre (10).toFloat();
+            const auto at = strip->getCellCentre (4).toFloat();
             const auto now = juce::Time::getCurrentTime();
             const juce::MouseEvent click (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
                                           strip, strip, now, at, now, 1, false);
             static_cast<juce::Component&> (*strip).mouseDown (click);
             static_cast<juce::Component&> (*strip).mouseUp (click);
             settle (400);
-            expect (processor.findMatchingFmAlgorithm() == 10 && processor.isOscillatorShown (5),
-                    "clicking algorithm 11 (DX 5 Keys) routes six operators");
+            expect (processor.findMatchingDx7Algorithm() == 5 && processor.isOscillatorShown (5),
+                    "clicking DX7 algorithm 5 routes six operators and is found as 5");
             expect (visibleKnob ("fm_6to5") && visibleKnob ("fm_noise6"),
                     "the FM matrix grows to six operators, with the noise row");
 
             processor.getUndoManager().undo();
             settle (300);
-            const auto afterUndo = processor.findMatchingFmAlgorithm();
+            const auto afterUndo = processor.findMatchingDx7Algorithm();
             const auto level = processor.apvts.getRawParameterValue ("osc2_level")->load();
             processor.getUndoManager().redo();
             settle (300);
-            expect (afterUndo != 10 && std::abs (level - 0.33f) < 0.01f && processor.findMatchingFmAlgorithm() == 10,
+            expect (afterUndo != 5 && std::abs (level - 0.33f) < 0.01f && processor.findMatchingDx7Algorithm() == 5,
                     "undo reverts an algorithm as one step and keeps the edit before it (level "
                         + juce::String (level, 2) + ")");
+            expect (strip->getNumCells() == 16 && strip->dx7NumberAt (15) == 16,
+                    "the DX7 1-16 page holds sixteen DX7 algorithms by number");
+            strip->setPage (FmAlgorithmStrip::dx7High);
+            expect (strip->getNumCells() == 16 && strip->dx7NumberAt (0) == 17 && strip->dx7NumberAt (15) == 32,
+                    "the DX7 17-32 page holds the other sixteen");
+            strip->setPage (FmAlgorithmStrip::basic);
         }
         else
         {
@@ -1439,6 +1451,191 @@ int runUiTests()
         set ("osc2_tune", (float) OscTuning::Fixed);
         settle (400);
         expect (visibleKnob ("osc2_fixed_hz") && ! visibleKnob ("osc2_ratio"), "Fixed tuning swaps RATIO for FIXED");
+
+        // UI review 6: DX7 voices on the FM page. Every eighth factory DX7
+        // voice: its algorithm lit under its number, the diagram's nodes
+        // apart and inside it with their captions, at least its minimum
+        // height; the Amp Env shown as unused; the wheel and pressure routed.
+        {
+            auto voices = 0, lit = 0, laidOut = 0, ampUnused = 0, wheel = 0;
+            juce::String firstBad;
+            for (int index = 0; index < names.size(); ++index)
+            {
+                if (! names[index].contains ("(ROM") || index % 8 != 0)
+                    continue;
+                processor.loadFactoryPreset (index);
+                pages->showPage ("FM");
+                settle (150);
+                ++voices;
+                auto* strip = findChild<FmAlgorithmStrip> (*editor);
+                auto* diagram = findChild<FmDiagram> (*editor);
+                if (strip == nullptr || diagram == nullptr)
+                    continue;
+                strip->refreshMatch();
+                const auto stored = juce::roundToInt (processor.apvts.getRawParameterValue (OperatorEg::dx7AlgorithmId)->load());
+                lit += stored > 0 && strip->getMatchingDx7() == stored ? 1 : 0;
+
+                const auto nodes = diagram->getNodeBounds();
+                const auto captions = diagram->getCaptionBoundsList();
+                const auto area = diagram->getLocalBounds().toFloat();
+                auto apart = diagram->getHeight() >= diagram->getMinimumHeight();
+                for (size_t i = 0; i < nodes.size(); ++i)
+                {
+                    apart = apart && area.contains (nodes[i]) && area.contains (captions[i]);
+                    for (size_t j = 0; j < nodes.size(); ++j)
+                        apart = apart && (i == j || (! nodes[i].intersects (nodes[j]) && ! captions[i].intersects (nodes[j])
+                                                     && ! captions[i].intersects (captions[j])));
+                }
+                laidOut += apart ? 1 : 0;
+                if (! apart && firstBad.isEmpty())
+                {
+                    firstBad = names[index] + " in " + diagram->getLocalBounds().toString() + ":";
+                    for (size_t i = 0; i < nodes.size(); ++i)
+                        firstBad << " [" << nodes[i].toString() << " / " << captions[i].toString() << "]";
+                }
+                ampUnused += FmOperatorInfo::ampEnvelopeInUse (processor) ? 0 : 1;
+
+                auto routes = 0;
+                for (int slot = 0; slot < Mod::maxSlots; ++slot)
+                {
+                    const auto routing = processor.readModSlot (slot);
+                    routes += (routing.source == Mod::Source::ModWheel || routing.source == Mod::Source::Aftertouch)
+                                      && Mod::getDestinationNames()[routing.destination] == "Op LFO Pitch Depth"
+                                  ? 1 : 0;
+                }
+                wheel += routes == 2 ? 1 : 0;
+            }
+            expect (voices >= 30 && lit == voices, "every DX7 voice lights its algorithm by number ("
+                                                       + juce::String (lit) + " of " + juce::String (voices) + ")");
+            expect (laidOut == voices, "the FM diagram never overlaps or clips a DX7 voice's operators ("
+                                           + juce::String (laidOut) + " of " + juce::String (voices)
+                                           + (firstBad.isNotEmpty() ? ", first " + firstBad : juce::String()) + ")");
+            expect (ampUnused == voices, "a DX7 voice's Amp Env reads as unused (its operators play the Operator Env)");
+            expect (wheel == voices, "a DX7 voice routes the wheel and pressure to the Op LFO's pitch depth");
+
+            // The tallest DX7 stacks fit too.
+            processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
+            for (const auto number : { 1, 2, 3, 14, 17, 18 })
+            {
+                processor.applyDx7Algorithm (number);
+                settle (150);
+                auto* diagram = findChild<FmDiagram> (*editor);
+                auto apart = diagram != nullptr && diagram->getHeight() >= diagram->getMinimumHeight();
+                if (diagram != nullptr)
+                {
+                    const auto nodes = diagram->getNodeBounds();
+                    for (size_t i = 0; i < nodes.size(); ++i)
+                        for (size_t j = 0; j < nodes.size(); ++j)
+                            apart = apart && diagram->getLocalBounds().toFloat().contains (nodes[i]) && (i == j || ! nodes[i].intersects (nodes[j]));
+                }
+                expect (apart, "DX7 algorithm " + juce::String (number) + "'s stack fits the diagram without overlaps");
+            }
+
+            // The operator card speaks the synth's words: a rate as a time, a
+            // level as dB, the output as LEVEL and the oscillator level as TRIM.
+            processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
+            pages->showPage ("FM");
+            settle (300);
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == "OSC 1" && visibleInTree (button))
+                    button->triggerClick();
+            settle (300);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            juce::String attackText, peakText, levelLabel, trimLabel;
+            for (auto* knob : knobs)
+            {
+                const auto id = knob->getParameterId();
+                if (id == "osc1_eg_r1")
+                    attackText = knob->getLabelText() + " " + knob->getSlider().getTextFromValue (knob->getSlider().getValue());
+                if (id == "osc1_eg_l1")
+                    peakText = knob->getLabelText() + " " + knob->getSlider().getTextFromValue (knob->getSlider().getValue());
+                if (id == "osc1_eg_out" && visibleInTree (knob))
+                    levelLabel = knob->getLabelText();
+                if (id == "osc1_level")
+                    trimLabel = knob->getLabelText();
+            }
+            expect (attackText.startsWith ("ATTACK ") && (attackText.endsWith (" ms") || attackText.endsWith (" s"))
+                        && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "LEVEL" && trimLabel == "TRIM",
+                    "the Operator Env reads in the synth's words and units (" + attackText + ", " + peakText + ")");
+
+            // Its graph is an editor: four handles inside the plot.
+            OperatorEnvDisplay* graph = nullptr;
+            std::vector<OperatorEnvDisplay*> graphs;
+            findAll<OperatorEnvDisplay> (*editor, graphs);
+            for (auto* candidate : graphs)
+                if (visibleInTree (candidate))
+                    graph = candidate;
+            auto handlesInside = graph != nullptr;
+            if (graph != nullptr)
+                for (const auto point : graph->getHandlePositions())
+                    handlesInside = handlesInside && graph->getLocalBounds().toFloat().contains (point);
+            expect (handlesInside, "the Operator Env graph shows its four stage handles");
+
+            // FB TYPE dims without a feedback route (OSC 1 on E.PIANO 1);
+            // empty matrix cells are dots (their knobs hidden until hovered).
+            std::vector<ComboControl*> combos;
+            findAll<ComboControl> (*editor, combos);
+            auto fbDimmed = false;
+            for (auto* combo : combos)
+                if (visibleInTree (combo) && combo->getComboBox().getText() == "DX7")
+                    fbDimmed = fbDimmed || combo->getAlpha() < 1.0f;
+            expect (fbDimmed, "FB TYPE dims on an operator with no feedback route");
+            auto emptyHidden = false, usedShown = false;
+            for (auto* knob : knobs)
+            {
+                if (! visibleInTree (knob))
+                    continue;
+                if (knob->getParameterId() == FmDiagram::routeId (0, 1))
+                    emptyHidden = knob->getAlpha() < 0.01f;
+                if (knob->getParameterId() == FmDiagram::routeId (1, 0))
+                    usedShown = knob->getAlpha() > 0.99f;
+            }
+            expect (emptyHidden && usedShown, "an empty FM cell is a dot; a route in use shows its knob");
+
+            // A switched-off oscillator's row is greyed and can't be edited.
+            set ("osc2_on", 0.0f);
+            settle (300);
+            auto offRow = false;
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == FmDiagram::routeId (1, 0))
+                    offRow = ! knob->isEnabled();
+            expect (offRow, "an off oscillator's matrix row can't be edited");
+            set ("osc2_on", 1.0f);
+
+            // PITCH & LFO opens the voice's pitch envelope.
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == "PITCH & LFO" && visibleInTree (button))
+                    button->triggerClick();
+            settle (300);
+            graphs.clear();
+            findAll<OperatorEnvDisplay> (*editor, graphs);
+            auto pitchShown = false;
+            for (auto* candidate : graphs)
+                pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
+            expect (pitchShown, "PITCH & LFO shows the pitch envelope's graph");
+
+            // The MOD pools carry the Operator Env's cards while it plays.
+            pages->showPage ("ENV/LFO");
+            settle (300);
+            std::vector<OperatorPoolCard*> cards;
+            findAll<OperatorPoolCard> (*editor, cards);
+            auto shownCards = 0;
+            for (auto* card : cards)
+                shownCards += visibleInTree (card) ? 1 : 0;
+            expect (shownCards == 3, "a DX7 voice shows OP ENV, OP PITCH and OP LFO in the MOD pools ("
+                                         + juce::String (shownCards) + ")");
+            processor.loadFactoryPreset (neuroWobble);
+            settle (300);
+            shownCards = 0;
+            for (auto* card : cards)
+                shownCards += visibleInTree (card) ? 1 : 0;
+            expect (shownCards == 0, "a patch without the Operator Env shows none of its cards");
+            pages->showPage ("FM");
+            settle (200);
+        }
 
         // OSC: picking a warp opens the PD chain row.
         pages->showPage ("OSC");
@@ -4807,6 +5004,53 @@ int main (int argc, char** argv)
     if (pages == nullptr)
         return 1;
 
+    // ILANA_SNAPSHOT_FM: just the FM page (UI review 6's DX7 pass): the
+    // first operator, its KEYS & VELOCITY tab, PITCH & LFO, each other
+    // operator, then the patch on DX7 algorithm 1 (the tallest stack); then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FM", "").isNotEmpty())
+    {
+        pages->showPage ("FM");
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-1.png"));
+        auto* page = pages->getCurrentPage();
+        std::vector<CardTabs*> tabs;
+        findAll<CardTabs> (*page, tabs);
+        for (auto* tab : tabs)
+            if (tab->isVisible() && tab->getNames().contains ("KEYS & VELOCITY"))
+            {
+                tab->setSelected (1, true);
+                settle (300);
+                save (*editor, outDir.getChildFile ("fm-1-keys.png"));
+                tab->setSelected (0, true);
+            }
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*page, buttons);
+        for (auto* button : buttons)
+            if (button->getButtonText() == "PITCH & LFO" && button->onClick != nullptr)
+            {
+                button->onClick();
+                settle (300);
+                save (*editor, outDir.getChildFile ("fm-pitch-lfo.png"));
+            }
+        for (auto* button : buttons)
+            if (button->getButtonText().startsWith ("OSC ") && button->isVisible() && button->getButtonText() != "OSC 1")
+            {
+                button->onClick();
+                settle (200);
+                save (*editor, outDir.getChildFile ("fm-" + button->getButtonText().getLastCharacters (1) + ".png"));
+            }
+        processor.applyDx7Algorithm (1);
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-dx7-algorithm-1.png"));
+        // OSC 2's WARP FM from OSC 1, drawn dashed beside the routes.
+        for (const auto& [id, value] : { std::pair<const char*, float> { "osc2_warp", (float) Warp::Fm }, { "osc2_warp_amt", 0.5f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        settle (400);
+        save (*editor, outDir.getChildFile ("fm-warp.png"));
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_EXTRAS: the UI review 2 additions (the SPEC view, a
     // knob's source card, the docked browser), then stop.
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_EXTRAS", "").isNotEmpty())
@@ -4974,14 +5218,14 @@ int main (int argc, char** argv)
                 bars[b]->onSelect (0);
         }
 
-        // The FM page's Operator EG PITCH / LFO tab (shown while an
-        // oscillator uses the Operator EG, as a DX7 preset's do).
+        // The FM page's PITCH & LFO (the Operator Env's pitch envelope and
+        // LFO, which a DX7 preset's operators follow).
         if (auto* page = pages->getCurrentPage())
         {
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*page, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "PITCH / LFO" && button->isVisible() && button->onClick != nullptr)
+                if (button->getButtonText() == "PITCH & LFO" && button->isVisible() && button->onClick != nullptr)
                 {
                     button->onClick();
                     settle (300);

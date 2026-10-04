@@ -23,6 +23,7 @@
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Evolve.h"
+#include "dsp/FmAlgorithms.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -399,6 +400,10 @@ public:
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
+    // The Operator Env of the loudest voice: seconds since its note began
+    // and since its key was let go (-1: held, or no such note).
+    float getOpEnvMonitorSeconds() const { return monitorOpEnvSeconds.load(); }
+    float getOpEnvMonitorRelease() const { return monitorOpEnvRelease.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
     // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
     // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
@@ -434,10 +439,19 @@ public:
     // FmAlgorithms (adding the operators it needs). Existing routes keep
     // their amounts. Message thread.
     void applyFmAlgorithm (int index);
+    // The same for the DX7's algorithm 1-32 (all six operators), which the
+    // FM page then names.
+    void applyDx7Algorithm (int number);
     // The algorithm the current routing matches, or -1.
     int findMatchingFmAlgorithm() const;
+    // The DX7 algorithm (1-32) the routing is, or 0: six operators on, the
+    // DX7's routes and carriers, its feedback operator or none.
+    int findMatchingDx7Algorithm() const;
     // [source][target] FM parameter id, 0-based.
     static juce::String fmRouteId (int source, int target);
+private:
+    void applyFmRouting (const FmAlgorithms::Algorithm& algorithm, int dx7Number);
+public:
     // An operator's sounding ratio after SNAP (for display).
     double getSnappedRatio (int osc) const;
     // Added to the patch, or routed in the matrix (message thread).
@@ -1030,6 +1044,9 @@ private:
     std::atomic<float> envMonitorFilter2 { 0.0f };
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
+    // The loudest voice's Operator Env LFO and pitch envelope (review 6).
+    std::atomic<float> monitorOpLfo { 0.0f }, monitorOpPitch { 0.0f };
+    std::atomic<float> monitorOpEnvSeconds { -1.0f }, monitorOpEnvRelease { -1.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<float>, 16> envMonitorPositions {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };

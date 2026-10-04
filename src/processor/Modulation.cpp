@@ -980,6 +980,8 @@ float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
         case Mod::Source::Random:     return monitorRandom.load();
         case Mod::Source::ClockSh:    return clockShValue;
         case Mod::Source::Mseg:       return lfoBuffers.getNumSamples() > 0 ? lfoBuffers.getSample (5, 0) : 0.0f;
+        case Mod::Source::OpLfo:      return monitorOpLfo.load();
+        case Mod::Source::OpPitchEnv: return monitorOpPitch.load();
         default:                      return staticSourceValue ((int) source);
     }
 }
@@ -1093,6 +1095,8 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         case Mod::Source::Random:     return monitorRandom.load();
         case Mod::Source::Mseg:       return msegDisplay.load();
         case Mod::Source::InputEnv:   return inputEnvDisplay.load();
+        case Mod::Source::OpLfo:      return monitorOpLfo.load();
+        case Mod::Source::OpPitchEnv: return monitorOpPitch.load();
         default:                      return 0.0f;
     }
 }

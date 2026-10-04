@@ -47,6 +47,9 @@ enum class Source
     VectorX, VectorY,
     // Macros 5-8 (appended after the review; 1-4 keep their indices).
     Macro5, Macro6, Macro7, Macro8,
+    // Review 6: the Operator Env's own LFO and pitch envelope (the DX7's),
+    // per voice, -1..1; 0 while no oscillator plays the Operator Env.
+    OpLfo, OpPitchEnv,
     Count
 };
 
@@ -113,7 +116,8 @@ inline bool isBipolarSource (Source source)
             return true;
         default:
             return (source >= Source::Lfo5 && source <= Source::Lfo16)
-                   || (source >= Source::Lfo1B && source <= Source::Lfo16B);
+                   || (source >= Source::Lfo1B && source <= Source::Lfo16B)
+                   || source == Source::OpLfo || source == Source::OpPitchEnv;
         // (VectorX / VectorY run 0..1.)
     }
 }
@@ -129,6 +133,7 @@ inline bool isPerVoiceSource (Source source)
     {
         case Source::ModEnv: case Source::FilterEnv: case Source::AmpEnv: case Source::Velocity:
         case Source::KeyTrack: case Source::Random: case Source::Env4: case Source::FilterEnv2:
+        case Source::OpLfo: case Source::OpPitchEnv:
             return true;
         default:
             return false;
@@ -469,6 +474,22 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         // is rebuilt on the spectral worker (SpectralCache, 64 steps).
         for (int osc = 0; osc < 6; ++osc)
             add (juce::String (prefixes[osc]) + "_spectral_amt", "Osc" + juce::String (osc + 1) + " Spectral Amount");
+
+        // Review 6 (append only): the Operator Env, so its main knobs take
+        // modulation like every other envelope's. Read at block rate into
+        // the voice the engine plays; a sounding note follows the change.
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " Op Env ";
+            add (prefix + "_eg_out", name + "Level");
+            add (prefix + "_eg_r1", name + "Attack Rate");
+            add (prefix + "_eg_r4", name + "Release Rate");
+        }
+        add ("opeg_lfo_speed", "Op LFO Rate");
+        add ("opeg_lfo_pmd", "Op LFO Pitch Depth");
+        add ("opeg_lfo_amd", "Op LFO Amp Depth");
+        add ("opeg_pitch_l1", "Op Pitch Env Level 1");
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -631,6 +652,8 @@ inline juce::StringArray getSourceNames()
     names.add ("Vector Y");
     for (int macro = 5; macro <= 8; ++macro)
         names.add ("Macro " + juce::String (macro));
+    names.add ("Op LFO");
+    names.add ("Op Pitch Env");
     return names;
 }
 

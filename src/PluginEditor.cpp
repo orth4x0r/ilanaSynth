@@ -26,6 +26,9 @@
 #include "gui/PhysicalView.h"
 #include "gui/FmDiagram.h"
 #include "gui/FmWidgets.h"
+#include "gui/FmOperatorInfo.h"
+#include "gui/OperatorEnvDisplay.h"
+#include "gui/OperatorPoolCards.h"
 #include "gui/GenerativeWidgets.h"
 #include "gui/ClipEditor.h"
 #include "gui/TableBrowser.h"
@@ -307,6 +310,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     mainPage->onEditOperator = [this] (int op) { showOperatorEnvelope (op); };
 
+    // Any page can open the FM page on an operator, or on PITCH & LFO (-1).
+    FmOperatorInfo::hooks().openOperator = [this, fmPage] (int osc)
+    {
+        if (osc < 0)
+            fmPage->selectVoicePage();
+        else
+            fmPage->selectOperator (osc);
+        showPage ("FM");
+    };
+
     // The scope floats over any page.
     scopePanel = std::make_unique<ScopePanel> (p);
     static_cast<ScopePanel*> (scopePanel.get())->onClose = [this] { setScopeOpen (false); };
@@ -447,6 +460,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
                               ChipSpec { "WHEEL", "WHL", Mod::Source::ModWheel }, ChipSpec { "PRESSURE", "AT", Mod::Source::Aftertouch },
                               ChipSpec { "INPUT", "IN", Mod::Source::InputEnv } })
         chipSpecs.push_back (spec);
+    // The Operator Env's LFO and pitch envelope (UI review 6), shown while an
+    // oscillator plays the Operator Env or the matrix uses them (kind -2).
+    chipSpecs.push_back ({ "OP LFO", "OLFO", Mod::Source::OpLfo, -2 });
+    chipSpecs.push_back ({ "OP PITCH", "OPIT", Mod::Source::OpPitchEnv, -2 });
 
     for (const auto& spec : chipSpecs)
     {
@@ -474,10 +491,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         };
         chip->setShortName (spec.shortName);
         content.addAndMakeVisible (*chip);
-        chip->setVisible (spec.revealKind < 0);
+        chip->setVisible (spec.revealKind == -1);
         chips.push_back (std::move (chip));
         chipReveal.push_back ({ spec.revealKind, spec.revealIndex });
-        chipWanted.push_back (spec.revealKind < 0);
+        chipWanted.push_back (spec.revealKind == -1);
     }
 
     moreChipsButton.setButtonText ("+");
@@ -600,6 +617,7 @@ void IlanaSynthAudioProcessorEditor::closeWavetableEditor()
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
     setGpuRendering (false); // before any child goes: the render thread paints them
+    FmOperatorInfo::hooks().openOperator = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);
@@ -749,11 +767,13 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
     {
         const auto [kind, index] = chipReveal[i];
 
-        if (kind < 0)
+        if (kind == -1)
             continue;
 
         const auto source = juce::jlimit (0, (int) Mod::Source::Count - 1, chips[i]->getSourceIndex());
-        const auto wanted = processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index) || usedModSources[(size_t) source];
+        const auto wanted = (kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
+                                        : processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index))
+                            || usedModSources[(size_t) source];
 
         if (chipWanted[i] != wanted)
         {
@@ -781,7 +801,9 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
     {
         return (float) juce::GlyphArrangement::getStringWidthInt (font, text) + (compact ? 12.0f : 34.0f);
     };
-    const auto picker = std::find (chipWanted.begin(), chipWanted.end(), false) != chipWanted.end();
+    auto picker = false; // a pool chip left to add (the Operator Env's come and go by themselves)
+    for (size_t i = 0; i < chips.size() && i < chipReveal.size(); ++i)
+        picker = picker || (chipReveal[i].first >= 0 && ! chipWanted[i]);
     const auto pickerWidth = picker ? 34.0f : 0.0f;
     const auto total = [&] (bool compact)
     {

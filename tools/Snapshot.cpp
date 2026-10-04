@@ -4777,8 +4777,11 @@ int main (int argc, char** argv)
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, false);
     }
 
-    // M8.1: the simulated LFO shapes, each with its picture and named knobs.
+    // M8.1: the simulated LFO shapes, each with its picture and named knobs
+    // (the envelope pool back to the patch's, so the chips show in full).
     {
+        for (int env = 3; env < 16; ++env)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
         pages->showPage ("ENV/LFO");
         if (auto* page = pages->getCurrentPage())
             if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)

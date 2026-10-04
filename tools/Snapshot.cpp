@@ -2262,6 +2262,63 @@ int runUiTests()
                     opensOnOpEnv = opensOnOpEnv || (visibleInTree (candidate) && ! candidate->isPitch() && visibleInTree (&candidate->getGraph()));
                 expect (inPools && opensOnOpEnv, "a DX7 voice has OP ENV, OP PITCH and OP LFO as MOD pool cards and opens on OP ENV");
 
+                // UI review 8, I8-5: there they come first in their rows, and
+                // stay in view when the pools fill up (cards fold from the
+                // right).
+                if (inPools)
+                {
+                    const auto firstIn = [] (auto& bar, int card, int other)
+                    {
+                        const auto cardBounds = bar.boundsOfCard (card), otherBounds = bar.boundsOfCard (other);
+                        return ! cardBounds.isEmpty() && (otherBounds.isEmpty() || cardBounds.getX() < otherBounds.getX());
+                    };
+                    expect (firstIn (*envCards, 16, 0) && firstIn (*envCards, 17, 0) && firstIn (*lfoCards, opLfoCard, 0),
+                            "on a DX7 voice OP ENV, OP PITCH and OP LFO come first in their pools");
+
+                    using M = IlanaSynthAudioProcessor::Module;
+                    std::vector<bool> lfosBefore, envsBefore;
+                    for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                        lfosBefore.push_back (processor.isRevealed (M::Lfo, lfo));
+                    for (int env = 0; env < 16; ++env)
+                        envsBefore.push_back (processor.isRevealed (M::Envelope, env));
+                    for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                        processor.setRevealed (M::Lfo, lfo, true);
+                    for (int env = 0; env < 16; ++env)
+                        processor.setRevealed (M::Envelope, env, true);
+                    lfoCards->refreshLayout();
+                    envCards->refreshLayout();
+                    settle (200);
+                    const auto lfoFolded = lfoCards->getFoldedCards(), envFolded = envCards->getFoldedCards();
+                    const auto folded = [] (const std::vector<int>& list, int card) { return std::find (list.begin(), list.end(), card) != list.end(); };
+                    expect (! envFolded.empty() && ! lfoFolded.empty() && ! folded (envFolded, 16) && ! folded (envFolded, 17)
+                                && ! folded (lfoFolded, opLfoCard) && envCards->isCardShown (16) && lfoCards->isCardShown (opLfoCard),
+                            "full pools on a DX7 voice keep OP ENV, OP PITCH and OP LFO in view (the others fold)");
+                    for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+                        processor.setRevealed (M::Lfo, lfo, lfosBefore[(size_t) lfo]);
+                    for (int env = 0; env < 16; ++env)
+                        processor.setRevealed (M::Envelope, env, envsBefore[(size_t) env]);
+                    lfoCards->refreshLayout();
+                    envCards->refreshLayout();
+                    settle (100);
+                }
+
+                // UI review 8, I8-18: PLAY's ENVELOPE card on a DX7 voice opens
+                // on an OP ENV tab, first, with AMP ENV beside it dimmed.
+                pages->showPage ("MAIN");
+                settle (400);
+                {
+                    std::vector<CardTabs*> tabs;
+                    if (auto* page = pages->getCurrentPage())
+                        findAll<CardTabs> (*page, tabs);
+                    auto opEnvTab = false;
+                    for (auto* candidate : tabs)
+                        if (visibleInTree (candidate) && candidate->getNames().contains ("AMP ENV"))
+                            opEnvTab = candidate->getNames()[0] == "OP ENV" && candidate->getSelected() == 0;
+                    expect (opEnvTab, "a DX7 voice's PLAY ENVELOPE card opens on OP ENV, its first tab");
+                }
+                pages->showPage ("ENV/LFO");
+                settle (200);
+
                 // OP PITCH opens the pitch envelope's graph, OP LFO its panel
                 // with the shape list in the pool LFOs' order.
                 if (inPools)
@@ -2291,9 +2348,28 @@ int runUiTests()
 
                 processor.loadFactoryPreset (neuroWobble);
                 settle (300);
-                const auto stillThere = lfoCards != nullptr && envCards != nullptr && envCards->isCardInPool (16) && lfoCards->isCardInPool (opLfoCard);
-                expect (stillThere && ! FmOperatorInfo::anyOperatorEnv (processor),
-                        "a patch without the Operator Env keeps its cards in the pools, greyed as unused");
+                // UI review 8, I8-5 / S8-1 / V8-1: elsewhere they are absent
+                // (not greyed), and so is the old MSEG module (I8-4), from the
+                // pools and the source menus.
+                const auto gone = lfoCards != nullptr && envCards != nullptr && ! envCards->isCardInPool (16) && ! envCards->isCardInPool (17)
+                                  && ! lfoCards->isCardInPool (opLfoCard) && ! lfoCards->isCardInPool (IlanaSynthAudioProcessor::numLfos);
+                expect (gone && ! FmOperatorInfo::anyOperatorEnv (processor) && ! modSourceInPatch (processor, Mod::Source::OpLfo)
+                            && ! modSourceInPatch (processor, Mod::Source::OpPitchEnv) && ! modSourceInPatch (processor, Mod::Source::Mseg),
+                        "a patch without the Operator Env has no OP ENV / OP PITCH / OP LFO cards, nor an MSEG card it doesn't use");
+                {
+                    pages->showPage ("MAIN");
+                    settle (300);
+                    std::vector<CardTabs*> tabs;
+                    if (auto* page = pages->getCurrentPage())
+                        findAll<CardTabs> (*page, tabs);
+                    auto noOpTab = true;
+                    for (auto* candidate : tabs)
+                        if (candidate->getNames().contains ("AMP ENV"))
+                            noOpTab = noOpTab && ! candidate->getNames().contains ("OP ENV") && candidate->getNames()[0] == "AMP ENV";
+                    expect (noOpTab, "PLAY's ENVELOPE card has no OP ENV tab on a patch without the Operator Env");
+                    pages->showPage ("ENV/LFO");
+                    settle (100);
+                }
             }
             pages->showPage ("FM");
             settle (200);
@@ -3216,6 +3292,178 @@ int runUiTests()
         expect (p1 != nullptr && ! p1->isVisible() && smooth != nullptr && smooth->isVisible() && start != nullptr && start->isVisible(),
                 "classic shapes keep START and gain SMOOTH");
         expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
+
+        // UI review 8, I8-17 / S8-7 / V8-6: one panel grid for every shape.
+        // SHAPE, SYNC, RETRIG, KEY, RATE and SMOOTH keep their places when
+        // SHAPE changes; nothing in the panel overlaps or leaves it.
+        {
+            // (Combos and switches carry their parameter's name first in
+            // their tooltips.)
+            const auto findToggle = [&editor, &processor] (const juce::String& id) -> juce::Component*
+            {
+                auto* parameter = processor.apvts.getParameter (id);
+                std::vector<ToggleControl*> toggles;
+                findAll<ToggleControl> (*editor, toggles);
+                for (auto* toggle : toggles)
+                    if (parameter != nullptr && visibleInTree (toggle) && toggle->getWidth() > 0
+                        && toggle->getButton().getTooltip().startsWith (parameter->getName (64)))
+                        return toggle;
+                return nullptr;
+            };
+            const auto findCombo = [&editor, &processor] (const juce::String& id) -> juce::Component*
+            {
+                auto* parameter = processor.apvts.getParameter (id);
+                std::vector<ComboControl*> combos;
+                findAll<ComboControl> (*editor, combos);
+                for (auto* combo : combos)
+                    if (parameter != nullptr && visibleInTree (combo) && combo->getWidth() > 0
+                        && combo->getTooltip().startsWith (parameter->getName (64)))
+                        return combo;
+                return nullptr;
+            };
+            const auto placesOf = [&]
+            {
+                std::vector<juce::Rectangle<int>> places;
+                for (auto* component : { findCombo ("lfo1_shape"), findToggle ("lfo1_sync"), findToggle ("lfo1_retrig"),
+                                         findToggle ("lfo1_key"), static_cast<juce::Component*> (knobFor ("lfo1_rate")),
+                                         static_cast<juce::Component*> (knobFor ("lfo1_smooth")) })
+                    places.push_back (component != nullptr && visibleInTree (component) ? component->getBounds() : juce::Rectangle<int>());
+                return places;
+            };
+            // The visible controls of LFO 1's panel: none overlap another.
+            const auto overlaps = [&]
+            {
+                juce::String bad;
+                std::vector<std::pair<juce::String, juce::Rectangle<int>>> boxes;
+                for (const juce::String suffix : { "_shape", "_sync", "_retrig", "_key", "_loop", "_kick", "_trigger", "_axis", "_rate", "_div",
+                                                   "_smooth", "_phase", "_phys_a", "_phys_b", "_stereo", "_seed", "_p1", "_p2", "_p3", "_p4", "_p5", "_p6" })
+                {
+                    const auto id = "lfo1" + suffix;
+                    juce::Component* component = knobFor (id);
+                    if (component == nullptr || ! visibleInTree (component))
+                        component = findToggle (id);
+                    if (component == nullptr)
+                        component = findCombo (id);
+                    if (component != nullptr && visibleInTree (component) && component->getWidth() > 0)
+                        boxes.push_back ({ id, component->getBounds() });
+                }
+                for (size_t a = 0; a < boxes.size(); ++a)
+                    for (size_t b = a + 1; b < boxes.size(); ++b)
+                        if (boxes[a].second.intersects (boxes[b].second))
+                            bad << boxes[a].first << " / " << boxes[b].first << " ";
+                return bad;
+            };
+            juce::String moved, overlapping;
+            setShape (0);
+            settle (300);
+            const auto reference = placesOf();
+            auto allFound = true;
+            for (const auto& place : reference)
+                allFound = allFound && ! place.isEmpty();
+            for (const auto shape : { (int) LfoShapes::Triangle, (int) LfoShapes::Draw, (int) LfoShapes::Curve, (int) LfoShapes::Pendulum,
+                                      (int) LfoSimShapes::Lorenz, (int) LfoSimShapes::Pendulum, (int) LfoSimShapes::Bounce,
+                                      (int) LfoSimShapes::DoublePendulum, (int) LfoSimShapes::Perlin, 0 })
+            {
+                setShape (shape);
+                settle (250);
+                if (placesOf() != reference)
+                    moved << shape << " ";
+                const auto bad = overlaps();
+                if (bad.isNotEmpty())
+                    overlapping << shape << ": " << bad;
+            }
+            expect (allFound && moved.isEmpty(), "SHAPE, SYNC, RETRIG, KEY, RATE and SMOOTH keep their places for every shape (moved on: "
+                                                     + moved + ")");
+            expect (overlapping.isEmpty(), "no two controls of the LFO panel overlap, for any shape (" + overlapping + ")");
+
+            // I8-16: a simulated shape's caption follows TRIGGER.
+            const auto setParam = [&processor] (const juce::String& id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            setShape (LfoSimShapes::Bounce);
+            setParam ("lfo1_trigger", 0.0f);
+            const auto onNote = LfoShapeMenu::runCaption (processor, 0);
+            setParam ("lfo1_trigger", 1.0f);
+            const auto free = LfoShapeMenu::runCaption (processor, 0);
+            setParam ("lfo1_trigger", 0.0f);
+            setShape (0);
+            expect (onNote.contains ("restarts on each note") && free.contains ("runs free") && ! onNote.contains ("free-running")
+                        && onNote.contains ("2 outputs"),
+                    "a Bounce LFO's caption follows TRIGGER ('" + onNote + "' / '" + free + "') and names its two outputs");
+            settle (200);
+        }
+
+        // I8-26: physics units read as units; I8-36: no two shapes share a
+        // name in the SHAPE list.
+        {
+            const auto gravity = LfoSimInfo::text (LfoSimShapes::Bounce, 0, 0.5f), drag = LfoSimInfo::text (LfoSimShapes::Bounce, 3, 0.0f);
+            expect (gravity.endsWith (juce::String::fromUTF8 ("m/s\xc2\xb2")) && drag.endsWith ("per s"),
+                    "physics units read m/s squared and 'per s' (" + gravity + ", " + drag + ")");
+            juce::StringArray shown;
+            juce::String clash;
+            auto* shapeParameter = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("lfo1_shape"));
+            if (shapeParameter != nullptr)
+                for (int shape = 0; shape < shapeParameter->choices.size(); ++shape)
+                {
+                    const auto name = LfoShapeMenu::displayName (shape, shapeParameter->choices[shape]);
+                    if (shown.contains (name))
+                        clash << name << " ";
+                    shown.add (name);
+                }
+            expect (shapeParameter != nullptr && clash.isEmpty(), "every LFO shape has its own name in the SHAPE list (" + clash + ")");
+        }
+    }
+
+    // UI review 8, I8-4 / S8-5 / V8-2: one MSEG. An old patch that routes the
+    // patch-level MSEG shows its card, and MOVE TO LFO puts it on an LFO
+    // drawn the same (SHAPE › MSEG), its routes with it; undo brings it back.
+    {
+        const auto msegSweep = names.indexOf ("MSEG Sweep");
+        processor.loadFactoryPreset (msegSweep);
+        pages->showPage ("ENV/LFO");
+        settle (400);
+        auto* page = pages->getCurrentPage();
+        auto* lfoCards = page != nullptr ? findChild<LfoThumbBar> (*page) : nullptr;
+        const auto msegCard = IlanaSynthAudioProcessor::numLfos;
+        expect (msegSweep >= 0 && lfoCards != nullptr && lfoCards->isCardInPool (msegCard) && modSourceInPatch (processor, Mod::Source::Mseg),
+                "a patch that routes the MSEG module shows its card");
+        if (lfoCards != nullptr && lfoCards->isCardInPool (msegCard))
+        {
+            lfoCards->onSelect (msegCard);
+            settle (300);
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            juce::TextButton* move = nullptr;
+            for (auto* button : buttons)
+                if (button->getButtonText().startsWith ("MOVE TO LFO") && visibleInTree (button))
+                    move = button;
+            expect (move != nullptr, "the MSEG panel offers MOVE TO LFO");
+            if (move != nullptr)
+            {
+                const auto target = move->getButtonText().getTrailingIntValue() - 1;
+                move->triggerClick();
+                settle (300);
+                auto routesMoved = true;
+                auto fromLfo = 0;
+                for (int slot = 0; slot < Mod::maxSlots; ++slot)
+                {
+                    const auto routing = processor.readModSlot (slot);
+                    routesMoved = routesMoved && routing.source != Mod::Source::Mseg;
+                    fromLfo += routing.destination != 0 && routing.source == Mod::lfoSourceFor (target) ? 1 : 0;
+                }
+                const auto shape = juce::roundToInt (processor.apvts.getRawParameterValue ("lfo" + juce::String (target + 1) + "_shape")->load());
+                expect (target >= 0 && routesMoved && fromLfo == 2 && shape == IlanaSynthAudioProcessor::curveShape
+                            && ! lfoCards->isCardInPool (msegCard) && processor.isLfoShown (target),
+                        "MOVE TO LFO draws the MSEG on LFO " + juce::String (target + 1) + " (SHAPE > MSEG) with its routes, and its card goes");
+                processor.getUndoManager().undo();
+                settle (300);
+                expect (modSourceRouted (processor, Mod::Source::Mseg), "undo puts the MSEG's routes back");
+            }
+        }
+        processor.loadFactoryPreset (neuroWobble);
+        settle (300);
     }
 
     // M8.5: the VECTOR page has the pad and EVOLVE.
@@ -3749,12 +3997,14 @@ int runUiTests()
                     }
                 return std::make_tuple (folded, visibleGroups, biggest);
             };
-            for (int wait = 0; wait < 40 && std::get<0> (chipState()) + std::get<0> (groupState()) < 32 + 6; ++wait)
+            // (32 pool chips and the five performance sources; the MSEG chip
+            // only shows while the patch uses the old module: I8-4.)
+            for (int wait = 0; wait < 40 && std::get<0> (chipState()) + std::get<0> (groupState()) < 32 + 5; ++wait)
                 settle (50);
             {
                 const auto [shown, compact, strays, strayNames] = chipState();
                 const auto [folded, visibleGroups, biggest] = groupState();
-                expect (shown + folded >= 32 + 6 && compact == 0 && visibleGroups > 0,
+                expect (shown + folded >= 32 + 5 && compact == 0 && visibleGroups > 0,
                         "a full pool keeps every source (" + juce::String (shown) + " chips, " + juce::String (folded) + " in "
                             + juce::String (visibleGroups) + " group chips), none shortened (" + juce::String (compact) + ")");
 
@@ -5079,7 +5329,7 @@ int runUiTests()
                 for (int env = 0; env < 16; ++env)
                     envCardsMatch = envCardsMatch && envCards->isCardInPool (env) == envelopeShown (processor, env);
                 expect (cardsMatch && envCardsMatch,
-                        "the pools show one card per LFO / envelope in the patch, OP LFO, and a '+' last");
+                        "the pools show one card per LFO / envelope in the patch, and a '+' last");
 
                 // A full pool never scrolls sideways: cards past what fits
                 // fold into a "N MORE" card, the selected one keeps a place
@@ -5308,6 +5558,14 @@ int runUiTests()
 
                 // The MSEG is a card in the LFO pool, edited in the LFO's
                 // place; a dragged point follows the mouse, one undo step.
+                // (The old module has a card only while the patch uses it, UI
+                // review 8, I8-4: here OSC 1's warp envelope plays it.)
+                auto* warpEnvelope = processor.apvts.getParameter ("osc1_pd_env");
+                const auto warpBefore = warpEnvelope != nullptr ? warpEnvelope->getValue() : 0.0f;
+                if (warpEnvelope != nullptr)
+                    warpEnvelope->setValueNotifyingHost (warpEnvelope->convertTo0to1 (17.0f));
+                thumbs->refreshLayout();
+                settle (200);
                 {
                     thumbs->onSelect (numLfos);
                     settle (200);
@@ -5362,6 +5620,9 @@ int runUiTests()
                     thumbs->onSelect (0);
                     settle (100);
                 }
+                if (warpEnvelope != nullptr)
+                    warpEnvelope->setValueNotifyingHost (warpBefore);
+                settle (100);
 
                 // Envelope graphs: the time ruler sits below the plot
                 // (V6-17), and each segment's dot curves that segment alone,
@@ -5610,7 +5871,7 @@ int runUiTests()
                 findAll<CardTabs> (*editor, bars);
                 for (auto* bar : bars)
                     if (visibleInTree (bar) && bar->getNames().contains ("AMP ENV"))
-                        bar->setSelected (0, true);
+                        bar->setSelected (bar->getNames().indexOf ("AMP ENV"), true); // (OP ENV comes first: I8-18)
                 settle (300);
             }
             std::vector<juce::TextButton*> buttons;

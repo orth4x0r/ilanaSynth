@@ -454,7 +454,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     std::vector<ChipSpec> chipSpecs;
     for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         chipSpecs.push_back ({ Mod::lfoSourceFor (lfo), (int) IlanaSynthAudioProcessor::Module::Lfo, lfo });
-    chipSpecs.push_back ({ Mod::Source::Mseg });
+    // The old MSEG module only while the patch uses it (kind -4; UI review
+    // 8, I8-4: MSEG is an LFO shape now).
+    chipSpecs.push_back ({ Mod::Source::Mseg, -4 });
     // The Operator Env's LFO and pitch envelope (UI review 6), shown while an
     // oscillator plays the Operator Env or the matrix uses them (kind -2).
     chipSpecs.push_back ({ Mod::Source::OpLfo, -2 });
@@ -787,6 +789,7 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
         const auto source = juce::jlimit (0, (int) Mod::Source::Count - 1, chips[i]->getSourceIndex());
         const auto shown = kind == -2 ? FmOperatorInfo::anyOperatorEnv (processorRef)
                          : kind == -3 ? processorRef.apvts.getRawParameterValue ("vec_on")->load() > 0.5f
+                         : kind == -4 ? msegModuleInUse (processorRef)
                          : kind >= 0 && processorRef.isRevealed ((IlanaSynthAudioProcessor::Module) kind, index);
         const auto wanted = shown || usedModSources[(size_t) source];
 

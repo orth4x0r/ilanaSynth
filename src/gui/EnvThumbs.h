@@ -61,6 +61,7 @@ public:
         std::function<juce::String()> targets;                     // what it drives, for the title row
         std::function<bool()> isActive;                            // null: always; else greyed and "unused" while false
         juce::String tooltip;                                      // empty: the default
+        bool pinnedFirst = false;                                  // before the envelopes (the DX7's, where it plays)
     };
 
     void addExtraCard (ExtraCard card) { extras.push_back (std::move (card)); }
@@ -268,14 +269,22 @@ private:
         return shown;
     }
 
-    // The envelopes, then the extra cards, then the "+" (as the LFO pool),
-    // with the overflow card before it when they don't fit.
+    // The pinned extra cards (the Operator Env's, on a voice that plays it:
+    // UI review 8, I8-5), the envelopes, the other extra cards, then the "+"
+    // (as the LFO pool), with the overflow card before it when they don't
+    // fit; the cards fold from the right, so the pinned ones stay.
     std::vector<Item> layoutItems (std::vector<int>& folded) const
     {
-        auto ids = visibleEnvelopes();
-        const auto withPlus = ids.size() < envs.size();
+        const auto envelopes = visibleEnvelopes();
+        const auto withPlus = envelopes.size() < envs.size();
+        std::vector<int> ids;
         for (const auto extra : visibleExtras())
-            ids.push_back ((int) envs.size() + extra);
+            if (extras[(size_t) extra].pinnedFirst)
+                ids.push_back ((int) envs.size() + extra);
+        ids.insert (ids.end(), envelopes.begin(), envelopes.end());
+        for (const auto extra : visibleExtras())
+            if (! extras[(size_t) extra].pinnedFirst)
+                ids.push_back ((int) envs.size() + extra);
         return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
                                   folded);
     }
@@ -461,15 +470,10 @@ private:
         g.setFont (titleFont);
         g.drawText (title, titleRow, juce::Justification::centredLeft);
 
-        if (inUse)
-        {
-            g.setColour (colour);
-            g.fillEllipse (titleRow.getX() + titleWidth + 6.0f, titleRow.getCentreY() - 2.5f, 5.0f, 5.0f);
-        }
-
         // What it drives, on the title line (in the lower corner it sat on
-        // the curve).
-        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 16.0f), targets, colour);
+        // the curve). No dot after the name: the tag says it is in use, and
+        // the on dot is kept for switches (UI review 8, V8-40).
+        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 10.0f), targets, colour);
     }
 
     void paintCard (juce::Graphics& g, int env, juce::Rectangle<float> card)

@@ -747,7 +747,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         ampEnvelopeChoices.add (env == 1 ? "AMP ENV" : env == 2 ? "FILT ENV" : env == 3 ? "FILT 2 ENV"
                                 : env == 4 ? "MOD ENV" : "ENV " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
-    ampEnvelopeChoices.add ("Operator Env"); // appended, index 17: the Operator Env (OperatorEgParams.h)
+    ampEnvelopeChoices.add ("OP ENV"); // appended, index 17: the Operator Env (OperatorEgParams.h), upper case as its neighbours
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);

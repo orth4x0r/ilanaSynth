@@ -342,7 +342,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     }
 
     // BODY by one name: the comb filter type is COMB BODY (I7-26).
-    expect (FilterTypeGrid::shortNames()[FilterType::CombBody] == "COMB BODY", "the comb body filter's short name is COMB BODY");
+    // (Its case is the FILTER page's own name, I7-40.)
+    expect (FilterTypeGrid::shortNames()[FilterType::CombBody].equalsIgnoreCase ("COMB BODY"), "the comb body filter's short name is COMB BODY");
 
     // VECTOR: off, every control dims and says why; on, VEC X / Y are in
     // the chip bar (V7-21, I7-22).
@@ -370,15 +371,24 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (300);
         std::vector<ModSourceChip*> chips;
         findAll<ModSourceChip> (editor, chips);
-        auto barChips = 0;
-        for (auto* chip : chips)
-            barChips += visibleInTree (chip) && (chip->getSourceIndex() == (int) Mod::Source::VectorX
-                                                 || chip->getSourceIndex() == (int) Mod::Source::VectorY) ? 1 : 0;
+        // In the bar, as a chip of its own or, the bar being full, in the
+        // MORE group chip it folds rare sources into (Q2's folding).
+        std::vector<ModSourceGroupChip*> groupChips;
+        findAll<ModSourceGroupChip> (editor, groupChips);
+        const auto inBar = [&] (Mod::Source source)
+        {
+            for (auto* chip : chips)
+                if (visibleInTree (chip) && chip->getSourceIndex() == (int) source)
+                    return 1;
+            for (auto* group : groupChips)
+                if (visibleInTree (group) && std::find (group->getSources().begin(), group->getSources().end(), (int) source) != group->getSources().end())
+                    return 1;
+            return 0;
+        };
+        const auto barChips = inBar (Mod::Source::VectorX) + inBar (Mod::Source::VectorY);
         setParam ("vec_on", 0.0f);
         settle (300);
-        auto offChips = 0;
-        for (auto* chip : chips)
-            offChips += visibleInTree (chip) && chip->getSourceIndex() == (int) Mod::Source::VectorX ? 1 : 0;
+        const auto offChips = inBar (Mod::Source::VectorX);
         expect (dim && lit, "VECTOR: off, X dims and says VECTOR is off; on, it lights");
         expect (cornerTexts == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
         expect (barChips == 2 && offChips == 0, "VEC X / VEC Y are in the chip bar while VECTOR is on (" + juce::String (barChips) + ")");

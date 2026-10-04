@@ -527,14 +527,14 @@ int runUiTests()
             expect (pages->getTuningIndicatorText().isEmpty(), "no tuning indicator in 12-TET");
             juce::String error;
             const auto loaded = processor.loadTuningScale ("! test.scl\nQuarter tones\n 2\n!\n 150.0\n 2/1\n", error);
-            settle (200);
+            settle (600); // (the header refreshes on a 250 ms timer)
             expect (loaded && pages->getTuningIndicatorText().startsWith ("TUNING: "),
                     "a Scala scale shows the tuning indicator (" + pages->getTuningIndicatorText() + error + ", on "
                         + juce::String (processor.apvts.getRawParameterValue ("tuning_on")->load()) + ", scale "
                         + processor.getTuningState().getDescription() + ")");
             if (auto* tuningOn = processor.apvts.getParameter ("tuning_on"))
                 tuningOn->setValueNotifyingHost (0.0f);
-            settle (200);
+            settle (600);
             expect (pages->getTuningIndicatorText().isEmpty(), "switching the tuning off hides the indicator ("
                                                                    + pages->getTuningIndicatorText() + ", on "
                                                                    + juce::String (processor.apvts.getRawParameterValue ("tuning_on")->load()) + ")");
@@ -4342,9 +4342,13 @@ int main (int argc, char** argv)
     if (auto* confirm = findChild<ConfirmOverlay> (*editor);
         confirm != nullptr && juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_CONFIRM", "").isNotEmpty())
     {
+        ConfirmOverlay::Choices choices;
+        choices.confirmText = "Load anyway";
+        choices.alternativeText = "Save and load";
+        choices.onAlternative = [] {};
         confirm->ask ("Replace your edits?",
                       "'" + processor.getCurrentPresetName() + "' has changes that aren't saved. Loading 'Init' replaces them.",
-                      "Load anyway", [] (bool, bool) {});
+                      choices, [] (bool, bool) {});
         settle (100);
         save (*editor, outDir.getChildFile ("00-confirm.png"));
         confirm->finish (false);
@@ -4396,13 +4400,16 @@ int main (int argc, char** argv)
             if (auto* panel = findChild<PresetPanel> (*editor); panel != nullptr && panel->onDockRequest != nullptr)
             {
                 // DX7 with its bank chips (the settings are left as they were).
-                panel->selectFilter ("DX7");
+                panel->selectFilter ("");
+                panel->clickChip ("pack:dx7");
                 panel->clickChip ("bank:ROM1A");
                 settle (200);
                 save (*editor, outDir.getChildFile ("extra-browser-dx7.png"));
                 panel->onDockRequest (true);
                 settle (500);
                 save (*editor, outDir.getChildFile ("extra-browser-docked-dx7.png"));
+                panel->clickChip ("bank:ROM1A");
+                panel->clickChip ("pack:dx7");
                 panel->selectFilter ("");
                 settle (200);
                 save (*editor, outDir.getChildFile ("extra-browser-docked.png"));
@@ -4579,16 +4586,31 @@ int main (int argc, char** argv)
         }
     }
 
+    // The scope floats over a page; the hover line over the chip row
+    // (ILANA_SNAPSHOT_PAGES=SCOPE shows only these).
+    if (onlyPages.isEmpty() || onlyPages.contains ("SCOPE"))
+    {
+        pages->showPage ("MAIN");
+        pages->setScopeOpen (true);
+        settle (500);
+        save (*editor, outDir.getChildFile ("scope-panel.png"));
+        pages->setScopeOpen (false);
+        settle (100);
+
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        for (auto* knob : knobs)
+            if (visibleInTree (knob))
+            {
+                pages->getHoverLine().restOn (knob);
+                save (*editor, outDir.getChildFile ("hover-line.png"));
+                pages->getHoverLine().restOn (nullptr);
+                break;
+            }
+    }
+
     if (! onlyPages.isEmpty())
         return 0;
-
-    // The scope floats over a page, then fills it.
-    pages->showPage ("MAIN");
-    pages->setScopeOpen (true);
-    settle (500);
-    save (*editor, outDir.getChildFile ("scope-panel.png"));
-    pages->setScopeOpen (false);
-    settle (100);
 
     // The drawable Curve LFO editor.
     if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))

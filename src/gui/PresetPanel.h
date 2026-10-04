@@ -604,7 +604,11 @@ private:
         const auto colour = categoryColour (categories[index]);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
-        g.drawFittedText (shownNames[index], area.removeFromTop (44), juce::Justification::topLeft, 2, 0.9f);
+        {
+            const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
+            const auto oneLine = juce::GlyphArrangement::getStringWidthInt (titleFont, shownNames[index]) <= area.getWidth();
+            g.drawFittedText (shownNames[index], area.removeFromTop (oneLine ? 26 : 46), juce::Justification::topLeft, 2, 0.9f);
+        }
 
         {
             auto line = area.removeFromTop (20);
@@ -650,24 +654,24 @@ private:
         if (! tagLists[(size_t) index].isEmpty())
         {
             heading ("TAGS");
-            const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto font = tagChipFont();
             auto x = area.getX(), y = area.getY();
 
             for (const auto& tag : tagLists[(size_t) index])
             {
-                const auto w = juce::GlyphArrangement::getStringWidthInt (font, tag) + 14;
+                const auto w = juce::GlyphArrangement::getStringWidthInt (font, tag) + 16;
 
                 if (x > area.getX() && x + w > area.getRight())
                 {
                     x = area.getX();
-                    y += 22;
+                    y += 24;
                 }
 
-                paintTagChip (g, juce::Rectangle<int> (x, y, w, 18).toFloat(), tag, selectedTags.contains (tag, true));
+                paintTagChip (g, juce::Rectangle<int> (x, y, w, 20).toFloat(), tag, selectedTags.contains (tag, true));
                 x += w + 5;
             }
 
-            area.setTop (y + 22);
+            area.setTop (y + 24);
         }
 
         const auto macros = macroListFor (index, names[index] == processorRef.getCurrentPresetName());
@@ -1064,6 +1068,9 @@ private:
             g.strokePath (star, juce::PathStrokeType (1.1f));
     }
 
+    // Tag chips filter when clicked, so their text is interactive size.
+    static juce::Font tagChipFont() { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)); }
+
     static void paintTagChip (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, bool selected)
     {
         g.setColour (selected ? IlanaTheme::accent().withAlpha (0.28f) : juce::Colours::white.withAlpha (0.045f));
@@ -1071,7 +1078,7 @@ private:
         g.setColour (selected ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.35f));
         g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
         g.setColour (selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setFont (tagChipFont());
         g.drawText (text, box.toNearestInt(), juce::Justification::centred);
     }
 
@@ -1184,7 +1191,7 @@ private:
             return boxes;
 
         const auto layout = rowLayout (presetIndex, width);
-        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto font = tagChipFont();
         auto x = (float) layout.tagsLeft;
 
         for (const auto& tag : tagLists[(size_t) presetIndex])
@@ -1192,12 +1199,12 @@ private:
             if (boxes.size() >= 3)
                 break;
 
-            const auto w = (float) juce::GlyphArrangement::getStringWidthInt (font, tag) + 14.0f;
+            const auto w = (float) juce::GlyphArrangement::getStringWidthInt (font, tag) + 16.0f;
 
             if (x + w > (float) layout.tagsRight)
                 break;
 
-            boxes.push_back ({ { x, (float) height * 0.5f - 8.5f, w, 17.0f }, tag });
+            boxes.push_back ({ { x, (float) height * 0.5f - 9.5f, w, 19.0f }, tag });
             x += w + 4.0f;
         }
 
@@ -1688,12 +1695,24 @@ private:
         for (const auto& [key, count] : counts)
             ranked.push_back ({ spelling[key], count });
 
-        std::stable_sort (ranked.begin(), ranked.end(), [this] (const auto& a, const auto& b)
+        // A tag on most of the list ("Warm", "Sustained") filters little, so
+        // those go after the ones that narrow it down.
+        auto shownCount = 0;
+
+        for (auto i : candidates)
+            shownCount += ! dx7Only || banks[i].isNotEmpty() ? 1 : 0;
+
+        const auto broad = [shownCount] (int count) { return count * 4 > shownCount; };
+
+        std::stable_sort (ranked.begin(), ranked.end(), [this, &broad] (const auto& a, const auto& b)
         {
             const auto selectedA = selectedTags.contains (a.first, true), selectedB = selectedTags.contains (b.first, true);
 
             if (selectedA != selectedB)
                 return selectedA;
+
+            if (broad (a.second) != broad (b.second))
+                return ! broad (a.second);
 
             if (a.second != b.second)
                 return a.second > b.second;

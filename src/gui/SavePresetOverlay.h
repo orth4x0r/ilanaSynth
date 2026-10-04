@@ -522,8 +522,13 @@ private:
         for (auto pointer = removed.getCharPointer(); ! pointer.isEmpty();)
             shown.add (juce::String::charToString (pointer.getAndAdvance()));
 
-        setNote (shown.joinIntoString ("  ") + (shown.size() == 1 ? "  will be left out of the file name (a file name can't hold it)."
-                                                                   : "  will be left out of the file name (a file name can't hold them)."),
+        for (auto& character : shown)
+            character = juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9c")) + character + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9d"));
+
+        const auto list = shown.size() == 1 ? shown[0]
+                                            : shown.joinIntoString (", ", 0, shown.size() - 1) + " and " + shown[shown.size() - 1];
+        setNote (list + (shown.size() == 1 ? " will be left out of the file name (a file name can't hold it)."
+                                           : " will be left out of the file name (a file name can't hold them)."),
                  true);
     }
 

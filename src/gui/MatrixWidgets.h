@@ -136,8 +136,8 @@ public:
           processorRef (p),
           slotIndex (slotIndexIn)
     {
-        setTooltip ("Curve\nDrag up or down to bend how the source maps to the amount.  "
-                    "Click to draw a remap curve.  Double-click to straighten the bend.");
+        setTooltip ("Curve\nDrag up or down to curve how the source maps to the amount.  "
+                    "Click to draw a remap curve.  Double-click to straighten it.");
         attachment.sendInitialUpdate();
     }
 
@@ -335,6 +335,22 @@ public:
             }
         }
     }
+
+    // An LFO or envelope outside its pool is greyed out in SOURCE and VIA
+    // (kept in the lists, whose positions the attachments use), unless this
+    // row already plays it. The "+" on the LFO and envelope pools adds one.
+    void setSourcesInPatch (const std::vector<bool>& inPatch)
+    {
+        for (auto* box : { &source, &via })
+        {
+            const auto selected = box->getSelectedId();
+
+            for (int item = 2; item <= (int) inPatch.size(); ++item)
+                box->setItemEnabled (item, inPatch[(size_t) item - 1] || item == selected);
+        }
+    }
+
+    bool isSourceItemEnabled (int itemId) const { return source.isItemEnabled (itemId); }
 
     MatrixRow (IlanaSynthAudioProcessor& p, int slotIndexIn)
         : processorRef (p),

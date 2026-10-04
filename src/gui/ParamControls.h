@@ -8,6 +8,7 @@
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamInfo.h"
+#include "ModulePool.h"
 
 struct ModRingConfig
 {
@@ -994,6 +995,52 @@ private:
         repaint();
     }
 
+public:
+    // "Modulate with": LFOs, envelopes and the rest (the UI test reads it).
+    juce::PopupMenu buildModulateWithMenu() const
+    {
+        const auto sources = Mod::getSourceNames();
+        juce::PopupMenu sourceMenu, lfoMenu, envMenu, otherMenu;
+
+        // Only the LFOs and envelopes in the pools (a source that has no
+        // card isn't offered); "New LFO" / "New envelope" adds the next.
+        for (int i = 1; i < sources.size(); ++i)
+        {
+            const auto source = (Mod::Source) i;
+            const auto isEnvelope = source == Mod::Source::AmpEnv || source == Mod::Source::FilterEnv
+                                    || source == Mod::Source::FilterEnv2 || source == Mod::Source::ModEnv
+                                    || source == Mod::Source::Env4
+                                    || (source >= Mod::Source::Env6 && source <= Mod::Source::Env16);
+            const auto isLfo = Mod::lfoIndexFor (source) >= 0 || Mod::lfoBIndexFor (source) >= 0;
+            if (! modSourceInPatch (*processorRef, source) && ! routesFrom (i))
+                continue;
+            auto& target = isLfo ? lfoMenu : (isEnvelope ? envMenu : otherMenu);
+            target.addItem (i + 1, sources[i], true, routesFrom (i));
+        }
+
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (! processorRef->isLfoShown (lfo))
+            {
+                lfoMenu.addSeparator();
+                lfoMenu.addItem (6000 + lfo, "New LFO  (LFO " + juce::String (lfo + 1) + ")");
+                break;
+            }
+
+        for (int env = 0; env < 16; ++env)
+            if (! envelopeShown (*processorRef, env))
+            {
+                envMenu.addSeparator();
+                envMenu.addItem (6100 + env, "New envelope  (" + sources[(int) envelopeSource (env)] + ")");
+                break;
+            }
+
+        sourceMenu.addSubMenu ("LFOs", lfoMenu);
+        sourceMenu.addSubMenu ("Envelopes", envMenu);
+        sourceMenu.addSubMenu ("Performance and more", otherMenu);
+        return sourceMenu;
+    }
+
+private:
     void showModMenu()
     {
         if (processorRef == nullptr)
@@ -1004,23 +1051,7 @@ private:
         if (ringConfig.destination != 0)
         {
             const auto sources = Mod::getSourceNames();
-            juce::PopupMenu sourceMenu, lfoMenu, envMenu, otherMenu;
-
-            for (int i = 1; i < sources.size(); ++i)
-            {
-                const auto source = (Mod::Source) i;
-                const auto isEnvelope = source == Mod::Source::AmpEnv || source == Mod::Source::FilterEnv
-                                        || source == Mod::Source::FilterEnv2 || source == Mod::Source::ModEnv
-                                        || source == Mod::Source::Env4
-                                        || (source >= Mod::Source::Env6 && source <= Mod::Source::Env16);
-                auto& target = Mod::lfoIndexFor (source) >= 0 ? lfoMenu : (isEnvelope ? envMenu : otherMenu);
-                target.addItem (i + 1, sources[i], true, routesFrom (i));
-            }
-
-            sourceMenu.addSubMenu ("LFOs", lfoMenu);
-            sourceMenu.addSubMenu ("Envelopes", envMenu);
-            sourceMenu.addSubMenu ("Performance and more", otherMenu);
-            menu.addSubMenu ("Modulate with", sourceMenu);
+            menu.addSubMenu ("Modulate with", buildModulateWithMenu());
 
             if (! routings.empty())
             {
@@ -1075,6 +1106,7 @@ private:
                                 const auto name = result == 1000   ? juce::String ("Clear modulation")
                                                   : result == 2000 ? "Reset " + safeThis->label.getText()
                                                   : result == 3001 ? "Paste " + safeThis->label.getText()
+                                                  : result >= 6000 ? juce::String ("Add modulation")
                                                   : result >= 5000 ? juce::String ("Remove modulation")
                                                                    : juce::String ("Add modulation");
 
@@ -1108,6 +1140,17 @@ private:
                                 else if (result == 4000)
                                 {
                                     processor.startMacroLearn (safeThis->parameterId.getTrailingIntValue() - 1);
+                                }
+                                else if (result >= 6100)
+                                {
+                                    // A new envelope: into the pool, then routed.
+                                    processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, result - 6100, true);
+                                    processor.assignModSlot ((int) envelopeSource (result - 6100), safeThis->ringConfig.destination, 0.35f);
+                                }
+                                else if (result >= 6000)
+                                {
+                                    processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, result - 6000, true);
+                                    processor.assignModSlot ((int) Mod::lfoSourceFor (result - 6000), safeThis->ringConfig.destination, 0.35f);
                                 }
                                 else if (result >= 5000)
                                 {

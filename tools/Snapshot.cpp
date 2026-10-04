@@ -3489,6 +3489,52 @@ int runUiTests()
                     pages->showPage ("ENV/LFO");
                     settle (200);
                 }
+
+                // No routing to an LFO or envelope that isn't in its pool:
+                // a knob's "Modulate with" lists the pool's (and offers the
+                // next as "New LFO"), the matrix greys the rest out.
+                {
+                    KnobControl* knob = nullptr;
+                    for (auto* candidate : visibleOf ((KnobControl*) nullptr))
+                        if (knob == nullptr && candidate->getRingDestination() != 0)
+                            knob = candidate;
+                    auto hiddenLfo = -1;
+                    for (int lfo = numLfos - 1; lfo >= 0; --lfo)
+                        if (! processor.isLfoShown (lfo))
+                            hiddenLfo = lfo;
+                    auto hiddenEnv = -1;
+                    for (int env = 15; env >= 0; --env)
+                        if (! envelopeShown (processor, env))
+                            hiddenEnv = env;
+                    juce::StringArray offered;
+                    if (knob != nullptr)
+                    {
+                        const auto menu = knob->buildModulateWithMenu();
+                        for (juce::PopupMenu::MenuItemIterator item (menu, true); item.next();)
+                            if (item.getItem().itemID != 0)
+                                offered.add (item.getItem().text);
+                    }
+                    const auto names = Mod::getSourceNames();
+                    auto onlyPool = knob != nullptr && hiddenLfo >= 0 && hiddenEnv >= 0;
+                    for (int source = 1; source < names.size() && onlyPool; ++source)
+                        if (offered.contains (names[source]) && ! modSourceInPatch (processor, (Mod::Source) source))
+                            onlyPool = false;
+                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("Amp Env")
+                               && ! offered.contains (names[(int) Mod::lfoSourceFor (hiddenLfo)])
+                               && offered.contains ("New LFO  (LFO " + juce::String (hiddenLfo + 1) + ")");
+
+                    MatrixRow row (processor, 0);
+                    std::vector<bool> inPatch ((size_t) names.size(), true);
+                    for (int source = 1; source < names.size(); ++source)
+                        inPatch[(size_t) source] = modSourceInPatch (processor, (Mod::Source) source);
+                    row.setSourcesInPatch (inPatch);
+                    const auto lfoItem = (int) Mod::lfoSourceFor (hiddenLfo) + 1;
+                    const auto greyed = hiddenLfo >= 0 && ! row.isSourceItemEnabled (lfoItem)
+                                        && row.isSourceItemEnabled ((int) Mod::Source::Lfo1 + 1)
+                                        && row.isSourceItemEnabled ((int) Mod::Source::ModWheel + 1);
+                    expect (onlyPool && greyed, "knob menus offer only the pools' LFOs and envelopes (" + juce::String (offered.size())
+                                                    + " items) and a New LFO; the matrix greys out LFO " + juce::String (hiddenLfo + 1));
+                }
             }
         }
 

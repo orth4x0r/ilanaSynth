@@ -29,7 +29,7 @@ public:
           followsTheme (followsThemeIn)
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse). Drag the dot on the attack, decay or "
-                    "release to curve that segment alone (CURVE bends all three); double-click a handle or a dot to "
+                    "release to curve that segment alone (CURVE curves all three); double-click a handle or a dot to "
                     "reset it.\nTime runs on a square-root scale: the ruler gives the time since the note started, and "
                     "after the sustain since the key was let go (+). The dot is the last note played.");
         startTimerHz (30);

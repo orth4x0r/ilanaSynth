@@ -12,60 +12,7 @@
 #include "ParamControls.h"
 #include "AnimationUtils.h"
 #include "LfoThumbs.h"
-
-// ENV 1-16 (0-based: amp, filter, filter 2, mod, ENV 5, ENV 6-16): their mod
-// sources, and whether one plays a part in the patch. Shared by the MOD
-// page's pool and PLAY's envelope tabs, so both list the same envelopes.
-inline Mod::Source envelopeSource (int env)
-{
-    const Mod::Source fixed[] { Mod::Source::AmpEnv, Mod::Source::FilterEnv, Mod::Source::FilterEnv2, Mod::Source::ModEnv, Mod::Source::Env4 };
-    return env < 5 ? fixed[juce::jlimit (0, 4, env)] : (Mod::Source) ((int) Mod::Source::Env6 + juce::jlimit (0, 10, env - 5));
-}
-
-// The amp envelope always plays; the filter envelopes count when their
-// filter's env amount is set; any envelope counts when an oscillator plays
-// it or warps with it, or when it is routed in the matrix.
-inline bool envelopeInUse (const IlanaSynthAudioProcessor& processor, int env)
-{
-    const auto read = [&processor] (const juce::String& id)
-    {
-        const auto* value = processor.apvts.getRawParameterValue (id);
-        return value != nullptr ? value->load() : 0.0f;
-    };
-    const auto source = envelopeSource (env);
-
-    if (source == Mod::Source::AmpEnv)
-        return true;
-
-    if (source == Mod::Source::FilterEnv && std::abs (read ("f1_env")) > 0.001f)
-        return true;
-
-    if (source == Mod::Source::FilterEnv2 && std::abs (read ("f2_env")) > 0.001f)
-        return true;
-
-    // As an oscillator's amp envelope or its warp (DCW) envelope, whose
-    // choices start with Off.
-    for (const auto* prefix : OscillatorIds::prefixes)
-        if ((int) read (juce::String (prefix) + "_amp_env") == env
-            || (int) read (juce::String (prefix) + "_pd_env") == env + 1)
-            return true;
-
-    for (int slot = 0; slot < Mod::maxSlots; ++slot)
-    {
-        const auto routing = processor.readModSlot (slot);
-
-        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
-            return true;
-    }
-
-    return false;
-}
-
-// A card in the pool: added to the patch, or doing something in it.
-inline bool envelopeShown (const IlanaSynthAudioProcessor& processor, int env)
-{
-    return processor.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env) || envelopeInUse (processor, env);
-}
+#include "ModulePool.h"
 
 // The patch's envelopes at a glance, Phase Plant style: one card per
 // envelope in the patch (added or in use), then a slim "+" for the next.

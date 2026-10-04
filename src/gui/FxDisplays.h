@@ -123,10 +123,15 @@ private:
     {
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto line = getLocalBounds().reduced (8, 0).removeFromTop (16).withTrimmedTop (3);
-        g.drawText (left, line, juce::Justification::centredLeft);
+        auto line = getLocalBounds().reduced (8, 0).removeFromTop (16).withTrimmedTop (3);
+        // The right-hand reading keeps its room; a long left one ends in "..."
+        // rather than running into it.
         if (right.isNotEmpty())
+        {
             g.drawText (right, line, juce::Justification::centredRight);
+            line.removeFromRight (juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), right) + 6);
+        }
+        g.drawText (left, line, juce::Justification::centredLeft, true);
     }
 
     void strokeCurve (juce::Graphics& g, const juce::Path& curve, juce::Rectangle<float> plot, float baselineY) const
@@ -856,10 +861,13 @@ private:
             }
         }
 
+        // The modulator as the MODULATOR menu names it, or the formant shift
+        // when there is one (both don't fit beside the band count).
         static const char* const sources[] { "INPUT, ELSE TALK", "INPUT", "TALK" };
         const auto formant = param ("fx_voc_formant");
-        paintCaption (g, juce::String (count) + " BANDS  " + sources[juce::jlimit (0, 2, (int) param ("fx_voc_source"))],
-                      std::abs (formant) < 0.05f ? juce::String() : "FORMANT " + juce::String (formant > 0.0f ? "+" : "") + juce::String (formant, 1) + " st");
+        paintCaption (g, juce::String (count) + " BANDS",
+                      std::abs (formant) < 0.05f ? juce::String (sources[juce::jlimit (0, 2, (int) param ("fx_voc_source"))])
+                                                 : "FORMANT " + juce::String (formant > 0.0f ? "+" : "") + juce::String (formant, 1) + " st");
     }
 
     // ---- Airwindows echoes and spaces: the algorithm's own impulse response ----

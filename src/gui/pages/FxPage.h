@@ -243,6 +243,14 @@ public:
         for (size_t c = 0; c < awCategories.size(); ++c)
             rename (awCategories[c].algo->getComboBox(), airwindows::categoryModules()[c].algorithms);
 
+        // The vocoder's "Auto" says what it does (I6-29; the saved choice stays "Auto").
+        {
+            auto& box = vocSource.getComboBox();
+            const auto selected = box.getSelectedId();
+            box.changeItemText (1, "Input, else Talk");
+            box.setSelectedId (selected, juce::dontSendNotification);
+        }
+
         diceButton.setTooltip ("Random rack: new effects in every slot of this rack. Undo brings the old chain back.");
         diceButton.onClick = [this]
         {
@@ -935,7 +943,7 @@ private:
 
     int titleWidth (const StackPanel& panel) const
     {
-        return 34 + IlanaTheme::cardTitleWidth (getSlotName (panel.type).toUpperCase()) + 4 + (isAirwindowsType (panel.type) ? 96 : 0);
+        return 34 + IlanaTheme::cardTitleWidth (getSlotName (panel.type).toUpperCase()) + 4 + (showsAirwindowsBadge (panel.type) ? 96 : 0);
     }
 
     // The width the card needs: its header, and its display and knobs side
@@ -1006,6 +1014,7 @@ private:
 
         auto y = stackTopMargin; // (room for the first card's glow)
         size_t stripIndex = 0;
+        addEffectCard = {};
 
         for (size_t i = 0; i < cards.size();)
         {
@@ -1017,7 +1026,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y);
+                y = flowCards (cards, i, end, 0, width, y, end == cards.size() && firstEmptySlot() >= 0);
             }
             else
             {
@@ -1049,11 +1058,10 @@ private:
 
         updateModuleDimming();
 
-        // A quiet card after the last effect while the rack has room (the
-        // toolbar's + ADD EFFECT is the other way in).
-        addEffectCard = {};
-
-        if (! stackPanels.empty() && firstEmptySlot() >= 0)
+        // A quiet card after the last effect (or beside a lone half card at
+        // the end) while the rack has room; the toolbar's + ADD EFFECT is
+        // the other way in.
+        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
         {
             addEffectCard = { 0, y, width, 40 };
             y += 40 + cardGap;
@@ -1065,8 +1073,9 @@ private:
 
     // Cards from..to in rows: two half cards side by side (the same
     // height), anything else across the whole width. A half card with no
-    // half card after it takes the whole width, so no row has a gap.
-    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y)
+    // half card after it takes the whole width, so no row has a gap, except
+    // at the end of the chain, where + ADD EFFECT takes the other half.
+    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
         const auto halfWidth = (width - cardGap) / 2;
 
@@ -1081,6 +1090,14 @@ private:
                 placeCard (cards[k], { x, y, halfWidth, height });
                 placeCard (cards[k + 1], { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height });
                 k += 2;
+                y += height + cardGap;
+            }
+            else if (cards[k].half && k + 1 == to && addTileAtEnd)
+            {
+                const auto height = cardHeight (cards[k]);
+                placeCard (cards[k], { x, y, halfWidth, height });
+                addEffectCard = { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height };
+                ++k;
                 y += height + cardGap;
             }
             else
@@ -1187,7 +1204,8 @@ private:
         header.type.setBounds (panel.bounds.getX() + 34, top + 4, header.type.preferredWidth(), 22);
         header.type.setVisible (true);
         header.type.setTooltip ("Slot " + juce::String (panel.slot + 1) + ": " + getSlotName (panel.type)
-                                + ". Click to change the effect, move or remove it; drag the header to reorder.");
+                                + ". Click to change the effect, move or remove it; drag the header to reorder."
+                                + (isAirwindowsType (panel.type) ? "\n" + airwindowsBadgeTip (panel.type) : juce::String()));
 
         auto right = IlanaTheme::cardSwitchBounds (panel.bounds, top + 14).getX() - 8;
         header.band.setBounds (right - bandWidth, lineY, bandWidth, 20);
@@ -1311,7 +1329,7 @@ private:
             auto subtitle = juce::Rectangle<int> (header.type.getRight() + 6, panel.bounds.getY(), 0, cardHeaderHeight);
             subtitle.setRight (header.blend.getX() - 8);
 
-            if (isAirwindowsType (panel.type) && subtitle.getWidth() >= 88)
+            if (showsAirwindowsBadge (panel.type) && subtitle.getWidth() >= 88)
             {
                 const auto tag = subtitle.removeFromLeft (84).toFloat().withSizeKeepingCentre (84.0f, 16.0f);
                 g.setColour (colour.withAlpha (0.14f));
@@ -1342,12 +1360,13 @@ private:
                 const auto first = slotHoldingType (panel.type, panel.slot);
                 g.setColour (IlanaTheme::Ui::text);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                g.drawText ("Duplicate " + getSlotName (panel.type) + " (not supported)", text.removeFromTop (20), juce::Justification::centredLeft, true);
+                g.drawText ("Duplicate " + getSlotName (panel.type) + " (not supported): it shares slot " + juce::String (first + 1) + "'s settings",
+                            text.removeFromTop (20), juce::Justification::centredLeft, true);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawFittedText ("The rack keeps one set of settings per effect, so this slot plays the "
-                                      + getSlotName (panel.type) + " of slot " + juce::String (first + 1)
-                                      + " a second time (an older patch). Remove it, or keep it for the same sound.",
+                g.drawFittedText ("The rack keeps one set of settings per effect, so this slot runs slot " + juce::String (first + 1)
+                                      + "'s " + getSlotName (panel.type) + " again (older patches can do this). "
+                                      + "Remove it, or keep it for the same sound.",
                                   text.withTrimmedRight (100), juce::Justification::topLeft, 2);
             }
 
@@ -1917,6 +1936,8 @@ private:
     std::vector<AwCategoryControls> awCategories;
 
     static bool isAirwindowsType (int type) { return type == 30 || airwindows::categoryForFxType (type) >= 0; }
+    // The badge after the title; "Airwindows (all)" already says it.
+    static bool showsAirwindowsBadge (int type) { return isAirwindowsType (type) && type != 30; }
 
     int categoryChoice (int c) const
     {

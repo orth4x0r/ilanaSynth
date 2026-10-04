@@ -508,10 +508,14 @@ private:
         g.drawEllipse (juce::Rectangle<float> (markerSize - 1.0f, markerSize - 1.0f).withCentre (live), 1.3f);
 
         // Labelled (S6-21): "MOD" over the ring, on the side away from the
-        // set marker.
+        // set marker, unless that side runs out of the plot.
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto right = live.x >= setCentre.x;
-        g.drawText ("MOD", juce::Rectangle<float> (right ? live.x + 6.0f : live.x - 34.0f, live.y - 14.0f, 28.0f, 10.0f),
+        auto right = live.x >= setCentre.x;
+        if (right && live.x + 34.0f > plot.getRight())
+            right = false;
+        else if (! right && live.x - 34.0f < plot.getX())
+            right = true;
+        g.drawText ("MOD", juce::Rectangle<float> (right ? live.x + 6.0f : live.x - 34.0f, juce::jmax (plot.getY() + 1.0f, live.y - 14.0f), 28.0f, 10.0f),
                     right ? juce::Justification::centredLeft : juce::Justification::centredRight);
     }
 

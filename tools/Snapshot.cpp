@@ -1250,6 +1250,19 @@ int runUiTests()
             expect (titles.size() == 3 && viewport != nullptr && titles[0]->getY() == titles[1]->getY()
                         && titles[1]->getX() > viewport->getWidth() / 3,
                     "Vowel and Drive sit side by side as half-width cards");
+            // The lone half card at the end keeps its width; + ADD EFFECT
+            // takes the other half (no knobs stranded across a full card).
+            if (titles.size() == 3 && viewport != nullptr)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*editor, knobs);
+                auto ottMixRight = 0;
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == "fx_ott_mix" && visibleInTree (knob))
+                        ottMixRight = knob->getRight();
+                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && ottMixRight < viewport->getWidth() / 2,
+                        "a lone half card at the end of the chain stays half width, + ADD EFFECT beside it");
+            }
 
             loadFx ({ 7, 2, 13, 20 });
             setParam ("fx_slot2_band", 1.0f);
@@ -4605,6 +4618,24 @@ int main (int argc, char** argv)
                 viewport->setViewPosition (0, 10000);
             settle (100);
             save (*editor, outDir.getChildFile ("fx-duplicate.png"));
+            // A mid / side group, then the empty rack with its library.
+            const int midSideRack[] { 2, 7, 13, 0, 0, 0, 0, 0, 0, 0 };
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, midSideRack[slot]);
+                setBand (slot + 1, 0);
+            }
+            setBand (2, 5);
+            setBand (3, 4);
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-midside.png"));
+            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                processor.assignFxSlot (slot + 1, 0);
+                setBand (slot + 1, 0);
+            }
+            settle (600);
+            save (*editor, outDir.getChildFile ("fx-empty.png"));
             for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
                 for (int k = 0; k < 3; ++k)
                     processor.apvts.getParameter ("fx_slot" + juce::String (slot + 1) + (k == 0 ? "" : (k == 1 ? "_band" : "_bypass")))

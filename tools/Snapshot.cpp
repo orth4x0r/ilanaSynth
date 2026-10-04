@@ -126,6 +126,8 @@ void expect (bool condition, const juce::String& message)
         ++uiFailures;
 }
 
+#include "ModulationUiTests.h"
+
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
 void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
@@ -694,13 +696,13 @@ int runUiTests()
         auto showsCutoff = false;
 
         for (auto* combo : combos)
-            showsCutoff = showsCutoff || combo->getText() == "Filter1 Cutoff";
+            showsCutoff = showsCutoff || combo->getText() == ModNames::destination ((int) Mod::Destination::Filter1Cutoff);
 
-        expect (showsCutoff, "matrix row shows the preset's destination (Filter1 Cutoff)");
+        expect (showsCutoff, "matrix row shows the preset's destination as Filter 1 > Cutoff");
 
         for (auto* combo : combos)
         {
-            if (combo->getText() == "Filter1 Cutoff")
+            if (combo->getText() == ModNames::destination ((int) Mod::Destination::Filter1Cutoff))
             {
                 combo->setSelectedId ((int) Mod::Destination::Osc2Warp + 1, juce::sendNotificationSync);
                 settle (50);
@@ -761,8 +763,13 @@ int runUiTests()
             // UI review 4 (V2): a double-click zeroes the depth (as knobs and
             // the source card do), keeps the routing, is one named undo
             // step, and undo brings the depth back.
-            auto& strip = static_cast<juce::Component&> (*strips[0]);
-            const juce::Point<float> at ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
+            // (A knob too narrow for badges beside its rings leaves them
+            // to the rings, which take the same double-click.)
+            reso->syncRoutings();
+            const auto onRing = strips[0]->getNumShown() == 0;
+            auto& strip = onRing ? reso->getRingOverlay() : static_cast<juce::Component&> (*strips[0]);
+            const auto at = onRing ? strip.getLocalPoint (reso, reso->getRingPoint (0, 0.5f))
+                                   : juce::Point<float> ((float) strip.getWidth() * 0.5f, (float) ModDotStrip::dotPitch * 0.5f);
             const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f,
                                           0.0f, 0.0f, 0.0f, &strip, &strip, juce::Time::getCurrentTime(), at,
                                           juce::Time::getCurrentTime(), 2, false);
@@ -1890,10 +1897,17 @@ int runUiTests()
                                 return top.getItem().text;
                 return juce::String();
             };
-            expect (submenuHolding ("Osc2 Warp 2") == "Oscillator 2" && submenuHolding ("FM Noise > Osc3") == "FM"
-                        && submenuHolding ("FM Osc4 > Osc1") == "FM" && submenuHolding ("Osc1 Hammer") == "Physical & Keys",
+            // (The menu shows display names; look them up from the saved ones.)
+            const auto shown = [] (const juce::String& savedName)
+            {
+                return ModNames::destination (Mod::getDestinationNames().indexOf (savedName));
+            };
+            expect (submenuHolding (shown ("Osc2 Warp 2")) == "OSC 2" && submenuHolding (shown ("FM Noise > Osc3")) == "FM"
+                        && submenuHolding (shown ("FM Osc4 > Osc1")) == "FM" && submenuHolding (shown ("Osc1 Hammer")) == "Physical & Keys",
                     "the destination menu files new targets by oscillator and FM ("
-                        + submenuHolding ("Osc2 Warp 2") + ", " + submenuHolding ("FM Noise > Osc3") + ")");
+                        + shown ("Osc2 Warp 2") + ": " + submenuHolding (shown ("Osc2 Warp 2")) + ", "
+                        + shown ("FM Noise > Osc3") + ": " + submenuHolding (shown ("FM Noise > Osc3")) + ", "
+                        + shown ("Osc1 Hammer") + ": " + submenuHolding (shown ("Osc1 Hammer")) + ")");
         }
 
         // MATRIX: a routing in slot 60 shows up as a row.
@@ -2291,7 +2305,7 @@ int runUiTests()
             return nullptr;
         };
 
-        auto* starter = findButton ("WHEEL  >  VIBRATO");
+        auto* starter = findButton ("MOD WHEEL  >  VIBRATO");
         expect (starter != nullptr, "an empty matrix shows the starter routings");
 
         if (starter != nullptr)
@@ -2303,7 +2317,7 @@ int runUiTests()
                         && slot.destination == (int) Mod::Destination::Osc1Pitch
                         && processor.readModSlot (2).destination == (int) Mod::Destination::SubPitch,
                     "WHEEL > VIBRATO routes LFO 2 via the wheel to OSC 1-3 pitch");
-            expect (findButton ("WHEEL  >  VIBRATO") == nullptr, "the starters hide once something is routed");
+            expect (findButton ("MOD WHEEL  >  VIBRATO") == nullptr, "the starters hide once something is routed");
         }
 
         pages->showPage ("FX");
@@ -2974,6 +2988,7 @@ int runUiTests()
                     return { (int) Module::Envelope, 5 + source - (int) S::Env6 };
                 return { -1, 0 };
             };
+            // (Chips in a group's tray are counted through their group chip.)
             const auto chipState = [&]
             {
                 std::vector<ModSourceChip*> found;
@@ -2982,10 +2997,13 @@ int runUiTests()
                 juce::StringArray strayNames;
                 for (auto* chip : found)
                 {
-                    if (! chip->isVisible() || chip->getParentComponent() == nullptr)
+                    if (! chip->isVisible() || chip->getParentComponent() == nullptr
+                        || dynamic_cast<ModSourceTray*> (chip->getParentComponent()) != nullptr)
                         continue;
                     ++shown;
-                    compact += chip->isCompact() ? 1 : 0;
+                    // "Compact" now means a chip not showing its source's
+                    // one name (a code such as "E6" or "AT").
+                    compact += chip->getSourceName() != ModNames::sourceUpper (chip->getSourceIndex()) ? 1 : 0;
                     const auto [kind, index] = poolKindOf (chip->getSourceIndex());
                     if (kind >= 0 && ! processor.isRevealed ((Module) kind, index) && ! usedSource (chip->getSourceIndex()))
                     {
@@ -2996,13 +3014,13 @@ int runUiTests()
                 return std::make_tuple (shown, compact, strays, strayNames.joinIntoString (", "));
             };
 
-            // The chip row follows the pool, and abbreviates all chips or none.
+            // The chip row follows the pool, and every chip shows its
+            // source's one name, never a code (UI review 6, V6-9 / S6-19).
             {
                 const auto [shown, compact, strays, strayNames] = chipState();
                 expect (shown > 0 && strays == 0, "the chip row shows only sources in the pool or in use (" + juce::String (shown)
                                                       + " shown" + (strays > 0 ? "; not in the pool: " + strayNames : juce::String()) + ")");
-                expect (compact == 0 || compact == shown, "no chip is abbreviated unless all are (" + juce::String (compact) + " of "
-                                                              + juce::String (shown) + ")");
+                expect (compact == 0, "every chip shows its source's full name (" + juce::String (compact) + " codes)");
             }
 
             // "+" adds a source to the pool: LFO 9 (chip index 8) gets a chip.
@@ -3031,13 +3049,59 @@ int runUiTests()
             // The row follows the pool on the editor's 250 ms timer, so a
             // fixed 200 ms settle sometimes checked it before the timer had
             // run (the flake): wait for that tick, up to two seconds.
-            for (int wait = 0; wait < 40 && std::get<0> (chipState()) < 32 + 6; ++wait)
+            // A full pool: the LFOs and envelopes fold their last chips into
+            // group chips ("ENV +11"), whose tray shows them; no chip is
+            // shortened, none is lost, and the chips keep their full width.
+            const auto groupState = [&]
+            {
+                std::vector<ModSourceGroupChip*> groups;
+                findAll<ModSourceGroupChip> (*editor, groups);
+                auto folded = 0, visibleGroups = 0;
+                ModSourceGroupChip* biggest = nullptr;
+                for (auto* group : groups)
+                    if (group->isVisible())
+                    {
+                        ++visibleGroups;
+                        folded += (int) group->getSources().size();
+                        if (biggest == nullptr || group->getSources().size() > biggest->getSources().size())
+                            biggest = group;
+                    }
+                return std::make_tuple (folded, visibleGroups, biggest);
+            };
+            for (int wait = 0; wait < 40 && std::get<0> (chipState()) + std::get<0> (groupState()) < 32 + 6; ++wait)
                 settle (50);
             {
                 const auto [shown, compact, strays, strayNames] = chipState();
-                expect (shown >= 32 + 6 && (compact == 0 || compact == shown),
-                        "a full pool shows every chip, none hidden behind '+N', shortened all alike (" + juce::String (shown)
-                            + " shown, " + juce::String (compact) + " short)");
+                const auto [folded, visibleGroups, biggest] = groupState();
+                expect (shown + folded >= 32 + 6 && compact == 0 && visibleGroups > 0,
+                        "a full pool keeps every source (" + juce::String (shown) + " chips, " + juce::String (folded) + " in "
+                            + juce::String (visibleGroups) + " group chips), none shortened (" + juce::String (compact) + ")");
+
+                std::vector<ModSourceChip*> found;
+                findAll<ModSourceChip> (*editor, found);
+                auto narrow = 0;
+                for (auto* chip : found)
+                    if (chip->isVisible() && (float) chip->getWidth() < chip->getNaturalWidth() * 0.9f - 4.0f)
+                        ++narrow;
+                expect (narrow == 0, "no chip is squeezed below its name's width (" + juce::String (narrow) + ")");
+
+                // The tray: its chips are the folded sources, draggable.
+                if (biggest != nullptr && biggest->onOpen != nullptr)
+                {
+                    biggest->onOpen (*biggest);
+                    settle (100);
+                    auto* tray = findChild<ModSourceTray> (*editor);
+                    const auto trayChips = tray != nullptr ? (int) tray->getChips().size() : 0;
+                    auto inside = tray != nullptr && tray->isVisible();
+                    if (tray != nullptr)
+                        for (auto& chip : tray->getChips())
+                            inside = inside && tray->getLocalBounds().contains (chip->getBounds());
+                    expect (trayChips == (int) biggest->getSources().size() && inside,
+                            "a group chip opens a tray with its " + juce::String ((int) biggest->getSources().size())
+                                + " chips (" + juce::String (trayChips) + ")");
+                    if (tray != nullptr)
+                        tray->close();
+                }
             }
             for (int i = 0; i < 16; ++i)
             {
@@ -3114,8 +3178,10 @@ int runUiTests()
                 const auto lastSlot = visible.empty() ? 0 : visible.back()->getSlotIndex() + 1;
                 expect (numbered && lastSlot > (int) visible.size(),
                         "matrix rows are numbered 1.." + juce::String (visible.size()) + " as shown (the last is slot " + juce::String (lastSlot) + ")");
-                expect (duplicates >= 2, "Neuro Wobble's repeated LFO 1 > Filter1 Cutoff routing is flagged on both rows ("
-                                             + juce::String (duplicates) + ")");
+                // Factory presets load with their repeated routings merged
+                // (review 6, S5-9): Neuro Wobble's two LFO 1 > Filter 1
+                // Cutoff rows are one row now.
+                expect (duplicates == 0, "a factory preset loads with no repeated routing (" + juce::String (duplicates) + " flagged)");
                 if (! visible.empty())
                     expect (visible[0]->getHeight() <= 30, "matrix rows are compact (" + juce::String (visible[0]->getHeight()) + " px)");
             }
@@ -3142,14 +3208,14 @@ int runUiTests()
                 };
                 using C = MatrixRow::Columns;
                 const auto headingY = 6.0f + 32.0f + 9.0f;
-                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap + C::meter + C::gap) + 20.0f, headingY });
+                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap * 2) + 20.0f, headingY });
                 auto bySource = true;
                 {
                     const auto visible = shownRows();
                     for (size_t i = 1; i < visible.size(); ++i)
                     {
-                        const auto a = Mod::getSourceNames()[(int) processor.readModSlot (visible[i - 1]->getSlotIndex()).source];
-                        const auto b = Mod::getSourceNames()[(int) processor.readModSlot (visible[i]->getSlotIndex()).source];
+                        const auto a = ModNames::source ((int) processor.readModSlot (visible[i - 1]->getSlotIndex()).source, &processor);
+                        const auto b = ModNames::source ((int) processor.readModSlot (visible[i]->getSlotIndex()).source, &processor);
                         bySource = bySource && a.compareNatural (b) <= 0;
                     }
                     bySource = bySource && ! visible.empty() && visible[0]->getDisplayNumber() == 1;
@@ -3163,23 +3229,37 @@ int runUiTests()
                 }
                 expect (bySource && bySlot, "clicking SOURCE sorts the matrix by source, # goes back to slot order");
 
-                // The remap editor opens under its row, covers no other row, and closes with its X.
+                // The remap editor opens in the dock under the rows: no row
+                // moves, none is covered, and its X closes it (V6-22).
                 const auto visible = shownRows();
                 if (visible.size() >= 3)
                 {
                     auto* row = visible[1];
+                    std::vector<int> rowsY;
+                    for (auto* other : visible)
+                        rowsY.push_back (other->getY());
                     row->getCurve().openRemapEditor();
                     settle (200);
                     auto* remap = findChild<RemapEditor> (*page);
-                    auto covers = 0;
+                    auto covers = 0, moved = 0;
                     if (remap != nullptr)
                         for (auto* other : shownRows())
-                            if (page->getLocalArea (other, other->getLocalBounds()).intersects (page->getLocalArea (remap, remap->getLocalBounds())))
-                                ++covers;
-                    const auto below = remap != nullptr && page->getLocalArea (remap, remap->getLocalBounds()).getY()
-                                                               >= page->getLocalArea (row, row->getLocalBounds()).getBottom();
-                    expect (remap != nullptr && covers == 0 && below, "the remap editor opens docked under its row and covers no row ("
-                                                                          + juce::String (covers) + ")");
+                            if (other->isShowing() || true)
+                            {
+                                const auto rowArea = page->getLocalArea (other, other->getLocalBounds());
+                                const auto visibleArea = rowArea.getIntersection (page->getLocalArea (other->getParentComponent()->getParentComponent(),
+                                                                                                      other->getParentComponent()->getParentComponent()->getLocalBounds()));
+                                if (! visibleArea.isEmpty() && visibleArea.intersects (page->getLocalArea (remap, remap->getLocalBounds())))
+                                    ++covers;
+                            }
+                    const auto after = shownRows();
+                    for (size_t i = 0; i < after.size() && i < rowsY.size(); ++i)
+                        moved += after[i]->getY() != rowsY[i] ? 1 : 0;
+                    const auto docked = remap != nullptr && remap->getParentComponent() == page
+                                        && page->getLocalArea (remap, remap->getLocalBounds()).getBottom() >= page->getHeight() - 20;
+                    expect (remap != nullptr && covers == 0 && moved == 0 && docked,
+                            "the remap editor opens in the dock under the rows, covering none (" + juce::String (covers)
+                                + ") and moving none (" + juce::String (moved) + ")");
                     if (remap != nullptr)
                     {
                         remap->createComponentSnapshot (remap->getLocalBounds());
@@ -4599,6 +4679,9 @@ int runUiTests()
         loadNamed ("Neuro Wobble");
     }
 
+    // UI review 6, P1: rings, badges, the macro strip and the matrix.
+    runModulationTests (processor, *pages);
+
     // Batch H (UI review 4: V19, V27, V28, S17, S20, S23, S25).
     runSmallThingsTests (processor, *pages);
 
@@ -5385,6 +5468,103 @@ int main (int argc, char** argv)
                 settle (500);
                 save (*editor, outDir.getChildFile ("remap-editor.png"));
                 curve->openRemapEditor(); // closes it again
+                break;
+            }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_P1: the modulation views of UI review 6 (P1), then
+    // stop: knob rings and badges, a knob's and a macro's cards (with a
+    // target whose module is off), a group chip's tray, and the matrix with
+    // an idle row, a repeated row and a docked remap editor.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_P1", "").isNotEmpty())
+    {
+        const auto route = [&processor] (int slot, Mod::Source source, Mod::Destination destination, float depth)
+        {
+            const auto prefix = "mod" + juce::String (slot + 1);
+            for (const auto& [field, value] : { std::pair<const char*, float> { "_src", (float) source },
+                                                { "_dst", (float) destination }, { "_amt", depth } })
+                if (auto* parameter = processor.apvts.getParameter (prefix + field))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        auto freeSlot = 0;
+        while (freeSlot < Mod::maxSlots && processor.readModSlot (freeSlot).source != Mod::Source::None)
+            ++freeSlot;
+
+        // Macro 1 into OSC 3 (off in most patches) and a repeat of slot 1.
+        route (freeSlot, Mod::macroSourceFor (0), Mod::Destination::SubLevel, 0.5f);
+        if (const auto first = processor.readModSlot (0); first.source != Mod::Source::None)
+            route (freeSlot + 1, first.source, (Mod::Destination) first.destination, 0.25f);
+        settle (300);
+
+        for (const auto* page : { "MAIN", "FILTER" })
+        {
+            pages->showPage (page);
+            settle (500);
+            save (*editor, outDir.getChildFile ("p1-" + juce::String (page).toLowerCase() + ".png"));
+        }
+
+        pages->showPage ("MAIN");
+        settle (400);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* busiest = nullptr;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob) && ! knob->isCompact() && knob->getNumRoutings() > (busiest != nullptr ? busiest->getNumRoutings() : 0))
+                busiest = knob;
+        if (busiest != nullptr)
+        {
+            busiest->openModCard (true);
+            settle (300);
+            save (*editor, outDir.getChildFile ("p1-knob-card.png"));
+            busiest->closeModCard();
+            settle (200);
+        }
+
+        std::vector<StripKnob*> macros;
+        findAll<StripKnob> (*editor, macros);
+        for (auto* macro : macros)
+            if (auto* card = ModHoverPopup::instance(); card != nullptr && macro->getMacroIndex() == 0)
+            {
+                card->holdOpen (true);
+                macro->openCard();
+                settle (400);
+                save (*editor, outDir.getChildFile ("p1-macro-card.png"));
+                card->holdOpen (false);
+                card->close();
+            }
+
+        // Every LFO and envelope in the pool: the bar folds them into group
+        // chips; open the envelopes' tray.
+        for (int i = 0; i < IlanaSynthAudioProcessor::numLfos; ++i)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, i, true);
+        for (int i = 0; i < 16; ++i)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, i, true);
+        settle (400);
+        std::vector<ModSourceGroupChip*> groups;
+        findAll<ModSourceGroupChip> (*editor, groups);
+        for (auto* group : groups)
+            if (visibleInTree (group) && group->onOpen != nullptr)
+            {
+                group->onOpen (*group);
+                settle (300);
+                save (*editor, outDir.getChildFile ("p1-chip-tray.png"));
+                group->onOpen (*group);
+                break;
+            }
+
+        pages->showPage ("MATRIX");
+        settle (500);
+        save (*editor, outDir.getChildFile ("p1-matrix.png"));
+        std::vector<CurveControl*> curves;
+        findAll<CurveControl> (*editor, curves);
+        for (auto* curve : curves)
+            if (visibleInTree (curve) && curve->getSlotIndex() == 1)
+            {
+                curve->openRemapEditor();
+                settle (500);
+                save (*editor, outDir.getChildFile ("p1-remap.png"));
+                curve->openRemapEditor();
                 break;
             }
         return 0;

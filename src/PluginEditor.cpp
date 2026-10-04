@@ -345,20 +345,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         auto knob = std::make_unique<StripKnob> (p, "macro" + juce::String (macro + 1),
                                                  "Macro " + juce::String (macro + 1), macro,
                                                  modSourceColour ((int) Mod::macroSourceFor (macro)), false);
-        content.addChildComponent (*knob);
+        content.addAndMakeVisible (*knob);
         macroKnobs.push_back (std::move (knob));
     }
-    // Four macros fit the strip: a small switch pages between 1-4 and 5-8.
-    macroPageButton.setTooltip ("Show macros 1-4 or 5-8");
-    macroPageButton.onClick = [this] { showMacroPage (1 - macroPage); };
-    content.addAndMakeVisible (macroPageButton);
-    showMacroPage (0);
-
-    glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide");
-    legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
-    legatoToggle->showAsSwitch();
-    legatoToggle->setTooltip ("Glide only between overlapping (legato) notes");
-    content.addAndMakeVisible (*legatoToggle);
     // Master is a setting rather than a sound control: neutral, so it doesn't
     // outshine the page (and yellow stays the macros' colour).
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
@@ -374,7 +363,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     content.addAndMakeVisible (headerScope);
 
-    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice mode, how many voices and the pitch-bend range.");
+    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice mode, how many voices, the pitch-bend range and glide.");
     voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     voicesArea.onClick = [this] { showSettingsMenu (true); };
     content.addAndMakeVisible (voicesArea);
@@ -383,8 +372,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     tuningArea.onClick = [this] { showSettingsMenu (false, true); };
     content.addChildComponent (tuningArea);
 
-    for (auto* component : { static_cast<juce::Component*> (glideKnob.get()), static_cast<juce::Component*> (masterKnob.get()) })
-        content.addAndMakeVisible (*component);
+    content.addAndMakeVisible (*masterKnob);
 
     presetDisplay.onClick = [this] { togglePresetPanel(); };
 
@@ -432,38 +420,25 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // chip here. Every LFO and envelope chip follows the MOD page's pool:
     // shown while that module is added (or the matrix uses it), with the
     // rest one click away behind "+". The performance sources always show.
+    // Names are the sources' one name (ModNames), never a code: a full bar
+    // folds the last chips of each group into a group chip instead.
     struct ChipSpec
     {
-        juce::String name, shortName;
         Mod::Source source;
         int revealKind = -1, revealIndex = 0;
     };
     std::vector<ChipSpec> chipSpecs;
     for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-        chipSpecs.push_back ({ "LFO " + juce::String (lfo + 1), "L" + juce::String (lfo + 1), Mod::lfoSourceFor (lfo),
-                               (int) IlanaSynthAudioProcessor::Module::Lfo, lfo });
-    {
-        const auto envelope = (int) IlanaSynthAudioProcessor::Module::Envelope;
-        // The pool's order: AMP, FILT, FILT 2, MOD, ENV 5, then ENV 6-16.
-        for (const auto& spec : { ChipSpec { "AMP ENV", "AMP", Mod::Source::AmpEnv, envelope, 0 },
-                                  ChipSpec { "FILT ENV", "FLT", Mod::Source::FilterEnv, envelope, 1 },
-                                  ChipSpec { "FILT 2 ENV", "FLT2", Mod::Source::FilterEnv2, envelope, 2 },
-                                  ChipSpec { "MOD ENV", "MOD", Mod::Source::ModEnv, envelope, 3 },
-                                  ChipSpec { "ENV 5", "E5", Mod::Source::Env4, envelope, 4 } })
-            chipSpecs.push_back (spec);
-        for (int env = 6; env <= 16; ++env)
-            chipSpecs.push_back ({ "ENV " + juce::String (env), "E" + juce::String (env),
-                                   (Mod::Source) ((int) Mod::Source::Env6 + env - 6), envelope, env - 1 });
-    }
-    for (const auto& spec : { ChipSpec { "MSEG", "MSEG", Mod::Source::Mseg }, ChipSpec { "VELOCITY", "VEL", Mod::Source::Velocity },
-                              ChipSpec { "KEY", "KEY", Mod::Source::KeyTrack }, ChipSpec { "RANDOM", "RND", Mod::Source::Random },
-                              ChipSpec { "WHEEL", "WHL", Mod::Source::ModWheel }, ChipSpec { "PRESSURE", "AT", Mod::Source::Aftertouch },
-                              ChipSpec { "INPUT", "IN", Mod::Source::InputEnv } })
-        chipSpecs.push_back (spec);
+        chipSpecs.push_back ({ Mod::lfoSourceFor (lfo), (int) IlanaSynthAudioProcessor::Module::Lfo, lfo });
+    for (int env = 0; env < 16; ++env)
+        chipSpecs.push_back ({ ModNames::envelopeSourceFor (env), (int) IlanaSynthAudioProcessor::Module::Envelope, env });
+    for (const auto source : { Mod::Source::Velocity, Mod::Source::KeyTrack, Mod::Source::ModWheel, Mod::Source::Aftertouch,
+                               Mod::Source::Random, Mod::Source::Mseg, Mod::Source::InputEnv })
+        chipSpecs.push_back ({ source });
     // The Operator Env's LFO and pitch envelope (UI review 6), shown while an
     // oscillator plays the Operator Env or the matrix uses them (kind -2).
-    chipSpecs.push_back ({ "OP LFO", "OLFO", Mod::Source::OpLfo, -2 });
-    chipSpecs.push_back ({ "OP PITCH", "OPIT", Mod::Source::OpPitchEnv, -2 });
+    chipSpecs.push_back ({ Mod::Source::OpLfo, -2 });
+    chipSpecs.push_back ({ Mod::Source::OpPitchEnv, -2 });
 
     for (const auto& spec : chipSpecs)
     {
@@ -471,31 +446,30 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         if (spec.source == Mod::Source::InputEnv && ! IlanaSynthAudioProcessor::isEffectBuild)
             continue;
 
-        auto chip = std::make_unique<ModSourceChip> (spec.name, (int) spec.source);
-        // The chip glows with its source while that source modulates
-        // something (macros, the wheel and pressure always).
-        chip->valueProvider = [this, source = spec.source]
-        {
-            using S = Mod::Source;
-            const auto played = Mod::macroIndexFor (source) >= 0 || source == S::ModWheel || source == S::Aftertouch
-                                || source == S::InputEnv;
-
-            if (! played && ! usedModSources[(size_t) juce::jlimit (0, (int) S::Count - 1, (int) source)])
-                return 0.0f;
-
-            if ((source == S::Velocity || source == S::KeyTrack || source == S::Random)
-                && processorRef.getActiveVoiceCount() == 0)
-                return 0.0f;
-
-            return processorRef.getSourceDisplayValue ((int) source);
-        };
-        chip->setShortName (spec.shortName);
+        auto chip = makeSourceChip ((int) spec.source);
         content.addAndMakeVisible (*chip);
         chip->setVisible (spec.revealKind == -1);
         chips.push_back (std::move (chip));
         chipReveal.push_back ({ spec.revealKind, spec.revealIndex });
         chipWanted.push_back (spec.revealKind == -1);
+        chipFolded.push_back (false);
     }
+
+    const char* const groupNames[] { "LFO", "ENV", "MORE" };
+    for (size_t group = 0; group < groupChips.size(); ++group)
+    {
+        groupChips[group] = std::make_unique<ModSourceGroupChip> (groupNames[group]);
+        groupChips[group]->onOpen = [this] (ModSourceGroupChip& groupChip)
+        {
+            if (chipTray.isOpenFor (groupChip))
+                chipTray.close();
+            else
+                chipTray.openFor (groupChip);
+        };
+        content.addChildComponent (*groupChips[group]);
+    }
+    chipTray.makeChip = [this] (int source) { return makeSourceChip (source); };
+    content.addChildComponent (chipTray);
 
     moreChipsButton.setButtonText ("+");
     moreChipsButton.setTooltip ("Add an LFO or envelope: it joins the pool on MOD > ENV / LFO and gets a chip here to drag.");
@@ -786,60 +760,143 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
         resized();
 }
 
-// Every shown chip at its name's width with the spare shared out, then the
-// "+" picker. A crowded row shortens every chip at once ("L5", "E6", "VEL"),
-// never some and not others, and only then narrows them; none is hidden.
+// A source chip for the bar or a group's tray. It glows with its source
+// while that source modulates something (macros, the wheel and pressure
+// always).
+std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (int sourceIndex)
+{
+    auto chip = std::make_unique<ModSourceChip> (ModNames::sourceUpper (sourceIndex), sourceIndex);
+    chip->valueProvider = [this, source = (Mod::Source) sourceIndex]
+    {
+        using S = Mod::Source;
+        const auto played = Mod::macroIndexFor (source) >= 0 || source == S::ModWheel || source == S::Aftertouch
+                            || source == S::InputEnv;
+
+        if (! played && ! usedModSources[(size_t) juce::jlimit (0, (int) S::Count - 1, (int) source)])
+            return 0.0f;
+
+        if ((source == S::Velocity || source == S::KeyTrack || source == S::Random)
+            && processorRef.getActiveVoiceCount() == 0)
+            return 0.0f;
+
+        return processorRef.getSourceDisplayValue ((int) source);
+    };
+    return chip;
+}
+
+// The bar, in three groups (LFOs | envelopes | performance) with a gap
+// between them: every shown chip at its full name's width, the spare shared
+// out, then the "+" picker. When they don't all fit, the group with the most
+// chips folds its last one into a group chip ("ENV +3"), and so on, LFOs and
+// envelopes before the performance sources; nothing is ever shortened to a
+// code (UI review 6, V6-9 / S6-19).
 void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
 {
     if (chips.empty())
         return;
 
-    const auto font = IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true);
-    // A full chip has its colour dot beside the name; a short one has it
-    // under the name and needs less room.
-    const auto widthOf = [&font] (const juce::String& text, bool compact)
-    {
-        return (float) juce::GlyphArrangement::getStringWidthInt (font, text) + (compact ? 12.0f : 34.0f);
-    };
-    auto picker = false; // a pool chip left to add (the Operator Env's come and go by themselves)
+    using Module = IlanaSynthAudioProcessor::Module;
+    std::array<std::vector<size_t>, 3> members;
+
+    for (size_t i = 0; i < chips.size(); ++i)
+        if (chipWanted[i])
+            members[chipReveal[i].first == (int) Module::Lfo ? 0 : chipReveal[i].first == (int) Module::Envelope ? 1 : 2].push_back (i);
+
+    // A pool chip left to add (the Operator Env's come and go by themselves).
+    auto picker = false;
     for (size_t i = 0; i < chips.size() && i < chipReveal.size(); ++i)
         picker = picker || (chipReveal[i].first >= 0 && ! chipWanted[i]);
     const auto pickerWidth = picker ? 34.0f : 0.0f;
-    const auto total = [&] (bool compact)
+    constexpr float groupGap = 10.0f;
+    const char* const groupNames[] { "LFO", "ENV", "MORE" };
+    std::array<int, 3> shown { (int) members[0].size(), (int) members[1].size(), (int) members[2].size() };
+
+    const auto widthOf = [&] (const std::array<int, 3>& counts)
     {
         auto sum = pickerWidth;
-        for (size_t i = 0; i < chips.size(); ++i)
-            if (chipWanted[i])
-                sum += widthOf (compact ? chips[i]->getShortName() : chips[i]->getSourceName(), compact);
-        return sum;
+        auto groups = 0;
+
+        for (size_t g = 0; g < 3; ++g)
+        {
+            if (members[g].empty())
+                continue;
+
+            ++groups;
+            for (int k = 0; k < counts[g]; ++k)
+                sum += chips[members[g][(size_t) k]]->getNaturalWidth();
+
+            if (counts[g] < (int) members[g].size())
+                sum += ModSourceGroupChip::widthFor (groupNames[g], (int) members[g].size() - counts[g]);
+        }
+
+        return sum + groupGap * (float) juce::jmax (0, groups - 1);
     };
 
     const auto available = (float) row.getWidth();
-    const auto compact = total (false) > available;
-    const auto used = total (compact);
-    const auto count = (float) std::count (chipWanted.begin(), chipWanted.end(), true);
-    const auto spare = juce::jmax (0.0f, (available - used) / juce::jmax (1.0f, count));
+
+    while (widthOf (shown) > available)
+    {
+        // The LFOs or envelopes, whichever shows more; the performance
+        // sources only once both are folded.
+        auto g = shown[0] >= shown[1] ? 0 : 1;
+        if (shown[(size_t) g] == 0)
+            g = 2;
+        if (shown[(size_t) g] == 0)
+            break;
+        --shown[(size_t) g];
+    }
+
+    const auto used = widthOf (shown);
+    auto items = 0;
+    for (size_t g = 0; g < 3; ++g)
+        items += shown[g] + (shown[g] < (int) members[g].size() ? 1 : 0);
+
+    const auto spare = juce::jlimit (0.0f, 40.0f, (available - used) / (float) juce::jmax (1, items));
     const auto squeeze = juce::jmin (1.0f, available / juce::jmax (1.0f, used));
     auto x = (float) row.getX();
+    const auto place = [&] (juce::Component& component, float natural)
+    {
+        const auto width = (natural + spare) * squeeze;
+        component.setBounds (juce::Rectangle<float> (x, (float) row.getY(), width, (float) row.getHeight()).toNearestInt().reduced (2, 1));
+        x += width;
+    };
 
     for (size_t i = 0; i < chips.size(); ++i)
+        chipFolded[i] = false;
+
+    for (size_t g = 0; g < 3; ++g)
     {
-        chips[i]->setVisible (chipWanted[i]);
-        chips[i]->setCompact (compact);
+        std::vector<int> folded;
 
-        if (! chipWanted[i])
-            continue;
+        for (size_t k = 0; k < members[g].size(); ++k)
+        {
+            const auto index = members[g][k];
+            const auto visible = (int) k < shown[g];
+            chipFolded[index] = ! visible;
 
-        const auto natural = widthOf (compact ? chips[i]->getShortName() : chips[i]->getSourceName(), compact);
-        const auto width = (natural + spare) * squeeze;
-        chips[i]->setBounds (juce::Rectangle<float> (x, (float) row.getY(), width, (float) row.getHeight()).toNearestInt().reduced (2, 1));
-        x += width;
+            if (visible)
+                place (*chips[index], chips[index]->getNaturalWidth());
+            else
+                folded.push_back (chips[index]->getSourceIndex());
+        }
+
+        groupChips[g]->setSources (folded);
+        groupChips[g]->setVisible (! folded.empty());
+
+        if (! folded.empty())
+            place (*groupChips[g], groupChips[g]->getNaturalWidth());
+
+        if (! members[g].empty())
+            x += groupGap * squeeze;
     }
+
+    for (size_t i = 0; i < chips.size(); ++i)
+        chips[i]->setVisible (chipWanted[i] && ! chipFolded[i]);
 
     moreChipsButton.setVisible (picker);
     if (picker)
-        moreChipsButton.setBounds (juce::Rectangle<float> (x, (float) row.getY(), pickerWidth * squeeze, (float) row.getHeight())
-                                       .toNearestInt().reduced (2, 1));
+        moreChipsButton.setBounds (juce::Rectangle<float> (x - groupGap * squeeze, (float) row.getY(), pickerWidth * squeeze,
+                                                           (float) row.getHeight()).toNearestInt().reduced (2, 1));
 }
 
 // The "+" after the chips: the LFOs and envelopes not in the pool yet.
@@ -856,7 +913,7 @@ void IlanaSynthAudioProcessorEditor::showChipPicker()
             continue;
 
         auto& menu = kind == (int) IlanaSynthAudioProcessor::Module::Lfo ? lfos : envelopes;
-        menu.addItem ((int) i + 1, chips[i]->getSourceName());
+        menu.addItem ((int) i + 1, ModNames::source (chips[i]->getSourceIndex()));
     }
 
     juce::PopupMenu menu;
@@ -933,7 +990,7 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
         const auto text = "Voices: " + juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + " of "
                           + juce::String (maxVoices) + " playing\nNotes sounding / the most that can sound. "
-                          + "Click for the voice mode, how many voices and the pitch-bend range.";
+                          + "Click for the voice mode, how many voices the pitch-bend range and glide.";
 
         if (voicesArea.getTooltip() != text)
             voicesArea.setTooltip (text);
@@ -1174,23 +1231,13 @@ void IlanaSynthAudioProcessorEditor::resized()
     outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, 48));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
-    strip.removeFromRight (4);
-    // The bar's switch puts its name on the knobs' title line and the switch
-    // on the value line, like the knobs' text beside them.
-    const auto titleTop = strip.getCentreY() - 15;
-    legatoToggle->setBounds (strip.removeFromRight (80).withTop (titleTop).withHeight (13 + 20).reduced (2, 0));
-    glideKnob->setBounds (strip.removeFromRight (92));
-    strip.removeFromRight (6);
+    strip.removeFromRight (10);
 
-    macroPageButton.setBounds (strip.removeFromLeft (30).withSizeKeepingCentre (30, 20));
-    strip.removeFromLeft (4);
-    const auto macroWidth = strip.getWidth() / 4;
+    // All eight macros, side by side.
+    const auto macroWidth = strip.getWidth() / juce::jmax (1, (int) macroKnobs.size());
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
-        if (macro % 4 == 0)
-            for (int k = 0; k < 4 && macro + k < (int) macroKnobs.size(); ++k)
-                macroKnobs[(size_t) (macro + k)]->setBounds (strip.getX() + k * macroWidth, strip.getY(),
-                                                             macroWidth - 6, strip.getHeight());
+        macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
 
     auto chipsRow = area.removeFromBottom (26).reduced (14, 1);
 
@@ -1693,14 +1740,6 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
         knob->refreshName();
 }
 
-void IlanaSynthAudioProcessorEditor::showMacroPage (int page)
-{
-    macroPage = juce::jlimit (0, (Mod::numMacros - 1) / 4, page);
-    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
-        macroKnobs[(size_t) macro]->setVisible (macro / 4 == macroPage);
-    macroPageButton.setButtonText (macroPage == 0 ? "5-8" : "1-4");
-}
-
 void IlanaSynthAudioProcessorEditor::updateUndoButtons()
 {
     auto& undoManager = processorRef.getUndoManager();
@@ -1923,10 +1962,18 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
         bendMenu.addItem (930 + i, juce::String (bendRanges[i]) + (bendRanges[i] == 1 ? " semitone" : " semitones"),
                           true, currentBend == bendRanges[i]);
 
+    // Glide and legato glide, moved here from the bottom strip.
+    const auto addGlide = [this, &read] (juce::PopupMenu& target)
+    {
+        target.addCustomItem (950, std::make_unique<GlideMenuItem> (processorRef), nullptr, "Glide");
+        target.addItem (951, "Glide only between overlapping (legato) notes", true, read ("glide_legato") > 0.5f);
+    };
+
     juce::PopupMenu menu;
     menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
     menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
     menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
+    addGlide (menu);
 
     menu.addSeparator();
     menu.addSubMenu ("Skin", skins);
@@ -1952,6 +1999,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
         menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
         menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
         menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
+        addGlide (menu);
     }
 
     // The header's tuning indicator opens just the tuning items.
@@ -2035,6 +2083,18 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
                                     set ("poly_voices", (float) voiceCounts[juce::jlimit (0, (int) std::size (voiceCounts) - 1, result - 910)]);
                                 else
                                     set ("bend_range", (float) bendRanges[juce::jlimit (0, (int) std::size (bendRanges) - 1, result - 930)]);
+                            }
+                            else if (result == 951)
+                            {
+                                if (auto* legato = safeThis->processorRef.apvts.getParameter ("glide_legato"))
+                                {
+                                    safeThis->processorRef.performEdit ("Legato glide", [legato]
+                                    {
+                                        legato->beginChangeGesture();
+                                        legato->setValueNotifyingHost (legato->getValue() > 0.5f ? 0.0f : 1.0f);
+                                        legato->endChangeGesture();
+                                    });
+                                }
                             }
                             else if (result == 400)
                             {

@@ -1042,6 +1042,11 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         applyDefaultMacros (keep);
     }
 
+    // A recipe, its voicing and the default macros can each route the same
+    // source to the same knob: one row each in the matrix. They load as one
+    // row with the depths added (the same sound; review 6, S5-9).
+    mergeDuplicateModSlots();
+
     updateExciterLevelMatch (false);
 }
 

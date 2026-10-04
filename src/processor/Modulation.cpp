@@ -1121,3 +1121,62 @@ float IlanaSynthAudioProcessor::staticSourceValue (int sourceIndex) const
         default:                      return 0.0f;
     }
 }
+
+// Review 6 (V5-8, S5-9): duplicate matrix rows. Both rows add
+// depth * shape (source), so one row with the summed depth is the same
+// routing, as long as everything else that shapes it matches.
+bool IlanaSynthAudioProcessor::canMergeModSlots (int into, int from, juce::String* reason) const
+{
+    const auto fail = [reason] (const char* why)
+    {
+        if (reason != nullptr)
+            *reason = why;
+        return false;
+    };
+
+    if (into == from || ! juce::isPositiveAndBelow (into, Mod::maxSlots) || ! juce::isPositiveAndBelow (from, Mod::maxSlots))
+        return fail ("not two rows");
+
+    const auto a = readModSlot (into);
+    const auto b = readModSlot (from);
+
+    if (a.source != b.source || a.destination != b.destination || a.source == Mod::Source::None || a.destination == 0)
+        return fail ("they route different things");
+    if (a.aux != b.aux)
+        return fail ("their via sources differ");
+    if (a.polarity != b.polarity)
+        return fail ("their polarities differ");
+    if (a.bypass != b.bypass)
+        return fail ("one is switched off");
+    if (std::abs (a.curve - b.curve) > 1.0e-6f)
+        return fail ("their curves differ");
+    if (isModRemapOn (into) || isModRemapOn (from))
+        return fail ("one has a drawn remap curve");
+    if (std::abs (a.depth + b.depth) > 1.0f + 1.0e-6f)
+        return fail ("together they would pass 100%");
+
+    return true;
+}
+
+bool IlanaSynthAudioProcessor::mergeModSlots (int into, int from)
+{
+    if (! canMergeModSlots (into, from))
+        return false;
+
+    const auto depth = readModSlot (into).depth + readModSlot (from).depth;
+    setModSlotValue (into, "amt", juce::jlimit (-1.0f, 1.0f, depth));
+    clearModSlot (from);
+    return true;
+}
+
+int IlanaSynthAudioProcessor::mergeDuplicateModSlots()
+{
+    auto merged = 0;
+
+    for (int into = 0; into < Mod::maxSlots; ++into)
+        for (int from = into + 1; from < Mod::maxSlots; ++from)
+            if (mergeModSlots (into, from))
+                ++merged;
+
+    return merged;
+}

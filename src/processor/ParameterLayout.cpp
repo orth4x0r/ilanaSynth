@@ -743,7 +743,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     juce::StringArray ampEnvelopeChoices;
     // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "Filter 2 Env"
+        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filt Env" : env == 3 ? "Filt 2 Env"
                                 : env == 4 ? "Mod Env" : "Env " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
     ampEnvelopeChoices.add ("Operator Env"); // appended, index 17: the Operator Env (OperatorEgParams.h)

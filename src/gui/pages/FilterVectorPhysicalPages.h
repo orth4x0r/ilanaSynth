@@ -28,6 +28,8 @@ public:
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
         addAll (*this, picker, slope, cutoff, reso, drive, env, key, fm, morph);
+        for (auto* knob : { &cutoff, &reso, &drive, &env, &key, &fm, &morph })
+            knob->setSizeRole (38);
 
         // Filter 2 stays open (20 kHz) on almost every patch: its switch says
         // so and brings it in or sends it back to open, as WEST and BODY
@@ -77,21 +79,20 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (10, 0);
-        auto header = area.removeFromTop (headerHeight);
+        // The design's matched card: a 30 px header (title, F2's switch), then
+        // the type menu with the slope pills, then the six knobs.
+        auto header = getLocalBounds().reduced (10, 0).removeFromTop (headerHeight);
         if (prefix == "f2")
         {
             // (cardSwitchBounds is for a ToggleControl with a label's 13 px above the pill.)
             f2Switch.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), headerHeight / 2).withTrimmedTop (13).withHeight (20));
-            header.setRight (f2Switch.getX() - 8 - 10);
         }
-        slope.setBounds (header.removeFromRight (96).reduced (0, 6));
-        header.removeFromRight (8);
-        // The picker after the title, as wide as it likes up to the slope.
-        header.removeFromLeft (IlanaTheme::cardTitleWidth (title) - 4);
-        picker.setBounds (header.removeFromLeft (juce::jmin (FilterTypePicker::idealWidth, header.getWidth())).reduced (0, 5));
-
-        area.removeFromBottom (6);
+        auto area = getLocalBounds().withTrimmedTop (headerHeight).reduced (10, 8);
+        auto row = area.removeFromTop (26);
+        picker.setBounds (row.removeFromLeft (juce::jmin (FilterTypePicker::idealWidth, row.getWidth() - 110)));
+        row.removeFromLeft (8);
+        slope.setBounds (row.removeFromLeft (104).withSizeKeepingCentre (104, 24));
+        area.removeFromTop (6);
 
         std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
 
@@ -101,12 +102,13 @@ public:
         layoutRow (area, knobs);
     }
 
-    static constexpr int headerHeight = 34;
+    static constexpr int headerHeight = 30;
 
     // The height the card wants at a width: the header and one knob row.
     int preferredHeight (int width) const
     {
-        return headerHeight + preferredControlHeight (const_cast<KnobControl*> (&cutoff), (width - 20) / 7 - 6) + 18;
+        juce::ignoreUnused (width);
+        return 150;
     }
 
 private:
@@ -250,7 +252,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
-        auto header = getLocalBounds().reduced (12, 0).removeFromTop (28);
+        auto header = getLocalBounds().reduced (12, 0).removeFromTop (30);
         IlanaTheme::paintCardHeader (g, header, "WEST", juce::roundToInt (read ("west_pos")) == 1 ? "wavefolder and low-pass gate, in Filter 2's place"
                                                                                                     : "wavefolder and low-pass gate, after the filters",
                                      colour(), 60);
@@ -311,7 +313,7 @@ public:
         area.removeFromTop (30);
         area.removeFromBottom (4);
         // Its on switch in the header, like every card's.
-        on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 14));
+        on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 15));
 
         // Off, the page gives it a header's height: only the switch stays
         // (UI review 9, V9-4).
@@ -324,11 +326,11 @@ public:
             return;
 
         // The menus in a row with the picture beside them, then the knobs.
-        auto top = area.removeFromTop (juce::jmin (52, area.getHeight() / 3));
-        picture = top.removeFromRight (top.getWidth() * 2 / 5).reduced (4, 2);
+        auto top = area.removeFromTop (40);
+        picture = top.removeFromRight (top.getWidth() * 2 / 5).reduced (4, 1);
         const auto menuWidth = top.getWidth() / 3;
         for (auto* menu : { &position, &mode, &source })
-            menu->setBounds (top.removeFromLeft (menuWidth).reduced (3, 2));
+            menu->setBounds (top.removeFromLeft (menuWidth).reduced (3, 1));
         area.removeFromTop (2);
         layoutRow (area, { &fold, &symmetry, &stages, &decay, &resonance, &strike, &open });
     }

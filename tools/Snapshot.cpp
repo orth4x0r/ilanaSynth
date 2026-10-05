@@ -7673,6 +7673,8 @@ int main (int argc, char** argv)
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
+    // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
+    filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
 
     for (int i = 0; i < pageIds.size(); ++i)
     {

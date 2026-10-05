@@ -526,15 +526,16 @@ public:
         // 34 px: Serum's rows are about this tall and a long matrix should
         // not scroll more than it has to (review 9, S9-7).
         const auto listRows = (int) visibleRows.size() + 1; // (and the add row)
+        const auto headingsHeight = showsGroupHeadings() ? numGroups() * groupHeadingHeight : 0;
         rowHeight = MatrixRow::rowHeight;
-        while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 <= area.getHeight())
+        while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 + headingsHeight <= area.getHeight())
             ++rowHeight;
 
         // The dock shows while a remap is open. Otherwise its how-to note
         // only takes room the rows leave over, never the list's own room
         // (review 9, S9-6), so a short matrix has no bare block under it.
         // The rows never move for it, the list just scrolls above it (V6-22).
-        const auto rowsHeight = listRows * (rowHeight + 1) + 8;
+        const auto rowsHeight = listRows * (rowHeight + 1) + 8 + headingsHeight;
         const auto spare = area.getHeight() - rowsHeight;
         if (! visibleRows.empty() && remapEditor != nullptr)
             dockArea = area.removeFromBottom (dockHeight).withTrimmedTop (8);
@@ -870,6 +871,19 @@ private:
             repaint();
         }
 
+        // A source changed under the group headings: lay them out again.
+        {
+            juce::String key (showsGroupHeadings() ? "g" : "n");
+            if (showsGroupHeadings())
+                for (const auto index : visibleRows)
+                    key << sourceOfSlot (index) << ",";
+            if (key != headingKey)
+            {
+                headingKey = key;
+                resized();
+            }
+        }
+
         auto idle = 0;
         for (const auto index : visibleRows)
         {
@@ -882,6 +896,28 @@ private:
             numIdle = idle;
             repaint();
         }
+    }
+
+    // A heading over each source's group, in a long list sorted by source.
+    static constexpr int groupHeadingHeight = 18, groupHeadingsFrom = 8;
+
+    bool showsGroupHeadings() const
+    {
+        return sort == Sort::source && visibleRows.size() >= (size_t) groupHeadingsFrom;
+    }
+
+    int sourceOfSlot (int slot) const { return (int) processorRef.readModSlot (slot).source; }
+
+    int numGroups() const
+    {
+        auto groups = 0, last = -1;
+        for (const auto slot : visibleRows)
+            if (const auto source = sourceOfSlot (slot); source != last)
+            {
+                ++groups;
+                last = source;
+            }
+        return groups;
     }
 
     void layoutList()
@@ -904,12 +940,27 @@ private:
             });
         }
 
+        list.headings.clear();
+        const auto headed = showsGroupHeadings();
+        auto lastSource = -1;
+        const auto names = Mod::getSourceNames();
         for (const auto index : visibleRows)
         {
             auto& row = *rows[(size_t) index];
+            if (const auto source = sourceOfSlot (index); headed && source != lastSource)
+            {
+                auto count = 0;
+                for (const auto other : visibleRows)
+                    count += sourceOfSlot (other) == source ? 1 : 0;
+                list.headings.push_back ({ { 0, y, width, groupHeadingHeight }, modSourceColour (source),
+                                           names[source].toUpperCase() + (count == 1 ? "   1 route" : "   " + juce::String (count) + " routes") });
+                y += groupHeadingHeight;
+                lastSource = source;
+            }
             row.setBounds (0, y, width, rowHeight);
             y += rowHeight;
         }
+        list.repaint();
 
         // "+ ADD MODULATION" as the row after the last routing (S7-35).
         addRow.setVisible (! visibleRows.empty() && visibleRows.size() < (size_t) Mod::maxSlots);
@@ -992,9 +1043,28 @@ private:
     juce::StringArray shownMacroNames;
     std::vector<bool> shownPoolSources;
     juce::Viewport viewport;
-    juce::Component list;
+    // The rows' canvas: it also paints a small heading over each source's
+    // group once the matrix is long (S13-3).
+    struct ListCanvas : juce::Component
+    {
+        void paint (juce::Graphics& g) override
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (const auto& heading : headings)
+            {
+                g.setColour (heading.colour);
+                g.fillRect (heading.area.withWidth (3).withTrimmedTop (3).withTrimmedBottom (2));
+                g.setColour (IlanaTheme::Ui::text2);
+                g.drawText (heading.text, heading.area.withTrimmedLeft (9), juce::Justification::centredLeft, true);
+            }
+        }
+
+        struct Item { juce::Rectangle<int> area; juce::Colour colour; juce::String text; };
+        std::vector<Item> headings;
+    } list;
     std::vector<std::unique_ptr<MatrixRow>> rows;
     std::vector<int> visibleRows;
+    juce::String headingKey;
     int totalUsed = 0; // the routings in use, before the filter
     juce::TextEditor filterField;
     juce::TextButton addButton, mergeButton;

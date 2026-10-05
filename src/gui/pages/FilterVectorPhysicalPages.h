@@ -528,7 +528,16 @@ public:
           boardModel (p.apvts, "sb_model", "MODEL"),
           bodyAmount (p.apvts, "res_amount", "AMOUNT", IlanaTheme::accent(), true),
           bodyDecay (p.apvts, "res_decay", "DECAY", IlanaTheme::accent(), true),
-          boardMix (p.apvts, "sb_mix", "MIX", IlanaTheme::accent(), true)
+          boardMix (p.apvts, "sb_mix", "MIX", IlanaTheme::accent(), true),
+          bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
+          bodyMaterial (p.apvts, "body_material", "MATERIAL", IlanaTheme::accent(), true),
+          bodySize (p.apvts, "body_size", "SIZE", IlanaTheme::accent(), true),
+          bodyOffset (p.apvts, "res_offset", "OFFSET", IlanaTheme::accent(), true),
+          bodyKeytrack (p.apvts, "res_keytrack", "KEY TRK", IlanaTheme::accent(), true),
+          bodyCoupling (p.apvts, "body_coupling", "COUPLE", IlanaTheme::accent(), true),
+          boardTone (p.apvts, "sb_tone", "TONE", IlanaTheme::accent(), true),
+          boardSize (p.apvts, "sb_size", "SIZE", IlanaTheme::accent(), true),
+          boardStretch (p.apvts, "stretch", "STRETCH", IlanaTheme::accent(), true)
     {
         addAndMakeVisible (view);
         // The one oscillator picker (UI review 8, I8-10).
@@ -547,7 +556,7 @@ public:
         addChildComponent (makePhysical);
 
         styleJumpLink (bodyLink, "BODY");
-        bodyLink.setTooltip ("All of the body's controls are on the FILTER page");
+        bodyLink.setTooltip ("The same controls are on the FILTER page");
         bodyLink.onClick = [this]
         {
             if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
@@ -559,13 +568,29 @@ public:
         for (auto* button : { &bodyLink, &boardLink })
             addAndMakeVisible (*button);
 
-        for (auto* knob : { &bodyAmount, &bodyDecay, &boardMix })
+        for (auto* knob : { &bodyAmount, &bodyDecay, &boardMix, &bodyMaterial, &bodySize, &bodyOffset, &bodyKeytrack, &bodyCoupling,
+                            &boardTone, &boardSize, &boardStretch })
             knob->setSizeRole (IlanaTheme::KnobSize::small);
-        addAll (*this, bodyOn, boardOn, bodyType, boardModel, bodyAmount, bodyDecay, boardMix);
-        // Off, a module's controls dim, as on its own card.
-        for (auto* control : { (juce::Component*) &bodyType, (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay })
+        addAll (*this, bodyOn, boardOn, bodyType, boardModel, bodyAmount, bodyDecay, boardMix, bodyCouplingMode, bodyMaterial, bodySize,
+                bodyOffset, bodyKeytrack, bodyCoupling, boardTone, boardSize, boardStretch);
+        // Off, a module's controls dim, as on its own card (and stay drawn,
+        // so the box is the same size on or off: V13-9).
+        for (auto* control : { (juce::Component*) &bodyType, (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay,
+                               (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyOffset, (juce::Component*) &bodyKeytrack })
             effectRules.add (*control, effectRules.isOn ("res_on"), "BODY is off", [] { return FilterColours::offAlpha; });
-        for (auto* control : { (juce::Component*) &boardModel, (juce::Component*) &boardMix })
+        // MATERIAL and SIZE shape the modal bodies only; COUPLE needs a
+        // coupling mode (as on FILTER's BODY card).
+        const auto modalOn = [this] { return readParam ("res_on") > 0.5f && readParam ("body_type") > 0.5f; };
+        const auto couplingOn = [this]
+        {
+            const auto mode = juce::roundToInt (readParam ("body_coupling_mode"));
+            return readParam ("res_on") > 0.5f && (mode == 3 || (mode != 0 && readParam ("body_type") > 0.5f));
+        };
+        effectRules.add (bodyMaterial, modalOn, "BODY is off or Classic", [] { return FilterColours::offAlpha; });
+        effectRules.add (bodySize, modalOn, "BODY is off or Classic", [] { return FilterColours::offAlpha; });
+        effectRules.add (bodyCoupling, couplingOn, "COUPLING is Off, or needs a modal BODY", [] { return FilterColours::offAlpha; });
+        for (auto* control : { (juce::Component*) &boardModel, (juce::Component*) &boardMix, (juce::Component*) &boardTone,
+                               (juce::Component*) &boardSize, (juce::Component*) &boardStretch })
             effectRules.add (*control, effectRules.isOn ("sb_on"), "the SOUNDBOARD is off", [] { return FilterColours::offAlpha; });
 
         choose (firstPhysical(), false);
@@ -625,7 +650,7 @@ public:
                                                 { boardLine, "SOUNDBOARD", readParam ("sb_on") > 0.5f } })
         {
             IlanaTheme::paintRecessedPanel (g, line.toFloat(), 5.0f);
-            paintSubBoxTitle (g, line.reduced (10, 0).removeFromTop (boxHeaderHeight), name, {}, isOn, 44 + 8 + (isOn ? (name[0] == 'B' ? 120 : 176) : 0)); // (the one box title: I10-7)
+            paintSubBoxTitle (g, line.reduced (10, 0).removeFromTop (boxHeaderHeight), name, {}, isOn, 44 + 8 + linkWidth); // (the one box title: I10-7; both boxes alike: I13-5)
         }
     }
 
@@ -637,7 +662,10 @@ public:
 
         for (juce::Component* c : { (juce::Component*) &bodyLink, (juce::Component*) &boardLink, (juce::Component*) &bodyOn,
                                     (juce::Component*) &boardOn, (juce::Component*) &bodyType, (juce::Component*) &boardModel,
-                                    (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay, (juce::Component*) &boardMix })
+                                    (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay, (juce::Component*) &boardMix,
+                                    (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyMaterial, (juce::Component*) &bodySize,
+                                    (juce::Component*) &bodyOffset, (juce::Component*) &bodyKeytrack, (juce::Component*) &bodyCoupling,
+                                    (juce::Component*) &boardTone, (juce::Component*) &boardSize, (juce::Component*) &boardStretch })
             c->setVisible (physical);
 
         // Not physical: the view still shows, in its own preview look and
@@ -651,7 +679,9 @@ public:
         {
             // Card height only (V11-15): the sentence, the button and a small
             // preview, not a page-sized dim picture.
-            emptyCard = area.withHeight (juce::jmin (area.getHeight(), 360));
+            // The whole page (V13-9): the string larger, the sentence and the
+            // switch under it, no floor.
+            emptyCard = area;
             auto inner = emptyCard.reduced (10, 0);
             inner.removeFromTop (30);
             const auto pickerWidth = juce::jmin (inner.getWidth(), oscPicker.getIdealWidth());
@@ -699,8 +729,9 @@ public:
         const auto lineHeight = 18 + 84;
         // BODY and SOUNDBOARD fold to their name and switch while both are
         // off, as WEST and BODY do on FILTER (V10-9).
-        const auto bodyOpen = readParam ("res_on") > 0.5f, boardOpen = readParam ("sb_on") > 0.5f;
-        const auto bodyBlockHeight = bodyOpen || boardOpen ? bodyLineHeight : foldedBodyLineHeight;
+        // (Both boxes stay open, dimmed while off: the page does not change
+        // size with a switch, V13-9; BODY holds all its controls, I13-4.)
+        const auto bodyBlockHeight = bodyLineHeight;
         stringCard = area.removeFromBottom (stringTitleHeight + 12 + (int) lines.size() * lineHeight + 8 + bodyBlockHeight + 8);
         area.removeFromBottom (10);
         viewCard = area;
@@ -735,33 +766,36 @@ public:
             }
 
             band.removeFromTop (8);
-            auto body = band.removeFromTop (bodyBlockHeight);
-            bodyLine = body.removeFromLeft (body.getWidth() / 2 - 6);
-            boardLine = body.withTrimmedLeft (12);
-            // One header for every box (review 11, I11-6, I11-14): the name at
-            // the left, its link and then its switch at the right, the main
-            // controls on the line under it.
-            const auto group = [] (juce::Rectangle<int> line, ToggleControl& power, ComboControl& menu,
-                                   std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth, bool open)
+            auto boxes = band.removeFromTop (bodyLineHeight);
+            bodyLine = boxes.removeFromLeft (boxes.getWidth() * 64 / 100 - 6);
+            boardLine = boxes.withTrimmedLeft (12);
+            // One header for every box (review 11, I11-6, I11-14; review 13,
+            // I13-5): the name at the left, its link and then its switch at
+            // the right, the controls on the line under it.
+            const auto group = [] (juce::Rectangle<int> line, ToggleControl& power, juce::TextButton& link,
+                                   const std::vector<juce::Component*>& items)
             {
                 line = line.reduced (10, 0);
                 auto header = line.removeFromTop (boxHeaderHeight);
                 // (The bare switch keeps a 13 px label band over its pill.)
                 power.setBounds (header.getRight() - 40, header.getY() - 13 - 1, 40, 13 + 20);
-                menu.setVisible (open);
-                link.setVisible (open);
-                for (auto* knob : knobs)
-                    knob->setVisible (open);
-                if (! open)
-                    return;
                 link.setBounds (juce::Rectangle<int> (header.getRight() - 40 - 8 - linkWidth, header.getY(), linkWidth, 22));
-                menu.setBounds (line.removeFromLeft (124).withSizeKeepingCentre (124, 44).translated (0, 4));
-                line.removeFromLeft (8);
-                for (auto* knob : knobs)
-                    knob->setBounds (line.removeFromLeft (76));
+                // Knob columns share the box (up to 76 px); a menu takes 1.8 of one.
+                auto units = 0.0f;
+                for (auto* item : items)
+                    units += dynamic_cast<ComboControl*> (item) != nullptr ? 1.8f : 1.0f;
+                const auto unit = juce::jmin (76.0f, (float) line.getWidth() / juce::jmax (1.0f, units));
+                for (auto* item : items)
+                {
+                    const auto isMenu = dynamic_cast<ComboControl*> (item) != nullptr;
+                    const auto width = juce::roundToInt (isMenu ? unit * 1.8f : unit);
+                    auto cell = line.removeFromLeft (width);
+                    item->setBounds (isMenu ? cell.reduced (4, 0).withSizeKeepingCentre (cell.getWidth() - 8, 44).translated (0, 4) : cell);
+                }
             };
-            group (bodyLine, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120, bodyOpen);
-            group (boardLine, boardOn, boardModel, { &boardMix }, boardLink, 176, boardOpen);
+            group (bodyLine, bodyOn, bodyLink, { &bodyType, &bodyCouplingMode, &bodyAmount, &bodyDecay, &bodyMaterial, &bodySize,
+                                                 &bodyOffset, &bodyKeytrack, &bodyCoupling });
+            group (boardLine, boardOn, boardLink, { &boardModel, &boardMix, &boardTone, &boardSize, &boardStretch });
         }
 
         auto inner = viewCard.reduced (10, 0);
@@ -792,7 +826,7 @@ public:
     juce::StringArray getControlIds() const { return controlIds; }
 
 private:
-    static constexpr int bodyLineHeight = 108, foldedBodyLineHeight = 30, boxHeaderHeight = 24, stringTitleHeight = 28;
+    static constexpr int bodyLineHeight = 108, boxHeaderHeight = 24, stringTitleHeight = 28, linkWidth = 150;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 
@@ -989,6 +1023,8 @@ private:
     ToggleControl bodyOn, boardOn;
     ComboControl bodyType, boardModel;
     KnobControl bodyAmount, bodyDecay, boardMix;
+    ComboControl bodyCouplingMode;
+    KnobControl bodyMaterial, bodySize, bodyOffset, bodyKeytrack, bodyCoupling, boardTone, boardSize, boardStretch;
     EffectRules effectRules { processorRef };
     std::unique_ptr<ComboControl> excite;
     juce::String excitePrefix, pickupPrefix;

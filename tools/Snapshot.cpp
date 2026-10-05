@@ -252,9 +252,19 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         selectOscTab (0);
         const auto firstState = oscTabState (0), otherState = oscTabState (1);
         selectOscTab (1);
-        expect (firstState == "OUT" && otherState.isEmpty() && oscTabState (1) == juce::String ("OUT, MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 1"),
-                "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram, on the chosen tab (" + firstState + ", " + oscTabState (1) + ")");
+        // (The tag is the engine, never the role: I13-2.)
+        expect (firstState == "WAVETABLE" && otherState.isEmpty() && oscTabState (1) == "WAVETABLE",
+                "OSC: the chosen tab's tag is its engine on every patch (" + firstState + ", " + oscTabState (1) + ")");
         selectOscTab (0);
+        // A DX7 operator is OSC n and its kind is OPERATOR (I13-1, I13-2).
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        editor.showPage ("OSC");
+        settle (400);
+        selectOscTab (0);
+        expect (oscTabState (0) == "OPERATOR", "OSC: a DX7 operator's tab tag is its kind, OPERATOR (" + oscTabState (0) + ")");
+        loadNamed ("Neuro Wobble");
+        editor.showPage ("OSC");
+        settle (300);
     }
 
     // A DX7 voice: each strip shows the operator's OUTPUT in dB (the FM
@@ -321,7 +331,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto spread = frame != nullptr && unison != nullptr
                                 ? editor.getLocalArea (unison, unison->getLocalBounds()).getY() - editor.getLocalArea (frame, frame->getLocalBounds()).getY()
                                 : 999;
-        expect (spread <= 2 * 112, "OSC: the card's rows are packed (SHAPE to UNISON " + juce::String (spread) + " px)");
+        expect (spread <= 2 * 134, "OSC: the card's rows are packed (SHAPE to UNISON " + juce::String (spread) + " px)");
         expect (buttonNamed ("RESAMPLE") != nullptr && buttonNamed ("BOUNCE") == nullptr, "OSC: the resampler's button is RESAMPLE (I7-25)");
 
         // Sample mode: a LOAD button, and an SF2 / SFZ's zones under the
@@ -2897,8 +2907,8 @@ int runUiTests()
             // UI review 6: one dirty state. If the dialog asks, the header
             // says EDITED; and it offers to save first.
             expect (pages->isEditedBadgeShown(), "when the dialog asks, the header's EDITED badge shows");
-            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "SAVE AND LOAD",
-                    "the dialog offers Save and load (" + confirm->getAlternativeText() + ")");
+            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "SAVE AS... AND LOAD",
+                    "the dialog offers Save as and load on a factory preset (" + confirm->getAlternativeText() + ")");
 
             // Save and load on a factory preset opens Save As; cancelling
             // it keeps the edited patch.
@@ -6437,7 +6447,8 @@ int runUiTests()
         // One dimming rule (V26): a control that does nothing now dims, says
         // why on hover, and still takes edits.
         {
-            const auto dimmed = findKnob ("osc1_spectral_amt") == nullptr; // hidden while Off (V9-9)
+            auto* spectralOff = findKnob ("osc1_spectral_amt");
+            const auto dimmed = spectralOff != nullptr && spectralOff->getAlpha() < 0.99f; // dim while Off (S13-2)
             setParam ("osc1_spectral", 1.0f);
             settle (500);
             auto* spectral = findKnob ("osc1_spectral_amt");
@@ -6446,7 +6457,7 @@ int runUiTests()
             settle (300);
             auto* detune = findKnob ("osc1_detune");
             expect (dimmed && lit && detune != nullptr && detune->getAlpha() < 0.99f,
-                    "OSC: SPEC AMT is hidden while SPECTRAL is Off, lights when it is on; DETUNE dims at UNISON 1");
+                    "OSC: SPEC AMT is dim while SPECTRAL is Off, lights when it is on; DETUNE dims at UNISON 1");
 
             pages->showPage ("FILTER");
             settle (400);

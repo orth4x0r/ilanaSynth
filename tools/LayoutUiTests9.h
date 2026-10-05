@@ -287,13 +287,16 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         setParam ("osc1_spectral", 0.0f);
         editor.showPage ("OSC");
         settle (500);
-        const auto hidden = knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr;
+        // (S13-2: the amounts stay drawn, dimmed, so the row never moves.)
+        auto* warpOff = knobFor ("osc1_warp_amt");
+        auto* spectralOff = knobFor ("osc1_spectral_amt");
+        const auto hidden = warpOff != nullptr && spectralOff != nullptr && warpOff->getAlpha() < 0.99f && spectralOff->getAlpha() < 0.99f;
         setParam ("osc1_warp", 1.0f);
         settle (500);
-        const auto shownNow = knobFor ("osc1_warp_amt") != nullptr;
+        const auto shownNow = knobFor ("osc1_warp_amt") != nullptr && knobFor ("osc1_warp_amt")->getAlpha() > 0.99f;
         setParam ("osc1_warp", 0.0f);
         settle (300);
-        expect (hidden && shownNow, "WARP AMT and SPEC AMT are hidden while their stage is Off and shown once it is picked");
+        expect (hidden && shownNow, "WARP AMT and SPEC AMT stay drawn but dim while their stage is Off and light once it is picked (S13-2)");
     }
 
     // V9-12: one add component, wherever something is added.

@@ -2138,13 +2138,25 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        area.removeFromTop (13);
+        area.removeFromTop (13 + switchDrop);
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
+    }
+
+    // Lowers the switch under its name, to sit level with the dials of the
+    // knobs in its row (S13-1); 0 is the usual place.
+    void setSwitchDrop (int pixels)
+    {
+        if (switchDrop == pixels)
+            return;
+        switchDrop = juce::jmax (0, pixels);
+        resized();
     }
 
 
 
 private:
+    int switchDrop = 0;
+
     void timerCallback() override
     {
         // Hidden: no animation, but a switch keeps its position, so it isn't

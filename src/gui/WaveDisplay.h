@@ -791,15 +791,40 @@ private:
 
         // A multisample's zones under the wave: keys across, velocity up
         // (UI review 7, I7-24).
-        if (sample != nullptr && sample->zones.size() > 1 && ! compact && plot.getHeight() > 120.0f)
+        // A plain sample shows its map too: one box, every key and velocity
+        // (S13-1); granular mode reads a position, not zones.
+        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 120.0f)
             drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)
         {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (compact ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
+            if (compact)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                IlanaTheme::drawFitted (g, "Drop a sample", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+                return;
+            }
+
+            // A drop zone that looks like one (S13-1): a dashed edge, the
+            // hint, and LOAD... drawn as the button a click on it acts as.
+            const auto well = wellArea().reduced (6.0f);
+            juce::Path outline, dashed;
+            outline.addRoundedRectangle (well, 8.0f);
+            const float dashes[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+            g.fillPath (dashed);
+
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             // (A hint, so a sentence: UI review 9, I9-22.)
-            IlanaTheme::drawFitted (g, compact ? "Drop a sample" : "Drop a .wav or .sfz here, or LOAD...", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+            const auto hint = well.withSizeKeepingCentre (well.getWidth() - 20.0f, 40.0f).translated (0.0f, -26.0f);
+            IlanaTheme::drawFitted (g, "Drop a .wav or .sfz here", hint.toNearestInt(), juce::Justification::centred, 2);
+            const auto pill = juce::Rectangle<float> (110.0f, 28.0f).withCentre (well.getCentre().translated (0.0f, 20.0f));
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (pill, 6.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.drawText ("LOAD...", pill, juce::Justification::centred);
             return;
         }
 
@@ -942,8 +967,14 @@ private:
     // lit.
     void drawZones (juce::Graphics& g, const SampleData& sample, juce::Rectangle<float> area) const
     {
+        // A plain sample is one zone over every key and velocity.
+        std::vector<SampleZone> plain;
+        if (sample.zones.empty())
+            plain.emplace_back();
+        const auto& zones = sample.zones.empty() ? plain : sample.zones;
+
         auto low = 127, high = 0;
-        for (const auto& zone : sample.zones)
+        for (const auto& zone : zones)
         {
             low = juce::jmin (low, zone.loKey);
             high = juce::jmax (high, zone.hiKey);
@@ -968,8 +999,8 @@ private:
                         juce::Justification::centredLeft, false);
         }
 
-        const auto* middle = sample.zoneFor (60, 100);
-        for (const auto& zone : sample.zones)
+        const auto* middle = sample.zones.empty() ? &zones.front() : sample.zoneFor (60, 100);
+        for (const auto& zone : zones)
         {
             const auto box = juce::Rectangle<float> (xOf (zone.loKey), area.getBottom() - area.getHeight() * (float) zone.hiVel / 127.0f,
                                                      (float) (zone.hiKey - zone.loKey + 1) * keyWidth,
@@ -982,7 +1013,7 @@ private:
             // The root note: where the sample plays at its own pitch (review
             // 11, S11-10).
             const auto root = juce::roundToInt ((float) zone.rootNote);
-            if (root >= low && root <= high)
+            if (! sample.zones.empty() && root >= low && root <= high)
             {
                 const auto x = xOf (root) + keyWidth * 0.5f;
                 g.setColour (juce::Colours::white.withAlpha (0.9f));

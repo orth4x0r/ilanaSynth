@@ -115,7 +115,7 @@ inline juce::String summary (const IlanaSynthAudioProcessor& p, int osc)
 {
     const auto dot = juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 "));
     return tuningText (p, osc) + dot + (usesOperatorEnv (p, osc) ? "OP ENV" : "") + (usesOperatorEnv (p, osc) ? dot : "")
-           + (read (p, prefixOf (osc) + "_out") > 0.5f ? "OUT" : "MOD");
+           + (read (p, prefixOf (osc) + "_out") > 0.5f ? "HEARD" : "MOD");
 }
 
 // The ENVELOPE menu (oscN_amp_env) in sections: the pool's envelopes, the

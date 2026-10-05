@@ -940,7 +940,7 @@ private:
 
     static constexpr int pageMargin = 6, gap = 6, tabRowHeight = 30, headerHeight = 32;
     static constexpr int sharedHeaderHeight = 30, sharedHeight = sharedHeaderHeight + 74;
-    static constexpr int minRowHeight = 62, maxRowHeight = 104, rowLabelWidth = 96;
+    static constexpr int minRowHeight = 62, maxRowHeight = 132, rowLabelWidth = 96;
 
     // What the rows hold, to lay them out again when it changes.
     juce::String rowsKey (int index) const
@@ -1083,12 +1083,16 @@ private:
                                 [this] (int osc)
                                 {
                                     // Off: the dot says it. One rule on every page (I12-2): the
-                                    // chosen tab is wide with its role, the others a dot and a
-                                    // number; their roles are in their tooltips.
+                                    // chosen tab is wide with its engine, the others a dot and a
+                                    // number; the role (OUT, MOD -> 2) is in every tab's tooltip
+                                    // and the FM pill (I13-2). An FM operator's engine is OPERATOR.
                                     if (osc != selected)
                                         return juce::String();
-                                    const auto role = OscRole::describe (processorRef, osc);
-                                    return isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
+                                    if (isOff (osc))
+                                        return juce::String();
+                                    return OscRole::usesOperatorEg (processorRef, osc) && getMode (osc) == 0
+                                               ? juce::String ("OPERATOR")
+                                               : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
                                 });
         oscTabs.setSelectedOsc (selected);
 
@@ -1190,14 +1194,12 @@ private:
 
         if (mode == 0)
         {
-            // An amount whose stage is Off isn't drawn (its column stays
-            // empty, so the others don't move: UI review 9, V9-9).
-            rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, readChoice (prefix + "_warp") > 0 ? &osc.warpAmt : nullptr,
-                                         &osc.spectral, readChoice (prefix + "_spectral") > 0 ? &osc.spectralAmt : nullptr } });
+            // An amount whose stage is Off stays drawn, dimmed, so the row
+            // never changes layout when a stage is chosen (S13-2).
+            rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt } });
 
             if (showsWarpChain (index))
-                rows.push_back ({ "WARP CHAIN", { &osc.warp2, readChoice (prefix + "_warp2") > 0 ? &osc.warp2Amt : nullptr,
-                                                  &osc.pdEnv, readChoice (prefix + "_pd_env") > 0 ? &osc.pdEnvAmt : nullptr } });
+                rows.push_back ({ "WARP CHAIN", { &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt } });
         }
         else if (mode == 1)
         {
@@ -1318,6 +1320,13 @@ private:
             while (items.size() < gridColumns && rowUnits (rows[r]) == 1)
                 items.push_back (nullptr);
             layoutSlots (row, items, rowUnits (rows[r]) == 1);
+
+            // Switches in a row of knobs sit level with the dials, not
+            // under the name (S13-1: one height across the row).
+            const auto hasKnob = std::any_of (items.begin(), items.end(), [] (auto* item) { return dynamic_cast<KnobControl*> (item) != nullptr; });
+            for (auto* item : items)
+                if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+                    toggle->setSwitchDrop (hasKnob ? juce::jmax (0, (row.getHeight() - 6 - 27) / 2 - 12) : 0);
         }
     }
 

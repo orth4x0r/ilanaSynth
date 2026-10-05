@@ -233,8 +233,10 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             setParam ("res_on", 0.0f);
             setParam ("sb_on", 0.0f);
             settle (300);
-            expect (amount != nullptr && ! amount->isVisible() && mix != nullptr && ! mix->isVisible(),
-                    "PHYSICAL: BODY and SOUNDBOARD off fold to their switches (V10-9)");
+            // (Off, they stay drawn and dim: the page keeps its size, V13-9.)
+            expect (amount != nullptr && amount->isVisible() && amount->getAlpha() < 0.99f && mix != nullptr && mix->isVisible()
+                        && mix->getAlpha() < 0.99f,
+                    "PHYSICAL: BODY and SOUNDBOARD off stay drawn, dimmed (V13-9)");
             setParam ("res_on", wasOn);
             setParam ("sb_on", boardWas);
         }

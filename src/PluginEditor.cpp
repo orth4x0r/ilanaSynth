@@ -2485,7 +2485,7 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
     // Drop down under the preset name, kept inside the window.
     {
         // Wide enough for the details card beside the list (S10-5).
-        const auto width = designWidth >= 1200 ? 920 : 660;
+        const auto width = 920;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
         presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 540);
         presetPanel->setScrimArea (content.getLocalBounds());

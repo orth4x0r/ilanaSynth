@@ -892,7 +892,7 @@ private:
         g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD and SYNC: OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
                     juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));

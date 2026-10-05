@@ -92,8 +92,8 @@ public:
                                           : juce::String()));
 
         // The hint, at the right of the title line while there is nothing
-        // else to report (and room for it): the dock only shows an open remap.
-        if (! visibleRows.empty() && numDuplicates == 0 && numIdle == 0)
+        // else to report (and room for it), unless the dock's note says it.
+        if (! visibleRows.empty() && numDuplicates == 0 && numIdle == 0 && dockArea.isEmpty())
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
@@ -155,13 +155,7 @@ public:
         if (remapEditor == nullptr)
         {
             const auto area = dockArea.toFloat().reduced (2.0f);
-            g.setColour (IlanaTheme::Ui::line);
-            const float dashes[] { 4.0f, 4.0f };
-            juce::Path outline;
-            outline.addRoundedRectangle (area, 8.0f);
-            juce::Path dashed;
-            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-            g.fillPath (dashed);
+            IlanaTheme::paintRecessedPanel (g, area, 8.0f);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText ("REMAP", area.withTrimmedTop (area.getHeight() * 0.5f - 22.0f).withHeight (18.0f), juce::Justification::centred);
@@ -496,11 +490,18 @@ public:
         while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 <= area.getHeight())
             ++rowHeight;
 
-        // The dock exists only while a remap is open: no empty placeholder
-        // taking the list's room (review 9, S9-6). The rows never move for
-        // it, the list just scrolls above it (V6-22).
-        const auto showDock = ! visibleRows.empty() && remapEditor != nullptr;
-        dockArea = showDock ? area.removeFromBottom (dockHeight).withTrimmedTop (8) : juce::Rectangle<int>();
+        // The dock shows while a remap is open. Otherwise its how-to note
+        // only takes room the rows leave over, never the list's own room
+        // (review 9, S9-6), so a short matrix has no bare block under it.
+        // The rows never move for it, the list just scrolls above it (V6-22).
+        const auto rowsHeight = listRows * (rowHeight + 1) + 8;
+        const auto spare = area.getHeight() - rowsHeight;
+        if (! visibleRows.empty() && remapEditor != nullptr)
+            dockArea = area.removeFromBottom (dockHeight).withTrimmedTop (8);
+        else if (! visibleRows.empty() && spare >= 96)
+            dockArea = area.removeFromBottom (spare).withTrimmedTop (8);
+        else
+            dockArea = {};
 
         if (remapEditor != nullptr)
             remapEditor->setBounds (dockArea.withWidth (juce::jmin (560, dockArea.getWidth() * 3 / 5)));

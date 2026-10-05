@@ -1357,9 +1357,18 @@ private:
     struct RowLayout
     {
         int nameRight = 0, bankLeft = 0, tagsLeft = 0, tagsRight = 0;
+        juce::Rectangle<int> author; // empty unless the list is wide (review 9, S9-23)
         juce::Rectangle<float> pill;
         juce::String pillText;
     };
+
+    // A DX7 voice's bank beside its name: only while the name is shared by
+    // voices of several banks, and no bank chip is on.
+    bool showsBankText (int presetIndex) const
+    {
+        return banks[presetIndex].isNotEmpty() && bankFilter.isEmpty()
+               && sharedNames.contains (shownNames[presetIndex].toLowerCase());
+    }
 
     RowLayout rowLayout (int presetIndex, int width) const
     {
@@ -1384,7 +1393,9 @@ private:
         layout.bankLeft = layout.nameRight + 8;
         auto after = layout.nameRight;
 
-        if (banks[presetIndex].isNotEmpty() && bankFilter.isEmpty())
+        // The bank only where the name alone is ambiguous (the same voice in
+        // two cartridges); otherwise it is in the tooltip (review 9, S9-24).
+        if (showsBankText (presetIndex))
         {
             const juce::Font bankFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             after = layout.bankLeft + juce::GlyphArrangement::getStringWidthInt (bankFont, banks[presetIndex]);
@@ -1392,6 +1403,14 @@ private:
 
         layout.tagsLeft = juce::jmax (after + 14, column);
         layout.tagsRight = (int) layout.pill.getX() - 10;
+
+        // Who made it, in a column of its own while the list is wide.
+        if (width >= 760)
+        {
+            layout.author = juce::Rectangle<int> (layout.tagsRight - 96, 0, 96, 28);
+            layout.tagsRight -= 104;
+        }
+
         return layout;
     }
 
@@ -1441,7 +1460,7 @@ private:
 
         // A DX7 voice's bank, dim beside its name (in text3, not the DX7
         // red: review 7), and not at all while its bank chip is on.
-        if (banks[presetIndex].isNotEmpty() && bankFilter.isEmpty())
+        if (showsBankText (presetIndex))
         {
             const auto shared = sharedNames.contains (shownNames[presetIndex].toLowerCase());
             g.setColour (selected || shared ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
@@ -1451,6 +1470,13 @@ private:
 
         for (const auto& [box, tag] : rowTagBoxes (presetIndex, width, height))
             paintTagChip (g, box, tag, selectedTags.contains (tag, true));
+
+        if (! layout.author.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText (infoFor (presetIndex).author, layout.author.withHeight (height), juce::Justification::centredRight, true);
+        }
 
         if (layout.pillText.isEmpty())
             return;
@@ -1478,6 +1504,9 @@ private:
 
         if (! macros.isEmpty())
             text << "\nMacros: " << macros.joinIntoString (juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")));
+
+        if (banks[presetIndex].isNotEmpty())
+            text << "\nDX7 bank " << banks[presetIndex];
 
         if (! alsoIn[(size_t) presetIndex].isEmpty())
             text << "\nAlso in " << alsoIn[(size_t) presetIndex].joinIntoString (", ");

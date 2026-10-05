@@ -1452,10 +1452,13 @@ private:
     // "DRIVES" then each route's target and depth, two columns.
     void paintRoutes (juce::Graphics& g, Mod::Source source, juce::Colour colour) const
     {
+        routeHits.clear();
+
         if (infoArea.getHeight() < 28)
             return;
 
         juce::StringArray routes;
+        std::vector<int> routeSlots;
         const auto sourceB = Mod::lfoBIndexFor (source) < 0 && Mod::lfoIndexFor (source) >= 0 ? Mod::lfoBSourceFor (Mod::lfoIndexFor (source))
                                                                                                : Mod::Source::None;
         for (int slot = 0; slot < Mod::maxSlots; ++slot)
@@ -1469,6 +1472,7 @@ private:
             const auto depth = juce::roundToInt (routing.depth * 100.0f);
             routes.add ((viaB ? "B " : routing.source != source ? "VIA " : "") + ModNames::destination (routing.destination) + "  "
                         + (depth > 0 ? "+" : "") + juce::String (depth) + "%");
+            routeSlots.push_back (slot);
         }
 
         auto area = infoArea.reduced (3, 0);
@@ -1494,10 +1498,58 @@ private:
             if (i == capacity - 1 && routes.size() > capacity)
                 text = "+" + juce::String (routes.size() - capacity + 1) + " more (MATRIX)";
             const auto cell = juce::Rectangle<int> (area.getX() + (i / rows) * columnWidth, area.getY() + (i % rows) * 14, columnWidth - 8, 14);
-            g.setColour (colour.withAlpha (0.85f));
+            const auto more = i == capacity - 1 && routes.size() > capacity;
+            routeHits.push_back ({ cell, more ? -1 : routeSlots[(size_t) i] });
+            const auto hovered = (int) routeHits.size() - 1 == hoverRoute;
+            g.setColour (colour.withAlpha (hovered ? 1.0f : 0.85f));
             g.drawText (text, cell, juce::Justification::centredLeft, true);
+
+            // A row is a link to its matrix row: underlined under the pointer.
+            if (hovered)
+                g.fillRect (cell.getX(), cell.getBottom() - 2, juce::jmin (cell.getWidth(), juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), text)), 1);
         }
     }
+
+    // The DRIVES rows jump to their matrix rows (V9-31).
+    int routeAt (juce::Point<int> position) const
+    {
+        for (size_t i = 0; i < routeHits.size(); ++i)
+            if (routeHits[i].first.contains (position))
+                return (int) i;
+        return -1;
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto hit = routeAt (event.getPosition());
+        if (hit != hoverRoute)
+        {
+            hoverRoute = hit;
+            setMouseCursor (hit >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint (infoArea);
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoverRoute >= 0)
+        {
+            hoverRoute = -1;
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            repaint (infoArea);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (const auto hit = routeAt (event.getPosition()); hit >= 0 && ModNames::openMatrixRow() != nullptr)
+            ModNames::openMatrixRow() (routeHits[(size_t) hit].second);
+    }
+
+    // What a DRIVES row stands for (the UI test): its matrix slot, or -1.
+    int getNumRouteRows() const { return (int) routeHits.size(); }
+    int getRouteSlot (int row) const { return juce::isPositiveAndBelow (row, (int) routeHits.size()) ? routeHits[(size_t) row].second : -2; }
+    juce::Point<int> getRouteCentre (int row) const { return routeHits[(size_t) row].first.getCentre(); }
 
     // The first LFO the patch doesn't have yet (-1: all of them are in use).
     int freeLfo() const
@@ -1689,6 +1741,8 @@ private:
     OperatorLfoEditor opLfoEditor;
     juce::TextButton msegMove;
     juce::Rectangle<int> infoArea; // the grid's free band (routes, the MSEG's notes)
+    mutable std::vector<std::pair<juce::Rectangle<int>, int>> routeHits; // DRIVES rows and their matrix slots
+    int hoverRoute = -1;
     int selected = 0;
     int lastShape = -1;
 };

@@ -146,6 +146,13 @@ public:
                              false);
         commentField.setText (own ? processorRef.getPresetComment() : juce::String(), false);
         suggestions = suggestedTags();
+        // One way to enter tags: the chips; the text field only behind
+        // "type your own" (review 9, V9-30), open already for tags typed
+        // before that no chip offers.
+        auto custom = false;
+        for (const auto& tag : currentTags())
+            custom = custom || ! suggestions.contains (tag, true);
+        setTagsFieldOpen (custom);
         setAsking (false);
         updateNote();
 
@@ -178,8 +185,28 @@ public:
     // The tag chips offered under the field, and a click on one.
     juce::StringArray getSuggestedTags() const { return suggestions; }
 
+    // The chip that opens the text field, and whether the field shows.
+    static juce::String typeYourOwnLabel() { return "+  type your own"; }
+    bool isTagsFieldOpen() const { return tagsField.isVisible(); }
+
+    void setTagsFieldOpen (bool open)
+    {
+        tagsField.setVisible (open);
+        resized();
+        repaint();
+
+        if (open)
+            tagsField.grabKeyboardFocus();
+    }
+
     void toggleSuggestedTag (const juce::String& tag)
     {
+        if (tag == typeYourOwnLabel())
+        {
+            setTagsFieldOpen (true);
+            return;
+        }
+
         auto current = currentTags();
 
         if (current.contains (tag, true))
@@ -254,8 +281,13 @@ public:
         second.removeFromLeft (16);
         authorLabel = second.removeFromLeft (64);
         authorField.setBounds (second);
-        tagsField.setBounds (row (28).withTrimmedLeft (labelWidth));
-        chipArea = area.removeFromTop (2 * 20 + 6).withTrimmedLeft (labelWidth);
+        // Closed, the chips take the field's row as well (three rows of them).
+        const auto tagsRow = row (28).withTrimmedLeft (labelWidth);
+        tagsField.setBounds (tagsRow);
+        chipArea = tagsField.isVisible() ? area.removeFromTop (2 * 20 + 6).withTrimmedLeft (labelWidth)
+                                         : tagsRow.withHeight (28 + 8 + 2 * 20 + 6);
+        if (! tagsField.isVisible())
+            area.removeFromTop (2 * 20 + 6);
         area.removeFromTop (10);
         commentField.setBounds (row (54).withTrimmedLeft (labelWidth));
 
@@ -322,7 +354,8 @@ public:
 
         for (const auto& [box, tag] : chipBoxes())
         {
-            const auto on = current.contains (tag, true);
+            const auto own = tag == typeYourOwnLabel();
+            const auto on = ! own && current.contains (tag, true);
             const auto bounds = box.toFloat();
             g.setColour (on ? IlanaTheme::accent().withAlpha (0.3f) : juce::Colours::white.withAlpha (box == hoveredChip ? 0.1f : 0.04f));
             g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
@@ -441,7 +474,11 @@ private:
         const auto font = chipFont();
         auto x = chipArea.getX(), y = chipArea.getY();
 
-        for (const auto& tag : suggestions)
+        auto offered = suggestions;
+        if (! tagsField.isVisible())
+            offered.add (typeYourOwnLabel());
+
+        for (const auto& tag : offered)
         {
             const auto w = juce::GlyphArrangement::getStringWidthInt (font, tag) + 18;
 

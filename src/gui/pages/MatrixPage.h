@@ -308,6 +308,32 @@ public:
         repaint();
     }
 
+    // Shows a routing's row: scrolled into view and outlined for a moment
+    // (a DRIVES row on an LFO's card jumps here). -1 leaves the list as is.
+    void focusSlot (int slot)
+    {
+        updateRows (true);
+
+        if (! juce::isPositiveAndBelow (slot, (int) rows.size()) || std::find (visibleRows.begin(), visibleRows.end(), slot) == visibleRows.end())
+            return;
+
+        const auto rowBounds = rows[(size_t) slot]->getBounds();
+        const auto view = viewport.getViewArea();
+
+        if (rowBounds.getBottom() > view.getBottom() || rowBounds.getY() < view.getY())
+            viewport.setViewPosition (0, juce::jmax (0, rowBounds.getCentreY() - viewport.getHeight() / 2));
+
+        if (remapEditor == nullptr)
+        {
+            rows[(size_t) slot]->setSelected (true);
+            juce::Timer::callAfterDelay (1400, [safeThis = juce::Component::SafePointer<MatrixPage> (this), slot]
+            {
+                if (safeThis != nullptr && safeThis->remapEditor == nullptr)
+                    safeThis->rows[(size_t) slot]->setSelected (false);
+            });
+        }
+    }
+
     // The dock's area (empty when it isn't shown); the tests.
     juce::Rectangle<int> getDockArea() const { return dockArea; }
 

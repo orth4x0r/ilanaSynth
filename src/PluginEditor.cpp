@@ -288,8 +288,15 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     addSection ("OSC", { { "OSC", "OSCILLATORS", new OscPageViewport (p) }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
+    auto* matrixPage = new MatrixPage (p);
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
-                         { "MATRIX", "MATRIX", new MatrixPage (p) } });
+                         { "MATRIX", "MATRIX", matrixPage } });
+    // An LFO card's DRIVES row opens its routing in the matrix.
+    ModNames::openMatrixRow() = [this, matrixPage] (int slot)
+    {
+        showPage ("MATRIX");
+        matrixPage->focusSlot (slot);
+    };
     auto* fmPage = new FmPage (p);
     addSection ("FM", { { "FM", "FM", fmPage } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
@@ -661,6 +668,7 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
     setGpuRendering (false); // before any child goes: the render thread paints them
     FmOperatorInfo::hooks().openOperator = nullptr;
     FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
+    ModNames::openMatrixRow() = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);

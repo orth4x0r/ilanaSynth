@@ -14,6 +14,15 @@
 // were: these are display names only.
 namespace ModNames
 {
+// A routing's row in the matrix: set by the editor (it shows the MATRIX page
+// and flashes the row); -1 just opens the page. LFO cards' DRIVES list calls
+// it (review 9, V9-31).
+inline std::function<void (int slot)>& openMatrixRow()
+{
+    static std::function<void (int)> hook;
+    return hook;
+}
+
 // A source's one name, written as its chip is (UI-CONVENTIONS: module and
 // source names are upper case in labels, chips and combos; review 8,
 // I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 B". Tooltips and menus use it

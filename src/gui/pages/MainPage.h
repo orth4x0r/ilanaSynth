@@ -799,7 +799,7 @@ private:
             const auto opEg = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
 
             // A modulator's OUTPUT is a depth (I12-3).
-            if (auto* outKnob = strip.operatorEnvKnobs[1])
+            if (auto* outKnob = dynamic_cast<KnobControl*> (strip.operatorEnvKnobs[1]))
                 if (const auto name = juce::String (OscRole::outputKnobName (processorRef, index)); outKnob->getLabelText() != name)
                     outKnob->setLabelText (name);
 

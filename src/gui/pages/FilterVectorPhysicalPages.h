@@ -39,21 +39,9 @@ public:
         const auto header = getLocalBounds().reduced (12, 0).removeFromTop (headerHeight);
         IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : passThrough ? colour.withAlpha (0.3f) : colour);
 
-        // A filter open at the top does nothing: its header says so, a pill
-        // where a switch would be (UI review 9, V9-13; the tooltip has more).
-        if (passThrough && ! replaced)
-        {
-            const auto right = slope.isVisible() ? slope.getX() - 8 : getWidth() - 12;
-            const auto pill = juce::Rectangle<int> (right - 52, header.getCentreY() - 9, 52, 18);
-
-            if (pill.getX() > picker.getRight() + 4)
-            {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.drawRoundedRectangle (pill.toFloat().reduced (0.5f), 9.0f, 1.0f);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("OPEN", pill, juce::Justification::centred);
-            }
-        }
+        // (A filter open at the top does nothing: the card steps back and its
+        // tooltip says so; no state is spelled out in text without a switch,
+        // and a pill that looked like the slope's buttons is gone: V10-10.)
     }
 
     // WEST in Filter 2's place: a note over the dimmed knobs says so.
@@ -424,27 +412,28 @@ public:
         // as tall as the pad: the menus at its top, the knob rows at its
         // foot (UI review 8, V8-26, S8-38: no band above the pad, no empty
         // foot under the controls).
-        const auto controlsWidth = 250;
-        const auto side = juce::jmax (200, juce::jmin (inner.getHeight(), inner.getWidth() - controlsWidth - 12));
-        pad.setBounds (inner.removeFromLeft (side).withHeight (side));
+        // (The pad is not kept square: the page's spare width is the pad's,
+        // not the boxes': V10-14.)
+        const auto controlsWidth = 330;
+        const auto padWidth = juce::jmax (200, inner.getWidth() - controlsWidth - 12);
+        pad.setBounds (inner.removeFromLeft (padWidth));
         inner.removeFromLeft (12);
-        inner = inner.withHeight (side);
         // The vector's on switch in its header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
-        // Three boxes sharing the controls column's height: CORNERS (the
-        // four menus, two by two), POSITION (X, Y) and MOTION (PATH and its
-        // rate, WANDER and its rate); what each holds is centred in its box.
-        constexpr int gap = 8, padding = 8;
+        // Three boxes in the controls column, each as tall as what it holds
+        // (12 px of padding, controls in a left-aligned row of fixed cells):
+        // CORNERS (the four menus, two by two), POSITION (X, Y) and MOTION
+        // (PATH and its rate, WANDER and its rate).
+        constexpr int gap = 8, padding = 12, cellWidth = 92;
         const auto spare = juce::jmax (0, inner.getHeight() - 2 * gap - (boxHeaderHeight + 2 * 44 + 8) - 2 * (boxHeaderHeight + 82));
-        const auto extra = spare / 3;
+        const auto extra = juce::jmin (24, spare / 3);
         cornersBox = inner.removeFromTop (boxHeaderHeight + 2 * 44 + 8 + extra);
         inner.removeFromTop (gap);
         positionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
         inner.removeFromTop (gap);
         motionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
 
-        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight);
-        corners = corners.withSizeKeepingCentre (corners.getWidth(), 2 * 44);
+        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 4).withHeight (2 * 44);
         auto combos1 = corners.removeFromTop (44);
         cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
         cornerB.setBounds (combos1.reduced (3, 1));
@@ -452,8 +441,13 @@ public:
         cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
         cornerD.setBounds (combos2.reduced (3, 1));
 
-        layoutRow (positionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight), { &x, &y });
-        layoutRow (motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight), { &path, &rate, &drift, &driftRate });
+        const auto packed = [&] (juce::Rectangle<int> box, int count)
+        {
+            auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withHeight (82);
+            return row.withWidth (juce::jmin (row.getWidth(), count * cellWidth));
+        };
+        layoutRow (packed (positionBox, 2), { &x, &y });
+        layoutRow (packed (motionBox, 4), { &path, &rate, &drift, &driftRate });
     }
 
 private:
@@ -666,25 +660,39 @@ public:
         // the same line when it fits, each group named over its first
         // control; the body line at the foot.
         const auto columns = juce::jlimit (8, 14, (area.getWidth() - 24) / 88);
+        // A menu takes two columns, so its text has room (V10-6: "PianoHammer"
+        // was squeezed into one).
+        const auto unitsOf = [] (juce::Component* item) { return dynamic_cast<ComboControl*> (item) != nullptr ? 2 : 1; };
         std::vector<std::vector<std::pair<juce::String, std::vector<juce::Component*>>>> lines;
         auto used = columns;
         for (const auto& row : layoutRows)
         {
-            for (size_t first = 0; first < row.second.size(); first += (size_t) columns)
+            for (size_t first = 0; first < row.second.size();)
             {
-                const auto count = juce::jmin ((int) row.second.size() - (int) first, columns);
-                if (used + (used > 0 ? 1 : 0) + count > columns)
+                // As many of the row's controls as fit the columns.
+                size_t count = 0;
+                auto units = 0;
+                while (first + count < row.second.size() && units + unitsOf (row.second[first + count]) <= columns)
+                    units += unitsOf (row.second[first + count++]);
+                count = juce::jmax ((size_t) 1, count);
+                units = juce::jmax (units, 1);
+                if (used + (used > 0 ? 1 : 0) + units > columns)
                 {
                     lines.emplace_back();
                     used = 0;
                 }
-                used += (used > 0 ? 1 : 0) + count;
+                used += (used > 0 ? 1 : 0) + units;
                 lines.back().push_back ({ first == 0 ? row.first : juce::String(),
-                                          { row.second.begin() + (long) first, row.second.begin() + (long) first + count } });
+                                          { row.second.begin() + (long) first, row.second.begin() + (long) (first + count) } });
+                first += count;
             }
         }
         const auto lineHeight = 18 + 84;
-        stringCard = area.removeFromBottom (12 + (int) lines.size() * lineHeight + 8 + bodyLineHeight + 8);
+        // BODY and SOUNDBOARD fold to their name and switch while both are
+        // off, as WEST and BODY do on FILTER (V10-9).
+        const auto bodyOpen = readParam ("res_on") > 0.5f, boardOpen = readParam ("sb_on") > 0.5f;
+        const auto bodyBlockHeight = bodyOpen || boardOpen ? bodyLineHeight : foldedBodyLineHeight;
+        stringCard = area.removeFromBottom (12 + (int) lines.size() * lineHeight + 8 + bodyBlockHeight + 8);
         area.removeFromBottom (10);
         viewCard = area;
 
@@ -706,34 +714,44 @@ public:
                         labels.removeFromLeft (cell);
                     }
                     const auto& [name, items] = line[group];
-                    rowLabels.push_back ({ labels.withWidth (cell * (int) items.size()).reduced (4, 0), name });
-                    labels.removeFromLeft (cell * (int) items.size());
+                    auto units = 0;
+                    for (auto* item : items)
+                        units += unitsOf (item);
+                    rowLabels.push_back ({ labels.withWidth (cell * units).reduced (4, 0), name });
+                    labels.removeFromLeft (cell * units);
 
                     for (auto* item : items)
-                        item->setBounds (strip.removeFromLeft (cell).reduced (2, 2));
+                        item->setBounds (strip.removeFromLeft (cell * unitsOf (item)).reduced (2, 2));
                 }
             }
 
             band.removeFromTop (8);
-            auto body = band.removeFromTop (bodyLineHeight);
+            auto body = band.removeFromTop (bodyBlockHeight);
             bodyLine = body.removeFromLeft (body.getWidth() / 2);
             boardLine = body.withTrimmedLeft (16);
             // The name with its switch after it on the group's header line
             // (UI-CONVENTIONS: a part's switch in its sub-box header; UI
             // review 9, I9-4), then the main controls and the link.
             const auto group = [] (juce::Rectangle<int> line, int nameWidth, ToggleControl& power, ComboControl& menu,
-                                   std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth)
+                                   std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth, bool open)
             {
                 // (The bare switch keeps a 13 px label band over its pill.)
                 power.setBounds (line.getX() + nameWidth, line.getY() - 13 - 1, 40, 13 + 20);
+                // Off: the name and the switch only.
+                menu.setVisible (open);
+                link.setVisible (open);
+                for (auto* knob : knobs)
+                    knob->setVisible (open);
+                if (! open)
+                    return;
                 link.setBounds (line.removeFromRight (linkWidth).withSizeKeepingCentre (linkWidth, 22).translated (0, 6));
                 menu.setBounds (line.removeFromLeft (124).withSizeKeepingCentre (124, 44).translated (0, 4));
                 line.removeFromLeft (juce::jmax (8, nameWidth + 40 + 4 - 124)); // (the knobs clear of the switch)
                 for (auto* knob : knobs)
                     knob->setBounds (line.removeFromLeft (76));
             };
-            group (bodyLine, 46, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120);
-            group (boardLine, 96, boardOn, boardModel, { &boardMix }, boardLink, 176);
+            group (bodyLine, 46, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120, bodyOpen);
+            group (boardLine, 96, boardOn, boardModel, { &boardMix }, boardLink, 176, boardOpen);
         }
 
         auto inner = viewCard.reduced (10, 0);
@@ -764,7 +782,7 @@ public:
     juce::StringArray getControlIds() const { return controlIds; }
 
 private:
-    static constexpr int bodyLineHeight = 72;
+    static constexpr int bodyLineHeight = 72, foldedBodyLineHeight = 30;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 
@@ -942,7 +960,8 @@ private:
             body != shownBody)
         {
             shownBody = body;
-            repaint (stringCard);
+            resized(); // (a block folds while off)
+            repaint();
         }
     }
 

@@ -456,7 +456,18 @@ public:
         const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
         const auto flexible = shown - folded + 1; // the open strips and SUB + NOISE
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
-        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
+        // The strips take what their contents need (a cap), the PATCH tile (and
+        // the OUTPUT view) the height left; when that is too little for a tile
+        // the strips take it instead, up to a larger cap, so the column never
+        // ends in a bare band (V10-2, V10-4).
+        auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
+        {
+            const auto spare = free - flexible * slotHeight - slotGap;
+            if (spare < patchMinHeight)
+                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, free / juce::jmax (1, flexible));
+            else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
+                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, slotHeight + (spare - maxPatchOnlyHeight) / juce::jmax (1, flexible));
+        }
         auto columnHeight = 0, lastWholeBottom = 0;
         std::vector<int> cardTops;
         const auto addCard = [&] (int height)
@@ -535,7 +546,7 @@ public:
         const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
         if (showPatch)
         {
-            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : spare);
+            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : juce::jmin (spare, maxPatchOnlyHeight));
             column.removeFromTop (slotGap);
             if (showOutput)
                 outputCard = column.removeFromTop (column.getHeight());
@@ -1090,7 +1101,11 @@ private:
         // A scrolling column's bar comes out of the picture, not the knobs,
         // so a value such as "-30.9 dB" still fits under its knob.
         const auto squeeze = juce::jmax (0, minKnobsWidth - (inner.getWidth() - pictureWidth - 6 - menuWidth - 4));
-        columns.picture = inner.removeFromLeft (juce::jmax (pictureWidth - 24, pictureWidth - squeeze));
+        // The picture is a square (a saw stretched into a portrait box reads as
+        // a tick, a string as a hairline: V10-2), centred in its column.
+        const auto column = inner.removeFromLeft (juce::jmax (pictureWidth - 24, pictureWidth - squeeze));
+        const auto side = juce::jmin (column.getWidth(), column.getHeight());
+        columns.picture = column.withSizeKeepingCentre (side, side);
         inner.removeFromLeft (6);
         columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24);
         inner.removeFromLeft (4);
@@ -1157,7 +1172,7 @@ private:
                 if (line.isNotEmpty())
                 {
                     area.removeFromTop (2);
-                    g.setColour (lit ? tint.interpolatedWith (IlanaTheme::Ui::text2, 0.35f) : IlanaTheme::Ui::text3);
+                    g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3); // (not the strip's one coloured text: V10-16)
                     g.drawText (line, area.removeFromTop (12).withTrimmedLeft (9), juce::Justification::centredLeft, true);
                 }
         };
@@ -1203,9 +1218,10 @@ private:
                 // its corner (UI review 8, I8-37).
                 const auto picture = stripColumns (card).picture;
                 strip.thumb.paint (g, picture.toFloat(), tint, strip.shownOn);
-                g.setColour (IlanaTheme::Ui::text2.withAlpha (strip.shownOn ? 1.0f : 0.5f));
+                // (Under the title, at the card's foot, clear of the curve.)
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (strip.shownOn ? 1.0f : 0.5f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("OP ENV", picture.reduced (7, 5).removeFromTop (12), juce::Justification::topRight);
+                g.drawText ("OP ENV", juce::Rectangle<int> (card.getX() + 17, card.getBottom() - 21, titleWidth - 12, 12), juce::Justification::centredLeft);
                 // An operator has no MODE menu: its place says what it is.
                 g.setColour (strip.shownOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
@@ -1277,8 +1293,8 @@ private:
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
-    static constexpr int minSlotHeight = 68, maxSlotHeight = 200, foldedHeight = 40;
-    static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46, minKnobsWidth = 190;
+    static constexpr int minSlotHeight = 68, maxSlotHeight = 124, foldedHeight = 40;
+    static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind
@@ -1290,7 +1306,7 @@ private:
     juce::Rectangle<int> subCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 90, outputMinHeight = 70;
+    static constexpr int patchMinHeight = 90, outputMinHeight = 70, maxPatchOnlyHeight = 120, maxGrownSlotHeight = 150;
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;

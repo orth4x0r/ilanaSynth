@@ -734,6 +734,7 @@ public:
 
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
+        label.setBorderSize ({ 0, 1, 0, 1 }); // (a name takes its whole cell: layoutRow fits it by that)
         label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         addAndMakeVisible (label);
@@ -888,6 +889,9 @@ public:
     }
 
     int getMaxDial() const { return maxDial; }
+    // The label's line, and 3 px more under it for a knob that draws modulation
+    // rings, so the rings clear the name (V10-18); 0 without a name.
+    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : 13 + (ringConfig.destination != 0 ? 3 : 0); }
     // The dial's drawn size right now (the UI test checks roles with it).
     int getDialSize() const { return knobBounds.getWidth() > 0 ? juce::jmin (knobBounds.getWidth(), (int) rotaryArea().getHeight()) : 0; }
 
@@ -1152,14 +1156,21 @@ public:
         // used to push the label up and the value down). The group sits at
         // the top, where combo and toggle labels in the same row sit; a knob
         // without a label (a matrix cell) is centred instead.
-        constexpr int labelHeight = 13, valueHeight = 16;
+        constexpr int valueHeight = 16;
         const auto hasLabel = label.getText().isNotEmpty();
+        const auto labelHeight = labelBlockHeight();
+        // The value's cell takes the cell's whole width up to 80 px (the
+        // dial leaves it free each side), so "-30.9 dB" keeps its space
+        // beside "0.0 dB" instead of respelling to fit (V10-8).
+        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jlimit (64, 80, area.getWidth()), 14);
         const auto dial = juce::jlimit (IlanaTheme::KnobSize::minimum, maxDial,
                                         juce::jmin (area.getWidth(), area.getHeight() - (hasLabel ? labelHeight : 0) - valueHeight));
         const auto groupHeight = juce::jmin (area.getHeight(), (hasLabel ? labelHeight : 0) + dial + valueHeight);
         auto group = hasLabel ? area.removeFromTop (groupHeight) : area.withSizeKeepingCentre (area.getWidth(), groupHeight);
 
-        label.setBounds (hasLabel ? group.removeFromTop (labelHeight) : juce::Rectangle<int>());
+        label.setBounds (hasLabel ? group.removeFromTop (13) : juce::Rectangle<int>());
+        if (hasLabel)
+            group.removeFromTop (labelHeight - 13);
         knobBounds = group;
         slider.setBounds (group);
         layoutDots();
@@ -1942,6 +1953,7 @@ public:
     {
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
+        label.setBorderSize ({ 0, 4, 0, 1 }); // (layoutRow fits a menu's name by these 5 px)
         label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         addAndMakeVisible (label);
@@ -2350,7 +2362,7 @@ inline int preferredControlHeight (juce::Component* item, int width)
         if (knob->isCompact())
             return -1;
 
-        const auto labelHeight = knob->getLabelText().isNotEmpty() ? 13 : 0;
+        const auto labelHeight = knob->labelBlockHeight();
         return labelHeight + juce::jlimit (IlanaTheme::KnobSize::minimum, knob->getMaxDial(), width) + 16;
     }
 
@@ -2392,9 +2404,15 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
         for (auto* item : items)
             if (auto* combo = dynamic_cast<ComboControl*> (item))
             {
-                const auto text = combo->getComboBox().getText();
-                if (text.isNotEmpty())
-                    needed = juce::jmax (needed, ((float) juce::GlyphArrangement::getStringWidth (font, text) + 6.0f + 30.0f) / juce::jmax (1.0f, baseWidth));
+                // (Sized for its longest item, so picking another doesn't
+                // squeeze the text; a long list is judged by its shown text.)
+                auto widest = (float) juce::GlyphArrangement::getStringWidth (font, combo->getComboBox().getText());
+                const auto& box = combo->getComboBox();
+                if (box.getNumItems() <= 40)
+                    for (int i = 0; i < box.getNumItems(); ++i)
+                        widest = juce::jmax (widest, (float) juce::GlyphArrangement::getStringWidth (font, box.getItemText (i)));
+                if (widest > 0.0f)
+                    needed = juce::jmax (needed, (widest + 6.0f + 30.0f) / juce::jmax (1.0f, baseWidth));
             }
 
         menuWeight = juce::jlimit (menuWeight, 1.6f, needed);
@@ -2423,7 +2441,10 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
             if (name == nullptr || name->getText().isEmpty())
                 continue;
 
-            const auto cell = (float) (dynamic_cast<ComboControl*> (item) != nullptr ? menuWidth : width) - 6.0f - 2.0f;
+            // (The room the label draws in: its cell less the cell's 3 px a side
+            // and the label's own 1 px a side, so no label is cut down again
+            // below the row's size when drawn.)
+            const auto cell = (float) (dynamic_cast<ComboControl*> (item) != nullptr ? menuWidth - 5 : width - 2) - 6.0f;
             const auto need = IlanaTheme::fittedFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)), name->getText().trim(), cell,
                                                       IlanaTheme::TextSize::minPassive).getHeight();
             needs.push_back ({ name, need });

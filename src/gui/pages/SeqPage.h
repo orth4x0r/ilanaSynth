@@ -446,15 +446,16 @@ public:
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
 
-        // Every engine's row on one six-column grid, packed from the left
+        // Every engine's row on one grid of fixed cells, packed from the left
         // (the switches are in the tabs): the shared controls first, in one
         // order (RATE, STEPS, GATE), then the engine's own; menus and knobs
-        // on one label line (review 8, I8-23, S8-33, V8-22).
-        layoutRow (controls, { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance }, true);
-        layoutRow (controls, { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate }, true);
-        // PROB SEQ has three: centred, not three and an empty half row
-        // (review 9, S9-15).
-        layoutRow (controls.reduced (controls.getWidth() / 4, 0), { &pseqDiv, &pseqLength, &pseqGate }, true);
+        // on one label line (review 8, I8-23, S8-33, V8-22). A cell is as
+        // wide for a menu as for a knob, and a row with fewer controls ends
+        // sooner instead of spreading over the card (V10-5, S10-9).
+        const auto packed = [&controls] (int count) { return controls.withWidth (juce::jmin (controls.getWidth(), count * seqCellWidth)); };
+        layoutRow (packed (6), { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance }, true);
+        layoutRow (packed (6), { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate }, true);
+        layoutRow (packed (3), { &pseqDiv, &pseqLength, &pseqGate }, true);
 
         // The clip's row is menus and buttons only (ten columns): the
         // piano roll takes the height the other engines' knobs need.
@@ -535,6 +536,12 @@ public:
             // The controls: names on one line at the band's top.
             auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight).withTrimmedBottom (4);
             auto left = (float) row.getX();
+            // A box of menus only (SNAP TO KEY, STRUM) centres its row in the
+            // box rather than leave the air under it (S10-12); one with knobs
+            // keeps the labels on the common top line.
+            auto hasKnob = false;
+            for (const auto& item : groups[g])
+                hasKnob = hasKnob || dynamic_cast<KnobControl*> (item.control) != nullptr;
 
             for (const auto& item : groups[g])
             {
@@ -542,7 +549,10 @@ public:
                                                         row.getHeight()).reduced (3, 0);
                 left += item.weight * unit;
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
-                item.control->setBounds (cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight()));
+                auto bounds = cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight());
+                if (! hasKnob)
+                    bounds = bounds.withY (row.getY() + (row.getHeight() - bounds.getHeight()) / 2);
+                item.control->setBounds (bounds);
             }
         }
     }
@@ -927,7 +937,7 @@ private:
     juce::TextButton clipQuantise, clipExpand { "EXPAND" }, clipDraw { "DRAW" };
     bool clipExpanded = false;
     int boxSignature = -1;
-    static constexpr int boxHeaderHeight = 24;
+    static constexpr int boxHeaderHeight = 24, seqCellWidth = 128;
     juce::Rectangle<int> snapBox, strumBox, sprayBox;
     std::unique_ptr<juce::FileChooser> clipChooser;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;

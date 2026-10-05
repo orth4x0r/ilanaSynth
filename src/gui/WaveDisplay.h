@@ -1000,12 +1000,12 @@ private:
         return choice - 4;
     }
 
-    static juce::String frameText (int frames, float position)
+    static juce::String frameText (int frames, float position, bool playingNow = true)
     {
         // (The frame playing now, modulation included; the FRAME knob is the
-        // set value: S9-12.)
-        return "FRAME " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
-               + " / " + juce::String (frames) + juce::String (juce::CharPointer_UTF8 (" Â· now"));
+        // set value: S9-12. One caption, "frame 6 of 64 now": S10-6.)
+        return "frame " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
+               + " of " + juce::String (frames) + (playingNow ? " now" : "");
     }
 
     // Where the cycle sits in the table (after modulation, gliding): a slim
@@ -1396,7 +1396,7 @@ private:
         {
             if (dragging)
             {
-                readout = frameText (table->getNumFrames(), readValue (frameId));
+                readout = frameText (table->getNumFrames(), readValue (frameId), false);
 
                 if (canDragWarp())
                     readout << "   WARP " << juce::roundToInt (readPlain (warpAmountId()) * 100.0f) << "%";
@@ -1418,12 +1418,17 @@ private:
             const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             const auto footer = footerArea().reduced (4.0f, 0.0f);
             const auto used = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), readout);
-            if (juce::GlyphArrangement::getStringWidth (font, hint) + used + 16.0f <= footer.getWidth())
-            {
-                g.setFont (font);
-                g.setColour (IlanaTheme::Ui::text3);
-                g.drawText (hint, footer, juce::Justification::centredRight, false);
-            }
+            // (The full hint, else its short form; a hint that fits neither
+            // is left out rather than shrunk.)
+            const auto shortHint = hint.contains ("frame") ? juce::String ("drag: frame") : juce::String ("drag: warp");
+            for (const auto& candidate : { hint, shortHint })
+                if (juce::GlyphArrangement::getStringWidth (font, candidate) + used + 16.0f <= footer.getWidth())
+                {
+                    g.setFont (font);
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.drawText (candidate, footer, juce::Justification::centredRight, false);
+                    break;
+                }
         }
     }
 

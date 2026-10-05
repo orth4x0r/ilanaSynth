@@ -133,6 +133,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests8.h"
 #include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
+#include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "Review9T2Tests.h"
 
@@ -856,9 +857,11 @@ int runUiTests()
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
 
-    if (only == "T1" || only == "T2")
+    if (only == "T1" || only == "T2" || only == "U1")
     {
-        if (only == "T1")
+        if (only == "U1")
+            runLayoutReview10Tests (processor, *pages);
+        else if (only == "T1")
             runLayoutReview9Tests (processor, *pages);
         else
             runReview9T2Tests (processor, *pages);
@@ -5380,6 +5383,7 @@ int runUiTests()
             // The wavetable browser: a search field, spaced Title Case names.
             {
                 TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+                browser.setLookAndFeel (&editor->getLookAndFeel());
                 browser.setSize (740, 520);
                 const auto all = browser.getShownNames();
                 browser.setSearchText ("saw");
@@ -6374,7 +6378,7 @@ int runUiTests()
             for (auto* wave : waves)
                 if (visibleInTree (wave) && readout.isEmpty())
                     readout = wave->getFrameReadout();
-            expect (readout.startsWith ("FRAME ") && readout.contains (" / "), "the WAVE view reads out the frame ('" + readout + "')");
+            expect (readout.startsWith ("frame ") && readout.contains (" of "), "the WAVE view reads out the frame ('" + readout + "')");
         }
 
         // One dimming rule (V26): a control that does nothing now dims, says
@@ -6510,6 +6514,7 @@ int runUiTests()
     // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
     runLayoutReview8Tests (processor, *pages);
     runLayoutReview9Tests (processor, *pages);
+    runLayoutReview10Tests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.
@@ -7322,6 +7327,7 @@ int main (int argc, char** argv)
             settingsFile->setValue ("tablefav_Basic", "1");
         {
             TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setLookAndFeel (&pages->getLookAndFeel());
             browser.setSize (912, 576);
             settle (200);
             save (browser, outDir.getChildFile ("t2-table-browser.png"));
@@ -7394,6 +7400,7 @@ int main (int argc, char** argv)
 
         {
             TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setLookAndFeel (&pages->getLookAndFeel());
             browser.setSize (912, 576);
             browser.setSearchText ("saw");
             settle (200);
@@ -8244,6 +8251,7 @@ int main (int argc, char** argv)
     // The wavetable browser on its own.
     {
         TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setLookAndFeel (&editor->getLookAndFeel());
         browser.setSize (740, 520);
         settle (100);
         save (browser, outDir.getChildFile ("table-browser.png"));

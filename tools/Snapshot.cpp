@@ -2370,6 +2370,26 @@ int runUiTests()
                     pages->showPage ("ENV/LFO");
                     settle (100);
                 }
+                // S8-1 / V8-1: there the "+" menu offers the Operator Env,
+                // and picking it puts OSC 1 on it and opens OP ENV.
+                if (envCards != nullptr && envCards->plusOffer != nullptr && envCards->onPlusOffer != nullptr)
+                {
+                    const auto offered = envCards->plusOffer().startsWith ("OP ENV (DX7)");
+                    envCards->onPlusOffer();
+                    settle (300);
+                    const auto added = FmOperatorInfo::anyOperatorEnv (processor) && envCards->isCardInPool (16)
+                                       && envCards->plusOffer().isEmpty();
+                    expect (offered && added, "\"+\" offers OP ENV (DX7) on a patch without it, and picking it adds the Operator Env");
+                    processor.loadFactoryPreset (neuroWobble);
+                    settle (300);
+                    expect (! envCards->isCardInPool (16), "a patch loaded without the Operator Env takes its card away again");
+                    // (The page's timer, which leaves a card that went away,
+                    // only runs on screen.)
+                    envCards->onSelect (0);
+                    settle (100);
+                }
+                else
+                    expect (false, "the envelope pool's \"+\" has an Operator Env item");
             }
             pages->showPage ("FM");
             settle (200);

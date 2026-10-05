@@ -69,6 +69,12 @@ public:
     std::function<void (int)> onSelect;
     std::function<void()> onLayoutChanged;
 
+    // A second item for the "+" menu (UI review 8, S8-1 / V8-1: the Operator
+    // Env's cards are absent from a patch that doesn't play it, and offered
+    // here instead). Empty: "+" adds the next envelope straight away.
+    std::function<juce::String()> plusOffer;
+    std::function<void()> onPlusOffer;
+
     static constexpr int plusId = -2;
 
     // Where an envelope's card sits, for scrolling it into view.
@@ -177,17 +183,28 @@ public:
 
         if (index == plusId)
         {
-            for (int env = 0; env < (int) envs.size(); ++env)
-                if (! envelopeShown (processorRef, env))
-                {
-                    processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
-                    selected = env;
-                    if (onSelect != nullptr)
-                        onSelect (env);
-                    break;
-                }
+            const auto offer = plusOffer != nullptr ? plusOffer() : juce::String();
+            if (offer.isEmpty())
+            {
+                addNextEnvelope();
+                return;
+            }
 
-            layoutChanged();
+            const auto next = nextHiddenEnvelope();
+            juce::PopupMenu menu;
+            menu.addItem (1, "Add " + (next >= 0 ? envs[(size_t) next].title : juce::String ("an envelope")), next >= 0);
+            menu.addItem (2, offer);
+            juce::Component::SafePointer<EnvThumbBar> safeThis (this);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (boundsOfCard (plusId))),
+                                [safeThis] (int picked)
+                                {
+                                    if (safeThis == nullptr)
+                                        return;
+                                    if (picked == 1)
+                                        safeThis->addNextEnvelope();
+                                    else if (picked == 2 && safeThis->onPlusOffer != nullptr)
+                                        safeThis->onPlusOffer();
+                                });
         }
         else if (index >= 0 && onSelect != nullptr)
         {
@@ -307,10 +324,32 @@ private:
         return -1;
     }
 
+    // The first envelope the pool doesn't show, or -1.
+    int nextHiddenEnvelope() const
+    {
+        for (int env = 0; env < (int) envs.size(); ++env)
+            if (! envelopeShown (processorRef, env))
+                return env;
+        return -1;
+    }
+
+    void addNextEnvelope()
+    {
+        if (const auto env = nextHiddenEnvelope(); env >= 0)
+        {
+            processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
+            selected = env;
+            if (onSelect != nullptr)
+                onSelect (env);
+        }
+
+        layoutChanged();
+    }
+
     juce::String tooltipFor (int index) const
     {
         if (index == plusId)
-            return "Add an envelope";
+            return plusOffer != nullptr && plusOffer().isNotEmpty() ? "Add an envelope, or the Operator Env (DX7)" : "Add an envelope";
         if (index == PoolCards::overflowId)
             return "More cards than fit: click for the rest";
         if (index < 0)

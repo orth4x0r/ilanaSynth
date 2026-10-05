@@ -528,9 +528,38 @@ public:
 
         thumbs.onSelect = [this] (int index) { select (index); };
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
+        // The Operator Env, absent from a patch that doesn't play it, is
+        // one pick away under "+" (UI review 8, S8-1 / V8-1).
+        thumbs.plusOffer = [this] { return operatorEnvOffer(); };
+        thumbs.onPlusOffer = [this] { addOperatorEnv(); };
 
         updateVisibility();
         startTimerHz (4);
+    }
+
+    // The "+" menu's Operator Env item; empty while the patch plays it.
+    juce::String operatorEnvOffer() const
+    {
+        if (operatorPoolShown (processorRef))
+            return {};
+        return "OP ENV (DX7): OSC " + juce::String (operatorEnvTarget() + 1) + " plays the Operator Env";
+    }
+
+    // Puts the Operator Env in the patch: the first playing oscillator's
+    // ENVELOPE becomes OP ENV (its cards then appear), and OP ENV opens.
+    void addOperatorEnv()
+    {
+        if (auto* param = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (operatorEnvTarget()) + "_amp_env"))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) OperatorEg::envelopeChoice));
+            param->endChangeGesture();
+        }
+
+        thumbs.refreshLayout();
+        select (opEnvId);
+        resized();
+        repaint();
     }
 
     // The bend of an envelope's segments has one name everywhere it is
@@ -697,6 +726,16 @@ private:
     }
 
     std::vector<std::unique_ptr<KnobControl>> stageTwoKnobs;
+
+    // Which oscillator "+ › OP ENV" puts on the Operator Env: the first
+    // playing one (OSC 1 when none plays).
+    int operatorEnvTarget() const
+    {
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (FmOperatorInfo::isPlaying (processorRef, osc))
+                return osc;
+        return 0;
+    }
 
     // The selection points at a card the pool doesn't have (an envelope
     // removed, or OP ENV / OP PITCH on a patch without the Operator Env).

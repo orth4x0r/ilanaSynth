@@ -2129,10 +2129,13 @@ int runUiTests()
             processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
             pages->showPage ("FM");
             settle (300);
-            findAll<juce::TextButton> (*editor, buttons);
-            for (auto* button : buttons)
-                if (button->getButtonText() == "OSC 1" && visibleInTree (button))
-                    button->triggerClick();
+            {
+                std::vector<OscPicker*> pickers;
+                findAll<OscPicker> (*editor, pickers);
+                for (auto* picker : pickers)
+                    if (visibleInTree (picker))
+                        picker->pick (0);
+            }
             settle (300);
             std::vector<KnobControl*> knobs;
             findAll<KnobControl> (*editor, knobs);

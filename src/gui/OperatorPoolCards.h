@@ -696,6 +696,23 @@ private:
         refreshOperators();
         effectRules.apply();
         texts.refresh (processorRef);
+        refreshUseButton();
+        if (place == Place::pool && changeGate.check (processorRef.getUiEpoch()))
+            repaint (panel.withHeight (26));
+    }
+
+    // Opened (a card picked, a page shown): greyed and offering USE ON OSC
+    // at once, not a frame later.
+    void visibilityChanged() override
+    {
+        if (! isVisible())
+            return;
+        effectRules.apply();
+        refreshUseButton();
+    }
+
+    void refreshUseButton()
+    {
         const auto unused = place == Place::pool && ! FmOperatorInfo::anyOperatorEnv (processorRef);
         const auto useText = "USE ON OSC " + juce::String (firstShownOscillator() + 1);
         if (unused != useButton.isVisible() || (unused && useButton.getButtonText() != useText))
@@ -705,8 +722,6 @@ private:
             useButton.setVisible (unused);
             resized();
         }
-        if (place == Place::pool && changeGate.check (processorRef.getUiEpoch()))
-            repaint (panel.withHeight (26));
     }
 
     // Unused (I8-39): a button sets the first oscillator's ENVELOPE to OP

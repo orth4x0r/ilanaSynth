@@ -601,8 +601,11 @@ inline void nameOperatorTrims (juce::ComboBox& combo, const IlanaSynthAudioProce
         {
             const auto id = (int) levels[osc] + 1;
             const auto name = destination ((int) levels[osc], processor);
+            // Read before renaming: the box reports an item selected only
+            // while its label still matches the item's text.
+            const auto selected = combo.getSelectedId() == id;
             combo.changeItemText (id, name);
-            if (combo.getSelectedId() == id)
+            if (selected)
                 combo.setText (name, juce::dontSendNotification);
         }
 }

@@ -790,21 +790,23 @@ private:
             juce::ignoreUnused (width);
             // (The words, then EXTRAS as a bar across the card's width: no bare
             // corner beside a short button, V12-3.)
-            const auto readoutTop = gridBottom + 2;
-            readoutArea = matrixCard.getBottom() - 8 - (readoutTop + readoutHeight) >= 26
-                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
+            const auto readoutTop = matrixGridBottom + 4;
+            // (EXTRAS sits on the card's foot and the readout takes what is
+            // between it and the grid: no bare band under the bar, V12-3.)
+            const auto buttonY = juce::jmax (readoutTop, matrixCard.getBottom() - 12 - 22);
+            readoutArea = buttonY - 4 - readoutTop >= readoutHeight - 6
+                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, buttonY - 4 - readoutTop)
                               : juce::Rectangle<int>();
-            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, juce::jmin (inner.getBottom() - 22, readoutArea.isEmpty() ? gridBottom : readoutArea.getBottom() + 6),
-                                                        inner.getWidth() - 8, 22));
+            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, buttonY, inner.getWidth() - 8, 22));
         }
 
         // A line under the controls says what the matrix holds in words.
         if (extras)
         {
-            const auto readoutTop = pairRow.getBottom() + 8;
-            readoutArea = matrixCard.getBottom() - 8 - readoutTop >= readoutHeight - 4
-                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
-                              : juce::Rectangle<int>();
+            const auto readoutTop = pairRow.getBottom() + 4;
+            const auto room = juce::jmin (readoutHeight, matrixCard.getBottom() - 6 - readoutTop);
+            readoutArea = room >= 14 ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, room)
+                                     : juce::Rectangle<int>();
         }
     }
 

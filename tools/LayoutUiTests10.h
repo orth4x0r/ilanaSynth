@@ -6,9 +6,9 @@
 #include <set>
 
 // The most of its card a rectangle of bare card fill may take, in thousandths
-// (V10-3; the card is found by scanning out to the page's background, which
+// (V10-3, V11-3, V12-3: 20 %, a hard limit; every page's largest few blanks are measured, not only its largest; the card is found by scanning out to the page's background, which
 // over-reads a card whose cells are as dark as the page, so this is a little generous; UI review 11, V11-3: it was 45 % and passed what the review found, so it is 40 % now: the FM matrix's 44 % failed it).
-constexpr int maxEmptyCardPermille = 400;
+constexpr int maxEmptyCardPermille = 200;
 
 void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
 {
@@ -171,11 +171,11 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     if (page == "MATRIX")
                         continue;
 
-                    for (int pass = 0; pass < 1; ++pass)
+                    for (int pass = 0; pass < 6; ++pass)
                     {
                         juce::Rectangle<int> emptyAt;
                         const auto empty = measure (snapshot, &emptyAt);
-                        if (empty <= 0)
+                        if (empty < 1500)
                             break;
                         // The card it lies in: out from the rectangle to the page's
                         // own background on each side.

@@ -735,7 +735,10 @@ private:
             const auto& rest = opEg ? operatorEnvKnobs : modeKnobs[(size_t) mode];
             result.insert (result.end(), rest.begin(), rest.end());
 
-            if (roomy && mode == 0 && ! opEg)
+            // Every wavetable strip has six controls, roomy or compact (UI
+            // review 13, V13-4): five or six strips shrink the picture, not
+            // the controls.
+            if (mode == 0 && ! opEg)
             {
                 // SEMI, LEVEL, FRAME, WARP, UNISON, DETUNE
                 result.insert (result.begin() + 3, warpKnob);
@@ -1230,6 +1233,10 @@ private:
     // in a row over the knobs. A low strip (six operators, a small window)
     // keeps the title column and the stacked menus.
     static bool roomy (juce::Rectangle<int> card) { return card.getHeight() >= roomyHeight; }
+    static int dialSize (juce::Rectangle<int> card)
+    {
+        return card.getHeight() >= tallHeight ? 64 : roomy (card) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum;
+    }
     static juce::Rectangle<int> titleArea (juce::Rectangle<int> card) { return card.withWidth (8 + titleWidth); }
     // The strip's "EDIT ›": on a roomy strip in the header line, left of the
     // switch and level with it; on a low one at the title row's right.
@@ -1246,7 +1253,10 @@ private:
         juce::Rectangle<int> picture, menus, knobs;
     };
 
-    static StripColumns stripColumns (juce::Rectangle<int> card)
+    // (A compact oscillator strip keeps its six controls, so its title, picture
+    // and menus are narrower; SUB + NOISE, with three knobs, gives the room to
+    // its pills instead, V13-4.)
+    static StripColumns stripColumns (juce::Rectangle<int> card, bool oscillator = true)
     {
         auto inner = card.reduced (8, 5);
         StripColumns columns;
@@ -1263,18 +1273,22 @@ private:
             return columns;
         }
 
-        inner.removeFromLeft (titleWidth);
-        inner.removeFromRight (switchWidth);
+        const auto title = oscillator ? compactTitleWidth : titleWidth;
+        const auto picture = oscillator ? compactPictureWidth : pictureWidth;
+        const auto menuColumn = oscillator ? compactMenuWidth : subMenuWidth;
+        inner.removeFromLeft (title);
+        inner.removeFromRight (oscillator ? compactSwitchWidth : switchWidth);
         // A scrolling column's bar comes out of the picture, not the knobs,
         // so a value such as "-30.9 dB" still fits under its knob.
-        const auto squeeze = juce::jmax (0, minKnobsWidth - (inner.getWidth() - pictureWidth - 6 - menuWidth - 4));
+        const auto knobsMinimum = oscillator ? minDenseKnobsWidth : minKnobsWidth;
+        const auto squeeze = juce::jmax (0, knobsMinimum - (inner.getWidth() - picture - 6 - menuColumn - 4));
         // The picture is a square (a saw stretched into a portrait box reads as
         // a tick, a string as a hairline: V10-2), centred in its column.
-        const auto column = inner.removeFromLeft (juce::jmax (pictureWidth - 24, pictureWidth - squeeze));
+        const auto column = inner.removeFromLeft (juce::jmax (picture - 24, picture - squeeze));
         const auto side = juce::jmin (column.getWidth(), column.getHeight());
         columns.picture = column.withSizeKeepingCentre (side, side);
         inner.removeFromLeft (6);
-        columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24);
+        columns.menus = inner.removeFromLeft (menuColumn).withSizeKeepingCentre (menuColumn, 24 + 4 + 24);
         inner.removeFromLeft (4);
         columns.knobs = inner;
         return columns;
@@ -1297,8 +1311,8 @@ private:
         auto menus = columns.menus;
         const auto mode = juce::jmax (0, strip.shownMode);
 
-        // A compact strip has no warp menu: the table menu's tooltip says what
-        // the warp is, so the choice is not simply gone (V12-14).
+        // A compact strip has no warp menu (its WARP knob stays): the table
+        // menu's tooltip says what the warp is, so the choice is not gone (V12-14).
         if (strip.tableTip.isEmpty())
             strip.tableTip = strip.table->getTooltip();
         {
@@ -1332,16 +1346,17 @@ private:
             if (mode == 0)
             {
                 strip.table->setBounds (menus.removeFromTop (24));
-                menus.removeFromTop (4);
-                strip.warp->setBounds (menus.removeFromTop (24));
             }
             else if (mode == 1)
                 strip.excite->setBounds (menus);
         }
 
+        // A tall strip (one open oscillator) gets bigger dials rather than a
+        // gap above and below a row of small ones (V13-3).
+        const auto dial = dialSize (card);
         for (auto& entry : strip.allKnobs)
-            if (entry.second->getMaxDial() != (roomy (card) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum))
-                entry.second->setSizeRole (roomy (card) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum);
+            if (entry.second->getMaxDial() != dial)
+                entry.second->setSizeRole (dial);
 
         layoutRow (columns.knobs, strip.knobs (roomy (card)));
     }
@@ -1356,7 +1371,7 @@ private:
             item->setVisible (! subFolded);
         if (subFolded)
             return;
-        const auto columns = stripColumns (subCard);
+        const auto columns = stripColumns (subCard, false);
         auto menus = columns.menus;
 
         if (roomy (subCard))
@@ -1373,8 +1388,8 @@ private:
         }
 
         for (auto* knob : { subLevel.get(), noiseLevel.get(), noiseColour.get() })
-            if (knob != nullptr && knob->getMaxDial() != (roomy (subCard) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum))
-                knob->setSizeRole (roomy (subCard) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum);
+            if (knob != nullptr && knob->getMaxDial() != dialSize (subCard))
+                knob->setSizeRole (dialSize (subCard));
 
         layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
     }
@@ -1502,7 +1517,7 @@ private:
             g.drawText ("SUB + NOISE", line.withX (subCard.getX() + 24).withWidth (juce::jmax (titleWidth, 100)), juce::Justification::centredLeft);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             static const char* const shapes[] { "Sine", "Square", "Saw" };
-            const auto columns = stripColumns (subCard);
+            const auto columns = stripColumns (subCard, false);
             g.drawText (juce::String (shapes[juce::jlimit (0, 2, readInt ("sub_shape"))]) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 sub off, no noise")),
                         line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()), juce::Justification::centredLeft, true);
         }
@@ -1512,7 +1527,7 @@ private:
             paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, {}, roomy (subCard));
 
             // The sub's shape where the oscillators show their picture.
-            const auto picture = stripColumns (subCard).picture.toFloat();
+            const auto picture = stripColumns (subCard, false).picture.toFloat();
             IlanaTheme::paintWell (g, picture, 6.0f);
             const auto shape = readInt ("sub_shape");
             const auto plot = picture.reduced (10.0f, 9.0f);
@@ -1561,8 +1576,9 @@ private:
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
-    static constexpr int minSlotHeight = 68, maxSlotHeight = 160, foldedHeight = 40, roomyHeight = 112, headerHeight = 22, editLinkWidth = 56;
+    static constexpr int minSlotHeight = 68, maxSlotHeight = 160, foldedHeight = 40, roomyHeight = 112, tallHeight = 170, headerHeight = 22, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
+    static constexpr int compactTitleWidth = 64, compactPictureWidth = 66, compactMenuWidth = 88, compactSwitchWidth = 40, minDenseKnobsWidth = 280, subMenuWidth = 176;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind

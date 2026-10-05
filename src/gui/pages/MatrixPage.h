@@ -350,7 +350,7 @@ public:
             row->setSelected (false);
     }
 
-    // (The X closes it for good until a curve is opened by hand again.)
+    // (The X closes it until a curve is opened by hand, the routes change or the page is shown again.)
     void closeRemap()
     {
         if (remapEditor == nullptr)
@@ -620,7 +620,10 @@ public:
     void visibilityChanged() override
     {
         if (isVisible())
+        {
+            dockDismissed = false; // (the X lasts while the page is open)
             updateRows();
+        }
     }
 
 private:
@@ -906,6 +909,7 @@ private:
         if (used != visibleRows)
         {
             visibleRows = used;
+            dockDismissed = false;
 
             for (auto& row : rows)
                 row->setVisible (std::find (used.begin(), used.end(), row->getSlotIndex()) != used.end());

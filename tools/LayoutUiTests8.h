@@ -245,8 +245,9 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         settle (500);
         auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* makePhysical = buttonNamed ("SWITCH TO PHYSICAL");
-        expect (view != nullptr && page != nullptr && view->getWidth() > page->getWidth() - 60 && view->getAlpha() < 0.6f && makePhysical != nullptr,
-                "PHYSICAL: not physical, the dimmed preview spans the page at its margins");
+        expect (view != nullptr && page != nullptr && view->getWidth() > page->getWidth() - 60 && view->getAlpha() < 0.99f && makePhysical != nullptr
+                    && makePhysical->isVisible() && makePhysical->getY() < page->getHeight() / 4 && amount != nullptr && amount->isVisible(),
+                "PHYSICAL: not physical, the page keeps its shape: the preview at its margins, the switch on the picker's row, BODY and SOUNDBOARD still there (V14-3)");
         setParam ("osc1_mode", 1.0f);
         settle (300);
     }

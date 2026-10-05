@@ -270,6 +270,75 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                                                       + (covered.isEmpty() ? juce::String() : ": " + covered.joinIntoString (", ")));
     }
 
+    // Review 14, Z1: the dead-space fixes keep their shape.
+    {
+        auto* top = editor.getTopLevelComponent();
+        const auto before = top->getBounds();
+
+        // V14-2: VECTOR, off, still shows the four corners' waves.
+        loadNamed ("Neuro Wobble");
+        setParam ("vec_on", 0.0f);
+        editor.showPage ("VECTOR");
+        settle (300);
+        std::vector<VectorCornerWave*> corners;
+        findAll<VectorCornerWave> (editor, corners);
+        auto shownCorners = 0;
+        for (auto* corner : corners)
+            shownCorners += visibleInTree (corner) && corner->getHeight() > 60 ? 1 : 0;
+        expect (shownCorners == 4, "VECTOR, off: the four corners show a picture of their oscillator (V14-2)");
+
+        // V14-1: an odd card count leaves no card-sized hole: the ADD EFFECT tile is a bar.
+        editor.showPage ("FX");
+        settle (300);
+        std::vector<DashedAddButton*> tiles;
+        findAll<DashedAddButton> (editor, tiles);
+        auto tallTile = false, anyTile = false;
+        for (auto* tile : tiles)
+            if (visibleInTree (tile) && tile->getButtonText().contains ("ADD EFFECT"))
+            {
+                anyTile = true;
+                tallTile = tile->getHeight() > 48;
+            }
+        expect (anyTile && ! tallTile, "FX: the ADD EFFECT tile is a bar on its own row, not a card-sized hole (V14-1)");
+
+        // V14-4: a short matrix shows a curve in its dock, never a text box.
+        loadNamed ("Felt Hammer Board");
+        editor.showPage ("MATRIX");
+        settle (400);
+        auto* remap = findChild<RemapEditor> (editor);
+        expect (remap != nullptr && visibleInTree (remap) && remap->getHeight() >= 200,
+                "MATRIX: with five routes the REMAP dock holds the first row's curve (V14-4)");
+
+        // I14-1: the FM operator card's title ends before the picker's first pill, at 100 % and 75 %.
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        juce::String titleClash;
+        for (const auto small : { false, true })
+        {
+            if (small)
+                top->setSize (795, 540);
+            else
+                top->setBounds (before);
+            settle (300);
+            editor.showPage ("FM");
+            settle (300);
+            std::vector<OscPicker*> pickers;
+            findAll<OscPicker> (editor, pickers);
+            for (auto* picker : pickers)
+                if (visibleInTree (picker) && picker->getParentComponent() != nullptr && picker->getY() > 150)
+                {
+                    // (The operator card starts at the page's 12 px margin; its title 12 px in.)
+                    const auto selected = picker->getSelectedOsc();
+                    const auto titleRight = 12 + 12 + IlanaTheme::cardTitleWidth ("OSC " + juce::String (selected + 1));
+                    if (titleRight > picker->getX())
+                        titleClash << (small ? "75 %: " : "100 %: ") << "title ends at " << titleRight << ", picker starts at " << picker->getX() << " ";
+                }
+        }
+        top->setBounds (before);
+        editor.showPage ("MAIN");
+        settle (300);
+        expect (titleClash.isEmpty(), "FM: the operator card's title ends before the picker's first pill on a DX7 voice (I14-1) " + titleClash);
+    }
+
     // I8-32: a card without a family colour has no grey tag.
     expect (! IlanaTheme::hasFamilyColour (IlanaTheme::Ui::text2) && ! IlanaTheme::hasFamilyColour (juce::Colour (0xffe0e6f0))
                 && IlanaTheme::hasFamilyColour (IlanaTheme::accent()),

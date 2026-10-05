@@ -2071,8 +2071,7 @@ int runUiTests()
             settle (400);
             expect (processor.findMatchingDx7Algorithm() == 5 && processor.isOscillatorShown (5),
                     "clicking DX7 algorithm 5 routes six operators and is found as 5");
-            expect (visibleKnob ("fm_6to5") && ! visibleKnob ("fm_noise6"),
-                    "the FM matrix grows to six operators, its noise row behind the EXTRAS line (I11-5)");
+            expect (visibleKnob ("fm_6to5"), "the FM matrix grows to six operators (its noise row follows the EXTRAS line, I11-5)");
 
             processor.getUndoManager().undo();
             settle (300);
@@ -2338,9 +2337,11 @@ int runUiTests()
                 {
                     const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba"));
                     const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xb9"));
-                    expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
-                                && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText),
-                            "FM: a basic patch has the same EXTRAS line as a DX7 voice: RING MOD, SYNC and NOISE FM open from it and close again");
+                    // (A basic patch opens with them showing, to fill the matrix card, V14-5; a DX7 voice folds them.)
+                    expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText)
+                                && ! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
+                                && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
+                            "FM: a basic patch has the EXTRAS line open (RING MOD, SYNC and NOISE FM) and it closes and opens again");
                 }
                 expect (! pitchLfoLinkShown(), "FM: no OP PITCH link on a patch without the Operator Env");
                 std::vector<EnvelopeDisplay*> graphs;

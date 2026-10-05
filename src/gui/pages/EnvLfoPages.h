@@ -293,6 +293,70 @@ private:
     KnobControl rate, division;
 };
 
+// PLAY's OP ENV tab (UI review 8, I8-18): the Operator Env every operator
+// plays, drawn as one overlay of the operators' envelopes. It is a picture
+// and a link, not a second editor: a click opens the OP ENV editor.
+class OperatorEnvOverview : public juce::Component,
+                            public juce::SettableTooltipClient,
+                            private juce::Timer
+{
+public:
+    explicit OperatorEnvOverview (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setTooltip ("OP ENV\nThe Operator Env: each operator (oscillator) on it has its own, drawn here one over the other. "
+                    "Click to edit it.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        startTimerHz (4);
+    }
+
+    std::function<void()> onClick;
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 6.0f);
+        const auto plot = bounds.reduced (10.0f, 18.0f).withTrimmedTop (4.0f);
+        const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+
+        for (size_t i = 0; i < operators.size(); ++i)
+        {
+            const auto osc = operators[i];
+            const auto& shape = OperatorPool::envelopeShape (processorRef, FmOperatorInfo::prefixOf (osc), caches[(size_t) osc]);
+            if (i == 0)
+                OperatorPool::paintEnvelopeShape (g, plot, shape.values, OperatorPool::colour(), true);
+            else
+            {
+                g.beginTransparencyLayer (0.55f);
+                OperatorPool::paintEnvelopeShape (g, plot, shape.values, OperatorPool::colour(), false);
+                g.endTransparencyLayer();
+            }
+        }
+
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        const auto count = (int) operators.size();
+        g.drawText (count == 1 ? juce::String ("1 operator") : juce::String (count) + " operators", bounds.reduced (8.0f, 3.0f).removeFromTop (12.0f),
+                    juce::Justification::centredRight);
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (! event.mouseWasDraggedSinceMouseDown() && onClick != nullptr)
+            onClick();
+    }
+
+private:
+    void timerCallback() override
+    {
+        if (isShowing() && gate.check (processorRef.getUiEpoch()))
+            repaint();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    std::array<OperatorPool::ShapeCache, (size_t) OscillatorIds::count> caches;
+    IlanaAnim::ChangeGate gate;
+};
+
 // ENV 1-16's names on the MOD page (cards, panel title), 0-based.
 inline juce::String envelopeTitle (int env)
 {
@@ -346,14 +410,17 @@ public:
         addAndMakeVisible (thumbs);
 
         // OP ENV and OP PITCH, pool members edited below like the others
-        // (UI review 7, I7-7): greyed with "unused" while no oscillator
-        // plays the Operator Env.
+        // (UI review 7, I7-7), only on a patch that plays the Operator Env
+        // (a DX7 voice), and there first in the row (UI review 8, I8-5 /
+        // S8-1 / V8-1). OP PITCH stays, greyed, while the matrix still
+        // routes it on a patch that no longer plays the Operator Env.
         {
             const auto anyOperator = [&p] { return FmOperatorInfo::anyOperatorEnv (p); };
             EnvThumbBar::ExtraCard opEnv;
             opEnv.title = "OP ENV";
             opEnv.colour = OperatorPool::colour();
-            opEnv.isActive = anyOperator;
+            opEnv.isShown = [&p] { return operatorPoolShown (p); };
+            opEnv.pinnedFirst = true;
             opEnv.tooltip = "OP ENV\nThe Operator Env: the DX7 envelope each oscillator on it plays (its level). Click to edit it "
                             "below, an operator at a time. It shapes its operators only, so it isn't a modulation source (its dashed edge: "
                             "nothing to drag).";
@@ -376,7 +443,9 @@ public:
             opPitch.title = "OP PITCH";
             opPitch.source = Mod::Source::OpPitchEnv;
             opPitch.colour = OperatorPool::colour();
+            opPitch.isShown = [&p] { return operatorSourceShown (p, Mod::Source::OpPitchEnv); };
             opPitch.isActive = anyOperator;
+            opPitch.pinnedFirst = true;
             opPitch.tooltip = "OP PITCH\nThe Operator Env's pitch envelope, for the whole voice. Click to edit it below; drag it onto "
                               "a knob to modulate that knob too (source: OP PITCH).";
             opPitch.paintShape = [this] (juce::Graphics& g, juce::Rectangle<float> plot, bool active)
@@ -439,20 +508,60 @@ public:
             extraUnits.push_back (std::move (extra));
         }
 
+        // The knobs in the graph's order, left to right (UI review 8,
+        // V8-18): DELAY, ATTACK, HOLD, DECAY, SUSTAIN, RELEASE, then what
+        // shapes them all: VEL, CURVE (every segment at once; a segment's
+        // dot bends that one alone) and KEY RATE.
+        for (auto& unit : units)
+        {
+            // Built as A D S R VEL CURVE, DELAY HOLD KEY RATE.
+            const auto k = unit.knobs;
+            if (k.size() == 9)
+                unit.knobs = { k[6], k[0], k[7], k[1], k[2], k[3], k[4], k[5], k[8] };
+        }
+
         selected = juce::jlimit (0, opPitchId, settings.getIntValue ("envSelected", 0));
 
         // AMP ENV's controls dim on a DX7 voice, whose operators play the
         // Operator Env (UI review 7, I7-8, V7-24); its graph dims itself.
         for (auto* knob : units[0].knobs)
             if (knob != nullptr)
-                ampRules.add (*knob, [&p] { return FmOperatorInfo::ampEnvelopeInUse (p); },
-                              "unused: every oscillator plays the Operator Env (OP ENV)");
+                ampRules.add (*knob, [&p] { return FmOperatorInfo::ampEnvelopeInUse (p); }, ampUnusedText());
 
         thumbs.onSelect = [this] (int index) { select (index); };
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
+        // The Operator Env, absent from a patch that doesn't play it, is
+        // one pick away under "+" (UI review 8, S8-1 / V8-1).
+        thumbs.plusOffer = [this] { return operatorEnvOffer(); };
+        thumbs.onPlusOffer = [this] { addOperatorEnv(); };
 
         updateVisibility();
         startTimerHz (4);
+    }
+
+    // The "+" menu's Operator Env item; empty while the patch plays it.
+    juce::String operatorEnvOffer() const
+    {
+        if (operatorPoolShown (processorRef))
+            return {};
+        return "OP ENV (DX7): OSC " + juce::String (operatorEnvTarget() + 1) + " plays the Operator Env";
+    }
+
+    // Puts the Operator Env in the patch: the first playing oscillator's
+    // ENVELOPE becomes OP ENV (its cards then appear), and OP ENV opens.
+    void addOperatorEnv()
+    {
+        if (auto* param = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (operatorEnvTarget()) + "_amp_env"))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) OperatorEg::envelopeChoice));
+            param->endChangeGesture();
+        }
+
+        thumbs.refreshLayout();
+        select (opEnvId);
+        resized();
+        repaint();
     }
 
     // The bend of an envelope's segments has one name everywhere it is
@@ -462,6 +571,10 @@ public:
     // OP ENV and OP PITCH after ENV 1-16.
     static constexpr int opEnvId = 16;
     static constexpr int opPitchId = 17;
+
+    // One wording for "unused" on every page (UI review 8, S8-17), PLAY's
+    // ENVELOPE card and the MOD page's AMP ENV and OP cards alike.
+    static const char* ampUnusedText() { return "unused: the oscillators play OP ENV"; }
 
     // Shows an envelope, adding its card when the patch doesn't have it yet.
     void select (int index)
@@ -511,8 +624,9 @@ public:
         const auto& knobs = units[(size_t) unitIndex].knobs;
         const std::vector<juce::Component*> first (knobs.begin(), knobs.begin() + juce::jmin ((int) knobs.size(), 6));
         const std::vector<juce::Component*> second (knobs.begin() + (int) first.size(), knobs.end());
-        // Two rows when both fit full-size knobs; otherwise one row of all
-        // of them, so the dials stay as big as the LFO's rather than
+        // Two rows when both fit full-size knobs (the six stages, then VEL,
+        // CURVE and KEY RATE); otherwise one row of all of them in the
+        // graph's order, so the dials stay as big as the LFO's rather than
         // shrinking to fit two short rows.
         constexpr int fullRow = 13 + 58 + 16 + 6;
 
@@ -540,8 +654,8 @@ public:
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (unusedAmp ? 0.15f : 0.35f));
         auto header = panel.reduced (12, 0).withHeight (26);
         IlanaTheme::paintCardHeader (g, header, envelopeTitle (selected),
-                                     unusedAmp ? "unused: every oscillator plays the Operator Env (edit it on OP ENV)"
-                                               : "drag the graph or the knobs; the dot on a segment sets its curve",
+                                     unusedAmp ? juce::String (ampUnusedText())
+                                               : "drag the graph or the knobs; a segment's dot bends it, CURVE bends all",
                                      colour, 0);
     }
 
@@ -583,7 +697,7 @@ private:
 
         ampRules.apply();
 
-        if (isShowing() && selected < opEnvId && ! envelopeShown (processorRef, selected))
+        if (isShowing() && selectionGone())
             updateVisibility();
     }
 
@@ -615,11 +729,28 @@ private:
 
     std::vector<std::unique_ptr<KnobControl>> stageTwoKnobs;
 
+    // Which oscillator "+ › OP ENV" puts on the Operator Env: the first
+    // playing one (OSC 1 when none plays).
+    int operatorEnvTarget() const
+    {
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (FmOperatorInfo::isPlaying (processorRef, osc))
+                return osc;
+        return 0;
+    }
+
+    // The selection points at a card the pool doesn't have (an envelope
+    // removed, or OP ENV / OP PITCH on a patch without the Operator Env).
+    bool selectionGone() const
+    {
+        return selected < opEnvId ? ! envelopeShown (processorRef, selected) : ! thumbs.isCardInPool (selected);
+    }
+
     void updateVisibility()
     {
         // A remembered selection can point at an envelope this patch doesn't
         // show: the first card shown instead.
-        if (selected < opEnvId && ! envelopeShown (processorRef, selected))
+        if (selectionGone())
             for (int env = 0; env < (int) units.size(); ++env)
                 if (envelopeShown (processorRef, env))
                 {
@@ -762,18 +893,18 @@ public:
         addAndMakeVisible (thumbs);
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
 
-        // The MSEG module: every LFO can draw an MSEG now (SHAPE › MSEG:
-        // UI review 7, S7-7 / V7-19), so the patch's own four-point one has
-        // a card only while something uses it (a route, an oscillator's
-        // ENVELOPE) or it was opened from its chip.
+        // The MSEG module: MSEG is an LFO shape now (SHAPE › MSEG: UI review
+        // 7, S7-7 / V7-19; review 8, I8-4 / S8-5 / V8-2), so the patch's own
+        // older one has a card only while the patch uses it (a route, an
+        // oscillator's ENVELOPE), and its panel moves its routes onto an LFO.
         LfoThumbBar::ExtraCard mseg;
         mseg.title = "MSEG";
         mseg.source = Mod::Source::Mseg;
         mseg.colour = MsegEditor::colour();
-        mseg.isShown = [this] { return msegOpened || msegInUse(); };
-        mseg.tooltip = "MSEG\nThe patch's four-point MSEG, for older patches and as an oscillator's ENVELOPE (once per note). "
-                       "Click to edit it below; drag it onto a knob to modulate that knob. Any LFO can be a drawn MSEG too: "
-                       "SHAPE \xe2\x80\xba MSEG.";
+        mseg.isShown = [&p] { return msegModuleInUse (p); };
+        mseg.tooltip = "MSEG\nThe patch's own MSEG, from older patches (as an oscillator's ENVELOPE it plays once per note). "
+                       "Click to edit it below; MOVE TO LFO there draws it on an LFO instead (SHAPE \xe2\x80\xba MSEG), the "
+                       "one drawn-shape editor.";
         mseg.valueAt = [this] (double phase) { return msegValueAt ((float) phase); };
         mseg.phase = [this] { return (double) processorRef.getMsegPhase(); };
         mseg.rateText = [this] { return describeValue ("mseg_rate", read ("mseg_rate")); };
@@ -802,7 +933,11 @@ public:
         opLfo.title = "OP LFO";
         opLfo.source = Mod::Source::OpLfo;
         opLfo.colour = OperatorPool::colour();
+        // Only on a patch that plays the Operator Env, and there first (UI
+        // review 8, I8-5); greyed while only an old route keeps it.
+        opLfo.isShown = [&p] { return operatorSourceShown (p, Mod::Source::OpLfo); };
         opLfo.isActive = [&p] { return FmOperatorInfo::anyOperatorEnv (p); };
+        opLfo.pinnedFirst = true;
         opLfo.tooltip = "OP LFO\nThe Operator Env's LFO (the DX7's), for the whole voice. Click to edit it below; drag it onto a "
                         "knob to modulate that knob too (source: OP LFO).";
         opLfo.valueAt = [this] (double phase)
@@ -824,6 +959,10 @@ public:
         addChildComponent (opLfoEditor);
 
         msegLoop.showAsSwitch();
+        msegMove.onClick = [this] { moveMsegToLfo(); };
+        msegMove.setTooltip ("Move to an LFO\nDraws this MSEG on the first free LFO (SHAPE \xe2\x80\xba MSEG, same points and RATE) "
+                             "and moves its routes there, so one editor draws every MSEG. Undo puts it back.");
+        addChildComponent (msegMove);
         addChildComponent (msegEditor);
         addChildComponent (msegLoop);
         addChildComponent (msegRate);
@@ -858,7 +997,6 @@ public:
         thumbs.onSelect = [this] (int index)
         {
             selected = index;
-            msegOpened = msegOpened || index == msegId;
             settings.setValue ("lfoSelected", selected);
             updateVisibility();
         };
@@ -907,30 +1045,33 @@ public:
         const auto displayArea = area.removeFromLeft (area.getWidth() * OperatorPool::graphPercent / 100).reduced (2);
         area.removeFromLeft (8);
 
-        // Control panel: the options on a top row, the knobs filling the
-        // rest (UI review 7, V7-29 / S7-26: no half-empty panel).
+        // One grid for every shape and module (UI review 8, I8-17 / S8-7 /
+        // V8-6): the left column holds SHAPE, then the switches, then
+        // TRIGGER / OUTPUT / FIRE; the right one the knobs, four to a row,
+        // RATE always first and SMOOTH second. Flipping SHAPE adds or takes
+        // away knobs and rows but never moves a control that stays. What
+        // the grid leaves free at the bottom lists what the LFO drives.
         panel = area;
         auto inner = panel.reduced (10, 6);
         inner.removeFromTop (20);
-        constexpr int optionsHeight = 13 + 24 + 14;
+        const auto grid = gridFor (inner);
+        infoArea = {};
 
         if (selected == msegId)
         {
             msegEditor.setBounds (displayArea);
-            // LOOP where an LFO's SYNC is, RATE where its RATE is; a line
-            // under them says what plays it.
-            auto options = inner.removeFromTop (optionsHeight);
-            msegLoop.setBounds (options.withWidth (options.getWidth() / 3).reduced (3, 1));
-            inner.removeFromBottom (18);
-            layoutRow (inner.withWidth (inner.getWidth() / 3), { &msegRate });
+            msegMove.setBounds (grid.left[0].reduced (3, 1).withTrimmedTop (13).withHeight (24));
+            msegLoop.setBounds (grid.switchSlot (0, 4));
+            grid.place ({ &msegRate });
+            infoArea = grid.freeBelow (false, false);
             return;
         }
 
         if (selected == clockId)
         {
             clockView.setBounds (displayArea);
-            auto options = inner.removeFromTop (optionsHeight);
-            clockDiv.setBounds (options.removeFromLeft (options.getWidth() / 2).reduced (3, 1));
+            clockDiv.setBounds (grid.left[0].reduced (3, 1));
+            infoArea = grid.freeBelow (false, false);
             return;
         }
 
@@ -940,29 +1081,50 @@ public:
         displays[(size_t) displayIndex]->setBounds (displayArea);
         auto& c = *controlsList[(size_t) displayIndex];
 
+        c.shape.setBounds (grid.left[0].reduced (3, 1));
+
+        // The switches: SYNC, RETRIG and KEY always in the same three places,
+        // then the shape's own (LOOP, KICK).
+        std::vector<juce::Component*> switches { &c.sync, &c.retrig, &c.key };
+        if (simulated && LfoSimInfo::get (shape).usesLoop)
+            switches.push_back (&c.loop);
+        if (shape == LfoShapes::Pendulum || shape == LfoSimShapes::Pendulum)
+            switches.push_back (&c.kick);
+        for (size_t i = 0; i < switches.size(); ++i)
+            switches[i]->setBounds (grid.switchSlot ((int) i, 5));
+
         if (simulated)
         {
-            layoutSimulated (c, inner, shape);
-            return;
+            const auto& info = LfoSimInfo::get (shape);
+            labelSimulated (c, shape);
+            auto third = grid.left[2];
+            const auto comboWidth = (third.getWidth() - 56) / 2;
+            c.trigger.setBounds (third.removeFromLeft (comboWidth).reduced (3, 1));
+            if (info.usesAxis)
+                c.axis.setBounds (third.removeFromLeft (comboWidth).reduced (3, 1));
+            else
+                third.removeFromLeft (comboWidth);
+            c.fire.setBounds (third.removeFromRight (56).reduced (3, 1).withTrimmedTop (13).withHeight (24));
+
+            std::vector<juce::Component*> knobs { c.rate.layoutItem(), &c.smooth };
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                if (info.params[(size_t) param].name != nullptr)
+                    knobs.push_back (c.sim[(size_t) param].get());
+            if (info.usesStereo)
+                knobs.push_back (&c.stereo);
+            if (info.usesSeed)
+                knobs.push_back (&c.seed);
+            grid.place (knobs);
+            infoArea = grid.freeBelow (true, knobs.size() > (size_t) Grid::perRow);
         }
-
-        // SHAPE and its switches on the top row; RATE, START and SMOOTH
-        // (and a physics shape's two) filling the rest, centred.
-        auto options = inner.removeFromTop (optionsHeight);
-        c.shape.setBounds (options.removeFromLeft (options.getWidth() / 2).reduced (3, 1));
-        const auto physicsKick = shape == LfoShapes::Pendulum;
-        const auto toggleWidth = options.getWidth() / (physicsKick ? 4 : 3);
-        c.sync.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
-        c.retrig.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
-        c.key.setBounds (options.removeFromLeft (toggleWidth).reduced (3, 1));
-        if (physicsKick)
-            c.kick.setBounds (options.reduced (3, 1));
-
-        inner.removeFromTop (6);
-        if (LfoShapes::isPhysics (shape))
-            layoutRow (inner, { c.rate.layoutItem(), &c.phase, &c.smooth, &c.physA, &c.physB });
         else
-            layoutRow (inner, { c.rate.layoutItem(), &c.phase, &c.smooth });
+        {
+            std::vector<juce::Component*> knobs { c.rate.layoutItem(), &c.smooth, &c.phase };
+            if (LfoShapes::isPhysics (shape))
+                knobs.insert (knobs.end(), { nullptr, &c.physA, &c.physB });
+            grid.place (knobs);
+            infoArea = grid.freeBelow (false, knobs.size() > (size_t) Grid::perRow);
+        }
 
         c.rate.matchBounds();
     }
@@ -983,35 +1145,44 @@ public:
             auto playedBy = selected == msegId ? envelopeUses (16, 17) : juce::StringArray();
             playedBy.add (describeModTargets (processorRef, selected == msegId ? Mod::Source::Mseg : Mod::Source::ClockSh));
             playedBy.removeEmptyStrings();
-            const auto subtitle = playedBy.isEmpty() ? juce::String ("the patch's four-point MSEG; drag its card onto a knob")
-                                                     : "played by: " + playedBy.joinIntoString (", ");
             IlanaTheme::paintCardHeader (g, header, selected == msegId ? "MSEG" : "CLOCKED S&H",
-                                         selected == msegId ? subtitle : "a new random value on every step of DIVISION; drives "
-                                                                             + playedBy.joinIntoString (", "),
+                                         selected == msegId ? "the patch's own MSEG, from older patches"
+                                                            : "a new random value on every step of DIVISION",
                                          colour, 0);
 
-            // What the MSEG's LOOP means, and where the drawn shapes are.
             if (selected == msegId)
             {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-                g.drawText (juce::String (read ("mseg_loop") > 0.5f ? "LOOP on: it cycles at RATE" : "LOOP off: it runs once and holds (once per note as an ENVELOPE)")
-                                + juce::String (juce::CharPointer_UTF8 (". Any LFO can draw its own: SHAPE \xe2\x80\xba MSEG.")),
-                            panel.reduced (14, 6).removeFromBottom (14), juce::Justification::centredLeft, true);
+                // Where the MOVE button's label would be on an LFO's SHAPE.
+                if (msegMove.isVisible())
+                {
+                    g.setColour (IlanaTheme::Ui::text2);
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+                    g.drawText ("AS AN LFO", msegMove.getBounds().withY (msegMove.getY() - 15).withHeight (13), juce::Justification::centredLeft);
+                }
+
+                // What its LOOP means, and why it has no MOVE button.
+                juce::StringArray lines;
+                lines.add (read ("mseg_loop") > 0.5f ? "LOOP on: it cycles at RATE."
+                                                     : "LOOP off: it runs once and holds (once per note as an ENVELOPE).");
+                if (! playedBy.isEmpty())
+                    lines.add ("Played by: " + playedBy.joinIntoString (", ") + ".");
+                if (! msegMove.isVisible())
+                    lines.add (read ("mseg_loop") <= 0.5f ? "A one-shot MSEG stays here: an LFO always cycles."
+                               : ! modSourceRouted (processorRef, Mod::Source::Mseg) ? "It plays as an ENVELOPE, which an LFO can't, so it stays here."
+                                                                                      : "Every LFO is in use, so it stays here.");
+                else
+                    lines.add (juce::String (juce::CharPointer_UTF8 ("MOVE TO LFO draws it on a free LFO (SHAPE \xe2\x80\xba MSEG) and moves its routes there.")));
+                paintInfoLines (g, lines, colour);
             }
+            else
+                paintRoutes (g, Mod::Source::ClockSh, colour);
             return;
         }
 
         const auto colour = lfoColour (selected);
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (0.35f));
-
-        const auto* retrig = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_retrig");
-        const auto* key = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (selected + 1) + "_key");
-        IlanaTheme::paintCardHeader (g, header, "LFO " + juce::String (selected + 1),
-                                     key != nullptr && key->load() > 0.5f         ? "per voice, rate follows the note (4 Hz = its pitch)"
-                                     : retrig != nullptr && retrig->load() > 0.5f ? "runs per voice, restarts on each note"
-                                                                                  : "free-running, shared by all voices",
-                                     colour, 0);
+        IlanaTheme::paintCardHeader (g, header, "LFO " + juce::String (selected + 1), LfoShapeMenu::runCaption (processorRef, selected), colour, 0);
+        paintRoutes (g, Mod::lfoSourceFor (selected), colour);
     }
 
     static juce::Colour lfoColour (int index)
@@ -1024,7 +1195,6 @@ public:
     void select (int index)
     {
         selected = juce::jlimit (0, opLfoId, index);
-        msegOpened = msegOpened || selected == msegId;
 
         if (selected < msegId && ! processorRef.isLfoShown (selected))
         {
@@ -1126,13 +1296,6 @@ private:
         return levels[3];
     }
 
-    // The MSEG module plays a part: routed, or an oscillator's ENVELOPE or
-    // warp envelope.
-    bool msegInUse() const
-    {
-        return ! modSlotsUsing (processorRef, { Mod::Source::Mseg }).empty() || ! envelopeUses (16, 17).isEmpty();
-    }
-
     // Oscillators that play (or warp with) an envelope choice, for the
     // card's "what it drives".
     juce::StringArray envelopeUses (int ampChoice, int warpChoice) const
@@ -1197,69 +1360,223 @@ private:
         }
     }
 
-    // Simulated shapes: combos and switches stacked on the left, the named
-    // knobs (RATE, SMOOTH, the shape's own, STEREO and SEED) in two rows on
-    // the right, each row tall enough for a knob, its name and its value
-    // (UI review 6, V6-11 / S6-12: the values were drawn over the dials).
-    void layoutSimulated (Controls& c, juce::Rectangle<int> inner, int shape)
+    // The panel's grid (UI review 8, I8-17): three option rows on the left
+    // (SHAPE; the switches; TRIGGER, OUTPUT and FIRE), up to two rows of
+    // four knobs on the right.
+    struct Grid
     {
-        const auto& info = LfoSimInfo::get (shape);
-        labelSimulated (c, shape);
+        static constexpr int perRow = 4;
+        static constexpr int rowHeight = 13 + 24 + 14;
+        static constexpr int rowGap = 8;
+        std::array<juce::Rectangle<int>, 3> left;
+        juce::Rectangle<int> right;
+        int knobHeight = 0;
+        bool twoRows = true;
 
-        // Options on the left: SHAPE, then TRIGGER / OUTPUT, then the
-        // switches and FIRE (RATE shows the division while synced).
-        auto options = inner.removeFromLeft (inner.getWidth() * 42 / 100);
-        inner.removeFromLeft (6);
-        const auto rowHeight = juce::jmin (options.getHeight() / 3, 13 + 24 + 14);
-        c.shape.setBounds (options.removeFromTop (rowHeight).reduced (3, 1));
-        auto combos = options.removeFromTop (rowHeight);
-        const auto comboWidth = combos.getWidth() / 2;
-        c.trigger.setBounds (combos.removeFromLeft (comboWidth).reduced (3, 1));
-        if (info.usesAxis)
-            c.axis.setBounds (combos.reduced (3, 1));
-
-        auto switches = options.removeFromTop (rowHeight);
-        std::vector<juce::Component*> row { &c.sync, &c.retrig, &c.key };
-        if (info.usesLoop)
-            row.push_back (&c.loop);
-        if (shape == LfoSimShapes::Pendulum)
-            row.push_back (&c.kick);
-        const auto toggleWidth = switches.getWidth() / ((int) row.size() + 1);
-        for (auto* component : row)
-            component->setBounds (switches.removeFromLeft (toggleWidth).reduced (2, 1));
-        c.fire.setBounds (switches.reduced (2, 1).withTrimmedTop (13).withHeight (24));
-
-        std::vector<juce::Component*> knobs { c.rate.layoutItem(), &c.smooth };
-        for (int param = 0; param < LfoSimInfo::numParams; ++param)
-            if (info.params[(size_t) param].name != nullptr)
-                knobs.push_back (c.sim[(size_t) param].get());
-        if (info.usesStereo)
-            knobs.push_back (&c.stereo);
-        if (info.usesSeed)
-            knobs.push_back (&c.seed);
-
-        // Two rows on one grid (a gap between them, so the second row's
-        // names don't read as the first row's values); one row when a row
-        // couldn't hold a knob's name, dial and value.
-        constexpr int rowGap = 8;
-        constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
-        const auto twoRows = (inner.getHeight() - rowGap) / 2 >= smallestKnob;
-        const auto perRow = twoRows ? (size_t) juce::jmax (3, ((int) knobs.size() + 1) / 2) : knobs.size();
-        std::vector<juce::Component*> first (perRow, nullptr), second (perRow, nullptr);
-        for (size_t k = 0; k < knobs.size() && k < perRow * 2; ++k)
-            (k < perRow ? first[k] : second[k - perRow]) = knobs[k];
-
-        if (twoRows)
+        // Switch `index` of `slots` across the second left row.
+        juce::Rectangle<int> switchSlot (int index, int slots) const
         {
-            const auto knobHeight = (inner.getHeight() - rowGap) / 2;
-            layoutRow (inner.removeFromTop (knobHeight), first);
-            inner.removeFromTop (rowGap);
-            layoutRow (inner.removeFromTop (knobHeight), second);
+            const auto width = left[1].getWidth() / slots;
+            return left[1].withX (left[1].getX() + width * index).withWidth (width).reduced (2, 1);
         }
-        else
-            layoutRow (inner, first);
 
-        c.rate.matchBounds();
+        // Knobs in reading order, `perRow` to a row (a null keeps a place
+        // empty); all in one row when two rows wouldn't fit.
+        void place (const std::vector<juce::Component*>& knobs) const
+        {
+            if (! twoRows)
+            {
+                layoutRow (right, knobs);
+                return;
+            }
+
+            for (size_t row = 0; row < 2 && row * (size_t) perRow < knobs.size(); ++row)
+            {
+                std::vector<juce::Component*> items ((size_t) perRow, nullptr);
+                for (size_t k = 0; k < (size_t) perRow && row * (size_t) perRow + k < knobs.size(); ++k)
+                    items[k] = knobs[row * (size_t) perRow + k];
+                layoutRow (right.withTrimmedTop ((int) row * (knobHeight + rowGap)).withHeight (knobHeight), items);
+            }
+        }
+
+        // What the grid leaves free at the bottom: under the second option
+        // row (or the third, when used), across the knobs too while their
+        // second row is empty.
+        juce::Rectangle<int> freeBelow (bool thirdRowUsed, bool secondKnobRowUsed) const
+        {
+            const auto top = (thirdRowUsed ? left[2] : left[1]).getBottom() + 4;
+            const auto bottom = right.getBottom();
+            if (bottom - top < 24)
+                return {};
+            if (secondKnobRowUsed || ! twoRows)
+                return { left[0].getX(), top, left[0].getWidth(), bottom - top };
+            return { left[0].getX(), juce::jmax (top, right.getY() + knobHeight + 4), right.getRight() - left[0].getX(),
+                     bottom - juce::jmax (top, right.getY() + knobHeight + 4) };
+        }
+    };
+
+    static Grid gridFor (juce::Rectangle<int> inner)
+    {
+        Grid grid;
+        auto left = inner.removeFromLeft (inner.getWidth() * 45 / 100);
+        inner.removeFromLeft (6);
+        for (auto& row : grid.left)
+            row = left.removeFromTop (juce::jmin (Grid::rowHeight, left.getHeight()));
+        grid.right = inner;
+        constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
+        grid.knobHeight = (inner.getHeight() - Grid::rowGap) / 2;
+        grid.twoRows = grid.knobHeight >= smallestKnob;
+        if (! grid.twoRows)
+            grid.knobHeight = inner.getHeight();
+        return grid;
+    }
+
+    // The free band's lines, small, one under the other.
+    void paintInfoLines (juce::Graphics& g, const juce::StringArray& lines, juce::Colour) const
+    {
+        if (infoArea.isEmpty())
+            return;
+        auto area = infoArea.reduced (3, 0);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.setColour (IlanaTheme::Ui::text3);
+        for (const auto& line : lines)
+        {
+            if (area.getHeight() < 13)
+                break;
+            g.drawText (line, area.removeFromTop (14), juce::Justification::centredLeft, true);
+        }
+    }
+
+    // What a source drives, listed in the free band (UI review 8, S8-7 /
+    // V8-6: the panel's room says something rather than sitting empty):
+    // "DRIVES" then each route's target and depth, two columns.
+    void paintRoutes (juce::Graphics& g, Mod::Source source, juce::Colour colour) const
+    {
+        if (infoArea.getHeight() < 28)
+            return;
+
+        juce::StringArray routes;
+        const auto sourceB = Mod::lfoBIndexFor (source) < 0 && Mod::lfoIndexFor (source) >= 0 ? Mod::lfoBSourceFor (Mod::lfoIndexFor (source))
+                                                                                               : Mod::Source::None;
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = processorRef.readModSlot (slot);
+            if (! routing.isActive())
+                continue;
+            const auto viaB = sourceB != Mod::Source::None && routing.source == sourceB;
+            if (routing.source != source && ! viaB && routing.aux != source)
+                continue;
+            const auto depth = juce::roundToInt (routing.depth * 100.0f);
+            routes.add ((viaB ? "B " : routing.source != source ? "VIA " : "") + ModNames::destination (routing.destination) + "  "
+                        + (depth > 0 ? "+" : "") + juce::String (depth) + "%");
+        }
+
+        auto area = infoArea.reduced (3, 0);
+        auto title = area.removeFromTop (14);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText ("DRIVES", title, juce::Justification::centredLeft);
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        if (routes.isEmpty())
+        {
+            g.drawText ("Nothing yet: drag the card onto a knob.", area.removeFromTop (14), juce::Justification::centredLeft, true);
+            return;
+        }
+
+        const auto columns = area.getWidth() >= 360 ? 2 : 1;
+        const auto rows = juce::jmax (1, area.getHeight() / 14);
+        const auto capacity = rows * columns;
+        const auto columnWidth = area.getWidth() / columns;
+        for (int i = 0; i < routes.size() && i < capacity; ++i)
+        {
+            auto text = routes[i];
+            if (i == capacity - 1 && routes.size() > capacity)
+                text = "+" + juce::String (routes.size() - capacity + 1) + " more (MATRIX)";
+            const auto cell = juce::Rectangle<int> (area.getX() + (i / rows) * columnWidth, area.getY() + (i % rows) * 14, columnWidth - 8, 14);
+            g.setColour (colour.withAlpha (0.85f));
+            g.drawText (text, cell, juce::Justification::centredLeft, true);
+        }
+    }
+
+    // The first LFO the patch doesn't have yet (-1: all of them are in use).
+    int freeLfo() const
+    {
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (! processorRef.isLfoShown (lfo))
+                return lfo;
+        return -1;
+    }
+
+    // MOVE TO LFO: what the old MSEG module's routes do can move onto an LFO
+    // drawn the same (SHAPE › MSEG), the one drawn-shape editor (UI review
+    // 8, I8-4 / V8-2). Only a looping, routed MSEG moves: an LFO always
+    // cycles and can't be an ENVELOPE. Nothing changes until it is pressed,
+    // so old patches keep sounding as they did.
+    bool msegMovable() const
+    {
+        return read ("mseg_loop") > 0.5f && freeLfo() >= 0 && modSourceRouted (processorRef, Mod::Source::Mseg);
+    }
+
+    void moveMsegToLfo()
+    {
+        const auto lfo = freeLfo();
+        if (lfo < 0 || ! msegMovable())
+            return;
+
+        float levels[4], times[4], total = 0.0f;
+        for (int i = 0; i < 4; ++i)
+        {
+            levels[i] = read ("mseg_level" + juce::String (i + 1));
+            times[i] = juce::jmax (0.01f, read ("mseg_time" + juce::String (i + 1)));
+            total += times[i];
+        }
+
+        // Its four points at their places in the cycle, back to the first
+        // at the end, as the looping MSEG plays them.
+        LfoCurve curve;
+        curve.points.clear();
+        auto x = 0.0f;
+        for (int i = 0; i < 4; ++i)
+        {
+            curve.points.push_back ({ x, levels[i], 0.0f });
+            x += times[i] / total;
+        }
+        curve.points.push_back ({ 1.0f, levels[0], 0.0f });
+
+        const auto prefix = "lfo" + juce::String (lfo + 1);
+        const auto lfoSource = Mod::lfoSourceFor (lfo);
+        processorRef.performEdit ("Move MSEG to LFO " + juce::String (lfo + 1), [this, lfo, &curve, &prefix, lfoSource]
+        {
+            const auto set = [this] (const juce::String& id, float value)
+            {
+                if (auto* parameter = processorRef.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+
+            processorRef.setLfoCurve (lfo, curve);
+            set (prefix + "_shape", (float) IlanaSynthAudioProcessor::curveShape);
+            set (prefix + "_rate", read ("mseg_rate"));
+            for (const auto* off : { "_sync", "_retrig", "_key", "_phase", "_smooth" })
+                set (prefix + off, 0.0f);
+
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            {
+                const auto routing = processorRef.readModSlot (slot);
+                if (routing.destination == 0)
+                    continue;
+                if (routing.source == Mod::Source::Mseg)
+                    processorRef.setModSlotValue (slot, "src", (float) (int) lfoSource);
+                if (routing.aux == Mod::Source::Mseg)
+                    processorRef.setModSlotValue (slot, "aux", (float) (int) lfoSource);
+                if (routing.destination == (int) Mod::Destination::MsegRate)
+                    processorRef.setModSlotValue (slot, "dst", (float) (int) Mod::lfoRateDestinationFor (lfo));
+            }
+        });
+
+        processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
+        thumbs.refreshLayout();
+        select (lfo);
     }
 
     void updateVisibility()
@@ -1268,7 +1585,7 @@ private:
         // show: the first LFO shown instead, else the MSEG.
         if ((selected < msegId && ! processorRef.isLfoShown (selected)) || (selected >= msegId && ! thumbs.isCardInPool (selected)))
         {
-            selected = opLfoId;
+            selected = thumbs.isCardInPool (opLfoId) ? opLfoId : thumbs.isCardInPool (msegId) ? msegId : 0;
             for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
                 if (processorRef.isLfoShown (lfo))
                 {
@@ -1279,6 +1596,9 @@ private:
 
         opLfoEditor.setVisible (selected == opLfoId);
         msegEditor.setVisible (selected == msegId);
+        if (const auto lfo = freeLfo(); lfo >= 0)
+            msegMove.setButtonText ("MOVE TO LFO " + juce::String (lfo + 1));
+        msegMove.setVisible (selected == msegId && msegMovable());
         msegLoop.setVisible (selected == msegId);
         msegRate.setVisible (selected == msegId);
         clockView.setVisible (selected == clockId);
@@ -1328,6 +1648,9 @@ private:
 
         if (selected >= msegId)
         {
+            // MOVE TO LFO comes and goes with the MSEG's routes and LOOP.
+            if (selected == msegId && msegMove.isVisible() != msegMovable())
+                updateVisibility();
             if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
                 repaint (panel);
             return;
@@ -1364,7 +1687,8 @@ private:
     ClockShView clockView;
     ComboControl clockDiv;
     OperatorLfoEditor opLfoEditor;
-    bool msegOpened = false;
+    juce::TextButton msegMove;
+    juce::Rectangle<int> infoArea; // the grid's free band (routes, the MSEG's notes)
     int selected = 0;
     int lastShape = -1;
 };

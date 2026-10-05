@@ -43,8 +43,10 @@ inline juce::String displayName (int shape, const juce::String& parameterText)
         return "S&H";
     if (shape == LfoShapes::SampleHold)
         return "S&H (stepped)";
-    if (shape == LfoShapes::SmoothRandom || shape == LfoShapes::Drunk)
-        return parameterText + " (classic)";
+    // Every older take whose name a newer shape also has is "(classic)", so
+    // the menu never lists two "Bounce"s (UI review 8, I8-36).
+    if (shape == LfoShapes::SmoothRandom || shape == LfoShapes::Drunk || shape == LfoShapes::Chaos || LfoShapes::isPhysics (shape))
+        return parameterText.upToFirstOccurrenceOf (" (", false, false) + " (classic)";
     return parameterText;
 }
 
@@ -161,6 +163,40 @@ inline void applyOperatorLfo (ComboControl& control)
                                     safeBox->setSelectedId (id, juce::sendNotificationSync);
                             });
     });
+}
+
+// What an LFO panel's header says about how it runs (UI review 8, I8-16):
+// a simulated shape's TRIGGER decides when a shared one restarts, so its
+// caption is built from TRIGGER, not from RETRIG alone; a shape with a
+// second output says so (S8-16 / V8-28). `lfo` is 0-based.
+inline juce::String runCaption (const IlanaSynthAudioProcessor& processor, int lfo)
+{
+    const auto prefix = "lfo" + juce::String (lfo + 1);
+    const auto read = [&processor, &prefix] (const char* suffix)
+    {
+        const auto* value = processor.apvts.getRawParameterValue (prefix + suffix);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto shape = juce::roundToInt (read ("_shape"));
+    const auto perVoice = read ("_retrig") > 0.5f;
+    juce::String text;
+
+    if (read ("_key") > 0.5f)
+        text = "per voice, rate follows the note (4 Hz = its pitch)";
+    else if (LfoSimShapes::isSim (shape))
+    {
+        const char* const shared[] { "shared by all voices, restarts on each note", "shared by all voices, runs free",
+                                     "shared by all voices, restarts on the beat", "shared, restarts on each EUCLID / PROB SEQ step" };
+        const char* const voiced[] { "per voice, restarts on each note", "per voice, starts on its note, then runs free",
+                                     "per voice, restarts on its note and on the beat", "per voice, restarts on its note and each SEQ step" };
+        text = (perVoice ? voiced : shared)[juce::jlimit (0, 3, juce::roundToInt (read ("_trigger")))];
+    }
+    else
+        text = perVoice ? "runs per voice, restarts on each note" : "free-running, shared by all voices";
+
+    if (LfoSimShapes::isSim (shape))
+        text << "; 2 outputs (A, B)";
+    return text;
 }
 
 // Gives an LFO's SHAPE control the display names and the grouped popup.

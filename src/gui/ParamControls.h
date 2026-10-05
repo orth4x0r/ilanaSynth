@@ -111,7 +111,7 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
 
 // What a mod source drives, for the envelope and LFO pool cards: "fixed"
 // (built-in uses such as "Amp") first, then the matrix destinations, as
-// "first target +N". Empty when it drives nothing.
+// "first target +N more". Empty when it drives nothing.
 inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processor, Mod::Source source,
                                         juce::StringArray targets = {})
 {
@@ -126,7 +126,9 @@ inline juce::String describeModTargets (const IlanaSynthAudioProcessor& processo
     if (targets.isEmpty())
         return {};
 
-    return targets[0] + (targets.size() > 1 ? "  +" + juce::String (targets.size() - 1) : juce::String());
+    // "+2 more", not "+2", which read as a depth beside the matrix's "+70%"
+    // (UI review 8, S8-18).
+    return targets[0] + (targets.size() > 1 ? "  +" + juce::String (targets.size() - 1) + " more" : juce::String());
 }
 
 // A small tag naming what a card drives, at the left of `area`'s bottom.

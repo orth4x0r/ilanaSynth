@@ -191,14 +191,19 @@ public:
                                envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
 
-        opEgButton.setButtonText ("EDIT OP ENV");
-        opEgButton.setTooltip ("Open the Operator Env on the FM page");
+        opEgButton.setButtonText (juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba"));
+        opEgButton.setTooltip ("Open the Operator Env's editor");
         opEgButton.onClick = [this]
         {
             if (onEditOperator != nullptr)
                 onEditOperator (juce::jmax (0, firstOperatorEg()));
         };
         addChildComponent (opEgButton);
+
+        // OP ENV, first among the envelope tabs on a patch that plays it
+        // (UI review 8, I8-18): its picture, and a link to its one editor.
+        opEnvOverview.onClick = [this] { opEgButton.triggerClick(); };
+        addChildComponent (opEnvOverview);
 
         // LFOs: the cards plus the selected LFO's main controls.
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
@@ -270,8 +275,23 @@ public:
 
     static juce::Colour envColour (int index) { return EnvSection::colourOf (index); }
 
-    // The envelope PLAY shows (ENV 1-16, 0-based).
+    // The envelope PLAY shows (ENV 1-16, 0-based; opEnvTab for OP ENV).
     int getSelectedEnvelope() const { return selectedEnv; }
+
+    // The OP ENV tab's id, after ENV 1-16 (as the MOD page numbers it).
+    static constexpr int opEnvTab = EnvSection::opEnvId;
+
+    static juce::String envTabTitle (int env) { return env == opEnvTab ? juce::String ("OP ENV") : envelopeTitle (env); }
+
+    juce::Colour envTabColour (int env) const
+    {
+        if (env == opEnvTab)
+            return OperatorPool::colour();
+        // AMP ENV dims on a voice whose oscillators all play OP ENV.
+        if (env == 0 && shownAmpNote.isNotEmpty())
+            return IlanaTheme::Ui::text3;
+        return envColour (env);
+    }
 
     // PLAY's envelope tabs: the envelopes the MOD page's pool shows, as
     // many as fit the card's header, the selected one always among them,
@@ -279,6 +299,8 @@ public:
     void refreshEnvTabs()
     {
         std::vector<int> shown;
+        if (operatorPoolShown (processorRef))
+            shown.push_back (opEnvTab);
         for (int env = 0; env < (int) envSets.size(); ++env)
             if (envelopeShown (processorRef, env))
                 shown.push_back (env);
@@ -292,7 +314,7 @@ public:
         {
             juce::StringArray names;
             for (const auto env : envs)
-                names.add (envelopeTitle (env));
+                names.add (envTabTitle (env));
             if (hidden > 0)
                 names.add ("+" + juce::String (hidden));
             return names;
@@ -317,7 +339,7 @@ public:
 
         std::vector<juce::Colour> colours;
         for (const auto env : tabs)
-            colours.push_back (envColour (env));
+            colours.push_back (envTabColour (env));
         if (hidden > 0)
             colours.push_back (IlanaTheme::Ui::text3);
 
@@ -344,7 +366,7 @@ public:
         envTabs.setSelected ((int) (std::find (envTabEnvs.begin(), envTabEnvs.end(), selectedEnv) - envTabEnvs.begin()), false);
         juce::PopupMenu menu;
         for (const auto env : envHiddenEnvs)
-            menu.addItem (env + 1, envelopeTitle (env));
+            menu.addItem (env + 1, envTabTitle (env));
         juce::Component::SafePointer<MainPage> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&envTabs), [safeThis] (int id)
         {
@@ -362,7 +384,18 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
-        paintCard (g, envCard, "ENVELOPE", envColour (selectedEnv));
+        paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
+
+        // OP ENV: what plays it, beside its picture.
+        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
+        {
+            const auto count = (int) OperatorPool::operatorsOnEnv (processorRef).size();
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawFittedText (juce::String (count) + (count == 1 ? " oscillator plays" : " oscillators play")
+                                  + " the Operator Env, each operator its own. It shapes their levels; AMP ENV is unused.",
+                              opEnvNoteArea, juce::Justification::topLeft, 4, 1.0f);
+        }
 
         if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
         {
@@ -508,6 +541,17 @@ public:
             {
                 set->display->setBounds (displayArea);
                 layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(), set->items[3].get() });
+            }
+
+            // OP ENV: its picture where the graph is, a line on what plays
+            // it, and EDIT OP ENV under it.
+            opEnvOverview.setBounds (displayArea);
+            opEnvNoteArea = {};
+            if (selectedEnv == opEnvTab)
+            {
+                auto note = inner.reduced (4, 6);
+                opEgButton.setBounds (note.removeFromBottom (28).removeFromLeft (110).withSizeKeepingCentre (106, 24));
+                opEnvNoteArea = note;
             }
 
             updateVisibility();
@@ -832,7 +876,8 @@ private:
         showSets (lfoSets, lfoTabs.getSelected());
         for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
             lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
-        opEgButton.setVisible (selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0);
+        opEgButton.setVisible ((selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0) || selectedEnv == opEnvTab);
+        opEnvOverview.setVisible (selectedEnv == opEnvTab);
         repaint();
     }
 
@@ -845,7 +890,7 @@ private:
         // The envelope tabs follow the pool (an envelope added, removed, or
         // put to use by a route or an oscillator).
         {
-            auto shownEnvs = 0u;
+            auto shownEnvs = operatorPoolShown (processorRef) ? (1u << opEnvTab) : 0u;
             for (int env = 0; env < (int) envSets.size(); ++env)
                 shownEnvs |= envelopeShown (processorRef, env) ? (1u << env) : 0u;
             if (shownEnvs != lastShownEnvs)
@@ -877,8 +922,13 @@ private:
 
         if (note != shownAmpNote)
         {
+            // A voice whose oscillators all play OP ENV opens on its tab,
+            // not on the unused AMP ENV (UI review 8, I8-18).
+            if (note == EnvSection::ampUnusedText() && selectedEnv == 0)
+                selectedEnv = opEnvTab;
             shownAmpNote = note;
             resized();
+            updateVisibility();
             repaint (envCard);
         }
     }
@@ -917,8 +967,9 @@ private:
                 return {};
         }
 
-        return operatorEg == playing ? "Not used: the OSCs play their OP ENV"
-                                     : "Not used: the OSCs play other envelopes";
+        // One wording with the MOD page (UI review 8, S8-17).
+        return operatorEg == playing ? juce::String (EnvSection::ampUnusedText())
+                                     : juce::String ("unused: the oscillators play other envelopes");
     }
 
     int firstOperatorEg() const
@@ -1165,6 +1216,8 @@ private:
     juce::String shownAmpNote;
     juce::Rectangle<int> ampNoteArea;
     juce::TextButton opEgButton;
+    OperatorEnvOverview opEnvOverview { processorRef };
+    juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
     juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;

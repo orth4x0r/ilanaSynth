@@ -132,6 +132,18 @@ public:
         }
     }
 
+    // Over the "B" sub-chip the tooltip names it as the shape's second
+    // output (UI review 8, S8-16 / V8-28: a bare "B" read as an A/B state).
+    juce::String getTooltip() override { return tooltipAt (getMouseXYRelative().toFloat()); }
+
+    juce::String tooltipAt (juce::Point<float> position)
+    {
+        if (getSecondOutputBounds().contains (position))
+            return ModNames::source (secondIndex) + " (OUT B)\nThis shape's second output; the chip itself drags output A. "
+                                                    "Drag the B onto a knob to modulate that knob with it.";
+        return juce::SettableTooltipClient::getTooltip();
+    }
+
     // Which output the mouse is over: the "B" sub-chip's, or the chip's own.
     int sourceAt (juce::Point<float> position) const
     {

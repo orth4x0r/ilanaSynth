@@ -60,11 +60,70 @@ inline bool envelopeShown (const IlanaSynthAudioProcessor& processor, int env)
     return env == 0 || processor.isRevealed (IlanaSynthAudioProcessor::Module::Envelope, env) || envelopeInUse (processor, env);
 }
 
+// Whether the matrix uses a source (as a slot's source or its VIA).
+inline bool modSourceRouted (const IlanaSynthAudioProcessor& processor, Mod::Source source)
+{
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = processor.readModSlot (slot);
+
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+            return true;
+    }
+
+    return false;
+}
+
+// The patch-level MSEG module (UI review 8, I8-4 / S8-5 / V8-2: one MSEG).
+// MSEG is an LFO shape now (SHAPE › MSEG); the old four-point module stays
+// for the patches that use it: routed in the matrix, or an oscillator's
+// ENVELOPE (choice 16) or warp envelope (choice 17). Only then does it have
+// a card, a chip and a place in the source menus.
+inline bool msegModuleInUse (const IlanaSynthAudioProcessor& processor)
+{
+    const auto read = [&processor] (const juce::String& id)
+    {
+        const auto* value = processor.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        if ((processor.isOscillatorShown (osc) && juce::roundToInt (read (prefix + "_amp_env")) == 16)
+            || juce::roundToInt (read (prefix + "_pd_env")) == 17)
+            return true;
+    }
+
+    return modSourceRouted (processor, Mod::Source::Mseg);
+}
+
+// The Operator Env's parts (OP ENV, OP PITCH, OP LFO: UI review 8, I8-5 /
+// S8-1 / V8-1) are in the patch only while an oscillator plays the Operator
+// Env (a DX7 voice), or while the matrix still routes OP PITCH / OP LFO.
+// Elsewhere they are absent: no card, no chip, not in the source menus.
+inline bool operatorPoolShown (const IlanaSynthAudioProcessor& processor)
+{
+    return FmOperatorInfo::anyOperatorEnv (processor);
+}
+
+inline bool operatorSourceShown (const IlanaSynthAudioProcessor& processor, Mod::Source source)
+{
+    return operatorPoolShown (processor) || modSourceRouted (processor, source);
+}
+
 // Whether a mod source is in the patch: an LFO or envelope only once it is in
-// its pool (added or in use), so menus never route one that has no card.
+// its pool (added or in use), so menus never route one that has no card; the
+// MSEG module and the Operator Env's sources while the patch uses them.
 // Every other source always is.
 inline bool modSourceInPatch (const IlanaSynthAudioProcessor& processor, Mod::Source source)
 {
+    if (source == Mod::Source::Mseg)
+        return msegModuleInUse (processor);
+
+    if (source == Mod::Source::OpLfo || source == Mod::Source::OpPitchEnv)
+        return operatorSourceShown (processor, source);
+
     if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
         return processor.isLfoShown (lfo);
 

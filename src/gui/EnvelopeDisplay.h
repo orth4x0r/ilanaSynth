@@ -31,8 +31,8 @@ public:
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse). Drag the dot on the attack, decay or "
                     "release to curve that segment alone (CURVE curves all three); double-click a handle or a dot to "
-                    "reset it.\nTime runs on a square-root scale: the ruler under the graph gives the time since the note "
-                    "started, and after KEY UP the time since the key was let go (+100 ms). The dot is the last note played.");
+                    "reset it.\nEach stage gets room by the square root of its time; the ruler under the graph gives the time since "
+                    "the note started, up to KEY UP (the release's own time is on its knob). The dot is the last note played.");
         startTimerHz (30);
     }
 
@@ -415,7 +415,10 @@ private:
             g.setFont (font);
         }
 
-        for (const auto inRelease : { false, true })
+        // One scale on the ruler (UI review 8, S8-31): the time since the
+        // note started, up to KEY UP. The release, timed from the key, has
+        // no ticks of its own ("+100 ms" read as a second axis).
+        for (const auto inRelease : { false })
         {
             // Longest first, so where ticks crowd the bigger time keeps its label.
             for (const auto seconds : { 20.0f, 10.0f, 5.0f, 2.0f, 1.0f, 0.5f, 0.2f, 0.1f, 0.05f, 0.02f, 0.01f, 0.005f, 0.002f })

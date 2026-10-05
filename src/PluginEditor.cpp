@@ -797,7 +797,7 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
         const auto lfoKind = (int) IlanaSynthAudioProcessor::Module::Lfo;
         const auto shown = kind == -2   ? FmOperatorInfo::anyOperatorEnv (processorRef)
                          : kind == -3   ? processorRef.apvts.getRawParameterValue ("vec_on")->load() > 0.5f
-                         : kind == -4   ? false
+                         : kind == -4   ? msegModuleInUse (processorRef)
                          : kind == lfoKind ? processorRef.isLfoShown (index)
                                            : envelopeShown (processorRef, index);
         const auto wanted = shown || usedModSources[(size_t) source];

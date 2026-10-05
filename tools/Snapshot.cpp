@@ -5548,6 +5548,10 @@ int runUiTests()
                                 settle (100);
                                 if ((chip->getSecondOutputBounds().isEmpty() || chip->secondIndex != (int) Mod::Source::Lfo1B))
                                     problems.add ("LFO 1's chip has no B");
+                                // S8-16 / V8-28: over the B, the tooltip names OUT B.
+                                else if (! chip->tooltipAt (chip->getSecondOutputBounds().getCentre()).contains ("(OUT B)")
+                                         || chip->tooltipAt ({ 4.0f, 4.0f }).contains ("OUT B"))
+                                    problems.add ("LFO 1's B has no OUT B tooltip");
                             }
                     }
                     expect (problems.isEmpty(), "every simulated LFO shape's knobs show name, dial and value apart, no control overlaps, "

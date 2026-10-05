@@ -71,7 +71,7 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
             {
-                if (tabs->getItem (i).name == "UNISON")
+                if (tabs->getItem (i).name == "SPREAD & DRIFT")
                     unisonIndex = i, shared = tabs;
                 if (tabs->getItem (i).name == "VOICE" && tabs == shared)
                     voiceIndex = i;
@@ -85,7 +85,19 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
         expect (shared != nullptr && unisonIndex >= 0 && voiceIndex >= 0 && unisonIndex != voiceIndex
                     && ! shared->getItem (unisonIndex).tooltip.containsIgnoreCase ("poly")
                     && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("glide"),
-                "OSC's unison tab is UNISON and a VOICE tab holds the voice settings (S9-1, S9-2)");
+                "OSC's strip has SPREAD & DRIFT (no second UNISON) and a VOICE tab holding the voice settings (S9-1, S9-2, S10-3)");
+
+        // S10-3, S10-4: UNISON is the card's alone; the global tabs sit after the
+        // sub and noise, behind a group gap.
+        if (shared != nullptr)
+        {
+            auto unisonTabs = 0;
+            for (int i = 0; i < shared->getNumItems(); ++i)
+                unisonTabs += shared->getItem (i).name == "UNISON" ? 1 : 0;
+            expect (unisonTabs == 0 && shared->getItem (0).name == "SUB + NOISE" && shared->getItem (voiceIndex).groupStart
+                        && voiceIndex == 1,
+                    "the strip's tabs: SUB + NOISE, then the global group (VOICE first), no UNISON tab (S10-3, S10-4)");
+        }
 
         if (shared != nullptr && voiceIndex >= 0 && shared->onSelect != nullptr)
         {
@@ -129,6 +141,59 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
             shared->setSelected (0);
             shared->onSelect (0);
         }
+    }
+
+    // S10-1: the header's VOICES opens the OSC page on its VOICE tab (one voice
+    // panel, no nested menu).
+    {
+        editor.showPage ("MAIN");
+        settle (200);
+        expect (editor.showVoicePanel != nullptr, "the header's VOICES has a destination");
+        if (editor.showVoicePanel != nullptr)
+            editor.showVoicePanel();
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        KnobControl* voices = nullptr;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "poly_voices" && visibleInTree (knob) && knob->getWidth() > 0)
+                voices = knob;
+        expect (editor.getCurrentPageId() == "OSC" && voices != nullptr,
+                "VOICES jumps to OSC > VOICE, whose controls are the voice settings (S10-1)");
+        editor.showPage ("MAIN");
+    }
+
+    // S10-2: with STRUM and SNAP TO KEY off, their menus read the choice the
+    // switch brings back, never "Off" (the switch is the only off).
+    {
+        editor.showPage ("ARP/SEQ");
+        settle (300);
+        setParam ("spray_strum", 0.0f);
+        setParam ("gen_scale", 0.0f);
+        settle (400);
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        auto checked = 0, offs = 0;
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getWidth() > 0
+                && (combo->getTooltip().startsWith ("Strum") || combo->getTooltip().startsWith ("Snap To Key")))
+            {
+                ++checked;
+                offs += combo->getComboBox().getText() == "Off" ? 1 : 0;
+            }
+        expect (checked == 2 && offs == 0, "STRUM and SNAP TO KEY menus don't read Off beside their switches (" + juce::String (checked) + " found, "
+                                               + juce::String (offs) + " Off) (S10-2)");
+        editor.showPage ("MAIN");
+    }
+
+    // S10-15: characters a file name can't hold are dropped as they are typed.
+    {
+        SavePresetOverlay overlay (processor);
+        overlay.setSize (900, 700);
+        auto& field = overlay.getNameField();
+        field.clear();
+        field.insertTextAtCaret ("A:B/C");
+        expect (field.getText() == "ABC", "the save dialog's name drops ':' and '/' as they are typed (" + field.getText() + ") (S10-15)");
     }
 
     // V9-27: Ctrl+Shift+1-3 pick the page inside a tab (S9-21).

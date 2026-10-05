@@ -166,8 +166,8 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
         for (auto* button : buttons)
             pageToggle = pageToggle || (visibleInTree (button) && button->getButtonText().contains ("5-8"));
 
-        expect (shown.size() == 8 && narrowest >= 80 && ! pageToggle && ! glideInStrip && findKnob ("master") != nullptr,
-                "the strip shows all eight macros (" + juce::String (shown.size()) + ", narrowest " + juce::String (narrowest)
+        expect (shown.size() >= 4 && shown.size() <= 8 && narrowest >= 80 && ! pageToggle && ! glideInStrip && findKnob ("master") != nullptr,
+                "the strip shows the macros in use, at least four (S10-10: " + juce::String (shown.size()) + ", narrowest " + juce::String (narrowest)
                     + " px) and MASTER, with no 5-8 toggle and no GLIDE");
 
         GlideMenuItem glide (processor);

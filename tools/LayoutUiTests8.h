@@ -117,7 +117,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         loadNamed ("E.PIANO 1 (ROM1A)");
         editor.showPage ("MAIN");
         settle (400);
-        auto* trim = knobFor ("osc1_level");
+        auto* trim = knobFor ("osc1_eg_out"); // (an operator's one level on PLAY)
         expect (trim != nullptr && trim->getHeight() <= neuroHeight && trim->getHeight() >= 48,
                 "PLAY: six operator strips share the column, no scrolling, knobs still readable (V9-2: " + juce::String (trim != nullptr ? trim->getHeight() : 0) + " / "
                     + juce::String (neuroHeight) + " px)");

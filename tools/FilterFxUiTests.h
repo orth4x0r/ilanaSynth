@@ -274,7 +274,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         std::vector<DiceFxButton*> dice;
         findAll<DiceFxButton> (editor, dice);
         expect (shownButtons ("CHAIN 1").size() == 1 && shownButtons ("CHAIN 2").size() == 1 && shownButtons ("RACK A").empty()
-                    && dice.size() == 1 && dice.front()->getButtonText() == "FX" && dice.front()->getTooltip().startsWith ("Randomise the FX chain"),
+                    && dice.size() == 1 && dice.front()->getButtonText() == "FX" && dice.front()->getTooltip().startsWith ("Randomise FX"),
                 "the FX toolbar has CHAIN 1 / CHAIN 2 and the dice icon with FX");
 
         // V7-42: the dice never puts one effect in two slots.

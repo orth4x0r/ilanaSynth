@@ -119,25 +119,25 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         picker->pick (0);
     settle (200);
 
-    // I8-1, V8-4: the oscillator's LEVEL (TRIM before UI review 9, I9-7)
-    // reads % on PLAY, FM and OSC; the operator's OUTPUT dB.
+    // I10-1: an operator shows one level, OUTPUT (dB), on PLAY, FM and OSC; the
+    // oscillator's own level is VOICE LEVEL (%), on OSC only.
     {
-        juce::StringArray trims;
         editor.showPage ("MAIN");
         settle (400);
-        trims.add (textOf (knobFor ("osc2_level", "LEVEL")));
+        const auto playOutput = textOf (knobFor ("osc2_eg_out", "OUTPUT"));
+        const auto playLevel = knobFor ("osc2_level") != nullptr;
         editor.showPage ("FM");
         settle (400);
-        trims.add (textOf (knobFor ("osc1_level", "LEVEL")));
-        const auto fmLevel = textOf (knobFor ("osc1_eg_out", "OUTPUT"));
+        const auto fmOutput = textOf (knobFor ("osc1_eg_out", "OUTPUT"));
+        const auto fmLevel = knobFor ("osc1_level") != nullptr;
         editor.showPage ("OSC");
         settle (400);
-        trims.add (textOf (knobFor ("osc1_level", "LEVEL")));
-        auto allPercent = trims.size() == 3;
-        for (const auto& text : trims)
-            allPercent = allPercent && text.endsWith ("%");
-        expect (allPercent && fmLevel.endsWith ("dB"), "LEVEL reads % on PLAY, FM and OSC, OUTPUT dB (I8-1, V8-4, I9-7: "
-                                                           + trims.joinIntoString (" / ") + ", " + fmLevel + ")");
+        const auto oscOutput = textOf (knobFor ("osc1_eg_out", "OUTPUT"));
+        const auto voiceLevel = textOf (knobFor ("osc1_level", "VOICE LEVEL"));
+        expect (playOutput.endsWith ("dB") && fmOutput.endsWith ("dB") && oscOutput.endsWith ("dB") && voiceLevel.endsWith ("%")
+                    && ! playLevel && ! fmLevel,
+                "an operator shows OUTPUT (dB) alone on PLAY and FM, and OSC adds VOICE LEVEL (%) (I10-1: " + playOutput + " / " + fmOutput
+                    + " / " + oscOutput + ", " + voiceLevel + ")");
     }
 
     // I8-2, I9-7: the oscillator's LEVEL is "Level" in the matrix whether

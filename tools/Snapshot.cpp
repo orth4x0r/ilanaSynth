@@ -259,17 +259,17 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     settle (400);
     {
         auto* level = knobFor ("osc2_eg_out", "OUTPUT");
-        auto* trim = knobFor ("osc2_level", "LEVEL");
+        auto* trim = knobFor ("osc2_level"); // (none on PLAY: one level, OUTPUT, I10-1)
         const auto levelText = level != nullptr ? level->getSlider().getTextFromValue (level->getSlider().getValue()) : juce::String();
         std::vector<WaveDisplay*> waves;
         findAll<WaveDisplay> (editor, waves);
         auto compactWaves = 0;
         for (auto* wave : waves)
             compactWaves += visibleInTree (wave) && wave->isCompact() ? 1 : 0;
-        expect (level != nullptr && levelText.endsWith ("dB") && trim != nullptr && knobFor ("osc2_frame") == nullptr
+        expect (level != nullptr && levelText.endsWith ("dB") && trim == nullptr && knobFor ("osc2_frame") == nullptr
                     && centreX (knobFor ("osc2_ratio")) < centreX (knobFor ("osc2_fine")) && centreX (knobFor ("osc2_fine")) < centreX (level)
-                    && centreX (level) < centreX (trim) && compactWaves == 0,
-                "PLAY: an operator strip is RATIO, FINE, OUTPUT (" + levelText + "), LEVEL as on FM (V8-5, I9-7), its Operator Env "
+                    && compactWaves == 0,
+                "PLAY: an operator strip is RATIO, FINE, OUTPUT (" + levelText + ") as on FM (V8-5, I10-1), its Operator Env "
                 "pictured, no FRAME");
     }
 
@@ -287,10 +287,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
         auto* wave = oscWave (0);
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
-        expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "LEVEL") != nullptr
+        expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") != nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
-                "OSC: an operator's card shows its Operator Env graph, OUTPUT and LEVEL, no wavetable warp or unison spread");
+                "OSC: an operator's card shows its Operator Env graph, OUTPUT and VOICE LEVEL, no wavetable warp or unison spread");
         expect (wave != nullptr && wave->getViewMode() == 0 && wave->getFrameReadout().isEmpty(),
                 "OSC: a one-frame sine opens as WAVE, with no frame readout");
 
@@ -2374,7 +2374,7 @@ int runUiTests()
                     trimLabel = knob->getLabelText();
             }
             expect (attackText.startsWith ("ATTACK ") && (attackText.endsWith (" ms") || attackText.endsWith (" s"))
-                        && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "OUTPUT" && trimLabel == "LEVEL",
+                        && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "OUTPUT" && (trimLabel == "LEVEL" || trimLabel == "VOICE LEVEL"),
                     "the Operator Env reads in the synth's words and units (" + attackText + ", " + peakText + ")");
 
             // Review 7: the time knobs turn the normal way (clockwise is

@@ -164,7 +164,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         const auto pageArea = area (const_cast<juce::Component*> (mainPage));
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            auto* trim = knobFor (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_level");
+            auto* trim = knobFor (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_eg_out");
             const auto bounds = area (trim);
             allShown = allShown && trim != nullptr && pageArea.contains (bounds);
             lowest = juce::jmax (lowest, bounds.getBottom());

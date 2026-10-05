@@ -58,6 +58,8 @@ public:
     // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
+    // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
+    std::function<void()> showVoicePanel;
     // An oscillator's Operator EG: the FM page with that operator chosen.
     void showOperatorEnvelope (int op);
     juce::String getCurrentPageId() const;
@@ -141,8 +143,7 @@ private:
     void showPresetMenu();
     void showDiceMenu();
     void showSettingsMenu (bool tuningOnly = false);
-    // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
-    std::function<void()> showVoicePanel;
+
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);

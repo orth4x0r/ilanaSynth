@@ -252,8 +252,9 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         selectOscTab (0);
         const auto firstState = oscTabState (0), otherState = oscTabState (1);
         selectOscTab (1);
-        expect (firstState == "OUT" && otherState.isEmpty() && oscTabState (1) == juce::String ("OUT, MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 1"),
-                "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram, on the chosen tab (" + firstState + ", " + oscTabState (1) + ")");
+        // (The tag is the engine, never the role: I13-2.)
+        expect (firstState == "WAVETABLE" && otherState.isEmpty() && oscTabState (1) == "WAVETABLE",
+                "OSC: the chosen tab's tag is its engine on every patch (" + firstState + ", " + oscTabState (1) + ")");
         selectOscTab (0);
     }
 

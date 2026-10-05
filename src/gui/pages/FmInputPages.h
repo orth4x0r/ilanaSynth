@@ -99,7 +99,7 @@ public:
             }
 
             outs[(size_t) source] = std::make_unique<ToggleControl> (
-                p.apvts, juce::String (OscillatorIds::prefixes[(size_t) source]) + "_out", "OUT");
+                p.apvts, juce::String (OscillatorIds::prefixes[(size_t) source]) + "_out", "HEARD");
             addAndMakeVisible (*outs[(size_t) source]);
 
             noiseKnobs[(size_t) source] = std::make_unique<KnobControl> (p.apvts, "fm_noise" + juce::String (source + 1), "",
@@ -421,7 +421,7 @@ private:
                                                                          : juce::String ("semitones");
         text << dot << (usesOperatorEnv (selectedOperator) ? "OP ENV" : operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText());
         // OUT or MOD, as its node in the diagram says.
-        text << dot << (read (prefix + "_out") > 0.5f ? "OUT" : "MOD");
+        text << dot << (read (prefix + "_out") > 0.5f ? "HEARD" : "MOD");
         if (! FmOperatorInfo::isPlaying (processorRef, selectedOperator))
             text << dot << "off";
         return text;

@@ -194,7 +194,7 @@ inline TextFitProbe& textFitProbe()
 //   1. a smaller size, down to `floorHeight` (the floor for its kind: the
 //      interactive one for values, menus and buttons);
 //   2. the same, with its letters set a little closer (tracking, up to
-//      0.06 of the height between letters: spacing, not narrower glyphs);
+//      0.12 of the height between letters: spacing, not narrower glyphs);
 //   3. for a value with a unit ("-30.9 dB"), the space goes and a long
 //      unit is shortened ("kHz" to "k"): a value never loses its unit;
 //   4. down to the passive floor (still 10 px at 75 %), tracked;
@@ -219,7 +219,7 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
         smaller = font.withHeight (height);
     }
 
-    for (auto tracking = -0.01f; tracking >= -0.0601f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
+    for (auto tracking = -0.01f; tracking >= -0.1201f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
          tracking -= 0.01f)
         smaller = font.withHeight (height).withExtraKerningFactor (tracking);
 

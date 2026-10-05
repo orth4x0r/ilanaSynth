@@ -107,7 +107,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         const auto wide = (int) std::ceil (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "-30.9 dB"));
         IlanaTheme::drawFitted (g, "-30.9 dB", juce::Rectangle<int> (0, 0, wide / 2, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
-        IlanaTheme::drawFitted (g, "20.00 kHz", juce::Rectangle<int> (0, 0, 36, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
+        IlanaTheme::drawFitted (g, "20.00 kHz", juce::Rectangle<int> (0, 0, 30, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
         probe.armed = false;
         auto keepsUnits = true;
         for (const auto& line : probe.respelled)

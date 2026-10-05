@@ -844,6 +844,15 @@ int runUiTests()
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
 
+    if (only == "T1")
+    {
+        runLayoutReview9Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
     if (only == "R6")
     {
         runGlobalReview8Tests (processor, *pages);

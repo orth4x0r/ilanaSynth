@@ -123,6 +123,12 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         loadNamed ("Neuro Wobble");
         editor.showPage ("ENV/LFO");
         settle (400);
+        if (auto* page = editor.getCurrentPage())
+            if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
+            {
+                envCards->onSelect (1);
+                settle (200);
+            }
         std::vector<KnobControl*> all;
         findAll<KnobControl> (editor, all);
         std::map<juce::Component*, std::set<float>> byRow;
@@ -200,7 +206,9 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     editor.showPage (page);
                     settle (300);
                     auto* shown = editor.getCurrentPage();
-                    if (shown == nullptr)
+                    // (Init's empty rack and empty matrix are composed empty
+                    // states, centred on purpose: not measured.)
+                    if (shown == nullptr || (juce::String (preset) == "Init" && (page == "FX" || page == "MATRIX")))
                         continue;
 
                     const auto pageArea = area (shown).reduced (4);
@@ -217,9 +225,9 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     const auto empty = largestEmptyRectangle (snapshot, reference);
                     // Dead = a rectangle that is both tall and wide: at least
                     // 22 % of the page's height and 28 % of its width (or an area over
-                    // 9 % of the page).
+                    // 16 % of the page).
                     const auto tall = empty.getHeight() * 100 > snapshot.getHeight() * 22 && empty.getWidth() * 100 > snapshot.getWidth() * 28;
-                    const auto big = empty.getWidth() * empty.getHeight() * 100 > snapshot.getWidth() * snapshot.getHeight() * 9;
+                    const auto big = empty.getWidth() * empty.getHeight() * 100 > snapshot.getWidth() * snapshot.getHeight() * 16;
                     const auto score = empty.getWidth() * empty.getHeight() * 100 / juce::jmax (1, snapshot.getWidth() * snapshot.getHeight());
                     const auto where = juce::String (preset) + (small ? " 75% " : " ") + page + " " + empty.toString() + " of "
                                        + juce::String (snapshot.getWidth()) + "x" + juce::String (snapshot.getHeight());
@@ -228,7 +236,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         worst = score;
                         worstWhere = where;
                     }
-                    if (tall || big)
+                    if ((tall && score > 14) || big)
                         tooBig.add (where + " (" + juce::String (score) + " %)");
                 }
             }

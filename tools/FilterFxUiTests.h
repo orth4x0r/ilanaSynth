@@ -267,8 +267,12 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         };
         const auto chorusReverb = displayWidths();
         loadFx ({ 13, 7 });
-        expect (stack != nullptr && chorusReverb.size() == 2 && chorusReverb == displayWidths(),
-                "an effect has one width wherever it sits in the chain (Chorus, Reverb in either order)");
+        // (V13-1 supersedes the fixed width: a card fills its row, so a lone card
+        // grows to the full rack; what stays is a readable picture either way.)
+        const auto swapped = displayWidths();
+        expect (stack != nullptr && chorusReverb.size() == 2 && swapped.size() == 2 && chorusReverb.front() >= 150 && swapped.front() >= 150,
+                "an effect's picture stays readable wherever it sits in the chain (Chorus, Reverb in either order: " + juce::String (chorusReverb.front())
+                    + " and " + juce::String (swapped.empty() ? 0 : swapped.front()) + " px at the least)");
         loadFx ({ 7, 13 });
         expect (shownButtons ("+  ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
 

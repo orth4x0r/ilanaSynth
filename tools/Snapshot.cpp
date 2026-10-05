@@ -6135,7 +6135,7 @@ int runUiTests()
                     for (int env = 0; env < 16; ++env)
                         if (envelopeShown (processor, env))
                             want.add (env < 4 ? juce::StringArray { "AMP ENV", "FILT ENV", "FILT 2 ENV", "ENV 4" }[env] : "ENV " + juce::String (env + 1));
-                    const auto overflow = names.size() > 0 && names[names.size() - 1].startsWith ("+");
+                    const auto overflow = names.size() > 0 && names[names.size() - 1].endsWith (" MORE") || names[names.size() - 1].startsWith ("+");
                     auto matches = names.size() > 0;
                     for (int tab = 0; tab < names.size() - (overflow ? 1 : 0); ++tab)
                         matches = matches && want.contains (names[tab]);

@@ -960,8 +960,8 @@ private:
         g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, "RING MOD and SYNC are for OSC 1 and OSC 2 only: RING MOD multiplies OSC 1 by OSC 2, SYNC restarts OSC 2 with each cycle of OSC 1.",
-                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 3);
+        IlanaTheme::drawFitted (g, "RING MOD: OSC 1 times OSC 2. SYNC: OSC 1 restarts OSC 2.",
+                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 2);
     }
 
     // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import

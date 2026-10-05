@@ -273,12 +273,15 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             for (const auto& id : ids)
             {
                 const auto bounds = boundsInEditor (shownControl (id));
-                const auto inOrder = ! bounds.isEmpty() && bounds.getX() > previousX;
-                const auto level = labelTop < 0 || std::abs (bounds.getY() - labelTop) <= 1;
-                if (labelTop < 0)
+                // Reading order in a grid: along a row (labels on one line) or
+                // down to the next row (V12-5: the controls may stand in a column).
+                const auto sameRow = labelTop >= 0 && std::abs (bounds.getY() - labelTop) <= 1;
+                const auto nextRow = labelTop >= 0 && bounds.getY() > labelTop + 1;
+                const auto inOrder = ! bounds.isEmpty() && (labelTop < 0 || (sameRow && bounds.getX() > previousX) || nextRow);
+                if (labelTop < 0 || nextRow)
                     labelTop = bounds.getY();
                 previousX = bounds.getX();
-                if (! inOrder || ! level)
+                if (! inOrder)
                 {
                     rowsOk = false;
                     rows.add (id + " " + bounds.toString());

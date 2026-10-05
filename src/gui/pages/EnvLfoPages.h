@@ -1483,7 +1483,7 @@ private:
         constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
         grid.knobHeight = (inner.getHeight() - Grid::rowGap) / 2;
         grid.twoRows = grid.knobHeight >= smallestKnob;
-        grid.oneRowHeight = juce::jmax (grid.knobHeight, inner.getHeight() - 44);
+        grid.oneRowHeight = grid.knobHeight;
         if (! grid.twoRows)
             grid.knobHeight = inner.getHeight();
         return grid;
@@ -1533,7 +1533,13 @@ private:
             routeSlots.push_back (slot);
         }
 
-        auto area = infoArea.reduced (3, 0);
+        // The list sits in a recessed well, so a short list is not a bare band.
+        g.setColour (juce::Colours::black.withAlpha (0.22f));
+        g.fillRoundedRectangle (infoArea.toFloat(), 5.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.drawRoundedRectangle (infoArea.toFloat().reduced (0.5f), 5.0f, 1.0f);
+
+        auto area = infoArea.reduced (8, 3);
         auto title = area.removeFromTop (14);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
@@ -1542,7 +1548,9 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         if (routes.isEmpty())
         {
-            g.drawText ("Nothing yet: drag the card onto a knob.", area.removeFromTop (14), juce::Justification::centredLeft, true);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            IlanaTheme::drawFitted (g, "Nothing yet. Drag this card onto any knob to make it move that knob; every route it drives is listed here, with its depth.",
+                                    area.withTrimmedRight (area.getWidth() / 3), juce::Justification::topLeft, 3);
             return;
         }
 

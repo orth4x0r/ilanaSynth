@@ -1249,7 +1249,12 @@ private:
                 weight += slotWeight (item);
             const auto width = juce::jmin (row.getWidth() * 3 / 4, juce::roundToInt (weight * 150.0f));
             layoutSlots (row.removeFromLeft (width), items);
-            sharedNoteArea = row.withTrimmedLeft (18).withTrimmedRight (6);
+            {
+                // The words also fill the strip beside the tabs, so the
+                // card has no bare band there.
+                const auto noteLeft = juce::jmax (row.getX() + 18, sharedTabs.getRight() + 18);
+                sharedNoteArea = { noteLeft, sharedCard.getY() + 6, row.getRight() - 6 - noteLeft, sharedCard.getBottom() - sharedCard.getY() - 12 };
+            }
             sharedNote = sharedSelected == sharedSympathetic
                              ? "Shared drone strings that ring along with everything you play. AMOUNT sets how loud they are, DECAY how long they ring and STRINGS "
                                "how many there are; MANUAL lets you tune them by hand."

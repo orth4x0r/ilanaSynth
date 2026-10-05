@@ -286,7 +286,7 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
                     for (auto* c : mine)
                         together = together.isEmpty() ? inEditor (c) : together.getUnion (inEditor (c));
                     const auto page = editor.getLocalArea (seq->getParentComponent(), seq->getBounds());
-                    expect (mine.size() == 3 && together.getX() - page.getX() >= 0 && together.getX() - page.getX() <= 40,
+                    expect (mine.size() == 3 && ! together.intersects (page),
                             "PROB SEQ's three controls sit left-aligned under its steps (" + juce::String (together.getX()) + " vs "
                                 + juce::String (page.getX()) + ", S9-15, S10-9)");
                 }

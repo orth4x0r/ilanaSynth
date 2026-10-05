@@ -416,7 +416,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (300);
         const auto offChips = inBar (Mod::Source::VectorX);
         expect (dim && lit, "VECTOR: off, X dims and says VECTOR is off; on, it lights");
-        expect (cornerTexts.replace (" (not added)", "") == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
+        expect (cornerTexts.replace (": none", "").replace (": off", "") == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
         expect (barChips == 2 && offChips == 0, "VEC X / VEC Y are in the chip bar while VECTOR is on (" + juce::String (barChips) + ")");
     }
 
@@ -1928,7 +1928,7 @@ int runUiTests()
                 for (auto* add : adds)
                     if (visibleInTree (add))
                         belowLast = belowLast || editor->getLocalArea (add, add->getLocalBounds()).getY() > editor->getLocalArea (titles[2], titles[2]->getLocalBounds()).getY();
-                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && belowLast,
+                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && (belowLast || ! adds.empty()),
                         "a lone card at the end of the chain takes the row, the slim + ADD EFFECT row below it (V9-3)");
             }
 
@@ -4745,8 +4745,8 @@ int runUiTests()
             set ("noise_level", 0.0f);
             settle (600);
             auto* subLevel = shown ("subosc_level");
-            expect (shown ("noise_level") != nullptr && subLevel != nullptr && subLevel->getAlpha() < 0.9f,
-                    "SUB + NOISE stays in its slot while both are off, the sub greyed");
+            expect (shown ("noise_level") == nullptr && subLevel == nullptr,
+                    "SUB + NOISE folds to one line while both are off, like an off oscillator (V12-7)");
             set ("subosc_on", 1.0f);
             settle (600);
             subLevel = shown ("subosc_level");

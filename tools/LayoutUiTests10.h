@@ -526,15 +526,25 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (300);
         editor.showPage ("PHYSICAL");
         settle (500);
-        const auto bodyOff = ! shownKnob ("res_amount");
+        // (BODY stays drawn, dimmed, while off: V13-9.)
+        const auto bodyKnob = [&editor] (const juce::String& id) -> KnobControl*
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob))
+                    return knob;
+            return nullptr;
+        };
+        const auto bodyOff = bodyKnob ("res_amount") != nullptr && bodyKnob ("res_amount")->getAlpha() < 0.99f;
         setParam ("res_on", 1.0f);
         settle (600);
-        const auto bodyOn = shownKnob ("res_amount");
+        const auto bodyOn = bodyKnob ("res_amount") != nullptr && bodyKnob ("res_amount")->getAlpha() > 0.99f;
         setParam ("res_on", 0.0f);
         settle (300);
-        expect (subOff && subOn && bodyOff && bodyOn, "SUB + NOISE and BODY fold while off and open when switched on (sub "
+        expect (subOff && subOn && bodyOff && bodyOn, "SUB + NOISE folds and BODY dims while off, both light when switched on (sub "
                                                           + juce::String (subOff ? "folds" : "stays") + "/" + juce::String (subOn ? "opens" : "stays shut")
-                                                          + ", body " + juce::String (bodyOff ? "folds" : "stays") + "/" + juce::String (bodyOn ? "opens" : "stays shut") + ")");
+                                                          + ", body " + juce::String (bodyOff ? "dims" : "stays lit") + "/" + juce::String (bodyOn ? "opens" : "stays shut") + ")");
         editor.showPage ("MAIN");
         settle (200);
     }

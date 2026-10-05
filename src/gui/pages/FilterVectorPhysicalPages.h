@@ -659,7 +659,7 @@ public:
                 power.setBounds (line.getX() + nameWidth, line.getY() - 13 - 1, 40, 13 + 20);
                 link.setBounds (line.removeFromRight (linkWidth).withSizeKeepingCentre (linkWidth, 22).translated (0, 6));
                 menu.setBounds (line.removeFromLeft (124).withSizeKeepingCentre (124, 44).translated (0, 4));
-                line.removeFromLeft (8);
+                line.removeFromLeft (juce::jmax (8, nameWidth + 40 + 4 - 124)); // (the knobs clear of the switch)
                 for (auto* knob : knobs)
                     knob->setBounds (line.removeFromLeft (76));
             };

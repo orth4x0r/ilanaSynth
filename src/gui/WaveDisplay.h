@@ -798,7 +798,8 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (compact ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
-            IlanaTheme::drawFitted (g, compact ? "DROP A SAMPLE" : "DROP A SAMPLE HERE", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+            // (A hint, so a sentence: UI review 9, I9-22.)
+            IlanaTheme::drawFitted (g, compact ? "Drop a sample" : "Drop a sample here, or LOAD one", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
             return;
         }
 
@@ -931,8 +932,9 @@ private:
         }
 
         if (! compact)
-            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + " zones, " : juce::String())
-                                                 + (reverse ? "REV " : "") + juce::String (loop ? "loop" : "1-shot"));
+            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
+                                                                           : juce::String())
+                                                 + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"));
     }
 
     // The zones as boxes on a keyboard strip: the used key range across

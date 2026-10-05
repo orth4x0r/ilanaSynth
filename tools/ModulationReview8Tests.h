@@ -92,8 +92,9 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         expect (absent (neuro, neuroFolded, S::OpLfo) && absent (neuro, neuroFolded, S::OpPitchEnv) && absent (neuro, neuroFolded, S::Mseg),
                 "no OP LFO, OP PITCH or MSEG chip on a wavetable patch (V8-1, V8-2)");
         expect (dx7.count ((int) S::OpLfo) == 1 && dx7.count ((int) S::OpPitchEnv) == 1
-                    && xOf (dx7, S::OpLfo) < xOf (dx7, S::Lfo1) && xOf (dx7, S::OpPitchEnv) < xOf (dx7, S::AmpEnv),
-                "a DX7 voice shows OP LFO and OP PITCH unfolded, first in their groups (S8-2, I8-9)");
+                    && xOf (dx7, S::OpLfo) < xOf (dx7, S::Lfo1) && xOf (dx7, S::OpPitchEnv) < xOf (dx7, S::FilterEnv)
+                    && absent (dx7, dx7Folded, S::AmpEnv),
+                "a DX7 voice shows OP LFO and OP PITCH unfolded, first in their groups, and no unused AMP ENV (S8-2, I8-9, S9-17)");
         expect (xOf (neuro, S::Velocity) > 0 && xOf (neuro, S::Velocity) == xOf (init, S::Velocity)
                     && xOf (init, S::Velocity) == xOf (dx7, S::Velocity)
                     && xOf (neuro, S::AmpEnv) == xOf (init, S::AmpEnv) && xOf (neuro, S::Lfo1) == xOf (init, S::Lfo1)

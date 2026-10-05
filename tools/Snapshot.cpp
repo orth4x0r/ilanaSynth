@@ -7907,6 +7907,42 @@ int main (int argc, char** argv)
         settle (300);
     }
 
+    // Sample mode (UI review 9, I9-22): OSC 1 empty with its LOAD, then an
+    // SFZ's two zones under the wave.
+    {
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-shot-sfz");
+        folder.createDirectory();
+        {
+            juce::AudioBuffer<float> tone (1, 22050);
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (0, i, 0.5f * std::sin ((float) i * 0.06f) * std::exp (-(float) i / 8000.0f));
+            juce::WavAudioFormat wav;
+            auto file = folder.getChildFile ("tone.wav");
+            file.deleteFile();
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 44100.0, 1, 16, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+                }
+            folder.getChildFile ("test.sfz").replaceWithText ("<region> sample=tone.wav lokey=36 hikey=59 pitch_keycenter=48\n"
+                                                              "<region> sample=tone.wav lokey=60 hikey=84 pitch_keycenter=72\n");
+        }
+        processor.loadFactoryPreset (0);
+        if (auto* parameter = processor.apvts.getParameter ("osc1_mode"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
+        pages->showPage ("OSC");
+        settle (400);
+        save (*editor, outDir.getChildFile ("osc-sample-empty.png"));
+        processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+        settle (500);
+        save (*editor, outDir.getChildFile ("osc-sample-sfz.png"));
+        folder.deleteRecursively();
+        processor.loadFactoryPreset (0);
+        pages->showPage ("MAIN");
+        settle (300);
+    }
+
     // M7.1: the Generative card's EUCLID and PROB SEQ tabs, and strum.
     {
         const auto set = [&processor] (const juce::String& id, float value)

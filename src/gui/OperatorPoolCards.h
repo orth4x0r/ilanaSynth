@@ -610,7 +610,7 @@ public:
         headerLeft = header.getRight();
         if (fmLink.isVisible())
         {
-            fmLink.setBounds (header.removeFromRight (46));
+            fmLink.setBounds (header.removeFromRight (84));
             header.removeFromRight (8);
             headerLeft = fmLink.getX();
         }

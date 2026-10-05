@@ -702,6 +702,21 @@ private:
         {
             updateEngineSwitches();
 
+            // The switch is the only "off": while it is off the menu beside it
+            // reads the choice it will bring back (dimmed), not "Off" (S10-2).
+            for (auto [combo, toggle] : { std::pair<ComboControl*, ChoiceSwitch*> { &genScale, &scaleSwitch }, { &sprayStrum, &strumSwitch } })
+            {
+                auto& box = combo->getComboBox();
+                const auto text = box.getItemText (juce::jlimit (1, juce::jmax (1, box.getNumItems() - 1), toggle->getRemembered()));
+                if (box.getNumItems() > 1 && box.getItemText (0) != text)
+                {
+                    const auto wasOff = box.getSelectedItemIndex() == 0;
+                    box.changeItemText (box.getItemId (0), text);
+                    if (wasOff)
+                        box.setText (text, juce::dontSendNotification);
+                }
+            }
+
             // The boxes' titles and notes follow their switches.
             const auto signature = (scaleSwitch.isOn() ? 1 : 0) | (strumSwitch.isOn() ? 2 : 0) | (readOn ("spray_on") ? 4 : 0)
                                  | (readOn ("tuning_on") ? 8 : 0) | (readOn ("gen_snap") ? 1 << 20 : 0) | (juce::roundToInt (readValue ("gen_scale")) << 4)

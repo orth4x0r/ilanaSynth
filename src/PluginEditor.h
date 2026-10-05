@@ -140,7 +140,9 @@ private:
     void applyAspectAndLimits();
     void showPresetMenu();
     void showDiceMenu();
-    void showSettingsMenu (bool voicesOnly = false, bool tuningOnly = false);
+    void showSettingsMenu (bool tuningOnly = false);
+    // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
+    std::function<void()> showVoicePanel;
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);

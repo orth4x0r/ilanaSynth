@@ -69,6 +69,8 @@ public:
     }
 
     bool isOn() const { return current() > 0; }
+    // The choice a click on the switch brings back (the last one that was on).
+    int getRemembered() const { return remembered; }
 
     juce::TextButton& getButton() { return button; }
 

@@ -812,7 +812,7 @@ private:
 
         if (auto* viewport = dynamic_cast<OscPageViewport*> (section->getPage (section->indexOf ("OSC"))))
             if (auto* page = viewport->getPage())
-                page->selectShared (3);
+                page->selectShared (OscPage::sharedKeys);
 
         editor->showPage ("OSC");
     }

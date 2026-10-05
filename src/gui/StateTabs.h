@@ -24,11 +24,14 @@ public:
         // I8-21): a tab for something with no switch of its own (VOICE)
         // has none, rather than a dot lit by "some value is above 0".
         bool dot = true;
+        // Starts a new group: a wider gap with a hairline before the tab
+        // (OSC's shared strip: SUB + NOISE | the global tabs; review 10, S10-4).
+        bool groupStart = false;
 
         bool operator== (const Item& other) const
         {
             return name == other.name && state == other.state && colour == other.colour && lit == other.lit && tooltip == other.tooltip
-                && dot == other.dot;
+                && dot == other.dot && groupStart == other.groupStart;
         }
     };
 
@@ -70,7 +73,7 @@ public:
         const auto level = stateLevel();
         auto x = 0;
         for (int i = 0; i < index; ++i)
-            x += tabWidth (i, level) + gap;
+            x += tabWidth (i, level) + gapAfter (i);
         return { x, 0, tabWidth (index, level), getHeight() };
     }
 
@@ -82,6 +85,12 @@ public:
         {
             const auto& item = items[(size_t) i];
             const auto tab = getTabBounds (i).toFloat().reduced (0.5f, 1.5f);
+
+            if (item.groupStart && i > 0)
+            {
+                g.setColour (IlanaTheme::Ui::line);
+                g.fillRect (tab.getX() - (float) groupGap * 0.5f - 0.5f, tab.getY() + 3.0f, 1.0f, tab.getHeight() - 6.0f);
+            }
             const auto active = i == selected;
             const auto hover = isMouseOver() && tab.contains (mouse.toFloat());
             const auto radius = tab.getHeight() * 0.5f;
@@ -145,7 +154,13 @@ public:
     }
 
 private:
-    static constexpr int gap = 6;
+    static constexpr int gap = 6, groupGap = 22;
+
+    // The space after a tab: wider before a tab that starts a group.
+    int gapAfter (int index) const
+    {
+        return index + 1 < (int) items.size() && items[(size_t) index + 1].groupStart ? groupGap : gap;
+    }
 
     // Shortest of all, a name keeps its last word ("OSC 3" as "3", where an
     // oscillator picker sits in a tight header: UI review 8, I8-10).
@@ -179,7 +194,7 @@ private:
     {
         auto width = 0;
         for (int i = 0; i < (int) items.size(); ++i)
-            width += tabWidth (i, level) + gap;
+            width += tabWidth (i, level) + gapAfter (i);
         return juce::jmax (0, width - gap);
     }
 

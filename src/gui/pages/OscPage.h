@@ -754,6 +754,10 @@ public:
 
     // The shared section below the card: SUB + NOISE, VOICE, SYMPATHETIC
     // STRINGS or ACOUSTIC KEYS.
+    // The tabs, in their order (the groups: the sub and noise, then the
+    // global drawer).
+    enum SharedTab { sharedSubNoise = 0, sharedVoice, sharedSpread, sharedSympathetic, sharedKeys };
+
     void selectShared (int index)
     {
         sharedSelected = juce::jlimit (0, numShared - 1, index);
@@ -910,14 +914,17 @@ private:
                                 });
         oscTabs.setSelectedOsc (selected);
 
+        // SUB + NOISE belong to the oscillators; after the gap, the global
+        // drawer: voice settings, the spread and drift every voice shares, the
+        // shared strings and the keys' body (review 10, S10-3, S10-4).
         sharedTabs.setItems ({ { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
-                               { "UNISON", {}, IlanaTheme::Ui::text2, true, "How the unison voices spread, start and drift", false },
+                               { "VOICE", {}, IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide.  The header's VOICES opens this.", false, true },
+                               { "SPREAD & DRIFT", {}, IlanaTheme::Ui::text2, true, "How far the voices spread across the stereo field, how their phases start and how far they drift.  The unison itself is on the oscillator's card.", false },
                                { "SYMPATHETIC STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
                                  "Shared drone strings that ring with everything you play" },
                                { "ACOUSTIC KEYS", {}, IlanaTheme::Ui::text2, true,
-                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false },
-                               { "VOICE", {}, IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide", false } });
+                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
         sharedTabs.setSelected (sharedSelected);
     }
 
@@ -1108,9 +1115,9 @@ private:
         // SUB + NOISE in two named halves (the sub's controls, then after
         // the gap the noise's), so its row reads as two small modules
         // rather than four knobs and an empty half (UI review 8, S8-29).
-        if (sharedSelected == 0)
+        if (sharedSelected == sharedSubNoise)
         {
-            const auto items = sharedItems (0);
+            const auto items = sharedItems (sharedSubNoise);
             const auto split = std::find (items.begin(), items.end(), nullptr);
             std::vector<juce::Component*> sub (items.begin(), split), noise;
             for (auto it = split; it != items.end(); ++it)
@@ -1142,11 +1149,11 @@ private:
         switch (index)
         {
             // (The sub's controls, then the noise's after the gap.)
-            case 0: return { &subShape, &subOctave, subOscLevel.get(), nullptr, noiseStrip.get(), noiseColourStrip.get() };
-            case 1: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
-            case 2: return { &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
+            case sharedSubNoise: return { &subShape, &subOctave, subOscLevel.get(), nullptr, noiseStrip.get(), noiseColourStrip.get() };
+            case sharedSpread: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
+            case sharedSympathetic: return { &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                              symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };
-            case 4: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr, nullptr, nullptr };
+            case sharedVoice: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr, nullptr, nullptr };
             default: return { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal };
         }
     }
@@ -1435,10 +1442,10 @@ private:
             if (item != nullptr)
                 item->setVisible (true);
 
-        subOscOn->setVisible (sharedSelected == 0);
-        symOn.setVisible (sharedSelected == 2);
+        subOscOn->setVisible (sharedSelected == sharedSubNoise);
+        symOn.setVisible (sharedSelected == sharedSympathetic);
 
-        if (sharedSelected == 2)
+        if (sharedSelected == sharedSympathetic)
         {
             const auto symOnNow = readBool ("sym_on");
             const auto manual = readBool ("sym_manual");

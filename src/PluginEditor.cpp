@@ -320,6 +320,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
+    // The header's VOICES: the OSC page's VOICE tab (one voice panel).
+    showVoicePanel = [this, oscViewport]
+    {
+        if (auto* page = oscViewport->getPage())
+            page->selectShared (OscPage::sharedVoice);
+        showPage ("OSC");
+    };
     // PLAY's oscillator title: that oscillator's full page.
     mainPage->onEditOscillator = [this, oscViewport] (int osc)
     {
@@ -426,13 +433,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     content.addChildComponent (headerScope);
 
-    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice mode, how many voices, the pitch-bend range and glide.");
+    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice settings: mode, how many voices, the pitch-bend range and glide.");
     voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    voicesArea.onClick = [this] { showSettingsMenu (true); };
+    voicesArea.onClick = [this] { showVoicePanel(); };
     content.addAndMakeVisible (voicesArea);
 
     tuningArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    tuningArea.onClick = [this] { showSettingsMenu (false, true); };
+    tuningArea.onClick = [this] { showSettingsMenu (true); };
     content.addChildComponent (tuningArea);
 
     content.addAndMakeVisible (*masterKnob);
@@ -2153,7 +2160,7 @@ void IlanaSynthAudioProcessorEditor::showDiceMenu()
                         });
 }
 
-void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tuningOnly)
+void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
 {
     const char* const skinNames[] { "Ember", "Ice", "Acid", "Neon" };
     const float zoomChoices[] { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -2200,36 +2207,10 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
                                                           : juce::String ("MTS-ESP: no master in this session"),
                     false, processorRef.isMtsEspConnected());
 
-    // The voice settings that used to sit in the bottom bar: how notes are
-    // shared out, how many can sound at once and the pitch-bend range.
-    static constexpr int voiceCounts[] { 1, 2, 3, 4, 6, 8, 12, 16, 24, 32 };
-    static constexpr int bendRanges[] { 0, 1, 2, 3, 4, 5, 7, 12, 24 };
-    const auto currentVoices = juce::roundToInt (read ("poly_voices"));
-    const auto currentBend = juce::roundToInt (read ("bend_range"));
-    const auto currentMode = juce::roundToInt (read ("voice_mode"));
-    juce::PopupMenu voiceModes, voiceLimits, bendMenu;
-    const char* const modeNames[] { "Poly", "Mono", "Legato" };
-    for (int i = 0; i < 3; ++i)
-        voiceModes.addItem (900 + i, modeNames[i], true, currentMode == i);
-    for (int i = 0; i < (int) std::size (voiceCounts); ++i)
-        voiceLimits.addItem (910 + i, juce::String (voiceCounts[i]), true, currentVoices == voiceCounts[i]);
-    for (int i = 0; i < (int) std::size (bendRanges); ++i)
-        bendMenu.addItem (930 + i, juce::String (bendRanges[i]) + (bendRanges[i] == 1 ? " semitone" : " semitones"),
-                          true, currentBend == bendRanges[i]);
-
-    // Glide and legato glide, moved here from the bottom strip.
-    const auto addGlide = [this, &read] (juce::PopupMenu& target)
-    {
-        target.addCustomItem (950, std::make_unique<GlideMenuItem> (processorRef), nullptr, "Glide");
-        target.addItem (951, "Glide only between overlapping (legato) notes", true, read ("glide_legato") > 0.5f);
-    };
-
     juce::PopupMenu menu;
-    menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
-    menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
-    menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
-    addGlide (menu);
-
+    // One voice panel: OSC > VOICE (review 10, S10-1); the header's VOICES
+    // opens it too.
+    menu.addItem (960, "Voice settings (OSC > VOICE)...");
     menu.addSeparator();
     menu.addSubMenu ("Skin", skins);
     menu.addSubMenu ("Interface size", sizes);
@@ -2249,17 +2230,6 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
 
-    // The status line's VOICES opens just the voice settings.
-    if (voicesOnly)
-    {
-        menu = juce::PopupMenu();
-        menu.addSectionHeader ("VOICES");
-        menu.addSubMenu ("Voice mode:  " + juce::String (modeNames[juce::jlimit (0, 2, currentMode)]), voiceModes);
-        menu.addSubMenu ("Voices:  " + juce::String (currentVoices), voiceLimits);
-        menu.addSubMenu ("Pitch bend range:  " + juce::String (currentBend) + " st", bendMenu);
-        addGlide (menu);
-    }
-
     // The header's tuning indicator opens just the tuning items.
     if (tuningOnly)
     {
@@ -2269,8 +2239,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
             menu.addItem (items.getItem());
     }
 
-    auto* target = voicesOnly ? static_cast<juce::Component*> (&voicesArea)
-                              : tuningOnly ? static_cast<juce::Component*> (&tuningArea) : &settingsButton;
+    auto* target = tuningOnly ? static_cast<juce::Component*> (&tuningArea) : &settingsButton;
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
                         [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (int result)
                         {
@@ -2330,37 +2299,8 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
                                         set ("os_factor", (float) (result - 701));
                                 }
                             }
-                            else if (result >= 900 && result < 950)
-                            {
-                                const auto set = [&safeThis] (const char* id, float value)
-                                {
-                                    if (auto* parameter = safeThis->processorRef.apvts.getParameter (id))
-                                    {
-                                        parameter->beginChangeGesture();
-                                        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-                                        parameter->endChangeGesture();
-                                    }
-                                };
-
-                                if (result < 910)
-                                    set ("voice_mode", (float) (result - 900));
-                                else if (result < 930)
-                                    set ("poly_voices", (float) voiceCounts[juce::jlimit (0, (int) std::size (voiceCounts) - 1, result - 910)]);
-                                else
-                                    set ("bend_range", (float) bendRanges[juce::jlimit (0, (int) std::size (bendRanges) - 1, result - 930)]);
-                            }
-                            else if (result == 951)
-                            {
-                                if (auto* legato = safeThis->processorRef.apvts.getParameter ("glide_legato"))
-                                {
-                                    safeThis->processorRef.performEdit ("Legato glide", [legato]
-                                    {
-                                        legato->beginChangeGesture();
-                                        legato->setValueNotifyingHost (legato->getValue() > 0.5f ? 0.0f : 1.0f);
-                                        legato->endChangeGesture();
-                                    });
-                                }
-                            }
+                            else if (result == 960)
+                                safeThis->showVoicePanel();
                             else if (result == 400)
                             {
                                 safeThis->tutorial.setVisible (true);

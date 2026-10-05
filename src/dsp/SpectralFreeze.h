@@ -2,6 +2,8 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <array>
+#include <atomic>
 #include <complex>
 #include <memory>
 #include <vector>
@@ -46,6 +48,18 @@ public:
         outputRead = 0;
         hopFill = 0;
         hasFrozenData = false;
+    }
+
+    // The held (or, while not holding, the live) spectrum as numBands
+    // log-spaced peaks, for the FREEZE card's picture. Written once per hop
+    // by the audio thread, read by the editor; a stale or torn read only
+    // moves a bar.
+    static constexpr int numBands = 48;
+
+    void getBands (std::array<float, numBands>& out) const
+    {
+        for (size_t i = 0; i < (size_t) numBands; ++i)
+            out[i] = bands[i].load (std::memory_order_relaxed);
     }
 
     void process (float* data, int numSamples, bool frozen, float mix)
@@ -116,6 +130,17 @@ private:
             }
         }
 
+        // (Bins 2 up, a bin of 21 Hz at 44.1k, in numBands equal steps of pitch.)
+        for (int band = 0; band < numBands; ++band)
+        {
+            const auto lo = (int) std::floor (2.0 * std::pow ((double) (fftSize / 2) / 2.0, (double) band / numBands));
+            const auto hi = juce::jmax (lo + 1, (int) std::floor (2.0 * std::pow ((double) (fftSize / 2) / 2.0, (double) (band + 1) / numBands)));
+            auto peak = 0.0f;
+            for (int bin = lo; bin < hi && bin <= fftSize / 2; ++bin)
+                peak = juce::jmax (peak, frozenMagnitude[(size_t) bin]);
+            bands[(size_t) band].store (peak, std::memory_order_relaxed);
+        }
+
         fft->perform (frameSpectrum.data(), spectrum.data(), true);
 
         for (int i = 0; i < fftSize; ++i)
@@ -132,4 +157,5 @@ private:
     int outputRead = 0;
     int hopFill = 0;
     bool hasFrozenData = false;
+    std::array<std::atomic<float>, numBands> bands {};
 };

@@ -1178,7 +1178,6 @@ private:
 
         auto y = stackTopMargin; // (room for the first card's glow)
         rowsPlaced = 0;
-        lastRowHole = {};
         size_t stripIndex = 0;
         addEffectCard = {};
 
@@ -1192,7 +1191,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y, end == cards.size());
+                y = flowCards (cards, i, end, 0, width, y);
             }
             else
             {
@@ -1224,15 +1223,10 @@ private:
 
         updateModuleDimming();
 
-        // A quiet tile after the last effect (or beside a lone half card at
-        // the end) while the rack has room: the one + ADD EFFECT.
-        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0 && lastRowHole.getWidth() >= minAddTileWidth
-            && lastRowHole.getBottom() + cardGap == y && splitGroups.empty())
-        {
-            // The hole beside the last card is the tile's place.
-            addEffectCard = lastRowHole;
-        }
-        else if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
+        // A quiet tile on its own row after the last effect while the rack has
+        // room: the one + ADD EFFECT (V14-1: never a card-sized hole beside a
+        // lone last card; that card takes the whole row instead).
+        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
         {
             addEffectCard = { 0, y, width, DashedAddButton::standardHeight };
             y += DashedAddButton::standardHeight + cardGap;
@@ -1249,10 +1243,10 @@ private:
     // Cards from..to on a two-column grid, in chain order (UI review 13,
     // V13-1): a card that fits half the rack's width takes half, and two of
     // them share a row; a wider one, or a half card with no partner, takes the
-    // whole row, its picture growing into the room. A lone last card keeps
-    // its half and the + ADD EFFECT tile takes the other. A row is as tall
+    // whole row, its picture growing into the room.  A lone last card takes the
+    // whole row (V14-1). A row is as tall
     // as its tallest card. Inside a split group the same grid holds.
-    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
+    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y)
     {
         const auto half = (width - cardGap) / 2;
         const auto fitsHalf = [this, half] (const StackPanel& card) { return minimumWidth (card) <= half; };
@@ -1260,28 +1254,17 @@ private:
         for (auto k = from; k < to;)
         {
             const auto pair = fitsHalf (cards[k]) && k + 1 < to && fitsHalf (cards[k + 1]);
-            const auto lone = fitsHalf (cards[k]) && k + 1 == to && addTileAtEnd && firstEmptySlot() >= 0;
             const auto height = pair ? juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1])) : cardHeight (cards[k]);
 
             if (pair)
             {
                 placeCard (cards[k], { x, y, half, height });
                 placeCard (cards[k + 1], { x + half + cardGap, y, width - half - cardGap, height });
-                lastRowHole = {};
                 k += 2;
-            }
-            else if (lone)
-            {
-                // A lone last card keeps its half; the other half is the
-                // + ADD EFFECT tile's place.
-                placeCard (cards[k], { x, y, half, height });
-                lastRowHole = { x + half + cardGap, y, width - half - cardGap, height };
-                k += 1;
             }
             else
             {
                 placeCard (cards[k], { x, y, width, height });
-                lastRowHole = {};
                 k += 1;
             }
 
@@ -1834,8 +1817,7 @@ private:
 
     juce::Viewport stackView;
     FxStackContent stackContent;
-    juce::Rectangle<int> addEffectCard, lastRowHole;
-    static constexpr int minAddTileWidth = 200;
+    juce::Rectangle<int> addEffectCard;
     std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
     std::unique_ptr<FxLibraryView> library;
     // (At most five split groups: each needs a plain card or the end after it.)
@@ -2069,6 +2051,42 @@ private:
                && info.knobs[k].lo == 0.0f && info.knobs[k].hi == 1.0f;
     }
 
+    // The knobs whose plugin value maps to a real unit in the algorithm's own
+    // code (read from the ports: the same formulas, at the host's rate); the
+    // text says it in ms, Hz or dB instead of a bare percentage (I14-2). Empty
+    // for the rest.
+    std::function<juce::String (double)> airwindowsUnitText (const airwindows::Info& info, int k) const
+    {
+        const auto sampleRate = processorRef.getSampleRate() > 1000.0 ? processorRef.getSampleRate() : 44100.0;
+        const auto knob = info.knobs[k];
+        const auto key = juce::String (info.name) + "|" + knob.name;
+        const auto hz = [] (double f) { return f >= 1000.0 ? juce::String (f / 1000.0, 2) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz"; };
+        const auto db = [] (double d) { return (d >= 0.0 ? "+" : "") + juce::String (d, 1) + " dB"; };
+        const auto ms = [] (double m) { return m >= 1000.0 ? juce::String (m / 1000.0, 2) + " s" : juce::String (juce::roundToInt (m)) + " ms"; };
+
+        // The delays: the tape's speed sets the time (the ring is 88200 samples), the regen is squared.
+        if (key == "TapeDelay2|Time" || key == "PitchDelay|Time")
+        {
+            const auto scale = key == "TapeDelay2|Time" ? 25.0 : 20.0;
+            return [=] (double v) { return ms (88200.0 / (std::pow (knob.toPlugin ((float) v), 4.0) * scale + 1.0) / sampleRate * 1000.0); };
+        }
+        if (key == "TapeDelay2|Regen" || key == "PitchDelay|Regen")
+            return [=] (double v) { return juce::String (juce::roundToInt (100.0 * std::pow (knob.toPlugin ((float) v), 2.0))) + " %"; };
+        if (key == "TapeDelay2|Freq" || key == "PitchDelay|Freq")
+            return [=] (double v) { return hz ((std::pow (knob.toPlugin ((float) v), 3.0) * 0.4 + 0.0001) * sampleRate); };
+        if (key == "Baxandall2|Treble" || key == "Baxandall2|Bass")
+            return [=] (double v) { return db (knob.toPlugin ((float) v) * 48.0 - 24.0); };
+        if (key == "Logical4|MakeupGn")
+            return [=] (double v) { return db (knob.toPlugin ((float) v) * 40.0 - 20.0); };
+        if (key == "Dirt|Lowpass")
+            return [=] (double v) { return hz (knob.toPlugin ((float) v) * 25000.0); };
+        if (key == "Isolator2|Freq")
+            return [=] (double v) { return hz (std::pow (knob.toPlugin ((float) v), 2.0 * std::sqrt (sampleRate / 44100.0)) * 0.4999 * sampleRate); };
+        if (key == "Pressure5|Output")
+            return [=] (double v) { const auto p = knob.toPlugin ((float) v); return p <= 0.0005f ? juce::String ("-inf dB") : db (40.0 * std::log10 (2.0 * p)); };
+        return {};
+    }
+
     // A gain knob's text in dB; the others keep the parameter's own %.
     void setAirwindowsUnit (KnobControl& knob, const airwindows::Info& info, int k)
     {
@@ -2082,6 +2100,8 @@ private:
                 return value <= 0.0005 ? juce::String ("-inf dB")
                                        : juce::String (juce::Decibels::gainToDecibels (value), 1) + " dB";
             };
+        else if (const auto unit = airwindowsUnitText (info, k))
+            slider.textFromValueFunction = unit;
         else
             slider.textFromValueFunction = awPercentText[&slider];
         slider.updateText();
@@ -2131,12 +2151,13 @@ private:
     // An Airwindows knob's tooltip: the plugin's name for it, and why it
     // reads in % (the plugins give their controls no unit: UI review 8,
     // I8-34).
-    static juce::String airwindowsKnobTip (const airwindows::Info& info, int k)
+    juce::String airwindowsKnobTip (const airwindows::Info& info, int k) const
     {
         return airwindowsKnobLabel (info.knobs[k].name) + " (Airwindows " + juce::String (info.name) + ": \""
                + juce::String (info.knobs[k].name) + "\")\n"
                + (isAirwindowsGain (info, k) ? "The plugin's output gain, in dB."
-                                             : "The plugin's own control, shown as 0 to 100 % of its range: Airwindows gives it no unit.");
+                  : airwindowsUnitText (info, k) ? "In the unit its algorithm works in (worked out from the plugin's code)."
+                                                 : "The plugin's own control, shown as 0 to 100 % of its range: Airwindows gives it no unit.");
     }
 
     static void setKnobTip (KnobControl& knob, const juce::String& tip)

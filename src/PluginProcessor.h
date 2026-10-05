@@ -76,6 +76,8 @@ public:
     // last block, and OTT's LOW / MID / HIGH gains at the block's end.
     float getLimiterGainReduction() const { return limiterGainReduction.load(); }
     float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
+    // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
+    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze[0].getBands (out); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.

@@ -25,7 +25,7 @@ class FxDisplay : public juce::Component,
                   private IlanaAnim::FrameTimer
 {
 public:
-    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb, vowel, comb, chorus, phaser, vocoder, airwindowsImpulse };
+    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb, vowel, comb, chorus, phaser, vocoder, airwindowsImpulse, airwindowsResponse, freeze };
 
     explicit FxDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
@@ -63,6 +63,9 @@ public:
             case 7: return Kind::chorus;
             case 6: return Kind::phaser;
             case 31: return Kind::vocoder;
+            case 12: return Kind::freeze;
+            case 37: case 39: case 40: return Kind::airwindowsTransfer; // AW Dynamics, Console, Lo-Fi: what it does to a sine
+            case 38: return Kind::airwindowsResponse; // AW EQ
             case 34: case 35: return Kind::airwindowsImpulse; // AW Reverb (spaces), AW Delay (echo)
             default: return Kind::none;
         }
@@ -91,6 +94,8 @@ public:
             case Kind::phaser:             paintPhaser (g); break;
             case Kind::vocoder:            paintVocoder (g); break;
             case Kind::airwindowsImpulse:  paintImpulse (g); break;
+            case Kind::airwindowsResponse: paintResponse (g); break;
+            case Kind::freeze:             paintFreeze (g); break;
             case Kind::none:               break;
         }
     }
@@ -266,7 +271,9 @@ private:
         juce::String prefix;
         const auto index = airwindowsSource (prefix);
         const juce::String category (index >= 0 ? airwindows::registry()[(size_t) index].category : "");
-        kind = category == "Space" || category == "Delay" ? Kind::airwindowsImpulse : Kind::airwindowsTransfer;
+        kind = category == "Space" || category == "Delay" ? Kind::airwindowsImpulse
+               : category == "EQ & Filter" ? Kind::airwindowsResponse
+                                           : Kind::airwindowsTransfer;
     }
 
     // An impulse's length: a space's tail is longer than an echo's.
@@ -908,6 +915,114 @@ private:
                                                  : "FORMANT " + juce::String (formant > 0.0f ? "+" : "") + juce::String (formant, 1) + " st");
     }
 
+    // ---- Airwindows EQs and filters: the frequency response of the algorithm itself ----
+    std::vector<float> responseDb;
+
+    void measureResponse()
+    {
+        responseDb.clear();
+        juce::String prefix;
+        const auto index = airwindowsSource (prefix);
+        if (index < 0)
+            return;
+
+        const auto& info = airwindows::registry()[(size_t) index];
+        auto run = info.create();
+        if (run == nullptr)
+            return;
+
+        constexpr double rate = 44100.0;
+        constexpr int order = 13, size = 1 << order;
+        run->prepare (rate);
+        for (int k = 0; k < info.numKnobs; ++k)
+            run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
+
+        // The impulse response (the module's own mix applied), one FFT of it.
+        std::vector<float> left ((size_t) size, 0.0f), right ((size_t) size, 0.0f);
+        left[0] = right[0] = 0.5f;
+        run->process (left.data(), right.data(), size);
+        const auto mix = juce::jlimit (0.0f, 1.0f, param (prefix + "_mix"));
+        std::vector<std::complex<float>> in ((size_t) size), out ((size_t) size);
+        for (int i = 0; i < size; ++i)
+        {
+            const auto wet = std::isfinite (left[(size_t) i]) ? left[(size_t) i] : 0.0f;
+            in[(size_t) i] = { (wet * mix + (i == 0 ? 0.5f * (1.0f - mix) : 0.0f)) * 2.0f, 0.0f };
+        }
+        juce::dsp::FFT (order).perform (in.data(), out.data(), false);
+
+        constexpr int points = 160;
+        responseDb.resize (points);
+        for (int i = 0; i < points; ++i)
+        {
+            const auto hz = 20.0 * std::pow (1000.0, (double) i / (points - 1)); // 20 Hz to 20 kHz
+            const auto bin = juce::jlimit (1, size / 2 - 1, juce::roundToInt (hz / rate * size));
+            responseDb[(size_t) i] = juce::Decibels::gainToDecibels (std::abs (out[(size_t) bin]), -60.0f);
+        }
+    }
+
+    void paintResponse (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        constexpr float range = 24.0f;
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto hz : { 100.0f, 1000.0f, 10000.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + std::log10 (hz / 20.0f) / 3.0f * plot.getWidth(), plot.getY()));
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+
+        if (! responseDb.empty())
+        {
+            juce::Path curve;
+            for (size_t i = 0; i < responseDb.size(); ++i)
+            {
+                const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) (responseDb.size() - 1),
+                                                plot.getCentreY() - juce::jlimit (-range, range, responseDb[i]) / range * 0.5f * plot.getHeight());
+                if (i == 0)
+                    curve.startNewSubPath (point);
+                else
+                    curve.lineTo (point);
+            }
+            strokeCurve (g, curve, plot, plot.getCentreY());
+        }
+
+        paintCaption (g, "RESPONSE", juce::String::fromUTF8 ("\xc2\xb1") + juce::String ((int) range) + " dB");
+    }
+
+    // ---- FREEZE: the spectrum it holds (or, with HOLD off, the one passing) ----
+    std::array<float, SpectralFreeze::numBands> freezeBands {};
+
+    void paintFreeze (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto count = (int) freezeBands.size();
+        const auto width = plot.getWidth() / (float) count;
+        const auto held = param ("fx_freeze_on") > 0.5f;
+        auto any = false;
+
+        for (int b = 0; b < count; ++b)
+        {
+            const auto bar = juce::Rectangle<float> (plot.getX() + width * (float) b, plot.getY(), width, plot.getHeight()).reduced (0.5f, 0.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.fillRect (bar);
+            const auto level = freezeBands[(size_t) b];
+            if (level > 0.01f)
+            {
+                any = true;
+                g.setColour (colour.withAlpha (held ? 0.85f : 0.45f));
+                g.fillRect (bar.withTop (bar.getBottom() - bar.getHeight() * level));
+            }
+        }
+
+        if (! any)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText ("play a note to see its spectrum", plot, juce::Justification::centred);
+        }
+
+        paintCaption (g, held ? "HELD SPECTRUM" : "SPECTRUM", held ? "HOLD" : "NOT HELD");
+    }
+
     // ---- Airwindows echoes and spaces: the algorithm's own impulse response ----
     std::vector<float> impulseEnvelope;
     float impulseSeconds = 2.0f;
@@ -921,29 +1036,56 @@ private:
             return;
 
         const auto& info = airwindows::registry()[(size_t) index];
-        auto run = info.create();
-        if (run == nullptr)
-            return;
 
         constexpr double rate = 44100.0;
-        impulseSeconds = isSpace() ? 4.0f : 2.5f;
-        run->prepare (rate);
-        for (int k = 0; k < info.numKnobs; ++k)
-            run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
-
-        const auto total = (int) (rate * impulseSeconds);
-        std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
-        left[0] = right[0] = 0.8f;
-        run->process (left.data(), right.data(), total);
-
         constexpr int columns = 220;
-        impulseEnvelope.assign (columns, 0.0f);
-        for (int i = 0; i < total; ++i)
+
+        // One run of the algorithm over `seconds`: its impulse response as
+        // the loudest level in each of the picture's columns.
+        const auto measure = [&] (float seconds)
         {
-            auto& cell = impulseEnvelope[(size_t) juce::jmin (columns - 1, i * columns / total)];
-            const auto v = std::abs (std::isfinite (left[(size_t) i]) ? left[(size_t) i] : 0.0f)
-                           + std::abs (std::isfinite (right[(size_t) i]) ? right[(size_t) i] : 0.0f);
-            cell = juce::jmax (cell, v * 0.5f);
+            auto run = info.create();
+            if (run == nullptr)
+                return false;
+
+            impulseSeconds = seconds;
+            run->prepare (rate);
+            for (int k = 0; k < info.numKnobs; ++k)
+                run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
+
+            const auto total = (int) (rate * seconds);
+            std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
+            left[0] = right[0] = 0.8f;
+            run->process (left.data(), right.data(), total);
+
+            impulseEnvelope.assign (columns, 0.0f);
+            for (int i = 0; i < total; ++i)
+            {
+                auto& cell = impulseEnvelope[(size_t) juce::jmin (columns - 1, i * columns / total)];
+                const auto v = std::abs (std::isfinite (left[(size_t) i]) ? left[(size_t) i] : 0.0f)
+                               + std::abs (std::isfinite (right[(size_t) i]) ? right[(size_t) i] : 0.0f);
+                cell = juce::jmax (cell, v * 0.5f);
+            }
+            return true;
+        };
+
+        if (! measure (isSpace() ? 4.0f : 2.5f))
+            return;
+
+        // An echo that is over early gets a picture of its own length, not a
+        // few lines in the first tenth of a long one (I14-2).
+        if (! isSpace())
+        {
+            auto peak = 1.0e-6f;
+            for (const auto v : impulseEnvelope)
+                peak = juce::jmax (peak, v);
+            auto last = 0;
+            for (int i = 0; i < columns; ++i)
+                if (impulseEnvelope[(size_t) i] > peak * 0.01f)
+                    last = i;
+            const auto lastSeconds = (float) (last + 1) / (float) columns * impulseSeconds;
+            if (lastSeconds < 0.6f * impulseSeconds)
+                measure (juce::jlimit (0.1f, 2.5f, lastSeconds * 1.3f));
         }
     }
 
@@ -951,7 +1093,8 @@ private:
     {
         const auto plot = plotArea();
         g.setColour (juce::Colours::white.withAlpha (0.06f));
-        for (auto t = 0.5f; t < impulseSeconds; t += 0.5f)
+        const auto step = impulseSeconds < 0.6f ? 0.05f : 0.5f;
+        for (auto t = step; t < impulseSeconds; t += step)
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + t / impulseSeconds * plot.getWidth(), plot.getY()));
 
         auto peak = 1.0e-6f;
@@ -985,7 +1128,7 @@ private:
             g.drawText (isSpace() ? "no tail at these settings" : "no echo within " + juce::String (impulseSeconds, 1) + " s at these settings", plot, juce::Justification::centred);
         }
 
-        paintCaption (g, isSpace() ? "IMPULSE" : "ECHOES", juce::String (impulseSeconds, 1) + " s");
+        paintCaption (g, isSpace() ? "IMPULSE" : "ECHOES", impulseSeconds < 1.0f ? juce::String (juce::roundToInt (impulseSeconds * 1000.0f)) + " ms" : juce::String (impulseSeconds, 1) + " s");
     }
 
     // ---- Polling ----
@@ -1028,6 +1171,7 @@ private:
             case Kind::phaser: for (auto* id : phaserIds) mixIn (param (id)); break;
             case Kind::vocoder: for (auto* id : vocoderIds) mixIn (param (id)); break;
             case Kind::airwindowsImpulse:
+            case Kind::airwindowsResponse:
             case Kind::airwindowsTransfer:
                 if (juce::String prefix; airwindowsSource (prefix) >= 0)
                 {
@@ -1037,6 +1181,7 @@ private:
                         mixIn (param (prefix + "_p" + juce::String (k)));
                 }
                 break;
+            case Kind::freeze: mixIn (param ("fx_freeze_on")); break;
             case Kind::none: break;
         }
         return hash;
@@ -1057,6 +1202,8 @@ private:
                 measureAirwindows();
             if (kind == Kind::airwindowsImpulse)
                 measureImpulse();
+            if (kind == Kind::airwindowsResponse)
+                measureResponse();
             dirty = true;
         }
 
@@ -1072,6 +1219,24 @@ private:
                 const auto next = smooth ? bandLevels[b] + (target - bandLevels[b]) * 0.4f : target;
                 moving = moving || std::abs (next - bandLevels[b]) > 1.0e-4f;
                 bandLevels[b] = std::abs (next) < 1.0e-5f ? 0.0f : next;
+            }
+            dirty = dirty || moving;
+        }
+
+        // FREEZE's spectrum, held while HOLD is on: bars that rise toward the
+        // new level and fall away.
+        if (kind == Kind::freeze)
+        {
+            std::array<float, SpectralFreeze::numBands> now {};
+            processorRef.getFreezeBands (now);
+            auto moving = false;
+            for (size_t b = 0; b < freezeBands.size(); ++b)
+            {
+                // 0 to 1 over 80 dB below the full-scale magnitude of a window of this size.
+                const auto target = now[b] > 1.0e-6f ? juce::jlimit (0.0f, 1.0f, 1.0f + 20.0f * std::log10 (now[b] / 512.0f) / 80.0f) : 0.0f;
+                const auto next = smooth ? freezeBands[b] + (target - freezeBands[b]) * 0.5f : target;
+                moving = moving || std::abs (next - freezeBands[b]) > 2.0e-3f;
+                freezeBands[b] = next;
             }
             dirty = dirty || moving;
         }

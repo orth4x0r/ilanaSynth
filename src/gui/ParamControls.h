@@ -2360,6 +2360,27 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     if (menus == (int) items.size())
         menuWeight = 1.0f;
 
+    // A menu whose text won't fit its column at the interactive size takes
+    // more of the row (up to 1.6 columns), so the row's menus read at one
+    // size instead of one being squeezed (UI review 9, V9-11).
+    if (menus > 0 && menuWeight < 1.6f)
+    {
+        const auto baseShares = (float) ((int) items.size() - menus) + (float) menus * menuWeight;
+        const auto baseWidth = (float) area.getWidth() / baseShares;
+        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive));
+        auto needed = menuWeight;
+
+        for (auto* item : items)
+            if (auto* combo = dynamic_cast<ComboControl*> (item))
+            {
+                const auto text = combo->getComboBox().getText();
+                if (text.isNotEmpty())
+                    needed = juce::jmax (needed, ((float) juce::GlyphArrangement::getStringWidth (font, text) + 6.0f + 30.0f) / juce::jmax (1.0f, baseWidth));
+            }
+
+        menuWeight = juce::jlimit (menuWeight, 1.6f, needed);
+    }
+
     const auto shares = (float) ((int) items.size() - menus) + (float) menus * menuWeight;
     const auto width = (int) ((float) area.getWidth() / shares);
     const auto menuWidth = (int) ((float) width * menuWeight);

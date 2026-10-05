@@ -1000,8 +1000,10 @@ private:
 
     static juce::String frameText (int frames, float position)
     {
+        // (The frame playing now, modulation included; the FRAME knob is the
+        // set value: S9-12.)
         return "FRAME " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
-               + " / " + juce::String (frames);
+               + " / " + juce::String (frames) + juce::String (juce::CharPointer_UTF8 (" Â· now"));
     }
 
     // Where the cycle sits in the table (after modulation, gliding): a slim

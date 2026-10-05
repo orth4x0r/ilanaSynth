@@ -75,6 +75,10 @@ public:
             processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
             // Quiet: it sits under the preset name, the most-read text, and
             // moves all the time (review 8, S8-41).
+            // On a faint band of its own, so it doesn't read as an underline
+            // of the preset name (UI review 9, S9-26).
+            g.setColour (juce::Colours::white.withAlpha (0.035f));
+            g.fillRoundedRectangle (bounds, 4.0f);
             drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.45f), true);
             return;
         }
@@ -119,7 +123,7 @@ public:
 private:
     void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool thin = false)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.setColour (juce::Colours::white.withAlpha (thin ? 0.14f : 0.06f));
         g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
 
         // Start on a rising zero crossing so the trace holds still.

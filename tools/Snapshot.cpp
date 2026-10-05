@@ -131,6 +131,7 @@ void expect (bool condition, const juce::String& message)
 #include "FilterFxUiTests.h"
 #include "ModulationReview8Tests.h"
 #include "LayoutUiTests8.h"
+#include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
 #include "OperatorUiTests.h"
 
@@ -561,7 +562,7 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 
     // The 75 % floor (UI review 5 #31, 6 #46): every page (and the scope)
     // painted at the smallest zoom, with the theme's font helper watching:
-    // no text drawn under 9 screen pixels.
+    // no text drawn under 10 screen pixels.
     {
         auto* top = editor.getTopLevelComponent();
         const auto before = top->getBounds();
@@ -6357,6 +6358,7 @@ int runUiTests()
     runModulationReview8Tests (processor, *pages);
     // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
     runLayoutReview8Tests (processor, *pages);
+    runLayoutReview9Tests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.

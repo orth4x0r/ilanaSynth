@@ -92,9 +92,10 @@ namespace TextSize
 
     // The smallest zoom the editor offers, and the floor at it in screen
     // pixels (UI review 5 #31, 6 #46): text that would draw smaller is left
-    // out (a hint) rather than shrunk. 12 units at 75 % is 9 px.
+    // out (a hint) rather than shrunk. 12 units at 75 % is 9 px, so
+    // the smallest sizes grow to 10 px there (UI review 9, V9-26).
     inline constexpr float smallestZoom  = 0.75f;
-    inline constexpr float screenFloorPx = 9.0f;
+    inline constexpr float screenFloorPx = 10.0f;
     inline constexpr float zoomFloor     = screenFloorPx / smallestZoom;
 }
 
@@ -153,7 +154,8 @@ inline float& uiScaleRef()
 inline juce::FontOptions font (float height, bool bold = false, bool tabular = false)
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
-    const auto deviceHeight = height * scale;
+    // No text under the screen floor, whatever the zoom (V9-26).
+    const auto deviceHeight = juce::jmax (height * scale, TextSize::screenFloorPx);
     if (auto& probe = fontProbe(); probe.armed)
     {
         probe.smallest = juce::jmin (probe.smallest, deviceHeight);
@@ -176,6 +178,7 @@ struct TextFitProbe
     bool armed = false;
     juce::StringArray shrunk, cut;
     juce::StringArray cutDetails; // "text: needs N px of M at H"
+    juce::StringArray respelled;  // "text -> line": a value drawn without its space or with a shorter unit
 };
 
 inline TextFitProbe& textFitProbe()
@@ -192,9 +195,9 @@ inline TextFitProbe& textFitProbe()
 //      interactive one for values, menus and buttons);
 //   2. the same, with its letters set a little closer (tracking, up to
 //      0.06 of the height between letters: spacing, not narrower glyphs);
-//   3. for a value with a unit ("-30.9 dB"), the number alone, the unit
-//      left to the tooltip and the label;
-//   4. down to the passive floor (still 9 px at 75 %), tracked;
+//   3. for a value with a unit ("-30.9 dB"), the space goes and a long
+//      unit is shortened ("kHz" to "k"): a value never loses its unit;
+//   4. down to the passive floor (still 10 px at 75 %), tracked;
 //   5. wrapped onto its other lines where it may take more, else cut with
 //      an ellipsis.
 // The probe records every line that had to change and every one cut.
@@ -202,7 +205,8 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto width = juce::GlyphArrangement::getStringWidth (font, line);
-    floor = juce::jmin (font.getHeight(), floor);
+    // (Nor shrunk under the screen floor at a small zoom: V9-26.)
+    floor = juce::jmin (font.getHeight(), juce::jmax (floor, TextSize::screenFloorPx / scale));
 
     // Width follows height closely, so one step lands near the fit; snap
     // down to whole device pixels, as font() does, so the glyphs stay crisp.
@@ -321,6 +325,8 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 
     if (auto& probe = textFitProbe(); probe.armed)
     {
+        if (line != text.trim())
+            probe.respelled.addIfNotAlreadyThere (text.trim() + " -> " + line);
         (fits ? probe.shrunk : probe.cut).addIfNotAlreadyThere (text.trim());
         if (! fits)
             probe.cutDetails.add (line + ": needs " + juce::String (juce::GlyphArrangement::getStringWidth (fitted, line), 1) + " of "

@@ -651,15 +651,18 @@ private:
         const auto count = juce::jmax (1, (int) shown.size());
         const auto rows = count + (extras ? 1 : 0);
         const auto bottomHeight = extras ? 62 + 6 : 28;
-        const auto rowHeight = juce::jmin (cellHeight, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
-        const auto columnWidth = juce::jmin (cellWidth, (inner.getWidth() - headWidth) / count);
+        // (Three oscillators or fewer draw larger cells, so the matrix of a
+        // small patch fills its card: UI review 9, V9-8.)
+        const auto small = count <= 3;
+        const auto rowHeight = juce::jmin (small ? 96 : cellHeight, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
+        const auto columnWidth = juce::jmin (small ? 110 : cellWidth, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
         auto grid = juce::Rectangle<int> (inner.getX() + (inner.getWidth() - gridWidth) / 2,
-                                          inner.getY() + juce::jmax (0, (inner.getHeight() - bottomHeight - 8 - gridHeight) / 2),
-                                          gridWidth, gridHeight);
+                                          inner.getY(), gridWidth, gridHeight);
 
+        matrixGridBottom = grid.getBottom();
         auto heads = grid.removeFromTop (18);
         heads.removeFromLeft (headWidth);
         for (const auto i : shown)
@@ -729,12 +732,16 @@ private:
 
         // Along the card's bottom: OSC 1 x OSC 2's pair controls, or the
         // MORE line that opens them.
+        // (Right under the grid, not at the card's foot, so nothing floats:
+        // UI review 9, V9-8.)
+        const auto gridBottom = juce::jmin (inner.getBottom() - 8, matrixGridBottom + 12);
         inner.removeFromBottom (8);
         pairRow = {};
         pairText = {};
         if (extras)
         {
-            pairRow = inner.removeFromBottom (62);
+            pairRow = juce::Rectangle<int> (inner.getX(), juce::jmin (inner.getBottom() - 62, gridBottom), inner.getWidth(), 62);
+            inner.setBottom (pairRow.getY());
             auto row = pairRow.reduced (4, 0);
             hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
             ringMod->setBounds (row.removeFromRight (80));
@@ -742,7 +749,8 @@ private:
         }
         else
         {
-            moreButton.setBounds (inner.removeFromBottom (22).withSizeKeepingCentre (juce::jmin (inner.getWidth() - 8, 260), 22));
+            moreButton.setBounds (juce::Rectangle<int> (inner.getX(), juce::jmin (inner.getBottom() - 22, gridBottom), inner.getWidth(), 22)
+                                      .withSizeKeepingCentre (juce::jmin (inner.getWidth() - 8, 260), 22));
         }
     }
 
@@ -843,8 +851,8 @@ private:
             const auto name = "OSC " + juce::String (i + 1);
             const auto live = fmIn[(size_t) i] && playing[(size_t) i];
             g.setColour (FmDiagram::oscColour (i).withAlpha (live ? 1.0f : 0.4f));
-            g.drawText (! playing[(size_t) i] ? name : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
-                        columnHeads[(size_t) i], juce::Justification::centred);
+            // (Every column says TO; one that can't take FM or is off is dimmed: V9-28.)
+            g.drawText ("TO " + name, columnHeads[(size_t) i], juce::Justification::centred);
             g.setColour (playing[(size_t) i] ? FmDiagram::oscColour (i) : IlanaTheme::Ui::text3);
             g.drawText (name, rowHeads[(size_t) i].withHeight (18),
                         juce::Justification::centredLeft);
@@ -908,6 +916,7 @@ private:
         g.fillPath (head);
     }
 
+    int matrixGridBottom = 0;
     static constexpr int headWidth = 76;
     static constexpr int operatorCardHeight = 240;
     // Matrix cells: one size for every patch, about the size six

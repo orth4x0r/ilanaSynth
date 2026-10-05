@@ -578,7 +578,10 @@ private:
         const auto& info = extras[(size_t) extra];
         const auto id = (int) envs.size() + extra;
         const auto active = id == selected;
-        const auto targets = info.targets != nullptr ? info.targets() : juce::String();
+        auto targets = info.targets != nullptr ? info.targets() : juce::String();
+        // The dashed edge of a card that isn't a source says why (V9-22).
+        if (targets.isEmpty() && info.source == Mod::Source::None)
+            targets = "per operator";
 
         const auto inUse = info.isActive == nullptr || info.isActive();
 

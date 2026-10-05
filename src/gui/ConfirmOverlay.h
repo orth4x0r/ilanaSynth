@@ -80,9 +80,18 @@ public:
         dontAskAgain.setToggleState (false, juce::dontSendNotification);
         resized();
 
-        // The way on, solid in the accent as the tour's GOT IT is.
-        confirmButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
-        confirmButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+        // The way on, solid in the accent as the tour's GOT IT is; with a
+        // safe alternative (SAVE AND LOAD), that one is solid and the
+        // destructive way on is plain (UI review 9, V9-15).
+        const auto solid = alternativeButton.isVisible() ? &alternativeButton : &confirmButton;
+        const auto plain = alternativeButton.isVisible() ? &confirmButton : nullptr;
+        solid->setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
+        solid->setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+        if (plain != nullptr)
+        {
+            plain->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+            plain->setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
+        }
 
         if (auto* parent = getParentComponent())
             setBounds (parent->getLocalBounds());
@@ -189,7 +198,13 @@ public:
         if (key == juce::KeyPress::escapeKey)
             finish (false);
         else if (key == juce::KeyPress::returnKey)
-            finish (true);
+        {
+            // Return takes the solid button.
+            if (alternativeButton.isVisible())
+                alternativeButton.onClick();
+            else
+                finish (true);
+        }
 
         return true; // nothing reaches the page underneath while asking
     }

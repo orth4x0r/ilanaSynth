@@ -1459,8 +1459,23 @@ void IlanaSynthAudioProcessorEditor::setScopeOpen (bool shouldBeOpen)
 {
     scopeButton.setToggleState (shouldBeOpen, juce::dontSendNotification);
 
+    // A docked scope covers the page: the tab and the page switch it covers
+    // step back, so SCOPE alone reads as the page shown (UI review 9, V9-14).
+    const auto coversPage = [this] (bool open)
+    {
+        const auto alpha = open && static_cast<ScopePanel*> (scopePanel.get())->isDocked() ? 0.45f : 1.0f;
+        tabs.getTabbedButtonBar().setAlpha (alpha);
+        for (auto* section : sections)
+            section->switcher.setAlpha (alpha);
+    };
+
     if (shouldBeOpen == scopePanel->isVisible())
+    {
+        coversPage (shouldBeOpen);
         return;
+    }
+
+    coversPage (shouldBeOpen);
 
     if (shouldBeOpen)
     {

@@ -765,7 +765,10 @@ private:
         const auto levels = stackLevels();
         const auto area = layoutArea();
         const auto grid = columns();
-        const auto slot = area.getWidth() / (float) grid.count;
+        // Columns no further apart than a node, its caption and a gap, so
+        // a two- or three-column chart reads as one picture, not separate
+        // islands across the box.
+        const auto slot = juce::jmin (area.getWidth() / (float) grid.count, radius * 2.0f + captionWidth + 100.0f);
         const auto captionShift = juce::jmin ((captionWidth + 6.0f) * 0.5f, slot * 0.25f);
 
         for (const auto osc : shown)

@@ -2121,9 +2121,19 @@ int runUiTests()
                 // sits right over it), halos never meet, and no depth sits
                 // on an arrowhead.
                 auto straight = diagram != nullptr, halosApart = diagram != nullptr, headsClear = diagram != nullptr;
+                auto columnsClose = diagram != nullptr;
                 if (diagram != nullptr)
                 {
                     const auto nodes = diagram->getNodeBounds();
+                    // Neighbouring columns no further apart than a node, its
+                    // caption and a gap: algorithm 1's two stacks read as one
+                    // chart, not islands at the box's edges.
+                    std::vector<float> xs;
+                    for (const auto& node : nodes)
+                        xs.push_back (node.getCentreX());
+                    std::sort (xs.begin(), xs.end());
+                    for (size_t i = 1; i < xs.size(); ++i)
+                        columnsClose = columnsClose && xs[i] - xs[i - 1] <= nodes.front().getWidth() + 58.0f + 101.0f;
                     const auto routed = [&] (int a, int b)
                     {
                         return a != b && processor.apvts.getRawParameterValue (FmDiagram::routeId (a, b))->load() > 0.001f;
@@ -2153,6 +2163,7 @@ int runUiTests()
                                 headsClear = headsClear && ! label.intersects (juce::Line<float> (path[k - 1], path[k]));
                 }
                 expect (straight, "DX7 algorithm " + juce::String (number) + "'s stacks stand straight over what they drive");
+                expect (columnsClose, "DX7 algorithm " + juce::String (number) + "'s columns sit close, as one chart");
                 expect (halosApart, "DX7 algorithm " + juce::String (number) + "'s node halos never meet");
                 expect (headsClear, "DX7 algorithm " + juce::String (number) + "'s depth labels sit off the arrowheads");
                 expect (apart, "DX7 algorithm " + juce::String (number) + "'s stack fits the diagram without overlaps");

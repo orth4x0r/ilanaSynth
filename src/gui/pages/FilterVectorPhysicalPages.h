@@ -28,6 +28,20 @@ public:
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
         addAll (*this, picker, slope, cutoff, reso, drive, env, key, fm, morph);
+
+        // Filter 2 stays open (20 kHz) on almost every patch: its switch says
+        // so and brings it in or sends it back to open, as WEST and BODY
+        // have theirs in the header (V14-12). No parameter: the switch is
+        // read from the response (is it passing everything), and OFF parks
+        // the cutoff at the top, remembering where it was.
+        if (prefix == "f2")
+        {
+            f2Switch.setClickingTogglesState (false);
+            f2Switch.getProperties().set ("switch", true);
+            f2Switch.setTooltip ("Filter 2 on or off. Off is wide open (CUTOFF at the top), so it passes everything; ON brings its CUTOFF back.");
+            f2Switch.onClick = [this] { toggleOpen(); };
+            addAndMakeVisible (f2Switch);
+        }
         refreshType();
         startTimerHz (8);
     }
@@ -65,6 +79,12 @@ public:
     {
         auto area = getLocalBounds().reduced (10, 0);
         auto header = area.removeFromTop (headerHeight);
+        if (prefix == "f2")
+        {
+            // (cardSwitchBounds is for a ToggleControl with a label's 13 px above the pill.)
+            f2Switch.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), headerHeight / 2).withTrimmedTop (13).withHeight (20));
+            header.setRight (f2Switch.getX() - 8 - 10);
+        }
         slope.setBounds (header.removeFromRight (96).reduced (0, 6));
         header.removeFromRight (8);
         // The picker after the title, as wide as it likes up to the slope.
@@ -129,11 +149,44 @@ private:
             passThrough = openNow;
             for (auto* child : getChildren())
                 child->setAlpha (replaced ? IlanaTheme::dimmedAlpha * 0.6f
-                                          : passThrough && child != &cutoff && child != &picker ? openAlpha : 1.0f);
+                                          : passThrough && child != &cutoff && child != &picker && child != &f2Switch ? openAlpha : 1.0f);
             setTooltip (passThrough && ! replaced ? title.substring (0, 1) + title.substring (1).toLowerCase()
                                                         + " is open: it passes everything. Turn CUTOFF down (or pick another type) to use it."
                                                   : juce::String());
             repaint();
+        }
+
+        if (prefix == "f2")
+        {
+            const auto onNow = ! passThrough || replaced;
+            if (onNow != f2Switch.getToggleState())
+                f2Switch.setToggleState (onNow, juce::dontSendNotification);
+            const auto amount = f2Switch.getToggleState() ? 1.0f : 0.0f;
+            if ((float) f2Switch.getProperties().getWithDefault ("switchAmount", -1.0f) != amount)
+            {
+                f2Switch.getProperties().set ("switchAmount", amount);
+                f2Switch.repaint();
+            }
+        }
+    }
+
+    // Filter 2's switch: open it down to its remembered CUTOFF, or park the
+    // CUTOFF at the top (the part of its sound that was a closed filter is
+    // remembered for this session).
+    void toggleOpen()
+    {
+        if (auto* parameter = processorRef.apvts.getParameter (prefix + "_cutoff"))
+        {
+            const auto current = parameter->convertFrom0to1 (parameter->getValue());
+            const auto target = passThrough ? juce::jmin (rememberedCutoff, 19000.0f) : 20000.0f;
+            if (! passThrough)
+                rememberedCutoff = current;
+            processorRef.performEdit (parameter->getName (64), [parameter, target]
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (target));
+                parameter->endChangeGesture();
+            });
         }
     }
 
@@ -149,6 +202,8 @@ private:
     FilterTypePicker picker;
     SlopeSwitch slope;
     KnobControl cutoff, reso, drive, env, key, fm, morph;
+    juce::TextButton f2Switch;
+    float rememberedCutoff = 8000.0f;
     int type = -1;
     bool replaced = false, passThrough = false;
 };

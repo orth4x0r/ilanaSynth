@@ -671,8 +671,9 @@ private:
         }
 
         auto area = getLocalBounds().toFloat().reduced (10.0f, 8.0f);
-        const auto blockHeight = juce::jmin (24.0f, area.getHeight() / 5.2f);
-        const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / ((float) juce::jmax (4, count) * 1.25f));
+        // (Blocks up to 32 px, the sources up to 30: the diagram fills its card, V14-7.)
+        const auto blockHeight = juce::jmin (32.0f, area.getHeight() / 5.2f);
+        const auto sourceHeight = juce::jmin (30.0f, area.getHeight() / ((float) juce::jmax (4, count) * 1.25f));
         const auto rowGap = count > 1 ? (area.getHeight() - sourceHeight * (float) count) / (float) (count - 1) : 0.0f;
 
         auto oscColumn = area.removeFromLeft (juce::jmin (76.0f, area.getWidth() * 0.2f));
@@ -939,7 +940,7 @@ private:
         g.setColour (colour.withAlpha (lit ? (hovered ? 1.0f : 0.8f) : 0.25f));
         g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, hovered ? 1.8f : 1.2f);
         g.setColour (lit ? colour : IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setFont (IlanaTheme::font (box.getHeight() >= 28.0f ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::tiny, true));
         IlanaTheme::drawFitted (g, text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, text.containsChar ('\n') ? 2 : 1);
     }
 

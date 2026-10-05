@@ -74,7 +74,7 @@ public:
         // The Generative card: ARP, EUCLID and PROB SEQ share one card.
         addAll (*this, engineTabs, euclidDisplay, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
                 pseqEditor, pseqDiv, pseqLength, pseqGate, clipEditor, clipIndex, clipMode, clipBars,
-                clipGrid, clipImport, clipDraw);
+                clipGrid, clipImport, clipExport, clipDraw);
         // One gate for SNAP TO KEY and STRUM: their switches do "off", so
         // the menus beside them list only what is on (review 9, S9-9).
         for (auto* control : { &genScale, &sprayStrum })
@@ -100,6 +100,10 @@ public:
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
         clipImport.onClick = [this] { importMidiFile(); };
+        clipExport.setButtonText ("EXPORT MIDI");
+        clipExport.setTooltip ("Export MIDI\nWrites the chosen clip as a .mid file (the clip's own length and notes, 120 BPM), "
+                               "to drag into a track in your DAW.");
+        clipExport.onClick = [this] { exportMidiFile(); };
         clipQuantise.setButtonText ("QUANTISE");
         clipQuantise.setTooltip ("Quantise\nMoves the selected notes' starts (every note's, with none selected) to the nearest "
                                  "GRID line, in one undo step. Q in the roll does the same.");
@@ -181,7 +185,7 @@ public:
             for (auto* control : std::initializer_list<juce::Component*> {
                      &engineTabs, &euclidDisplay, &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate,
                      &pseqEditor, &pseqDiv, &pseqLength, &pseqGate, &clipEditor, &clipIndex, &clipMode, &clipBars,
-                     &clipGrid, &clipImport, &clipDraw, &arpLanes, &arpMode, &arpDiv,
+                     &clipGrid, &clipImport, &clipExport, &clipDraw, &arpLanes, &arpMode, &arpDiv,
                      &arpOctaves, &arpGate, &arpChance, &genScale, &genRoot, &genSnap, &sprayOn, &sprayDirection, &sprayStrum,
                      sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get(),
                      &arpSteps, &noteChain, &scaleSwitch, &strumSwitch, &clipZoom, &clipQuantise, &clipExpand })
@@ -452,21 +456,22 @@ public:
         // (review 9, S9-15).
         layoutRow (controls.reduced (controls.getWidth() / 4, 0), { &pseqDiv, &pseqLength, &pseqGate }, true);
 
-        // The clip's row is menus and buttons only (nine columns): the
+        // The clip's row is menus and buttons only (ten columns): the
         // piano roll takes the height the other engines' knobs need.
         {
             constexpr int menuHeight = 13 + 24;
             const auto clipRow = controls.withTrimmedTop (controls.getHeight() - menuHeight - 6);
             clipEditor.setBounds (display.withBottom (clipRow.getY() - 6));
-            layoutRow (clipRow, { &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr, nullptr });
+            layoutRow (clipRow, { &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr, nullptr, nullptr });
 
             // The buttons line up with the menus' boxes.
-            const auto column = clipRow.getWidth() / 9;
+            const auto column = clipRow.getWidth() / 10;
             auto cell = clipZoom.getBounds().translated (column, 0).withTrimmedTop (13).withHeight (24);
             clipDraw.setBounds (cell);
             clipQuantise.setBounds (cell.translated (column, 0));
             clipImport.setBounds (cell.translated (column * 2, 0));
-            clipExpand.setBounds (cell.translated (column * 3, 0));
+            clipExport.setBounds (cell.translated (column * 3, 0));
+            clipExpand.setBounds (cell.translated (column * 4, 0));
         }
 
         layoutGenerate();
@@ -746,7 +751,7 @@ private:
             control->setVisible (tab == 2);
 
         for (auto* control : std::initializer_list<juce::Component*> { &clipEditor, &clipIndex, &clipMode, &clipBars,
-                                                                        &clipGrid, &clipImport, &clipZoom, &clipDraw, &clipQuantise, &clipExpand })
+                                                                        &clipGrid, &clipImport, &clipExport, &clipZoom, &clipDraw, &clipQuantise, &clipExpand })
             control->setVisible (tab == 3);
 
         // An expanded roll folds GENERATE only while CLIP is shown.
@@ -850,6 +855,45 @@ private:
                                   });
     }
 
+    // Writes the chosen clip to a .mid file (EXPORT MIDI).
+    void exportMidiFile()
+    {
+        const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) readValue ("clip_index"));
+        const auto clip = processorRef.getClipState().getClip (index);
+
+        if (clip.notes.empty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Export MIDI", "This clip has no notes yet.");
+            return;
+        }
+
+        const auto name = processorRef.getCurrentPresetName().replaceCharacters ("\\/:*?\"<>|", "---------").trim();
+        clipChooser = std::make_unique<juce::FileChooser> ("Export the clip as MIDI",
+                                                           juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                                                               .getChildFile ((name.isEmpty() ? juce::String ("ilanaSynth") : name)
+                                                                              + " clip " + juce::String (index + 1) + ".mid"),
+                                                           "*.mid");
+        juce::Component::SafePointer<SeqPage> safeThis (this);
+
+        clipChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                      | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [safeThis, clip] (const juce::FileChooser& chooser)
+                                  {
+                                      auto file = chooser.getResult();
+
+                                      if (safeThis == nullptr || file == juce::File())
+                                          return;
+
+                                      if (! file.hasFileExtension ("mid;midi"))
+                                          file = file.withFileExtension ("mid");
+
+                                      juce::String error;
+
+                                      if (! ClipState::exportMidi (clip, file, error))
+                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export MIDI", error);
+                                  });
+    }
+
     Part part;
     StepEditor step1, step2;
     MsegEditor mseg;
@@ -875,7 +919,7 @@ private:
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
     ClipGridControl clipGrid;
-    juce::TextButton clipImport;
+    juce::TextButton clipImport, clipExport;
     KnobControl arpSteps;
     NoteChainView noteChain;
     ChoiceSwitch scaleSwitch, strumSwitch;

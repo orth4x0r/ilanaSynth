@@ -889,6 +889,9 @@ private:
         bool expanded = false;
         std::function<void (const juce::String&)> onClick;
         static constexpr const char* moreKey = "*more";
+        // The banks fold into one BANK chip that opens a menu (review 9,
+        // S9-8: four rows of chips above eleven rows of list).
+        static constexpr const char* bankKey = "*bank";
 
         int getPreferredHeight (int width) const
         {
@@ -955,12 +958,14 @@ private:
                     g.fillRect (juce::Rectangle<float> (1.0f, bounds.getHeight() - 6.0f).withCentre ({ bounds.getX() - 6.0f, bounds.getCentreY() }));
                 }
 
-                g.setColour (entry.selected ? tint.withAlpha (0.3f) : juce::Colours::white.withAlpha (hover ? 0.1f : 0.04f));
+                const auto isBankChip = box.key == bankKey;
+                const auto selected = isBankChip ? box.bankPicked : entry.selected;
+                g.setColour (selected ? tint.withAlpha (0.3f) : juce::Colours::white.withAlpha (hover ? 0.1f : 0.04f));
                 g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
-                g.setColour (entry.selected ? tint : (entry.kind == tag ? IlanaTheme::Ui::line.brighter (0.3f) : tint.withAlpha (0.55f)));
+                g.setColour (selected ? tint : (entry.kind == tag ? IlanaTheme::Ui::line.brighter (0.3f) : tint.withAlpha (0.55f)));
                 g.drawRoundedRectangle (bounds.reduced (0.5f), bounds.getHeight() * 0.5f, 1.0f);
-                g.setColour (entry.selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-                g.drawText (entry.label, box.bounds, juce::Justification::centred);
+                g.setColour (selected ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+                g.drawText (isBankChip ? box.label : entry.label, box.bounds, juce::Justification::centred);
             }
         }
 
@@ -986,7 +991,7 @@ private:
             juce::Rectangle<int> bounds;
             juce::String key, label;
             const Entry* entry = nullptr;
-            bool dividerBefore = false;
+            bool dividerBefore = false, bankPicked = false;
         };
 
         std::vector<Box> layout (int width) const
@@ -998,32 +1003,6 @@ private:
                 return juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, text) + 20);
             };
 
-            // The DX7 chip and its banks keep to one line (review 8, S8-28:
-            // DEXED01 wrapped onto a row of its own): the bank chips give up
-            // padding, down to half, before any of them wraps.
-            auto bankPadding = 20;
-            {
-                auto fixed = 0, text = 0, banks = 0, chips = 0;
-                for (const auto& entry : entries)
-                {
-                    if (entry.kind == tag)
-                        continue;
-                    ++chips;
-                    if (entry.kind == bank)
-                    {
-                        text += juce::GlyphArrangement::getStringWidthInt (f, entry.label);
-                        ++banks;
-                    }
-                    else
-                    {
-                        fixed += widthOf (entry.label);
-                    }
-                }
-                const auto room = width - fixed - text - gap * juce::jmax (0, chips - 1) - (banks > 0 ? groupGap - gap : 0);
-                if (banks > 0)
-                    bankPadding = juce::jlimit (10, 20, room / banks);
-            }
-
             auto x = 0, y = 0;
             auto previousKind = -1;
             auto tagCount = 0;
@@ -1033,10 +1012,40 @@ private:
 
             auto tagsPlaced = 0;
 
+            auto bankChipPlaced = false;
+
             for (const auto& entry : entries)
             {
-                const auto w = entry.kind == bank ? juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, entry.label) + bankPadding)
-                                                  : widthOf (entry.label);
+                // The banks are one chip, "BANK" or the bank picked.
+                if (entry.kind == bank)
+                {
+                    if (bankChipPlaced)
+                        continue;
+
+                    bankChipPlaced = true;
+                    auto picked = juce::String();
+                    for (const auto& other : entries)
+                        if (other.kind == bank && other.selected)
+                            picked = other.label;
+
+                    const auto label = (picked.isEmpty() ? juce::String ("BANK") : picked) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe"));
+                    const auto bankW = widthOf (label);
+                    auto bankX = x + (x > 0 ? (previousKind != (int) bank ? groupGap : gap) : 0);
+
+                    if (bankX + bankW > width && x > 0)
+                    {
+                        x = 0;
+                        y += chipHeight + gap;
+                        bankX = 0;
+                    }
+
+                    boxes.push_back ({ { bankX, y, bankW, chipHeight }, bankKey, label, &entry, previousKind >= 0 && bankX > 0, picked.isNotEmpty() });
+                    x = bankX + bankW;
+                    previousKind = (int) bank;
+                    continue;
+                }
+
+                const auto w = widthOf (entry.label);
                 const auto newGroup = previousKind >= 0 && previousKind != (int) entry.kind;
 
                 // The tags get a line of their own under the DX7 and bank
@@ -1877,6 +1886,12 @@ private:
             return;
         }
 
+        if (key == ChipRow::bankKey)
+        {
+            showBankMenu();
+            return;
+        }
+
         if (key == "pack:dx7")
         {
             dx7Only = ! dx7Only;
@@ -1898,6 +1913,38 @@ private:
         }
 
         rebuild();
+    }
+
+    // BANK: the DX7 banks in a menu, the one picked ticked (picking it again,
+    // or ALL BANKS, shows every bank).
+    void showBankMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "All banks", true, bankFilter.isEmpty());
+        menu.addSeparator();
+        juce::StringArray keys;
+
+        for (const auto& entry : chips.entries)
+            if (entry.kind == ChipRow::bank)
+            {
+                keys.add (entry.key);
+                menu.addItem (1 + keys.size(), entry.label, true, entry.selected);
+            }
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&chips),
+                            [safeThis = juce::Component::SafePointer<PresetPanel> (this), keys] (int result)
+                            {
+                                if (safeThis == nullptr || result <= 0)
+                                    return;
+
+                                if (result == 1)
+                                {
+                                    safeThis->bankFilter = {};
+                                    safeThis->rebuild();
+                                }
+                                else
+                                    safeThis->chipClicked (keys[result - 2]);
+                            });
     }
 
     // The chips above the list, wrapping onto more lines when they need to.

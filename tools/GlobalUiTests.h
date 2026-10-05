@@ -334,14 +334,14 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             panel->clickChip ("bank:ROM1A");
             settle (100);
             const auto banked = panel->getChipLabel ("pack:dx7");
+            // The banks are one BANK chip (review 9, S9-8), on the DX7
+            // chip's line, not nine chips over up to four rows.
             const auto dx7Line = panel->getChipBounds ("pack:dx7").getY();
-            const auto dexedLine = panel->getChipBounds ("bank:DEXED01").getY();
-            // (The drop-down browser is narrower than the nine banks at
-            // their tightest; the docked one, where DEXED01 wrapped, isn't.)
-            const auto roomForAll = panel->getChipRowWidth() >= 640;
-            expect (plain.isNotEmpty() && plain == banked && (dx7Line == dexedLine || ! roomForAll) && ! panel->getChipBounds ("bank:DEXED01").isEmpty(),
-                    "the DX7 chip counts the same with a bank picked ('" + plain + "', '" + banked + "'), and DEXED01 stays on its line ("
-                        + panel->getChipBounds ("pack:dx7").toString() + ", " + panel->getChipBounds ("bank:DEXED01").toString() + " in "
+            const auto bankChip = panel->getChipBounds ("*bank");
+            expect (plain.isNotEmpty() && plain == banked && ! bankChip.isEmpty() && bankChip.getY() == dx7Line
+                        && panel->getChipBounds ("bank:DEXED01").isEmpty(),
+                    "the DX7 chip counts the same with a bank picked ('" + plain + "', '" + banked + "'), and the banks are one BANK chip on its line ("
+                        + panel->getChipBounds ("pack:dx7").toString() + ", " + bankChip.toString() + " in "
                         + juce::String (panel->getChipRowWidth()) + " px)");
             panel->clickChip ("bank:ROM1A");
             panel->clickChip ("pack:dx7");

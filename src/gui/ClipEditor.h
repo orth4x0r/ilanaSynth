@@ -227,6 +227,24 @@ public:
         g.drawText ("VEL", juce::Rectangle<float> (bounds.getX() + 6.0f, lane.getY(), keys.getWidth() - 6.0f, lane.getHeight()).toNearestInt(),
                     juce::Justification::centredLeft);
 
+        // Its scale, as the arp's VEL lane has (review 9, S9-11): 127 at the
+        // top, 1 at the foot, 64 between when there is room.
+        if (lane.getHeight() >= 28.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto tick = [&] (int velocity)
+            {
+                const auto y = lane.getBottom() - (lane.getHeight() - headSize) * (float) velocity / 127.0f;
+                g.drawText (juce::String (velocity), juce::Rectangle<float> (keys.getRight() - 30.0f, y - 6.0f, 26.0f, 12.0f).toNearestInt(),
+                            juce::Justification::centredRight, false);
+            };
+            tick (127);
+            tick (1);
+
+            if (lane.getHeight() >= 52.0f)
+                tick (64);
+        }
+
         // Grid lines (when they are far enough apart), beats, the bars stronger.
         const auto step = gridStep();
 
@@ -273,6 +291,32 @@ public:
                     if (isSelected == drawSelected)
                         paintNote (g, clip.notes[i], isSelected, anySelected, on, grid, lane, rowHeight);
                 }
+        }
+
+        // A stem's value, on hover and while its bar is dragged.
+        {
+            auto shownNote = -1;
+
+            if (dragMode == Drag::none && isMouseOver() && lane.expanded (0.0f, 2.0f).contains (mouse))
+                for (size_t i = 0; i < clip.notes.size(); ++i)
+                    if (std::abs (beatToX (clip.notes[i].start) - mouse.x) <= 4.0f)
+                        shownNote = (int) i;
+
+            if (shownNote >= 0 || dragMode == Drag::velocity)
+            {
+                const auto value = shownNote >= 0 ? clip.notes[(size_t) shownNote].velocity : lastVelocity;
+                const auto x = shownNote >= 0 ? beatToX (clip.notes[(size_t) shownNote].start) : mouse.x;
+                const auto text = juce::String (value);
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+                const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 8.0f;
+                const auto flag = juce::Rectangle<float> (width, 13.0f)
+                                      .withPosition (juce::jlimit (grid.getX(), grid.getRight() - width, x + 6.0f), lane.getY() + 1.0f);
+                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
+                g.fillRoundedRectangle (flag, 3.0f);
+                g.setColour (IlanaTheme::Ui::text);
+                g.setFont (font);
+                g.drawText (text, flag.toNearestInt(), juce::Justification::centred, false);
+            }
         }
 
         if (playing && playhead >= viewStart && playhead <= viewEnd)

@@ -37,7 +37,23 @@ public:
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour.withAlpha (passThrough ? 0.15f : 0.35f));
 
         const auto header = getLocalBounds().reduced (12, 0).removeFromTop (headerHeight);
-        IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : passThrough ? colour.withAlpha (0.55f) : colour);
+        IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : passThrough ? colour.withAlpha (0.3f) : colour);
+
+        // A filter open at the top does nothing: its header says so, a pill
+        // where a switch would be (UI review 9, V9-13; the tooltip has more).
+        if (passThrough && ! replaced)
+        {
+            const auto right = slope.isVisible() ? slope.getX() - 8 : getWidth() - 12;
+            const auto pill = juce::Rectangle<int> (right - 52, header.getCentreY() - 9, 52, 18);
+
+            if (pill.getX() > picker.getRight() + 4)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawRoundedRectangle (pill.toFloat().reduced (0.5f), 9.0f, 1.0f);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("OPEN", pill, juce::Justification::centred);
+            }
+        }
     }
 
     // WEST in Filter 2's place: a note over the dimmed knobs says so.
@@ -196,6 +212,9 @@ public:
                                                                                                     : "wavefolder and low-pass gate, after the filters",
                                      colour(), 60);
 
+        if (folded())
+            return;
+
         // The fold's transfer curve and the gate's vactrol, lit by its level
         // (at the off alpha, as the controls, while WEST is off).
         const auto plot = picture.toFloat();
@@ -251,6 +270,16 @@ public:
         // Its on switch in the header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 14));
 
+        // Off, the page gives it a header's height: only the switch stays
+        // (UI review 9, V9-4).
+        for (juce::Component* c : { (juce::Component*) &position, (juce::Component*) &mode, (juce::Component*) &source,
+                                     (juce::Component*) &fold, (juce::Component*) &symmetry, (juce::Component*) &stages,
+                                     (juce::Component*) &decay, (juce::Component*) &resonance, (juce::Component*) &strike,
+                                     (juce::Component*) &open })
+            c->setVisible (! folded());
+        if (folded())
+            return;
+
         // The menus in a row with the picture beside them, then the knobs.
         auto top = area.removeFromTop (juce::jmin (52, area.getHeight() / 3));
         picture = top.removeFromRight (top.getWidth() * 2 / 5).reduced (4, 2);
@@ -262,6 +291,8 @@ public:
     }
 
 private:
+    bool folded() const { return getHeight() < 80; }
+
     float read (const char* id) const
     {
         const auto* value = processorRef.apvts.getRawParameterValue (id);

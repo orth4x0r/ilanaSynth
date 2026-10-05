@@ -817,6 +817,7 @@ public:
         resized(); // a knob with a label lays out differently
     }
     juce::String getLabelText() const { return label.getText(); }
+    juce::Label& getNameLabel() { return label; }
     bool isCompact() const { return compact; }
     const juce::String& getParameterId() const { return parameterId; }
     // The modulation destination whose depth the knob's ring shows (0: none).
@@ -1055,7 +1056,8 @@ public:
         {
             const auto font = label.getFont();
             const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, label.getText()) + 6.0f;
-            g.excludeClipRegion (label.getBounds().withSizeKeepingCentre (juce::roundToInt (width), label.getHeight()));
+            // (4 px of air under the name: a ring's 2.5 px stroke used to touch it, V9-18.)
+            g.excludeClipRegion (label.getBounds().withSizeKeepingCentre (juce::roundToInt (width), label.getHeight()).withTrimmedBottom (-4));
         }
 
         for (int i = count - 1; i >= 0; --i)
@@ -1951,6 +1953,7 @@ public:
     }
 
     juce::ComboBox& getComboBox() { return combo; }
+    juce::Label& getNameLabel() { return label; }
 
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
@@ -2361,6 +2364,35 @@ inline void layoutRow (juce::Rectangle<int> area, const std::vector<juce::Compon
     const auto width = (int) ((float) area.getWidth() / shares);
     const auto menuWidth = (int) ((float) width * menuWeight);
     auto band = 0;
+
+    // One label size for the row (V9-6): the smallest any of its names needs
+    // in its cell, so no label is shrunk on its own beside bigger ones.
+    {
+        std::vector<std::pair<juce::Label*, float>> needs;
+        auto smallest = 1000.0f;
+
+        for (auto* item : items)
+        {
+            juce::Label* name = nullptr;
+
+            if (auto* knob = dynamic_cast<KnobControl*> (item))
+                name = knob->isCompact() ? nullptr : &knob->getNameLabel();
+            else if (auto* combo = dynamic_cast<ComboControl*> (item))
+                name = &combo->getNameLabel();
+
+            if (name == nullptr || name->getText().isEmpty())
+                continue;
+
+            const auto cell = (float) (dynamic_cast<ComboControl*> (item) != nullptr ? menuWidth : width) - 6.0f - 2.0f;
+            const auto need = IlanaTheme::fittedFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)), name->getText().trim(), cell,
+                                                      IlanaTheme::TextSize::minPassive).getHeight();
+            needs.push_back ({ name, need });
+            smallest = juce::jmin (smallest, need);
+        }
+
+        for (auto& entry : needs)
+            entry.first->getProperties().set ("fitCap", smallest);
+    }
 
     // (A null item is an empty column, so rows can share one grid.)
     for (auto* item : items)

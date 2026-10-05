@@ -99,7 +99,7 @@ public:
         // as the oscillators' menus are, its level and the noise.
         // The switch is the sub's alone, and says so; the noise has its
         // own level and colour (V8-14, V8-15).
-        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
+        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
         subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "");
         subOctave = std::make_unique<ComboControl> (p.apvts, "sub_octave", "");
         subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", subColour(), true);
@@ -416,14 +416,25 @@ public:
 
         // The added oscillators' strips and SUB + NOISE, with one slim
         // "+ ADD OSC" row between them while a slot is free (UI review 7,
-        // V7-4, S7-2). A strip's height depends on the window only, not on
-        // how many oscillators there are (three fit with the ADD row and
-        // SUB + NOISE; past that the column scrolls), so adding one moves
-        // nothing (UI review 8, S8-24, S8-8). A switched-off oscillator
-        // folds to a slim strip with its switch (V8-17).
+        // V7-4, S7-2). The strips share the column's height (UI review 9,
+        // V9-1, V9-2): few of them grow up to a cap, so the column ends
+        // where the right one does; five or six shrink to compact rows, so
+        // a six-operator voice shows whole without scrolling. A
+        // switched-off oscillator folds to a slim strip with its switch
+        // (V8-17); only a window too small even for compact rows scrolls.
         oscView.setBounds (left);
         const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
-        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, (left.getHeight() - addRowHeight - slotGap * 4) / 4);
+        auto shown = 0, folded = 0;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (shownStrips[(size_t) osc])
+            {
+                ++shown;
+                folded += isFolded (osc) ? 1 : 0;
+            }
+        const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
+        const auto flexible = shown - folded + 1; // the open strips and SUB + NOISE
+        const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
+        const auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
         auto columnHeight = 0, lastWholeBottom = 0;
         std::vector<int> cardTops;
         const auto addCard = [&] (int height)
@@ -484,8 +495,8 @@ public:
         {
             addRowArea = column.removeFromTop (addRowHeight);
             column.removeFromTop (slotGap);
-            addOscButton.setButtonText ("+  ADD OSC " + juce::String (next + 1));
-            addOscButton.setBounds (addRowArea.withSizeKeepingCentre (juce::jmin (160, addRowArea.getWidth() - 24), addRowHeight - 8));
+            addOscButton.setLabel ("+  ADD OSC " + juce::String (next + 1));
+            addOscButton.setBounds (addRowArea);
             addOscButton.setVisible (true);
         }
 
@@ -1135,17 +1146,6 @@ private:
             }
         }
 
-        // The next oscillator to add: a slim dashed row round its button.
-        if (! addRowArea.isEmpty())
-        {
-            juce::Path outline, dashed;
-            outline.addRoundedRectangle (addRowArea.toFloat().reduced (1.0f), 6.0f);
-            const float dashes[] { 4.0f, 4.0f };
-            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-            g.setColour (IlanaTheme::Ui::line.withAlpha (0.7f));
-            g.fillPath (dashed);
-        }
-
         if (! subCard.isEmpty())
         {
             IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
@@ -1192,16 +1192,16 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::Viewport oscView;
     Column oscColumn;
-    juce::TextButton addOscButton;
+    DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1;
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
-    static constexpr int slotGap = 6, addRowHeight = 36;
-    static constexpr int minSlotHeight = 104, maxSlotHeight = 140, foldedHeight = 40;
+    static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
+    static constexpr int minSlotHeight = 68, maxSlotHeight = 200, foldedHeight = 40;
     static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46, minKnobsWidth = 190;
     juce::Rectangle<int> addRowArea;
-    static constexpr float offAlpha = 0.35f;
+    static constexpr float offAlpha = 0.55f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind
     // "+N", and the pool last seen.
     int selectedEnv = 0;

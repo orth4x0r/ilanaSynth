@@ -568,7 +568,6 @@ public:
 
         // One way to add an oscillator here: the tab row's last button
         // (UI review 6, S33).
-        addButton.setButtonText ("+  ADD OSC");
         addButton.setTooltip ("Add the next oscillator, switched on");
         addButton.onClick = [this]
         {
@@ -583,7 +582,6 @@ public:
             updateModeVisibility();
             updateEnabled();
         };
-        styleHeaderButton (addButton);
         addChildComponent (addButton);
 
         lastRevealVersion = processorRef.getRevealVersion();
@@ -847,11 +845,11 @@ private:
         for (int i = 0; i < OscillatorIds::count; ++i)
             if (! processorRef.isOscillatorShown (i))
             {
-                addButton.setButtonText ("+  ADD OSC " + juce::String (i + 1));
+                addButton.setLabel ("+  ADD OSC " + juce::String (i + 1));
                 break;
             }
         oscTabs.setBounds (tabRow.withWidth (juce::jmin (tabRow.getWidth() - (canAdd ? 130 : 0), oscTabs.getIdealWidth())));
-        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getY() + 2, 118, tabRow.getHeight() - 4));
+        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getCentreY() - DashedAddButton::standardHeight / 2, 128, DashedAddButton::standardHeight));
 
         if (! sharedCard.isEmpty())
         {
@@ -1650,7 +1648,8 @@ private:
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
     IlanaSynthAudioProcessor::BounceRequest bounceRequest;
     int bouncingOsc = -1, bounceButtonWide = -1;
-    juce::TextButton addButton, opEnvButton, sampleLoadButton;
+    DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
+    juce::TextButton opEnvButton, sampleLoadButton;
     // The Operator Env's graph, for the chosen operator (the FM card's).
     OperatorEnvDisplay opEnvGraph { processorRef };
     StateTabs oscTabs, sharedTabs;

@@ -22,6 +22,18 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
+    // The one "add" component of the interface (UI review 9, V9-12): a dashed
+    // outline and "+  ADD X", the same height wherever it stands (pools of
+    // LFOs and envelopes keep their square "+" tile).
+    static constexpr int standardHeight = 32;
+
+    void setLabel (const juce::String& label)
+    {
+        text = hoverText = label;
+        setButtonText (label);
+        repaint();
+    }
+
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         const auto area = getLocalBounds().toFloat().reduced (1.0f);

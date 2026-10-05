@@ -1330,7 +1330,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     // The window's resize grip owns the corner: the meter keeps clear of
     // it (review 8, S8-37, V8-30).
     strip.removeFromRight (14);
-    outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, strip.getHeight()));
+    outputMeter->setBounds (strip.removeFromRight (64).withSizeKeepingCentre (64, strip.getHeight()));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (10);

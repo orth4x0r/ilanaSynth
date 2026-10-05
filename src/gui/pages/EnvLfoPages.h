@@ -90,7 +90,12 @@ public:
         auto area = getLocalBounds().reduced (12);
 
         const auto panelHeight = juce::jlimit (128, 156, panel1.preferredHeight ((area.getWidth() - 10) / 2));
-        const auto bottomHeight = juce::jlimit (166, 186, area.getHeight() * 9 / 25);
+        // A module that is off folds to its header and its switch (UI review
+        // 9, V9-4); the response and the flow take the room.
+        westShown = westOn();
+        bodyShown = bodyActive();
+        const auto openHeight = juce::jlimit (166, 186, area.getHeight() * 9 / 25);
+        const auto bottomHeight = westShown || bodyShown ? openHeight : foldedCardHeight;
         const auto topHeight = juce::jmax (120, area.getHeight() - panelHeight - bottomHeight - 16);
 
         // Top: the response (under its heading) and, beside it, the flow.
@@ -120,15 +125,19 @@ public:
 
         area.removeFromTop (8);
         auto bottom = area.removeFromTop (bottomHeight);
-        westPanel.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2 - 5));
+        westPanel.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2 - 5).withHeight (westShown ? bottomHeight : foldedCardHeight));
 
         bottom.removeFromLeft (10);
-        resonatorCard = bottom;
+        resonatorCard = bottom.withHeight (bodyShown ? bottomHeight : foldedCardHeight);
+        for (juce::Component* control : { (juce::Component*) &resAmount, (juce::Component*) &resDecay, (juce::Component*) &resOffset,
+                                          (juce::Component*) &resKeytrack, (juce::Component*) &bodyType, (juce::Component*) &bodyMaterial,
+                                          (juce::Component*) &bodySize, (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyCoupling })
+            control->setVisible (bodyShown);
         // The on switch at the right of the header, as on the oscillator cards.
         resOn.setBounds (IlanaTheme::cardSwitchBounds (resonatorCard, resonatorCard.getY() + 13));
         // The grid WEST's card uses (S7-24): its menus' row, then its knobs,
         // so the two cards' rows line up side by side.
-        auto resArea = bottom.reduced (10, 0);
+        auto resArea = resonatorCard.reduced (10, 0);
         resArea.removeFromTop (30);
         resArea.removeFromBottom (4);
         auto menuRow = resArea.removeFromTop (juce::jmin (52, resArea.getHeight() / 3));
@@ -146,6 +155,9 @@ private:
     {
         const auto parallelNow = readValue ("filters_parallel") > 0.5f;
         const auto replacedNow = filter2Replaced();
+
+        if (westOn() != westShown || bodyActive() != bodyShown)
+            resized();
 
         if (parallelNow != wasParallel || replacedNow != wasReplaced)
         {
@@ -195,6 +207,13 @@ private:
     }
 
     bool filter2Replaced() const { return readValue ("west_on") > 0.5f && juce::roundToInt (readValue ("west_pos")) == 1; }
+    bool westOn() const { return readValue ("west_on") > 0.5f; }
+    // The body shows while it is on, or while it couples the strings (which
+    // works without it).
+    bool bodyActive() const { return readValue ("res_on") > 0.5f || juce::roundToInt (readValue ("body_coupling_mode")) == 3; }
+
+    static constexpr int foldedCardHeight = 40;
+    bool westShown = true, bodyShown = true;
 
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;

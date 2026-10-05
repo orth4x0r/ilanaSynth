@@ -271,22 +271,44 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 
     if (! fitsIn (fitted, line, room))
     {
-        // A number with a unit after a space: the number alone.
+        // A number with a unit after a space never loses its unit (V9-5):
+        // the space goes first ("-30.9dB"), then a long unit is shortened
+        // ("kHz" to "k"), each at the floor size; the passive floor last.
         const auto number = line.upToLastOccurrenceOf (" ", false, false);
         const auto unit = line.fromLastOccurrenceOf (" ", false, false);
         const auto isValue = number.isNotEmpty() && unit.length() <= 3 && ! unit.containsAnyOf ("0123456789")
                              && number.retainCharacters ("0123456789").isNotEmpty()
                              && number.removeCharacters ("0123456789.,+-:/").removeCharacters (juce::String::fromUTF8 ("\xe2\x88\x92\xc3\x97")).isEmpty();
+        auto settled = false;
 
-        if (isValue && fitsIn (fittedFont (font, number, room, floorHeight), number, room))
+        if (isValue)
         {
-            line = number;
-            fitted = fittedFont (font, line, room, floorHeight);
+            const auto shortUnit = unit == "kHz" ? juce::String ("k") : unit == "oct" ? juce::String ("o") : unit;
+            const juce::String candidates[] { number + unit, number + shortUnit };
+
+            for (const auto& candidate : candidates)
+            {
+                const auto attempt = fittedFont (font, candidate, room, floorHeight);
+
+                if (fitsIn (attempt, candidate, room))
+                {
+                    line = candidate;
+                    fitted = attempt;
+                    settled = true;
+                    break;
+                }
+            }
+
+            if (! settled)
+            {
+                line = number + shortUnit;
+                fitted = fittedFont (font, line, room, TextSize::minPassive);
+                settled = true;
+            }
         }
-        else
-        {
+
+        if (! settled)
             fitted = fittedFont (font, line, room, TextSize::minPassive);
-        }
     }
 
     const auto fits = fitsIn (fitted, line, room);
@@ -978,8 +1000,17 @@ public:
 
         if (! label.isBeingEdited())
         {
-            const auto alpha = label.isEnabled() ? 1.0f : 0.5f;
-            const auto font = getLabelFont (label);
+            // A disabled name is never fainter than 3:1 against its card
+            // (V9-25): its own fade and its card's dimming are counted
+            // together, and the label gives back what they take.
+            auto shown = 1.0f;
+            for (const juce::Component* c = &label; c != nullptr; c = c->getParentComponent())
+                shown *= c->getAlpha();
+            const auto alpha = label.isEnabled() ? 1.0f : juce::jlimit (0.5f, 1.0f, 0.55f / juce::jmax (0.01f, shown));
+            auto font = getLabelFont (label);
+            // A row of names shares one size (layoutRow sets the cap).
+            if (label.getProperties().contains ("fitCap"))
+                font = font.withHeight (juce::jmin (font.getHeight(), (float) label.getProperties()["fitCap"]));
             g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
             g.setFont (font);
             const auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());

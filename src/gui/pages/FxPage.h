@@ -311,6 +311,7 @@ public:
                                                 }));
         };
         // The rack's one + ADD EFFECT is the tile after the last card (S7-16).
+        addEffectTile.setTooltip ("Add an effect to the next empty slot: the library, every effect grouped by what it does");
         addEffectTile.onClick = [this] { showLibrary (addEffectTile, addEffectTile.getLocalBounds()); };
         stackContent.addChildComponent (addEffectTile);
         fileButton.setTooltip ("Save this chain to a file, or load one into it");
@@ -438,7 +439,7 @@ public:
 
         stackView.setViewedComponent (&stackContent, false);
         stackView.setScrollBarsShown (true, false);
-        stackView.setScrollBarThickness (8);
+        stackView.setScrollBarThickness (12);
         addAndMakeVisible (stackView);
 
         // The library fills the page while the rack is empty; + ADD EFFECT
@@ -480,17 +481,29 @@ public:
         }
     }
 
-    // Cards cut by the foot of a scrolling rack fade out there, so they read
-    // as more below rather than clipped by OUTPUT (UI review 8, S8-14, V8-19).
+    // Cards cut by the foot or the head of a scrolling rack fade out there,
+    // so they read as more beyond rather than clipped hard by OUTPUT or
+    // under the CHAIN row (UI review 8, S8-14, V8-19; 9, V9-23).
     void paintOverChildren (juce::Graphics& g) override
     {
-        if (! stackView.isVisible() || stackView.getViewPositionY() + stackView.getHeight() >= stackContent.getHeight() - 2)
+        if (! stackView.isVisible())
             return;
 
-        const auto foot = stackView.getBounds().removeFromBottom (28).toFloat();
         const auto background = IlanaTheme::Ui::bg;
-        g.setGradientFill (juce::ColourGradient (background.withAlpha (0.0f), 0.0f, foot.getY(), background, 0.0f, foot.getBottom(), false));
-        g.fillRect (foot);
+
+        if (stackView.getViewPositionY() + stackView.getHeight() < stackContent.getHeight() - 2)
+        {
+            const auto foot = stackView.getBounds().removeFromBottom (28).toFloat();
+            g.setGradientFill (juce::ColourGradient (background.withAlpha (0.0f), 0.0f, foot.getY(), background, 0.0f, foot.getBottom(), false));
+            g.fillRect (foot);
+        }
+
+        if (stackView.getViewPositionY() > 2)
+        {
+            const auto head = stackView.getBounds().removeFromTop (14).toFloat();
+            g.setGradientFill (juce::ColourGradient (background, 0.0f, head.getY(), background.withAlpha (0.0f), 0.0f, head.getBottom(), false));
+            g.fillRect (head);
+        }
     }
 
     void resized() override
@@ -537,10 +550,17 @@ public:
         // The cards take their own height, and OUTPUT follows the last of
         // them (V7-29, S7-16: no empty band above it).
         stackView.setBounds (stackArea);
+        rowExtra = 0;
         layoutStack();
         if (! empty && stackNaturalHeight < stackArea.getHeight())
         {
-            stackView.setBounds (stackArea.withHeight (stackNaturalHeight));
+            // The rack's spare height goes to its rows (a taller graph, the
+            // knobs centred in it), so the page doesn't end in a blank band
+            // (UI review 9, V9-3).
+            rowExtra = juce::jlimit (0, 120, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
+            stackView.setBounds (stackArea);
+            layoutStack();
+            stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
             layoutStack();
         }
 
@@ -1007,7 +1027,7 @@ private:
     {
         if (half)
             return FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics ? 160 : 130;
-        return type == 29 ? 250 : (type == 9 ? 220 : (FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics || type == 13 ? 180 : 130));
+        return type == 29 ? 250 : (type == 9 ? 220 : (FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics || type == 13 ? 200 : 190));
     }
 
     // The header's controls, right to left from the on switch.
@@ -1072,7 +1092,7 @@ private:
             return cardHeaderHeight + 66;
 
         const auto rows = cardItems (panel).size() > 8 ? 2 : 1;
-        auto height = cardHeaderHeight + rows * cardRowHeight + cardPadding;
+        auto height = cardHeaderHeight + rows * cardRowHeight + (rows == 1 ? rowExtra : 0) + cardPadding;
         if (panel.type == 9 && tapsEnabled())
             height += 56;
         if (panel.type == 16)
@@ -1119,6 +1139,7 @@ private:
         }
 
         auto y = stackTopMargin; // (room for the first card's glow)
+        rowsPlaced = 0;
         size_t stripIndex = 0;
         addEffectCard = {};
 
@@ -1132,7 +1153,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y, end == cards.size() && firstEmptySlot() >= 0);
+                y = flowCards (cards, i, end, 0, width, y);
             }
             else
             {
@@ -1168,13 +1189,14 @@ private:
         // the end) while the rack has room: the one + ADD EFFECT.
         if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
         {
-            addEffectCard = { 0, y, width, 40 };
-            y += 40 + cardGap;
+            addEffectCard = { 0, y, width, DashedAddButton::standardHeight };
+            y += DashedAddButton::standardHeight + cardGap;
         }
         addEffectTile.setBounds (addEffectCard);
         addEffectTile.setVisible (! addEffectCard.isEmpty());
 
         stackNaturalHeight = y;
+        stackRows = rowsPlaced;
         stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
         stackContent.repaint();
     }
@@ -1213,6 +1235,7 @@ private:
                 const auto height = juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1]));
                 placeCard (cards[k], { x, y, halfWidth, height });
                 placeCard (cards[k + 1], { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height });
+                ++rowsPlaced;
                 k += 2;
                 y += height + cardGap;
             }
@@ -1222,6 +1245,7 @@ private:
                 placeCard (cards[k], { x, y, halfWidth, height });
                 if (k + 1 == to && addTileAtEnd)
                     addEffectCard = { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height };
+                ++rowsPlaced;
                 ++k;
                 y += height + cardGap;
             }
@@ -1230,6 +1254,7 @@ private:
                 cards[k].half = false;
                 const auto height = cardHeight (cards[k]);
                 placeCard (cards[k], { x, y, width, height });
+                ++rowsPlaced;
                 ++k;
                 y += height + cardGap;
             }
@@ -1274,7 +1299,8 @@ private:
         }
 
         const auto rows = items.size() > 8 ? 2 : 1;
-        auto rowsArea = body.removeFromTop (rows * cardRowHeight);
+        const auto extra = rows == 1 ? rowExtra : 0;
+        auto rowsArea = body.removeFromTop (rows * cardRowHeight + extra);
 
         // The family's picture, left of the knobs.
         if (hasCardDisplay (type))
@@ -1307,13 +1333,13 @@ private:
             auto menus = 0;
             for (auto* item : items)
                 menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-            const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * 110 + menus * 40);
+            const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * (panel.half ? 110 : 150) + menus * 40);
             // A row led by a menu (an ALGORITHM) starts at the row's left, so
             // the menu stays put when the card switches model (UI review 8,
             // I8-33); a row of knobs is centred.
             const auto ledByMenu = ! items.empty() && dynamic_cast<ComboControl*> (items.front()) != nullptr;
-            auto row = rowsArea.removeFromTop (cardRowHeight);
-            layoutRow (ledByMenu ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, cardRowHeight), items, false, 1.4f);
+            auto row = rowsArea.removeFromTop (cardRowHeight + extra);
+            layoutRow (ledByMenu ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, row.getHeight()), items, false, 1.4f);
         }
 
         body.removeFromTop (cardPadding);
@@ -1490,11 +1516,11 @@ private:
             {
                 g.drawText ("off", subtitle, juce::Justification::centredLeft, true);
             }
-            // The slot's CPU only when it is worth a look (above 2 %) or the
-            // card is under the mouse: beside every name it was noise (UI
-            // review 8, V8-34).
+            // The slot's CPU only while the card is under the mouse: beside
+            // every name it was noise, and a number that came and went on
+            // some cards read as an error (UI review 8, V8-34; 9, V9-21).
             else if (const auto cpu = processorRef.getFxSlotCpu (panel.slot);
-                     (cpu > 0.02f || (cpu > 0.0005f && stackContent.isMouseOver (true) && panel.bounds.contains (stackContent.getMouseXYRelative())))
+                     cpu > 0.0005f && stackContent.isMouseOver (true) && panel.bounds.contains (stackContent.getMouseXYRelative())
                      && subtitle.getWidth() >= 70)
             {
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true));
@@ -1876,9 +1902,9 @@ private:
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };
     juce::TextButton copyChainButton { "COPY TO 2" };
-    AddEffectTile addEffectTile;
+    DashedAddButton addEffectTile { "+  ADD EFFECT", "+  ADD EFFECT" };
     std::array<bool, 64> ownMix {};
-    int stackNaturalHeight = 0;
+    int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, rowExtra = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     ComboControl ampMode;

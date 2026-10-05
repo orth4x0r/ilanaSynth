@@ -1405,7 +1405,7 @@ private:
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
     // The noise knobs wear the SUB colour at half strength, so COLOUR does not read as disabled (V13-15).
-    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.5f); }
+    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.2f); } // (mostly the sub's orange: COLOUR read disabled in grey, V14-14)
 
     void layoutSubCard()
     {
@@ -1643,7 +1643,8 @@ private:
     juce::Rectangle<int> subCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 112, outputMinHeight = 70, maxPatchOnlyHeight = 132, maxGrownSlotHeight = 200;
+    static constexpr int patchMinHeight = 150, outputMinHeight = 100, maxPatchOnlyHeight = 170, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
+                                   maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
     bool subFolded = false;
     float lastOperatorOutputs = 0.0f;

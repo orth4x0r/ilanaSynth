@@ -20,6 +20,7 @@ The rules every page follows, so a control looks and reads the same wherever it 
 ## Casing
 - Names of modules and sources are upper case in labels, chips, tabs and combos: AMP ENV, FILT ENV, OSC 1, LFO 2, OP ENV.
 - Sentence case only for prose: hints, tooltips, dialog text, menu items that are actions ("Reset to default").
+- Values keep their own case in menus and pills: waveform and mode names (Sine, Square, Saw, Wavetable, Poly) and units (-1 Oct) are values, not names, so SUB's pills and the strips' menus stay as they are (review 14, V14-15).
 - Values keep their units' own case (ms, dB, Hz, ×1.00).
 - Buttons say what they do in upper case everywhere, dialogs included: SAVE, CANCEL, LOAD ANYWAY, SAVE AND LOAD, GOT IT (UI review 8, S8-23). Check boxes are sentences ("Don't show this again"), the same words wherever the same tick appears.
 

@@ -670,6 +670,16 @@ public:
 
             for (auto* knob : { &osc.uniBlend, &osc.spread, &osc.detune })
                 effectRules.add (*knob, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+
+            // The sample's own controls dim until there is a sample (S14-3).
+            for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleStart,
+                                              (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut })
+                effectRules.add (*control, [this, i]
+                                 {
+                                     const auto* sample = processorRef.getSampleForOsc (i);
+                                     return sample != nullptr && sample->getNumSamples() >= 2;
+                                 },
+                                 "load a sample first");
         }
 
         // One way to add an oscillator here: the tab row's last button
@@ -1222,10 +1232,17 @@ private:
             rows.push_back ({ "GRAINS", grains });
         }
 
+        // A sample with one voice: UNISON and CHORD join the pitch row (seven
+        // columns, as the SAMPLE row above), so the wave takes the height
+        // (review 14, S14-3).
+        const auto sampleOneVoice = mode == 2 && unison.size() == 2;
+        if (sampleOneVoice)
+            pitch.insert (pitch.end(), unison.begin(), unison.end());
+
         rows.push_back ({ mode == 4 ? "LEVEL" : "PITCH & LEVEL", pitch });
 
         // M7.5 Live: the input itself, so no pitch, shape or unison.
-        if (mode != 4)
+        if (mode != 4 && ! sampleOneVoice)
             rows.push_back ({ mode == 1 ? "STRING COPIES" : "UNISON", unison }); // (copies of the string: I11-9)
 
         return rows;
@@ -1269,9 +1286,22 @@ private:
         // An operator on the Operator Env shows its envelope in the rows
         // (the whole width, no sine beside it: review 11, V11-7).
         const auto operatorEnvelope = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
-        const auto display = operatorEnvelope ? juce::Rectangle<int>() : content.removeFromLeft (juce::jlimit (220, 330, content.getWidth() * 30 / 100));
-        if (! operatorEnvelope)
+        // A sample's wave takes the card's whole width above its rows, as in
+        // a sampler: the waveform with its ruler, loop flags and key map is
+        // the page, not a 330 px box beside two thirds of blank (S14-3, S14-4).
+        const auto sampleWide = mode == 2;
+        juce::Rectangle<int> display;
+        if (sampleWide)
+        {
+            constexpr int sampleRowHeight = 86;
+            display = content.removeFromTop (juce::jmax (120, content.getHeight() - (int) rowsFor (index).size() * sampleRowHeight));
+            content.removeFromTop (6);
+        }
+        else if (! operatorEnvelope)
+        {
+            display = content.removeFromLeft (juce::jlimit (220, 330, content.getWidth() * 30 / 100));
             content.removeFromLeft (8);
+        }
 
         if (mode == 1)
         {

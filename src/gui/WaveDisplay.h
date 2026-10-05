@@ -298,6 +298,18 @@ public:
                 return;
             }
 
+            // A plain or multi sample: START and END are the two handles on the wave
+            // (V14 / S14-4: the loop markers are dragged where they are drawn).
+            if (isSampleMode() && ! compact)
+                if (const auto handle = sampleHandleAt (event.position.x); handle != 0)
+                {
+                    handleDrag = handle;
+                    processorRef.beginEdit (editName());
+                    beginGesture (handle == 1 ? startId : endId);
+                    setHandleFromX (event.position.x);
+                    return;
+                }
+
             if (! isTableMode())
                 return;
 
@@ -367,6 +379,12 @@ public:
         if (pressInHeader)
             return;
 
+        if (handleDrag != 0)
+        {
+            setHandleFromX (event.position.x);
+            return;
+        }
+
         if (isGranularMode())
             setPositionFromX (event.position.x);
 
@@ -393,6 +411,7 @@ public:
 
         endGestures();
         processorRef.endEdit();
+        handleDrag = 0;
 
         if (dragging)
         {
@@ -727,6 +746,44 @@ private:
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
     }
 
+    // The sample's plot as drawSample lays it out horizontally.
+    juce::Rectangle<float> samplePlotArea() const { return wellArea().reduced (10.0f, compact ? 5.0f : 10.0f); }
+
+    // 1: the START handle, 2: END, 0: neither, for a press at x (within 9 px; the
+    // nearer one when both are).
+    int sampleHandleAt (float x) const
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || sample->getNumSamples() < 2)
+            return 0;
+
+        const auto plot = samplePlotArea();
+        const auto startX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (startId)) * plot.getWidth();
+        const auto endX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (endId)) * plot.getWidth();
+        const auto nearStart = std::abs (x - startX), nearEnd = std::abs (x - endX);
+        if (juce::jmin (nearStart, nearEnd) > 9.0f)
+            return 0;
+        return nearStart <= nearEnd ? 1 : 2;
+    }
+
+    void setHandleFromX (float x)
+    {
+        const auto plot = samplePlotArea();
+        const auto position = juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()));
+        // (They never cross: at least 1 % of the sample stays between them.)
+        if (handleDrag == 1)
+            setPlain (startId, juce::jmin (position, readPlain (endId) - 0.01f));
+        else
+            setPlain (endId, juce::jmax (position, readPlain (startId) + 0.01f));
+        repaint();
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        setMouseCursor (isSampleMode() && ! compact && sampleHandleAt (event.position.x) != 0 ? juce::MouseCursor::LeftRightResizeCursor
+                                                                                             : juce::MouseCursor::NormalCursor);
+    }
+
     void setPositionFromX (float x)
     {
         const auto plotWidth = (float) juce::jmax (1, getWidth() - 20);
@@ -793,7 +850,7 @@ private:
         // (UI review 7, I7-24).
         // A plain sample shows its map too: one box, every key and velocity
         // (S13-1); granular mode reads a position, not zones.
-        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 120.0f)
+        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 96.0f)
             drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)
@@ -809,6 +866,26 @@ private:
             // A drop zone that looks like one (S13-1): a dashed edge, the
             // hint, and LOAD... drawn as the button a click on it acts as.
             const auto well = wellArea().reduced (6.0f);
+
+            // A ghost of the wave a sample would draw, so the well is a
+            // picture first and a prompt second (review 14, S14-3).
+            {
+                juce::Path ghost;
+                const auto ghostArea = well.reduced (10.0f, 14.0f);
+                const auto columns = juce::jmax (2, (int) ghostArea.getWidth() / 2);
+                for (int i = 0; i < columns; ++i)
+                {
+                    const auto t = (float) i / (float) (columns - 1);
+                    const auto envelope = std::exp (-3.2f * t) * (0.55f + 0.45f * std::sin (t * 23.0f)) + 0.04f;
+                    const auto amplitude = envelope * std::abs (std::sin (t * 410.0f) * 0.7f + std::sin (t * 97.0f) * 0.3f);
+                    const auto x = ghostArea.getX() + t * ghostArea.getWidth();
+                    ghost.startNewSubPath (x, ghostArea.getCentreY() - amplitude * ghostArea.getHeight() * 0.45f);
+                    ghost.lineTo (x, ghostArea.getCentreY() + amplitude * ghostArea.getHeight() * 0.45f);
+                }
+                g.setColour (traceColour.withAlpha (0.14f));
+                g.strokePath (ghost, juce::PathStrokeType (1.2f));
+            }
+
             juce::Path outline, dashed;
             outline.addRoundedRectangle (well, 8.0f);
             const float dashes[] { 5.0f, 4.0f };
@@ -826,6 +903,31 @@ private:
             g.setColour (IlanaTheme::Ui::text);
             g.drawText ("LOAD...", pill, juce::Justification::centred);
             return;
+        }
+
+        // The time ruler under the wave (seconds, ticks where they are 70 px
+        // apart or more), as a sample editor has it (S14-4).
+        if (! compact && ! isGranularMode() && plot.getHeight() > 80.0f)
+        {
+            const auto ruler = plot.removeFromBottom (12.0f);
+            const auto seconds = (double) sample->getNumSamples() / juce::jmax (1.0, sample->sampleRate);
+            auto step = 0.001;
+            for (const auto candidate : { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0 })
+            {
+                step = candidate;
+                if (candidate / seconds * (double) plot.getWidth() >= 70.0)
+                    break;
+            }
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (double t = 0.0; t <= seconds + 1.0e-9; t += step)
+            {
+                const auto x = plot.getX() + (float) (t / seconds) * plot.getWidth();
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.6f));
+                g.fillRect (x, ruler.getY(), 1.0f, 4.0f);
+                const auto text = step < 1.0 ? juce::String (juce::roundToInt ((float) (t * 1000.0))) + " ms" : juce::String (t, step < 1.0 ? 2 : (step == std::floor (step) ? 0 : 1)) + " s";
+                if (x + 44.0f < plot.getRight())
+                    g.drawText (text, juce::Rectangle<float> (x + 3.0f, ruler.getY(), 44.0f, ruler.getHeight()), juce::Justification::centredLeft, false);
+            }
         }
 
         const auto start = juce::jlimit (0.0f, 1.0f, readPlain (startId));
@@ -912,9 +1014,35 @@ private:
         g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getY(), juce::jmax (0.0f, startX - plot.getX()), plot.getHeight()));
         g.fillRect (juce::Rectangle<float> (endX, plot.getY(), juce::jmax (0.0f, plot.getRight() - endX), plot.getHeight()));
 
+        // While it loops, the loop's span is lit and the handles say LOOP.
+        if (loop && ! compact)
+        {
+            g.setColour (traceColour.withAlpha (0.10f));
+            g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.55f));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ startX, centreY }));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ endX, centreY }));
+
+        // The two handles, flags on the lines you can drag (S14-4).
+        if (! compact && plot.getHeight() > 60.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto startName = loop ? juce::String ("LOOP START") : juce::String ("START");
+            const auto endName = loop ? juce::String ("LOOP END") : juce::String ("END");
+            const auto startWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), startName) + 10.0f;
+            const auto endWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), endName) + 10.0f;
+            const auto startFlag = juce::Rectangle<float> (startX, plot.getY(), startWidth, 13.0f);
+            const auto endFlag = juce::Rectangle<float> (endX - endWidth, plot.getBottom() - 13.0f, endWidth, 13.0f);
+            for (const auto& [flag, name] : { std::pair<juce::Rectangle<float>, juce::String> { startFlag, startName }, { endFlag, endName } })
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.8f));
+                g.fillRoundedRectangle (flag, 2.0f);
+                g.setColour (juce::Colours::black.withAlpha (0.8f));
+                g.drawText (name, flag, juce::Justification::centred, false);
+            }
+        }
 
         if (fadeIn > 0.001f)
         {
@@ -1393,7 +1521,8 @@ private:
         if (! compact)
         {
             bounds.removeFromTop ((float) headerHeight + 3.0f);
-            bounds.removeFromBottom ((float) footerHeight + 2.0f);
+            // (A sample has no readout line: its picture takes that height, S14-3.)
+            bounds.removeFromBottom (isSampleMode() && ! isGranularMode() ? 4.0f : (float) footerHeight + 2.0f);
         }
 
         return bounds;
@@ -1640,6 +1769,7 @@ private:
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
     juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId;
+    int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;
     mutable const SampleData* cachedSample = nullptr;

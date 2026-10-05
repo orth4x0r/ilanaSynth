@@ -335,6 +335,20 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
     if (! fits && maximumLines > 1)
     {
         g.drawFittedText (line, area, justification, maximumLines, 1.0f);
+        // (A wrapped text that needs more lines than the box holds is cut like any other: V13-20.)
+        if (auto& probe = textFitProbe(); probe.armed)
+        {
+            juce::AttributedString attributed;
+            attributed.append (line, fitted);
+            juce::TextLayout layout;
+            layout.createLayout (attributed, (float) area.getWidth());
+            const auto lineHeight = fitted.getHeight() + 1.0f;
+            if (layout.getHeight() > (float) area.getHeight() + lineHeight * 0.25f)
+            {
+                probe.cut.addIfNotAlreadyThere (text.trim());
+                probe.cutDetails.add (line + ": wraps to more lines than " + juce::String (area.getHeight()) + " px hold");
+            }
+        }
         return;
     }
 

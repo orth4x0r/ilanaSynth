@@ -483,6 +483,43 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (cards > 0 && loose == 0, "FX cards group their knobs beside their picture" + detail);
     }
 
+    // V13-20: no text is cut in the states that change a card's text: the
+    // rack with a repeated effect and with none, and every page of a few
+    // presets. (drawFitted's probe now counts a wrapped sentence that needs
+    // more lines than its box holds as cut too.)
+    {
+        auto& probe = IlanaTheme::textFitProbe();
+        juce::StringArray cutTexts;
+        const auto scan = [&] (const juce::String& where, const juce::String& page)
+        {
+            editor.showPage (page);
+            settle (250);
+            probe = {};
+            probe.armed = true;
+            editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+            probe.armed = false;
+            for (const auto& detail : probe.cutDetails)
+                cutTexts.addIfNotAlreadyThere (where + " " + page + ": " + detail);
+        };
+        loadNamed ("Neuro Wobble");
+        for (auto slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+        scan ("empty rack", "FX");
+        processor.assignFxSlot (1, 20);
+        processor.assignFxSlot (2, 20); // a repeated OTT
+        scan ("repeated effect", "FX");
+        for (const auto* preset : { "Init", "Felt Hammer Board" })
+        {
+            loadNamed (preset);
+            for (const auto& page : editor.getPageIds())
+                scan (preset, page);
+        }
+        probe = {};
+        editor.showPage ("MAIN");
+        expect (cutTexts.isEmpty(), "no text is cut in the empty or repeated-effect FX rack or on the pages of Init and Felt Hammer Board"
+                                        + (cutTexts.isEmpty() ? juce::String() : ": " + cutTexts.joinIntoString (" | ")));
+    }
+
     // V10-9: SUB + NOISE (OSC) and BODY (PHYSICAL) fold while off, and open on
     // their switch.
     {

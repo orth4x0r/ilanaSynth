@@ -1243,7 +1243,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 
     // Status line along the bottom edge of the header (tempo, voices and
     // CPU at the right), clear of the buttons above.
-    const auto statusY = 40;
+    const auto statusY = pillY;
 
     // The rules between the action groups.
     g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
@@ -1278,12 +1278,10 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         g.setColour (colour);
         g.drawText (text, area, juce::Justification::centred);
     };
-    paintReadout ({ designWidth - 84, 38, 70, 17 }, "CPU " + juce::String (juce::roundToInt (cpu)) + "%", cpuColour);
-
-    // "120.0 BPM   VOICES 3/32": the tempo, then the voices as one group,
-    // a word space inside each and a wider gap between (review 7: VOICES
-    // and its count read as two items).
-    paintReadout ({ designWidth - 370, 38, 76, 17 }, juce::String (processorRef.getCurrentBpm(), 1) + " BPM", IlanaTheme::Ui::text3);
+    // Three equal pills at one gap, right-aligned (UI review 13, V13-6):
+    // BPM, VOICES (a button) and CPU, in the brighter of the two greys.
+    paintReadout (cpuArea(), "CPU " + juce::String (juce::roundToInt (cpu)) + "%", cpu < 30.0f ? IlanaTheme::Ui::text2 : cpuColour);
+    paintReadout (bpmArea(), juce::String (processorRef.getCurrentBpm(), 1) + " BPM", IlanaTheme::Ui::text2);
     {
         // The voice mode when it isn't the usual Poly, so Mono or Legato
         // shows without opening the settings.
@@ -1291,12 +1289,11 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         const auto mode = modeValue != nullptr ? juce::roundToInt (modeValue->load()) : 0;
         const juce::String label (mode == 1 ? "MONO" : (mode == 2 ? "LEGATO" : "VOICES"));
         const auto font = g.getCurrentFont();
-        auto x = designWidth - 288 + statusGroupGap;
 
         // A small button, not a status: a rim and a drop-down arrow say it
         // opens the voice settings (review 9, V9-27).
+        const auto pill = voicesArea.getBounds().toFloat().reduced (0.5f, 0.0f);
         {
-            const auto pill = voicesArea.getBounds().toFloat().reduced (0.5f, 0.0f);
             g.setColour (voicesArea.isMouseOver() ? IlanaTheme::accent().withAlpha (0.18f) : IlanaTheme::Ui::line.withAlpha (0.35f));
             g.fillRoundedRectangle (pill, 5.0f);
             g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::line.brighter (0.2f));
@@ -1308,20 +1305,24 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
             g.fillPath (arrow);
         }
 
-        g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
-        g.drawText (label, juce::Rectangle<int> (x, statusY, 80, 14), juce::Justification::centredLeft);
-        x += juce::GlyphArrangement::getStringWidthInt (font, label) + 5;
-
-        // "3/32": notes sounding, of the most that can (review 6, was a row
-        // of 32 dots); the count lights while anything plays.
+        // "3/32": notes sounding, of the most that can; the count lights
+        // while anything plays. The group sits centred left of the arrow.
         const auto activeVoices = getVoicesText().upToFirstOccurrenceOf ("/", false, false).getIntValue();
         const auto maxVoices = getVoicesText().fromFirstOccurrenceOf ("/", false, false).getIntValue();
-        const juce::String active (activeVoices);
+        const juce::String active (activeVoices), maxText ("/" + juce::String (maxVoices));
+        const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (font, label), activeWidth = juce::GlyphArrangement::getStringWidthInt (font, active),
+                   maxWidth = juce::GlyphArrangement::getStringWidthInt (font, maxText);
+        auto x = pill.getX() + (pill.getWidth() - 14.0f - (float) (labelWidth + 5 + activeWidth + maxWidth)) * 0.5f;
+        const auto line = [&] (float at, int width) { return juce::Rectangle<int> ((int) at, statusY, width + 2, pillHeight); };
+
+        g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.drawText (label, line (x, labelWidth), juce::Justification::centredLeft);
+        x += (float) (labelWidth + 5);
         g.setColour (activeVoices > 0 ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
-        g.drawText (active, juce::Rectangle<int> (x, statusY, 30, 14), juce::Justification::centredLeft);
-        x += juce::GlyphArrangement::getStringWidthInt (font, active);
+        g.drawText (active, line (x, activeWidth), juce::Justification::centredLeft);
+        x += (float) activeWidth;
         g.setColour (IlanaTheme::Ui::text3);
-        g.drawText ("/" + juce::String (maxVoices), juce::Rectangle<int> (x, statusY, 40, 14), juce::Justification::centredLeft);
+        g.drawText (maxText, line (x, maxWidth), juce::Justification::centredLeft);
     }
 
     // TUNING while a Scala scale (or an MTS-ESP master) retunes the notes.
@@ -1422,10 +1423,10 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     // The status line (y 41-52): the live waveform under the preset name,
     // then tempo, VOICES and CPU at the right.
-    headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), designWidth - 372) - prevButton.getX(), 14);
-    voicesArea.setBounds (designWidth - 288 + statusGroupGap - 6, 38, 118, 17);
+    headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), bpmArea().getX() - 8) - prevButton.getX(), 14);
+    voicesArea.setBounds (voicesPillArea());
     // TUNING sits left of the tempo, clear of the waveform strip.
-    tuningArea.setBounds (headerScope.getRight() + 8, 38, designWidth - 370 - headerScope.getRight() - 8, 17);
+    tuningArea.setBounds (headerScope.getRight() + 8, pillY, bpmArea().getX() - headerScope.getRight() - 16, pillHeight);
 
     // Bottom: source chips, the macro / performance strip, the info line and
     // the optional keyboard.
@@ -1447,7 +1448,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     // The window's resize grip owns the corner: the meter keeps clear of
     // it (review 8, S8-37, V8-30).
     strip.removeFromRight (14);
-    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, strip.getHeight()));
+    outputMeter->setBounds (strip.removeFromRight (190).withSizeKeepingCentre (190, strip.getHeight()));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (10);

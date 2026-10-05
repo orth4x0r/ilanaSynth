@@ -243,6 +243,11 @@ private:
     juce::String masterBaseTooltip, shownPresetLevel;
     // The gap between the status line's tempo and its VOICES group.
     static constexpr int statusGroupGap = 16;
+    // The status line's three pills: one width, one gap, flush right (V13-6).
+    static constexpr int pillY = 36, pillHeight = 18, pillWidth = 104, pillGap = 6;
+    static juce::Rectangle<int> cpuArea() { return { designWidth - 14 - pillWidth, pillY, pillWidth, pillHeight }; }
+    static juce::Rectangle<int> voicesPillArea() { return cpuArea().translated (-(pillWidth + pillGap), 0); }
+    static juce::Rectangle<int> bpmArea() { return voicesPillArea().translated (-(pillWidth + pillGap), 0); }
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // Every LFO and envelope has a chip, shown while that module is in the

@@ -336,7 +336,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id.endsWith ("_fade_in") || id.endsWith ("_fade_out") || id == "drift" || id == "ring_mod"
         || id == "fm_amount" || id == "fm_feedback" || id == "fx_fold" || id == "res_amount"
         || id == "res_keytrack" || id == "fx_tilt" || id == "fx_shifter_mix" || isAirwindowsKnob (id)
-        || id == "noise_level" || id == "unison_random" || id == "voice_spread"
+        || id == "noise_level" || id == "noise_color" || id == "unison_random" || id == "voice_spread"
         || id == "body_material" || id == "body_size" || id == "body_coupling"
         || id.startsWith ("macro") || id.startsWith ("mseg_level")
         || id == "res_decay" || id.endsWith ("_string_decay") || id.endsWith ("_string_damp")
@@ -535,7 +535,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "The noise operator: how much noise frequency-modulates this oscillator (breath, grit, cymbals).";
     if (id == "fm_noise_color")
         return "Colour of the noise that modulates (the NOISE FM row): dark rumble to full white noise. "
-               "The NOISE you hear, in SUB + NOISE on PLAY and OSC, is a separate source.";
+               "The NOISE you hear, in SUB + NOISE on PLAY and OSC, is a separate source with its own COLOUR.";
     if (id.endsWith ("_delay") && ! id.startsWith ("fx_"))
         return "DAHDSR: a wait after the note starts before the attack.";
     if (id.endsWith ("_hold"))
@@ -698,7 +698,10 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far below the played note the sub sits.";
 
     if (id == "noise_level")
-        return "White noise level - hats, breath, destruction.";
+        return "Noise level - hats, breath, destruction. COLOUR beside it darkens it.";
+
+    if (id == "noise_color")
+        return "Colour of the noise you hear: dark rumble to full white noise (as the NOISE FM row's COLOUR on FM).";
 
     // Cross modulation
     if (id == "fm_amount")

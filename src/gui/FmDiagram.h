@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -21,8 +22,8 @@
 // (UI review 6): carriers along the bottom, each modulator one row above the
 // deepest operator it drives, as a DX7's algorithm chart. Review 7: every
 // patch is drawn this way (one node style: "OSC n" and its role inside, its
-// tuning and level to the right); a stack too tall for the height climbs
-// up and to the left as a staircase, so nodes stay a readable size.
+// tuning and level to the right). Review 8: a deep stack stands straight
+// too, its nodes a little smaller.
 class FmDiagram : public juce::Component,
                   public juce::SettableTooltipClient,
                   private IlanaAnim::FrameTimer
@@ -105,6 +106,7 @@ public:
         const auto shown = shownOscillators();
 
         const auto amountLabels = amountLabelLayout();
+        const auto haloRoom = getHaloRoom();
 
         // Routes between different oscillators.
         for (const auto source : shown)
@@ -321,12 +323,13 @@ public:
             const auto on = read (prefix + "_on") > 0.5f;
             const auto circle = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
 
-            // A soft halo that breathes while this operator sounds.
+            // A soft halo that breathes while this operator sounds, never
+            // reaching its neighbour's (V8-7).
             if (on && processorRef.getActiveVoiceCount() > 0)
             {
                 const auto breath = 0.5f + 0.5f * std::sin ((float) liveSeconds * 4.0f + (float) osc);
                 g.setColour (colour.withAlpha (0.10f + 0.12f * breath));
-                g.fillEllipse (circle.expanded (6.0f + 4.0f * breath));
+                g.fillEllipse (circle.expanded (haloRoom * (0.6f + 0.4f * breath)));
             }
 
             g.setColour (IlanaTheme::Ui::panel);
@@ -351,7 +354,8 @@ public:
 
             // One style for every node (V7-13, I7-11): its name, and under
             // it whether it is heard (OUT), modulates (MOD) or is off.
-            const auto nameFont = IlanaTheme::font (radius < 26.0f ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body, true);
+            const auto nameFont = IlanaTheme::font (radius < compactRadius ? IlanaTheme::TextSize::tiny
+                                                    : radius < 26.0f ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body, true);
             g.setColour (on ? juce::Colours::white : IlanaTheme::Ui::text3);
             g.setFont (nameFont);
             g.drawText ("OSC " + juce::String (osc + 1), circle.withTrimmedBottom (radius * 0.97f).withTrimmedTop (radius * 0.2f),
@@ -362,16 +366,19 @@ public:
             g.drawText (! on ? "OFF" : out ? "OUT" : "MOD", circle.withTrimmedTop (radius * 1.1f), juce::Justification::centredTop, false);
 
             // Its tuning and level to its right, so the graph reads without
-            // opening each operator (UI review 4, S14).
-            g.setColour (on ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            // opening each operator (UI review 4, S14); an oscillator that is
+            // off says only OFF (S8-36).
+            g.setColour (IlanaTheme::Ui::text2);
             const auto caption = getCaptionBounds (osc, centres, radius);
-            g.drawText (FmOperatorInfo::tuningText (processorRef, osc), caption.withTrimmedBottom (caption.getHeight() * 0.5f).toNearestInt(),
+            if (on)
+                g.drawText (FmOperatorInfo::tuningText (processorRef, osc), caption.withTrimmedBottom (caption.getHeight() * 0.5f).toNearestInt(),
                         juce::Justification::bottomLeft);
-            g.drawText (FmOperatorInfo::levelText (processorRef, osc), caption.withTrimmedTop (caption.getHeight() * 0.5f).toNearestInt(),
-                        juce::Justification::topLeft);
+            if (on)
+                g.drawText (FmOperatorInfo::levelText (processorRef, osc), caption.withTrimmedTop (caption.getHeight() * 0.5f).toNearestInt(),
+                            juce::Justification::topLeft);
 
             // Oscillators that ignore FM: a dashed ring and a tag under them.
-            if (! receivesFm (processorRef, osc))
+            if (on && ! receivesFm (processorRef, osc))
             {
                 juce::Path ring;
                 ring.addEllipse (circle.expanded (2.5f));
@@ -485,15 +492,11 @@ public:
         return rows;
     }
 
-    // Whether the stacks climb to the right (too tall to stand straight at a
-    // readable size).
-    bool isStaircase() const { return geometry().staircase; }
-
     // The height under which nodes, captions and arrows would crowd.
     int getMinimumHeight() const
     {
         const auto rows = getStackRows();
-        return juce::roundToInt ((float) minimumRadius * (float) (rows + 1) + stairGap * (float) (rows - 1)) + 16;
+        return juce::roundToInt ((float) minimumRadius * 2.0f * (float) rows + stackGap * (float) (rows - 1)) + 12;
     }
 
     // Where each shown operator is drawn, and how big (for the UI test).
@@ -529,40 +532,79 @@ public:
 
     float getOperatorRadius() const { return operatorRadius(); }
 
+    // How far a sounding node's halo reaches past its ring: up to 10 px,
+    // and short of halfway to the nearest other node.
+    float getHaloRoom() const
+    {
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        const auto shown = shownOscillators();
+        auto room = 10.0f;
+        for (const auto a : shown)
+            for (const auto b : shown)
+                if (a < b)
+                    room = juce::jmin (room, (centres[(size_t) a].getDistanceFrom (centres[(size_t) b]) - radius * 2.0f) * 0.5f - 1.0f);
+        return juce::jmax (1.0f, room);
+    }
+
+    // The caption beside each shown operator, as drawn (empty while off).
+    juce::StringArray getCaptionTexts() const
+    {
+        juce::StringArray texts;
+        for (const auto osc : shownOscillators())
+            texts.add (read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f ? getNodeCaption (osc) : juce::String());
+        return texts;
+    }
+
+    // Each route's drawn path (for the UI test: no amount label covers one).
+    std::vector<std::vector<juce::Point<float>>> getRoutePathsList() const
+    {
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        const auto shown = shownOscillators();
+        std::vector<std::vector<juce::Point<float>>> paths;
+        for (const auto source : shown)
+            for (const auto target : shown)
+                if (source != target && read (routeId (source, target)) >= 0.001f)
+                    paths.push_back (routePoints (source, target, centres, radius));
+        return paths;
+    }
+
 private:
-    // Node sizes: never smaller than minimumRadius (its name fits inside),
-    // never larger than maximumRadius (deep and shallow algorithms look
-    // alike). Straight stacks keep stackGap between rows; a staircase rises
-    // a radius and stairGap a row (each caption clears the node under it)
-    // and steps stairStep radii to the left, room for the arrow between.
-    static constexpr int minimumRadius = 21;
-    static constexpr float maximumRadius = 30.0f, stackGap = 16.0f, stairGap = 20.0f, stairStep = 2.3f;
+    // Node sizes: never larger than maximumRadius (deep and shallow
+    // algorithms look alike), and on a deep stack small enough that every
+    // row stands straight over the one it drives with an arrow's length
+    // (stackGap) between them, as a DX7 algorithm chart draws it (review 8,
+    // V8-7: the staircase that climbed sideways read as a snake). Under
+    // compactRadius the node's name takes the small font.
+    static constexpr int minimumRadius = 16;
+    static constexpr float maximumRadius = 30.0f, compactRadius = 20.0f, stackGap = 20.0f;
     static constexpr float captionWidth = 58.0f;
 
     struct Geometry
     {
         float radius = 26.0f;
-        bool staircase = false;
+        float rise = 0.0f;    // centre to centre between rows
+        float bottomY = 0.0f; // the carriers' row
     };
 
     Geometry geometry() const
     {
         const auto area = layoutArea();
         const auto rows = (float) getStackRows();
-        const auto slot = area.getWidth() / (float) widestRow();
+        const auto slot = area.getWidth() / (float) columns().count;
         const auto byWidth = (slot - captionWidth - 10.0f) * 0.5f;
-
-        // A staircase only when the height is what is short: it saves
-        // height, not width.
-        const auto byHeight = (area.getHeight() / rows - stackGap) * 0.5f;
+        // The top and bottom nodes touch the area's edges at the most.
+        const auto byHeight = rows > 1.0f ? (area.getHeight() - stackGap * (rows - 1.0f)) / (2.0f * rows)
+                                          : area.getHeight() * 0.5f - 4.0f;
         Geometry geo;
-        geo.radius = juce::jmin (maximumRadius, byWidth, byHeight);
-        if (byHeight < 24.0f && byHeight < byWidth && rows > 1.0f)
-        {
-            geo.staircase = true;
-            geo.radius = juce::jmin (maximumRadius, byWidth, (area.getHeight() - 8.0f - stairGap * (rows - 1.0f)) / (rows + 1.0f));
-        }
-        geo.radius = juce::jmax ((float) juce::jmin (minimumRadius, 16), geo.radius);
+        geo.radius = juce::jmax ((float) minimumRadius, juce::jmin (maximumRadius, byWidth, byHeight));
+        // Rows share the height evenly, but never further apart than the
+        // area allows, nor closer than an arrow's length.
+        geo.rise = rows > 1.0f ? juce::jmin (juce::jmax (area.getHeight() / rows, geo.radius * 2.0f + stackGap),
+                                             (area.getHeight() - geo.radius * 2.0f) / (rows - 1.0f))
+                               : 0.0f;
+        geo.bottomY = area.getCentreY() + geo.rise * (rows - 1.0f) * 0.5f;
         return geo;
     }
 
@@ -603,14 +645,80 @@ private:
         return level;
     }
 
-    int widestRow() const
+    // Each operator's column, as a DX7 algorithm chart: every modulator
+    // belongs over the deepest operator it drives, its stack straight over
+    // that one; operators side by side get columns left to right, and one
+    // under several modulators is centred under them (V8-7). A modulator
+    // driving several sits over their middle when that column is free in
+    // its row.
+    struct Columns
     {
+        std::array<float, OscillatorIds::count> x {};
+        int count = 1;
+    };
+
+    Columns columns() const
+    {
+        const auto shown = shownOscillators();
         const auto levels = stackLevels();
-        std::array<int, OscillatorIds::count> perRow {};
-        auto widest = 1;
-        for (const auto osc : shownOscillators())
-            widest = juce::jmax (widest, ++perRow[(size_t) levels[(size_t) osc]]);
-        return widest;
+        const auto isShown = [&shown] (int osc) { return std::find (shown.begin(), shown.end(), osc) != shown.end(); };
+        const auto routed = [&] (int source, int target)
+        {
+            return source != target && isShown (source) && isShown (target) && read (routeId (source, target)) > 0.001f;
+        };
+
+        std::array<int, OscillatorIds::count> parent;
+        parent.fill (-1);
+        for (const auto osc : shown)
+            if (levels[(size_t) osc] > 0)
+                for (const auto target : shown)
+                    if (routed (osc, target) && levels[(size_t) target] < levels[(size_t) osc]
+                        && (parent[(size_t) osc] < 0 || levels[(size_t) target] > levels[(size_t) parent[(size_t) osc]]))
+                        parent[(size_t) osc] = target;
+
+        Columns result;
+        auto next = 0.0f;
+        std::function<void (int)> place = [&] (int osc)
+        {
+            std::vector<int> children;
+            for (const auto other : shown)
+                if (parent[(size_t) other] == osc)
+                    children.push_back (other);
+            if (children.empty())
+            {
+                result.x[(size_t) osc] = next;
+                next += 1.0f;
+                return;
+            }
+            for (const auto child : children)
+                place (child);
+            result.x[(size_t) osc] = (result.x[(size_t) children.front()] + result.x[(size_t) children.back()]) * 0.5f;
+        };
+        for (const auto osc : shown)
+            if (parent[(size_t) osc] < 0)
+                place (osc);
+
+        for (const auto osc : shown)
+        {
+            std::vector<int> targets;
+            for (const auto target : shown)
+                if (routed (osc, target) && levels[(size_t) target] < levels[(size_t) osc])
+                    targets.push_back (target);
+            if (targets.size() < 2)
+                continue;
+            auto middle = 0.0f;
+            for (const auto target : targets)
+                middle += result.x[(size_t) target];
+            middle /= (float) targets.size();
+            auto free = true;
+            for (const auto other : shown)
+                free = free && (other == osc || levels[(size_t) other] != levels[(size_t) osc] || std::abs (result.x[(size_t) other] - middle) >= 1.0f);
+            if (free)
+                result.x[(size_t) osc] = middle;
+        }
+
+        result.count = juce::jmax (1, (int) next);
+        return result;
     }
 
     // The area operators are placed in: the hint's strip at the bottom goes
@@ -650,82 +758,22 @@ private:
         if (shown.empty())
             return centres;
 
-        // DX stacks. Each row's slots are as wide as the widest row allows;
-        // a node sits left of its slot's centre, its caption on the right.
+        // DX stacks on the columns' grid; a node sits left of its slot's
+        // centre, its caption on the right.
         const auto geo = geometry();
         const auto radius = geo.radius;
         const auto levels = stackLevels();
-        const auto rows = getStackRows();
         const auto area = layoutArea();
-        const auto slot = area.getWidth() / (float) widestRow();
+        const auto grid = columns();
+        // Columns no further apart than a node, its caption and a gap, so
+        // a two- or three-column chart reads as one picture, not separate
+        // islands across the box.
+        const auto slot = juce::jmin (area.getWidth() / (float) grid.count, radius * 2.0f + captionWidth + 100.0f);
         const auto captionShift = juce::jmin ((captionWidth + 6.0f) * 0.5f, slot * 0.25f);
-        const auto step = geo.staircase ? -radius * stairStep : 0.0f;
-        const auto rise = geo.staircase ? radius + stairGap : area.getHeight() / (float) rows;
-        const auto bottomY = geo.staircase ? area.getCentreY() + ((float) (rows - 1) * rise) * 0.5f
-                                           : area.getBottom() - rise * 0.5f;
 
-        for (int row = 0; row < rows; ++row)
-        {
-            std::vector<std::pair<float, int>> placed; // desired slot centre, operator
-            for (const auto osc : shown)
-            {
-                if (levels[(size_t) osc] != row)
-                    continue;
-                // The bottom row in order; above it, over what each drives
-                // (a step to the left of it on a staircase).
-                auto desired = 0.0f;
-                auto targets = 0;
-                if (row > 0)
-                    for (const auto target : shown)
-                        if (target != osc && levels[(size_t) target] < row && read (routeId (osc, target)) > 0.001f)
-                        {
-                            desired += centres[(size_t) target].x + captionShift + step;
-                            ++targets;
-                        }
-                placed.push_back ({ targets > 0 ? desired / (float) targets : -1.0f, osc });
-            }
-            if (placed.empty())
-                continue;
-
-            const auto rowWidth = slot * (float) placed.size();
-            auto x = area.getCentreX() - rowWidth * 0.5f + slot * 0.5f;
-            for (auto& item : placed)
-            {
-                if (item.first < 0.0f)
-                    item.first = x;
-                x += slot;
-            }
-            std::stable_sort (placed.begin(), placed.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
-
-            // Keep a slot apart, as close to the wishes as fits: operators
-            // that want one place share it, spread evenly around it.
-            struct Cluster { float left; int count; };
-            std::vector<Cluster> clusters;
-            for (const auto& item : placed)
-            {
-                clusters.push_back ({ item.first, 1 });
-                while (clusters.size() > 1)
-                {
-                    const auto last = clusters.back();
-                    auto& previous = clusters[clusters.size() - 2];
-                    if (previous.left + slot * (float) previous.count <= last.left)
-                        break;
-                    const auto count = previous.count + last.count;
-                    previous.left = (previous.left * (float) previous.count
-                                     + (last.left - slot * (float) previous.count) * (float) last.count) / (float) count;
-                    previous.count = count;
-                    clusters.pop_back();
-                }
-            }
-            std::vector<float> xs;
-            for (const auto& cluster : clusters)
-                for (int i = 0; i < cluster.count; ++i)
-                    xs.push_back (cluster.left + slot * (float) i);
-
-            const auto y = bottomY - rise * (float) row;
-            for (size_t i = 0; i < placed.size(); ++i)
-                centres[(size_t) placed[i].second] = { xs[i] - captionShift, y };
-        }
+        for (const auto osc : shown)
+            centres[(size_t) osc] = { area.getX() + slot * (grid.x[(size_t) osc] + 0.5f) - captionShift,
+                                      geo.bottomY - geo.rise * (float) levels[(size_t) osc] };
 
         // The whole picture (nodes, captions and feedback loops) centred
         // across the area, and pulled inside it.
@@ -746,16 +794,20 @@ private:
         return centres;
     }
 
-    // Where a route from a row above, more or less straight over, ends: the
-    // top of the node it drives (a staircase's diagonal steps aim at the
-    // centre, which keeps them under the source's caption).
+    // Where a route from a row above ends: on the top of the node it drives,
+    // straight over or leaning at most 35 degrees toward its source, so a
+    // diagonal from a side branch lands clear of the caption on the node's
+    // right (V8-7).
     std::optional<juce::Point<float>> landingPoint (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres,
                                                     float radius) const
     {
-        if (centres[(size_t) source].y < centres[(size_t) target].y - radius * 0.5f
-            && std::abs (centres[(size_t) source].x - centres[(size_t) target].x) < radius * 1.5f)
+        const auto delta = centres[(size_t) source] - centres[(size_t) target];
+        if (delta.y >= -radius * 0.5f)
+            return std::nullopt;
+        if (std::abs (delta.x) < radius * 1.5f)
             return centres[(size_t) target] - juce::Point<float> (0.0f, radius);
-        return std::nullopt;
+        const auto angle = juce::jlimit (-0.61f, 0.61f, std::atan2 (delta.x, -delta.y));
+        return centres[(size_t) target] + juce::Point<float> (std::sin (angle), -std::cos (angle)) * radius;
     }
 
     // A route's sideways bend (0: straight) when the straight line would run
@@ -892,8 +944,8 @@ private:
             }
 
             // How badly a place covers things: nodes, captions, loops and
-            // earlier labels count by the area covered, routes a little, so
-            // a crowded diagram still gets the least bad place.
+            // earlier labels count by the area covered, routes by the piece,
+            // so a crowded diagram still gets the least bad place.
             const auto cost = [&] (juce::Rectangle<float> box)
             {
                 auto total = getLocalBounds().toFloat().reduced (2.0f).contains (box) ? 0.0f : 1.0e6f;
@@ -907,10 +959,12 @@ private:
                 }
                 for (const auto& label : placed)
                     total += 100.0f * covered (label.second.expanded (2.0f));
+                // Crossing a route costs, its arrowhead (the last two pieces)
+                // most: a depth on a head read as part of it (V8-7).
                 for (const auto& path : paths)
                     for (size_t i = 1; i < path.size(); ++i)
-                        if (box.expanded (2.0f).intersects (juce::Line<float> (path[i - 1], path[i])))
-                            total += 1.0f;
+                        if (box.expanded (3.0f).intersects (juce::Line<float> (path[i - 1], path[i])))
+                            total += i + 2 >= path.size() ? 400.0f : 40.0f;
                 return total;
             };
 

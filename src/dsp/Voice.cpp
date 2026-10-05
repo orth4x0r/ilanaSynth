@@ -403,6 +403,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         oscEnableSmooth[osc].setCurrentAndTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
     }
     noiseSmooth.setCurrentAndTargetValue (params.noiseLevel);
+    noiseLow = 0.0f;
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
 
@@ -1194,6 +1195,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
         anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
     }
+    // The heard noise's colour, on the FM noise's scale (about 200 Hz to
+    // white); 1 leaves it white.
+    auto heardNoiseCoeff = 1.0f, heardNoiseGain = 1.0f;
+    if (params.noiseColour < 0.999f)
+    {
+        const auto cutoff = juce::jmin (0.45 * sampleRate, 200.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, params.noiseColour)));
+        heardNoiseCoeff = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sampleRate));
+        heardNoiseGain = std::pow (heardNoiseCoeff / (2.0f - heardNoiseCoeff), -0.25f);
+    }
     const auto noiseCutoff = juce::jmin (0.45 * sampleRate,
                                          200.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, params.fmNoiseColour)));
     const auto noiseCoeff = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * noiseCutoff / sampleRate));
@@ -1761,8 +1771,16 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         if (noiseLevel > 0.0f)
         {
-            const auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
-                               * (alternateAmpRouting ? ampValue : 1.0f);
+            auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
+                         * (alternateAmpRouting ? ampValue : 1.0f);
+            // NOISE COLOUR under white: a one-pole low-pass, part of the
+            // lost level made up (white skips it, so older patches are
+            // unchanged).
+            if (heardNoiseCoeff < 1.0f)
+            {
+                noiseLow += heardNoiseCoeff * (value - noiseLow);
+                value = noiseLow * heardNoiseGain;
+            }
             busL[routeSubOsc] += value;
             busR[routeSubOsc] += value;
         }

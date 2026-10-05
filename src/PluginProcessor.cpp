@@ -1196,6 +1196,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     }
 
     p.noiseLevel = getParam ("noise_level");
+    p.noiseColour = getParam ("noise_color");
 
     p.filter1.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f1_type"));
     p.filter1.slope24 = getParam ("f1_slope") > 0.5f;

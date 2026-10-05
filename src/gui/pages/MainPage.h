@@ -97,14 +97,18 @@ public:
 
         // Sub and noise in the last slot: the sub's shape and octave stacked
         // as the oscillators' menus are, its level and the noise.
-        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
+        // The switch is the sub's alone, and says so; the noise has its
+        // own level and colour (V8-14, V8-15).
+        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
         subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "");
         subOctave = std::make_unique<ComboControl> (p.apvts, "sub_octave", "");
         subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", subColour(), true);
         noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         subLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
+        noiseColour = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
         noiseLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
-        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel);
+        noiseColour->setSizeRole (IlanaTheme::KnobSize::minimum);
+        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel, *noiseColour);
 
         // Right-click an oscillator's title for its menu (switch, remove).
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
@@ -799,6 +803,10 @@ private:
                                    static_cast<juce::Component*> (subLevel.get()) })
                 if (control->getAlpha() != alpha)
                     control->setAlpha (alpha);
+            const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
+            const auto colourAlpha = noise != nullptr && noise->load() > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
+            if (noiseColour->getAlpha() != colourAlpha)
+                noiseColour->setAlpha (colourAlpha);
         }
 
         // AMP ENV says so when nothing plays it (UI review 6, V3, I6-2).
@@ -934,7 +942,7 @@ private:
         subShape->setBounds (menus.removeFromTop (24));
         menus.removeFromTop (4);
         subOctave->setBounds (menus);
-        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), nullptr, nullptr });
+        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get(), nullptr });
     }
 
     // The strips' cards and titles (their controls draw themselves), and
@@ -1055,7 +1063,7 @@ private:
     juce::Rectangle<int> subCard;
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
-    std::unique_ptr<KnobControl> subLevel, noiseLevel;
+    std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
     juce::String shownAmpNote;
     juce::Rectangle<int> ampNoteArea;

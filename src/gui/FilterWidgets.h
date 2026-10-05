@@ -504,10 +504,15 @@ public:
         if (layout.bypassUsed)
         {
             // The lane's name on the lane, where it runs over the filters.
+            // (On a ground of the card's own, so a connector never runs through it: V12-23.)
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto label = juce::Rectangle<float> (layout.f1.getX(), layout.bypassY - 12.0f,
+                                                       juce::GlyphArrangement::getStringWidth (font, "BYPASS") + 8.0f, 11.0f);
+            g.setColour (IlanaTheme::Ui::panel);
+            g.fillRoundedRectangle (label, 3.0f);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("BYPASS", juce::Rectangle<float> (layout.f1.getX(), layout.bypassY - 12.0f, 60.0f, 10.0f),
-                        juce::Justification::centredLeft);
+            g.setFont (font);
+            g.drawText ("BYPASS", label.reduced (4.0f, 0.0f), juce::Justification::centredLeft);
         }
 
         // Blocks.
@@ -541,6 +546,8 @@ public:
 
         // Serial / parallel badge.
         const auto badgeHover = over && layout.badge.contains (mouse);
+        g.setColour (IlanaTheme::Ui::panel);
+        g.fillRoundedRectangle (layout.badge, 8.0f);
         g.setColour (IlanaTheme::accent().withAlpha (badgeHover ? 0.35f : 0.2f));
         g.fillRoundedRectangle (layout.badge, 8.0f);
         g.setColour (IlanaTheme::accent());

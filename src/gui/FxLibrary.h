@@ -252,10 +252,17 @@ public:
         }
         if (kind == Kind::airwindowsOnly)
         {
-            g.setColour (colour.withAlpha (0.6f));
+            // The same small pill the effects with an Airwindows model carry as
+            // their AIRWINDOWS button, here the only model (V12-21).
+            const auto pill = text.removeFromRight (70).withSizeKeepingCentre (70, juce::jmax (14, getHeight() - 10)).toFloat();
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.04f));
+            g.fillRoundedRectangle (pill, 4.0f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (pill.reduced (0.5f), 4.0f, 1.0f);
+            g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f).withAlpha (inRack ? 0.5f : 1.0f));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            // The word, not its initials (review 10, S10-11).
-            g.drawText ("AIRWINDOWS", text.removeFromRight (64), juce::Justification::centredRight);
+            g.drawText ("AIRWINDOWS", pill.toNearestInt(), juce::Justification::centred);
+            text.removeFromRight (6);
         }
 
         g.setColour (textColour);

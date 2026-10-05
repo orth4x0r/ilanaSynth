@@ -707,7 +707,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Noise level: hats, breath, destruction. COLOUR beside it darkens it.";
 
     if (id == "noise_color")
-        return "Colour of the noise you hear: dark rumble to full white noise (as the NOISE FM row's COLOUR on FM).";
+        return "Noise colour: dark rumble to full white noise (as the NOISE FM row's COLOUR on FM). Needs NOISE above 0 to be heard.";
 
     // Cross modulation
     if (id == "fm_amount")

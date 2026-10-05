@@ -151,8 +151,12 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     const auto width = juce::jmin (area.getWidth(), wanted);
     const auto tag = juce::Rectangle<float> (area.getX(), area.getBottom() - 15.0f, width, 15.0f);
 
+    // A rimmed tag, as the "OUT 2" tag is, so a card's tokens share one
+    // look whether it is selected or not (V12-25).
     g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-    g.fillRoundedRectangle (tag, 7.5f);
+    g.fillRoundedRectangle (tag, 4.0f);
+    g.setColour (colour.withAlpha (0.6f));
+    g.drawRoundedRectangle (tag.reduced (0.5f), 4.0f, 1.0f);
     g.setColour (colour.withAlpha (0.9f));
     g.setFont (font);
     IlanaTheme::drawFitted (g, text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1);
@@ -1156,7 +1160,8 @@ public:
         // used to push the label up and the value down). The group sits at
         // the top, where combo and toggle labels in the same row sit; a knob
         // without a label (a matrix cell) is centred instead.
-        constexpr int valueHeight = 16;
+        // (A knob that draws rings keeps 3 px more between its arcs and the value, V12-12.)
+        const auto valueHeight = 16 + (ringConfig.destination != 0 ? 3 : 0);
         const auto hasLabel = label.getText().isNotEmpty();
         const auto labelHeight = labelBlockHeight();
         // The value's cell takes the cell's whole width up to 80 px (the

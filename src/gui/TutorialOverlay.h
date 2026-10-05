@@ -249,11 +249,40 @@ public:
 
             drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", getTips());
 
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (commandKey() + "+1-7 switch tabs    " + commandKey() + "+Shift+1-3 switch pages    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    "
-                            + commandKey() + "+S save",
-                        shortcuts, juce::Justification::centredLeft);
+            // The shortcuts as key caps and a word each (V12-29); the settings
+            // menu, which has no key, is named last.
+            {
+                struct Shortcut { juce::StringArray keys; juce::String what; };
+                const auto cmd = commandKey();
+                const std::vector<Shortcut> shortcuts_ {
+                    { { cmd, "1-7" }, "tabs" }, { { cmd, "Shift", "1-3" }, "pages" }, { { cmd, "Z" }, "undo" },
+                    { { cmd, "Shift", "Z" }, "redo" }, { { cmd, "S" }, "save" }, { {}, "gear: settings" } };
+                const auto capFont = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+                const auto wordFont = IlanaTheme::font (IlanaTheme::TextSize::body);
+                auto x = (float) shortcuts.getX();
+                const auto cy = (float) shortcuts.getCentreY();
+                for (const auto& shortcut : shortcuts_)
+                {
+                    for (int k = 0; k < shortcut.keys.size(); ++k)
+                    {
+                        const auto width = juce::GlyphArrangement::getStringWidth (capFont, shortcut.keys[k]) + 12.0f;
+                        const auto cap = juce::Rectangle<float> (x, cy - 9.0f, width, 18.0f);
+                        g.setColour (IlanaTheme::Ui::raised);
+                        g.fillRoundedRectangle (cap, 4.0f);
+                        g.setColour (IlanaTheme::Ui::line.brighter (0.2f));
+                        g.drawRoundedRectangle (cap.reduced (0.5f), 4.0f, 1.0f);
+                        g.setColour (IlanaTheme::Ui::text2);
+                        g.setFont (capFont);
+                        g.drawText (shortcut.keys[k], cap, juce::Justification::centred);
+                        x += width + 3.0f;
+                    }
+                    const auto width = juce::GlyphArrangement::getStringWidth (wordFont, shortcut.what);
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.setFont (wordFont);
+                    g.drawText (shortcut.what, juce::Rectangle<float> (x + 3.0f, cy - 9.0f, width + 6.0f, 18.0f), juce::Justification::centredLeft);
+                    x += width + 22.0f;
+                }
+            }
         }
     }
 

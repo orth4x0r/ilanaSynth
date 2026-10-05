@@ -325,11 +325,13 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         setParam ("fx_slot2_band", 0.0f);
         setParam ("fx_slot3_band", 0.0f);
 
-        // The toolbar in one group at the left.
-        auto* copy = buttonNamed ("COPY TO 2");
-        auto* file = buttonNamed ("SAVE / LOAD CHAIN");
-        expect (copy != nullptr && file != nullptr && area (file).getX() - area (copy).getRight() < 200,
-                "FX: the dice and SAVE / LOAD CHAIN sit with the chain buttons (S8-40)");
+        // The toolbar: the two chains, one CHAIN menu beside them (copy, save,
+        // load; V12-21) and the dice at the right.
+        auto* chainTwo = buttonNamed ("CHAIN 2");
+        auto* file = buttonNamed (juce::String::fromUTF8 ("CHAIN \xe2\x96\xbe"));
+        expect (chainTwo != nullptr && file != nullptr && area (file).getX() - area (chainTwo).getRight() < 40
+                    && buttonNamed ("COPY TO 2") == nullptr && buttonNamed ("SAVE / LOAD CHAIN") == nullptr,
+                "FX: the chains are the only tabs, with one CHAIN menu beside them (S8-40, V12-21)");
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });

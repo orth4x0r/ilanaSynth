@@ -1264,16 +1264,25 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     // (At the interactive floor: VOICES is a button, and the line is read
     // at a glance.)
     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, false, true)); // live numbers
-    g.setColour (cpuColour);
-    g.drawText ("CPU " + juce::String (juce::roundToInt (cpu)) + "%",
-                juce::Rectangle<int> (designWidth - 84, statusY, 70, 14), juce::Justification::centredRight);
+
+    // The three items of the line share one rim and one baseline (V12-10):
+    // the tempo and CPU are read-outs in the rim VOICES is a button in.
+    const auto paintReadout = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
+    {
+        const auto pill = area.toFloat().reduced (0.5f, 0.0f);
+        g.setColour (IlanaTheme::Ui::line.withAlpha (0.35f));
+        g.fillRoundedRectangle (pill, 5.0f);
+        g.setColour (IlanaTheme::Ui::line.brighter (0.2f).withAlpha (0.6f));
+        g.drawRoundedRectangle (pill, 5.0f, 1.0f);
+        g.setColour (colour);
+        g.drawText (text, area, juce::Justification::centred);
+    };
+    paintReadout ({ designWidth - 84, 38, 70, 17 }, "CPU " + juce::String (juce::roundToInt (cpu)) + "%", cpuColour);
 
     // "120.0 BPM   VOICES 3/32": the tempo, then the voices as one group,
     // a word space inside each and a wider gap between (review 7: VOICES
     // and its count read as two items).
-    g.setColour (IlanaTheme::Ui::text3);
-    g.drawText (juce::String (processorRef.getCurrentBpm(), 1) + " BPM",
-                juce::Rectangle<int> (designWidth - 366, statusY, 78, 14), juce::Justification::centredRight);
+    paintReadout ({ designWidth - 370, 38, 76, 17 }, juce::String (processorRef.getCurrentBpm(), 1) + " BPM", IlanaTheme::Ui::text3);
     {
         // The voice mode when it isn't the usual Poly, so Mono or Legato
         // shows without opening the settings.

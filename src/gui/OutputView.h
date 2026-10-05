@@ -83,7 +83,11 @@ public:
             g.fillRoundedRectangle (bounds, 4.0f);
             g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
             g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
-            drawWave (g, bounds.reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
+            // Named, so a flat line is a quiet output and not a border (V12-11).
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("OUT", bounds.reduced (6.0f, 0.0f).removeFromLeft (24.0f), juce::Justification::centredLeft);
+            drawWave (g, bounds.withTrimmedLeft (30.0f).reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
             return;
         }
 

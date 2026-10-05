@@ -62,7 +62,7 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintSectionTitle (g, "RESPONSE", { headingX, 12, juce::jmax (0, filterDisplay.getRight() - headingX), headingHeight },
-                           "drag across for cutoff, up and down for resonance");
+                           "cutoff across, resonance up and down");
 
         // Signal flow: a card like BODY beside it, the diagram and the
         // BALANCE knob inside; the subtitle says what BALANCE does now.
@@ -1483,7 +1483,7 @@ private:
         constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
         grid.knobHeight = (inner.getHeight() - Grid::rowGap) / 2;
         grid.twoRows = grid.knobHeight >= smallestKnob;
-        grid.oneRowHeight = juce::jmax (grid.knobHeight, inner.getHeight() - 52);
+        grid.oneRowHeight = juce::jmax (grid.knobHeight, inner.getHeight() - 44);
         if (! grid.twoRows)
             grid.knobHeight = inner.getHeight();
         return grid;
@@ -1546,27 +1546,48 @@ private:
             return;
         }
 
-        const auto columns = area.getWidth() >= 360 ? 2 : 1;
-        const auto fitRows = juce::jmax (1, area.getHeight() / 14);
-        // (Routes share the columns evenly, so a short list is not one tall stack.)
-        const auto rows = juce::jmin (fitRows, juce::jmax (1, (routes.size() + columns - 1) / columns));
-        const auto capacity = fitRows * columns;
-        const auto columnWidth = area.getWidth() / columns;
+        // One route to a line: its target, a bar of its depth (the width is the
+        // room the panel leaves, so a short list is not a corner of text), and
+        // the number at the right (V12-3).
+        constexpr int lineHeight = 16;
+        const auto capacity = juce::jmax (1, area.getHeight() / lineHeight);
         for (int i = 0; i < routes.size() && i < capacity; ++i)
         {
-            auto text = routes[i];
-            if (i == capacity - 1 && routes.size() > capacity)
-                text = "+" + juce::String (routes.size() - capacity + 1) + " more (MATRIX)";
-            const auto cell = juce::Rectangle<int> (area.getX() + (i / rows) * columnWidth, area.getY() + (i % rows) * 14, columnWidth - 8, 14);
             const auto more = i == capacity - 1 && routes.size() > capacity;
+            auto text = routes[i];
+            const auto cell = juce::Rectangle<int> (area.getX(), area.getY() + i * lineHeight, area.getWidth() - 8, lineHeight);
             routeHits.push_back ({ cell, more ? -1 : routeSlots[(size_t) i] });
             const auto hovered = (int) routeHits.size() - 1 == hoverRoute;
             g.setColour (colour.withAlpha (hovered ? 1.0f : 0.85f));
-            g.drawText (text, cell, juce::Justification::centredLeft, true);
+
+            if (more)
+            {
+                g.drawText ("+" + juce::String (routes.size() - capacity + 1) + " more (MATRIX)", cell, juce::Justification::centredLeft, true);
+                break;
+            }
+
+            // "FILTER 1 › Cutoff  +70%": the name, then the depth as a bar.
+            const auto depthText = text.fromLastOccurrenceOf ("  ", false, false);
+            const auto nameText = text.upToLastOccurrenceOf ("  ", false, false);
+            auto row = cell;
+            const auto valueArea = row.removeFromRight (44);
+            const auto nameWidth = juce::jmin (row.getWidth() * 55 / 100,
+                                               juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), nameText) + 10);
+            g.drawText (nameText, row.removeFromLeft (nameWidth), juce::Justification::centredLeft, true);
+            g.drawText (depthText, valueArea, juce::Justification::centredRight, true);
+            const auto depth = juce::jlimit (0.0f, 1.0f, std::abs (depthText.retainCharacters ("0123456789").getFloatValue()) / 100.0f);
+            const auto bar = row.withTrimmedLeft (6).withTrimmedRight (6).withSizeKeepingCentre (row.getWidth() - 12, 4).toFloat();
+            if (bar.getWidth() > 10.0f)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.06f));
+                g.fillRoundedRectangle (bar, 2.0f);
+                g.setColour (colour.withAlpha (hovered ? 0.9f : 0.6f));
+                g.fillRoundedRectangle (bar.withWidth (juce::jmax (2.0f, bar.getWidth() * depth)), 2.0f);
+            }
 
             // A row is a link to its matrix row: underlined under the pointer.
             if (hovered)
-                g.fillRect (cell.getX(), cell.getBottom() - 2, juce::jmin (cell.getWidth(), juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), text)), 1);
+                g.fillRect (cell.getX(), cell.getBottom() - 2, juce::jmin (nameWidth, juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), nameText)), 1);
         }
     }
 

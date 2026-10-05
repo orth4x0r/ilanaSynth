@@ -267,7 +267,7 @@ public:
         if (table == nullptr || isStaticTable (table))
             return {};
 
-        return frameText (table->getNumFrames(), displayedFrame);
+        return frameText (table->getNumFrames(), displayedFrame, frameIsMoving (table->getNumFrames()));
     }
 
     // A drag on a table: across scrubs the frame (the scrubber under the
@@ -1010,10 +1010,17 @@ private:
         return choice - 4;
     }
 
+    // Whether the frame playing is another than the knob's (modulated): only
+    // then does the caption add "playing" (V12-28).
+    bool frameIsMoving (int frames) const
+    {
+        return std::abs (displayedFrame - readValue (frameId)) * (float) juce::jmax (0, frames - 1) >= 0.5f;
+    }
+
     static juce::String frameText (int frames, float position, bool playingNow = true)
     {
         // (The frame playing now, modulation included; the FRAME knob is the
-        // set value: S9-12. One caption, "frame 6 of 64, playing": S10-6.)
+        // set value: S9-12. One caption, "frame 6 of 64", with ", playing" only when modulation moves it off the knob: S10-6, V12-28.)
         return "frame " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
                + " of " + juce::String (frames) + (playingNow ? ", playing" : "");
     }
@@ -1414,7 +1421,7 @@ private:
             else if (shownViewMode() == 2)
                 readout = "HARMONICS 1-" + juce::String (juce::jlimit (8, 128, (int) ((wellArea().getWidth() - 20.0f) / 4.0f)));
             else if (! isStaticTable (table))
-                readout = frameText (table->getNumFrames(), displayedFrame);
+                readout = frameText (table->getNumFrames(), displayedFrame, frameIsMoving (table->getNumFrames()));
         }
 
         g.setColour (dragging ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
@@ -1457,8 +1464,9 @@ public:
         const auto frames = table != nullptr && ! isStaticTable (table);
         if (frames && canDragWarp())
             return juce::String::fromUTF8 ("drag across: frame \xc2\xb7 up / down: warp");
+        // (Both gestures are always told, so the second can be found: V12-16.)
         if (frames)
-            return "drag across: frame";
+            return juce::String::fromUTF8 ("drag across: frame \xc2\xb7 up / down: warp (choose a warp first)");
         return canDragWarp() ? "drag up / down: warp" : juce::String();
     }
 

@@ -714,7 +714,7 @@ private:
         int shownMode = -1;
         int shownTuning = 0; // a wavetable's TUNING (the pitch knob)
         bool shownOn = true;
-        juce::String role;
+        juce::String role, tableTip;
         bool opEg = false;
         OperatorEnvThumb thumb;
 
@@ -1282,6 +1282,17 @@ private:
         auto menus = columns.menus;
         const auto mode = juce::jmax (0, strip.shownMode);
 
+        // A compact strip has no warp menu: the table menu's tooltip says what
+        // the warp is, so the choice is not simply gone (V12-14).
+        if (strip.tableTip.isEmpty())
+            strip.tableTip = strip.table->getTooltip();
+        {
+            const auto tip = strip.tableTip + (mode == 0 && ! roomy (card) && strip.warp->getComboBox().getSelectedItemIndex() > 0
+                                                   ? "\nWarp: " + strip.warp->getComboBox().getText() + " (set on OSC)." : juce::String());
+            strip.table->setTooltip (tip);
+            strip.table->getComboBox().setTooltip (tip);
+        }
+
         if (roomy (card))
         {
             const auto count = mode == 0 && ! strip.opEg ? 3 : mode <= 1 ? 2 : 1;
@@ -1548,7 +1559,7 @@ private:
     juce::Rectangle<int> subCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 90, outputMinHeight = 70, maxPatchOnlyHeight = 120, maxGrownSlotHeight = 200;
+    static constexpr int patchMinHeight = 112, outputMinHeight = 70, maxPatchOnlyHeight = 132, maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
     bool subFolded = false;
     float lastOperatorOutputs = 0.0f;

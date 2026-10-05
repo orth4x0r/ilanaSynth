@@ -314,7 +314,7 @@ public:
         addEffectTile.setTooltip ("Add an effect to the next empty slot: the library, every effect grouped by what it does");
         addEffectTile.onClick = [this] { showLibrary (addEffectTile, addEffectTile.getLocalBounds()); };
         stackContent.addChildComponent (addEffectTile);
-        fileButton.setTooltip ("Save this chain to a file, or load one into it");
+        fileButton.setTooltip ("This chain as a whole: copy it over the other chain, save it to a file, or load one into it");
         fileButton.onClick = [this] { showFileMenu(); };
         // The chain's own actions are quiet.
         for (auto* quiet : { &copyChainButton, &fileButton })
@@ -347,7 +347,7 @@ public:
         IlanaTheme::makePill (chainBButton, IlanaTheme::accent());
         addAndMakeVisible (chainAButton);
         addAndMakeVisible (chainBButton);
-        addAndMakeVisible (copyChainButton);
+        addChildComponent (copyChainButton); // (its action is in the CHAIN menu)
         tapGrid.setVisible (false);
         tapGrid.setName ("CUSTOM TAP GRID"); // (the UI test finds it by name)
 
@@ -522,14 +522,13 @@ public:
             left.removeFromLeft (4);
             chainBButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
             left.removeFromLeft (8);
-            copyChainButton.setBounds (left.removeFromLeft (92).reduced (0, 3));
-            // The chain's dice and its file with the chain buttons, as one
-            // toolbar, not across the page (UI review 8, S8-40).
-            left.removeFromLeft (16);
-            diceButton.setBounds (left.removeFromLeft (64).reduced (0, 3));
-            left.removeFromLeft (6);
-            fileButton.setBounds (left.removeFromLeft (150).reduced (0, 3));
+            // One menu for what acts on the chain as a whole (copy it, save it,
+            // load one), the two chains as the only tabs and the dice at the
+            // right: three kinds of button were five buttons (V12-21).
+            fileButton.setBounds (left.removeFromLeft (84).reduced (0, 3));
+            diceButton.setBounds (toolbar.removeFromRight (64).reduced (0, 3));
         }
+        copyChainButton.setVisible (false);
 
         area.removeFromTop (8);
 
@@ -702,6 +701,8 @@ private:
     void showFileMenu()
     {
         juce::PopupMenu menu;
+        menu.addItem (3, processorRef.isShowingChainA() ? "Copy to chain 2..." : "Copy to chain 1...");
+        menu.addSeparator();
         menu.addItem (1, "Save chain...");
         menu.addItem (2, "Load chain...");
         juce::Component::SafePointer<FxPage> safeThis (this);
@@ -714,6 +715,8 @@ private:
                                     safeThis->saveChain();
                                 else if (result == 2)
                                     safeThis->loadChain();
+                                else if (result == 3 && safeThis->copyChainButton.onClick != nullptr)
+                                    safeThis->copyChainButton.onClick();
                             });
     }
 
@@ -1901,7 +1904,7 @@ private:
     // The toolbar: CHAIN 1 / 2, named apart from the header's A / B
     // compare; the dice as the header's, for the chain (V7-43).
     DiceFxButton diceButton;
-    juce::TextButton fileButton { "SAVE / LOAD CHAIN" };
+    juce::TextButton fileButton { juce::String::fromUTF8 ("CHAIN \xe2\x96\xbe") };
     juce::TextButton loadIrButton { "LOAD IR" };
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };

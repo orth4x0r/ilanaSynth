@@ -446,13 +446,13 @@ public:
         const auto controls = arpArea.removeFromBottom (knobRowHeight);
         arpArea.removeFromBottom (6);
         const auto rowDisplay = arpArea.reduced (0, 2);
-        auto laneArea = arpCard.reduced (10, 0).withTrimmedTop (26).withTrimmedBottom (6);
-        auto sideColumn = laneArea.removeFromRight (2 * seqCellWidth + 12);
-        laneArea.removeFromRight (10);
-        const auto display = columnMode ? laneArea.reduced (0, 2) : rowDisplay;
-        arpLanes.setBounds (display);
-        euclidDisplay.setBounds (display);
-        pseqEditor.setBounds (display);
+        const auto fullArea = arpCard.reduced (10, 0).withTrimmedTop (26).withTrimmedBottom (6);
+        // (The lanes' width: what the engine's controls column leaves, two cells
+        // for six controls and one for PROB SEQ's three.)
+        const auto displayFor = [&] (int columns) { return columnMode ? fullArea.withTrimmedRight (columns * seqCellWidth + 22).reduced (0, 2) : rowDisplay; };
+        arpLanes.setBounds (displayFor (2));
+        euclidDisplay.setBounds (displayFor (2));
+        pseqEditor.setBounds (displayFor (1));
 
         // Every engine's controls on one grid of fixed cells: the shared ones
         // first, in one order (RATE, STEPS, GATE), then the engine's own;
@@ -470,12 +470,20 @@ public:
         {
             if (columnMode)
             {
-                auto column = sideColumn;
-                const auto perRow = 2;
+                const auto columns = items.size() > 4 ? 2 : 1;
+                auto available = fullArea;
+                auto column = available.removeFromRight (columns * seqCellWidth + 12);
+                // (Two columns for six controls, one for three: the column is no wider than it needs.)
+                const auto perRow = columns;
+                const auto rows = ((int) items.size() + perRow - 1) / perRow;
+                // (The rows share the card's height, a little taller than a knob needs at most.)
+                const auto rowHeight = juce::jlimit (cellHeight, cellHeight + 40, column.getHeight() / juce::jmax (1, rows));
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)
                 {
-                    std::vector<juce::Component*> pair { items[k], k + 1 < items.size() ? items[k + 1] : nullptr };
-                    leftAligned (column.removeFromTop (cellHeight).withTrimmedRight (0), pair);
+                    std::vector<juce::Component*> pair { items[k] };
+                    if (perRow == 2)
+                        pair.push_back (k + 1 < items.size() ? items[k + 1] : nullptr);
+                    leftAligned (column.removeFromTop (rowHeight), pair);
                 }
             }
             else

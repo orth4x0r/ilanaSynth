@@ -5108,11 +5108,15 @@ int runUiTests()
 
             saveOverlay.getNameField().setText (juce::String::fromUTF8 ("Rock'n (Roll): \xc3\xb1/1?"), true);
             settle (100);
-            expect (saveOverlay.getNote().contains (":") && saveOverlay.getNote().contains ("/") && saveOverlay.getNote().contains ("?"),
-                    "SAVE AS says which characters a file name can't hold (" + saveOverlay.getNote() + ")");
-            // UI review 6: the note says what will happen (before the save),
-            // the panel takes an author and a comment, and suggests tags.
-            expect (saveOverlay.getNote().contains ("will be left out"), "SAVE AS says what will happen, in the future tense");
+            // V12-20: nothing warns after the fact; text that did not come through typing is cleaned in place.
+            expect (! saveOverlay.getNameField().getText().containsAnyOf (":/?") && saveOverlay.getNote().isEmpty(),
+                    "SAVE AS cleans a name that holds characters a file name can't, quietly (" + saveOverlay.getNameField().getText() + ")");
+            saveOverlay.getNameField().clear();
+            saveOverlay.getNameField().insertTextAtCaret ("A:B");
+            settle (60);
+            expect (saveOverlay.getNameField().getText() == "AB", "a character a file name can't hold never gets into the name field as typed");
+            saveOverlay.getNameField().setText (juce::String::fromUTF8 ("Rock'n (Roll): \xc3\xb1/1?"), true);
+            settle (60);
             const auto suggested = saveOverlay.getSuggestedTags();
             expect (suggested.size() >= 3, "SAVE AS suggests tags to tick (" + suggested.joinIntoString (", ") + ")");
             if (! suggested.isEmpty())

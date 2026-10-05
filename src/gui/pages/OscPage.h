@@ -693,8 +693,9 @@ public:
             g.drawText ("OSC " + juce::String (selected + 1), juce::Rectangle<int> (oscCard.getX() + 28, headerY - 8, 60, 16),
                         juce::Justification::centredLeft);
 
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            // (The caption that is a link, "FM FROM OSC 2 30 % ›", is read at body size and a step brighter: V12-18.)
+            g.setColour (captionIsLink() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (captionIsLink() ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::label));
             g.drawText (isOff (selected) ? juce::String::fromUTF8 ("off  \xc2\xb7  switch on to hear it")
                                          : shownRole + (shownRole.contains ("FM") ? juce::String::fromUTF8 ("  \xe2\x80\xba") : juce::String()), subtitleArea,
                         juce::Justification::centredLeft, true);
@@ -735,8 +736,8 @@ public:
         if (! sharedNoteArea.isEmpty() && sharedNote.isNotEmpty())
         {
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, sharedNote, sharedNoteArea, juce::Justification::topLeft, 5);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            IlanaTheme::drawFitted (g, sharedNote, sharedNoteArea, juce::Justification::centredLeft, 5);
         }
         for (const auto& divider : sharedDividers)
         {
@@ -1238,22 +1239,25 @@ private:
         // VOICE and SPREAD & DRIFT hold few controls: they stand at the left in
         // cells of one size and a line of words fills the rest of the card, so
         // the drawer has no bare right half (V12-3).
-        if (sharedSelected == sharedVoice || sharedSelected == sharedSpread)
+        if (sharedSelected == sharedVoice || sharedSelected == sharedSpread || (sharedSelected == sharedSympathetic && ! readBool ("sym_manual")))
         {
             auto items = sharedItems (sharedSelected);
-            while (! items.empty() && items.back() == nullptr)
+            while (! items.empty() && (items.back() == nullptr || ! items.back()->isVisible()))
                 items.pop_back();
             auto weight = 0.0f;
             for (auto* item : items)
                 weight += slotWeight (item);
-            const auto width = juce::jmin (row.getWidth() * 3 / 4, juce::roundToInt (weight * 128.0f));
+            const auto width = juce::jmin (row.getWidth() * 3 / 4, juce::roundToInt (weight * 150.0f));
             layoutSlots (row.removeFromLeft (width), items);
-            sharedNoteArea = row.withTrimmedLeft (18).withTrimmedRight (6).withTrimmedTop (6);
-            sharedNote = sharedSelected == sharedVoice
+            sharedNoteArea = row.withTrimmedLeft (18).withTrimmedRight (6);
+            sharedNote = sharedSelected == sharedSympathetic
+                             ? "Shared drone strings that ring along with everything you play. AMOUNT sets how loud they are, DECAY how long they ring and STRINGS "
+                               "how many there are; MANUAL lets you tune them by hand."
+                             : sharedSelected == sharedVoice
                              ? "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. VOICES caps how many play at once; "
                                "GLIDE slides the pitch from the last note."
-                             : "SPREAD pans the unison voices across the stereo field. UNI PHASE sets where each voice's cycle starts. "
-                               "ANALOG DRIFT lets every voice wander a little in pitch, as an old synth would.";
+                             : "SPREAD pans the unison voices across the stereo field. UNI PHASE sets where each voice's cycle starts, so a chord does not "
+                               "swell in step. ANALOG DRIFT lets every voice wander a little in pitch, as an old synth would: keep it low for a steady sound.";
             return;
         }
 

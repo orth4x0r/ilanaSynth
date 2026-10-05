@@ -360,8 +360,8 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto sawNotAdded = false;
         for (auto* combo : combos)
             if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 6 && combo->getComboBox().getItemText (5).startsWith ("OSC 6"))
-                sawNotAdded = sawNotAdded || combo->getComboBox().getItemText (5).contains ("not added");
-        expect (sawNotAdded, "a vector corner menu marks an oscillator that isn't added");
+                sawNotAdded = sawNotAdded || combo->getComboBox().getItemText (5).contains (": none");
+        expect (sawNotAdded, "a vector corner menu marks an oscillator that isn't added as 'OSC n: none', not in parentheses (V12-8)");
         editor.showPage ("MAIN");
         settle (200);
     }

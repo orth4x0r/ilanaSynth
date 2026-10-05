@@ -470,7 +470,11 @@ private:
         // (the pad's caption says "none"; UI review 9, I9-17).
         auto shown = 0;
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
             shown |= processorRef.isOscillatorShown (osc) ? 1 << osc : 0;
+            // (A switched-off oscillator is a different menu text: bit 8 up.)
+            shown |= processorRef.isOscillatorShown (osc) && readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") < 0.5f ? 1 << (osc + 8) : 0;
+        }
 
         if (shown != shownOscillators)
         {
@@ -481,7 +485,8 @@ private:
                 const auto selected = box.getSelectedId();
                 for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 {
-                    box.changeItemText (osc + 1, "OSC " + juce::String (osc + 1) + ((shown >> osc) & 1 ? "" : " (not added)"));
+                    // Worded as the pad's corners and every label: "OSC 4: none", "OSC 3: off" (V12-8).
+                    box.changeItemText (osc + 1, "OSC " + juce::String (osc + 1) + ((shown >> osc) & 1 ? ((shown >> (osc + 8)) & 1 ? ": off" : "") : ": none"));
                     // A corner can't sound an oscillator that isn't there: the
                     // choice is greyed unless it is already the corner's (V11-25).
                     box.setItemEnabled (osc + 1, ((shown >> osc) & 1) != 0 || osc + 1 == selected);
@@ -605,7 +610,10 @@ public:
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             // One sentence, once (the preview above it carries no label of its own: I10-12).
-            IlanaTheme::drawFitted (g, "OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ". Switch it to Physical to hear this string.",
+            // An FM operator is not offered a string: switching it would take it out of the FM voice (V12-24).
+            IlanaTheme::drawFitted (g, isOperatorVoice (chosen)
+                                           ? "OSC " + juce::String (chosen + 1) + " is an FM operator. Pick another oscillator for a string."
+                                           : "OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ". Switch it to Physical to hear this string.",
                                     message, juce::Justification::centred, 2);
             return;
         }
@@ -920,10 +928,17 @@ private:
         repaint();
     }
 
+    // An oscillator that plays as an FM operator (it takes part in the voice's FM).
+    bool isOperatorVoice (int osc) const
+    {
+        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 0
+               && FmOperatorInfo::isPlaying (processorRef, osc) && FmOperatorInfo::usesOperatorEnv (processorRef, osc);
+    }
+
     void updateAvailability()
     {
         const auto physical = isPhysical (chosen);
-        makePhysical.setVisible (! physical);
+        makePhysical.setVisible (! physical && ! isOperatorVoice (chosen));
         if (excite != nullptr)
             excite->setVisible (physical);
         for (auto& control : controls)

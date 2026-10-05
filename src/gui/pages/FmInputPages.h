@@ -679,8 +679,8 @@ private:
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (small ? 110 : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
-        const auto columnWidth = juce::jmin (small ? 110 : 76, (inner.getWidth() - headWidth) / count);
+        const auto rowHeight = juce::jmin (small ? 130 : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
+        const auto columnWidth = juce::jmin (small ? 124 : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
@@ -783,14 +783,25 @@ private:
         {
             const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
                                                                            moreButton.getButtonText()) + 34;
-            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, juce::jmin (inner.getBottom() - 22, gridBottom), juce::jmin (inner.getWidth() - 8, width), 22));
+            juce::ignoreUnused (width);
+            // (The words, then EXTRAS as a bar across the card's width: no bare
+            // corner beside a short button, V12-3.)
+            const auto readoutTop = gridBottom + 2;
+            readoutArea = matrixCard.getBottom() - 8 - (readoutTop + readoutHeight) >= 26
+                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
+                              : juce::Rectangle<int>();
+            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, juce::jmin (inner.getBottom() - 22, readoutArea.isEmpty() ? gridBottom : readoutArea.getBottom() + 6),
+                                                        inner.getWidth() - 8, 22));
         }
 
         // A line under the controls says what the matrix holds in words.
-        const auto readoutTop = (extras ? pairRow.getBottom() : moreButton.getBottom()) + 8;
-        readoutArea = matrixCard.getBottom() - 8 - readoutTop >= readoutHeight - 4
-                          ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
-                          : juce::Rectangle<int>();
+        if (extras)
+        {
+            const auto readoutTop = pairRow.getBottom() + 8;
+            readoutArea = matrixCard.getBottom() - 8 - readoutTop >= readoutHeight - 4
+                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
+                              : juce::Rectangle<int>();
+        }
     }
 
     void paintMatrix (juce::Graphics& g)

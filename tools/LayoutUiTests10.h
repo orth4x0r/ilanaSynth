@@ -139,6 +139,58 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto worst = 0;
         juce::String worstWhere;
 
+        // One page (or one tab or engine of it) measured: the blanks inside its cards.
+        const auto judgePage = [&] (juce::Image snapshot, const juce::String& preset, bool small, const juce::String& page)
+        {
+            for (int pass = 0; pass < 6; ++pass)
+            {
+                juce::Rectangle<int> emptyAt;
+                const auto empty = measure (snapshot, &emptyAt);
+                if (empty < 1500)
+                    break;
+                // The card it lies in: out from the rectangle to the page's
+                // own background on each side.
+                const auto isPage = [&snapshot] (int x, int y)
+                {
+                    const auto c = snapshot.getPixelAt (x, y);
+                    return std::abs ((int) c.getRed() - (int) IlanaTheme::Ui::bg.getRed()) <= 1
+                           && std::abs ((int) c.getGreen() - (int) IlanaTheme::Ui::bg.getGreen()) <= 1
+                           && std::abs ((int) c.getBlue() - (int) IlanaTheme::Ui::bg.getBlue()) <= 1;
+                };
+                auto card = emptyAt;
+                if (! emptyAt.isEmpty())
+                {
+                    const auto cx = emptyAt.getCentreX(), cy = emptyAt.getCentreY();
+                    auto left = cx, right = cx, topY = cy, bottomY = cy;
+                    while (left > 0 && ! isPage (left, cy)) --left;
+                    while (right < snapshot.getWidth() - 1 && ! isPage (right, cy)) ++right;
+                    while (topY > 0 && ! isPage (cx, topY)) --topY;
+                    while (bottomY < snapshot.getHeight() - 1 && ! isPage (cx, bottomY)) ++bottomY;
+                    card = juce::Rectangle<int> (left, topY, right - left, bottomY - topY).getUnion (emptyAt);
+                }
+                const auto score = empty * 1000 / juce::jmax (1, card.getWidth() * card.getHeight());
+                // (A card too small to hold a real block of air is not judged, nor a strip: under 200 px wide or 80 px high, such as FX's OUTPUT bar or a column
+                // the scan found between a dark picture and the card's edge.)
+                const auto judged = card.getWidth() * card.getHeight() >= 24000 && card.getWidth() >= 200 && card.getHeight() >= 80; // (a strip is not a card)
+                const auto where = preset + (small ? " 75% " : " ") + page + " (" + juce::String (score / 10.0, 1) + " % of its card "
+                                   + card.toString() + ", empty " + emptyAt.toString() + ")";
+                if (judged && score > worst)
+                {
+                    worst = score;
+                    worstWhere = where;
+                }
+                if (judged && score > 250)
+                    std::cout << "    empty card interior " << where << std::endl;
+                if (judged && score > maxEmptyCardPermille)
+                    tooBig.add (where);
+
+                // (Marked, so the next pass finds the next largest.)
+                juce::Graphics mark (snapshot);
+                mark.setColour (juce::Colour (0xffff00ff));
+                mark.fillRect (emptyAt);
+            }
+        };
+
         for (const auto* preset : { "Neuro Wobble", "Init", "E.PIANO 1 (ROM1A)", "Felt Hammer Board" })
         {
             loadNamed (preset);
@@ -171,52 +223,42 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     if (page == "MATRIX")
                         continue;
 
-                    for (int pass = 0; pass < 6; ++pass)
-                    {
-                        juce::Rectangle<int> emptyAt;
-                        const auto empty = measure (snapshot, &emptyAt);
-                        if (empty < 1500)
-                            break;
-                        // The card it lies in: out from the rectangle to the page's
-                        // own background on each side.
-                        const auto isPage = [&snapshot] (int x, int y)
-                        {
-                            const auto c = snapshot.getPixelAt (x, y);
-                            return std::abs ((int) c.getRed() - (int) IlanaTheme::Ui::bg.getRed()) <= 1
-                                   && std::abs ((int) c.getGreen() - (int) IlanaTheme::Ui::bg.getGreen()) <= 1
-                                   && std::abs ((int) c.getBlue() - (int) IlanaTheme::Ui::bg.getBlue()) <= 1;
-                        };
-                        auto card = emptyAt;
-                        if (! emptyAt.isEmpty())
-                        {
-                            const auto cx = emptyAt.getCentreX(), cy = emptyAt.getCentreY();
-                            auto left = cx, right = cx, topY = cy, bottomY = cy;
-                            while (left > 0 && ! isPage (left, cy)) --left;
-                            while (right < snapshot.getWidth() - 1 && ! isPage (right, cy)) ++right;
-                            while (topY > 0 && ! isPage (cx, topY)) --topY;
-                            while (bottomY < snapshot.getHeight() - 1 && ! isPage (cx, bottomY)) ++bottomY;
-                            card = juce::Rectangle<int> (left, topY, right - left, bottomY - topY).getUnion (emptyAt);
-                        }
-                        const auto score = empty * 1000 / juce::jmax (1, card.getWidth() * card.getHeight());
-                        // (A card too small to hold a real block of air is not judged.)
-                        const auto judged = card.getWidth() * card.getHeight() >= 24000;
-                        const auto where = juce::String (preset) + (small ? " 75% " : " ") + page + " (" + juce::String (score / 10.0, 1) + " % of its card "
-                                           + card.toString() + ", empty " + emptyAt.toString() + ")";
-                        if (judged && score > worst)
-                        {
-                            worst = score;
-                            worstWhere = where;
-                        }
-                        if (judged && score > 250)
-                            std::cout << "    empty card interior " << where << std::endl;
-                        if (judged && score > maxEmptyCardPermille)
-                            tooBig.add (where);
+                    judgePage (snapshot, preset, small, page);
 
-                        // (Marked, so the next pass finds the next largest.)
-                        juce::Graphics mark (snapshot);
-                        mark.setColour (juce::Colour (0xffff00ff));
-                        mark.fillRect (emptyAt);
-                    }
+                    // SEQ's engines and OSC's drawer tabs are pages of their own:
+                    // each is measured as well (V12-3).
+                    const auto variant = [&] (const juce::String& label)
+                    {
+                        settle (300);
+                        const auto area = editor.getLocalArea (shown, shown->getLocalBounds()).reduced (4);
+                        judgePage (editor.createComponentSnapshot (area, true, 1.0f).createCopy(), preset, small, page + label);
+                    };
+                    std::vector<CardTabs*> cardTabs;
+                    findAll<CardTabs> (*shown, cardTabs);
+                    for (auto* tabs : cardTabs)
+                        if (page.contains ("SEQ") && tabs->getNames().size() == 4 && tabs->getNames()[1] == "EUCLID")
+                        {
+                            for (int engine = 1; engine < 4; ++engine)
+                            {
+                                tabs->setSelected (engine, true);
+                                variant (" " + tabs->getNames()[engine]);
+                            }
+                            tabs->setSelected (0, true);
+                        }
+                    std::vector<StateTabs*> stateTabs;
+                    findAll<StateTabs> (*shown, stateTabs);
+                    for (auto* tabs : stateTabs)
+                        if (page == "OSC" && tabs->getNumItems() == 5 && tabs->getItem (0).name == "VOICE")
+                        {
+                            for (int drawer = 1; drawer < 5; ++drawer)
+                            {
+                                if (tabs->onSelect != nullptr)
+                                    tabs->onSelect (drawer);
+                                variant (" " + tabs->getItem (drawer).name);
+                            }
+                            if (tabs->onSelect != nullptr)
+                                tabs->onSelect (0);
+                        }
                 }
             }
         }

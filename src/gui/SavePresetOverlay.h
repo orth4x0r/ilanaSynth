@@ -607,19 +607,14 @@ private:
             return;
         }
 
-        juce::StringArray shown;
-
-        for (auto pointer = removed.getCharPointer(); ! pointer.isEmpty();)
-            shown.add (juce::String::charToString (pointer.getAndAdvance()));
-
-        for (auto& character : shown)
-            character = juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9c")) + character + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9d"));
-
-        const auto list = shown.size() == 1 ? shown[0]
-                                            : shown.joinIntoString (", ", 0, shown.size() - 1) + " and " + shown[shown.size() - 1];
-        setNote (list + (shown.size() == 1 ? " will be left out of the file name (a file name can't hold it)."
-                                           : " will be left out of the file name (a file name can't hold them)."),
-                 true);
+        // Text that arrives by any way but typing (a paste past the filter, a
+        // name set by code) is cleaned in place, quietly: nothing is left
+        // to warn about after the fact (V12-20).
+        const auto caret = nameField.getCaretPosition();
+        nameField.setText (PresetFiles::legalName (nameField.getText()), false);
+        nameField.setCaretPosition (juce::jmin (caret, nameField.getText().length()));
+        setNote (removedHint, false);
+        removedHint = {};
     }
 
     IlanaSynthAudioProcessor& processorRef;

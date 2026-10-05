@@ -1100,7 +1100,7 @@ private:
     // knobs in their fixed cells (a menu takes about two), whichever is
     // wider. Cards are no wider than that; the rack's width only decides how
     // many fit in a row.
-    int naturalWidth (const StackPanel& panel) const
+    int naturalWidth (const StackPanel& panel, bool compact = false) const
     {
         const auto header = titleWidth (panel) + headerControlsWidth (panel);
         if (panel.duplicate)
@@ -1114,16 +1114,15 @@ private:
         // (More than eight controls are two rows of half.)
         const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
         const auto menuShare = juce::jmin (menus, columns);
-        const auto row = 20 + (hasCardPicture (panel.type) ? cardDisplayWidth + 12 : 0) + columns * knobCellWidth + menuShare * 70;
-        return std::max ({ header, row, minCardWidth, panel.type == 16 ? 720 : 0, panel.type == 9 ? 520 : 0 });
+        // Compact: the picture at its floor and the cells as tight as the
+        // labels allow, what a half-width card makes do with.
+        const auto row = 20 + (hasCardPicture (panel.type) ? (compact ? minDisplayWidth : cardDisplayWidth) + 12 : 0)
+                         + columns * (compact ? 72 : knobCellWidth) + menuShare * (compact ? 40 : 70);
+        return std::max ({ header, row, compact ? 360 : minCardWidth, panel.type == 16 ? (compact ? 640 : 720) : 0, panel.type == 9 ? (compact ? 440 : 520) : 0 });
     }
 
-    // The narrowest a card lays out at: its picture can give up a little.
-    int minimumWidth (const StackPanel& panel) const
-    {
-        const auto natural = naturalWidth (panel);
-        return panel.duplicate ? natural : natural - (hasCardPicture (panel.type) ? cardDisplayWidth - minDisplayWidth : 0);
-    }
+    // The narrowest a card lays out at.
+    int minimumWidth (const StackPanel& panel) const { return naturalWidth (panel, true); }
 
     int cardHeight (const StackPanel& panel) const
     {
@@ -1193,7 +1192,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y, end == cards.size());
+                y = flowCards (cards, i, end, 0, width, y);
             }
             else
             {
@@ -1250,10 +1249,10 @@ private:
     // Cards from..to on a two-column grid, in chain order (UI review 13,
     // V13-1): a card that fits half the rack's width takes half, and two of
     // them share a row; a wider one, or a half card with no partner, takes the
-    // whole row. Nothing is left short of the right edge: a lone last half
-    // card leaves its other half to the + ADD EFFECT tile. A row is as tall
-    // as its tallest card. Inside a split group the same grid holds.
-    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
+    // whole row, its picture growing into the room: no hole is left in a row
+    // (the + ADD EFFECT tile is a row of its own). A row is as tall as its
+    // tallest card. Inside a split group the same grid holds.
+    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y)
     {
         const auto half = (width - cardGap) / 2;
         const auto fitsHalf = [this, half] (const StackPanel& card) { return minimumWidth (card) <= half; };
@@ -1261,7 +1260,6 @@ private:
         for (auto k = from; k < to;)
         {
             const auto pair = fitsHalf (cards[k]) && k + 1 < to && fitsHalf (cards[k + 1]);
-            const auto lone = fitsHalf (cards[k]) && k + 1 == to && addTileAtEnd && firstEmptySlot() >= 0;
             const auto height = pair ? juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1])) : cardHeight (cards[k]);
 
             if (pair)
@@ -1270,12 +1268,6 @@ private:
                 placeCard (cards[k + 1], { x + half + cardGap, y, width - half - cardGap, height });
                 lastRowHole = {};
                 k += 2;
-            }
-            else if (lone)
-            {
-                placeCard (cards[k], { x, y, half, height });
-                lastRowHole = { x + half + cardGap, y, width - half - cardGap, height };
-                k += 1;
             }
             else
             {
@@ -1343,7 +1335,7 @@ private:
         {
             // The picture takes what the controls leave, between its floor and
             // its cap: a half-width card shows a roomy graph, not a hole.
-            const auto displayWidth = juce::jlimit (minDisplayWidth, maxDisplayWidth, juce::jmin (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3 + 40));
+            const auto displayWidth = juce::jlimit (minDisplayWidth, hasCardDisplay (type) ? (panel.bounds.getWidth() > 600 ? 460 : maxDisplayWidth) : 260, juce::jmin (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3 + 40));
             const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
             rowsArea.removeFromLeft (12);
 

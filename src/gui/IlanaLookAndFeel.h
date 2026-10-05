@@ -250,6 +250,23 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
         return;
     }
 
+    // Text given more than one line wraps at its own size first, when the
+    // lines fit the box; it only shrinks when they don't.
+    if (maximumLines > 1)
+    {
+        juce::GlyphArrangement wrapped;
+        wrapped.addJustifiedText (font, line, 0.0f, font.getAscent(), room, juce::Justification::left);
+        const auto lines = wrapped.getNumGlyphs() > 0
+                               ? juce::roundToInt (wrapped.getBoundingBox (0, -1, true).getHeight() / font.getHeight())
+                               : 1;
+
+        if (lines <= maximumLines && (float) lines * font.getHeight() <= (float) area.getHeight() + 0.5f)
+        {
+            g.drawFittedText (line, area, justification, maximumLines, 1.0f);
+            return;
+        }
+    }
+
     auto fitted = fittedFont (font, line, room, floorHeight);
 
     if (! fitsIn (fitted, line, room))

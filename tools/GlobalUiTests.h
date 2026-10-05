@@ -61,9 +61,17 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         const auto shrunk = probe.shrunk.contains ("STRING COUPLING") && probe.cut.isEmpty();
         IlanaTheme::drawFitted (g, "STRING COUPLING", juce::Rectangle<int> (0, 0, (int) (width * 0.5f), 20), juce::Justification::centred);
         const auto cut = probe.cut.contains ("STRING COUPLING");
+        // Given two lines and the height for them, a long line wraps at its
+        // own size rather than shrinking or tightening onto one (the FM
+        // matrix's note).
         probe = {};
-        expect (fitted && shrunk && cut && juce::approximatelyEqual (g.getCurrentFont().getHorizontalScale(), 1.0f),
-                "drawFitted draws a fitting line as it is, shrinks a slightly long one and cuts a far too long one, never condensed");
+        probe.armed = true;
+        IlanaTheme::drawFitted (g, "STRING COUPLING STRING COUPLING", juce::Rectangle<int> (0, 0, (int) (width * 1.2f), 40),
+                                juce::Justification::topLeft, 2);
+        const auto wraps = probe.shrunk.isEmpty() && probe.cut.isEmpty();
+        probe = {};
+        expect (fitted && shrunk && cut && wraps && juce::approximatelyEqual (g.getCurrentFont().getHorizontalScale(), 1.0f),
+                "drawFitted draws a fitting line as it is, shrinks a slightly long one, cuts a far too long one and wraps one given two lines, never condensed");
 
         // No other path to JUCE's condensing fitted text in the sources.
         const auto sources = findSourceTree();

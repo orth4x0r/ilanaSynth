@@ -177,6 +177,42 @@ inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc)
 }
 } // namespace OscRole
 
+// A frame scrubber under the wave picture (review 12, S12-2): 64 ticks across
+// the table, the thumb on the oscillator's FRAME; a drag sets it.
+class FrameScrubber : public juce::Slider
+{
+public:
+    FrameScrubber()
+    {
+        setSliderStyle (juce::Slider::LinearHorizontal);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        setTooltip ("Frame\nDrag across the table's frames: the same as the picture's own drag and the FRAME knob.");
+    }
+
+    void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.0f, 0.0f);
+        const auto position = (float) valueToProportionOfLength (getValue());
+        constexpr int ticks = 64;
+        for (int i = 0; i < ticks; ++i)
+        {
+            const auto t = (float) i / (float) (ticks - 1);
+            const auto x = area.getX() + t * area.getWidth();
+            const auto major = i % 8 == 0;
+            g.setColour ((t <= position ? colour : IlanaTheme::Ui::text3).withAlpha (t <= position ? 0.9f : 0.5f));
+            g.fillRect (juce::Rectangle<float> (1.0f, major ? 8.0f : 5.0f).withCentre ({ x, area.getCentreY() }));
+        }
+        const auto thumb = juce::Rectangle<float> (4.0f, (float) getHeight() - 4.0f).withCentre ({ area.getX() + position * area.getWidth(), area.getCentreY() });
+        g.setColour (juce::Colours::white.withAlpha (isMouseOverOrDragging() ? 1.0f : 0.85f));
+        g.fillRoundedRectangle (thumb, 2.0f);
+    }
+
+private:
+    juce::Colour colour = IlanaTheme::accent();
+};
+
 // An operator's Operator Env as a small picture, where a plain oscillator
 // shows its wave (PLAY's strips: UI review 7, I7-19): the engine's own run
 // at C3, time on the graphs' square-root scale, levels down to -60 dB.
@@ -519,6 +555,10 @@ public:
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             addChildComponent (waveDisplay (i));
+            scrubbers[(size_t) i].setColour (oscColour (i));
+            scrubberAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+                p.apvts, juce::String (OscillatorIds::prefixes[(size_t) i]) + "_frame", scrubbers[(size_t) i]));
+            addChildComponent (scrubbers[(size_t) i]);
             setupLoadButton (loadButton (i),
                              juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table", 0);
             addChildComponent (loadButton (i));
@@ -1233,7 +1273,15 @@ private:
                                                    .reduced (8));
         }
         else
-            waveDisplay (index).setBounds (display);
+        {
+            // A thin frame scrubber under a wavetable's picture (S12-2).
+            auto picture = display;
+            const auto scrubber = picture.getHeight() > 150 ? picture.removeFromBottom (18) : juce::Rectangle<int>();
+            waveDisplay (index).setBounds (picture);
+            for (auto& item : scrubbers)
+                item.setBounds ({});
+            scrubbers[(size_t) index].setBounds (scrubber);
+        }
 
         // The rows packed from the top at about a knob's height, each named
         // level with its controls' labels (UI review 7, S7-25, V7-29); the
@@ -1542,7 +1590,7 @@ private:
                  &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
-                 &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &loadButton (i), editButtons[(size_t) i].get(),
+                 &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get() };
     }
 
@@ -1602,6 +1650,7 @@ private:
 
         stringView.setVisible (mode == 1);
         waveDisplay (index).setVisible ((mode != 1 || isElectric (index)) && ! opEnv);
+        scrubbers[(size_t) index].setVisible (mode == 0 && ! opEnv);
         waveDisplay (index).setCompact (mode == 1);
         waveDisplay (index).setSingleCycle (opEnv);
 
@@ -1896,6 +1945,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef }; // after processorRef, which it reads
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waveDisplays;
+    std::array<FrameScrubber, OscillatorIds::count> scrubbers;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> scrubberAttachments;
     // The physical oscillator's string, moving as it is played: one view,
     // following the chosen oscillator.
     PhysicalView stringView { processorRef };

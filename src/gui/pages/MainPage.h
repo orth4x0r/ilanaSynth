@@ -97,7 +97,6 @@ public:
         };
         oscColumn.addChildComponent (addOscButton);
         oscColumn.addChildComponent (patchFlow);
-        oscColumn.addChildComponent (outputView);
 
         // Sub and noise in the last slot: the sub's shape and octave stacked
         // as the oscillators' menus are, its level and the noise.
@@ -118,7 +117,8 @@ public:
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
         {
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
-                if (shownStrips[(size_t) osc] && titleArea (oscCards[(size_t) osc]).reduced (0, 6).removeFromTop (16).contains (point))
+                if (shownStrips[(size_t) osc] && ! isFolded (osc)
+                    && (titleArea (oscCards[(size_t) osc]).reduced (0, 6).removeFromTop (16).contains (point) || editLinkArea (oscCards[(size_t) osc]).contains (point)))
                 {
                     // Right-click: the menu; click: all of this oscillator's
                     // controls on OSC (review 9, S9-4: PLAY's strip is the
@@ -130,6 +130,18 @@ public:
                 }
         };
 
+        oscColumn.onHover = [this] (juce::Point<int> point)
+        {
+            auto now = -1;
+            for (int osc = 0; osc < OscillatorIds::count; ++osc)
+                if (shownStrips[(size_t) osc] && ! isFolded (osc) && editLinkArea (oscCards[(size_t) osc]).contains (point))
+                    now = osc;
+            if (now != hoverEditLink)
+            {
+                hoverEditLink = now;
+                oscColumn.repaint();
+            }
+        };
         oscColumn.onPaint = [this] (juce::Graphics& g) { paintColumn (g); };
         oscView.setViewedComponent (&oscColumn, false);
         oscView.setScrollBarsShown (true, false);
@@ -455,21 +467,18 @@ public:
                 ++shown;
                 folded += isFolded (osc) ? 1 : 0;
             }
-        const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
+        const auto cards = shown + (addRow > 0 ? 1 : 0) + 2; // (the strips, the add row, SUB + NOISE and PATCH)
         const auto flexible = shown - folded + 1; // the open strips and SUB + NOISE
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
-        // The strips take what their contents need (a cap), the PATCH tile (and
-        // the OUTPUT view) the height left; when that is too little for a tile
-        // the strips take it instead, up to a larger cap, so the column never
-        // ends in a bare band (V10-2, V10-4).
-        auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
-        {
-            const auto spare = free - flexible * slotHeight - slotGap;
-            if (spare < patchMinHeight)
-                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, free / juce::jmax (1, flexible));
-            else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
-                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, slotHeight + (spare - maxPatchOnlyHeight) / juce::jmax (1, flexible));
-        }
+        // One rule for the column's shape (V11-1, V11-2): the strips take what
+        // their controls need (a cap), and the PATCH tile is always the last
+        // card, taking the height left (a floor, a cap). Only when both are
+        // capped do the strips grow a little. A window too short for the floors
+        // scrolls the column, PATCH included; the tile never comes and goes.
+        auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, (free - patchMinHeight) / juce::jmax (1, flexible));
+        if (free - flexible * slotHeight > patchMaxHeight && slotHeight == maxSlotHeight)
+            slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, (free - patchMaxHeight) / juce::jmax (1, flexible));
+        const auto patchHeight = juce::jlimit (patchMinHeight, patchMaxHeight, free - flexible * slotHeight);
         auto columnHeight = 0, lastWholeBottom = 0;
         std::vector<int> cardTops;
         const auto addCard = [&] (int height)
@@ -486,6 +495,7 @@ public:
         if (addRow > 0)
             addCard (addRowHeight);
         addCard (slotHeight);
+        addCard (patchHeight);
         const auto scrolls = columnHeight > left.getHeight();
         // A scrolling column ends its view at a strip's foot, so no strip
         // shows cut in half (V13, S8).
@@ -538,25 +548,11 @@ public:
         subCard = column.removeFromTop (slotHeight);
         layoutSubCard();
 
-        // Height the column doesn't need goes to a live PATCH tile (the
-        // signal flow, as on FILTER) and, with room to spare, a live output
-        // view, so the left column never ends in dead space.
-        patchCard = outputCard = {};
+        // PATCH: the signal flow, as on FILTER, the column's last card.
         column.removeFromTop (slotGap);
-        const auto spare = scrolls ? 0 : column.getHeight();
-        const auto showPatch = spare >= patchMinHeight;
-        const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
-        if (showPatch)
-        {
-            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : juce::jmin (spare, maxPatchOnlyHeight));
-            column.removeFromTop (slotGap);
-            if (showOutput)
-                outputCard = column.removeFromTop (column.getHeight());
-            patchFlow.setBounds (patchCard.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
-            outputView.setBounds (outputCard.withTrimmedTop (22).reduced (6, 0).withTrimmedBottom (8));
-        }
-        patchFlow.setVisible (showPatch);
-        outputView.setVisible (showOutput);
+        patchCard = column.removeFromTop (patchHeight);
+        patchFlow.setBounds (patchCard.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
+        patchFlow.setVisible (true);
         oscColumn.repaint();
 
         const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
@@ -810,7 +806,7 @@ private:
             }
 
         strip.table->setVisible (shown && mode == 0);
-        strip.warp->setVisible (shown && mode == 0 && ! strip.opEg);
+        strip.warp->setVisible (shown && mode == 0 && ! strip.opEg && oscCards[(size_t) index].getHeight() >= tallStripHeight);
         strip.excite->setVisible (shown && mode == 1);
         // An operator names itself where the MODE menu goes (its mode is
         // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
@@ -1087,6 +1083,7 @@ private:
 
     // A strip's title column: the tag and name, then what it is.
     static juce::Rectangle<int> titleArea (juce::Rectangle<int> card) { return card.withWidth (8 + titleWidth); }
+    static juce::Rectangle<int> editLinkArea (juce::Rectangle<int> card) { return { card.getRight() - 12 - 52, card.getY() + 6, 52, 16 }; }
 
     // A strip, left to right: title, picture, the two menus stacked, four
     // knobs, the switch (centred on the strip, at the right like every card's).
@@ -1110,7 +1107,7 @@ private:
         const auto side = juce::jmin (column.getWidth(), column.getHeight());
         columns.picture = column.withSizeKeepingCentre (side, side);
         inner.removeFromLeft (6);
-        columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24 + 4 + 24);
+        columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, card.getHeight() >= tallStripHeight ? 24 + 4 + 24 + 4 + 24 : 24 + 4 + 24);
         inner.removeFromLeft (4);
         columns.knobs = inner;
         return columns;
@@ -1137,9 +1134,11 @@ private:
 
         if (mode == 0)
         {
+            // The WARP mode menu under the table's where the strip is tall enough
+            // (a compact strip keeps its two menus: six operators fit PLAY).
             strip.table->setBounds (menus.removeFromTop (24));
             menus.removeFromTop (4);
-            strip.warp->setBounds (menus.removeFromTop (24));
+            strip.warp->setBounds (card.getHeight() >= tallStripHeight ? menus.removeFromTop (24) : juce::Rectangle<int>());
         }
         else if (mode == 1)
             strip.excite->setBounds (menus);
@@ -1213,11 +1212,11 @@ private:
 
             paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), {}); // off: the dimming says it (S8-12)
 
-            // The title opens the oscillator's full page: a trailing "›".
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), titleArea (card).reduced (0, 6).removeFromTop (16).removeFromRight (12),
-                        juce::Justification::centredRight);
+            // The title opens the oscillator's full page, and so does the
+            // link at the title row's right, worded like every other jump.
+            g.setColour (hoverEditLink == osc ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), editLinkArea (card), juce::Justification::centredRight);
 
             if (strip.opEg)
             {
@@ -1240,12 +1239,6 @@ private:
         {
             IlanaTheme::paintCard (g, patchCard.toFloat(), 6.0f, IlanaTheme::accent());
             paintTitle (patchCard, "PATCH", IlanaTheme::accent(), true, {}, {});
-        }
-
-        if (! outputCard.isEmpty())
-        {
-            IlanaTheme::paintCard (g, outputCard.toFloat(), 6.0f, IlanaTheme::Ui::text2);
-            paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {}, {});
         }
 
         if (! subCard.isEmpty())
@@ -1283,6 +1276,9 @@ private:
     {
         std::function<void (juce::Graphics&)> onPaint;
         std::function<void (juce::Point<int>, bool)> onClick; // where, and whether it is a right-click
+        std::function<void (juce::Point<int>)> onHover;
+        void mouseMove (const juce::MouseEvent& event) override { if (onHover != nullptr) onHover (event.getPosition()); }
+        void mouseExit (const juce::MouseEvent&) override { if (onHover != nullptr) onHover ({ -1, -1 }); }
         void paint (juce::Graphics& g) override { if (onPaint != nullptr) onPaint (g); }
         void mouseUp (const juce::MouseEvent& event) override
         {
@@ -1296,11 +1292,11 @@ private:
     Column oscColumn;
     DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
     std::array<bool, OscillatorIds::count> shownStrips {};
-    int lastRevealVersion = -1;
+    int lastRevealVersion = -1, hoverEditLink = -1;
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
-    static constexpr int minSlotHeight = 92, maxSlotHeight = 124, foldedHeight = 40;
+    static constexpr int minSlotHeight = 68, tallStripHeight = 92, maxSlotHeight = 150, foldedHeight = 40;
     static constexpr int titleWidth = 84, pictureWidth = 72, menuWidth = 100, switchWidth = 46, minKnobsWidth = 300;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
@@ -1310,10 +1306,9 @@ private:
     std::vector<int> envTabEnvs { 0 }, envHiddenEnvs;
     unsigned int lastShownEnvs = 0;
     EffectRules effectRules { processorRef };
-    juce::Rectangle<int> subCard, patchCard, outputCard;
+    juce::Rectangle<int> subCard, patchCard;
     SignalFlow patchFlow { processorRef };
-    OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 90, outputMinHeight = 70, maxPatchOnlyHeight = 120, maxGrownSlotHeight = 150;
+    static constexpr int patchMinHeight = 130, patchMaxHeight = 240, maxGrownSlotHeight = 180;
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;

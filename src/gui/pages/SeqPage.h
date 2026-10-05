@@ -445,9 +445,18 @@ public:
         // wide for a menu as for a knob, and a row with fewer controls ends
         // sooner instead of spreading over the card (V10-5, S10-9).
         const auto packed = [&controls] (int count) { return controls.withWidth (juce::jmin (controls.getWidth(), count * seqCellWidth)); };
-        layoutRow (packed (6), { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance }, true);
-        layoutRow (packed (6), { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate }, true);
-        layoutRow (packed (3), { &pseqDiv, &pseqLength, &pseqGate }, true);
+        // (A knob sits at its cell's left edge, so its label and a menu's start
+        // on the same grid line: V11-5.)
+        const auto leftAligned = [] (juce::Rectangle<int> row, const std::vector<juce::Component*>& items)
+        {
+            layoutRow (row, items, true);
+            for (auto* item : items)
+                if (dynamic_cast<KnobControl*> (item) != nullptr)
+                    item->setBounds (item->getBounds().withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
+        };
+        leftAligned (packed (6), { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance });
+        leftAligned (packed (6), { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate });
+        leftAligned (packed (3), { &pseqDiv, &pseqLength, &pseqGate });
 
         // The clip's row is menus and buttons only (ten columns): the
         // piano roll takes the height the other engines' knobs need.
@@ -504,7 +513,8 @@ public:
             for (const auto& item : group)
                 total += item.weight;
 
-        const auto unit = (float) (area.getWidth() - gap * 2 - padding * 2 * 3) / total;
+        // (Capped, so the boxes stay a group at the left rather than spreading over the card.)
+        const auto unit = juce::jmin (118.0f, (float) (area.getWidth() - gap * 2 - padding * 2 * 3) / total);
         std::array<juce::Rectangle<int>*, 3> boxes { &snapBox, &strumBox, &sprayBox };
         std::array<juce::Component*, 3> switches { &scaleSwitch, &strumSwitch, &sprayOn };
         auto x = (float) area.getX();
@@ -528,13 +538,6 @@ public:
             // The controls: names on one line at the band's top.
             auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight).withTrimmedBottom (4);
             auto left = (float) row.getX();
-            // A box of menus only (SNAP TO KEY, STRUM) centres its row in the
-            // box rather than leave the air under it (S10-12); one with knobs
-            // keeps the labels on the common top line.
-            auto hasKnob = false;
-            for (const auto& item : groups[g])
-                hasKnob = hasKnob || dynamic_cast<KnobControl*> (item.control) != nullptr;
-
             for (const auto& item : groups[g])
             {
                 const auto cell = juce::Rectangle<int> (juce::roundToInt (left), row.getY(), juce::roundToInt (item.weight * unit),
@@ -542,8 +545,7 @@ public:
                 left += item.weight * unit;
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
                 auto bounds = cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight());
-                if (! hasKnob)
-                    bounds = bounds.withY (row.getY() + (row.getHeight() - bounds.getHeight()) / 2);
+                // (Every box's names on the common top line, menus or knobs: V11-5.)
                 item.control->setBounds (bounds);
             }
         }
@@ -944,7 +946,7 @@ private:
     juce::TextButton clipQuantise, clipExpand { "EXPAND" }, clipDraw { "DRAW" };
     bool clipExpanded = false;
     int boxSignature = -1;
-    static constexpr int boxHeaderHeight = 24, seqCellWidth = 128;
+    static constexpr int boxHeaderHeight = 24, seqCellWidth = 112, seqKnobWidth = 88;
     juce::Rectangle<int> snapBox, strumBox, sprayBox;
     std::unique_ptr<juce::FileChooser> clipChooser;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;

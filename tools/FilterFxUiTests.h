@@ -252,10 +252,24 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     (knob->getParameterId() == "fx_chorus_mix" ? chorusRight : reverbRight) = knob->getRight();
         }
         auto* stack = titles.empty() ? nullptr : titles.front()->getParentComponent();
-        // (UI review 8, S8-14, V8-19: a half card without a partner takes the
-        // whole width.)
-        expect (stack != nullptr && chorusRight > stack->getWidth() / 2 && reverbRight > stack->getWidth() / 2,
-                "a half card (Chorus) without a partner takes the full width before a full card (Reverb)");
+        // (UI review 11, V11-4: one width per effect type, whatever sits next to
+        // it: the displays keep their widths when the order changes.)
+        const auto displayWidths = [&editor]
+        {
+            std::vector<FxDisplay*> displays;
+            findAll<FxDisplay> (editor, displays);
+            std::vector<int> widths;
+            for (auto* d : displays)
+                if (visibleInTree (d))
+                    widths.push_back (d->getWidth());
+            std::sort (widths.begin(), widths.end());
+            return widths;
+        };
+        const auto chorusReverb = displayWidths();
+        loadFx ({ 13, 7 });
+        expect (stack != nullptr && chorusReverb.size() == 2 && chorusReverb == displayWidths(),
+                "an effect has one width wherever it sits in the chain (Chorus, Reverb in either order)");
+        loadFx ({ 7, 13 });
         expect (shownButtons ("+  ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
 
         // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.

@@ -1161,16 +1161,16 @@ private:
             // Two halves no wider than their controls need, side by side in
             // the middle of the card, not spread over its whole width with
             // 200 px between knobs (UI review 9, V9-9).
-            constexpr int halfWidth = 460;
-            row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), halfWidth * 2), row.getHeight());
-            auto half = row.removeFromLeft (row.getWidth() / 2);
+            // (Sized by their controls, three and two cells, no empty slot.)
+            constexpr int cellWidth = 150;
+            const auto subShare = (int) sub.size() * cellWidth + (rowLabelWidth - 24), noiseShare = (int) noise.size() * cellWidth + (rowLabelWidth - 24);
+            row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), subShare + noiseShare), row.getHeight());
+            auto half = row.removeFromLeft (row.getWidth() * subShare / juce::jmax (1, subShare + noiseShare));
             sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
             for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, "SUB", &sub },
                                                { &row, "NOISE", &noise } })
             {
                 sharedLabels.push_back ({ area->removeFromLeft (rowLabelWidth - 24).reduced (8, 0).withTrimmedTop (3).withHeight (18), name });
-                while (group->size() < 4)
-                    group->push_back (nullptr);
                 layoutSlots (*area, *group);
             }
             return;

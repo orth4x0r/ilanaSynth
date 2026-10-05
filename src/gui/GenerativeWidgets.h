@@ -764,9 +764,16 @@ public:
                     g.drawLine ({ mark.getTopLeft(), mark.getBottomRight() }, 1.3f);
                     g.drawLine ({ mark.getBottomLeft(), mark.getTopRight() }, 1.3f);
                 }
+                else if (! on && ! edited)
+                {
+                    // Off and never drawn in: a faint baseline, not a pattern
+                    // that looks in use (V11-16).
+                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.25f * cellAlpha));
+                    g.fillRect (cell.getX(), cell.getBottom() - 1.5f, cell.getWidth(), 1.5f);
+                }
                 else
                 {
-                    g.setColour (fill);
+                    g.setColour (on ? fill : fill.withMultipliedAlpha (0.35f));
                     g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
 
                     // GATE's 100 % line: where the GATE knob's length is.

@@ -95,6 +95,12 @@ public:
         return { "Straight", "Invert", "Ease In", "Ease Out", "S-Curve", "Dead Zone", "Peak", "Steps 4", "Gate" };
     }
 
+    // The tiles' own names: short enough for a 64 px tile at full size.
+    static juce::StringArray getShortShapeNames()
+    {
+        return { "Line", "Invert", "Ease in", "Ease out", "S-curve", "Dead", "Peak", "Steps 4", "Gate" };
+    }
+
     static LfoCurve shape (int index)
     {
         LfoCurve result;
@@ -482,7 +488,7 @@ public:
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         auto bounds = getLocalBounds().toFloat();
-        const auto nameArea = bounds.removeFromBottom (13.0f);
+        const auto nameArea = bounds.removeFromBottom (15.0f);
         const auto plot = bounds.reduced (2.0f);
         IlanaTheme::paintWell (g, plot, 4.0f);
         if (highlighted || down)
@@ -508,8 +514,8 @@ public:
         g.strokePath (path, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, getName().toUpperCase(), nameArea.reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        IlanaTheme::drawFitted (g, RemapEditor::getShortShapeNames()[shapeIndex].toUpperCase(), nameArea.reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
     }
 
 private:

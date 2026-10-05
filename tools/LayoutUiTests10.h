@@ -7,8 +7,8 @@
 
 // The most of its card a rectangle of bare card fill may take, in thousandths
 // (V10-3; the card is found by scanning out to the page's background, which
-// over-reads a card whose cells are as dark as the page, so this is generous).
-constexpr int maxEmptyCardPermille = 450;
+// over-reads a card whose cells are as dark as the page, so this is a little generous; UI review 11, V11-3: it was 45 % and passed what the review found, so it is 40 % now: the FM matrix's 44 % failed it).
+constexpr int maxEmptyCardPermille = 400;
 
 void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
 {
@@ -161,7 +161,7 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                         continue;
 
                     const auto pageArea = editor.getLocalArea (shown, shown->getLocalBounds()).reduced (4);
-                    const auto snapshot = editor.createComponentSnapshot (pageArea, true, 1.0f);
+                    auto snapshot = editor.createComponentSnapshot (pageArea, true, 1.0f).createCopy();
                     // (A PHYSICAL page that has no physical oscillator is a composed
                     // empty state: its picture and message are not measured.)
                     if (page == "PHYSICAL" && juce::String (preset) != "Felt Hammer Board")
@@ -171,42 +171,52 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     if (page == "MATRIX")
                         continue;
 
-                    juce::Rectangle<int> emptyAt;
-                    const auto empty = measure (snapshot, &emptyAt);
-                    // The card it lies in: out from the rectangle to the page's
-                    // own background on each side.
-                    const auto isPage = [&snapshot] (int x, int y)
+                    for (int pass = 0; pass < 1; ++pass)
                     {
-                        const auto c = snapshot.getPixelAt (x, y);
-                        return std::abs ((int) c.getRed() - (int) IlanaTheme::Ui::bg.getRed()) <= 1
-                               && std::abs ((int) c.getGreen() - (int) IlanaTheme::Ui::bg.getGreen()) <= 1
-                               && std::abs ((int) c.getBlue() - (int) IlanaTheme::Ui::bg.getBlue()) <= 1;
-                    };
-                    auto card = emptyAt;
-                    if (! emptyAt.isEmpty())
-                    {
-                        const auto cx = emptyAt.getCentreX(), cy = emptyAt.getCentreY();
-                        auto left = cx, right = cx, topY = cy, bottomY = cy;
-                        while (left > 0 && ! isPage (left, cy)) --left;
-                        while (right < snapshot.getWidth() - 1 && ! isPage (right, cy)) ++right;
-                        while (topY > 0 && ! isPage (cx, topY)) --topY;
-                        while (bottomY < snapshot.getHeight() - 1 && ! isPage (cx, bottomY)) ++bottomY;
-                        card = juce::Rectangle<int> (left, topY, right - left, bottomY - topY).getUnion (emptyAt);
+                        juce::Rectangle<int> emptyAt;
+                        const auto empty = measure (snapshot, &emptyAt);
+                        if (empty <= 0)
+                            break;
+                        // The card it lies in: out from the rectangle to the page's
+                        // own background on each side.
+                        const auto isPage = [&snapshot] (int x, int y)
+                        {
+                            const auto c = snapshot.getPixelAt (x, y);
+                            return std::abs ((int) c.getRed() - (int) IlanaTheme::Ui::bg.getRed()) <= 1
+                                   && std::abs ((int) c.getGreen() - (int) IlanaTheme::Ui::bg.getGreen()) <= 1
+                                   && std::abs ((int) c.getBlue() - (int) IlanaTheme::Ui::bg.getBlue()) <= 1;
+                        };
+                        auto card = emptyAt;
+                        if (! emptyAt.isEmpty())
+                        {
+                            const auto cx = emptyAt.getCentreX(), cy = emptyAt.getCentreY();
+                            auto left = cx, right = cx, topY = cy, bottomY = cy;
+                            while (left > 0 && ! isPage (left, cy)) --left;
+                            while (right < snapshot.getWidth() - 1 && ! isPage (right, cy)) ++right;
+                            while (topY > 0 && ! isPage (cx, topY)) --topY;
+                            while (bottomY < snapshot.getHeight() - 1 && ! isPage (cx, bottomY)) ++bottomY;
+                            card = juce::Rectangle<int> (left, topY, right - left, bottomY - topY).getUnion (emptyAt);
+                        }
+                        const auto score = empty * 1000 / juce::jmax (1, card.getWidth() * card.getHeight());
+                        // (A card too small to hold a real block of air is not judged.)
+                        const auto judged = card.getWidth() * card.getHeight() >= 24000;
+                        const auto where = juce::String (preset) + (small ? " 75% " : " ") + page + " (" + juce::String (score / 10.0, 1) + " % of its card "
+                                           + card.toString() + ", empty " + emptyAt.toString() + ")";
+                        if (judged && score > worst)
+                        {
+                            worst = score;
+                            worstWhere = where;
+                        }
+                        if (judged && score > 250)
+                            std::cout << "    empty card interior " << where << std::endl;
+                        if (judged && score > maxEmptyCardPermille)
+                            tooBig.add (where);
+
+                        // (Marked, so the next pass finds the next largest.)
+                        juce::Graphics mark (snapshot);
+                        mark.setColour (juce::Colour (0xffff00ff));
+                        mark.fillRect (emptyAt);
                     }
-                    const auto score = empty * 1000 / juce::jmax (1, card.getWidth() * card.getHeight());
-                    // (A card too small to hold a real block of air is not judged.)
-                    const auto judged = card.getWidth() * card.getHeight() >= 24000;
-                    const auto where = juce::String (preset) + (small ? " 75% " : " ") + page + " (" + juce::String (score / 10.0, 1) + " % of its card "
-                                       + card.toString() + ", empty " + emptyAt.toString() + ")";
-                    if (judged && score > worst)
-                    {
-                        worst = score;
-                        worstWhere = where;
-                    }
-                    if (judged && score > 350)
-                        std::cout << "    empty card interior " << where << std::endl;
-                    if (judged && score > maxEmptyCardPermille)
-                        tooBig.add (where);
                 }
             }
         }

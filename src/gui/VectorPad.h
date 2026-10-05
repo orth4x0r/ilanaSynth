@@ -71,9 +71,23 @@ public:
             g.drawText (label, box, c % 2 == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight);
         }
 
-        // While VECTOR is off the pad does nothing (the page dims it too).
+        // While VECTOR is off the pad does nothing (the page dims it too), but
+        // it still shows what it would mix: each corner in its oscillator's
+        // colour, dim (V11-24).
         if (read ("vec_on") < 0.5f)
         {
+            for (int c = 0; c < 4; ++c)
+            {
+                const auto osc = processorRef.getVectorCorner (c);
+                if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+                    continue;
+                const auto tint = IlanaTheme::oscColour (osc);
+                juce::ColourGradient glow (tint.withAlpha (0.22f), corners[c], tint.withAlpha (0.0f),
+                                           corners[c].translated (area.getWidth() * 0.4f, 0.0f), true);
+                g.setGradientFill (glow);
+                g.fillEllipse (juce::Rectangle<float> (area.getWidth() * 0.8f, area.getWidth() * 0.8f).withCentre (corners[c]));
+            }
+
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (juce::String::fromUTF8 ("VECTOR OFF  \xc2\xb7  switch on to mix the corners"),

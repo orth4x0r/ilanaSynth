@@ -105,15 +105,21 @@ public:
                            + (numIdle > 0 ? juce::String::fromUTF8 (" \xc2\xb7 ") + juce::String (numIdle) + " into a module that is off (dimmed)"
                                           : juce::String()));
 
-        // The hint, at the right of the title line while there is nothing
-        // else to report (and room for it), unless the dock's note says it.
-        if (! visibleRows.empty() && numDuplicates == 0 && numIdle == 0 && dockArea.isEmpty())
+        // The hint, at the right of the title line while the matrix is new to
+        // the user (a few routes; the filter field takes the place after that),
+        // there is nothing else to report and the whole sentence fits: never cut
+        // short (V11-8).
+        if (! visibleRows.empty() && totalUsed < 5 && numDuplicates == 0 && numIdle == 0 && dockArea.isEmpty())
         {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("Drag a source onto any knob, then drag its ring on the knob to set the depth.",
-                        juce::Rectangle<int> (headingX, 12, titleRight - headingX, headingHeight).withTrimmedLeft (280),
-                        juce::Justification::centredRight, true);
+            const juce::String hint ("Drag a source onto any knob, then drag its ring on the knob to set the depth.");
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
+            const auto room = juce::Rectangle<int> (headingX, 12, titleRight - headingX, headingHeight).withTrimmedLeft (280);
+            if (juce::GlyphArrangement::getStringWidthInt (juce::Font (font), hint) + 4 <= room.getWidth())
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (font);
+                g.drawText (hint, room, juce::Justification::centredRight, false);
+            }
         }
 
         // An empty matrix has no columns to head: just the ways in.
@@ -229,8 +235,15 @@ public:
         // Two lines to a sentence where the dock is tall enough for three,
         // else one line each, so none runs into QUICK SHAPES.
         const auto twoLines = info.getHeight() >= 3 * 32;
+        // (A line that doesn't whole fit is left out, not drawn into the
+        // caption below: V11-9.)
         for (const auto& line : lines)
-            IlanaTheme::drawFitted (g, line, info.removeFromTop (twoLines ? 32 : 20), juce::Justification::topLeft, twoLines ? 2 : 1);
+        {
+            const auto height = twoLines ? 32 : 20;
+            if (info.getHeight() < height)
+                break;
+            IlanaTheme::drawFitted (g, line, info.removeFromTop (height), juce::Justification::topLeft, twoLines ? 2 : 1);
+        }
     }
 
     // A click on a sortable heading.
@@ -537,7 +550,7 @@ public:
         const auto tilesShown = remapEditor != nullptr;
         auto tiles = tilesShown ? dockArea.withTrimmedLeft (remapEditor->getRight() - dockArea.getX() + 16).removeFromBottom (48)
                                 : juce::Rectangle<int>();
-        const auto tileWidth = juce::jmin (64, tiles.getWidth() / juce::jmax (1, (int) shapeTiles.size()));
+        const auto tileWidth = juce::jmin (72, tiles.getWidth() / juce::jmax (1, (int) shapeTiles.size()));
         for (auto& tile : shapeTiles)
         {
             tile->setVisible (tilesShown);
@@ -548,6 +561,10 @@ public:
             }
         }
 
+        // Over an open dock the list ends at a whole row, not half-way through
+        // one (V11-9).
+        if (remapEditor != nullptr && ! dockArea.isEmpty() && area.getHeight() < rowsHeight)
+            area = area.withHeight (juce::jmax (rowHeight + 1, area.getHeight() / (rowHeight + 1) * (rowHeight + 1)));
         viewport.setBounds (area);
         layoutList();
         layoutStarters();
@@ -562,7 +579,7 @@ public:
 
 private:
     int rowHeight = MatrixRow::rowHeight;
-    static constexpr int dockHeight = 210;
+    static constexpr int dockHeight = 232;
 
     struct Heading
     {

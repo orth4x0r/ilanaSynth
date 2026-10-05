@@ -85,7 +85,7 @@ void addAll (juce::Component& parent, Components&... components)
 }
 
 // A page section's heading (a display, a pool, the rack): the title in the
-// label colour with a short rule under it, and no dot (review 6: a dot
+// label colour, with no rule under it (an underline reads as a selected tab: V11-13) and no dot (review 6: a dot
 // reads as a power light, and on cards it means a module's colour beside a
 // real switch). The text starts where a card's tag does, so headings line
 // up with the cards under them.
@@ -97,8 +97,6 @@ void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Recta
     g.setColour (IlanaTheme::Ui::text2);
     g.setFont (font);
     g.drawText (text, area, juce::Justification::centredLeft);
-    g.setColour (IlanaTheme::Ui::line.brighter (0.5f));
-    g.fillRect (juce::Rectangle<float> ((float) area.getX(), (float) area.getCentreY() + 8.0f, (float) juce::jmin (width, 18), 1.5f));
 
     if (subtitle.isEmpty())
         return;

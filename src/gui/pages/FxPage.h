@@ -557,7 +557,7 @@ public:
             // The rack's spare height goes to its rows (a taller graph, the
             // knobs centred in it), so the page doesn't end in a blank band
             // (UI review 9, V9-3).
-            rowExtra = juce::jlimit (0, 260, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
+            rowExtra = juce::jlimit (0, 48, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
             stackView.setBounds (stackArea);
             layoutStack();
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
@@ -948,7 +948,7 @@ private:
     struct StackPanel
     {
         int slot = 0, type = 0;
-        bool duplicate = false, half = false;
+        bool duplicate = false;
         juce::Rectangle<int> bounds;
     };
 
@@ -964,7 +964,7 @@ private:
     // on switch), then rows of controls sized to their knobs, with the
     // family's display on the left where the module has one. Cards whose
     // controls fit in half the width sit two to a row (S6-26).
-    static constexpr int knobCellWidth = 88, maxDisplayWidth = 600, maxHalfDisplayWidth = 250;
+    static constexpr int knobCellWidth = 88, cardDisplayWidth = 220, minCardWidth = 360;
     static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int blendWidth = 104, soloWidth = 52, bandWidth = 100, knobColumn = 84;
@@ -1024,12 +1024,6 @@ private:
 
     static bool hasCardDisplay (int type) { return type == 29 || FxDisplay::hasDisplay (type); }
 
-    static int displayWidthFor (int type, bool half)
-    {
-        if (half)
-            return FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics ? 160 : 130;
-        return type == 29 ? 250 : (type == 9 ? 220 : (FxDisplay::kindFor (type) == FxDisplay::Kind::dynamics || type == 13 ? 200 : 190));
-    }
 
     // The header's controls, right to left from the on switch.
     int headerControlsWidth (const StackPanel& panel) const
@@ -1072,19 +1066,27 @@ private:
         return getSlotName (base).toUpperCase();
     }
 
-    // The width the card needs: its header, and its display and knobs side
-    // by side in one row (two rows take the full width).
+    // One width per effect type (V11-4), whatever sits beside it or how many
+    // cards the chain has: the header, or the display at its cap and the
+    // knobs in their fixed cells (a menu takes about two), whichever is
+    // wider. Cards are no wider than that; the rack's width only decides how
+    // many fit in a row.
     int naturalWidth (const StackPanel& panel) const
     {
         const auto header = titleWidth (panel) + headerControlsWidth (panel);
         if (panel.duplicate)
-            return header;
+            return juce::jmax (header, minCardWidth);
 
         const auto items = cardItems (panel);
-        if (items.size() > 8 || panel.type == 16)
-            return std::numeric_limits<int>::max();
+        auto menus = 0;
+        for (auto* item : items)
+            menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
 
-        return juce::jmax (header, 20 + (hasCardDisplay (panel.type) ? displayWidthFor (panel.type, true) + 12 : 0) + (int) items.size() * knobColumn);
+        // (More than eight controls are two rows of half.)
+        const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
+        const auto menuShare = juce::jmin (menus, columns);
+        const auto row = 20 + (hasCardDisplay (panel.type) ? cardDisplayWidth + 12 : 0) + columns * knobCellWidth + menuShare * 70;
+        return std::max ({ header, row, minCardWidth, panel.type == 16 ? 720 : 0, panel.type == 9 ? 520 : 0 });
     }
 
     int cardHeight (const StackPanel& panel) const
@@ -1202,63 +1204,39 @@ private:
         stackContent.repaint();
     }
 
-    // Cards from..to in rows: two half cards side by side (the same
-    // height), anything else across the whole width. One rule for widths
-    // (UI review 8, S8-14, V8-19): cards pair up two to a row only at the
-    // top level and only in pairs; a half card with no partner takes the
-    // whole width, except the chain's last with + ADD EFFECT beside it;
-    // inside a split group every card is full width.
+    // Cards from..to in rows, left to right, each at its type's width and as
+    // many to a row as fit (UI review 11, V11-4); a row that is not full
+    // stays left, no card is stretched to fill it. A row is as tall as its
+    // tallest card. Inside a split group the same widths hold.
     int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
-        const auto halfWidth = (width - cardGap) / 2;
-        const auto inGroup = x > 0;
-
-        for (auto k = from; k < to; ++k)
-            cards[k].half = ! inGroup && naturalWidth (cards[k]) <= halfWidth;
-
-        // A lone half card (no half neighbour to pair with) goes full width.
-        for (auto k = from; k < to;)
-        {
-            if (cards[k].half && k + 1 < to && cards[k + 1].half)
-            {
-                k += 2;
-                continue;
-            }
-            if (cards[k].half && ! (k + 1 == to && addTileAtEnd))
-                cards[k].half = false;
-            ++k;
-        }
+        juce::ignoreUnused (addTileAtEnd);
 
         for (auto k = from; k < to;)
         {
-            if (cards[k].half && k + 1 < to && cards[k + 1].half)
+            auto end = k;
+            auto used = 0, height = 0;
+            while (end < to)
             {
-                const auto height = juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1]));
-                placeCard (cards[k], { x, y, halfWidth, height });
-                placeCard (cards[k + 1], { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height });
-                ++rowsPlaced;
-                k += 2;
-                y += height + cardGap;
+                const auto w = juce::jmin (width, naturalWidth (cards[end]));
+                if (end > k && used + cardGap + w > width)
+                    break;
+                used += (end > k ? cardGap : 0) + w;
+                height = juce::jmax (height, cardHeight (cards[end]));
+                ++end;
             }
-            else if (cards[k].half)
+
+            auto left = x;
+            for (auto i = k; i < end; ++i)
             {
-                const auto height = cardHeight (cards[k]);
-                placeCard (cards[k], { x, y, halfWidth, height });
-                if (k + 1 == to && addTileAtEnd)
-                    addEffectCard = { x + halfWidth + cardGap, y, width - halfWidth - cardGap, height };
-                ++rowsPlaced;
-                ++k;
-                y += height + cardGap;
+                const auto w = juce::jmin (width, naturalWidth (cards[i]));
+                placeCard (cards[i], { left, y, w, height });
+                left += w + cardGap;
             }
-            else
-            {
-                cards[k].half = false;
-                const auto height = cardHeight (cards[k]);
-                placeCard (cards[k], { x, y, width, height });
-                ++rowsPlaced;
-                ++k;
-                y += height + cardGap;
-            }
+
+            ++rowsPlaced;
+            y += height + cardGap;
+            k = end;
         }
 
         return y;
@@ -1303,23 +1281,18 @@ private:
         const auto extra = rows == 1 ? rowExtra : 0;
         auto rowsArea = body.removeFromTop (rows * cardRowHeight + extra);
 
-        // The family's picture, left of the knobs.
-        // A row of knobs is a tight group at the picture's right edge, one
-        // fixed cell each; what the card has to spare goes to the picture, up
-        // to a cap, and then stays empty at the right (V10-5: not knobs spread
-        // 700 px apart).
+        // The family's picture (at its cap), then the controls in fixed
+        // cells from its right edge (V11-4, V11-6: no empty column, rows
+        // left-aligned on one grid).
         auto menusInRow = 0;
         for (auto* item : items)
             menusInRow += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-        const auto knobsOnly = menusInRow == 0 && items.size() <= 8 && hasCardDisplay (type) && ! items.empty();
-        const auto knobsWidth = (int) items.size() * knobCellWidth;
+        const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
+        const auto knobsWidth = columns * knobCellWidth + juce::jmin (menusInRow, columns) * 70;
 
         if (hasCardDisplay (type))
         {
-            auto displayWidth = juce::jmin (rowsArea.getWidth() / 3, displayWidthFor (type, panel.half));
-            if (knobsOnly)
-                displayWidth = juce::jlimit (displayWidth, juce::jmax (displayWidth, panel.half ? maxHalfDisplayWidth : maxDisplayWidth),
-                                             rowsArea.getWidth() - knobsWidth - 12);
+            const auto displayWidth = juce::jmin (cardDisplayWidth, juce::jmax (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3));
             const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
             rowsArea.removeFromLeft (12);
 
@@ -1341,20 +1314,7 @@ private:
             layoutRow (rowsArea.removeFromTop (cardRowHeight), std::vector<juce::Component*> (items.begin() + half, items.end()));
         }
         else
-        {
-            // A short row is centred in its space, not pinned left.
-            // Menus (an Airwindows algorithm's long name) take a wider column.
-            auto menus = 0;
-            for (auto* item : items)
-                menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-            const auto maxWidth = juce::jmin (rowsArea.getWidth(), knobsOnly ? knobsWidth : (int) items.size() * (panel.half ? 110 : 150) + menus * 40);
-            // A row led by a menu (an ALGORITHM) starts at the row's left, so
-            // the menu stays put when the card switches model (UI review 8,
-            // I8-33); a row of knobs is centred.
-            const auto ledByMenu = ! items.empty() && dynamic_cast<ComboControl*> (items.front()) != nullptr;
-            auto row = rowsArea.removeFromTop (cardRowHeight + extra);
-            layoutRow (ledByMenu || knobsOnly ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, row.getHeight()), items, false, 1.4f);
-        }
+            layoutRow (rowsArea.removeFromTop (cardRowHeight + extra), items, false, 1.4f);
 
         body.removeFromTop (cardPadding);
 

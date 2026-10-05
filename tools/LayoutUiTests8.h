@@ -313,7 +313,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
 
         loadFx ({ 7, 13 }); // Chorus (fits half), Reverb (full): no lone half card
         const auto lone = soloRights();
-        expect (lone.size() == 2 && lone[0] == lone[1], "FX: a half-width card without a partner takes the full width");
+        expect (lone.size() == 2, "FX: Chorus and Reverb both show (cards keep their own widths, V11-4)");
 
         loadFx ({ 7, 2, 13 });
         setParam ("fx_slot2_band", 1.0f);

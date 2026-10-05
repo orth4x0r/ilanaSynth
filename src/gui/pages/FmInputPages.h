@@ -639,6 +639,17 @@ private:
         // The FM style across the top, a note on what sets the depth beside
         // it; OSC 1 and OSC 2's ring mod and sync in a row under the matrix
         // (V6-14).
+        // What the card holds is centred in it, so a small patch's matrix has no
+        // bare band at its foot (V11-3).
+        {
+            const auto n = juce::jmax (1, (int) shown.size());
+            const auto r = n + (extras ? 1 : 0);
+            const auto bottom = extras ? 62 + 6 : 28;
+            const auto cell = juce::jmin (n <= 3 ? 72 : 66, (inner.getHeight() - 44 - 6 - 22 - bottom - 8) / r);
+            const auto spare = inner.getHeight() - (44 + 6 + 22 + cell * r + bottom + 12);
+            if (spare > 8)
+                inner.removeFromTop (juce::jmin (spare / 2, 60));
+        }
         auto top = inner.removeFromTop (44);
         mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 2)).reduced (3, 2));
         topNote = top.withTrimmedLeft (12).withTrimmedTop (13);
@@ -760,9 +771,13 @@ private:
             pairRow = juce::Rectangle<int> (inner.getX(), juce::jmin (inner.getBottom() - 62, gridBottom), inner.getWidth(), 62);
             inner.setBottom (pairRow.getY());
             auto row = pairRow.reduced (4, 0);
-            hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
-            ringMod->setBounds (row.removeFromRight (80));
-            pairText = row.withTrimmedRight (8);
+            // The words, then the two controls right after them (not the
+            // controls parked at the far edge with air between: V11-3).
+            pairText = row.removeFromLeft (juce::jmin (row.getWidth() - 200, 300));
+            row.removeFromLeft (8);
+            ringMod->setBounds (row.removeFromLeft (80));
+            row.removeFromLeft (12);
+            hardSync.setBounds (row.removeFromLeft (100).withSizeKeepingCentre (100, 37));
         }
         else
         {

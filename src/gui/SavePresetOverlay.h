@@ -139,7 +139,10 @@ public:
 
         categoryBox.setSelectedItemIndex (category >= 0 ? category : choices.size() - 1, juce::dontSendNotification);
         tagsField.setText (processorRef.getPresetTags(), false);
-        nameField.setText (name, false);
+        // (A name carried over from a patch that holds a character a file name
+        // can't, such as a colon, is cleaned as it is filled in: the field is
+        // never opened with a warning about text the user did not type: V11-26.)
+        nameField.setText (PresetFiles::legalName (name), false);
 
         // Your own preset keeps its author and comment; anything else starts
         // with the last author you typed and no comment.

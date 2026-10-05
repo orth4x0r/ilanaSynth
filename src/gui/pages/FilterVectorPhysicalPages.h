@@ -377,11 +377,18 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
         IlanaTheme::paintCard (g, vectorCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
 
+        // The switch sits right after the title, where the eye is (V11-24: the
+        // card is 1,500 px wide), the caption after it.
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "VECTOR",
-                                     readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
-                                                                 : "four oscillators at the corners",
-                                     colour(), vectorCard.getRight() - on.getX() + 6);
+        IlanaTheme::paintCardHeader (g, header, "VECTOR", {}, colour());
+        {
+            auto caption = header.withTrimmedLeft (on.getRight() - header.getX() + 8);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
+                                                    : "four oscillators at the corners",
+                        caption, juce::Justification::centredLeft, true);
+        }
 
         // The controls in three boxes, as SEQ's GENERATE has them (UI review
         // 9, V9-7): where the four oscillators sit, where the point is and
@@ -417,7 +424,7 @@ public:
         pad.setBounds (inner.removeFromLeft (padWidth));
         inner.removeFromLeft (12);
         // The vector's on switch in its header, like every card's.
-        on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
+        on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14).withX (vectorCard.getX() + 12 + IlanaTheme::cardTitleWidth ("VECTOR") + 4));
         // Three boxes in the controls column, each as tall as what it holds
         // (12 px of padding, controls in a left-aligned row of fixed cells):
         // CORNERS (the four menus, two by two), POSITION (X, Y) and MOTION
@@ -471,7 +478,12 @@ private:
                 auto& box = corner->getComboBox();
                 const auto selected = box.getSelectedId();
                 for (int osc = 0; osc < OscillatorIds::count; ++osc)
+                {
                     box.changeItemText (osc + 1, "OSC " + juce::String (osc + 1) + ((shown >> osc) & 1 ? "" : " (not added)"));
+                    // A corner can't sound an oscillator that isn't there: the
+                    // choice is greyed unless it is already the corner's (V11-25).
+                    box.setItemEnabled (osc + 1, ((shown >> osc) & 1) != 0 || osc + 1 == selected);
+                }
                 box.setSelectedId (selected, juce::dontSendNotification);
             }
         }
@@ -529,6 +541,9 @@ public:
         addAndMakeVisible (oscPicker);
         makePhysical.setButtonText ("SWITCH TO PHYSICAL");
         makePhysical.setTooltip ("Puts this oscillator in Physical mode.");
+        // The theme's outlined button (a tinted pill), not a flat default one.
+        IlanaTheme::makePill (makePhysical, IlanaTheme::accent());
+        makePhysical.setToggleState (true, juce::dontSendNotification);
         makePhysical.onClick = [this]
         {
             if (auto* parameter = processorRef.apvts.getParameter (prefix() + "_mode"))
@@ -633,7 +648,9 @@ public:
 
         if (! physical)
         {
-            emptyCard = area;
+            // Card height only (V11-15): the sentence, the button and a small
+            // preview, not a page-sized dim picture.
+            emptyCard = area.withHeight (juce::jmin (area.getHeight(), 360));
             auto inner = emptyCard.reduced (10, 0);
             inner.removeFromTop (30);
             const auto pickerWidth = juce::jmin (inner.getWidth(), oscPicker.getIdealWidth());

@@ -42,6 +42,15 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("OUT", top, juce::Justification::centredLeft);
 
+        // The loudest hold in dB between the name and the light, so the
+        // meter has a number (V11-10).
+        {
+            const auto peak = juce::jmax (holds[0], holds[1]);
+            g.setColour (IlanaTheme::Ui::text2.withAlpha (peak > 0.001f ? 1.0f : 0.5f));
+            g.drawText (peak > 0.001f ? juce::String (juce::Decibels::gainToDecibels (peak, -60.0f), 1) + " dB" : juce::String ("-- dB"),
+                        top.withTrimmedLeft (30.0f).withTrimmedRight (12.0f), juce::Justification::centredRight);
+        }
+
         // The clip light, a dot at the right of that line.
         const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ top.getRight() - 4.0f, top.getCentreY() });
         g.setColour (clipped ? juce::Colour (0xffff4f5e) : IlanaTheme::Ui::raised);

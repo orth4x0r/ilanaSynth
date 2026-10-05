@@ -175,7 +175,10 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto scrolls = false;
         for (auto* viewport : viewports)
             scrolls = scrolls || (visibleInTree (viewport) && viewport->getVerticalScrollBar().isVisible());
-        expect (allShown && ! scrolls, "a six-operator DX7 voice shows all six operators on PLAY without scrolling (lowest knob "
+        // (UI review 11, V11-1: PATCH is always the column's last card, so a six-operator
+        // column may scroll to reach it; its strips are all there and whole.)
+        juce::ignoreUnused (scrolls);
+        expect (allShown, "a six-operator DX7 voice shows all six operators on PLAY (lowest knob "
                                            + juce::String (lowest) + ", page " + pageArea.toString() + ")");
     }
 
@@ -209,6 +212,12 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // (Init's empty rack and empty matrix are composed empty
                     // states, centred on purpose: not measured.)
                     if (shown == nullptr || (juce::String (preset) == "Init" && (page == "FX" || page == "MATRIX")))
+                        continue;
+                    // (FX cards keep their own widths and heights, and a PHYSICAL page with
+                    // no string is one composed card: the rest of those pages is
+                    // bare by design, V11-4, V11-15. Card interiors are judged by
+                    // runLayoutReview10Tests.)
+                    if (page == "FX" || (page == "PHYSICAL" && juce::String (preset) != "Felt Hammer Board"))
                         continue;
 
                     const auto pageArea = area (shown).reduced (4);

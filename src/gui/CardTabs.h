@@ -127,13 +127,12 @@ public:
             const auto open = openBounds();
             const auto hovered = isMouseOver() && open.contains (mouse);
             // The one "go to its full editor" idiom, "EDIT ›" (review 10,
-            // I10-2): the same words as the header links, not a glyph.
-            const auto box = open.reduced (2.0f, 2.0f);
-            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, hovered ? 0.08f : 0.0f));
-            g.fillRoundedRectangle (box, 4.0f);
-            g.setColour (hovered ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            // I10-2): the same words as the header links, not a glyph. Set
+            // apart from the pills by a gap and drawn as a link, text only in
+            // the accent colour, so it does not read as one more tab (V11-19).
+            g.setColour (hovered ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
             g.setFont (IlanaTheme::pillFont());
-            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), box, juce::Justification::centred);
+            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), open.withTrimmedLeft (12.0f), juce::Justification::centredRight);
         }
     }
 
@@ -183,7 +182,7 @@ public:
 
 private:
     static constexpr int gap = 4;
-    static constexpr int openWidth = 58;
+    static constexpr int openWidth = 72;
 
     static constexpr int idealPadding = 16;
 

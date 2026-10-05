@@ -778,6 +778,12 @@ public:
         sharedSelected = juce::jlimit (0, numShared - 1, index);
         sharedTabs.setSelected (sharedSelected);
         updateModeVisibility();
+        // SUB + NOISE folds while off: picking it (or leaving it) re-lays the card.
+        if (sharedFolded() != shownSharedFolded)
+        {
+            resized();
+            repaint();
+        }
     }
 
     // The UI test reads the menu's items.

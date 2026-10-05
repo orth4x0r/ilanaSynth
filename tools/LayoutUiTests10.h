@@ -416,7 +416,16 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             return false;
         };
         editor.showPage ("OSC");
-        settle (500);
+        settle (300);
+        {
+            // SUB + NOISE (an earlier test may leave VOICE open).
+            std::vector<StateTabs*> rows;
+            findAll<StateTabs> (editor, rows);
+            for (auto* tabs : rows)
+                if (tabs->getNumItems() > 0 && tabs->getItem (0).name == "SUB + NOISE" && tabs->onSelect != nullptr)
+                    tabs->onSelect (0);
+        }
+        settle (300);
         const auto subOff = ! shownKnob ("subosc_level");
         setParam ("subosc_on", 1.0f);
         settle (600);

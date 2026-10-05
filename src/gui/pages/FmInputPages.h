@@ -607,10 +607,11 @@ private:
 
         bottom.push_back (&controls.feedback);
 
-        // Menus and knobs on one grid (as many columns as the longer row), so
-        // each menu sits over a knob.
+        // Menus and knobs on a grid (as many columns as the longer row), so
+        // the menus line up with the knobs; the menus' row has one column
+        // fewer, since FEEDBACK (I10-4) left them too narrow for "Semitones".
         const auto columns = juce::jmax (top.size(), bottom.size());
-        top.resize (columns, nullptr);
+        top.resize (juce::jmax (top.size(), columns - 1), nullptr);
         bottom.resize (columns, nullptr);
         layoutRow (topRow, top);
         layoutRow (inner, bottom);

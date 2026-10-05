@@ -320,14 +320,19 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     mainPage->onEditOperator = [this] (int op) { showOperatorEnvelope (op); };
 
-    // Any page can open the FM page on an operator, or on PITCH & LFO (-1).
+    // Any page can open the FM page on an operator (-1: as it was), and
+    // MOD on OP PITCH and OP LFO (the FM card's link to them).
     FmOperatorInfo::hooks().openOperator = [this, fmPage] (int osc)
     {
-        if (osc < 0)
-            fmPage->selectVoicePage();
-        else
+        if (osc >= 0)
             fmPage->selectOperator (osc);
         showPage ("FM");
+    };
+    FmOperatorInfo::hooks().openPitchAndLfo = [this, envLfoPage]
+    {
+        envLfoPage->selectEnvelope (17);
+        envLfoPage->selectLfo (IlanaSynthAudioProcessor::numLfos + 2);
+        showPage ("ENV/LFO");
     };
 
     // The scope floats over any page.
@@ -634,6 +639,7 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
     setGpuRendering (false); // before any child goes: the render thread paints them
     FmOperatorInfo::hooks().openOperator = nullptr;
+    FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);

@@ -1861,7 +1861,8 @@ private:
     juce::String displayName() const
     {
         if (ringConfig.destination != 0)
-            return ModNames::destination (ringConfig.destination);
+            return processorRef != nullptr ? ModNames::destination (ringConfig.destination, *processorRef)
+                                           : ModNames::destination (ringConfig.destination);
         return parameter != nullptr ? ModNames::asLabelled (ModNames::detail::paramName (parameterId, parameter->getName (64))).full()
                                     : parameterId;
     }

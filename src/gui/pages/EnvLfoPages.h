@@ -355,7 +355,8 @@ public:
             opEnv.colour = OperatorPool::colour();
             opEnv.isActive = anyOperator;
             opEnv.tooltip = "OP ENV\nThe Operator Env: the DX7 envelope each oscillator on it plays (its level). Click to edit it "
-                            "below, an operator at a time. It shapes its operators only, so it isn't a modulation source.";
+                            "below, an operator at a time. It shapes its operators only, so it isn't a modulation source (its dashed edge: "
+                            "nothing to drag).";
             opEnv.paintShape = [this] (juce::Graphics& g, juce::Rectangle<float> plot, bool active)
             {
                 const auto onEnv = OperatorPool::operatorsOnEnv (processorRef);
@@ -366,7 +367,8 @@ public:
             opEnv.targets = [&p]
             {
                 const auto count = (int) OperatorPool::operatorsOnEnv (p).size();
-                return count == 0 ? juce::String() : juce::String (count) + (count == 1 ? " operator" : " operators");
+                // Short enough for the narrowest card (UI review 8, S8-10).
+                return count == 0 ? juce::String() : juce::String (count) + (count == 1 ? " op" : " ops");
             };
             thumbs.addExtraCard (std::move (opEnv));
 

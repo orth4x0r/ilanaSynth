@@ -132,6 +132,7 @@ void expect (bool condition, const juce::String& message)
 #include "ModulationReview8Tests.h"
 #include "LayoutUiTests8.h"
 #include "GlobalUiTests.h"
+#include "OperatorUiTests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -175,7 +176,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<StateTabs> (editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
+                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -188,7 +190,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<StateTabs> (editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1))
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && dynamic_cast<OscPicker*> (tabs) == nullptr)
                     return tabs->getItem (i).state;
         return juce::String();
     };
@@ -263,9 +265,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* wave : waves)
             compactWaves += visibleInTree (wave) && wave->isCompact() ? 1 : 0;
         expect (level != nullptr && levelText.endsWith ("dB") && trim != nullptr && knobFor ("osc2_frame") == nullptr
-                    && centreX (knobFor ("osc2_ratio")) < centreX (level) && centreX (level) < centreX (trim)
-                    && centreX (trim) < centreX (knobFor ("osc2_fine")) && compactWaves == 0,
-                "PLAY: an operator strip is RATIO, LEVEL (" + levelText + "), TRIM, FINE, its Operator Env pictured, no FRAME");
+                    && centreX (knobFor ("osc2_ratio")) < centreX (knobFor ("osc2_fine")) && centreX (knobFor ("osc2_fine")) < centreX (level)
+                    && centreX (level) < centreX (trim) && compactWaves == 0,
+                "PLAY: an operator strip is RATIO, FINE, LEVEL (" + levelText + "), TRIM as on FM (V8-5), its Operator Env "
+                "pictured, no FRAME");
     }
 
     // OSC: the operator's card is its Operator Env (the FM graph), LEVEL,
@@ -281,9 +284,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* g : graphs)
             graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
         auto* wave = oscWave (0);
+        const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "LEVEL") != nullptr && knobFor ("osc1_level", "TRIM") != nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
-                    && knobFor ("osc1_frame") == nullptr && buttonNamed ("EDIT OP ENV") != nullptr,
+                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
                 "OSC: an operator's card shows its Operator Env graph, LEVEL and TRIM, no wavetable warp or unison spread");
         expect (wave != nullptr && wave->getViewMode() == 0 && wave->getFrameReadout().isEmpty(),
                 "OSC: a one-frame sine opens as WAVE, with no frame readout");
@@ -291,7 +295,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         // EDIT OP ENV whatever the mode (I7-20).
         setParam ("osc1_mode", 1.0f);
         settle (400);
-        expect (buttonNamed ("EDIT OP ENV") != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
+        expect (buttonNamed (editOpEnv) != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -903,7 +907,8 @@ int runUiTests()
         findAll<StateTabs> (*editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
+                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -2016,9 +2021,12 @@ int runUiTests()
         // The operator panel follows the selected operator and its tuning.
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
-        for (auto* button : buttons)
-            if (button->getButtonText() == "OSC 2" && visibleInTree (button))
-                button->triggerClick();
+        // The operators on the one picker (UI review 8, I8-10).
+        std::vector<OscPicker*> pickers;
+        findAll<OscPicker> (*editor, pickers);
+        for (auto* picker : pickers)
+            if (visibleInTree (picker))
+                picker->pick (1);
         set ("osc2_tune", (float) OscTuning::Ratio);
         settle (400);
         expect (visibleKnob ("osc2_ratio") && ! visibleKnob ("osc1_ratio") && ! visibleKnob ("osc2_fixed_hz"),
@@ -2197,8 +2205,8 @@ int runUiTests()
             // above it never moves. An off oscillator's node shows no tuning
             // or level (S8-36). One matrix cell size on every patch, and the
             // card no taller than its rows (V8-6, V8-35). The ring mod, sync
-            // and noise rows fold away on a DX7 voice (S8-21). No PITCH & LFO
-            // panel on a patch without the Operator Env.
+            // and noise rows fold away on a DX7 voice (S8-21). No OP PITCH
+            // link on a patch without the Operator Env.
             {
                 const auto diagramBounds = [&]
                 {
@@ -2227,6 +2235,22 @@ int runUiTests()
                         }
                     return false;
                 };
+                const auto pickOsc = [&] (int osc)
+                {
+                    std::vector<OscPicker*> pickers;
+                    findAll<OscPicker> (*editor, pickers);
+                    for (auto* picker : pickers)
+                        if (visibleInTree (picker))
+                            picker->pick (osc);
+                    settle (250);
+                };
+                const auto pitchLfoLinkShown = [&]
+                {
+                    std::vector<juce::TextButton*> all;
+                    findAll<juce::TextButton> (*editor, all);
+                    return std::any_of (all.begin(), all.end(), [] (juce::TextButton* button)
+                                        { return button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button); });
+                };
                 const auto heightOnNeuro = diagramBounds().getHeight();
                 auto* neuroDiagram = findChild<FmDiagram> (*editor);
                 const auto offCaption = neuroDiagram != nullptr && neuroDiagram->getCaptionTexts().size() == 3
@@ -2234,17 +2258,17 @@ int runUiTests()
                 expect (offCaption, "FM: an off oscillator's node shows no tuning or level captions (S8-36)");
                 const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
                 expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"), "FM: a basic patch shows RING MOD, SYNC and NOISE FM");
-                expect (! clickButton ("VOICE PITCH & LFO"), "FM: no PITCH & LFO panel on a patch without the Operator Env");
+                expect (! pitchLfoLinkShown(), "FM: no OP PITCH link on a patch without the Operator Env");
                 std::vector<EnvelopeDisplay*> graphs;
                 findAll<EnvelopeDisplay> (*editor, graphs);
                 expect (std::any_of (graphs.begin(), graphs.end(), [] (EnvelopeDisplay* graph) { return visibleInTree (graph); }),
                         "FM: an Amp Env operator's card shows its envelope where an Operator Env one shows its own");
-                clickButton ("OSC 2");
+                pickOsc (1);
                 const auto sameOnOsc2 = diagramBounds().getHeight() == heightOnNeuro;
 
                 processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
                 settle (300);
-                clickButton ("OSC 1");
+                pickOsc (0);
                 auto sameKinds = sameOnOsc2 && diagramBounds().getHeight() == heightOnNeuro;
                 std::vector<CardTabs*> tabs;
                 findAll<CardTabs> (*editor, tabs);
@@ -2256,10 +2280,9 @@ int runUiTests()
                         sameKinds = sameKinds && diagramBounds().getHeight() == heightOnNeuro;
                         tab->setSelected (0, true);
                     }
-                expect (clickButton ("VOICE PITCH & LFO"), "FM: a DX7 voice has the PITCH & LFO panel");
-                sameKinds = sameKinds && diagramBounds().getHeight() == heightOnNeuro;
-                clickButton ("OSC 2");
-                expect (sameKinds, "FM: the operator card keeps one height on every patch, operator kind, panel and tab (I8-11)");
+                expect (pitchLfoLinkShown(), "FM: a DX7 voice's operator card links to OP PITCH and OP LFO");
+                pickOsc (1);
+                expect (sameKinds, "FM: the operator card keeps one height on every patch, operator kind and tab (I8-11)");
 
                 const auto dxCell = knobBounds ("fm_amount"), dxNext = knobBounds ("fm_fb2");
                 expect (! neuroCell.isEmpty() && neuroCell.getWidth() == dxCell.getWidth()
@@ -2276,10 +2299,13 @@ int runUiTests()
             processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
             pages->showPage ("FM");
             settle (300);
-            findAll<juce::TextButton> (*editor, buttons);
-            for (auto* button : buttons)
-                if (button->getButtonText() == "OSC 1" && visibleInTree (button))
-                    button->triggerClick();
+            {
+                std::vector<OscPicker*> pickers;
+                findAll<OscPicker> (*editor, pickers);
+                for (auto* picker : pickers)
+                    if (visibleInTree (picker))
+                        picker->pick (0);
+            }
             settle (300);
             std::vector<KnobControl*> knobs;
             findAll<KnobControl> (*editor, knobs);
@@ -2308,8 +2334,8 @@ int runUiTests()
                     expect (knob->getSlider().valueToProportionOfLength (10.0) > knob->getSlider().valueToProportionOfLength (90.0),
                             "an Operator Env time knob turns clockwise for a longer stage (I7-3)");
             expect (describeValue ("osc2_ratio", 1.0f) == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1.00"
-                        && describeValue ("osc2_eg_l2", 0.0f).startsWith ("-inf") && describeValue ("osc2_eg_out", 0.0f).startsWith ("-inf"),
-                    "a ratio reads x1.00 and a silent Operator Env level -inf dB");
+                        && describeValue ("osc2_eg_l2", 0.0f) == silentDecibels() && describeValue ("osc2_eg_out", 0.0f) == silentDecibels(),
+                    "a ratio reads x1.00 and a silent Operator Env level " + silentDecibels());
             {
                 juce::StringArray stale;
                 for (auto* parameter : processor.getParameters())
@@ -2388,7 +2414,7 @@ int runUiTests()
             // PITCH & LFO opens the voice's pitch envelope.
             findAll<juce::TextButton> (*editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "VOICE PITCH & LFO" && visibleInTree (button))
+                if (button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button))
                     button->triggerClick();
             settle (300);
             graphs.clear();
@@ -2396,7 +2422,13 @@ int runUiTests()
             auto pitchShown = false;
             for (auto* candidate : graphs)
                 pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
-            expect (pitchShown, "PITCH & LFO shows the pitch envelope's graph");
+            expect (pitchShown, "OP PITCH · OP LFO opens the pitch envelope's graph");
+            // The link left MOD on OP PITCH: back to OP ENV, where the voice
+            // opened it.
+            if (auto* page = pages->getCurrentPage())
+                if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
+                    envCards->onSelect (16);
+            settle (200);
 
             // The MOD pools carry OP ENV, OP PITCH and OP LFO as pool cards,
             // edited in place (UI review 7, I7-7); a DX7 voice opens on OP
@@ -5815,7 +5847,7 @@ int runUiTests()
             findAll<juce::TextButton> (*editor, buttons);
             auto opEnv = false;
             for (auto* button : buttons)
-                opEnv = opEnv || (visibleInTree (button) && button->getButtonText() == "EDIT OP ENV");
+                opEnv = opEnv || (visibleInTree (button) && button->getButtonText().startsWith ("EDIT OP ENV"));
             auto* attack = findKnob ("amp_attack");
             expect (opEnv && attack != nullptr && attack->getAlpha() < 0.9f,
                     "MAIN: on a DX7 voice the AMP ENV is greyed and EDIT OP ENV shows (" + juce::String ((int) opEnv) + ", "
@@ -6044,6 +6076,8 @@ int runUiTests()
     runLayoutReview8Tests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
+    // UI review 8, R1: operator editors and names.
+    runOperatorReview8Tests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
@@ -6712,19 +6746,23 @@ int main (int argc, char** argv)
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*page, buttons);
         for (auto* button : buttons)
-            if (button->getButtonText() == "VOICE PITCH & LFO" && button->onClick != nullptr)
+            if (button->getButtonText().startsWith ("OP PITCH") && button->onClick != nullptr)
             {
+                // The link opens OP PITCH on MOD.
                 button->onClick();
                 settle (300);
                 save (*editor, outDir.getChildFile ("fm-pitch-lfo.png"));
+                pages->showPage ("FM");
+                settle (300);
             }
-        for (auto* button : buttons)
-            if (button->getButtonText().startsWith ("OSC ") && button->isVisible() && button->getButtonText() != "OSC 1")
-            {
-                button->onClick();
-                settle (200);
-                save (*editor, outDir.getChildFile ("fm-" + button->getButtonText().getLastCharacters (1) + ".png"));
-            }
+        if (auto* picker = findChild<OscPicker> (*page))
+            for (const auto osc : std::vector<int> (picker->getOscillators()))
+                if (osc != 0)
+                {
+                    picker->pick (osc);
+                    settle (200);
+                    save (*editor, outDir.getChildFile ("fm-" + juce::String (osc + 1) + ".png"));
+                }
         processor.applyDx7Algorithm (1);
         settle (400);
         save (*editor, outDir.getChildFile ("fm-dx7-algorithm-1.png"));
@@ -7015,7 +7053,7 @@ int main (int argc, char** argv)
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*page, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "VOICE PITCH & LFO" && button->isVisible() && button->onClick != nullptr)
+                if (button->getButtonText().startsWith ("OP PITCH") && button->isVisible() && button->onClick != nullptr)
                 {
                     button->onClick();
                     settle (300);

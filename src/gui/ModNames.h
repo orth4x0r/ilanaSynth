@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/airwindows/Categories.h"
+#include "../dsp/OperatorEgParams.h"
 
 // One name per modulation source and destination for everything the editor
 // shows (chips, knob cards, the matrix, menus, pool tags), so a source reads
@@ -384,6 +385,10 @@ inline DestinationName explicitName (int destination)
 // A parameter destination, from its id and saved name.
 inline DestinationName paramName (const juce::String& id, juce::String name)
 {
+    // A host name ("OSC 1 Level", I8-40) read as the saved one ("Osc1 Level").
+    for (int osc = 1; osc <= 6; ++osc)
+        name = name.replace ("OSC " + juce::String (osc), "Osc" + juce::String (osc));
+
     const auto strip = [] (const juce::String& text, const juce::String& prefix)
     {
         return prefix.isNotEmpty() && text.startsWith (prefix) ? text.substring (prefix.length()) : text;
@@ -432,7 +437,7 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
             { "opeg_pitch_r2", { "OP PITCH", "Decay 1" } },    { "opeg_pitch_r3", { "OP PITCH", "Decay 2" } },
             { "opeg_pitch_r4", { "OP PITCH", "Release" } },    { "opeg_pitch_l1", { "OP PITCH", "Peak" } },
             { "opeg_pitch_l2", { "OP PITCH", "Mid" } },    { "opeg_pitch_l3", { "OP PITCH", "Sustain" } },
-            { "opeg_pitch_l4", { "OP PITCH", "End" } },        { "opeg_key_offset", { "FM", "OP ENV Scale Shift" } },
+            { "opeg_pitch_l4", { "OP PITCH", "End" } },        { "opeg_key_offset", { "OP ENV", "Scale Shift" } },
         };
         for (const auto& [field, parts] : fields)
             if (id == field)
@@ -551,6 +556,74 @@ inline juce::String destination (int destination)
     }();
 
     return juce::isPositiveAndBelow (destination, names.size()) ? names[destination] : juce::String();
+}
+
+//==============================================================================
+// An oscillator's own level is TRIM on every page while it plays the
+// Operator Env, whose output level is its LEVEL (UI review 8, I8-2): the
+// matrix names it so then. The oscillator a level destination belongs to,
+// or -1.
+inline int levelDestinationOsc (int destination)
+{
+    using D = Mod::Destination;
+    const D levels[] { D::Osc1Level, D::Osc2Level, D::SubLevel, D::Osc4Level, D::Osc5Level, D::Osc6Level };
+    for (int osc = 0; osc < 6; ++osc)
+        if (destination == (int) levels[osc])
+            return osc;
+    return -1;
+}
+
+inline bool playsOperatorEnv (const IlanaSynthAudioProcessor& processor, int osc)
+{
+    const char* const prefixes[] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+    if (! juce::isPositiveAndBelow (osc, 6))
+        return false;
+    const auto* value = processor.apvts.getRawParameterValue (juce::String (prefixes[osc]) + "_amp_env");
+    return value != nullptr && juce::roundToInt (value->load()) == OperatorEg::envelopeChoice;
+}
+
+// "OSC 2 › Trim" while OSC 2 plays the Operator Env, else as destination().
+inline DestinationName destinationParts (int destination, const IlanaSynthAudioProcessor& processor)
+{
+    if (const auto osc = levelDestinationOsc (destination); osc >= 0 && playsOperatorEnv (processor, osc))
+        return { "OSC " + juce::String (osc + 1), "Trim" };
+    return destinationParts (destination);
+}
+
+inline juce::String destination (int destination, const IlanaSynthAudioProcessor& processor)
+{
+    return levelDestinationOsc (destination) >= 0 ? destinationParts (destination, processor).full()
+                                                  : ModNames::destination (destination);
+}
+
+// A destination list's six level items, renamed as the oscillators play
+// (only when that changes: the lists are long).
+inline void nameOperatorTrims (juce::ComboBox& combo, const IlanaSynthAudioProcessor& processor)
+{
+    using D = Mod::Destination;
+    const D levels[] { D::Osc1Level, D::Osc2Level, D::SubLevel, D::Osc4Level, D::Osc5Level, D::Osc6Level };
+    auto mask = 0;
+    for (int osc = 0; osc < 6; ++osc)
+        mask |= playsOperatorEnv (processor, osc) ? 1 << osc : 0;
+
+    auto& properties = combo.getProperties();
+    if (properties.contains ("operatorTrims") && (int) properties["operatorTrims"] == mask)
+        return;
+
+    const auto wasNamed = properties.contains ("operatorTrims") ? (int) properties["operatorTrims"] : 0;
+    properties.set ("operatorTrims", mask);
+    for (int osc = 0; osc < 6; ++osc)
+        if (((mask ^ wasNamed) >> osc & 1) != 0)
+        {
+            const auto id = (int) levels[osc] + 1;
+            const auto name = destination ((int) levels[osc], processor);
+            // Read before renaming: the box reports an item selected only
+            // while its label still matches the item's text.
+            const auto selected = combo.getSelectedId() == id;
+            combo.changeItemText (id, name);
+            if (selected)
+                combo.setText (name, juce::dontSendNotification);
+        }
 }
 
 //==============================================================================

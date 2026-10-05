@@ -126,7 +126,7 @@ inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc)
     }
 
     if (usesOperatorEg (p, osc))
-        parts.add ("plays its Operator Env (FM page)");
+        parts.add ("plays its OP ENV");
 
     return parts.joinIntoString (", ");
 }
@@ -459,6 +459,12 @@ public:
 
         addChildComponent (stringView);
         addChildComponent (opEnvGraph);
+        opEnvGraph.setReadOnly (true);
+        opEnvGraph.onOpen = [this]
+        {
+            if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                editor->showOperatorEnvelope (selected);
+        };
 
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
@@ -484,8 +490,10 @@ public:
                 styleHeaderButton (*button);
         }
 
-        opEnvButton.setButtonText ("EDIT OP ENV");
-        opEnvButton.setTooltip ("This operator plays its Operator Env: open it on the FM page");
+        // The Operator Env has one editor, on FM's operator card; here a
+        // picture of it and a link there (UI review 8, S8-4).
+        opEnvButton.setButtonText (juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba"));
+        opEnvButton.setTooltip ("This operator plays its OP ENV: edit it on the FM page");
         opEnvButton.onClick = [this]
         {
             if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
@@ -624,7 +632,7 @@ public:
         {
             updateTabs();
 
-            if (OscRole::describeLong (processorRef, selected) != shownRole)
+            if (OscRole::describeLong (processorRef, selected) != shownRole || rowsKey (selected) != shownRows)
                 updateModeVisibility();
         }
 
@@ -761,6 +769,17 @@ private:
     static constexpr int sharedHeaderHeight = 30, sharedHeight = sharedHeaderHeight + 74;
     static constexpr int minRowHeight = 62, maxRowHeight = 104, rowLabelWidth = 96;
 
+    // What the rows hold, to lay them out again when it changes.
+    juce::String rowsKey (int index) const
+    {
+        juce::String key;
+        for (const auto& row : rowsFor (index))
+            key << row.first << ":" << (int) row.second.size() << ";";
+        return key;
+    }
+
+    juce::String shownRows;
+
     // A row's height in rows: the Operator Env's graph takes two.
     int rowUnits (const std::pair<juce::String, std::vector<juce::Component*>>& row) const
     {
@@ -890,18 +909,25 @@ private:
         const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
         std::vector<std::pair<juce::String, std::vector<juce::Component*>>> rows;
 
-        // An operator on the Operator Env: its envelope (the FM page's graph,
-        // edited in place) and LEVEL first, then its pitch and TRIM; the
-        // wavetable's shape and unison fold into one WAVE row (UI review 7,
-        // I7-20, V7-16, S7-12).
+        // An operator on the Operator Env: its envelope as a picture that
+        // opens its one editor (FM's card, UI review 8, S8-4), then its pitch
+        // and levels in the FM card's order (RATIO, SEMI, FINE, LEVEL, TRIM:
+        // V8-5), then the wave it plays; UNISON only once it is on (I8-15).
         if (mode == 0 && OscRole::usesOperatorEg (processorRef, index))
         {
             const auto tuning = OscRole::tuning (processorRef, index);
-            rows.push_back ({ "OP ENV", { &osc.egOut, (juce::Component*) &opEnvGraph } });
-            rows.push_back ({ "PITCH & LEVEL", { &osc.tune, tuning == OscTuning::Ratio ? (juce::Component*) &osc.ratio
-                                                            : tuning == OscTuning::Fixed ? (juce::Component*) &osc.fixedHz : (juce::Component*) &osc.semi,
-                                                 &osc.fine, &osc.trim, &osc.pan, &osc.ampEnv } });
-            rows.push_back ({ "WAVE", { &osc.table, &osc.feedback, &osc.feedbackType, &osc.unison } });
+            rows.push_back ({ "OP ENV", { (juce::Component*) &opEnvGraph } });
+            std::vector<juce::Component*> pitch { &osc.tune };
+            if (tuning == OscTuning::Ratio)
+                pitch.push_back (&osc.ratio);
+            if (tuning == OscTuning::Fixed)
+                pitch.push_back (&osc.fixedHz);
+            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.trim, &osc.pan, &osc.ampEnv });
+            rows.push_back ({ "PITCH & LEVEL", pitch });
+            std::vector<juce::Component*> wave { &osc.table, &osc.feedback, &osc.feedbackType };
+            if (readFloat (prefix + "_unison") > 1.5f)
+                wave.push_back (&osc.unison);
+            rows.push_back ({ "WAVE", wave });
             return rows;
         }
 
@@ -1323,17 +1349,21 @@ private:
 
         osc.on.setVisible (true);
         osc.mode.setVisible (true);
-        editButtons[(size_t) index]->setVisible (mode == 0);
+        // An operator on the Operator Env plays a plain cycle: no table
+        // tools, no resampling (UI review 8, I8-15, S8-9, V8-16).
+        const auto opEnv = OscRole::usesOperatorEg (processorRef, index);
+        editButtons[(size_t) index]->setVisible (mode == 0 && ! opEnv);
         // LOAD loads what the mode plays: a wavetable (LOAD .WAV), or a
         // sample or SF2 / SFZ multisample (LOAD, UI review 4, V30; review
         // 7, I7-24).
-        loadButton (index).setVisible (mode == 0);
+        loadButton (index).setVisible (mode == 0 && ! opEnv);
         sampleLoadButton.setVisible (mode == 2 || mode == 3);
-        bounceButtons[(size_t) index]->setVisible (mode != 4);
+        bounceButtons[(size_t) index]->setVisible (mode != 4 && ! opEnv);
 
         stringView.setVisible (mode == 1);
         waveDisplay (index).setVisible (mode != 1 || isElectric (index));
         waveDisplay (index).setCompact (mode == 1);
+        waveDisplay (index).setSingleCycle (opEnv);
 
         if (mode == 1 && stringPrefix != prefix)
         {
@@ -1344,8 +1374,10 @@ private:
         stringView.setColour (oscColour (index));
 
         shownRole = OscRole::describeLong (processorRef, index);
+        getProperties().set ("caption", shownRole); // for the UI test
+        shownRows = rowsKey (index);
         // Any mode can play the Operator Env (I7-20).
-        opEnvButton.setVisible (OscRole::usesOperatorEg (processorRef, index));
+        opEnvButton.setVisible (opEnv);
         opEnvGraph.setVisible (false);
         opEnvGraph.setSource (prefix, oscColour (index));
 

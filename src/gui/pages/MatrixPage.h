@@ -175,7 +175,7 @@ public:
         g.setColour (colour);
         IlanaTheme::drawFitted (g, ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1);
         g.setColour (IlanaTheme::Ui::text);
-        IlanaTheme::drawFitted (g, juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination), info.removeFromTop (24),
+        IlanaTheme::drawFitted (g, juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination, processorRef), info.removeFromTop (24),
                           juce::Justification::centredLeft, 1);
 
         info.removeFromTop (8);
@@ -316,7 +316,7 @@ public:
         juce::PopupMenu menu;
         const auto routing = processorRef.readModSlot (slot);
         menu.addSectionHeader (ModNames::source ((int) routing.source, &processorRef) + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
-                               + ModNames::destination (routing.destination));
+                               + ModNames::destination (routing.destination, processorRef));
 
         for (const auto other : visibleRows)
         {
@@ -654,7 +654,7 @@ private:
         // rest), so a source's rows sit together (S8-25).
         const auto key = [&] (int index) -> juce::String
         {
-            return ModNames::destination (processorRef.readModSlot (index).destination);
+            return ModNames::destination (processorRef.readModSlot (index).destination, processorRef);
         };
         const auto sourceOrder = [&] (int index)
         {

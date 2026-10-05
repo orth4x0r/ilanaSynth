@@ -26,8 +26,10 @@ struct Field
 };
 
 // Display labels only (the saved value is the index).
-// Short, so they fit the FM page's menus (review 7, I7-14).
-inline const std::array<const char*, 4> curveNames { "-Lin", "-Exp", "+Exp", "+Lin" };
+// The scaling curves in words (the DX7's -LIN, -EXP, +EXP, +LIN; UI review
+// 8, I8-27): down gets quieter away from SCALE KEY, up louder; linear or
+// curved (exponential). Display only: the saved index is unchanged.
+inline const std::array<const char*, 4> curveNames { "Down, linear", "Down, curved", "Up, curved", "Up, linear" };
 inline const std::array<const char*, 6> lfoWaveNames { "Triangle", "Saw Down", "Saw Up", "Square", "Sine", "S&H" };
 
 // Per operator: rates, levels, keyboard scaling, sensitivities, output level.

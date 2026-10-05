@@ -706,6 +706,8 @@ public:
         }
 
         curve.refresh();
+        // An operator's TRIM by its name on the pages (UI review 8, I8-2).
+        ModNames::nameOperatorTrims (destination, processorRef);
         liveValue = slot.isActive() ? Mod::shape (slot, processorRef.getSourceDisplayValue ((int) slot.source)) * slot.depth : 0.0f;
         active = slot.isActive();
 

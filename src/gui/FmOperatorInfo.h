@@ -92,7 +92,7 @@ inline juce::String levelText (const IlanaSynthAudioProcessor& p, int osc)
         return juce::String (juce::roundToInt (level * 100.0f)) + "%";
     const auto out = juce::roundToInt (read (p, prefix + "_eg_out"));
     if (out <= 0 || level <= 0.0f)
-        return "-inf dB";
+        return silentDecibels();
     const auto db = (Dx7::scaleOutLevel (out) - 127) * 6.0206 / 8.0 + juce::Decibels::gainToDecibels ((double) level / 0.5);
     return describeFixed ((float) db, 1) + " dB";
 }
@@ -145,11 +145,13 @@ inline void sectionEnvelopeMenu (juce::ComboBox& combo)
     combo.setSelectedItemIndex (selected, juce::dontSendNotification);
 }
 
-// Opens the FM page on an operator (0-5), or on the Operator Env's pitch
-// envelope and LFO (-1). Set by the editor while it exists.
+// Opens the FM page on an operator (0-5; -1 as it was), or MOD on the
+// Operator Env's pitch envelope and LFO (OP PITCH and OP LFO, which live
+// there only: UI review 8, I8-8). Set by the editor while it exists.
 struct Hooks
 {
     std::function<void (int)> openOperator;
+    std::function<void()> openPitchAndLfo;
 };
 
 inline Hooks& hooks()
@@ -162,5 +164,10 @@ inline void openOperator (int osc)
 {
     if (hooks().openOperator != nullptr)
         hooks().openOperator (osc);
+}
+inline void openPitchAndLfo()
+{
+    if (hooks().openPitchAndLfo != nullptr)
+        hooks().openPitchAndLfo();
 }
 } // namespace FmOperatorInfo

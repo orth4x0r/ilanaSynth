@@ -114,7 +114,7 @@ public:
     {
         const auto area = getLocalBounds().reduced (70);
         const auto tipsWidth = area.getWidth() - 56 - (area.getWidth() - 56) / 5;
-        const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight + 12 + 18 + 44 + 28;
+        const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight() + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
 
@@ -140,6 +140,7 @@ public:
         closeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
 
         appear = 0.0f;
+        newOpen = false;
         closeButton.setAlpha (0.0f);
         dontShowAgain.setAlpha (0.0f);
 
@@ -196,20 +197,32 @@ public:
             // Shortcuts, then what's new, along the bottom; the tips fill the rest.
             auto shortcuts = area.removeFromBottom (18);
             area.removeFromBottom (12);
-            auto newBand = area.removeFromBottom (newBandHeight);
+            auto newBand = area.removeFromBottom (newBandHeight());
             area.removeFromBottom (10);
 
             {
                 g.setColour (IlanaTheme::accent());
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
                 const auto heading = newBand.removeFromTop (22);
-                const auto title = "NEW IN " + juce::String (whatsNewVersion);
-                g.drawText (title, heading, juce::Justification::centredLeft);
+                const auto title = "WHAT'S NEW IN " + juce::String (whatsNewVersion);
+                const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), title);
+                // A disclosure: the pills are behind it (review 9, S9-20).
+                const auto arrow = juce::Rectangle<float> (14.0f, 8.0f).withCentre ({ (float) heading.getX() + 7.0f, (float) heading.getCentreY() });
+                juce::Path triangle;
+                if (newOpen)
+                    triangle.addTriangle (arrow.getX() + 1.0f, arrow.getY() + 1.0f, arrow.getRight() - 1.0f, arrow.getY() + 1.0f,
+                                          arrow.getCentreX(), arrow.getBottom());
+                else
+                    triangle.addTriangle (arrow.getX() + 3.0f, arrow.getY() - 1.0f, arrow.getX() + 3.0f, arrow.getBottom() + 1.0f,
+                                          arrow.getRight() - 2.0f, arrow.getCentreY());
+                g.setColour (headingHover ? IlanaTheme::Ui::text : IlanaTheme::accent());
+                g.fillPath (triangle);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+                g.drawText (title, heading.withTrimmedLeft (18), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text3);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawText ("click one to open its page",
-                            heading.withTrimmedLeft (juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), title) + 12),
-                            juce::Justification::centredLeft);
+                g.drawText (newOpen ? "click one to open its page" : "click to show",
+                            heading.withTrimmedLeft (18 + titleWidth + 12), juce::Justification::centredLeft);
 
                 const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
                 const auto& features = whatsNew();
@@ -236,7 +249,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (commandKey() + "+1-7 switch tabs    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    "
+            g.drawText (commandKey() + "+1-7 switch tabs    " + commandKey() + "+Shift+1-3 switch pages    " + commandKey() + "+Z / " + commandKey() + "+Shift+Z undo / redo    "
                             + commandKey() + "+S save",
                         shortcuts, juce::Justification::centredLeft);
         }
@@ -248,8 +261,11 @@ public:
         auto area = panelBounds().reduced (28);
         area.removeFromTop (34 + 18 + 14);
         area.removeFromBottom (44 + 18 + 12);
-        auto band = area.removeFromBottom (newBandHeight);
+        auto band = area.removeFromBottom (newBandHeight());
         band.removeFromTop (22);
+
+        if (! newOpen)
+            return {};
 
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
         std::vector<juce::Rectangle<float>> chips;
@@ -274,6 +290,26 @@ public:
         }
 
         return chips;
+    }
+
+    // The WHAT'S NEW line: its pills show only while it is open.
+    juce::Rectangle<int> headingBounds() const
+    {
+        auto area = panelBounds().reduced (28);
+        area.removeFromBottom (44 + 18 + 12);
+        return area.removeFromBottom (newBandHeight()).removeFromTop (22);
+    }
+
+    bool isWhatsNewOpen() const { return newOpen; }
+
+    void setWhatsNewOpen (bool open)
+    {
+        if (open == newOpen)
+            return;
+
+        newOpen = open;
+        resized();
+        repaint();
     }
 
     int chipAt (juce::Point<float> position) const
@@ -303,27 +339,32 @@ public:
     void mouseMove (const juce::MouseEvent& event) override
     {
         const auto chip = chipAt (event.position);
+        const auto onHeading = headingBounds().contains (event.getPosition());
 
-        if (chip != hoverChip)
+        if (chip != hoverChip || onHeading != headingHover)
         {
             hoverChip = chip;
-            setMouseCursor (chip >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            headingHover = onHeading;
+            setMouseCursor (chip >= 0 || onHeading ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
             repaint();
         }
     }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (hoverChip >= 0)
+        if (hoverChip >= 0 || headingHover)
         {
             hoverChip = -1;
+            headingHover = false;
             repaint();
         }
     }
 
     void mouseUp (const juce::MouseEvent& event) override
     {
-        if (const auto chip = chipAt (event.position); chip >= 0 && appear >= 1.0f)
+        if (appear >= 1.0f && headingBounds().contains (event.getPosition()))
+            setWhatsNewOpen (! newOpen);
+        else if (const auto chip = chipAt (event.position); chip >= 0 && appear >= 1.0f)
             openChip (chip);
     }
 
@@ -335,7 +376,8 @@ public:
 
 private:
     static constexpr float chipHeight = 26.0f, chipGap = 6.0f;
-    static constexpr int newBandHeight = 22 + 3 + 2 * 26 + 6 + 2; // two rows of chips
+    // The heading alone, or with two rows of chips under it.
+    int newBandHeight() const { return newOpen ? 22 + 3 + 2 * 26 + 6 + 2 : 22; }
 
     // The heading and the tips, as drawTipColumn lays them out.
     static int tipColumnHeight (int width, const juce::StringArray& tips)
@@ -405,6 +447,7 @@ private:
     float appear = 0.0f;
     int presetCount = 0;
     int hoverChip = -1;
+    bool newOpen = false, headingHover = false;
     bool captureAttempted = false;
     juce::Image backdrop;
 };

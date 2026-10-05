@@ -527,6 +527,13 @@ public:
         // The oscillators' analogue drift (the vector pad's drift is WANDER:
         // UI review 6, I6-25).
         drift = std::make_unique<KnobControl> (p.apvts, "drift", "ANALOG DRIFT");
+        // VOICE: how the notes are shared out (review 9, S9-1): the header's
+        // VOICES button opens the same settings.
+        voiceMode = std::make_unique<ComboControl> (p.apvts, "voice_mode", "MODE");
+        voiceCount = std::make_unique<KnobControl> (p.apvts, "poly_voices", "VOICES", IlanaTheme::Ui::text2, false);
+        bendRange = std::make_unique<KnobControl> (p.apvts, "bend_range", "BEND RANGE", IlanaTheme::Ui::text2, false);
+        glideTime = std::make_unique<KnobControl> (p.apvts, "glide", "GLIDE", IlanaTheme::Ui::text2, false);
+        glideLegato = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO ONLY");
         // The switch is the sub's alone, and says so; the noise has its
         // own level and colour beside it (V8-14, V8-15).
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
@@ -534,6 +541,7 @@ public:
         noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
         noiseColourStrip = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
         addChildComponents (subShape, subOctave, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
+                            *voiceMode, *voiceCount, *bendRange, *glideTime, *glideLegato,
                             symOn, symAmount, symDecay, symCount, symManual,
                             sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         for (auto& note : symNotes)
@@ -785,7 +793,7 @@ private:
     {
         return std::find (row.second.begin(), row.second.end(), &opEnvGraph) != row.second.end() ? 2 : 1;
     }
-    static constexpr int numShared = 4;
+    static constexpr int numShared = 5;
 
     int lastRevealVersion = -1;
     int selected = 0, sharedSelected = 0;
@@ -892,11 +900,12 @@ private:
 
         sharedTabs.setItems ({ { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
-                               { "VOICE", {}, IlanaTheme::Ui::text2, true, "How the unison voices spread, start and drift", false },
+                               { "UNISON", {}, IlanaTheme::Ui::text2, true, "How the unison voices spread, start and drift", false },
                                { "SYMPATHETIC STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
                                  "Shared drone strings that ring with everything you play" },
                                { "ACOUSTIC KEYS", {}, IlanaTheme::Ui::text2, true,
-                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
+                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false },
+                               { "VOICE", {}, IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide", false } });
         sharedTabs.setSelected (sharedSelected);
     }
 
@@ -1123,6 +1132,7 @@ private:
             case 1: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
             case 2: return { &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                              symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };
+            case 4: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr, nullptr, nullptr };
             default: return { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal };
         }
     }
@@ -1662,7 +1672,9 @@ private:
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
-    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift;
+    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift, voiceCount, bendRange, glideTime;
+    std::unique_ptr<ComboControl> voiceMode;
+    std::unique_ptr<ToggleControl> glideLegato;
     ToggleControl symOn, symManual;
     KnobControl symAmount, symDecay, symCount;
 

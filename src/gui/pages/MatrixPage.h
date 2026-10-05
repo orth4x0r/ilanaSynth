@@ -83,14 +83,22 @@ public:
         const auto used = (int) visibleRows.size();
 
         const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.isVisible() ? addButton.getX() : getWidth() - 12) - 12;
+        // A fragment caption (UI-CONVENTIONS); the how-to is a hint line.
         paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
-                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use"
-                           // (The how-to only while there's nothing to report.)
+                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " routes"
                            + (numDuplicates > 0 ? ",  " + repeatText : juce::String())
-                           + (numIdle > 0 ? ",  " + juce::String (numIdle) + " into a module that is off (dimmed)" : juce::String())
-                           + (numDuplicates > 0 || numIdle > 0 ? juce::String (".")
-                                                               : juce::String (".   Drag a source onto any knob, then drag its ring "
-                                                                               "on the knob to set the depth.")));
+                           + (numIdle > 0 ? ",  " + juce::String (numIdle) + " into a module that is off (dimmed)" : juce::String()));
+
+        // The hint, at the right of the title line while there is nothing
+        // else to report (and room for it).
+        if (! visibleRows.empty() && numDuplicates == 0 && numIdle == 0)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText ("Drag a source onto any knob, then drag its ring on the knob to set the depth.",
+                        juce::Rectangle<int> (headingX, 12, titleRight - headingX, headingHeight).withTrimmedLeft (280),
+                        juce::Justification::centredRight, true);
+        }
 
         // An empty matrix has no columns to head: just the ways in.
         if (visibleRows.empty())
@@ -450,26 +458,18 @@ public:
         mergeButton.setBounds (top.removeFromRight (210).withTrimmedTop (6).withTrimmedBottom (2));
         headerArea = area.removeFromTop (18);
 
-        // Rows grow a little taller while there are few (V7-20), as long as
-        // the dock's note still fits under them; with no room for the note,
-        // they grow to fill the page instead of leaving its bottom empty
-        // (V8-20).
+        // Rows grow a little taller while there are few (V7-20), never past
+        // 34 px: Serum's rows are about this tall and a long matrix should
+        // not scroll more than it has to (review 9, S9-7).
         const auto listRows = (int) visibleRows.size() + 1; // (and the add row)
         rowHeight = MatrixRow::rowHeight;
-        while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 + dockHeight + 12 <= area.getHeight())
+        while (rowHeight < 34 && listRows * (rowHeight + 1) + 8 <= area.getHeight())
             ++rowHeight;
 
-        // The dock takes the bottom while a remap is open, and also when the
-        // rows leave that much room (as a note on how to open it).
-        const auto rowsHeight = listRows * rowHeight + 8;
-        const auto showDock = ! visibleRows.empty()
-                              && (remapEditor != nullptr || area.getHeight() - rowsHeight >= dockHeight + 12);
-
-        // (Decided by the note alone, so opening a remap never moves a row:
-        // the list just scrolls above the dock, V6-22.)
-        if (area.getHeight() - rowsHeight < dockHeight + 12)
-            while (rowHeight < 38 && listRows * (rowHeight + 1) + 8 <= area.getHeight())
-                ++rowHeight;
+        // The dock exists only while a remap is open: no empty placeholder
+        // taking the list's room (review 9, S9-6). The rows never move for
+        // it, the list just scrolls above it (V6-22).
+        const auto showDock = ! visibleRows.empty() && remapEditor != nullptr;
         dockArea = showDock ? area.removeFromBottom (dockHeight).withTrimmedTop (8) : juce::Rectangle<int>();
 
         if (remapEditor != nullptr)

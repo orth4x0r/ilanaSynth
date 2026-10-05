@@ -1191,6 +1191,21 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         const auto font = g.getCurrentFont();
         auto x = designWidth - 288 + statusGroupGap;
 
+        // A small button, not a status: a rim and a drop-down arrow say it
+        // opens the voice settings (review 9, V9-27).
+        {
+            const auto pill = voicesArea.getBounds().toFloat().reduced (0.5f, 0.0f);
+            g.setColour (voicesArea.isMouseOver() ? IlanaTheme::accent().withAlpha (0.18f) : IlanaTheme::Ui::line.withAlpha (0.35f));
+            g.fillRoundedRectangle (pill, 5.0f);
+            g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::line.brighter (0.2f));
+            g.drawRoundedRectangle (pill, 5.0f, 1.0f);
+            juce::Path arrow;
+            const auto ax = pill.getRight() - 11.0f, ay = pill.getCentreY();
+            arrow.addTriangle (ax - 3.5f, ay - 1.5f, ax + 3.5f, ay - 1.5f, ax, ay + 2.5f);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.fillPath (arrow);
+        }
+
         g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
         g.drawText (label, juce::Rectangle<int> (x, statusY, 80, 14), juce::Justification::centredLeft);
         x += juce::GlyphArrangement::getStringWidthInt (font, label) + 5;
@@ -1306,7 +1321,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     // The status line (y 41-52): the live waveform under the preset name,
     // then tempo, VOICES and CPU at the right.
     headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), designWidth - 372) - prevButton.getX(), 14);
-    voicesArea.setBounds (designWidth - 288 + statusGroupGap - 4, 38, 120, 17);
+    voicesArea.setBounds (designWidth - 288 + statusGroupGap - 6, 38, 118, 17);
     // TUNING sits left of the tempo, clear of the waveform strip.
     tuningArea.setBounds (headerScope.getRight() + 8, 38, designWidth - 370 - headerScope.getRight() - 8, 17);
 
@@ -2766,9 +2781,25 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
             return true;
         }
 
+        // Ctrl / Cmd + Shift + 1-3 pick the page inside the tab (PLAY:
+        // overview, vector; OSC: oscillators, physical; MOD: env / lfo,
+        // matrix), review 9, S9-21. A shifted digit arrives as the digit
+        // key or as the symbol on it.
+        if (modifiers.isShiftDown() && ! modifiers.isAltDown())
+        {
+            const auto symbol = juce::String ("!@#$%^&*(").indexOfChar (key.getTextCharacter());
+            const auto digit = key.getKeyCode() >= '1' && key.getKeyCode() <= '9' ? key.getKeyCode() - '1' : symbol;
+
+            if (auto* section = currentSection(); section != nullptr && digit >= 0 && digit < section->getNumPages())
+            {
+                showPage (section->getPageId (digit));
+                return true;
+            }
+        }
+
         // Ctrl / Cmd + 1-7 pick a tab (bare digits are left to the host:
         // DAWs play notes or run actions with them).
-        if (const auto digit = key.getKeyCode(); digit >= '1' && digit <= '9' && ! modifiers.isAltDown())
+        if (const auto digit = key.getKeyCode(); digit >= '1' && digit <= '9' && ! modifiers.isAltDown() && ! modifiers.isShiftDown())
         {
             const auto index = digit - '1';
 

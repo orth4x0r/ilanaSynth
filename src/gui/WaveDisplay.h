@@ -108,6 +108,17 @@ public:
         repaint();
     }
 
+    // An FM operator plays one plain cycle: no 3D or SPEC views to pick
+    // (UI review 8, I8-15).
+    void setSingleCycle (bool shouldBeSingle)
+    {
+        if (singleCycle == shouldBeSingle)
+            return;
+        singleCycle = shouldBeSingle;
+        updateViewButtons();
+        repaint();
+    }
+
     void setViewMode (int mode)
     {
         viewMode = juce::jlimit (0, 2, mode);
@@ -539,6 +550,8 @@ private:
 
     int shownViewMode() const
     {
+        if (singleCycle)
+            return 0;
         if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
             && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
             return 0;
@@ -1277,7 +1290,7 @@ private:
 
         for (int view = 0; view < 3; ++view)
         {
-            viewButtons[(size_t) view].setVisible (table);
+            viewButtons[(size_t) view].setVisible (table && ! singleCycle);
             viewButtons[(size_t) view].setToggleState (view == shownViewMode(), juce::dontSendNotification);
         }
 
@@ -1541,7 +1554,7 @@ private:
     std::array<juce::TextButton, 3> viewButtons;
     juce::TextButton previousTable, nextTable;
     juce::Rectangle<int> tableNameArea;
-    bool compact = false, pressInHeader = false;
+    bool compact = false, pressInHeader = false, singleCycle = false;
     static constexpr int headerHeight = 20, footerHeight = 14;
     int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
     bool viewPicked = false; // a view chosen by hand, kept for that table even when static

@@ -272,8 +272,8 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         expect (graph != nullptr && graph->isReadOnly() && ordered,
                 "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, LEVEL, TRIM as on FM (S8-4, V8-5)");
         expect (shownButtons ("RESAMPLE").empty() && shownButtons ("EDIT").empty() && shownButtons ("LOAD .WAV").empty()
-                    && knobFor ("osc1_unison") == nullptr,
-                "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV or UNISON 1 (I8-15, S8-9, V8-16)");
+                    && shownButtons ("3D").empty() && shownButtons ("SPEC").empty() && knobFor ("osc1_unison") == nullptr,
+                "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV, 3D / SPEC or UNISON 1 (I8-15, S8-9, V8-16)");
         juce::String role;
         std::vector<juce::Component*> all;
         findAll<juce::Component> (editor, all);

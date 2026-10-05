@@ -698,6 +698,11 @@ private:
             for (int stage = 0; stage < 3; ++stage)
             {
                 const auto span = curve.stageSeconds (stage);
+                // A stage drawn at its minimum width has no time to mark (no
+                // stray ticks on a still pitch envelope, I8-28).
+                const auto drawn = geo.stageX[(size_t) stage + 1] - geo.stageX[(size_t) stage] - minimumStageWidth;
+                if (span > 0.0 && seconds < start + span && drawn < 4.0f)
+                    return -1.0f;
                 if (span > 0.0 && seconds < start + span)
                     return geo.stageX[(size_t) stage] + (float) ((seconds - start) / span) * (geo.stageX[(size_t) stage + 1] - geo.stageX[(size_t) stage]);
                 start += span;
@@ -707,6 +712,8 @@ private:
         const auto releaseX = [&] (double seconds) -> float
         {
             const auto span = curve.stageSeconds (3);
+            if (geo.stageX[4] - geo.keyUpX - minimumStageWidth < 4.0f)
+                return -1.0f;
             return span > 0.0 && seconds < span ? geo.keyUpX + (float) (seconds / span) * (geo.stageX[4] - geo.keyUpX) : -1.0f;
         };
 
@@ -728,6 +735,11 @@ private:
             g.drawText ("KEY UP", juce::Rectangle<float> (left, rulerY + 2.0f, width, 12.0f), juce::Justification::centred);
             g.setFont (font);
         }
+
+        // A still envelope has no times to mark: KEY UP only (I8-28).
+        if (std::all_of (curve.values.begin(), curve.values.end(),
+                         [this] (double v) { return std::abs (v - curve.values.front()) < 1.0e-9; }))
+            return;
 
         for (const auto inRelease : { false, true })
             for (const auto seconds : { 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002 })

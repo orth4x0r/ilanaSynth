@@ -1320,6 +1320,7 @@ private:
         stringView.setVisible (mode == 1);
         waveDisplay (index).setVisible (mode != 1 || isElectric (index));
         waveDisplay (index).setCompact (mode == 1);
+        waveDisplay (index).setSingleCycle (opEnv);
 
         if (mode == 1 && stringPrefix != prefix)
         {

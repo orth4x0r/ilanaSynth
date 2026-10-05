@@ -81,6 +81,16 @@ public:
             // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
             strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
 
+            // The slots by role, the same on every strip (review 12, I12-10).
+            for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains or the live input." },
+                                              { strip->table.get(), "SOURCE\nThe wavetable (or sample) this oscillator plays." },
+                                              { strip->excite.get(), "SOURCE\nWhat excites the string: a hammer, a bow, a pluck..." },
+                                              { strip->warp.get(), "WARP MODE\nHow the table is bent. Off leaves it as it is." } })
+            {
+                combo->setTooltip (tip);
+                combo->getComboBox().setTooltip (tip);
+            }
+
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp);
             oscColumn.addChildComponent (*strip->excite);
 
@@ -428,7 +438,7 @@ public:
             const auto count = (int) OperatorPool::operatorsOnEnv (processorRef).size();
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " oscillator plays" : " oscillators play")
+            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " operator plays" : " operators play")
                                   + " the Operator Env, each operator its own. It shapes their levels; AMP ENV is unused.",
                               opEnvNoteArea, juce::Justification::topLeft, 4);
         }

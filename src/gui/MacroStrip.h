@@ -107,7 +107,10 @@ public:
             // I10-14), not a bare triangle.
             const juce::String warning (juce::String::fromUTF8 ("\xc2\xb7 ") + "OFF");
             const auto warningFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            const auto markWidth = (idleTargets > 0 ? juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 10 : 0) + (evolving ? 16 : 0);
+            // What the macro does, in a number: "→ 3" routes (review 12, S12-10).
+            const auto routeText = routedTargets > 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : juce::String();
+            const auto routeWidth = routeText.isEmpty() ? 0 : juce::GlyphArrangement::getStringWidthInt (warningFont, routeText) + 8;
+            const auto markWidth = routeWidth + (idleTargets > 0 ? juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 10 : 0) + (evolving ? 16 : 0);
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
             // A macro routed nowhere reads quietly, so the preset's own
@@ -116,6 +119,13 @@ public:
             g.setColour (hover ? IlanaTheme::Ui::text : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
             g.setFont (font);
             IlanaTheme::drawFitted (g, name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1);
+
+            if (routeWidth > 0 && nameArea.getWidth() >= routeWidth)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (warningFont);
+                g.drawText (routeText, nameArea.removeFromLeft (routeWidth).withTrimmedLeft (6), juce::Justification::bottomLeft);
+            }
 
             // An evolving macro carries a small drift wave after its name
             // (its EVOLVE is on its card).

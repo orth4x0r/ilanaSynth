@@ -472,7 +472,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     saveButton.setText ("SAVE");
     saveButton.setEmphasis (true);
     saveButton.onClick = [this] { savePreset(); };
-    saveButton.setTooltip ("Save preset  (Ctrl+S)\nSaves over your preset; a factory or new patch asks for a name.");
+    saveButton.setTooltip ("Save preset  (Ctrl+S)\nSaves over your preset; a factory or new preset asks for a name.");
     moreButton.onClick = [this] { showPresetMenu(); };
     undoButton.onClick = [this] { undoOrRedo (false); };
     redoButton.onClick = [this] { undoOrRedo (true); };

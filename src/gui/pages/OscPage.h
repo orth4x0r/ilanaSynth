@@ -725,11 +725,31 @@ public:
             g.drawText ("OSC " + juce::String (selected + 1), juce::Rectangle<int> (oscCard.getX() + 28, headerY - 8, 60, 16),
                         juce::Justification::centredLeft);
 
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (isOff (selected) ? juce::String::fromUTF8 ("off  \xc2\xb7  switch on to hear it")
-                                         : shownRole + (shownRole.contains ("FM") ? juce::String::fromUTF8 ("  \xe2\x80\xba") : juce::String()), subtitleArea,
-                        juce::Justification::centredLeft, true);
+            // An FM-modulated oscillator says so in a pill in its source's colour (review 12, S12-8).
+            if (captionIsLink())
+            {
+                const auto from = OscRole::sources (processorRef, selected);
+                const auto pillColour = from.empty() ? tint : oscColour (from.front());
+                const auto text = shownRole + juce::String::fromUTF8 ("  \xe2\x80\xba");
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+                const auto width = juce::jmin (subtitleArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (font), text) + 18);
+                const auto pill = subtitleArea.withWidth (width).withSizeKeepingCentre (width, 20).toFloat();
+                g.setColour (pillColour.withAlpha (0.18f));
+                g.fillRoundedRectangle (pill, 10.0f);
+                g.setColour (pillColour.withAlpha (0.8f));
+                g.drawRoundedRectangle (pill.reduced (0.5f), 10.0f, 1.0f);
+                g.setColour (IlanaTheme::Ui::text);
+                g.setFont (font);
+                g.drawText (text, pill.toNearestInt().reduced (9, 0), juce::Justification::centredLeft, true);
+            }
+            else
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText (isOff (selected) ? juce::String::fromUTF8 ("off  \xc2\xb7  switch on to hear it")
+                                             : shownRole + (shownRole.contains ("FM") ? juce::String::fromUTF8 ("  \xe2\x80\xba") : juce::String()), subtitleArea,
+                            juce::Justification::centredLeft, true);
+            }
 
             if (! controlBay.isEmpty())
                 IlanaTheme::paintRecessedPanel (g, controlBay.toFloat(), 6.0f);

@@ -193,7 +193,9 @@ public:
         const auto reserve = operatorCard.getRight() - tabsLeft + 8;
         const auto colour = FmDiagram::oscColour (selectedOperator);
         IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-        IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1), operatorText(), colour, reserve);
+        // On the Operator Env the card says what it is: an operator (I12-18).
+        IlanaTheme::paintCardHeader (g, header, (usesOperatorEnv (selectedOperator) ? "OPERATOR " : "OSC ") + juce::String (selectedOperator + 1),
+                                     operatorText(), colour, reserve);
 
         // An operator on another envelope: where that envelope is edited.
         if (! usesOperatorEnv (selectedOperator))
@@ -398,7 +400,7 @@ public:
 
         // One that no tile matches names the nearest (V7-14).
         if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
-            return "CUSTOM, NEAR " + FmAlgorithmStrip::basicName (near);
+            return FmAlgorithmStrip::basicName (near) + ", EDITED"; // (review 12, I12-9)
 
         for (const auto source : shown)
             for (const auto target : shown)

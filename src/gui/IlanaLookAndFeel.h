@@ -1045,7 +1045,11 @@ public:
             // dim, as a default rather than a setting (UI review 9, I9-25).
             const auto placeholder = dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
                                      && isPlaceholderValue (label.getText());
-            g.setColour ((placeholder ? IlanaTheme::Ui::text3 : label.findColour (juce::Label::textColourId)).withMultipliedAlpha (alpha)); // (dimmer than a number: I10-15)
+            // "Auto" and "Random" are settings, set apart from a number by the
+            // quieter colour of a menu's entry (review 12, S12-5).
+            const auto entryWord = ! placeholder && dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
+                                   && (label.getText() == "Auto" || label.getText() == "Random");
+            g.setColour ((placeholder ? IlanaTheme::Ui::text3 : entryWord ? IlanaTheme::Ui::text2 : label.findColour (juce::Label::textColourId)).withMultipliedAlpha (alpha)); // (dimmer than a number: I10-15)
             g.setFont (font);
             const auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
             // Never condensed (V8-12): shrunk to the floor, then cut. A value

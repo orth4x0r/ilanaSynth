@@ -105,7 +105,9 @@ public:
             const auto name = title.toUpperCase();
             // The warning is a word in the warning colour, "TALK · OFF" (review 10,
             // I10-14), not a bare triangle.
-            const juce::String warning (juce::String::fromUTF8 ("\xc2\xb7 ") + "OFF");
+            // (How many of its targets sit in a module that is off: "· 1 OFF", not a bare
+            // "OFF" that does not say what is off; I14-8.)
+            const juce::String warning (juce::String::fromUTF8 ("\xc2\xb7 ") + juce::String (juce::jmax (1, idleTargets)) + " OFF");
             const auto warningFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
             // What the macro does, in a number: "→ 3" routes (review 12, S12-10).
             const auto routeText = routedTargets > 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : juce::String();

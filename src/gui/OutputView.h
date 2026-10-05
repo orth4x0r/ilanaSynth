@@ -122,9 +122,8 @@ public:
         if (! specArea.isEmpty())
             drawSpectrum (g, specArea, colour);
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("OUTPUT", bounds.reduced (14.0f, 8.0f).removeFromTop (12.0f), juce::Justification::topLeft);
+        // (No name in the view: the PLAY card's title says OUTPUT, and the label
+        // sat under the trace: V14-10.)
         IlanaTheme::paintGlassOverlay (g, bounds.reduced (6.0f), 5.0f);
     }
 

@@ -489,13 +489,22 @@ public:
                 const auto perRow = columns;
                 const auto rows = ((int) items.size() + perRow - 1) / perRow;
                 // (The rows share the card's height, a little taller than a knob needs at most.)
-                const auto rowHeight = juce::jlimit (cellHeight, cellHeight + 40, column.getHeight() / juce::jmax (1, rows));
+                // (V14-11: a row is a knob and its gap, not 40 px more; the block of rows
+                // stands in the column's middle, so no row floats 100 px from the next.)
+                const auto isMenu = [] (juce::Component* item) { return item == nullptr || dynamic_cast<ComboControl*> (item) != nullptr; };
+                const auto menuRow = 13 + 24 + 12;
+                auto rowHeight = juce::jlimit (cellHeight, cellHeight + 12, column.getHeight() / juce::jmax (1, rows));
+                auto needed = 0;
+                for (size_t k = 0; k < items.size(); k += (size_t) perRow)
+                    needed += isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k])) ? menuRow : rowHeight;
+                column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed));
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)
                 {
                     std::vector<juce::Component*> pair { items[k] };
                     if (perRow == 2)
                         pair.push_back (k + 1 < items.size() ? items[k + 1] : nullptr);
-                    leftAligned (column.removeFromTop (rowHeight), pair);
+                    const auto menus = isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k]));
+                    leftAligned (column.removeFromTop (menus ? menuRow : rowHeight), pair);
                 }
             }
             else

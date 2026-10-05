@@ -670,6 +670,16 @@ public:
 
             for (auto* knob : { &osc.uniBlend, &osc.spread, &osc.detune })
                 effectRules.add (*knob, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+
+            // The sample's own controls dim until there is a sample (S14-3).
+            for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleStart,
+                                              (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut })
+                effectRules.add (*control, [this, i]
+                                 {
+                                     const auto* sample = processorRef.getSampleForOsc (i);
+                                     return sample != nullptr && sample->getNumSamples() >= 2;
+                                 },
+                                 "load a sample first");
         }
 
         // One way to add an oscillator here: the tab row's last button
@@ -895,13 +905,13 @@ public:
 
     int getSelectedOscillator() const { return selected; }
 
-    // The shared section below the card: SUB + NOISE, VOICE, SPREAD & DRIFT,
+    // The shared section below the card: SUB + NOISE, VOICE (with the spread and drift),
     // STRINGS (sympathetic) or SOUNDBOARD.
     // The tabs, in their order (the groups: the sub and noise, then the
     // global drawer).
     // VOICE first and open by default: polyphony is found where the voices are
     // set (review 11, S11-1).
-    enum SharedTab { sharedVoice = 0, sharedSubNoise, sharedSpread, sharedSympathetic, sharedKeys };
+    enum SharedTab { sharedVoice = 0, sharedSubNoise, sharedSympathetic, sharedKeys };
 
     void selectShared (int index)
     {
@@ -963,7 +973,7 @@ private:
     {
         return std::find (row.second.begin(), row.second.end(), &opEnvGraph) != row.second.end() ? 2 : 1;
     }
-    static constexpr int numShared = 5;
+    static constexpr int numShared = 4;
     int shownShared = numShared; // the tabs drawn: three on an operator voice (I12-6)
 
     // An operator voice (an Operator Env oscillator, none physical) with the
@@ -1103,10 +1113,9 @@ private:
         // SUB + NOISE belong to the oscillators; after the gap, the global
         // drawer: voice settings, the spread and drift every voice shares, the
         // shared strings and the keys' body (review 10, S10-3, S10-4).
-        std::vector<StateTabs::Item> sharedItemsList { { "VOICE", voiceModeName(), IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide.  The header's VOICES opens this.", false, false },
+        std::vector<StateTabs::Item> sharedItemsList { { "VOICE", voiceModeName(), IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide, then how far the voices spread across the stereo field, how their phases start and how far they drift.  The header's VOICES opens this.", false, false },
                                { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
-                               { "SPREAD & DRIFT", {}, IlanaTheme::Ui::text2, true, "How far the voices spread across the stereo field, how their phases start and how far they drift.  The unison itself is on the oscillator's card.", false },
                                { "STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
                                  "Sympathetic strings: shared drone strings that ring with everything you play" },
                                { "SOUNDBOARD", {}, IlanaTheme::Ui::text2, true,
@@ -1147,12 +1156,12 @@ private:
                 pitch.push_back (&osc.ratio);
             if (tuning == OscTuning::Fixed)
                 pitch.push_back (&osc.fixedHz);
-            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.pan, &osc.ampEnv });
-            rows.push_back ({ "PITCH & OUTPUT", pitch });
-            std::vector<juce::Component*> wave { &osc.table, &osc.feedback, &osc.feedbackType };
+            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.pan, &osc.ampEnv, &osc.table, &osc.feedback, &osc.feedbackType });
             if (readFloat (prefix + "_unison") > 1.5f)
-                wave.push_back (&osc.unison);
-            rows.push_back ({ "WAVE", wave });
+                pitch.push_back (&osc.unison);
+            // One row: the pitch, the output and the wave share the columns,
+            // so the envelope's picture takes the height (review 14, V14-6).
+            rows.push_back ({ "PITCH & WAVE", pitch });
             // The one level an operator shows is OUTPUT (review 10, I10-1;
             // review 12, I12-1): the oscillator's own level into the voice
             // (VOICE LEVEL) is not drawn here at all; it stays a parameter
@@ -1198,8 +1207,10 @@ private:
             // never changes layout when a stage is chosen (S13-2).
             rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt } });
 
-            if (showsWarpChain (index))
-                rows.push_back ({ "WARP CHAIN", { &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt } });
+            // The second warp and the warp envelope under the first, in its
+            // columns: always drawn, dimmed while off, so the card is four
+            // full rows and does not change when a warp is picked (V14-6).
+            rows.push_back ({ "WARP CHAIN", { nullptr, &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt } });
         }
         else if (mode == 1)
         {
@@ -1221,10 +1232,17 @@ private:
             rows.push_back ({ "GRAINS", grains });
         }
 
+        // A sample with one voice: UNISON and CHORD join the pitch row (seven
+        // columns, as the SAMPLE row above), so the wave takes the height
+        // (review 14, S14-3).
+        const auto sampleOneVoice = mode == 2 && unison.size() == 2;
+        if (sampleOneVoice)
+            pitch.insert (pitch.end(), unison.begin(), unison.end());
+
         rows.push_back ({ mode == 4 ? "LEVEL" : "PITCH & LEVEL", pitch });
 
         // M7.5 Live: the input itself, so no pitch, shape or unison.
-        if (mode != 4)
+        if (mode != 4 && ! sampleOneVoice)
             rows.push_back ({ mode == 1 ? "STRING COPIES" : "UNISON", unison }); // (copies of the string: I11-9)
 
         return rows;
@@ -1268,9 +1286,22 @@ private:
         // An operator on the Operator Env shows its envelope in the rows
         // (the whole width, no sine beside it: review 11, V11-7).
         const auto operatorEnvelope = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
-        const auto display = operatorEnvelope ? juce::Rectangle<int>() : content.removeFromLeft (juce::jlimit (220, 330, content.getWidth() * 30 / 100));
-        if (! operatorEnvelope)
+        // A sample's wave takes the card's whole width above its rows, as in
+        // a sampler: the waveform with its ruler, loop flags and key map is
+        // the page, not a 330 px box beside two thirds of blank (S14-3, S14-4).
+        const auto sampleWide = mode == 2;
+        juce::Rectangle<int> display;
+        if (sampleWide)
+        {
+            constexpr int sampleRowHeight = 86;
+            display = content.removeFromTop (juce::jmax (120, content.getHeight() - (int) rowsFor (index).size() * sampleRowHeight));
+            content.removeFromTop (6);
+        }
+        else if (! operatorEnvelope)
+        {
+            display = content.removeFromLeft (juce::jlimit (220, 330, content.getWidth() * 30 / 100));
             content.removeFromLeft (8);
+        }
 
         if (mode == 1)
         {
@@ -1286,7 +1317,7 @@ private:
         {
             // A thin frame scrubber under a wavetable's picture (S12-2).
             auto picture = display;
-            const auto scrubber = picture.getHeight() > 150 ? picture.removeFromBottom (18) : juce::Rectangle<int>();
+            const auto scrubber = picture.getHeight() > 150 && mode == 0 ? picture.removeFromBottom (18) : juce::Rectangle<int>(); // (only a wavetable has one)
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
@@ -1355,9 +1386,11 @@ private:
         // SUB + NOISE in two named halves (the sub's controls, then after
         // the gap the noise's), so its row reads as two small modules
         // rather than four knobs and an empty half (UI review 8, S8-29).
-        if (sharedSelected == sharedSubNoise)
+        // (The VOICE tab is two halves the same way: playing, then spread; the
+        // paragraph that used to fill its right side is gone, V14-9.)
+        if (sharedSelected == sharedSubNoise || sharedSelected == sharedVoice)
         {
-            const auto items = sharedItems (sharedSubNoise);
+            const auto items = sharedItems (sharedSelected);
             const auto split = std::find (items.begin(), items.end(), nullptr);
             std::vector<juce::Component*> sub (items.begin(), split), noise;
             for (auto it = split; it != items.end(); ++it)
@@ -1372,8 +1405,17 @@ private:
             row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), subShare + noiseShare), row.getHeight());
             auto half = row.removeFromLeft (row.getWidth() * subShare / juce::jmax (1, subShare + noiseShare));
             sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
-            for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, "SUB", &sub },
-                                               { &row, "NOISE", &noise } })
+            // The band beside the tabs says what MODE does, in a line or two (the
+            // paragraph that took the controls' width is gone: V14-9).
+            if (sharedSelected == sharedVoice)
+            {
+                const auto noteLeft = sharedTabs.getRight() + 18;
+                sharedNoteArea = { noteLeft, sharedCard.getY() + 4, sharedCard.getRight() - 12 - noteLeft, sharedHeaderHeight - 4 };
+                sharedNote = "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. GLIDE slides the pitch from the last note.";
+            }
+
+            for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, sharedSelected == sharedVoice ? "NOTES" : "SUB", &sub },
+                                               { &row, sharedSelected == sharedVoice ? "STEREO" : "NOISE", &noise } })
             {
                 sharedLabels.push_back ({ area->removeFromLeft (rowLabelWidth - 24).reduced (8, 0).withTrimmedTop (3).withHeight (18), name });
                 layoutSlots (*area, *group);
@@ -1381,10 +1423,10 @@ private:
             return;
         }
 
-        // VOICE and SPREAD & DRIFT hold few controls: they stand at the left in
-        // cells of one size and a line of words fills the rest of the card, so
-        // the drawer has no bare right half (V12-3).
-        if (sharedSelected == sharedVoice || sharedSelected == sharedSpread || (sharedSelected == sharedSympathetic && ! readBool ("sym_manual")))
+        // STRINGS holds few controls: they stand at the left in cells of one
+        // size and a line of words fills the rest of the card, so the drawer
+        // has no bare right half (V12-3).
+        if (sharedSelected == sharedSympathetic && ! readBool ("sym_manual"))
         {
             auto items = sharedItems (sharedSelected);
             while (! items.empty() && (items.back() == nullptr || ! items.back()->isVisible()))
@@ -1400,14 +1442,8 @@ private:
                 const auto noteLeft = juce::jmax (row.getX() + 18, sharedTabs.getRight() + 18);
                 sharedNoteArea = { noteLeft, sharedCard.getY() + 6, row.getRight() - 6 - noteLeft, sharedCard.getBottom() - sharedCard.getY() - 12 };
             }
-            sharedNote = sharedSelected == sharedSympathetic
-                             ? "Shared drone strings that ring along with everything you play. AMOUNT sets how loud they are, DECAY how long they ring and STRINGS "
-                               "how many there are; MANUAL lets you tune them by hand."
-                             : sharedSelected == sharedVoice
-                             ? "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. VOICES caps how many play at once; "
-                               "GLIDE slides the pitch from the last note."
-                             : "SPREAD pans the unison voices across the stereo field. UNI PHASE sets where each voice's cycle starts, so a chord does not "
-                               "swell in step. ANALOG DRIFT lets every voice wander a little in pitch, as an old synth would: keep it low for a steady sound.";
+            sharedNote = "Shared drone strings that ring along with everything you play. AMOUNT sets how loud they are, DECAY how long they ring and STRINGS "
+                         "how many there are; MANUAL lets you tune them by hand.";
             return;
         }
 
@@ -1420,23 +1456,12 @@ private:
         {
             // (The sub's controls, then the noise's after the gap.)
             case sharedSubNoise: return { subOscOn.get(), &subShape, &subOctave, subOscLevel.get(), nullptr, noiseStrip.get(), noiseColourStrip.get() };
-            case sharedSpread: return { voiceSpread.get(), unisonRandom.get(), drift.get(), nullptr, nullptr, nullptr, nullptr, nullptr };
             case sharedSympathetic: return { &symOn, &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
                              symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };
-            case sharedVoice: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr, nullptr, nullptr };
+            case sharedVoice: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr,
+                                       voiceSpread.get(), unisonRandom.get(), drift.get() };
             default: return { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal };
         }
-    }
-
-    // A wavetable oscillator with a warp picked opens a row for the PD
-    // chain's second stage and the warp envelope.
-    bool showsWarpChain (int index) const
-    {
-        if (getMode (index) != 0)
-            return false;
-
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)]);
-        return readFloat (prefix + "_warp") > 0.5f || readFloat (prefix + "_warp2") > 0.5f;
     }
 
     // An oscillator tab's right-click menu.
@@ -1490,8 +1515,8 @@ private:
         if (dynamic_cast<ComboControl*> (item) != nullptr)
             return 1.5f;
 
-        if (dynamic_cast<ToggleControl*> (item) != nullptr)
-            return 0.75f;
+        if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+            return toggle->getButton().getButtonText().length() > 8 ? 1.05f : 0.75f; // (LEGATO ONLY keeps its name at 75 %)
 
         return 1.1f;
     }

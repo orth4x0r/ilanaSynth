@@ -20,6 +20,7 @@ The rules every page follows, so a control looks and reads the same wherever it 
 ## Casing
 - Names of modules and sources are upper case in labels, chips, tabs and combos: AMP ENV, FILT ENV, OSC 1, LFO 2, OP ENV.
 - Sentence case only for prose: hints, tooltips, dialog text, menu items that are actions ("Reset to default").
+- Values keep their own case in menus and pills: waveform and mode names (Sine, Square, Saw, Wavetable, Poly) and units (-1 Oct) are values, not names, so SUB's pills and the strips' menus stay as they are (review 14, V14-15).
 - Values keep their units' own case (ms, dB, Hz, ×1.00).
 - Buttons say what they do in upper case everywhere, dialogs included: SAVE, CANCEL, LOAD ANYWAY, SAVE AND LOAD, GOT IT (UI review 8, S8-23). Check boxes are sentences ("Don't show this again"), the same words wherever the same tick appears.
 
@@ -32,7 +33,7 @@ The rules every page follows, so a control looks and reads the same wherever it 
 - The UI test paints every page on three patches at 100 % and 75 % and fails on any cut text; it also fails if `drawFittedText` appears anywhere in `src/` but the helper.
 
 ## On dots and cards without a switch
-- A tab for something with no switch of its own (VOICE, SPREAD & DRIFT, SOUNDBOARD) has no on dot (`StateTabs::Item::dot`), rather than a dot lit by "some value is above zero" (UI review 8, I8-21). An off oscillator's tab only puts its dot out; it doesn't also say OFF.
+- A tab for something with no switch of its own (VOICE, SOUNDBOARD) has no on dot (`StateTabs::Item::dot`), rather than a dot lit by "some value is above zero" (UI review 8, I8-21). An off oscillator's tab only puts its dot out; it doesn't also say OFF.
 - A card without a family colour (OUTPUT, SIGNAL FLOW) has no tag in its title: a grey dot read as "switched off" (`IlanaTheme::hasFamilyColour`, I8-32).
 
 ## Page switches
@@ -42,7 +43,7 @@ The rules every page follows, so a control looks and reads the same wherever it 
 - **RANDOMISE** (the dice): scramble the parameters. The header's dice menu randomises the patch or a part of it; the FX page's dice (tooltip "Randomise FX") the chain. **RANDOM PRESET** (the browser) is a different action: it loads an existing preset from the list shown.
 - **SAVE** is the patch (header SAVE, SAVE AS in the browser); **SAVE CHAIN / LOAD CHAIN** is the FX chain's file. A button that writes or reads a chain says CHAIN.
 - **KEYBOARD** is the on-screen keyboard (the header button); **KEYS** is the SEQ chain's input node only (the preset category is a browser filter, not a control). The OSC strip's acoustic-keys tab is **SOUNDBOARD** and its drone strings **STRINGS**, the nouns the signal flow uses.
-- **VOICE** is how notes are shared out (mode, voices, bend, glide) and lives in one place: OSC > VOICE. The header's VOICES count and the settings menu's "Voice settings" open that tab; there is no second menu. **UNISON** is the oscillator's stack of detuned copies only (its card's row); the strip's SPREAD & DRIFT tab is what every voice shares.
+- **VOICE** is how notes are shared out (mode, voices, bend, glide) and lives in one place: OSC > VOICE. The header's VOICES count and the settings menu's "Voice settings" open that tab; there is no second menu. **UNISON** is the oscillator's stack of detuned copies only (its card's row); the spread, phase and drift every voice shares sit beside the voice settings in the same VOICE tab (review 14, V14-9).
 - A DX7 operator shows one level, **OUTPUT**. The oscillator's own level into the voice is **VOICE LEVEL** (OSC page, WAVE row).
 - A button that opens a file chooser says **LOAD...**; one that jumps to another page is **EDIT <WHAT> ›** (`styleJumpLink`; the cards' header link `CardTabs` draws is the same words, "EDIT ›").
 - Oscillator pickers are `OscPicker` everywhere (a coloured dot and "OSC n", the number alone when the header is tight); no page draws its own.

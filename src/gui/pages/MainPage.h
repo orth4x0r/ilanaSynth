@@ -192,7 +192,13 @@ public:
 
             for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" },
                                       { "_drive", "DRIVE" }, { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" } })
+            {
                 set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, filterColour (f), false));
+                // A DX7 voice has no filter: its knobs but CUTOFF, which
+                // brings one in, dim and say why (review 14, I14-3).
+                if (juce::String (spec.first) != "_cutoff")
+                    effectRules.add (*set->items.back(), [this] { return ! operatorFilterOff; }, "a DX7 voice has no filter: turn CUTOFF down to bring one in");
+            }
 
             for (auto& item : set->items)
                 addChildComponent (*item);
@@ -434,6 +440,21 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
+
+        // A DX7 voice has no filter: the response says so instead of
+        // drawing a flat line (I14-3).
+        if (operatorFilterOff)
+        {
+            const auto well = filterDisplay.getBounds().toFloat();
+            IlanaTheme::paintWell (g, well, 6.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            IlanaTheme::drawFitted (g, "FILTER OFF", well.toNearestInt().withTrimmedBottom ((int) (well.getHeight() / 2.0f)), juce::Justification::centredBottom, 1);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "a DX7 voice has none: turn CUTOFF down to bring one in",
+                                    well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0), juce::Justification::centredTop, 2);
+        }
         paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
 
         // OP ENV: what plays it, beside its picture: each operator's OUTPUT as
@@ -446,8 +467,15 @@ public:
             auto area = opEnvNoteArea;
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
-                                    area.removeFromTop (14), juce::Justification::centredLeft);
+            // (Said shorter when the card is narrow: no cut word, V14-17.)
+            const auto heading = area.removeFromTop (14);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            auto sentence = juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV");
+            for (const auto& shorter : { juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
+                                         juce::String (count) + (count == 1 ? " PLAYS THE OP ENV" : " PLAY THE OP ENV") })
+                if (juce::GlyphArrangement::getStringWidthInt (font, sentence) > heading.getWidth())
+                    sentence = shorter;
+            IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
             for (int i = 0; i < count && rowHeight >= 10; ++i)
@@ -1096,6 +1124,20 @@ private:
             }
         }
 
+        // An operator voice with both filters wide open has none.
+        {
+            auto off = false;
+            for (int osc = 0; osc < OscillatorIds::count && ! off; ++osc)
+                off = processorRef.isOscillatorShown (osc) && readInt (OscRole::prefix (osc) + "_mode") == 0 && OscRole::usesOperatorEg (processorRef, osc);
+            off = off && FilterDisplay::isPassThrough (processorRef, 0, true) && FilterDisplay::isPassThrough (processorRef, 1, true);
+            if (off != operatorFilterOff)
+            {
+                operatorFilterOff = off;
+                filterDisplay.setVisible (! off);
+                repaint (filterCard);
+            }
+        }
+
         effectRules.apply();
 
         // The OP ENV card's bars follow the operators' OUTPUTs.
@@ -1363,7 +1405,7 @@ private:
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
     // The noise knobs wear the SUB colour at half strength, so COLOUR does not read as disabled (V13-15).
-    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.5f); }
+    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.2f); } // (mostly the sub's orange: COLOUR read disabled in grey, V14-14)
 
     void layoutSubCard()
     {
@@ -1400,8 +1442,8 @@ private:
     // the dim empty slots.
     void paintColumn (juce::Graphics& g)
     {
-        const auto paintTitle = [&g] (juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit,
-                                      const juce::String& line2, const juce::String& line3, bool header = false)
+        const auto paintTitle = [this, &g] (juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit,
+                                            const juce::String& line2, const juce::String& line3, bool header = false)
         {
             if (header)
             {
@@ -1433,10 +1475,19 @@ private:
             g.drawText (title, top.withTrimmedLeft (24), juce::Justification::centredLeft);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
 
-            for (const auto& line : { line2, line3 })
+            // A line stops at the picture beside it; one that does not fit in the
+            // strip's narrow column says the same shorter ("MODULATES 1" at 75 %
+            // lost its digit under the wave: V14-17).
+            const auto room = juce::jmax (20, stripColumns (card).picture.getX() - card.getX() - 9 - 6);
+            const auto lineFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+
+            for (auto line : { line2, line3 })
                 if (line.isNotEmpty())
                 {
                     area.removeFromTop (2);
+                    if (juce::GlyphArrangement::getStringWidthInt (lineFont, line) > room)
+                        line = line.replace ("TO OUTPUT, MODULATES ", "OUT, " + juce::String::fromUTF8 ("\xe2\x86\x92 "))
+                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
                     g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3); // (not the strip's one coloured text: V10-16)
                     // (Never cut mid-digit: a role line too long for a narrow strip says "→ 1", V14-17.)
                     // (To the picture's edge, the title column being narrower on a compact strip.)
@@ -1600,7 +1651,8 @@ private:
     juce::Rectangle<int> subCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 112, outputMinHeight = 70, maxPatchOnlyHeight = 132, maxGrownSlotHeight = 200;
+    static constexpr int patchMinHeight = 150, outputMinHeight = 100, maxPatchOnlyHeight = 170, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
+                                   maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
     bool subFolded = false;
     float lastOperatorOutputs = 0.0f;
@@ -1613,6 +1665,7 @@ private:
     OperatorEnvOverview opEnvOverview { processorRef };
     juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
+    bool operatorFilterOff = false;
     juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;
     CardTabs filterTabs, envTabs, lfoTabs;

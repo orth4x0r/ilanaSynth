@@ -240,16 +240,23 @@ inline void showOverflowMenu (juce::Component& target, juce::Rectangle<int> card
 // A card that is in the pool but plays no part now (the Operator Env's
 // cards on a patch without an operator on it): a small "unused" tag at the
 // right of its title line. Returns the width it took.
-inline float paintUnusedTag (juce::Graphics& g, juce::Rectangle<float> titleRow)
+inline float paintUnusedTag (juce::Graphics& g, juce::Rectangle<float> titleRow, const juce::String& title = {})
 {
     const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-    const auto width = juce::GlyphArrangement::getStringWidth (font, "unused") + 10.0f;
+    // On a card too narrow for its name and the word, the tag says "off"
+    // rather than cutting the name (review 14, V14-17: "AMP E... unused").
+    auto word = juce::String ("unused");
+    if (title.isNotEmpty()
+        && juce::GlyphArrangement::getStringWidth (IlanaTheme::font (IlanaTheme::TextSize::body, true), title)
+                   + juce::GlyphArrangement::getStringWidth (font, word) + 10.0f + 14.0f > titleRow.getWidth())
+        word = "off";
+    const auto width = juce::GlyphArrangement::getStringWidth (font, word) + 10.0f;
     const auto box = titleRow.removeFromRight (width).withSizeKeepingCentre (width, 13.0f);
     g.setColour (juce::Colours::white.withAlpha (0.06f));
     g.fillRoundedRectangle (box, 6.5f);
     g.setColour (IlanaTheme::Ui::text3);
     g.setFont (font);
-    g.drawText ("unused", box, juce::Justification::centred);
+    g.drawText (word, box, juce::Justification::centred);
     return width + 6.0f;
 }
 } // namespace PoolCards
@@ -921,7 +928,7 @@ private:
         // drives plays.
         if (! inUse)
         {
-            const auto taken = PoolCards::paintUnusedTag (g, titleRow);
+            const auto taken = PoolCards::paintUnusedTag (g, titleRow, info.title);
             paintTitleRow (g, titleRow.withTrimmedRight (taken), info.title, {}, {}, IlanaTheme::Ui::text3, false, false);
             return;
         }

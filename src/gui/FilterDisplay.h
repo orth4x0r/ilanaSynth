@@ -156,7 +156,9 @@ public:
     // 1.5 dB of flat up to 5 kHz (a Low Pass open at 20 kHz) and nothing
     // pulls its cutoff down (ENV AMT below 0, KEY TRK, a route). Its curve
     // and card are dimmed, as an off module's would be (UI review 8, V8-39).
-    static bool isPassThrough (const IlanaSynthAudioProcessor& p, int filterIndex)
+    // `idleMacrosIgnored`: a route from a macro that sits at 0 now pulls nothing
+    // (PLAY's DX7 note, I14-3: the voices' DARKEN macro routes to Filter 1).
+    static bool isPassThrough (const IlanaSynthAudioProcessor& p, int filterIndex, bool idleMacrosIgnored = false)
     {
         const juce::String prefix (filterIndex == 0 ? "f1" : "f2");
         const auto read = [&p, &prefix] (const char* suffix)
@@ -173,7 +175,12 @@ public:
         {
             const auto routing = p.readModSlot (slot);
             if (routing.destination == cutoffDestination && routing.source != Mod::Source::None && std::abs (routing.depth) > 1.0e-4f)
-                return false;
+            {
+                const auto macro = Mod::macroIndexFor (routing.source);
+                const auto* macroValue = macro >= 0 ? p.apvts.getRawParameterValue ("macro" + juce::String (macro + 1)) : nullptr;
+                if (! (idleMacrosIgnored && macroValue != nullptr && macroValue->load() < 0.001f))
+                    return false;
+            }
         }
 
         const auto cutoff = (double) juce::jlimit (20.0f, 20000.0f, read ("_cutoff"));

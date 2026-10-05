@@ -92,8 +92,10 @@ public:
         const auto panelHeight = juce::jlimit (128, 156, panel1.preferredHeight ((area.getWidth() - 10) / 2));
         // A module that is off folds to its header and its switch (UI review
         // 9, V9-4); the response and the flow take the room.
-        westShown = westOn();
-        bodyShown = bodyActive();
+        // (WEST and BODY open together or fold together, so a lone open card
+        // never leaves a hole beside it: I14-5; the one that is off shows its
+        // controls dimmed, as the PHYSICAL page's boxes do.)
+        westShown = bodyShown = westOn() || bodyActive();
         const auto openHeight = juce::jlimit (166, 186, area.getHeight() * 9 / 25);
         const auto bottomHeight = westShown || bodyShown ? openHeight : foldedCardHeight;
         const auto topHeight = juce::jmax (120, area.getHeight() - panelHeight - bottomHeight - 16);
@@ -156,7 +158,7 @@ private:
         const auto parallelNow = readValue ("filters_parallel") > 0.5f;
         const auto replacedNow = filter2Replaced();
 
-        if (westOn() != westShown || bodyActive() != bodyShown)
+        if ((westOn() || bodyActive()) != westShown)
             resized();
 
         if (parallelNow != wasParallel || replacedNow != wasReplaced)

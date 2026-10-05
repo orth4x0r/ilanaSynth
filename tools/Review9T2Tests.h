@@ -65,16 +65,14 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
         editor.showPage ("OSC");
         settle (300);
         StateTabs* shared = nullptr;
-        auto unisonIndex = -1, voiceIndex = -1;
+        auto voiceIndex = -1;
         std::vector<StateTabs*> rows;
         findAll<StateTabs> (editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
             {
-                if (tabs->getItem (i).name == "SPREAD & DRIFT")
-                    unisonIndex = i, shared = tabs;
-                if (tabs->getItem (i).name == "VOICE" && tabs == shared)
-                    voiceIndex = i;
+                if (tabs->getItem (i).name == "SUB + NOISE")
+                    shared = tabs;
             }
 
         for (auto* tabs : rows)
@@ -82,10 +80,15 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
                 if (tabs->getItem (i).name == "VOICE" && tabs == shared)
                     voiceIndex = i;
 
-        expect (shared != nullptr && unisonIndex >= 0 && voiceIndex >= 0 && unisonIndex != voiceIndex
-                    && ! shared->getItem (unisonIndex).tooltip.containsIgnoreCase ("poly")
-                    && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("glide"),
-                "OSC's strip has SPREAD & DRIFT (no second UNISON) and a VOICE tab holding the voice settings (S9-1, S9-2, S10-3)");
+        // (Review 14, V14-9: SPREAD & DRIFT's controls moved into the VOICE tab, which fills the drawer.)
+        auto spreadTab = false;
+        if (shared != nullptr)
+            for (int i = 0; i < shared->getNumItems(); ++i)
+                spreadTab = spreadTab || shared->getItem (i).name == "SPREAD & DRIFT";
+        expect (shared != nullptr && ! spreadTab && voiceIndex >= 0
+                    && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("glide")
+                    && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("spread"),
+                "OSC's strip has a VOICE tab holding the voice settings and the spread and drift (S9-1, S9-2, S10-3, V14-9)");
 
         // S10-3, S10-4: UNISON is the card's alone; the global tabs sit after the
         // sub and noise, behind a group gap.

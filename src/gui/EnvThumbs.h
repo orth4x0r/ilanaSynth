@@ -542,7 +542,7 @@ private:
         // the narrowest card (UI review 7, I7-8), the shape greyed.
         const auto unusedAmp = info.source == Mod::Source::AmpEnv && ! inUse;
         if (unusedAmp)
-            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow));
+            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow, info.title));
         paintTitle (g, removable ? titleRow.withTrimmedRight (18.0f) : titleRow, info.title, unusedAmp ? juce::String() : cachedTargets (env),
                     colour, active, inUse);
 
@@ -614,7 +614,7 @@ private:
 
         // Greyed, with "unused", while nothing it shapes plays.
         if (! inUse)
-            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow));
+            titleRow.removeFromRight (PoolCards::paintUnusedTag (g, titleRow, info.title));
         paintTitle (g, titleRow, info.title, inUse ? targets : juce::String(), inUse ? info.colour : IlanaTheme::Ui::text3, active && inUse,
                     inUse && targets.isNotEmpty());
 

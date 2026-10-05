@@ -228,6 +228,36 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (tooBig.isEmpty(), "no card holds a large empty interior at 100 % or 75 %" + (tooBig.isEmpty() ? juce::String() : ": " + tooBig.joinIntoString ("; ")));
     }
 
+    // V11-1: PLAY always has its PATCH tile (the signal flow), whatever the
+    // patch or the oscillator count, at 100 % and 75 %.
+    {
+        auto* top = editor.getTopLevelComponent();
+        const auto before = top->getBounds();
+        juce::StringArray missing;
+        for (const auto* preset : { "Init", "Neuro Wobble", "E.PIANO 1 (ROM1A)", "Felt Hammer Board" })
+        {
+            loadNamed (preset);
+            for (const auto small : { false, true })
+            {
+                if (small)
+                    top->setSize (795, 540);
+                else
+                    top->setBounds (before);
+                editor.showPage ("MAIN");
+                settle (300);
+                std::vector<SignalFlow*> flows;
+                findAll<SignalFlow> (*editor.getCurrentPage(), flows);
+                const auto shownFlow = std::count_if (flows.begin(), flows.end(), [] (SignalFlow* f) { return f->isVisible() && f->getHeight() >= 60; });
+                if (shownFlow != 1)
+                    missing.add (juce::String (preset) + (small ? " 75%" : ""));
+            }
+        }
+        top->setBounds (before);
+        editor.showPage ("MAIN");
+        settle (300);
+        expect (missing.isEmpty(), "PLAY always shows its PATCH tile" + (missing.isEmpty() ? juce::String() : ": missing on " + missing.joinIntoString (", ")));
+    }
+
     // V10-11: SAVE AS's tag chips clear the tags field above them, with the
     // field open (tags the chips don't offer) and closed.
     {

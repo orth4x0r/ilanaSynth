@@ -162,10 +162,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         return nullptr;
     };
     const auto centreX = [&editor] (juce::Component* c) { return c == nullptr ? -1 : editor.getLocalArea (c, c->getLocalBounds()).getCentreX(); };
-    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::TextButton*
+    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::Button*
     {
-        std::vector<juce::TextButton*> buttons;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (visibleInTree (button) && button->getButtonText() == text)
                 return button;
@@ -1496,8 +1496,8 @@ int runUiTests()
         // Every strip is the same height, and the next one to add is one
         // button in the first empty slot (UI review 6, S33).
         {
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
             auto adds = 0;
             for (auto* button : buttons)
                 if (visibleInTree (button) && button->getButtonText().contains ("ADD OSC"))
@@ -1585,11 +1585,11 @@ int runUiTests()
             expect (std::none_of (libraryButtons.begin(), libraryButtons.end(), [] (FxLibraryButton* b) { return visibleInTree (b); }),
                     "no library or chain list beside the cards once the rack has an effect");
 
-            juce::TextButton* addEffect = nullptr;
-            textButtons.clear();
-            findAll<juce::TextButton> (*editor, textButtons);
-            for (auto* button : textButtons)
-                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
+            juce::Button* addEffect = nullptr;
+            std::vector<juce::Button*> allButtons;
+            findAll<juce::Button> (*editor, allButtons);
+            for (auto* button : allButtons)
+                if (button->getButtonText() == "+  ADD EFFECT" && visibleInTree (button))
                     addEffect = button;
             expect (addEffect != nullptr, "the rack has + ADD EFFECT");
 
@@ -6127,8 +6127,8 @@ int runUiTests()
                         bar->setSelected (bar->getNames().indexOf ("AMP ENV"), true); // (OP ENV comes first: I8-18)
                 settle (300);
             }
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
             auto opEnv = false;
             for (auto* button : buttons)
                 opEnv = opEnv || (visibleInTree (button) && button->getButtonText().startsWith ("EDIT OP ENV"));

@@ -39,10 +39,10 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
     {
         return c == nullptr ? juce::Rectangle<int>() : editor.getLocalArea (c, c->getLocalBounds());
     };
-    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::TextButton*
+    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::Button*
     {
-        std::vector<juce::TextButton*> buttons;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == text)
                 return button;
@@ -327,7 +327,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });
-        if (auto* add = buttonNamed ("+ ADD EFFECT"); add != nullptr)
+        if (auto* add = buttonNamed ("+  ADD EFFECT"); add != nullptr)
         {
             add->triggerClick();
             settle (80); // (a call-out closes itself soon under xvfb)

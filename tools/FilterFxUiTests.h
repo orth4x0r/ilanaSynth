@@ -38,8 +38,8 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
     };
     const auto shownButtons = [&editor] (const juce::String& text)
     {
-        std::vector<juce::TextButton*> buttons, matching;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons, matching;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (button->getButtonText() == text && visibleInTree (button) && ! button->getBounds().isEmpty())
                 matching.push_back (button);
@@ -252,7 +252,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         // whole width.)
         expect (stack != nullptr && chorusRight > stack->getWidth() / 2 && reverbRight > stack->getWidth() / 2,
                 "a half card (Chorus) without a partner takes the full width before a full card (Reverb)");
-        expect (shownButtons ("+ ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
+        expect (shownButtons ("+  ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
 
         // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.
         loadFx ({ 27, 2, 20 });

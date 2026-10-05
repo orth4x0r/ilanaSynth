@@ -1010,7 +1010,7 @@ private:
         subShape->setBounds (menus.removeFromTop (24));
         menus.removeFromTop (4);
         subOctave->setBounds (menus);
-        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get(), nullptr });
+        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
     }
 
     // The strips' cards and titles (their controls draw themselves), and

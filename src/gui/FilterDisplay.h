@@ -218,7 +218,7 @@ public:
 private:
     static constexpr float markerSize = 10.0f;
     // Markers stay this far inside the plot's edges (S6-21).
-    static constexpr float markerInset = 8.0f;
+    static constexpr float markerInset = 14.0f;
 
     static juce::String defaultTip()
     {
@@ -280,7 +280,7 @@ private:
         {
             // (A graph too short to stack them, PLAY's: side by side, with a
             // clear gap.)
-            const auto wide = markerSize + 14.0f;
+            const auto wide = markerSize + 24.0f;
             const auto firstLeft = cutoffOf (0, false) <= cutoffOf (1, false);
             const auto middle = juce::jlimit (inside.getX() + wide * 0.5f, inside.getRight() - wide * 0.5f, (a.x + b.x) * 0.5f);
             a.x = middle + (firstLeft ? -wide : wide) * 0.5f;

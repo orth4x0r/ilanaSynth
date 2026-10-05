@@ -92,9 +92,10 @@ namespace TextSize
 
     // The smallest zoom the editor offers, and the floor at it in screen
     // pixels (UI review 5 #31, 6 #46): text that would draw smaller is left
-    // out (a hint) rather than shrunk. 12 units at 75 % is 9 px.
+    // out (a hint) rather than shrunk. 12 units at 75 % is 9 px, so
+    // the smallest sizes grow to 10 px there (UI review 9, V9-26).
     inline constexpr float smallestZoom  = 0.75f;
-    inline constexpr float screenFloorPx = 9.0f;
+    inline constexpr float screenFloorPx = 10.0f;
     inline constexpr float zoomFloor     = screenFloorPx / smallestZoom;
 }
 
@@ -153,7 +154,8 @@ inline float& uiScaleRef()
 inline juce::FontOptions font (float height, bool bold = false, bool tabular = false)
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
-    const auto deviceHeight = height * scale;
+    // No text under the screen floor, whatever the zoom (V9-26).
+    const auto deviceHeight = juce::jmax (height * scale, TextSize::screenFloorPx);
     if (auto& probe = fontProbe(); probe.armed)
     {
         probe.smallest = juce::jmin (probe.smallest, deviceHeight);
@@ -176,6 +178,7 @@ struct TextFitProbe
     bool armed = false;
     juce::StringArray shrunk, cut;
     juce::StringArray cutDetails; // "text: needs N px of M at H"
+    juce::StringArray respelled;  // "text -> line": a value drawn without its space or with a shorter unit
 };
 
 inline TextFitProbe& textFitProbe()
@@ -191,10 +194,10 @@ inline TextFitProbe& textFitProbe()
 //   1. a smaller size, down to `floorHeight` (the floor for its kind: the
 //      interactive one for values, menus and buttons);
 //   2. the same, with its letters set a little closer (tracking, up to
-//      0.06 of the height between letters: spacing, not narrower glyphs);
-//   3. for a value with a unit ("-30.9 dB"), the number alone, the unit
-//      left to the tooltip and the label;
-//   4. down to the passive floor (still 9 px at 75 %), tracked;
+//      0.12 of the height between letters: spacing, not narrower glyphs);
+//   3. for a value with a unit ("-30.9 dB"), the space goes and a long
+//      unit is shortened ("kHz" to "k"): a value never loses its unit;
+//   4. down to the passive floor (still 10 px at 75 %), tracked;
 //   5. wrapped onto its other lines where it may take more, else cut with
 //      an ellipsis.
 // The probe records every line that had to change and every one cut.
@@ -202,7 +205,8 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto width = juce::GlyphArrangement::getStringWidth (font, line);
-    floor = juce::jmin (font.getHeight(), floor);
+    // (Nor shrunk under the screen floor at a small zoom: V9-26.)
+    floor = juce::jmin (font.getHeight(), juce::jmax (floor, TextSize::screenFloorPx / scale));
 
     // Width follows height closely, so one step lands near the fit; snap
     // down to whole device pixels, as font() does, so the glyphs stay crisp.
@@ -215,7 +219,7 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
         smaller = font.withHeight (height);
     }
 
-    for (auto tracking = -0.01f; tracking >= -0.0601f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
+    for (auto tracking = -0.01f; tracking >= -0.1201f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
          tracking -= 0.01f)
         smaller = font.withHeight (height).withExtraKerningFactor (tracking);
 
@@ -271,22 +275,44 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 
     if (! fitsIn (fitted, line, room))
     {
-        // A number with a unit after a space: the number alone.
+        // A number with a unit after a space never loses its unit (V9-5):
+        // the space goes first ("-30.9dB"), then a long unit is shortened
+        // ("kHz" to "k"), each at the floor size; the passive floor last.
         const auto number = line.upToLastOccurrenceOf (" ", false, false);
         const auto unit = line.fromLastOccurrenceOf (" ", false, false);
         const auto isValue = number.isNotEmpty() && unit.length() <= 3 && ! unit.containsAnyOf ("0123456789")
                              && number.retainCharacters ("0123456789").isNotEmpty()
                              && number.removeCharacters ("0123456789.,+-:/").removeCharacters (juce::String::fromUTF8 ("\xe2\x88\x92\xc3\x97")).isEmpty();
+        auto settled = false;
 
-        if (isValue && fitsIn (fittedFont (font, number, room, floorHeight), number, room))
+        if (isValue)
         {
-            line = number;
-            fitted = fittedFont (font, line, room, floorHeight);
+            const auto shortUnit = unit == "kHz" ? juce::String ("k") : unit == "oct" ? juce::String ("o") : unit;
+            const juce::String candidates[] { number + unit, number + shortUnit };
+
+            for (const auto& candidate : candidates)
+            {
+                const auto attempt = fittedFont (font, candidate, room, floorHeight);
+
+                if (fitsIn (attempt, candidate, room))
+                {
+                    line = candidate;
+                    fitted = attempt;
+                    settled = true;
+                    break;
+                }
+            }
+
+            if (! settled)
+            {
+                line = number + shortUnit;
+                fitted = fittedFont (font, line, room, TextSize::minPassive);
+                settled = true;
+            }
         }
-        else
-        {
+
+        if (! settled)
             fitted = fittedFont (font, line, room, TextSize::minPassive);
-        }
     }
 
     const auto fits = fitsIn (fitted, line, room);
@@ -299,6 +325,8 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 
     if (auto& probe = textFitProbe(); probe.armed)
     {
+        if (line != text.trim())
+            probe.respelled.addIfNotAlreadyThere (text.trim() + " -> " + line);
         (fits ? probe.shrunk : probe.cut).addIfNotAlreadyThere (text.trim());
         if (! fits)
             probe.cutDetails.add (line + ": needs " + juce::String (juce::GlyphArrangement::getStringWidth (fitted, line), 1) + " of "
@@ -985,8 +1013,17 @@ public:
 
         if (! label.isBeingEdited())
         {
-            const auto alpha = label.isEnabled() ? 1.0f : 0.5f;
-            const auto font = getLabelFont (label);
+            // A disabled name is never fainter than 3:1 against its card
+            // (V9-25): its own fade and its card's dimming are counted
+            // together, and the label gives back what they take.
+            auto shown = 1.0f;
+            for (const juce::Component* c = &label; c != nullptr; c = c->getParentComponent())
+                shown *= c->getAlpha();
+            const auto alpha = label.isEnabled() ? 1.0f : juce::jlimit (0.5f, 1.0f, 0.55f / juce::jmax (0.01f, shown));
+            auto font = getLabelFont (label);
+            // A row of names shares one size (layoutRow sets the cap).
+            if (label.getProperties().contains ("fitCap"))
+                font = font.withHeight (juce::jmin (font.getHeight(), (float) label.getProperties()["fitCap"]));
             // A word standing in for a number ("Auto", "Free", "Off") reads
             // dim, as a default rather than a setting (UI review 9, I9-25).
             const auto placeholder = dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr

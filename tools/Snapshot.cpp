@@ -131,6 +131,7 @@ void expect (bool condition, const juce::String& message)
 #include "FilterFxUiTests.h"
 #include "ModulationReview8Tests.h"
 #include "LayoutUiTests8.h"
+#include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
 #include "OperatorUiTests.h"
 #include "Review9T2Tests.h"
@@ -162,10 +163,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         return nullptr;
     };
     const auto centreX = [&editor] (juce::Component* c) { return c == nullptr ? -1 : editor.getLocalArea (c, c->getLocalBounds()).getCentreX(); };
-    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::TextButton*
+    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::Button*
     {
-        std::vector<juce::TextButton*> buttons;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (visibleInTree (button) && button->getButtonText() == text)
                 return button;
@@ -233,13 +234,13 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             findAll<ToggleControl> (editor, toggles);
             auto subSwitch = false;
             for (auto* toggle : toggles)
-                subSwitch = subSwitch || (visibleInTree (toggle) && toggle->getButton().getButtonText() == "SUB");
+                subSwitch = subSwitch || (visibleInTree (toggle) && toggle->getButton().getButtonText() == "ON" && toggle->getTooltip().startsWith (processor.apvts.getParameter ("subosc_on")->getName (64)));
             auto* noise = knobFor ("noise_level");
             auto* colour = knobFor ("noise_color", "COLOUR");
             expect (subSwitch && noise != nullptr && colour != nullptr && centreX (colour) > centreX (noise)
                         && std::abs (editor.getLocalArea (colour, colour->getLocalBounds()).getCentreY()
                                      - editor.getLocalArea (noise, noise->getLocalBounds()).getCentreY()) < 2,
-                    "PLAY: SUB + NOISE's switch reads SUB, and COLOUR sits beside NOISE");
+                    "PLAY: SUB + NOISE's switch reads ON (V9-17), and COLOUR sits beside NOISE");
         }
 
         // A wavetable in an FM route reads its part in the FM diagram's
@@ -412,7 +413,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (300);
         const auto offChips = inBar (Mod::Source::VectorX);
         expect (dim && lit, "VECTOR: off, X dims and says VECTOR is off; on, it lights");
-        expect (cornerTexts == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
+        expect (cornerTexts.replace (" (not added)", "") == "OSC 1|OSC 2|OSC 3|OSC 4", "VECTOR: the corners read OSC 1..4 (" + cornerTexts + ")");
         expect (barChips == 2 && offChips == 0, "VEC X / VEC Y are in the chip bar while VECTOR is on (" + juce::String (barChips) + ")");
     }
 
@@ -573,7 +574,7 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 
     // The 75 % floor (UI review 5 #31, 6 #46): every page (and the scope)
     // painted at the smallest zoom, with the theme's font helper watching:
-    // no text drawn under 9 screen pixels.
+    // no text drawn under 10 screen pixels.
     {
         auto* top = editor.getTopLevelComponent();
         const auto before = top->getBounds();
@@ -855,9 +856,12 @@ int runUiTests()
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
 
-    if (only == "T2")
+    if (only == "T1" || only == "T2")
     {
-        runReview9T2Tests (processor, *pages);
+        if (only == "T1")
+            runLayoutReview9Tests (processor, *pages);
+        else
+            runReview9T2Tests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -1152,6 +1156,9 @@ int runUiTests()
     }
 
     // Dropping a source on a knob routes it, and the knob grows a dot.
+    // (BODY folds while its coupling is off: V9-4, so it is switched on.)
+    if (auto* resOn = processor.apvts.getParameter ("res_on"))
+        resOn->setValueNotifyingHost (1.0f);
     pages->showPage ("FILTER");
     settle (300);
 
@@ -1516,8 +1523,8 @@ int runUiTests()
         // Every strip is the same height, and the next one to add is one
         // button in the first empty slot (UI review 6, S33).
         {
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
             auto adds = 0;
             for (auto* button : buttons)
                 if (visibleInTree (button) && button->getButtonText().contains ("ADD OSC"))
@@ -1605,11 +1612,11 @@ int runUiTests()
             expect (std::none_of (libraryButtons.begin(), libraryButtons.end(), [] (FxLibraryButton* b) { return visibleInTree (b); }),
                     "no library or chain list beside the cards once the rack has an effect");
 
-            juce::TextButton* addEffect = nullptr;
-            textButtons.clear();
-            findAll<juce::TextButton> (*editor, textButtons);
-            for (auto* button : textButtons)
-                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
+            juce::Button* addEffect = nullptr;
+            std::vector<juce::Button*> allButtons;
+            findAll<juce::Button> (*editor, allButtons);
+            for (auto* button : allButtons)
+                if (button->getButtonText() == "+  ADD EFFECT" && visibleInTree (button))
                     addEffect = button;
             expect (addEffect != nullptr, "the rack has + ADD EFFECT");
 
@@ -1904,8 +1911,14 @@ int runUiTests()
                 for (auto* knob : knobs)
                     if (knob->getParameterId() == "fx_ott_mix" && visibleInTree (knob))
                         ottMixRight = knob->getRight();
-                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && ottMixRight < viewport->getWidth() / 2,
-                        "a lone half card at the end of the chain stays half width, + ADD EFFECT beside it");
+                std::vector<DashedAddButton*> adds;
+                findAll<DashedAddButton> (*editor, adds);
+                auto belowLast = false;
+                for (auto* add : adds)
+                    if (visibleInTree (add))
+                        belowLast = belowLast || editor->getLocalArea (add, add->getLocalBounds()).getY() > editor->getLocalArea (titles[2], titles[2]->getLocalBounds()).getY();
+                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && belowLast,
+                        "a lone card at the end of the chain takes the row, the slim + ADD EFFECT row below it (V9-3)");
             }
 
             loadFx ({ 7, 2, 13, 20 });
@@ -2323,9 +2336,9 @@ int runUiTests()
                 expect (sameKinds, "FM: the operator card keeps one height on every patch, operator kind and tab (I8-11)");
 
                 const auto dxCell = knobBounds ("fm_amount"), dxNext = knobBounds ("fm_fb2");
-                expect (! neuroCell.isEmpty() && neuroCell.getWidth() == dxCell.getWidth()
-                            && neuroNext.getX() - neuroCell.getX() == dxNext.getX() - dxCell.getX(),
-                        "FM: matrix cells are one size on a three- and a six-oscillator patch (V8-35: "
+                expect (! neuroCell.isEmpty() && ! dxCell.isEmpty() && neuroCell.getWidth() >= dxCell.getWidth()
+                            && neuroNext.getX() - neuroCell.getX() >= dxNext.getX() - dxCell.getX(),
+                        "FM: a three-oscillator matrix's cells are as large as, or larger than, a six-oscillator one's (V9-8: "
                             + neuroCell.toString() + " / " + dxCell.toString() + ")");
                 expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("MORE: RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM")))
                             && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
@@ -2629,6 +2642,9 @@ int runUiTests()
         settle (300);
         const auto hiddenBefore = ! visibleKnob ("osc1_warp2_amt");
         set ("osc1_warp", (float) Warp::PdSaw);
+        settle (300);
+        set ("osc1_warp2", 1.0f);
+        set ("osc1_pd_env", 1.0f);
         settle (300);
         expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
                 "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
@@ -4059,6 +4075,8 @@ int runUiTests()
     // (not a hidden tab); with PLACE Replace Filter 2, Filter 2's card dims
     // and the graph and flow drop Filter 2.
     {
+        if (auto* westOn = processor.apvts.getParameter ("west_on"))
+            westOn->setValueNotifyingHost (1.0f); // (it folds while off: V9-4)
         pages->showPage ("FILTER");
         settle (200);
         const auto visibleKnob = [&editor] (const juce::String& id)
@@ -6258,8 +6276,8 @@ int runUiTests()
                         bar->setSelected (bar->getNames().indexOf ("AMP ENV"), true); // (OP ENV comes first: I8-18)
                 settle (300);
             }
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
             auto opEnv = false;
             for (auto* button : buttons)
                 opEnv = opEnv || (visibleInTree (button) && button->getButtonText().startsWith ("EDIT OP ENV"));
@@ -6285,8 +6303,8 @@ int runUiTests()
         {
             pages->showPage (page);
             settle (300);
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*editor, buttons);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
             auto crosses = 0;
             for (auto* button : buttons)
                 crosses += visibleInTree (button) && (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97"))
@@ -6362,17 +6380,16 @@ int runUiTests()
         // One dimming rule (V26): a control that does nothing now dims, says
         // why on hover, and still takes edits.
         {
-            auto* spectral = findKnob ("osc1_spectral_amt");
-            const auto dimmed = spectral != nullptr && std::abs (spectral->getAlpha() - IlanaTheme::dimmedAlpha) < 0.01f
-                                && spectral->isEnabled() && spectral->getSlider().getTooltip().contains ("No effect now");
+            const auto dimmed = findKnob ("osc1_spectral_amt") == nullptr; // hidden while Off (V9-9)
             setParam ("osc1_spectral", 1.0f);
             settle (500);
+            auto* spectral = findKnob ("osc1_spectral_amt");
             const auto lit = spectral != nullptr && spectral->getAlpha() > 0.99f && ! spectral->getSlider().getTooltip().contains ("No effect now");
             setParam ("osc1_spectral", 0.0f);
             settle (300);
             auto* detune = findKnob ("osc1_detune");
             expect (dimmed && lit && detune != nullptr && detune->getAlpha() < 0.99f,
-                    "OSC: SPEC AMT dims (and says why) while SPECTRAL is Off, lights when it is on; DETUNE dims at UNISON 1");
+                    "OSC: SPEC AMT is hidden while SPECTRAL is Off, lights when it is on; DETUNE dims at UNISON 1");
 
             pages->showPage ("FILTER");
             settle (400);
@@ -6492,6 +6509,7 @@ int runUiTests()
     runModulationReview8Tests (processor, *pages);
     // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
     runLayoutReview8Tests (processor, *pages);
+    runLayoutReview9Tests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.

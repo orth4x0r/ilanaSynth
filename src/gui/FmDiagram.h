@@ -725,7 +725,8 @@ private:
     // while there are no routes, and the noise node's corner while it plays.
     juce::Rectangle<float> layoutArea() const
     {
-        auto area = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+        // (16 px of air above and below: the top node's halo is not clipped.)
+        auto area = getLocalBounds().toFloat().reduced (8.0f, 16.0f);
         if (! anyRouteShown())
             area.removeFromBottom (hintHeight);
         if (anyNoiseShown())
@@ -921,12 +922,17 @@ private:
             const auto bend = bendFor (source, target, centres, radius);
             const auto both = read (routeId (target, source)) > 0.001f;
             const auto end = landingPoint (source, target, centres, radius).value_or (to - direction * (radius + 6.0f));
-            auto middle = (from + direction * radius + end) * 0.5f + normal * (both ? 7.0f : 0.0f);
+            // A long link carries its depth nearer the node it belongs to
+            // (its target), not at the middle of a span that may be 150 px
+            // from either (UI review 9, V9-10); short ones stay at the middle.
+            const auto along = from.getDistanceFrom (end) > radius * 6.0f ? 0.72f : 0.5f;
+            auto middle = (from + direction * radius) + (end - (from + direction * radius)) * along + normal * (both ? 7.0f : 0.0f);
             if (bend != 0.0f)
             {
                 const auto bentEnd = landingPoint (source, target, centres, radius).value_or (to);
                 const auto bentDirection = (bentEnd - from) / juce::jmax (1.0f, from.getDistanceFrom (bentEnd));
-                middle = (from + bentEnd) * 0.5f + juce::Point<float> (-bentDirection.y, bentDirection.x) * bend * 0.5f;
+                const auto control = (from + bentEnd) * 0.5f + juce::Point<float> (-bentDirection.y, bentDirection.x) * bend;
+                middle = from * ((1.0f - along) * (1.0f - along)) + control * (2.0f * along * (1.0f - along)) + bentEnd * (along * along);
             }
 
             const auto size = juce::Rectangle<float> (32.0f, 12.0f);

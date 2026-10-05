@@ -37,7 +37,23 @@ public:
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour.withAlpha (passThrough ? 0.15f : 0.35f));
 
         const auto header = getLocalBounds().reduced (12, 0).removeFromTop (headerHeight);
-        IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : passThrough ? colour.withAlpha (0.55f) : colour);
+        IlanaTheme::paintCardTitle (g, header, title, replaced ? IlanaTheme::Ui::text3 : passThrough ? colour.withAlpha (0.3f) : colour);
+
+        // A filter open at the top does nothing: its header says so, a pill
+        // where a switch would be (UI review 9, V9-13; the tooltip has more).
+        if (passThrough && ! replaced)
+        {
+            const auto right = slope.isVisible() ? slope.getX() - 8 : getWidth() - 12;
+            const auto pill = juce::Rectangle<int> (right - 52, header.getCentreY() - 9, 52, 18);
+
+            if (pill.getX() > picker.getRight() + 4)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawRoundedRectangle (pill.toFloat().reduced (0.5f), 9.0f, 1.0f);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("OPEN", pill, juce::Justification::centred);
+            }
+        }
     }
 
     // WEST in Filter 2's place: a note over the dimmed knobs says so.
@@ -196,6 +212,9 @@ public:
                                                                                                     : "wavefolder and low-pass gate, after the filters",
                                      colour(), 60);
 
+        if (folded())
+            return;
+
         // The fold's transfer curve and the gate's vactrol, lit by its level
         // (at the off alpha, as the controls, while WEST is off).
         const auto plot = picture.toFloat();
@@ -251,6 +270,16 @@ public:
         // Its on switch in the header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (getLocalBounds(), 14));
 
+        // Off, the page gives it a header's height: only the switch stays
+        // (UI review 9, V9-4).
+        for (juce::Component* c : { (juce::Component*) &position, (juce::Component*) &mode, (juce::Component*) &source,
+                                     (juce::Component*) &fold, (juce::Component*) &symmetry, (juce::Component*) &stages,
+                                     (juce::Component*) &decay, (juce::Component*) &resonance, (juce::Component*) &strike,
+                                     (juce::Component*) &open })
+            c->setVisible (! folded());
+        if (folded())
+            return;
+
         // The menus in a row with the picture beside them, then the knobs.
         auto top = area.removeFromTop (juce::jmin (52, area.getHeight() / 3));
         picture = top.removeFromRight (top.getWidth() * 2 / 5).reduced (4, 2);
@@ -262,6 +291,8 @@ public:
     }
 
 private:
+    bool folded() const { return getHeight() < 80; }
+
     float read (const char* id) const
     {
         const auto* value = processorRef.apvts.getRawParameterValue (id);
@@ -363,6 +394,19 @@ public:
                                      readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
                                                                  : "four oscillators at the corners",
                                      colour(), vectorCard.getRight() - on.getX() + 6);
+
+        // The controls in three boxes, as SEQ's GENERATE has them (UI review
+        // 9, V9-7): where the four oscillators sit, where the point is and
+        // how it moves.
+        const struct { juce::Rectangle<int> box; const char* title; } boxes[] {
+            { cornersBox, "CORNERS" }, { positionBox, "POSITION" }, { motionBox, "MOTION" } };
+        for (const auto& part : boxes)
+        {
+            IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText (part.title, part.box.reduced (10, 0).withHeight (boxHeaderHeight), juce::Justification::centredLeft);
+        }
     }
 
     void resized() override
@@ -387,25 +431,29 @@ public:
         inner = inner.withHeight (side);
         // The vector's on switch in its header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
-        // Four groups (PATH, the corners, two knob rows) with the height
-        // left shared out between them.
-        const auto knobHeight = juce::jmin (112, (inner.getHeight() - 40 - 88 - 3 * 12) / 2);
-        const auto spare = juce::jmax (12, (inner.getHeight() - 40 - 88 - 2 * knobHeight) / 3);
-        auto toggles = inner.removeFromTop (40);
-        path.setBounds (toggles.removeFromLeft (toggles.getWidth() / 2).reduced (3, 1));
-        inner.removeFromTop (spare - 6);
-        auto combos1 = inner.removeFromTop (44);
+        // Three boxes sharing the controls column's height: CORNERS (the
+        // four menus, two by two), POSITION (X, Y) and MOTION (PATH and its
+        // rate, WANDER and its rate); what each holds is centred in its box.
+        constexpr int gap = 8, padding = 8;
+        const auto spare = juce::jmax (0, inner.getHeight() - 2 * gap - (boxHeaderHeight + 2 * 44 + 8) - 2 * (boxHeaderHeight + 82));
+        const auto extra = spare / 3;
+        cornersBox = inner.removeFromTop (boxHeaderHeight + 2 * 44 + 8 + extra);
+        inner.removeFromTop (gap);
+        positionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
+        inner.removeFromTop (gap);
+        motionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
+
+        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight);
+        corners = corners.withSizeKeepingCentre (corners.getWidth(), 2 * 44);
+        auto combos1 = corners.removeFromTop (44);
         cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
         cornerB.setBounds (combos1.reduced (3, 1));
-        auto combos2 = inner.removeFromTop (44);
+        auto combos2 = corners;
         cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
         cornerD.setBounds (combos2.reduced (3, 1));
-        // Knob rows sized to the knobs, with a gap between, so each label
-        // sits with its own knob rather than under the row above's values.
-        inner.removeFromTop (spare);
-        layoutRow (inner.removeFromTop (knobHeight), { &x, &y, &rate });
-        inner.removeFromTop (spare);
-        layoutRow (inner.removeFromTop (knobHeight), { &drift, &driftRate, nullptr }); // on the row above's grid
+
+        layoutRow (positionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight), { &x, &y });
+        layoutRow (motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight), { &path, &rate, &drift, &driftRate });
     }
 
 private:
@@ -417,6 +465,25 @@ private:
 
     void timerCallback() override
     {
+        // A corner menu names an oscillator the patch hasn't added as such
+        // (the pad's caption says "none"; UI review 9, I9-17).
+        auto shown = 0;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            shown |= processorRef.isOscillatorShown (osc) ? 1 << osc : 0;
+
+        if (shown != shownOscillators)
+        {
+            shownOscillators = shown;
+            for (auto* corner : { &cornerA, &cornerB, &cornerC, &cornerD })
+            {
+                auto& box = corner->getComboBox();
+                const auto selected = box.getSelectedId();
+                for (int osc = 0; osc < OscillatorIds::count; ++osc)
+                    box.changeItemText (osc + 1, "OSC " + juce::String (osc + 1) + ((shown >> osc) & 1 ? "" : " (not added)"));
+                box.setSelectedId (selected, juce::dontSendNotification);
+            }
+        }
+
         const auto active = readParam ("vec_on") > 0.5f;
         if (const auto alpha = active ? 1.0f : FilterColours::offAlpha; pad.getAlpha() != alpha)
             pad.setAlpha (alpha);
@@ -435,8 +502,10 @@ private:
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
     KnobControl x, y, rate, drift, driftRate;
-    juce::Rectangle<int> vectorCard;
+    juce::Rectangle<int> vectorCard, cornersBox, positionBox, motionBox;
+    static constexpr int boxHeaderHeight = 24;
     bool shownActive = false;
+    int shownOscillators = -1;
 };
 
 // M8.7: the PHYSICAL page. The big view of one physical oscillator (the

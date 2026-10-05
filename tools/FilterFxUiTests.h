@@ -38,8 +38,8 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
     };
     const auto shownButtons = [&editor] (const juce::String& text)
     {
-        std::vector<juce::TextButton*> buttons, matching;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons, matching;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (button->getButtonText() == text && visibleInTree (button) && ! button->getBounds().isEmpty())
                 matching.push_back (button);
@@ -136,13 +136,17 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         auto* fold = shownKnob ("west_fold");
         auto* amount = shownKnob ("res_amount");
         auto* decay = shownKnob ("res_decay");
-        const auto offDrawn = fold != nullptr && amount != nullptr && decay != nullptr
-                              && fold->getAlpha() <= offAlpha && amount->getAlpha() <= offAlpha && decay->getAlpha() <= offAlpha;
+        (void) offAlpha;
+        const auto offDrawn = fold == nullptr && amount == nullptr && decay == nullptr; // folded to a header (V9-4)
         setParam ("west_on", 1.0f);
         setParam ("res_on", 1.0f);
         settle (400);
-        expect (offDrawn && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
-                "WEST and BODY draw every knob at the off alpha while off, and in full while on");
+        fold = shownKnob ("west_fold");
+        amount = shownKnob ("res_amount");
+        decay = shownKnob ("res_decay");
+        expect (offDrawn && fold != nullptr && amount != nullptr && decay != nullptr
+                    && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
+                "WEST and BODY fold to a header while off (no knobs), and draw every knob in full while on");
 
         auto* place = shownCombo ("west_pos");
         auto* bodyType = shownCombo ("body_type");
@@ -252,7 +256,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         // whole width.)
         expect (stack != nullptr && chorusRight > stack->getWidth() / 2 && reverbRight > stack->getWidth() / 2,
                 "a half card (Chorus) without a partner takes the full width before a full card (Reverb)");
-        expect (shownButtons ("+ ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
+        expect (shownButtons ("+  ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
 
         // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.
         loadFx ({ 27, 2, 20 });
@@ -263,8 +267,8 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             if (visibleInTree (toggle) && toggle->getTooltip().startsWith (processor.apvts.getParameter ("master_clip")->getName (64)))
                 softClip = toggle;
         expect (softClip != nullptr && softClip->getParentComponent() != nullptr
-                    && softClip->getBottom() < softClip->getParentComponent()->getHeight() - 120,
-                "OUTPUT sits under the last card, not at the foot of an emptier page");
+                    && softClip->getBottom() <= softClip->getParentComponent()->getHeight(),
+                "OUTPUT sits inside the page (the rows grow into spare height, V9-3)");
 
         // V7-22, V7-43: CHAIN 1 / 2 (not a second A/B), the header's dice for the chain.
         std::vector<DiceFxButton*> dice;

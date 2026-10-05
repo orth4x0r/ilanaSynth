@@ -507,33 +507,6 @@ private:
     juce::Colour colour { IlanaTheme::accent() };
 };
 
-// The dashed tile after the last card (or beside a lone half card at the
-// end) that opens the library: the rack's one + ADD EFFECT (S7-16).
-class AddEffectTile : public juce::TextButton
-{
-public:
-    AddEffectTile() : juce::TextButton ("+ ADD EFFECT")
-    {
-        setTooltip ("Add an effect to the next empty slot: the library, every effect grouped by what it does");
-    }
-
-    void paintButton (juce::Graphics& g, bool highlighted, bool) override
-    {
-        const auto card = getLocalBounds().toFloat().reduced (0.5f);
-        g.setColour (IlanaTheme::Ui::panel.withAlpha (highlighted ? 0.9f : 0.6f));
-        g.fillRoundedRectangle (card, 8.0f);
-        const float dashes[] { 4.0f, 4.0f };
-        juce::Path outline, dashed;
-        outline.addRoundedRectangle (card.reduced (0.5f), 8.0f);
-        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (highlighted ? IlanaTheme::accent().withAlpha (0.7f) : IlanaTheme::Ui::line.brighter (0.25f));
-        g.fillPath (dashed);
-        g.setColour (highlighted ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText ("+  ADD EFFECT", getLocalBounds(), juce::Justification::centred);
-    }
-};
-
 // The FX chain's dice: the header's dice icon and "FX" (V7-43: "DICE FX"
 // read as a verb and didn't look related to the header's dice).
 class DiceFxButton : public juce::TextButton

@@ -48,7 +48,7 @@ inline juce::Colour body() { return IlanaTheme::accent(); }
 // alpha, as PLAY's switched-off oscillators do: plainly off, still editable
 // (UI review 7, V7-34, S7-23). Lighter than IlanaTheme::dimmedAlpha, which
 // marks one control with no effect in a module that is on.
-inline constexpr float offAlpha = 0.35f;
+inline constexpr float offAlpha = 0.55f;
 }
 
 // The filter models by what they are (UI review 6, V5-17, S5-12, S6-20):

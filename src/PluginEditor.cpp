@@ -1387,7 +1387,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     // The window's resize grip owns the corner: the meter keeps clear of
     // it (review 8, S8-37, V8-30).
     strip.removeFromRight (14);
-    outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, strip.getHeight()));
+    outputMeter->setBounds (strip.removeFromRight (64).withSizeKeepingCentre (64, strip.getHeight()));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (10);
@@ -1516,8 +1516,23 @@ void IlanaSynthAudioProcessorEditor::setScopeOpen (bool shouldBeOpen)
 {
     scopeButton.setToggleState (shouldBeOpen, juce::dontSendNotification);
 
+    // A docked scope covers the page: the tab and the page switch it covers
+    // step back, so SCOPE alone reads as the page shown (UI review 9, V9-14).
+    const auto coversPage = [this] (bool open)
+    {
+        const auto alpha = open && static_cast<ScopePanel*> (scopePanel.get())->isDocked() ? 0.45f : 1.0f;
+        tabs.getTabbedButtonBar().setAlpha (alpha);
+        for (auto* section : sections)
+            section->switcher.setAlpha (alpha);
+    };
+
     if (shouldBeOpen == scopePanel->isVisible())
+    {
+        coversPage (shouldBeOpen);
         return;
+    }
+
+    coversPage (shouldBeOpen);
 
     if (shouldBeOpen)
     {

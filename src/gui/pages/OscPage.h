@@ -588,7 +588,6 @@ public:
 
         // One way to add an oscillator here: the tab row's last button
         // (UI review 6, S33).
-        addButton.setButtonText ("+  ADD OSC");
         addButton.setTooltip ("Add the next oscillator, switched on");
         addButton.onClick = [this]
         {
@@ -603,7 +602,6 @@ public:
             updateModeVisibility();
             updateEnabled();
         };
-        styleHeaderButton (addButton);
         addChildComponent (addButton);
 
         lastRevealVersion = processorRef.getRevealVersion();
@@ -770,7 +768,7 @@ public:
     }
 
 private:
-    static constexpr const char* listenedSuffixes[] { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env", "_tune", "_amp_env" };
+    static constexpr const char* listenedSuffixes[] { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env", "_spectral", "_tune", "_amp_env" };
     static constexpr const char* listenedIds[] { "sym_on", "sym_manual", "sym_count", "sb_on", "subosc_on" };
 
     template <typename... Components>
@@ -794,7 +792,12 @@ private:
     {
         juce::String key;
         for (const auto& row : rowsFor (index))
-            key << row.first << ":" << (int) row.second.size() << ";";
+        {
+            key << row.first << ":" << (int) row.second.size();
+            for (auto* item : row.second)
+                key << (item == nullptr ? '-' : '+'); // (an amount hides while its stage is Off)
+            key << ";";
+        }
         return key;
     }
 
@@ -867,11 +870,11 @@ private:
         for (int i = 0; i < OscillatorIds::count; ++i)
             if (! processorRef.isOscillatorShown (i))
             {
-                addButton.setButtonText ("+  ADD OSC " + juce::String (i + 1));
+                addButton.setLabel ("+  ADD OSC " + juce::String (i + 1));
                 break;
             }
         oscTabs.setBounds (tabRow.withWidth (juce::jmin (tabRow.getWidth() - (canAdd ? 130 : 0), oscTabs.getIdealWidth())));
-        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getY() + 2, 118, tabRow.getHeight() - 4));
+        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getCentreY() - DashedAddButton::standardHeight / 2, 128, DashedAddButton::standardHeight));
 
         if (! sharedCard.isEmpty())
         {
@@ -977,10 +980,14 @@ private:
 
         if (mode == 0)
         {
-            rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt } });
+            // An amount whose stage is Off isn't drawn (its column stays
+            // empty, so the others don't move: UI review 9, V9-9).
+            rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, readChoice (prefix + "_warp") > 0 ? &osc.warpAmt : nullptr,
+                                         &osc.spectral, readChoice (prefix + "_spectral") > 0 ? &osc.spectralAmt : nullptr } });
 
             if (showsWarpChain (index))
-                rows.push_back ({ "WARP CHAIN", { &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt } });
+                rows.push_back ({ "WARP CHAIN", { &osc.warp2, readChoice (prefix + "_warp2") > 0 ? &osc.warp2Amt : nullptr,
+                                                  &osc.pdEnv, readChoice (prefix + "_pd_env") > 0 ? &osc.pdEnvAmt : nullptr } });
         }
         else if (mode == 1)
         {
@@ -1109,6 +1116,11 @@ private:
             for (auto it = split; it != items.end(); ++it)
                 if (*it != nullptr)
                     noise.push_back (*it);
+            // Two halves no wider than their controls need, side by side in
+            // the middle of the card, not spread over its whole width with
+            // 200 px between knobs (UI review 9, V9-9).
+            constexpr int halfWidth = 460;
+            row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), halfWidth * 2), row.getHeight());
             auto half = row.removeFromLeft (row.getWidth() / 2);
             sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
             for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, "SUB", &sub },
@@ -1677,7 +1689,8 @@ private:
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
     IlanaSynthAudioProcessor::BounceRequest bounceRequest;
     int bouncingOsc = -1, bounceButtonWide = -1;
-    juce::TextButton addButton, opEnvButton, stringButton, sampleLoadButton;
+    DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
+    juce::TextButton opEnvButton, stringButton, sampleLoadButton;
     // The Operator Env's graph, for the chosen operator (the FM card's).
     OperatorEnvDisplay opEnvGraph { processorRef };
     OscPicker oscTabs;

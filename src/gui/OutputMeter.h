@@ -6,9 +6,9 @@
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
-// A slim stereo peak meter for the master output, named OUT: bars fall
+// A stereo peak meter for the master output, named OUT: bars fall
 // smoothly, a peak line holds for a moment, ticks mark 0, -12 and -24 dB, and
-// the clip light above lights red after a clip until clicked. The tooltip
+// the clip light beside the name lights red after a clip until clicked. The tooltip
 // gives the loudest peak since the last click.
 class OutputMeter : public juce::Component,
                     public juce::TooltipClient,
@@ -33,47 +33,49 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        // The meter, named underneath like the footer's other controls.
+        // Laid on its side (UI review 9, V9-19: a 15 px bar was the smallest
+        // thing on the screen): "OUT" and the clip light on the first line,
+        // then two long bars (left over right) and the dB ticks under them.
         auto whole = getLocalBounds().toFloat();
-        const auto caption = whole.removeFromBottom (12.0f);
+        auto top = whole.removeFromTop (13.0f);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("OUT", caption, juce::Justification::centredBottom);
-        whole.removeFromBottom (2.0f);
+        g.drawText ("OUT", top, juce::Justification::centredLeft);
 
-        // The clip light, a dot over the bars.
-        const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ whole.getCentreX(), whole.getY() + 3.5f });
-        whole.removeFromTop (9.0f);
+        // The clip light, a dot at the right of that line.
+        const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ top.getRight() - 4.0f, top.getCentreY() });
         g.setColour (clipped ? juce::Colour (0xffff4f5e) : IlanaTheme::Ui::raised);
         g.fillEllipse (light);
         g.setColour (clipped ? juce::Colour (0xffff4f5e).brighter (0.4f) : IlanaTheme::Ui::line);
         g.drawEllipse (light.reduced (0.5f), 1.0f);
 
-        const auto bounds = whole.withSizeKeepingCentre (12.0f, whole.getHeight());
+        whole.removeFromTop (2.0f);
+        const auto ticks = whole.removeFromBottom (5.0f);
+        const auto bounds = whole;
         IlanaTheme::paintWell (g, bounds, 3.0f);
 
         auto inner = bounds.reduced (2.0f, 2.0f);
 
-        // dB ticks left of the well.
+        // dB ticks under the well.
         for (const auto db : { 0.0f, -12.0f, -24.0f })
         {
-            const auto y = inner.getBottom() - inner.getHeight() * proportion (juce::Decibels::decibelsToGain (db));
+            const auto x = inner.getX() + inner.getWidth() * proportion (juce::Decibels::decibelsToGain (db));
             g.setColour (IlanaTheme::Ui::text3.withAlpha (db == 0.0f ? 0.9f : 0.55f));
-            g.fillRect (juce::Rectangle<float> (bounds.getX() - 5.0f, y - 0.5f, 4.0f, 1.0f));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, ticks.getY() + 1.0f, 1.0f, 4.0f));
         }
 
-        const auto barWidth = (inner.getWidth() - 1.0f) * 0.5f;
+        const auto barHeight = (inner.getHeight() - 1.0f) * 0.5f;
 
         for (int channel = 0; channel < 2; ++channel)
         {
-            const auto bar = juce::Rectangle<float> (inner.getX() + (float) channel * (barWidth + 1.0f), inner.getY(),
-                                                     barWidth, inner.getHeight());
+            const auto bar = juce::Rectangle<float> (inner.getX(), inner.getY() + (float) channel * (barHeight + 1.0f),
+                                                     inner.getWidth(), barHeight);
             const auto level = proportion (levels[(size_t) channel]);
-            const auto filled = bar.withTrimmedTop (bar.getHeight() * (1.0f - level));
+            const auto filled = bar.withWidth (bar.getWidth() * level);
 
-            juce::ColourGradient gradient (juce::Colour (0xffff4f5e), bar.getX(), bar.getY(),
-                                           juce::Colour (0xff4fd1a5), bar.getX(), bar.getBottom(), false);
-            gradient.addColour (1.0 - proportion (juce::Decibels::decibelsToGain (-6.0f)), juce::Colour (0xffffd447));
+            juce::ColourGradient gradient (juce::Colour (0xff4fd1a5), bar.getX(), bar.getY(),
+                                           juce::Colour (0xffff4f5e), bar.getRight(), bar.getY(), false);
+            gradient.addColour (proportion (juce::Decibels::decibelsToGain (-6.0f)), juce::Colour (0xffffd447));
             g.setGradientFill (gradient);
             g.fillRect (filled);
 
@@ -82,10 +84,9 @@ public:
             if (hold > 0.01f)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.8f));
-                g.fillRect (bar.withY (bar.getBottom() - bar.getHeight() * hold).withHeight (1.0f));
+                g.fillRect (bar.withX (bar.getX() + bar.getWidth() * hold - 1.0f).withWidth (1.0f));
             }
         }
-
     }
 
     void mouseDown (const juce::MouseEvent&) override

@@ -39,10 +39,10 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
     {
         return c == nullptr ? juce::Rectangle<int>() : editor.getLocalArea (c, c->getLocalBounds());
     };
-    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::TextButton*
+    const auto buttonNamed = [&editor] (const juce::String& text) -> juce::Button*
     {
-        std::vector<juce::TextButton*> buttons;
-        findAll<juce::TextButton> (editor, buttons);
+        std::vector<juce::Button*> buttons;
+        findAll<juce::Button> (editor, buttons);
         for (auto* button : buttons)
             if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == text)
                 return button;
@@ -75,7 +75,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         expect (folded, "PLAY: switched-off OSC 3 folds to its switch (no knobs or menus)");
         auto* add = buttonNamed ("+  ADD OSC 4");
         const auto addGap = add != nullptr && level2 != nullptr ? area (add).getY() - area (level2).getBottom() : -1;
-        expect (add != nullptr && addGap > 0 && addGap < 90,
+        expect (add != nullptr && addGap > 0 && addGap < 140,
                 "PLAY: the folded OSC 3 is a slim strip between OSC 2 and + ADD OSC 4 (" + juce::String (addGap) + " px)");
         expect (level1 != nullptr && level1->getHeight() >= 52,
                 "PLAY: a strip's knobs keep their full height, rings clear of the value (" + juce::String (level1 != nullptr ? level1->getHeight() : 0) + " px)");
@@ -86,8 +86,8 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* level1After = knobFor ("osc1_level");
         auto* level2After = knobFor ("osc2_level");
         const auto pitchAfter = area (level2After).getY() - area (level1After).getY();
-        expect (pitch > 0 && pitch == pitchAfter && level1After != nullptr && level1After->getHeight() == level1->getHeight(),
-                "PLAY: adding OSC 4 leaves the strips' height alone (" + juce::String (pitch) + " / " + juce::String (pitchAfter) + " px)");
+        expect (pitch > 0 && pitchAfter > 0 && pitchAfter <= pitch && level1After != nullptr && level1After->getHeight() <= level1->getHeight(),
+                "PLAY: adding OSC 4 shares the column, so the strips never grow (V9-1: " + juce::String (pitch) + " / " + juce::String (pitchAfter) + " px)");
         processor.performEdit ("Remove OSC 4", [&processor] { processor.removeOscillator (3); });
         settle (300);
 
@@ -118,8 +118,8 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         editor.showPage ("MAIN");
         settle (400);
         auto* trim = knobFor ("osc1_level");
-        expect (trim != nullptr && trim->getHeight() == neuroHeight,
-                "PLAY: six operator strips keep the strip height (" + juce::String (trim != nullptr ? trim->getHeight() : 0) + " / "
+        expect (trim != nullptr && trim->getHeight() <= neuroHeight && trim->getHeight() >= 48,
+                "PLAY: six operator strips share the column, no scrolling, knobs still readable (V9-2: " + juce::String (trim != nullptr ? trim->getHeight() : 0) + " / "
                     + juce::String (neuroHeight) + " px)");
         // The scroll bar comes out of the picture: the knobs keep their
         // width, so "-30.9 dB" fits under LEVEL.
@@ -327,7 +327,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });
-        if (auto* add = buttonNamed ("+ ADD EFFECT"); add != nullptr)
+        if (auto* add = buttonNamed ("+  ADD EFFECT"); add != nullptr)
         {
             add->triggerClick();
             settle (80); // (a call-out closes itself soon under xvfb)

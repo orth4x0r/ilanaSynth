@@ -504,8 +504,9 @@ public:
                 leftAligned (controls, items);
             }
         };
-        engineRow ({ &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance });
-        engineRow ({ &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate });
+        // (The menus share the first row, the knobs the rows below: one baseline per row, V13-7.)
+        engineRow ({ &arpDiv, &arpMode, &arpSteps, &arpGate, &arpOctaves, &arpChance });
+        engineRow ({ &eucDiv, &eucTarget, &eucSteps, &eucGate, &eucHits, &eucRotate });
         engineRow ({ &pseqDiv, &pseqLength, &pseqGate });
 
         // The clip's row is menus and buttons only (ten columns): the

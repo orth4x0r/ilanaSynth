@@ -804,7 +804,23 @@ public:
         }
 
         if (! on)
+        {
             paintOffBadge (g, ruler.withWidth (labelWidth - 4.0f), "ARP OFF");
+
+            // The way on, where the eye is: drawing a step switches the ARP on
+            // (UI review 13, S13-11), as the VECTOR pad says what switches it.
+            const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            const juce::String text ("DRAW A STEP TO TURN THE ARP ON");
+            const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 36.0f;
+            const auto pill = juce::Rectangle<float> (width, 30.0f).withCentre (getLocalBounds().toFloat().getCentre());
+            g.setColour (IlanaTheme::Ui::panel.withAlpha (0.92f));
+            g.fillRoundedRectangle (pill, 15.0f);
+            g.setColour (IlanaTheme::accent().withAlpha (0.6f));
+            g.drawRoundedRectangle (pill.reduced (0.5f), 15.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (font);
+            g.drawText (text, pill, juce::Justification::centred, false);
+        }
     }
 
     // The lanes' off badge, at the right of the ruler's STEP label.

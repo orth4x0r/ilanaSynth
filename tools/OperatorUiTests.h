@@ -120,11 +120,11 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
     settle (200);
 
     // I10-1: an operator shows one level, OUTPUT (dB), on PLAY, FM and OSC; the
-    // oscillator's own level is VOICE LEVEL (%), on OSC only.
+    // oscillator's own level (VOICE LEVEL) is on no operator page (I12-1).
     {
         editor.showPage ("MAIN");
         settle (400);
-        const auto playOutput = textOf (knobFor ("osc2_eg_out", "OUTPUT"));
+        const auto playOutput = textOf (knobFor ("osc2_eg_out", "DEPTH")); // (a modulator's OUTPUT is a DEPTH, I12-3)
         const auto playLevel = knobFor ("osc2_level") != nullptr;
         editor.showPage ("FM");
         settle (400);
@@ -134,9 +134,9 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         settle (400);
         const auto oscOutput = textOf (knobFor ("osc1_eg_out", "OUTPUT"));
         const auto voiceLevel = textOf (knobFor ("osc1_level", "VOICE LEVEL"));
-        expect (playOutput.endsWith ("dB") && fmOutput.endsWith ("dB") && oscOutput.endsWith ("dB") && voiceLevel.endsWith ("%")
-                    && ! playLevel && ! fmLevel,
-                "an operator shows OUTPUT (dB) alone on PLAY and FM, and OSC adds VOICE LEVEL (%) (I10-1: " + playOutput + " / " + fmOutput
+        expect (playOutput.endsWith ("dB") && fmOutput.endsWith ("dB") && oscOutput.endsWith ("dB") && voiceLevel.isEmpty()
+                    && ! playLevel && ! fmLevel && knobFor ("osc1_level") == nullptr,
+                "an operator shows OUTPUT (dB) alone on PLAY, FM and OSC, no VOICE LEVEL (I12-1: " + playOutput + " / " + fmOutput
                     + " / " + oscOutput + ", " + voiceLevel + ")");
     }
 
@@ -266,14 +266,11 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         auto* semi = knobFor ("osc1_semi");
         auto* fine = knobFor ("osc1_fine");
         auto* level = knobFor ("osc1_eg_out", "OUTPUT");
-        // One level in the row (OUTPUT); the oscillator's own is VOICE LEVEL, in
-        // the next row (review 10, I10-1).
-        auto* trim = knobFor ("osc1_level", "VOICE LEVEL");
-        const auto ordered = semi != nullptr && fine != nullptr && level != nullptr && trim != nullptr
-                             && area (semi).getCentreX() < area (fine).getCentreX() && area (fine).getCentreX() < area (level).getCentreX()
-                             && area (trim).getY() > area (level).getY() && knobFor ("osc1_level", "LEVEL") == nullptr;
+        // One level in the row (OUTPUT); the oscillator's own (VOICE LEVEL) is not drawn (review 12, I12-1).
+        const auto ordered = semi != nullptr && fine != nullptr && level != nullptr && knobFor ("osc1_level") == nullptr
+                             && area (semi).getCentreX() < area (fine).getCentreX() && area (fine).getCentreX() < area (level).getCentreX();
         expect (graph != nullptr && graph->isReadOnly() && ordered,
-                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT as on FM, VOICE LEVEL apart (S8-4, V8-5, I10-1)");
+                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT as on FM, no VOICE LEVEL (S8-4, V8-5, I12-1)");
         expect (shownButtons ("RESAMPLE").empty() && shownButtons (juce::String ("EDIT TABLE ") + juce::String::fromUTF8 ("\xe2\x80\xba")).empty() && shownButtons ("LOAD...").empty()
                     && shownButtons ("3D").empty() && shownButtons ("SPEC").empty() && knobFor ("osc1_unison") == nullptr,
                 "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV, 3D / SPEC or UNISON 1 (I8-15, S8-9, V8-16)");

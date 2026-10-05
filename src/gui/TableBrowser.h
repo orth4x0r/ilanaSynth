@@ -68,6 +68,20 @@ public:
         };
         addAndMakeVisible (hearButton);
 
+        // LOAD...: the oscillator's own loader, one step from here (review
+        // 11, S11-7); shown when the caller gives one.
+        loadButton.setButtonText ("LOAD...");
+        loadButton.setTooltip ("Load a wavetable (.wav of single-cycle frames), or turn any recording into a wavetable");
+        loadButton.onClick = [this]
+        {
+            auto load = onLoad;
+            if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
+                callOut->dismiss();
+            if (load != nullptr)
+                juce::MessageManager::callAsync (load);
+        };
+        addChildComponent (loadButton);
+
         content.owner = this;
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false);
@@ -79,9 +93,11 @@ public:
 
     // Opens the browser in a call-out next to the given component.
     static void show (IlanaSynthAudioProcessor& processor, const juce::String& parameterId, juce::Colour colour,
-                      juce::Component& target)
+                      juce::Component& target, std::function<void()> onLoadIn = {})
     {
         auto browser = std::make_unique<TableBrowser> (processor, parameterId, colour);
+        browser->onLoad = std::move (onLoadIn);
+        browser->loadButton.setVisible (browser->onLoad != nullptr);
         auto* parent = target.getTopLevelComponent();
         // The call-out is not guaranteed to sit in the editor's tree, so the
         // browser takes the editor's look itself (HEAR and the scroll bar
@@ -107,12 +123,41 @@ public:
         auto searchRow = area.removeFromTop (34).reduced (6, 4);
         hearButton.setBounds (searchRow.removeFromRight (70));
         searchRow.removeFromRight (6);
+        if (loadButton.isVisible())
+        {
+            loadButton.setBounds (searchRow.removeFromRight (80));
+            searchRow.removeFromRight (6);
+        }
         search.setBounds (searchRow);
+        // The category chips stay put above the scrolling tiles.
+        chipRow = area.removeFromTop (28).reduced (6, 2);
         viewport.setBounds (area);
         buildLayout();
     }
 
-    void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::panel); }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (IlanaTheme::Ui::panel);
+
+        for (const auto& chip : chips)
+        {
+            const auto box = chip.bounds.toFloat();
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (box, box.getHeight() * 0.5f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (chip.text, box, juce::Justification::centred);
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        for (const auto& chip : chips)
+            if (chip.bounds.contains (event.getPosition()))
+                viewport.setViewPosition (0, juce::jmax (0, chip.y - 4));
+    }
 
     // Typing goes straight to the search once the browser is up.
     void parentHierarchyChanged() override
@@ -180,6 +225,13 @@ private:
     {
         juce::String text;
         juce::Rectangle<int> bounds;
+    };
+
+    struct Chip
+    {
+        juce::String text;
+        juce::Rectangle<int> bounds;
+        int y = 0;
     };
 
     struct Content : public juce::Component
@@ -279,6 +331,19 @@ private:
 
         content.setSize (width, juce::jmax (y, viewport.getHeight()));
         content.repaint();
+
+        // A chip per heading shown, jumping to it.
+        chips.clear();
+        auto chipX = chipRow.getX();
+        for (const auto& heading : headings)
+        {
+            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), heading.text) + 20;
+            if (chipX + chipWidth > chipRow.getRight())
+                break;
+            chips.push_back ({ heading.text, { chipX, chipRow.getY(), chipWidth, chipRow.getHeight() }, heading.bounds.getY() });
+            chipX += chipWidth + 5;
+        }
+        repaint (chipRow.expanded (4));
     }
 
     int current() const
@@ -525,6 +590,9 @@ private:
     std::vector<Heading> headings;
     int hovered = -1, hoveredStar = -1, previewed = -1, originalChoice = 0;
     bool audition = false, hasOriginal = false;
-    juce::TextButton hearButton;
+    juce::TextButton hearButton, loadButton;
+    std::function<void()> onLoad;
+    std::vector<Chip> chips;
+    juce::Rectangle<int> chipRow;
     float scale = 1.0f;
 };

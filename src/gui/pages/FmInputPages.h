@@ -130,13 +130,16 @@ public:
         moreButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         moreButton.setTooltip ("RING MOD and SYNC 2 TO 1 (OSC 1 and OSC 2 only) and the NOISE FM row: classic FM extras a DX7 "
                                "voice doesn't use.");
+        // One layout on every patch (review 11, I11-5): the line is always
+        // there and opens or closes the extras; they stay open while one is
+        // in use.
         moreButton.onClick = [this]
         {
-            extrasOpen = true;
+            extrasOpen = ! extrasOpen;
             resized();
             repaint();
         };
-        addChildComponent (moreButton);
+        addAndMakeVisible (moreButton);
 
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_tune", "_amp_env", "_on" })
@@ -395,7 +398,7 @@ public:
 
         // One that no tile matches names the nearest (V7-14).
         if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
-            return "CUSTOM: NEAR " + FmAlgorithmStrip::basicName (near);
+            return "CUSTOM, NEAR " + FmAlgorithmStrip::basicName (near);
 
         for (const auto source : shown)
             for (const auto target : shown)
@@ -546,7 +549,7 @@ private:
             }
             // Names while the title and a line about the operator fit
             // beside them, else just the numbers.
-            const auto room = tabs.getWidth() - 200;
+            const auto room = tabs.getWidth() - 70; // (review 11, I11-2: OSC n, not a bare number)
             // Every operator always shows: the line about it gives way.
             const auto width = juce::jmin (tabs.getWidth(), picker.getQuietWidth() <= room ? picker.getQuietWidth() : picker.getShortWidth());
             picker.setBounds (tabs.removeFromRight (width));
@@ -628,7 +631,7 @@ private:
         return used;
     }
 
-    bool matrixExtrasShown() const { return ! anyOperatorEnv() || extrasOpen || matrixExtrasInUse(); }
+    bool matrixExtrasShown() const { return extrasOpen || matrixExtrasInUse(); }
 
     void layoutMatrix()
     {
@@ -657,7 +660,10 @@ private:
         noiseColourKnob->setVisible (extras);
         ringMod->setVisible (extras);
         hardSync.setVisible (extras);
-        moreButton.setVisible (! extras);
+        moreButton.setVisible (true);
+        // (A closing "‹" in place of "›" while they are open.)
+        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  "))
+                                  + juce::String (juce::CharPointer_UTF8 (extras ? "\xe2\x80\xb9" : "\xe2\x80\xba")));
 
         // One cell size for every patch: the grid (row names and cells)
         // centred across the card, the card as tall as what it holds.
@@ -763,6 +769,9 @@ private:
             hardSync.setBounds (row.removeFromRight (100).withSizeKeepingCentre (100, 37));
             ringMod->setBounds (row.removeFromRight (80));
             pairText = row.withTrimmedRight (8);
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
+                                                                           moreButton.getButtonText()) + 28;
+            moreButton.setBounds (juce::Rectangle<int> (pairText.getX(), pairText.getY() + 2, juce::jmin (pairText.getWidth(), width), 22));
         }
         else
         {
@@ -895,13 +904,9 @@ private:
         // OSC 1 x OSC 2: the two pair controls, said in a line.
         g.setColour (IlanaTheme::Ui::line);
         g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
-                    juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, "RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
+        IlanaTheme::drawFitted (g, "RING MOD and SYNC are for OSC 1 and OSC 2 only: RING MOD multiplies OSC 1 by OSC 2, SYNC restarts OSC 2 with each cycle of OSC 1.",
                           pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 3);
     }
 

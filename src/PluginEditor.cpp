@@ -418,7 +418,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         content.addAndMakeVisible (*knob);
         macroKnobs.push_back (std::move (knob));
     }
-    macroPlusButton.setTooltip ("Show the next macro");
+    macroPlusButton.setTooltip ("Show the next macro (up to 8).  Macros 5 to 8 appear once they are named or assigned.");
     macroPlusButton.onClick = [this]
     {
         addedMacros = juce::jmin (4, shownMacros - 4 + 1);
@@ -1114,8 +1114,15 @@ void IlanaSynthAudioProcessorEditor::updateMacroStrip()
         resized();
     }
 
+    auto anyAssigned = false;
+    for (int macro = 0; macro < shownMacros; ++macro)
+        anyAssigned = anyAssigned || macroKnobs[(size_t) macro]->isAssigned();
+
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
+    {
         macroKnobs[(size_t) macro]->setVisible (macro < shownMacros);
+        macroKnobs[(size_t) macro]->setQuietAssign (! anyAssigned && macro > 0);
+    }
 }
 
 void IlanaSynthAudioProcessorEditor::timerCallback()
@@ -1436,13 +1443,15 @@ void IlanaSynthAudioProcessorEditor::resized()
     strip.removeFromRight (10);
 
     // The macros in use, side by side, and "+" for the next.
-    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? 32 : 0;
-    const auto macroWidth = (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros);
+    // The "+ MACRO" tile sits right after the last macro, not at the far end
+    // of the strip (review 11, S11-9).
+    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? 84 : 0;
+    const auto macroWidth = juce::jmin (230, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
 
-    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - 14, 28, 28);
+    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - 12, 76, 24);
     macroPlusButton.setVisible (plusWidth > 0);
 
     auto chipsRow = area.removeFromBottom (24).reduced (14, 1);

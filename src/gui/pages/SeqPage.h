@@ -238,6 +238,12 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
+        if (clipEditor.isVisible() && ! clipDivider.isEmpty())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.12f));
+            g.fillRect (clipDivider);
+        }
+
         const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
         {
             IlanaTheme::paintTag (g, { (float) area.getX() + 3.0f, (float) area.getCentreY() }, colour);
@@ -465,6 +471,9 @@ public:
             clipImport.setBounds (cell.translated (column * 2, 0));
             clipExport.setBounds (cell.translated (column * 3, 0));
             clipExpand.setBounds (cell.translated (column * 4, 0));
+            // The roll's own tools (DRAW, QUANTISE) apart from the file and
+            // page buttons (review 11, S11-5).
+            clipDivider = juce::Rectangle<int> (clipImport.getX() - 5, cell.getY() + 2, 1, cell.getHeight() - 4);
         }
 
         layoutGenerate();
@@ -943,6 +952,7 @@ private:
     ClipZoomControl clipZoom;
     juce::TextButton clipQuantise, clipExpand { "EXPAND" }, clipDraw { "DRAW" };
     bool clipExpanded = false;
+    juce::Rectangle<int> clipDivider;
     int boxSignature = -1;
     static constexpr int boxHeaderHeight = 24, seqCellWidth = 128;
     juce::Rectangle<int> snapBox, strumBox, sprayBox;

@@ -799,7 +799,7 @@ private:
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (compact ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
             // (A hint, so a sentence: UI review 9, I9-22.)
-            IlanaTheme::drawFitted (g, compact ? "Drop a sample" : "Drop a sample here, or LOAD one", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+            IlanaTheme::drawFitted (g, compact ? "Drop a sample" : "Drop a .wav or .sfz here, or LOAD...", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
             return;
         }
 
@@ -978,6 +978,16 @@ private:
             g.fillRect (box);
             g.setColour (traceColour.withAlpha (0.8f));
             g.drawRect (box, 1.0f);
+
+            // The root note: where the sample plays at its own pitch (review
+            // 11, S11-10).
+            const auto root = juce::roundToInt ((float) zone.rootNote);
+            if (root >= low && root <= high)
+            {
+                const auto x = xOf (root) + keyWidth * 0.5f;
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.fillEllipse (x - 2.0f, box.getBottom() - 5.0f, 4.0f, 4.0f);
+            }
         }
     }
 
@@ -1421,7 +1431,10 @@ private:
             // (The full hint, else its short form; a hint that fits neither
             // is left out rather than shrunk.)
             const auto shortHint = hint.contains ("frame") ? juce::String ("drag: frame") : juce::String ("drag: warp");
-            for (const auto& candidate : { hint, shortHint })
+            // Both gestures keep a middle form before one is dropped (review
+            // 11, S11-6).
+            const auto bothHint = hint.contains ("frame") && hint.contains ("warp") ? juce::String::fromUTF8 ("drag: frame \xc2\xb7 warp") : shortHint;
+            for (const auto& candidate : { hint, bothHint, shortHint })
                 if (juce::GlyphArrangement::getStringWidth (font, candidate) + used + 16.0f <= footer.getWidth())
                 {
                     g.setFont (font);

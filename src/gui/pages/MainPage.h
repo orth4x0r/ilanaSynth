@@ -252,7 +252,15 @@ public:
         };
 
         filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
-        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (selectedEnv); };
+        // On OP ENV the header's EDIT opens the operator's editor, so no second
+        // link sits under the paragraph (review 11, I11-14).
+        envTabs.onOpen = [this]
+        {
+            if (selectedEnv == opEnvTab && onEditOperator != nullptr)
+                onEditOperator (juce::jmax (0, firstOperatorEg()));
+            else if (onEditEnvelope != nullptr)
+                onEditEnvelope (selectedEnv);
+        };
         lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
 
         addAll (*this, filterTabs, envTabs, lfoTabs);
@@ -614,9 +622,7 @@ public:
             opEnvNoteArea = {};
             if (selectedEnv == opEnvTab)
             {
-                auto note = inner.reduced (4, 6);
-                opEgButton.setBounds (note.removeFromBottom (28).removeFromLeft (110).withSizeKeepingCentre (106, 24));
-                opEnvNoteArea = note;
+                opEnvNoteArea = inner.reduced (4, 6);
             }
 
             updateVisibility();
@@ -941,7 +947,7 @@ private:
         showSets (lfoSets, lfoTabs.getSelected());
         for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
             lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
-        opEgButton.setVisible ((selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0) || selectedEnv == opEnvTab);
+        opEgButton.setVisible (selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0);
         opEnvOverview.setVisible (selectedEnv == opEnvTab);
         repaint();
     }

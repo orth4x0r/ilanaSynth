@@ -764,7 +764,9 @@ private:
         // review 8, V8-27).
         // One name each (review 9, I9-10): the OSC tab's SYMPATHETIC
         // STRINGS, shortened to its noun, and SOUNDBOARD, joined by "+".
-        return strings && board ? "STRINGS +\nSOUNDBOARD" : (strings ? "STRINGS" : "SOUNDBOARD");
+        // Both running: one node, PHYSICAL, never a joined name that must wrap
+        // (review 11, I11-8).
+        return strings && board ? "PHYSICAL" : (strings ? "STRINGS" : "SOUNDBOARD");
     }
 
     bool isSourceOn (int osc) const

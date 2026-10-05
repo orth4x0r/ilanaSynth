@@ -515,7 +515,7 @@ public:
         {
             const auto osc = layout.sources[(size_t) row];
             // A modulator (OUT off) says so on its box; its dashed loop shows what it modulates.
-            const auto name = osc == subNoise ? juce::String ("SUB+N")
+            const auto name = osc == subNoise ? juce::String ("SUB/NOISE")
                                               : "OSC " + juce::String (osc + 1) + (isHeard (osc) ? juce::String() : juce::String (" FM"));
             drawBlock (g, layout.osc[(size_t) row], name, oscColour (osc),
                        isSourceOn (osc) && (isHeard (osc) || ! fmTargets (osc).empty()), over && layout.osc[(size_t) row].contains (mouse));
@@ -615,6 +615,8 @@ public:
 private:
     // Sources are the oscillators the patch has added, then the sub + noise.
     static constexpr int subNoise = OscillatorIds::count;
+    // The strings / soundboard block, in block widths ("SOUNDBOARD" fits).
+    static constexpr float postUnits = 1.6f;
 
     struct Layout
     {
@@ -670,7 +672,7 @@ private:
         const auto sourceHeight = juce::jmin (22.0f, area.getHeight() / ((float) juce::jmax (4, count) * 1.25f));
         const auto rowGap = count > 1 ? (area.getHeight() - sourceHeight * (float) count) / (float) (count - 1) : 0.0f;
 
-        auto oscColumn = area.removeFromLeft (juce::jmin (64.0f, area.getWidth() * 0.18f));
+        auto oscColumn = area.removeFromLeft (juce::jmin (76.0f, area.getWidth() * 0.2f));
 
         for (int row = 0; row < count; ++row)
             layout.osc.push_back (oscColumn.withHeight (sourceHeight).withY (oscColumn.getY() + (float) row * (sourceHeight + rowGap)));
@@ -682,7 +684,7 @@ private:
         // then what follows them, every gap 0.4 of a block.
         const auto westAfter = layout.westInChain && ! layout.westReplaces;
         const auto filterUnits = parallel ? 1.1f : 2.2f;
-        const auto afterUnits = (westAfter ? 1.0f : 0.0f) + (layout.bodyInChain ? 1.0f : 0.0f) + (hasPost ? 1.45f : 0.0f) + 0.9f;
+        const auto afterUnits = (westAfter ? 1.0f : 0.0f) + (layout.bodyInChain ? 1.0f : 0.0f) + (hasPost ? postUnits : 0.0f) + 0.9f;
         const auto afterCount = (westAfter ? 1 : 0) + (layout.bodyInChain ? 1 : 0) + (hasPost ? 1 : 0) + 1;
         const auto gaps = (float) ((parallel ? 0 : 1) + afterCount);
         const auto blockWidth = juce::jmin (54.0f, area.getWidth() / (filterUnits + afterUnits + gaps * 0.4f));
@@ -705,7 +707,12 @@ private:
 
         layout.out = placeRight (blockWidth * 0.9f);
         if (hasPost)
-            layout.post = placeRight (blockWidth * 1.45f);
+        {
+            layout.post = placeRight (blockWidth * postUnits);
+            // Two names stack in a taller block.
+            if (postLabel().containsChar ('\n'))
+                layout.post = layout.post.withSizeKeepingCentre (layout.post.getWidth(), juce::jmax (layout.post.getHeight(), 30.0f));
+        }
         if (layout.bodyInChain)
             layout.res = placeRight (blockWidth);
         if (westAfter)
@@ -757,7 +764,9 @@ private:
     {
         const auto strings = read ("sym_on") > 0.5f;
         const auto board = read ("sb_on") > 0.5f;
-        return strings && board ? "STR+BRD" : (strings ? "STRINGS" : "BOARD");
+        // Spelled out as on the OSC page, on two lines when both run (UI
+        // review 8, V8-27).
+        return strings && board ? "STRINGS\nSOUNDBOARD" : (strings ? "STRINGS" : "SOUNDBOARD");
     }
 
     bool isSourceOn (int osc) const
@@ -924,7 +933,7 @@ private:
         g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, hovered ? 1.8f : 1.2f);
         g.setColour (lit ? colour : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawFittedText (text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
+        g.drawFittedText (text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, text.containsChar ('\n') ? 2 : 1, 0.8f);
     }
 
     void timerCallback() override

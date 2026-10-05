@@ -152,6 +152,44 @@ public:
         return best;
     }
 
+    // A filter whose settings pass everything: its response stays within
+    // 1.5 dB of flat up to 5 kHz (a Low Pass open at 20 kHz) and nothing
+    // pulls its cutoff down (ENV AMT below 0, KEY TRK, a route). Its curve
+    // and card are dimmed, as an off module's would be (UI review 8, V8-39).
+    static bool isPassThrough (const IlanaSynthAudioProcessor& p, int filterIndex)
+    {
+        const juce::String prefix (filterIndex == 0 ? "f1" : "f2");
+        const auto read = [&p, &prefix] (const char* suffix)
+        {
+            const auto* value = p.apvts.getRawParameterValue (prefix + suffix);
+            return value != nullptr ? value->load() : 0.0f;
+        };
+
+        if (read ("_env") < -0.001f || std::abs (read ("_keytrack")) > 0.001f || std::abs (read ("_fm")) > 0.001f)
+            return false;
+
+        const auto cutoffDestination = (int) (filterIndex == 0 ? Mod::Destination::Filter1Cutoff : Mod::Destination::Filter2Cutoff);
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = p.readModSlot (slot);
+            if (routing.destination == cutoffDestination && routing.source != Mod::Source::None && std::abs (routing.depth) > 1.0e-4f)
+                return false;
+        }
+
+        const auto cutoff = (double) juce::jlimit (20.0f, 20000.0f, read ("_cutoff"));
+        const auto type = (int) read ("_type");
+        for (int i = 0; i <= 24; ++i)
+        {
+            const auto frequency = 20.0 * std::pow (250.0, i / 24.0);
+            const auto h = FilterType::response (type, read ("_slope") > 0.5f, (double) read ("_reso"),
+                                                 std::complex<double> (0.0, frequency / cutoff),
+                                                 juce::jlimit (0.0, 1.0, (double) read ("_morph")), cutoff);
+            if (std::abs (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) > 1.5)
+                return false;
+        }
+        return true;
+    }
+
     // The ring of a modulated cutoff, where it is drawn now (or nothing),
     // for the tooltip and the UI test.
     std::optional<juce::Point<float>> getModRingCentre (int filterIndex) const
@@ -230,19 +268,30 @@ private:
                                               juce::jlimit (inside.getY(), inside.getBottom(), raw.y) };
         }
 
-        // Overlapping markers fan apart across (filter 1 on the left when
-        // the cutoffs are equal), the pair kept inside the plot.
+        // Overlapping markers fan apart up and down, each kept on its own
+        // cutoff's line (filter 1 above when they are level), the pair kept
+        // inside the plot: side by side they still read as one blob at
+        // 20 kHz (V7-18, UI review 8, V8-9).
         auto& a = centres[0];
         auto& b = centres[1];
-        // (A clear gap between them, not two touching dots: V7-18.)
-        const auto gap = markerSize + 10.0f;
+        const auto gap = markerSize + 8.0f;
 
-        if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced())
+        if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced() && inside.getHeight() < gap * 1.5f)
         {
+            // (A graph too short to stack them, PLAY's: side by side, with a
+            // clear gap.)
+            const auto wide = markerSize + 14.0f;
             const auto firstLeft = cutoffOf (0, false) <= cutoffOf (1, false);
-            const auto middle = juce::jlimit (inside.getX() + gap * 0.5f, inside.getRight() - gap * 0.5f, (a.x + b.x) * 0.5f);
-            a.x = middle + (firstLeft ? -gap : gap) * 0.5f;
-            b.x = middle + (firstLeft ? gap : -gap) * 0.5f;
+            const auto middle = juce::jlimit (inside.getX() + wide * 0.5f, inside.getRight() - wide * 0.5f, (a.x + b.x) * 0.5f);
+            a.x = middle + (firstLeft ? -wide : wide) * 0.5f;
+            b.x = middle + (firstLeft ? wide : -wide) * 0.5f;
+        }
+        else if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced())
+        {
+            const auto firstAbove = a.y <= b.y + 0.5f;
+            const auto middle = juce::jlimit (inside.getY() + gap * 0.5f, inside.getBottom() - gap * 0.5f, (a.y + b.y) * 0.5f);
+            a.y = middle + (firstAbove ? -gap : gap) * 0.5f;
+            b.y = middle + (firstAbove ? gap : -gap) * 0.5f;
         }
 
         return centres;
@@ -395,10 +444,12 @@ private:
             return;
         }
 
-        g.setColour (colour.withAlpha ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse))));
+        // A filter that passes everything draws quietly (V8-39).
+        const auto open = isPassThrough (processorRef, filterIndex) ? 0.45f : 1.0f;
+        g.setColour (colour.withAlpha (open * ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse)))));
         g.strokePath (path, juce::PathStrokeType (parallel ? 4.0f : 5.0f));
 
-        g.setColour (colour.withAlpha (parallel ? 0.55f : 0.95f));
+        g.setColour (colour.withAlpha (open * (parallel ? 0.55f : 0.95f)));
         g.strokePath (path, juce::PathStrokeType (parallel ? 1.2f : 1.8f));
     }
 

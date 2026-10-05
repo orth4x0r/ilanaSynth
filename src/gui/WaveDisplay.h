@@ -539,6 +539,11 @@ private:
 
     int shownViewMode() const
     {
+        // PLAY's strip is too small for 3D or the harmonics: it always shows
+        // the cycle (UI review 8, S8-34).
+        if (compact)
+            return 0;
+
         if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
             && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
             return 0;

@@ -130,6 +130,7 @@ void expect (bool condition, const juce::String& message)
 #include "ModulationUiTests.h"
 #include "FilterFxUiTests.h"
 #include "ModulationReview8Tests.h"
+#include "LayoutUiTests8.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -208,18 +209,19 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     {
         // (OSC 3's parameters are "sub_".)
         const juce::String osc3 (OscillatorIds::prefixes[2]);
+        // (OSC 3 is off, so folded: UI review 8, V8-17; OSC 2 is the plain one.)
         auto* add = buttonNamed ("+  ADD OSC 4");
         auto* level1 = knobFor ("osc1_level");
-        auto* level3 = knobFor (osc3 + "_level");
+        auto* level3 = knobFor ("osc2_level");
         const auto addArea = add != nullptr ? editor.getLocalArea (add, add->getLocalBounds()) : juce::Rectangle<int>();
         const auto level3Area = level3 != nullptr ? editor.getLocalArea (level3, level3->getLocalBounds()) : juce::Rectangle<int>();
         expect (add != nullptr && add->getHeight() <= 32 && level3 != nullptr && addArea.getY() > level3Area.getBottom()
-                    && addArea.getY() - level3Area.getBottom() < 90,
-                "PLAY: one slim + ADD OSC 4 row right after OSC 3, no empty slots");
+                    && addArea.getY() - level3Area.getBottom() < 120 && knobFor (osc3 + "_level") == nullptr,
+                "PLAY: one slim + ADD OSC 4 row right after the folded OSC 3, no empty slots");
         expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
                     && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
-                    && centreX (knobFor ("osc1_frame")) == centreX (knobFor (osc3 + "_frame")),
-                "PLAY: SEMI, LEVEL, FRAME in the same columns on an FM oscillator and a plain one");
+                    && centreX (knobFor ("osc1_frame")) == centreX (knobFor ("osc2_frame")),
+                "PLAY: SEMI, LEVEL, FRAME in the same columns on every wavetable strip");
         // SUB + NOISE: the switch names the sub, which is all it switches,
         // and the noise has its COLOUR beside its level (V8-14, V8-15).
         {
@@ -417,7 +419,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto* hammer = knobFor ("osc1_hammer_hard");
         const auto sameLine = decay != nullptr && hammer != nullptr
                               && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
-        expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine && buttonNamed ("FILTER") != nullptr,
+        expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
+                    && buttonNamed (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba")) != nullptr,
                 "PHYSICAL: the string spans the page, STRING and EXCITER share one line, BODY links to FILTER");
         // The renamed exciter menu still shows its choice.
         juce::String exciteText;
@@ -1456,14 +1459,14 @@ int runUiTests()
             return nullptr;
         };
 
-        // A switched-off oscillator keeps its strip, greyed: nothing folds
-        // to fit (UI review 6, V19, S8).
+        // A switched-off oscillator keeps its place, folded to a slim strip
+        // with its switch (UI review 6, V19, S8; review 8, V8-17).
         const juce::String osc3 (OscillatorIds::prefixes[2]);
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (0.0f);
         settle (300);
-        expect (mainKnob (osc3 + "_level") != nullptr && ! mainKnob (osc3 + "_level")->isEnabled() && toggleFor (osc3 + "_on") != nullptr,
-                "MAIN greys a switched-off OSC 3 in its own strip");
+        expect (mainKnob (osc3 + "_level") == nullptr && toggleFor (osc3 + "_on") != nullptr,
+                "MAIN folds a switched-off OSC 3 to its own slim strip with its switch");
 
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (1.0f);
@@ -1745,18 +1748,18 @@ int runUiTests()
             settle (200);
         }
 
-        // SLOT BLEND in the card headers (S6-25), but only where the effect
-        // has no MIX of its own (UI review 7, V7-7): here the limiter's.
+        // The slot's dry / wet, but only where the effect has no MIX of its
+        // own (UI review 7, V7-7): here the limiter's, as a MIX knob in its
+        // row (UI review 8, S8-6).
         {
-            std::vector<juce::Slider*> sliders;
-            findAll<juce::Slider> (*editor, sliders);
-            auto* viewport = stackViewport();
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
             auto inCards = 0;
-            for (auto* slider : sliders)
-                if (slider->getTooltip().startsWith ("Slot blend") && visibleInTree (slider)
-                    && viewport != nullptr && slider->getParentComponent() == viewport->getViewedComponent())
+            for (auto* knob : knobs)
+                if (knob->getParameterId().startsWith ("fx_slot") && knob->getParameterId().endsWith ("_mix") && visibleInTree (knob)
+                    && ! knob->getBounds().isEmpty())
                     ++inCards;
-            expect (inCards == 1, "only the limiter's card (no MIX of its own) has a SLOT BLEND (" + juce::String (inCards) + " of 4)");
+            expect (inCards == 1, "only the limiter's card (no MIX of its own) has the slot's MIX (" + juce::String (inCards) + " of 4)");
         }
 
         // One MIX: the Airwindows algorithms' own Dry/Wet is hidden.
@@ -3487,8 +3490,10 @@ int runUiTests()
         expect (oscSection != nullptr && ! oscSection->switcher.isItemDimmed (oscSection->indexOf ("PHYSICAL")),
                 "the PHYSICAL tab is lit while an oscillator is physical");
         juce::StringArray pageIds, listIds;
+        // (BODY's and the SOUNDBOARD's main controls sit under the string's
+        // since UI review 8, V8-23; they aren't the oscillator's.)
         for (auto* knob : knobs)
-            if (visibleInTree (knob))
+            if (visibleInTree (knob) && knob->getParameterId().startsWith (physicalPrefix))
                 pageIds.add (knob->getParameterId());
         const auto excite = juce::roundToInt (processor.apvts.getRawParameterValue (physicalPrefix + "_excite")->load());
         for (const auto& row : physicalControlRows (excite))
@@ -3512,8 +3517,11 @@ int runUiTests()
         auto bodySwitch = false;
         for (auto* toggle : pageToggles)
             bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
-        expect (pageButtons.contains ("FILTER") && pageButtons.contains ("ACOUSTIC KEYS") && ! bodySwitch,
-                "PHYSICAL links to the body (FILTER) and the soundboard (ACOUSTIC KEYS) instead of repeating them");
+        // (UI review 8, V8-23: the body's switch and main controls are here
+        // too now, with links to the rest.)
+        expect (pageButtons.contains (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba"))
+                    && pageButtons.contains (juce::CharPointer_UTF8 ("ACOUSTIC KEYS \xe2\x80\xba")) && bodySwitch,
+                "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (ACOUSTIC KEYS)");
 
         pages->showPage ("OSC");
         settle (300);
@@ -5718,6 +5726,13 @@ int runUiTests()
                     continue;
                 // The dial and its value: the label above may tuck under a header.
                 const auto area = editor->getLocalArea (knob, knob->getLocalBounds().withTrimmedTop (13));
+                // A knob scrolled wholly out of its view is hidden, not cut
+                // (the scrolled column may still reach past the page).
+                auto hidden = false;
+                for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (area);
+                if (hidden)
+                    continue;
                 for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
                 {
                     const auto view = editor->getLocalArea (parent, parent->getLocalBounds());
@@ -6007,6 +6022,8 @@ int runUiTests()
 
     // UI review 8, R4: modulation.
     runModulationReview8Tests (processor, *pages);
+    // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
+    runLayoutReview8Tests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();

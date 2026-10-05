@@ -634,8 +634,8 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             // An FM operator is not offered a string: switching it would take it out of the FM voice (V12-24).
             IlanaTheme::drawFitted (g, isOperatorVoice (chosen)
-                                           ? "OSC " + juce::String (chosen + 1) + " is an FM operator. Pick another oscillator for a string."
-                                           : "OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ". Switch it to Physical to hear this string.",
+                                           ? "OSC " + juce::String (chosen + 1) + " is an FM operator: pick another for a string"
+                                           : "OSC " + juce::String (chosen + 1) + " plays " + plays[mode],
                                     messageArea, juce::Justification::centredLeft, 1);
         }
 

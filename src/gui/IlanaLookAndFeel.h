@@ -180,6 +180,13 @@ struct TextFitProbe
     juce::StringArray cutDetails; // "text: needs N px of M at H"
     juce::StringArray respelled;  // "text -> line": a value drawn without its space or with a shorter unit
     juce::StringArray garbled;    // text holding double-encoded UTF-8 (V10-1)
+
+    // With recordRects on, where each text was drawn (editor coordinates once
+    // `origin` is the painting component's), as far as its letters reach, so a
+    // test can see a label that a sibling covers (V14-17).
+    bool recordRects = false;
+    juce::Point<int> origin;
+    std::vector<std::pair<juce::String, juce::Rectangle<int>>> rects;
 };
 
 // Whether a string holds the marks of UTF-8 read as Latin-1 and encoded again
@@ -194,6 +201,23 @@ inline TextFitProbe& textFitProbe()
 {
     static TextFitProbe probe;
     return probe;
+}
+
+inline void noteTextRect (const juce::String& text, const juce::Font& font, juce::Rectangle<int> area, juce::Justification justification)
+{
+    auto& probe = textFitProbe();
+    if (! probe.armed || ! probe.recordRects)
+        return;
+
+    const auto width = (int) std::ceil (juce::GlyphArrangement::getStringWidth (font, text));
+    auto box = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), (int) std::ceil (font.getHeight())));
+    if (justification.testFlags (juce::Justification::left))
+        box = box.withWidth (juce::jmin (width, box.getWidth()));
+    else if (justification.testFlags (juce::Justification::right))
+        box = box.withLeft (juce::jmax (box.getX(), box.getRight() - width));
+    else
+        box = box.withSizeKeepingCentre (juce::jmin (width, box.getWidth()), box.getHeight());
+    probe.rects.push_back ({ text, box.translated (probe.origin.x, probe.origin.y) });
 }
 
 // Text in a box, the one way the UI fits text that may be too long (UI review
@@ -265,6 +289,7 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 
     if (fitsIn (font, line, room))
     {
+        noteTextRect (line, font, area, justification);
         g.drawText (line, area, justification, false);
         return;
     }
@@ -362,6 +387,7 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
                                   + juce::String (room, 1) + " px at " + juce::String (fitted.getHeight(), 2));
     }
 
+    noteTextRect (line, fitted, area, justification);
     g.setFont (fitted);
     g.drawText (line, area, justification, ! fits);
     g.setFont (font);

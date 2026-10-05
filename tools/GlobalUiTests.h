@@ -141,6 +141,135 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                                                         + (cutText.isEmpty() ? juce::String() : ": " + cutText.joinIntoString (", ")));
     }
 
+    // V14-17: no label is covered by a component painted after it (the wave
+    // picture beside a strip's role line, a picker over a card's title). Every
+    // component is painted on its own with the probe noting where each text
+    // lands; a text whose letters meet a later, visible, solid component fails.
+    // On the DX7 voice and the wavetable patch, every page, at 100 % and 75 %.
+    {
+        auto& probe = IlanaTheme::textFitProbe();
+        auto* top = editor.getTopLevelComponent();
+        const auto before = top->getBounds();
+        juce::StringArray covered, stillOpen;
+        std::set<juce::String> seen;
+        auto texts = 0;
+        // Found by this check on PLAY's and OSC's own pages at 75 % (review 14, V14-17), left to
+        // the package that owns those pages: each is a label whose letters run under a neighbour.
+        // Remove an entry when its page is fixed; a new one fails. (A key is matched from its start.)
+        const juce::StringArray knownOpen {
+            "E.PIANO 1 (ROM1A) 75% MAIN: 'shared",
+            "E.PIANO 1 (ROM1A) 75% MAIN: 'WAVE' under N4juce5LabelE",
+            "E.PIANO 1 (ROM1A) 75% OSC: 'PITCH & OUTPUT' under N4juce5LabelE",
+            "E.PIANO 1 (ROM1A) 75% OSC: 'WAVE' under 9StateTabs",
+            "Neuro Wobble 75% MAIN: 'shared",
+            "Neuro Wobble 75% OSC: 'SHAPE' under N11KnobControl11RingOverlayE",
+            "Neuro Wobble 75% OSC: 'PITCH & LEVEL' under N4juce14LookAndFeel_V215SliderLabelCompE" };
+
+        for (const auto* preset : { "E.PIANO 1 (ROM1A)", "Neuro Wobble" })
+        {
+            loadNamed (preset);
+
+            for (const auto small : { false, true })
+            {
+                if (small)
+                    top->setSize (795, 540);
+                else
+                    top->setBounds (before);
+                settle (300);
+
+                for (const auto& page : editor.getPageIds())
+                {
+                    editor.showPage (page);
+                    settle (200);
+
+                    // Paint order: every visible component, parents before their children.
+                    std::vector<juce::Component*> order;
+                    std::function<void (juce::Component&)> walk = [&] (juce::Component& c)
+                    {
+                        if (! c.isVisible() || c.getWidth() <= 0 || c.getHeight() <= 0)
+                            return;
+                        order.push_back (&c);
+                        for (auto* child : c.getChildren())
+                            walk (*child);
+                    };
+                    order.push_back (&editor); // (never put on screen here: its own flag is not asked)
+                    for (auto* child : editor.getChildren())
+                        walk (*child);
+
+                    const auto takesClicks = [] (juce::Component* c)
+                    {
+                        auto self = true, children = true;
+                        c->getInterceptsMouseClicks (self, children);
+                        return self;
+                    };
+                    const auto isLeaf = [] (juce::Component* c)
+                    {
+                        for (auto* child : c->getChildren())
+                            if (child->isVisible() && child->getWidth() > 0 && child->getHeight() > 0)
+                                return false;
+                        return true;
+                    };
+
+                    for (size_t i = 0; i < order.size(); ++i)
+                    {
+                        auto* painter = order[i];
+                        // (Pages and cards paint titles and notes for their children's neighbours; a widget's own label is its own.)
+                        if (isLeaf (painter))
+                            continue;
+                        const auto bounds = editor.getLocalArea (painter, painter->getLocalBounds());
+                        probe = {};
+                        probe.armed = true;
+                        probe.recordRects = true;
+                        probe.origin = bounds.getPosition();
+                        juce::Image image (juce::Image::ARGB, painter->getWidth(), painter->getHeight(), true);
+                        {
+                            juce::Graphics g (image);
+                            painter->paint (g);
+                        }
+                        probe.armed = false;
+                        const auto rects = probe.rects;
+                        probe = {};
+
+                        // What of the painter shows at all: scrolled out of a viewport it is not a label.
+                        auto shown = bounds;
+                        for (auto* parent = painter->getParentComponent(); parent != nullptr && parent != &editor; parent = parent->getParentComponent())
+                            shown = shown.getIntersection (editor.getLocalArea (parent, parent->getLocalBounds()));
+
+                        for (const auto& [text, whole] : rects)
+                        {
+                            const auto rect = whole.getIntersection (shown);
+                            if (rect.isEmpty())
+                                continue;
+                            ++texts;
+                            for (size_t j = i + 1; j < order.size(); ++j)
+                            {
+                                auto* later = order[j];
+                                // (A solid thing the user can point at: not an overlay or a picture that lets clicks through.)
+                                if (! isLeaf (later) || later->getAlpha() < 0.1f || ! takesClicks (later) || later->isParentOf (painter))
+                                    continue;
+                                if (const auto area = editor.getLocalArea (later, later->getLocalBounds()); area.reduced (1).intersects (rect.reduced (1)))
+                                {
+                                    const auto key = juce::String (preset) + (small ? " 75% " : " ") + page + ": '" + text + "' under "
+                                                     + juce::String (typeid (*later).name());
+                                    if (seen.insert (key).second)
+                                        (std::any_of (knownOpen.begin(), knownOpen.end(), [&key] (const juce::String& known) { return key.startsWith (known); }) ? stillOpen : covered).add (key);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        probe = {};
+        top->setBounds (before);
+        editor.showPage ("MAIN");
+        settle (300);
+        std::cout << "  (label overlap: " << texts << " texts checked, " << stillOpen.size() << " known open on PLAY and OSC)" << std::endl;
+        expect (covered.isEmpty() && texts > 100, "no label is covered by a component drawn after it, on the DX7 voice or the wavetable patch, at 100 % or 75 %"
+                                                      + (covered.isEmpty() ? juce::String() : ": " + covered.joinIntoString (", ")));
+    }
+
     // I8-32: a card without a family colour has no grey tag.
     expect (! IlanaTheme::hasFamilyColour (IlanaTheme::Ui::text2) && ! IlanaTheme::hasFamilyColour (juce::Colour (0xffe0e6f0))
                 && IlanaTheme::hasFamilyColour (IlanaTheme::accent()),

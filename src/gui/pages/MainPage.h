@@ -446,8 +446,8 @@ public:
             auto area = opEnvNoteArea;
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV"),
-                        area.removeFromTop (14), juce::Justification::centredLeft);
+            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
+                                    area.removeFromTop (14), juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
             for (int i = 0; i < count && rowHeight >= 10; ++i)
@@ -1438,7 +1438,15 @@ private:
                 {
                     area.removeFromTop (2);
                     g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3); // (not the strip's one coloured text: V10-16)
-                    g.drawText (line, area.removeFromTop (12).withTrimmedLeft (9), juce::Justification::centredLeft, true);
+                    // (Never cut mid-digit: a role line too long for a narrow strip says "→ 1", V14-17.)
+                    // (To the picture's edge, the title column being narrower on a compact strip.)
+                    auto row = area.removeFromTop (12).withTrimmedLeft (9);
+                    row.setRight (juce::jmin (row.getRight(), stripColumns (card).picture.getX() - 4));
+                    auto text = line;
+                    if (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) > (float) row.getWidth())
+                        text = text.replace ("TO OUTPUT, MODULATES ", juce::String::fromUTF8 ("OUT, \xe2\x86\x92 "))
+                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
+                    IlanaTheme::drawFitted (g, text, row, juce::Justification::centredLeft);
                 }
         };
 

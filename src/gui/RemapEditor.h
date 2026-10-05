@@ -515,7 +515,11 @@ public:
 
         g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        IlanaTheme::drawFitted (g, RemapEditor::getShortShapeNames()[shapeIndex].toUpperCase(), nameArea.toNearestInt(), juce::Justification::centred, 1);
+        // (A narrow tile, at 75 % with the dock open, takes the last word: "EASE OUT" reads "OUT".)
+        auto name = RemapEditor::getShortShapeNames()[shapeIndex].toUpperCase();
+        if (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), name) > nameArea.getWidth() - 2.0f)
+            name = name.fromLastOccurrenceOf (" ", false, false);
+        IlanaTheme::drawFitted (g, name, nameArea.toNearestInt(), juce::Justification::centred, 1);
     }
 
 private:

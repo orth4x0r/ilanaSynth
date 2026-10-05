@@ -170,7 +170,7 @@ public:
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
             const juce::String label ("+ ASSIGN");
             const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 14);
-            assignBounds = text.withWidth (width).withHeight (juce::jmin (text.getHeight(), 16));
+            assignBounds = text.withWidth (width).withSizeKeepingCentre (width, 16).withX (text.getX());
             const auto over = hover && assignBounds.contains (getMouseXYRelative());
             g.setColour (over ? IlanaTheme::accent().withAlpha (0.22f) : IlanaTheme::Ui::raised);
             g.fillRoundedRectangle (assignBounds.toFloat(), 4.0f);

@@ -549,7 +549,7 @@ private:
             }
             // Names while the title and a line about the operator fit
             // beside them, else just the numbers.
-            const auto room = tabs.getWidth() - 70; // (review 11, I11-2: OSC n, not a bare number)
+            const auto room = tabs.getWidth() - 110; // (review 11, I11-2: OSC n, not a bare number)
             // Every operator always shows: the line about it gives way.
             const auto width = juce::jmin (tabs.getWidth(), picker.getQuietWidth() <= room ? picker.getQuietWidth() : picker.getShortWidth());
             picker.setBounds (tabs.removeFromRight (width));

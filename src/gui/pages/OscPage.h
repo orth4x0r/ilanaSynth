@@ -1067,7 +1067,7 @@ private:
             // The string is edited on PHYSICAL only (UI review 9, I9-3): the
             // card keeps its exciter, DECAY and DAMP (PLAY's two) and
             // EDIT STRING › in the header.
-            rows.push_back ({ "STRING", { &osc.excite, &osc.stringDecay, &osc.stringDamp } });
+            rows.push_back ({ "STRING", { &osc.excite, nullptr, &osc.stringDecay, &osc.stringDamp } });
         }
         else if (mode == 2)
             rows.push_back ({ "SAMPLE", { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleStart, &osc.sampleEnd,
@@ -1326,9 +1326,14 @@ private:
             const auto left = area.getX();
             for (int i = 0; i < columns; ++i)
                 if (items[(size_t) i] != nullptr)
+                {
+                    // A menu takes the empty column after it (a WARP with no
+                    // amount, an exciter's name), so its text has room.
+                    const auto span = dynamic_cast<ComboControl*> (items[(size_t) i]) != nullptr && i + 1 < columns && items[(size_t) i + 1] == nullptr ? 2 : 1;
                     items[(size_t) i]->setBounds (juce::Rectangle<int> (left + juce::roundToInt ((float) i * cellWidth), area.getY(),
-                                                                          juce::roundToInt ((float) (i + 1) * cellWidth) - juce::roundToInt ((float) i * cellWidth),
+                                                                          juce::roundToInt ((float) (i + span) * cellWidth) - juce::roundToInt ((float) i * cellWidth),
                                                                           area.getHeight()).reduced (3));
+                }
             return;
         }
 

@@ -617,7 +617,7 @@ public:
         if (picker.isVisible())
         {
             // Room for the title and a word of the line before it.
-            const auto room = header.getWidth() - 60; // the title only (review 11, I11-2)
+            const auto room = header.getWidth() - 90; // the title only (review 11, I11-2)
             const auto width = juce::jmin (header.getWidth(), picker.getQuietWidth() <= room ? picker.getQuietWidth() : picker.getShortWidth());
             picker.setBounds (header.removeFromRight (juce::jmax (0, width)).withSizeKeepingCentre (juce::jmax (0, width), 22));
             headerLeft = picker.getX();

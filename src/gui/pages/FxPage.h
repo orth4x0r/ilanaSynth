@@ -1117,7 +1117,7 @@ private:
         // Compact: the picture at its floor and the cells as tight as the
         // labels allow, what a half-width card makes do with.
         const auto row = 20 + (hasCardPicture (panel.type) ? (compact ? minDisplayWidth : cardDisplayWidth) + 12 : 0)
-                         + columns * (compact ? 72 : knobCellWidth) + menuShare * (compact ? 40 : 70);
+                         + columns * (compact ? 66 : knobCellWidth) + menuShare * (compact ? 30 : 70);
         return std::max ({ header, row, compact ? 360 : minCardWidth, panel.type == 16 ? (compact ? 640 : 720) : 0, panel.type == 9 ? (compact ? 440 : 520) : 0 });
     }
 
@@ -1192,7 +1192,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y);
+                y = flowCards (cards, i, end, 0, width, y, end == cards.size());
             }
             else
             {
@@ -1249,10 +1249,10 @@ private:
     // Cards from..to on a two-column grid, in chain order (UI review 13,
     // V13-1): a card that fits half the rack's width takes half, and two of
     // them share a row; a wider one, or a half card with no partner, takes the
-    // whole row, its picture growing into the room: no hole is left in a row
-    // (the + ADD EFFECT tile is a row of its own). A row is as tall as its
-    // tallest card. Inside a split group the same grid holds.
-    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y)
+    // whole row, its picture growing into the room. A lone last card keeps
+    // its half and the + ADD EFFECT tile takes the other. A row is as tall
+    // as its tallest card. Inside a split group the same grid holds.
+    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
         const auto half = (width - cardGap) / 2;
         const auto fitsHalf = [this, half] (const StackPanel& card) { return minimumWidth (card) <= half; };
@@ -1260,6 +1260,7 @@ private:
         for (auto k = from; k < to;)
         {
             const auto pair = fitsHalf (cards[k]) && k + 1 < to && fitsHalf (cards[k + 1]);
+            const auto lone = fitsHalf (cards[k]) && k + 1 == to && addTileAtEnd && firstEmptySlot() >= 0;
             const auto height = pair ? juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1])) : cardHeight (cards[k]);
 
             if (pair)
@@ -1268,6 +1269,14 @@ private:
                 placeCard (cards[k + 1], { x + half + cardGap, y, width - half - cardGap, height });
                 lastRowHole = {};
                 k += 2;
+            }
+            else if (lone)
+            {
+                // A lone last card keeps its half; the other half is the
+                // + ADD EFFECT tile's place.
+                placeCard (cards[k], { x, y, half, height });
+                lastRowHole = { x + half + cardGap, y, width - half - cardGap, height };
+                k += 1;
             }
             else
             {
@@ -1329,13 +1338,14 @@ private:
         for (auto* item : items)
             menusInRow += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
         const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
+        const auto wide = panel.bounds.getWidth() > 600;
         const auto knobsWidth = columns * knobCellWidth + juce::jmin (menusInRow, columns) * 70;
 
         if (hasCardPicture (type))
         {
             // The picture takes what the controls leave, between its floor and
             // its cap: a half-width card shows a roomy graph, not a hole.
-            const auto displayWidth = juce::jlimit (minDisplayWidth, hasCardDisplay (type) ? (panel.bounds.getWidth() > 600 ? 460 : maxDisplayWidth) : 260, juce::jmin (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3 + 40));
+            const auto displayWidth = juce::jlimit (minDisplayWidth, hasCardDisplay (type) ? (wide ? 900 : maxDisplayWidth) : 300, rowsArea.getWidth() - knobsWidth - 12);
             const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
             rowsArea.removeFromLeft (12);
 

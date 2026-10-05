@@ -259,8 +259,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         juce::StringArray rows;
         auto rowsOk = tabs != nullptr;
         const std::vector<std::pair<int, std::vector<juce::String>>> engines {
-            { 0, { "arp_div", "arp_steps", "arp_gate", "arp_mode", "arp_octaves", "arp_chance" } },
-            { 1, { "euc_div", "euc_steps", "euc_gate", "euc_target", "euc_hits", "euc_rotate" } },
+            { 0, { "arp_div", "arp_mode", "arp_steps", "arp_gate", "arp_octaves", "arp_chance" } },
+            { 1, { "euc_div", "euc_target", "euc_steps", "euc_gate", "euc_hits", "euc_rotate" } },
             { 2, { "pseq_div", "pseq_length", "pseq_gate" } } };
         for (const auto& [engine, ids] : engines)
         {
@@ -291,7 +291,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         if (tabs != nullptr)
             tabs->setSelected (0, true);
         settle (200);
-        expect (rowsOk, "ARP, EUCLID and PROB SEQ rows start RATE, STEPS, GATE, with menus and knobs on one label line"
+        expect (rowsOk, "ARP, EUCLID and PROB SEQ start with RATE, the menus in one row and the knobs below (V13-7)"
                             + (rows.isEmpty() ? juce::String() : " (" + rows.joinIntoString (", ") + ")"));
 
         expect (ArpLanesEditor::textFor (ArpLanesEditor::gate, 1.5f) == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1.50"

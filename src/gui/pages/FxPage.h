@@ -557,7 +557,7 @@ public:
             // The rack's spare height goes to its rows (a taller graph, the
             // knobs centred in it), so the page doesn't end in a blank band
             // (UI review 9, V9-3).
-            rowExtra = juce::jlimit (0, 110, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
+            rowExtra = juce::jlimit (0, 140, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
             stackView.setBounds (stackArea);
             layoutStack();
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));

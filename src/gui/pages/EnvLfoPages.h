@@ -1110,7 +1110,7 @@ public:
         if (shape == LfoShapes::Pendulum || shape == LfoSimShapes::Pendulum)
             switches.push_back (&c.kick);
         for (size_t i = 0; i < switches.size(); ++i)
-            switches[i]->setBounds (grid.switchSlot ((int) i, 5));
+            switches[i]->setBounds (grid.lfoSwitchSlot ((int) i));
 
         if (simulated)
         {
@@ -1416,6 +1416,22 @@ private:
         {
             const auto width = left[1].getWidth() / slots;
             return left[1].withX (left[1].getX() + width * index).withWidth (width).reduced (2, 1);
+        }
+
+        // The LFO's switches in fixed places of unequal width: RETRIG's slot is
+        // wide enough for "PER VOICE" on a simulated shape (V10-6 / I10-6), the
+        // others for their names.
+        juce::Rectangle<int> lfoSwitchSlot (int index) const
+        {
+            static constexpr float weights[] { 1.0f, 1.7f, 1.0f, 1.1f, 1.1f };
+            auto before = 0.0f, total = 0.0f;
+            for (int i = 0; i < 5; ++i)
+            {
+                total += weights[i];
+                before += i < index ? weights[i] : 0.0f;
+            }
+            const auto unit = (float) left[1].getWidth() / total;
+            return left[1].withX (left[1].getX() + juce::roundToInt (before * unit)).withWidth (juce::roundToInt (weights[index] * unit)).reduced (2, 1);
         }
 
         // Knobs in reading order, `perRow` to a row (a null keeps a place

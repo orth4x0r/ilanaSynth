@@ -424,6 +424,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("PHYSICAL");
     settle (400);
     {
+        for (const char* id : { "res_on", "sb_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        settle (300);
         auto* page = editor.getCurrentPage();
         auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* decay = knobFor ("osc1_string_decay");
@@ -779,8 +783,10 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         if (found)
         {
             const auto row = topOf (count);
-            expect (topOf (scale) == row && topOf (root) == row && topOf (snap) == row && topOf (strum) == row
-                        && topOf (strumTime) == row && topOf (pitch) == row && topOf (spread) == row,
+            // (Menu-only boxes centre their row, S10-12, so a menu sits a few px lower than a knob.)
+            const auto sameRow = [&] (juce::Component* c) { return std::abs (topOf (c) - row) <= 24; };
+            expect (sameRow (scale) && sameRow (root) && sameRow (snap) && sameRow (strum)
+                        && sameRow (strumTime) && sameRow (pitch) && sameRow (spread),
                     "GENERATE's controls are one row, every name on one line");
             expect (xOf (root) < xOf (scale) && xOf (scale) < xOf (snap) && xOf (snap) < xOf (strum) && xOf (strum) < xOf (strumTime)
                         && xOf (strumTime) < xOf (pitch) && xOf (pitch) < xOf (count) && xOf (spread) < xOf (velocity),
@@ -3674,9 +3680,9 @@ int runUiTests()
             const auto free = LfoShapeMenu::runCaption (processor, 0);
             setParam ("lfo1_trigger", 0.0f);
             setShape (0);
-            expect (onNote.contains ("restarts on any new note") && onNote.contains ("held notes") && free.contains ("runs free")
+            expect (onNote.contains ("restarts on note") && free.contains ("runs free")
                         && onNote.startsWith ("shared") && plainCaption == juce::String::fromUTF8 ("shared \xc2\xb7 runs free")
-                        && onNote.contains ("2 outputs") && ! onNote.contains ("restarts on each note"),
+                        && onNote.contains ("2 outputs") && onNote.length() < 48,
                     "an LFO's caption says where it runs and when it restarts, the same words for plain and simulated shapes ('"
                         + plainCaption + "' / '" + onNote + "' / '" + free + "')");
             expect (plainSwitch == "RETRIG" && simSwitch == "PER VOICE",
@@ -4887,7 +4893,7 @@ int runUiTests()
                 if (auto* button = key ("3D"))
                     button->triggerClick();
                 settle (60);
-                expect (wave->getFrameReadout().startsWith ("FRAME"), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
+                expect (wave->getFrameReadout().startsWith ("frame "), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
 
                 const auto table = [&processor] { return juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()); };
                 const auto before = table();

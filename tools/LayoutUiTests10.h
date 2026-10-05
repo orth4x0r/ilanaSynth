@@ -244,4 +244,204 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (200);
         expect (clear, "SAVE AS's tag chips sit at least 8 px under the tags field" + detail);
     }
+
+    const auto area = [&editor] (juce::Component* c)
+    {
+        return c == nullptr ? juce::Rectangle<int>() : editor.getLocalArea (c, c->getLocalBounds());
+    };
+    const auto shownWaves = [&editor]
+    {
+        std::vector<WaveDisplay*> all, shown;
+        findAll<WaveDisplay> (editor, all);
+        for (auto* wave : all)
+            if (visibleInTree (wave) && ! wave->getBounds().isEmpty())
+                shown.push_back (wave);
+        return shown;
+    };
+
+    // V10-6: tracking never closes a word gap: the fitter sets letters at most
+    // 0.04 of their height closer, at any width.
+    {
+        auto worst = 0.0f;
+        for (const auto* text : { "AMPENV", "Piano Hammer", "KEY RATE", "STRING COUPLING", "SOUNDBOARD (DENSE)" })
+            for (float room = 20.0f; room < 260.0f; room += 7.0f)
+            {
+                const auto font = IlanaTheme::fittedFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)), text, room, IlanaTheme::TextSize::minPassive);
+                worst = juce::jmin (worst, font.getExtraKerningFactor());
+            }
+        expect (worst >= -0.0401f, "the text fitter tracks at most -0.04 em (" + juce::String (worst, 3) + ")");
+    }
+
+    // V10-7: one label size per row. PLAY's OSC 1 row (SEMI, LEVEL, FRAME,
+    // UNISON) draws every name at the same size.
+    {
+        loadNamed ("Neuro Wobble");
+        editor.showPage ("MAIN");
+        settle (400);
+        std::vector<KnobControl*> all;
+        findAll<KnobControl> (editor, all);
+        std::set<int> sizes;
+        auto labels = 0;
+        for (auto* knob : all)
+            if (visibleInTree (knob) && ! knob->getBounds().isEmpty() && ! knob->isCompact()
+                && knob->getParameterId().startsWith ("osc1_") && (knob->getParameterId().endsWith ("_semi") || knob->getParameterId().endsWith ("_level")
+                                                                 || knob->getParameterId().endsWith ("_frame") || knob->getParameterId().endsWith ("_unison")))
+            {
+                auto& label = knob->getNameLabel();
+                auto font = IlanaTheme::font (IlanaTheme::TextSize::body);
+                const auto fitted = IlanaTheme::fittedFont (juce::Font (font), label.getText().trim(),
+                                                            (float) label.getBorderSize().subtractedFrom (label.getLocalBounds()).getWidth(),
+                                                            IlanaTheme::TextSize::minPassive);
+                const auto cap = label.getProperties().contains ("fitCap") ? (float) label.getProperties()["fitCap"] : 1000.0f;
+                sizes.insert (juce::roundToInt (juce::jmin (cap, fitted.getHeight()) * 100.0f));
+                ++labels;
+            }
+        expect (labels == 4 && sizes.size() == 1, "OSC 1's labels on PLAY share one size (" + juce::String (labels) + " labels, " + juce::String ((int) sizes.size()) + " sizes)");
+    }
+
+    // V10-2, V10-4: PLAY's strips are capped and their pictures square; the
+    // PATCH tile shows on Init at the default size.
+    {
+        loadNamed ("Neuro Wobble");
+        editor.showPage ("MAIN");
+        settle (400);
+        auto tallest = 0;
+        auto squarish = true;
+        juce::String shape;
+        for (auto* wave : shownWaves())
+        {
+            const auto bounds = area (wave);
+            tallest = juce::jmax (tallest, bounds.getHeight());
+            const auto ratio = (float) bounds.getWidth() / (float) juce::jmax (1, bounds.getHeight());
+            squarish = squarish && ratio > 0.75f && ratio < 1.34f;
+            shape << bounds.getWidth() << "x" << bounds.getHeight() << " ";
+        }
+        expect (! shownWaves().empty() && tallest <= 150 && squarish, "PLAY's oscillator pictures are square and no taller than 150 px (" + shape + ")");
+
+        loadNamed ("Init");
+        editor.showPage ("MAIN");
+        settle (400);
+        std::vector<SignalFlow*> flows;
+        findAll<SignalFlow> (editor, flows);
+        auto patchShown = false;
+        for (auto* flow : flows)
+            patchShown = patchShown || (visibleInTree (flow) && area (flow).getHeight() >= 50);
+        expect (patchShown, "the PATCH tile shows on PLAY at the default size (Init)");
+    }
+
+    // V10-8: a value keeps its unit's space in a DX7 voice's strips (nothing
+    // respelled to fit).
+    {
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        editor.showPage ("MAIN");
+        settle (400);
+        auto& probe = IlanaTheme::textFitProbe();
+        probe = {};
+        probe.armed = true;
+        editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+        probe.armed = false;
+        expect (probe.respelled.isEmpty(), "no value on a DX7 voice's PLAY page drops the space before its unit" + (probe.respelled.isEmpty() ? juce::String() : ": " + probe.respelled.joinIntoString (", ")));
+        probe = {};
+    }
+
+    // V10-5: an FX card's knobs sit beside its picture in a tight group.
+    {
+        loadNamed ("Neuro Wobble");
+        editor.showPage ("FX");
+        settle (500);
+        std::vector<FxDisplay*> displays;
+        findAll<FxDisplay> (editor, displays);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        auto cards = 0, loose = 0;
+        juce::String detail;
+        for (auto* display : displays)
+        {
+            if (! visibleInTree (display))
+                continue;
+            const auto picture = area (display);
+            // (The card's own knobs: up to the next card's picture on the row.)
+            auto limit = 100000;
+            for (auto* other : displays)
+                if (other != display && visibleInTree (other) && area (other).getX() > picture.getRight()
+                    && area (other).getCentreY() > picture.getY() && area (other).getCentreY() < picture.getBottom())
+                    limit = juce::jmin (limit, area (other).getX());
+            std::vector<int> xs;
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                {
+                    const auto bounds = area (knob);
+                    if (bounds.getX() >= picture.getRight() - 2 && bounds.getRight() <= limit
+                        && bounds.getCentreY() > picture.getY() && bounds.getCentreY() < picture.getBottom())
+                        xs.push_back (bounds.getX());
+                }
+            if (xs.size() < 2)
+                continue;
+            std::sort (xs.begin(), xs.end());
+            ++cards;
+            auto widest = 0;
+            for (size_t i = 1; i < xs.size(); ++i)
+                widest = juce::jmax (widest, xs[i] - xs[i - 1]);
+            if (xs.front() - picture.getRight() > 60 || widest > 120)
+            {
+                ++loose;
+                detail << " (first knob " << xs.front() - picture.getRight() << " px from its picture, widest gap " << widest << ")";
+            }
+        }
+        expect (cards > 0 && loose == 0, "FX cards group their knobs beside their picture" + detail);
+    }
+
+    // V10-9: SUB + NOISE (OSC) and BODY (PHYSICAL) fold while off, and open on
+    // their switch.
+    {
+        loadNamed ("Felt Hammer Board");
+        const auto setParam = [&processor] (const juce::String& id, float plain)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+        };
+        setParam ("osc1_mode", 1.0f);
+        setParam ("subosc_on", 0.0f);
+        setParam ("noise_level", 0.0f);
+        setParam ("res_on", 0.0f);
+        setParam ("sb_on", 0.0f);
+        setParam ("body_coupling_mode", 0.0f);
+        const auto shownKnob = [&editor] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    return true;
+            return false;
+        };
+        editor.showPage ("OSC");
+        settle (500);
+        const auto subOff = ! shownKnob ("subosc_level");
+        setParam ("subosc_on", 1.0f);
+        settle (600);
+        const auto subOn = shownKnob ("subosc_level");
+        setParam ("subosc_on", 0.0f);
+        settle (300);
+        editor.showPage ("PHYSICAL");
+        settle (500);
+        const auto bodyOff = ! shownKnob ("res_amount");
+        setParam ("res_on", 1.0f);
+        settle (600);
+        const auto bodyOn = shownKnob ("res_amount");
+        setParam ("res_on", 0.0f);
+        settle (300);
+        expect (subOff && subOn && bodyOff && bodyOn, "SUB + NOISE and BODY fold while off and open when switched on (sub "
+                                                          + juce::String (subOff ? "folds" : "stays") + "/" + juce::String (subOn ? "opens" : "stays shut")
+                                                          + ", body " + juce::String (bodyOff ? "folds" : "stays") + "/" + juce::String (bodyOn ? "opens" : "stays shut") + ")");
+        editor.showPage ("MAIN");
+        settle (200);
+    }
+
+    // V10-17: the output meter is 100 px or wider.
+    {
+        auto* meter = findChild<OutputMeter> (editor);
+        const auto bounds = area (meter);
+        expect (meter != nullptr && bounds.getWidth() >= 100, "the OUT meter is at least 100 px wide (" + bounds.toString() + ")");
+    }
 }

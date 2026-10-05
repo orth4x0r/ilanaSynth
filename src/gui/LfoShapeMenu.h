@@ -188,10 +188,12 @@ inline juce::String runCaption (const IlanaSynthAudioProcessor& processor, int l
         text = "per voice \xc2\xb7 rate follows the note (4 Hz = its pitch)";
     else if (LfoSimShapes::isSim (shape))
     {
-        const char* const shared[] { "shared \xc2\xb7 restarts on any new note (held notes jump too)", "shared \xc2\xb7 runs free",
-                                     "shared \xc2\xb7 restarts on the beat", "shared \xc2\xb7 restarts on each EUCLID / PROB SEQ step" };
-        const char* const voiced[] { "per voice \xc2\xb7 restarts on its note", "per voice \xc2\xb7 starts on its note, then runs free",
-                                     "per voice \xc2\xb7 restarts on its note and on the beat", "per voice \xc2\xb7 restarts on its note and each SEQ step" };
+        // (Short: what restarts it, nothing more; the TRIGGER menu's tips
+        // hold the detail, for example that held notes jump too: V10-21.)
+        const char* const shared[] { "shared \xc2\xb7 restarts on note", "shared \xc2\xb7 runs free",
+                                     "shared \xc2\xb7 restarts on the beat", "shared \xc2\xb7 restarts on each step" };
+        const char* const voiced[] { "per voice \xc2\xb7 restarts on note", "per voice \xc2\xb7 starts on note, then free",
+                                     "per voice \xc2\xb7 restarts on note and beat", "per voice \xc2\xb7 restarts on note and step" };
         text = (perVoice ? voiced : shared)[juce::jlimit (0, 3, juce::roundToInt (read ("_trigger")))];
     }
     else

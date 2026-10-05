@@ -77,9 +77,13 @@ public:
             // moves all the time (review 8, S8-41).
             // On a faint band of its own, so it doesn't read as an underline
             // of the preset name (UI review 9, S9-26).
-            g.setColour (juce::Colours::white.withAlpha (0.035f));
+            // A small display, well and rim, with its baseline, not a line
+            // under the name (S10-14).
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.8f));
             g.fillRoundedRectangle (bounds, 4.0f);
-            drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.45f), true);
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
+            drawWave (g, bounds.reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
             return;
         }
 

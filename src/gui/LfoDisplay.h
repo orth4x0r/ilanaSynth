@@ -289,9 +289,20 @@ public:
         // The snap grid's own control, on the graph wherever a drag makes
         // (or will make) a curve.
         if (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape))
-            IlanaTheme::paintPill (g, gridChipBounds(), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
+        {
+            // A menu, not a label: the pill ends in a chevron (V10-20).
+            const auto chip = gridChipBounds();
+            IlanaTheme::paintPill (g, chip.withTrimmedRight (6.0f), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
                                    traceColour, shape == IlanaSynthAudioProcessor::curveShape && gridDivisions > 0,
-                                   gridChipBounds().contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
+                                   chip.contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
+            juce::Path chevron;
+            const auto at = juce::Point<float> (chip.getRight() - 9.0f, chip.getCentreY());
+            chevron.startNewSubPath (at.x - 3.0f, at.y - 1.5f);
+            chevron.lineTo (at.x, at.y + 1.5f);
+            chevron.lineTo (at.x + 3.0f, at.y - 1.5f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.strokePath (chevron, juce::PathStrokeType (1.3f));
+        }
 
         // What a drag does on a preset wave, and what just happened after one.
         juce::String hint;
@@ -406,7 +417,7 @@ public:
 
     juce::Rectangle<float> gridChipBounds() const
     {
-        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (70.0f).reduced (6.0f, 3.0f);
+        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (84.0f).reduced (6.0f, 3.0f);
     }
 
     void showGridMenu()

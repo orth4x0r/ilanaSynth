@@ -377,24 +377,17 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
         IlanaTheme::paintCard (g, vectorCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
 
-        // The switch sits right after the title, where the eye is (V11-24: the
-        // card is 1,500 px wide), the caption after it.
+        // The switch is at the header's right like every card's own module
+        // (UI-CONVENTIONS; V13-10), the caption after the title.
         auto header = vectorCard.reduced (12, 0).removeFromTop (28);
-        IlanaTheme::paintCardHeader (g, header, "VECTOR", {}, colour());
-        {
-            auto caption = header.withTrimmedLeft (on.getRight() - header.getX() + 8);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
-                                                    : "four oscillators at the corners",
-                        caption, juce::Justification::centredLeft, true);
-        }
+        IlanaTheme::paintCardHeader (g, header, "VECTOR", readParam ("vec_on") > 0.5f ? "four oscillators at the corners; drag VECTOR X or Y from the source bar onto a knob"
+                                                                                       : "four oscillators at the corners", colour());
 
         // The controls in three boxes, as SEQ's GENERATE has them (UI review
         // 9, V9-7): where the four oscillators sit, where the point is and
         // how it moves.
         const struct { juce::Rectangle<int> box; const char* title; } boxes[] {
-            { cornersBox, "CORNERS" }, { positionBox, "POSITION" }, { motionBox, "MOTION" } };
+            { cornersBox, "CORNERS" }, { motionBox, "POSITION AND MOTION" } };
         for (const auto& part : boxes)
         {
             IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
@@ -425,36 +418,31 @@ public:
         pad.setBounds (inner.removeFromLeft (padWidth));
         inner.removeFromLeft (12);
         // The vector's on switch in its header, like every card's.
-        on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14).withX (vectorCard.getX() + 12 + IlanaTheme::cardTitleWidth ("VECTOR") + 4));
-        // Three boxes in the controls column, each as tall as what it holds
-        // (12 px of padding, controls in a left-aligned row of fixed cells):
-        // CORNERS (the four menus, two by two), POSITION (X, Y) and MOTION
-        // (PATH and its rate, WANDER and its rate).
+        on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
+        // Two boxes fill the controls column's height (no empty foot): CORNERS
+        // (the four menus, two by two) over POSITION AND MOTION (X, Y, PATH
+        // and its rate, WANDER and its rate: two rows of three).
         constexpr int gap = 8, padding = 12;
-        const auto cellWidth = juce::jlimit (92, 130, (inner.getWidth() - 2 * padding) / 4);
-        const auto spare = juce::jmax (0, inner.getHeight() - 2 * gap - (boxHeaderHeight + 2 * 44 + 8) - 2 * (boxHeaderHeight + 82));
-        const auto extra = juce::jmin (24, spare / 3);
-        cornersBox = inner.removeFromTop (boxHeaderHeight + 2 * 44 + 8 + extra);
+        cornersBox = inner.removeFromTop (juce::jlimit (boxHeaderHeight + 2 * 44 + 8, boxHeaderHeight + 2 * 60 + 8, (inner.getHeight() - gap) * 38 / 100));
         inner.removeFromTop (gap);
-        positionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
-        inner.removeFromTop (gap);
-        motionBox = inner.removeFromTop (boxHeaderHeight + 82 + extra);
+        motionBox = inner;
 
-        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 4).withHeight (2 * 44);
-        auto combos1 = corners.removeFromTop (44);
-        cornerA.setBounds (combos1.removeFromLeft (combos1.getWidth() / 2).reduced (3, 1));
-        cornerB.setBounds (combos1.reduced (3, 1));
+        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
+        const auto rowHeight = corners.getHeight() / 2;
+        const auto place = [rowHeight] (juce::Rectangle<int> row) { return row.withSizeKeepingCentre (row.getWidth(), juce::jmin (row.getHeight(), 46)).reduced (3, 0); };
+        auto combos1 = corners.removeFromTop (rowHeight);
+        cornerA.setBounds (place (combos1.removeFromLeft (combos1.getWidth() / 2)));
+        cornerB.setBounds (place (combos1));
         auto combos2 = corners;
-        cornerC.setBounds (combos2.removeFromLeft (combos2.getWidth() / 2).reduced (3, 1));
-        cornerD.setBounds (combos2.reduced (3, 1));
+        cornerC.setBounds (place (combos2.removeFromLeft (combos2.getWidth() / 2)));
+        cornerD.setBounds (place (combos2));
 
-        const auto packed = [&] (juce::Rectangle<int> box, int count)
-        {
-            auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withHeight (82);
-            return row.withWidth (juce::jmin (row.getWidth(), count * cellWidth));
-        };
-        layoutRow (packed (positionBox, 2), { &x, &y });
-        layoutRow (packed (motionBox, 4), { &path, &rate, &drift, &driftRate });
+        for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
+            knob->setSizeRole (juce::jmin (64, juce::jmax (IlanaTheme::KnobSize::main, (motionBox.getHeight() - boxHeaderHeight) / 2 - 40)));
+        auto knobs = motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
+        auto first = knobs.removeFromTop (knobs.getHeight() / 2);
+        layoutRow (first, { &x, &y, &path });
+        layoutRow (knobs, { &rate, &drift, &driftRate });
     }
 
 private:
@@ -513,7 +501,7 @@ private:
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
     KnobControl x, y, rate, drift, driftRate;
-    juce::Rectangle<int> vectorCard, cornersBox, positionBox, motionBox;
+    juce::Rectangle<int> vectorCard, cornersBox, motionBox;
     static constexpr int boxHeaderHeight = 24;
     bool shownActive = false;
     int shownOscillators = -1;

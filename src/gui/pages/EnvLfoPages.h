@@ -921,7 +921,7 @@ public:
         mseg.source = Mod::Source::Mseg;
         mseg.colour = MsegEditor::colour();
         mseg.isShown = [&p] { return msegModuleInUse (p); };
-        mseg.tooltip = "MSEG\nThe patch's own MSEG, from older patches (as an oscillator's ENVELOPE it plays once per note). "
+        mseg.tooltip = "MSEG\nThe patch's own MSEG, from older presets (as an oscillator's ENVELOPE it plays once per note). "
                        "Click to edit it below; MOVE TO LFO there draws it on an LFO instead (SHAPE \xe2\x80\xba MSEG), the "
                        "one drawn-shape editor.";
         mseg.valueAt = [this] (double phase) { return msegValueAt ((float) phase); };
@@ -1165,7 +1165,7 @@ public:
             playedBy.add (describeModTargets (processorRef, selected == msegId ? Mod::Source::Mseg : Mod::Source::ClockSh));
             playedBy.removeEmptyStrings();
             IlanaTheme::paintCardHeader (g, header, selected == msegId ? "MSEG" : "CLOCKED S&H",
-                                         selected == msegId ? "the patch's own MSEG, from older patches"
+                                         selected == msegId ? "the patch's own MSEG, from older presets"
                                                             : "a new random value on every step of DIVISION",
                                          colour, 0);
 

@@ -32,7 +32,11 @@ public:
         : name (sourceName),
           index (sourceIndex)
     {
-        setTooltip (ModNames::source (sourceIndex) + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up "
+        // The Operator Env's own sources say what they are (review 12, I12-14).
+        const auto own = sourceName == "OP PITCH" ? juce::String ("\nThe DX7 pitch envelope: the operator voice's own, shared by its six operators.")
+                         : sourceName == "OP LFO" ? juce::String ("\nThe DX7 LFO: the operator voice's own, with pitch and amp depth.")
+                                                  : juce::String();
+        setTooltip (ModNames::source (sourceIndex) + own + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up "
                                                      "while you hover; click to keep them lit, click again to clear.");
         startTimerHz (30);
     }

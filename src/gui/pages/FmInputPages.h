@@ -193,7 +193,9 @@ public:
         const auto reserve = operatorCard.getRight() - tabsLeft + 8;
         const auto colour = FmDiagram::oscColour (selectedOperator);
         IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-        IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1), operatorText(), colour, reserve);
+        // On the Operator Env the card says what it is: an operator (I12-18).
+        IlanaTheme::paintCardHeader (g, header, (usesOperatorEnv (selectedOperator) ? "OPERATOR " : "OSC ") + juce::String (selectedOperator + 1),
+                                     operatorText(), colour, reserve);
 
         // An operator on another envelope: where that envelope is edited.
         if (! usesOperatorEnv (selectedOperator))
@@ -398,7 +400,7 @@ public:
 
         // One that no tile matches names the nearest (V7-14).
         if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
-            return "CUSTOM, NEAR " + FmAlgorithmStrip::basicName (near);
+            return FmAlgorithmStrip::basicName (near) + ", EDITED"; // (review 12, I12-9)
 
         for (const auto source : shown)
             for (const auto target : shown)
@@ -508,6 +510,8 @@ private:
             // replaces KEY SCALE.
             controls.keyLevel.setVisible (selected && ! opEnv);
             controls.egOut.setVisible (selected && opEnv);
+            if (const auto name = juce::String (OscRole::outputKnobName (processorRef, op)); controls.egOut.getLabelText() != name)
+                controls.egOut.setLabelText (name);
             // One level on an operator (review 10, I10-1): OUTPUT. The
             // oscillator's own level (VOICE LEVEL) is on the OSC page.
             controls.level.setVisible (selected && ! opEnv);

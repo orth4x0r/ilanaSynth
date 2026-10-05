@@ -1060,14 +1060,14 @@ public:
         if (read ("spray_on") > 0.5f)
             list.push_back ({ "SPRAY" });
 
-        if (seqOn && arpOn)
-            list.push_back ({ "ARP", 0, true });
-        if (seqOn)
-            list.push_back ({ "PROB SEQ", 2 });
-        else if (arpOn)
-            list.push_back ({ "ARP", 0 });
+        // The engines in their tab order, ARP, EUCLID, PROB SEQ, CLIP, each
+        // opening its tab (review 12, S12-4).
+        if (arpOn)
+            list.push_back ({ "ARP", 0, seqOn });
         if (euclidNotes)
             list.push_back ({ "EUCLID", 1 });
+        if (seqOn)
+            list.push_back ({ "PROB SEQ", 2 });
         if (clipOn)
             list.push_back ({ clipHost ? "CLIP + HOST" : "CLIP", 3 });
 

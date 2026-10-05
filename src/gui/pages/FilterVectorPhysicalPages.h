@@ -629,13 +629,16 @@ public:
             g.drawText (name, area, juce::Justification::centredLeft);
         }
 
-        // The body and the soundboard under the controls: each named, with
-        // its switch and main controls after the name.
-        g.setColour (juce::Colours::white.withAlpha (0.07f));
-        g.fillRect (bodyLine.getX(), bodyLine.getY() - 4, stringCard.getRight() - 12 - bodyLine.getX(), 1);
+        // The card's own title (review 12, I12-4); the body and the soundboard
+        // under the controls are SEQ's sub-boxes: a rim, the name at the left
+        // and the switch at the right (the link sits just before it).
+        title (stringCard, "STRING & BODY", "OSC " + juce::String (chosen + 1) + "'s string, its exciter and the keys' body", colour());
         for (const auto& [line, name, isOn] : { std::tuple<juce::Rectangle<int>, const char*, bool> { bodyLine, "BODY", readParam ("res_on") > 0.5f },
                                                 { boardLine, "SOUNDBOARD", readParam ("sb_on") > 0.5f } })
-            paintSubBoxTitle (g, line.withHeight (18), name, {}, isOn); // (the one box title: I10-7)
+        {
+            IlanaTheme::paintRecessedPanel (g, line.toFloat(), 5.0f);
+            paintSubBoxTitle (g, line.reduced (10, 0).removeFromTop (boxHeaderHeight), name, {}, isOn, 44 + 8 + (isOn ? (name[0] == 'B' ? 120 : 176) : 0)); // (the one box title: I10-7)
+        }
     }
 
     void resized() override
@@ -710,13 +713,13 @@ public:
         // off, as WEST and BODY do on FILTER (V10-9).
         const auto bodyOpen = readParam ("res_on") > 0.5f, boardOpen = readParam ("sb_on") > 0.5f;
         const auto bodyBlockHeight = bodyOpen || boardOpen ? bodyLineHeight : foldedBodyLineHeight;
-        stringCard = area.removeFromBottom (12 + (int) lines.size() * lineHeight + 8 + bodyBlockHeight + 8);
+        stringCard = area.removeFromBottom (stringTitleHeight + 12 + (int) lines.size() * lineHeight + 8 + bodyBlockHeight + 8);
         area.removeFromBottom (10);
         viewCard = area;
 
         {
             auto band = stringCard.reduced (12, 0);
-            band.removeFromTop (12);
+            band.removeFromTop (stringTitleHeight + 12);
             const auto cell = band.getWidth() / columns;
 
             for (const auto& line : lines)
@@ -745,15 +748,16 @@ public:
 
             band.removeFromTop (8);
             auto body = band.removeFromTop (bodyBlockHeight);
-            bodyLine = body.removeFromLeft (body.getWidth() / 2);
-            boardLine = body.withTrimmedLeft (16);
+            bodyLine = body.removeFromLeft (body.getWidth() / 2 - 6);
+            boardLine = body.withTrimmedLeft (12);
             // One header for every box (review 11, I11-6, I11-14): the name at
             // the left, its link and then its switch at the right, the main
             // controls on the line under it.
             const auto group = [] (juce::Rectangle<int> line, ToggleControl& power, ComboControl& menu,
                                    std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth, bool open)
             {
-                auto header = line.removeFromTop (24);
+                line = line.reduced (10, 0);
+                auto header = line.removeFromTop (boxHeaderHeight);
                 // (The bare switch keeps a 13 px label band over its pill.)
                 power.setBounds (header.getRight() - 40, header.getY() - 13 - 1, 40, 13 + 20);
                 menu.setVisible (open);
@@ -800,7 +804,7 @@ public:
     juce::StringArray getControlIds() const { return controlIds; }
 
 private:
-    static constexpr int bodyLineHeight = 96, foldedBodyLineHeight = 30;
+    static constexpr int bodyLineHeight = 108, foldedBodyLineHeight = 30, boxHeaderHeight = 24, stringTitleHeight = 28;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 

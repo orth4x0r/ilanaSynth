@@ -294,7 +294,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (editor, buttons);
             for (auto* button : buttons)
-                if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == "SOLO")
+                if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == "S")
                     rights.push_back (area (button).getRight());
             std::sort (rights.begin(), rights.end());
             return rights;

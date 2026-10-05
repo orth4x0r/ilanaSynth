@@ -1482,8 +1482,12 @@ private:
             g.drawText (banks[presetIndex], juce::Rectangle<int> (layout.bankLeft, 0, 80, height), juce::Justification::centredLeft);
         }
 
-        for (const auto& [box, tag] : rowTagBoxes (presetIndex, width, height))
-            paintTagChip (g, box, tag, selectedTags.contains (tag, true));
+        // The tag chips only on the row you point at, the selected and the loaded
+        // one, or while a tag filters the list: the list rests on names, a star
+        // and the category pill (review 12, S12-6).
+        if (selected || isCurrent || row == hoveredRow || ! selectedTags.isEmpty())
+            for (const auto& [box, tag] : rowTagBoxes (presetIndex, width, height))
+                paintTagChip (g, box, tag, selectedTags.contains (tag, true));
 
         if (! layout.author.isEmpty())
         {

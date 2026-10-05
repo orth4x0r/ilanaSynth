@@ -111,6 +111,9 @@ public:
         clipExpand.setTooltip ("Expand\nGives the piano roll the page: GENERATE folds to its title line until you collapse "
                                "the roll again (or click GENERATE's title).");
         clipExpand.onClick = [this] { setClipExpanded (! clipExpanded); };
+        clipExpand.getProperties().remove ("pill"); // a link in the title, not a mode (S12-3)
+        clipExpand.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+        clipExpand.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
         clipDraw.setTooltip ("Draw (D)\nA click on empty space places a note (at the last length used); a drag paints a run "
                              "of them along the GRID, at the pointer's pitch. Alt+drag stretches the placed note instead. "
                              "Off: double-click places a note and a drag selects.");
@@ -242,6 +245,7 @@ public:
         {
             g.setColour (juce::Colours::white.withAlpha (0.12f));
             g.fillRect (clipDivider);
+            g.fillRect (clipDivider2);
         }
 
         const auto title = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
@@ -434,6 +438,14 @@ public:
         // rows), the note path between them and the title.
         header.removeFromRight (2);
         engineTabs.setBounds (header.removeFromRight (engineTabs.getIdealWidth()).reduced (0, 4));
+        // The roll's EXPAND / COLLAPSE, a link at the title (S12-3), not a button in the row.
+        if (engineTabs.getSelected() == 3)
+        {
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)), clipExpand.getButtonText()) + 24;
+            header.removeFromRight (8);
+            clipExpand.setBounds (header.removeFromRight (width).withSizeKeepingCentre (width, 22));
+            header.removeFromRight (6);
+        }
         noteChain.setBounds (header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("PATTERN") - 4).withTrimmedRight (12).reduced (0, 3));
 
         arpArea.removeFromBottom (6);
@@ -502,19 +514,28 @@ public:
             constexpr int menuHeight = 13 + 24;
             const auto clipRow = controls.withTrimmedTop (controls.getHeight() - menuHeight - 6);
             clipEditor.setBounds (rowDisplay.withBottom (clipRow.getY() - 6));
-            layoutRow (clipRow, { &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr, nullptr, nullptr });
+            // Three groups with a gap between them (review 12, S12-3): what
+            // plays (SLOT, MODE, LENGTH), how you edit (GRID, ZOOM, DRAW,
+            // QUANTISE), the files (IMPORT, EXPORT). COLLAPSE is in the title.
+            constexpr int groupGap = 22;
+            const auto column = (clipRow.getWidth() - 2 * groupGap) / 9;
+            auto rest = clipRow;
+            const auto playsRow = rest.removeFromLeft (column * 3);
+            rest.removeFromLeft (groupGap);
+            const auto editRow = rest.removeFromLeft (column * 4);
+            rest.removeFromLeft (groupGap);
+            const auto filesRow = rest.removeFromLeft (column * 2);
+            layoutRow (playsRow, { &clipIndex, &clipMode, &clipBars });
+            layoutRow (editRow, { &clipGrid, &clipZoom, nullptr, nullptr });
 
             // The buttons line up with the menus' boxes.
-            const auto column = clipRow.getWidth() / 10;
             auto cell = clipZoom.getBounds().translated (column, 0).withTrimmedTop (13).withHeight (24);
             clipDraw.setBounds (cell);
             clipQuantise.setBounds (cell.translated (column, 0));
-            clipImport.setBounds (cell.translated (column * 2, 0));
-            clipExport.setBounds (cell.translated (column * 3, 0));
-            clipExpand.setBounds (cell.translated (column * 4, 0));
-            // The roll's own tools (DRAW, QUANTISE) apart from the file and
-            // page buttons (review 11, S11-5).
-            clipDivider = juce::Rectangle<int> (clipImport.getX() - 5, cell.getY() + 2, 1, cell.getHeight() - 4);
+            clipImport.setBounds (cell.withX (filesRow.getX()).withWidth (column));
+            clipExport.setBounds (clipImport.getBounds().translated (column, 0));
+            clipDivider = juce::Rectangle<int> (editRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
+            clipDivider2 = juce::Rectangle<int> (filesRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
         }
 
         layoutGenerate();
@@ -986,7 +1007,7 @@ private:
     ClipZoomControl clipZoom;
     juce::TextButton clipQuantise, clipExpand { "EXPAND" }, clipDraw { "DRAW" };
     bool clipExpanded = false;
-    juce::Rectangle<int> clipDivider;
+    juce::Rectangle<int> clipDivider, clipDivider2;
     int boxSignature = -1;
     static constexpr int boxHeaderHeight = 24, seqCellWidth = 112, seqKnobWidth = 88;
     juce::Rectangle<int> snapBox, strumBox, sprayBox;

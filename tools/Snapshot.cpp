@@ -248,8 +248,13 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         // words, operator or not (I8-19).
         editor.showPage ("OSC");
         settle (300);
-        expect (oscTabState (0) == "OUT" && oscTabState (1) == juce::String ("OUT, MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 1"),
-                "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram (" + oscTabState (0) + ", " + oscTabState (1) + ")");
+        // (Only the chosen tab carries its role: one rule on every page, I12-2.)
+        selectOscTab (0);
+        const auto firstState = oscTabState (0), otherState = oscTabState (1);
+        selectOscTab (1);
+        expect (firstState == "OUT" && otherState.isEmpty() && oscTabState (1) == juce::String ("OUT, MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 1"),
+                "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram, on the chosen tab (" + firstState + ", " + oscTabState (1) + ")");
+        selectOscTab (0);
     }
 
     // A DX7 voice: each strip shows the operator's OUTPUT in dB (the FM
@@ -259,7 +264,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("MAIN");
     settle (400);
     {
-        auto* level = knobFor ("osc2_eg_out", "OUTPUT");
+        auto* level = knobFor ("osc2_eg_out", "DEPTH"); // (a modulator's OUTPUT reads DEPTH, I12-3)
         auto* trim = knobFor ("osc2_level"); // (none on PLAY: one level, OUTPUT, I10-1)
         const auto levelText = level != nullptr ? level->getSlider().getTextFromValue (level->getSlider().getValue()) : juce::String();
         std::vector<WaveDisplay*> waves;
@@ -288,13 +293,13 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
         auto* wave = oscWave (0);
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
-        expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") != nullptr
+        expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
-                "OSC: an operator's card shows its Operator Env graph, OUTPUT and VOICE LEVEL, no wavetable warp or unison spread");
+                "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
-        // is the one place the wave is chosen, and VOICE LEVEL sits in its own ADVANCED row.
-        expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") != nullptr,
+        // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
+        expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
                 "OSC: an Operator Env operator has the envelope and one WAVE menu, no sine picture (V11-7)");
 
         // EDIT OP ENV whatever the mode (I7-20).
@@ -1767,7 +1772,7 @@ int runUiTests()
         loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
         checkCards ("3 effects", true);
         expect (shownDisplays() == 3, "Vowel, Drive and OTT cards each show a display");
-        expect (findButtons ("SOLO").size() == 3, "each card header has a SOLO button");
+        expect (findButtons ("S").size() == 3, "each card header has a SOLO button");
         loadFx ({ 27, 2, 20, 13 });
         checkCards ("4 effects", false);
         loadFx ({ 9, 4, 13, 21 });
@@ -1795,7 +1800,7 @@ int runUiTests()
         taps->setValueNotifyingHost (0.0f);
 
         // Solo is a visible button in the card header.
-        if (auto soloButtons = findButtons ("SOLO"); ! soloButtons.empty())
+        if (auto soloButtons = findButtons ("S"); ! soloButtons.empty())
         {
             soloButtons.front()->triggerClick();
             settle (200);
@@ -3360,6 +3365,28 @@ int runUiTests()
                     "the ARP and PROB SEQ tabs light while they are on, EUCLID's and CLIP's don't");
             expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ replaces the ARP",
                     "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
+
+            // S12-4: the chain lists the engines in the tab order, and each opens its tab.
+            {
+                set ("euc_on", 1.0f);
+                set ("euc_target", 0.0f);
+                set ("clip_on", 1.0f);
+                settle (300);
+                juce::String orderNote;
+                auto last = -1, opens = 0;
+                auto ordered = true;
+                for (const auto& stage : chain->stages (orderNote))
+                    if (stage.engine >= 0)
+                    {
+                        ordered = ordered && stage.engine >= last;
+                        last = stage.engine;
+                        ++opens;
+                    }
+                expect (ordered && opens >= 3, "the note path lists ARP, EUCLID, PROB SEQ, CLIP in the tab order, each opening its tab (S12-4)");
+                set ("euc_on", 0.0f);
+                set ("clip_on", 0.0f);
+                settle (200);
+            }
 
             // The arp's settings step back while PROB SEQ plays instead.
             KnobControl* arpGate = nullptr;

@@ -1337,10 +1337,10 @@ int runUiTests()
             findAll<juce::ComboBox> (*row, combos);
 
             for (auto* combo : combos)
-                showsMacroName = showsMacroName || combo->getText() == "TONE (M1)";
+                showsMacroName = showsMacroName || combo->getText() == "TONE";
         }
 
-        expect (showsMacroName, "matrix source shows the macro's name first ('TONE (M1)')");
+        expect (showsMacroName, "matrix source shows the macro's name alone ('TONE', review 9 I9-8)");
     }
 
     // ENV/LFO: every envelope has a card, and picking one shows its controls.

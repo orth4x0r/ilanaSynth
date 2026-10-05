@@ -546,10 +546,16 @@ public:
     {
         for (int m = 0; m < names.size(); ++m)
         {
-            // As every source is named (ModNames::source): "TONE (M1)".
+            // As every source is named (ModNames::macroName): "TONE", the
+            // number only when two macros share a name.
             const auto base = "Macro " + juce::String (m + 1);
-            const auto text = names[m].equalsIgnoreCase (base) || names[m].isEmpty() ? base.toUpperCase()
-                                                                                      : names[m].toUpperCase() + " (M" + juce::String (m + 1) + ")";
+            auto text = names[m].equalsIgnoreCase (base) || names[m].isEmpty() ? base.toUpperCase() : names[m].toUpperCase();
+
+            if (text != base.toUpperCase())
+                for (int other = 0; other < names.size(); ++other)
+                    if (other != m && names[other].equalsIgnoreCase (names[m]))
+                        text += " (M" + juce::String (m + 1) + ")";
+
             const auto itemId = (int) Mod::macroSourceFor (m) + 1;
 
             for (auto* box : { &source, &via })

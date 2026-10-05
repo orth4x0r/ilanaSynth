@@ -175,8 +175,8 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                     && ModNames::destination ((int) Mod::Destination::FxReverbMix) == "FX REVERB" + sep + "Mix",
                 "destinations read MODULE › Control (" + ModNames::destination ((int) Mod::Destination::Osc1Pitch) + ")");
         expect (ModNames::source ((int) S::ModWheel) == "MOD WHEEL" && ModNames::source ((int) S::FilterEnv2) == "FILT 2 ENV"
-                    && ModNames::source ((int) S::Macro1, &processor) == processor.getMacroName (0).toUpperCase() + " (M1)",
-                "sources read as their chips do, a named macro as TONE (M1) (" + ModNames::source ((int) S::Macro1, &processor) + ")");
+                    && ModNames::source ((int) S::Macro1, &processor) == processor.getMacroName (0).toUpperCase(),
+                "sources read as their chips do, a named macro as TONE (I9-8) (" + ModNames::source ((int) S::Macro1, &processor) + ")");
 
         // Every modulatable knob on PLAY: its name's module in capitals.
         std::vector<KnobControl*> knobs;

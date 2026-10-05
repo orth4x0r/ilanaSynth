@@ -19,18 +19,32 @@ namespace ModNames
 // I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 B". Tooltips and menus use it
 // too, so a source never reads two ways. Nothing shortens it to a code. A
 // macro with a patch name leads with that name, as its knob in the strip
-// does, and keeps its number after it: "TONE (M1)" (S8-26).
+// does, and only that name ("TONE", as the strip, the chips and the remap
+// header write it: review 9, I9-8); the number follows only when two
+// macros share a name, so the two can be told apart.
+inline juce::String macroName (int macro, const IlanaSynthAudioProcessor* processor)
+{
+    const auto base = "Macro " + juce::String (macro + 1);
+    const auto name = processor != nullptr ? processor->getMacroName (macro) : base;
+
+    if (name.equalsIgnoreCase (base) || name.isEmpty())
+        return base.toUpperCase();
+
+    if (processor != nullptr)
+        for (int other = 0; other < Mod::numMacros; ++other)
+            if (other != macro && processor->getMacroName (other).equalsIgnoreCase (name))
+                return name.toUpperCase() + " (M" + juce::String (macro + 1) + ")";
+
+    return name.toUpperCase();
+}
+
 inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* processor = nullptr)
 {
     using S = Mod::Source;
     const auto s = (S) sourceIndex;
 
     if (const auto macro = Mod::macroIndexFor (s); macro >= 0)
-    {
-        const auto base = "Macro " + juce::String (macro + 1);
-        const auto name = processor != nullptr ? processor->getMacroName (macro) : base;
-        return name.equalsIgnoreCase (base) || name.isEmpty() ? base.toUpperCase() : name.toUpperCase() + " (M" + juce::String (macro + 1) + ")";
-    }
+        return macroName (macro, processor);
 
     if (const auto lfo = Mod::lfoIndexFor (s); lfo >= 0)
         return "LFO " + juce::String (lfo + 1);

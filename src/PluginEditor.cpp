@@ -371,6 +371,27 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         auto knob = std::make_unique<StripKnob> (p, "macro" + juce::String (macro + 1),
                                                  "Macro " + juce::String (macro + 1), macro,
                                                  modSourceColour ((int) Mod::macroSourceFor (macro)), false);
+        // + ASSIGN: a new matrix row from this macro, then the matrix.
+        knob->onAssign = [this] (int index)
+        {
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            {
+                const auto routing = processorRef.readModSlot (slot);
+
+                if (routing.source == Mod::Source::None && routing.destination == 0)
+                {
+                    processorRef.performEdit ("Assign macro", [this, slot, index]
+                    {
+                        processorRef.clearModSlot (slot);
+                        processorRef.setModSlotValue (slot, "src", (float) Mod::macroSourceFor (index));
+                        processorRef.setModSlotValue (slot, "amt", 0.5f);
+                    });
+                    break;
+                }
+            }
+
+            showPage ("MATRIX");
+        };
         content.addAndMakeVisible (*knob);
         macroKnobs.push_back (std::move (knob));
     }

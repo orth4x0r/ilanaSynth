@@ -160,12 +160,25 @@ public:
             text.removeFromTop (text.getHeight() / 2);
         }
 
+        assignBounds = {};
+
         if (macroIndex >= 0 && ! isAssigned())
         {
-            // Nothing to move yet: say how to give it something.
-            g.setColour (hover ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("+ ASSIGN", text, juce::Justification::topLeft, true);
+            // Nothing to move yet: a small button that adds a routing from
+            // this macro in the matrix (review 9, I9-20), so macros 5-8 need
+            // no drag.
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const juce::String label ("+ ASSIGN");
+            const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 14);
+            assignBounds = text.withWidth (width).withHeight (juce::jmin (text.getHeight(), 16));
+            const auto over = hover && assignBounds.contains (getMouseXYRelative());
+            g.setColour (over ? IlanaTheme::accent().withAlpha (0.22f) : IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (assignBounds.toFloat(), 4.0f);
+            g.setColour (over ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.2f));
+            g.drawRoundedRectangle (assignBounds.toFloat().reduced (0.5f), 4.0f, 1.0f);
+            g.setColour (over ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setFont (font);
+            g.drawText (label, assignBounds, juce::Justification::centred, false);
             return;
         }
 
@@ -204,6 +217,7 @@ public:
             return;
 
         hover = false;
+        overAssign = false;
         hoverRest = 0.0f;
 
         if (macroIndex >= 0 && highlightedModSource() == (int) Mod::macroSourceFor (macroIndex))
@@ -211,6 +225,30 @@ public:
 
         repaint();
     }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto over = ! assignBounds.isEmpty() && assignBounds.contains (event.getPosition());
+
+        if (over != overAssign)
+        {
+            overAssign = over;
+            setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::DraggingHandCursor);
+            repaint();
+        }
+    }
+
+    // + ASSIGN: add a routing from this macro (the editor opens the matrix).
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (macroIndex >= 0 && ! assignBounds.isEmpty() && ! event.mouseWasDraggedSinceMouseDown()
+            && assignBounds.contains (event.getPosition()) && onAssign != nullptr)
+            onAssign (macroIndex);
+    }
+
+    // The + ASSIGN button's bounds (empty while the macro moves something).
+    juce::Rectangle<int> getAssignBounds() const { return assignBounds; }
+    std::function<void (int macro)> onAssign;
 
     void mouseDoubleClick (const juce::MouseEvent&) override
     {
@@ -256,9 +294,13 @@ public:
         const auto base = juce::SettableTooltipClient::getTooltip();
         if (macroIndex < 0 || idleTargets == 0 || idleText.isEmpty())
             return base;
+        // The title says what is wrong in words, the next line which targets
+        // and why (review 9, I9-12: the sign alone was a bare triangle).
         const auto name = processorRef.getMacroName (macroIndex).toUpperCase();
-        return name + ": " + juce::String (idleTargets) + (idleTargets == 1 ? " target" : " targets") + " can't be heard now\n"
-               + idleText + (base.isNotEmpty() ? "  " + base : juce::String());
+        const auto title = idleTargets >= routedTargets ? name + ": no effect now"
+                                                         : name + ": " + juce::String (idleTargets) + " of " + juce::String (routedTargets)
+                                                               + " targets have no effect now";
+        return title + "\n" + idleText + "." + (base.isNotEmpty() ? "  " + base : juce::String());
     }
 
     // Opens the macro's card: where it goes, with warnings (hover does it
@@ -376,7 +418,8 @@ private:
     bool evolving = false;
     juce::String idleText;
     juce::Rectangle<int> markBounds;
-    bool hover = false;
+    bool hover = false, overAssign = false;
+    juce::Rectangle<int> assignBounds;
 };
 
 // GLIDE as a row in the VOICES menu (it left the bottom strip to make room

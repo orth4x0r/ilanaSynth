@@ -954,7 +954,10 @@ private:
         inner.removeFromLeft (titleWidth);
         inner.removeFromRight (switchWidth);
         StripColumns columns;
-        columns.picture = inner.removeFromLeft (pictureWidth);
+        // A scrolling column's bar comes out of the picture, not the knobs,
+        // so a value such as "-30.9 dB" still fits under its knob.
+        const auto squeeze = juce::jmax (0, minKnobsWidth - (inner.getWidth() - pictureWidth - 6 - menuWidth - 4));
+        columns.picture = inner.removeFromLeft (juce::jmax (pictureWidth - 24, pictureWidth - squeeze));
         inner.removeFromLeft (6);
         columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24);
         inner.removeFromLeft (4);
@@ -1131,7 +1134,7 @@ private:
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = 36;
     static constexpr int minSlotHeight = 104, maxSlotHeight = 140, foldedHeight = 40;
-    static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46;
+    static constexpr int titleWidth = 84, pictureWidth = 84, menuWidth = 112, switchWidth = 46, minKnobsWidth = 190;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.35f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind

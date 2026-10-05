@@ -113,6 +113,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         editor.showPage ("MAIN");
         settle (300);
         const auto neuroHeight = knobFor ("osc1_semi") != nullptr ? knobFor ("osc1_semi")->getHeight() : -1;
+        const auto neuroWidth = knobFor ("osc1_level") != nullptr ? knobFor ("osc1_level")->getWidth() : -1;
         loadNamed ("E.PIANO 1 (ROM1A)");
         editor.showPage ("MAIN");
         settle (400);
@@ -120,6 +121,11 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         expect (trim != nullptr && trim->getHeight() == neuroHeight,
                 "PLAY: six operator strips keep the strip height (" + juce::String (trim != nullptr ? trim->getHeight() : 0) + " / "
                     + juce::String (neuroHeight) + " px)");
+        // The scroll bar comes out of the picture: the knobs keep their
+        // width, so "-30.9 dB" fits under LEVEL.
+        expect (trim != nullptr && trim->getWidth() >= neuroWidth - 1,
+                "PLAY: a scrolling column keeps the knobs' width (" + juce::String (trim != nullptr ? trim->getWidth() : 0) + " / "
+                    + juce::String (neuroWidth) + " px)");
     }
 
     // FILTER (V8-9): Init's two open filters, both at 20 kHz: on FILTER

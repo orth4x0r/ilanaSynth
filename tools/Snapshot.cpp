@@ -2486,14 +2486,14 @@ int runUiTests()
             }
             expect (emptyHidden && usedShown, "an empty FM cell is a dot; a route in use shows its knob");
 
-            // A switched-off oscillator's row is greyed and can't be edited.
+            // A switched-off oscillator has no row or column in the matrix (a dead tile each, V14-5).
             set ("osc2_on", 0.0f);
             settle (300);
-            auto offRow = false;
+            auto offRow = true;
             for (auto* knob : knobs)
                 if (visibleInTree (knob) && knob->getParameterId() == FmDiagram::routeId (1, 0))
                     offRow = ! knob->isEnabled();
-            expect (offRow, "an off oscillator's matrix row can't be edited");
+            expect (offRow, "an off oscillator's matrix row can't be edited (it drops out of the grid)");
             set ("osc2_on", 1.0f);
 
             // PITCH & LFO opens the voice's pitch envelope.

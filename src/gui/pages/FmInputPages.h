@@ -345,7 +345,7 @@ public:
         // The matrix as wide as its cells (one cell size for every patch,
         // V8-35), at least as wide as its FM MODE line; the rest goes to
         // the diagram and the operator card.
-        const auto count = juce::jmax (1, (int) shown.size());
+        const auto count = juce::jmax (1, (int) gridOps().size());
         matrixCard = area.removeFromRight (juce::jlimit (minimumMatrixWidth, area.getWidth() * 44 / 100,
                                                          20 + headWidth + count * cellWidth));
         area.removeFromRight (10);
@@ -645,8 +645,21 @@ private:
 
     bool matrixExtrasShown() const { return extrasOpen || matrixExtrasInUse(); }
 
+    // The oscillators the matrix has rows and columns for: those that play (a switched-off one has
+    // nothing to modulate or be modulated, its cells were a dead tile each, V14-5); all of them
+    // when none plays.
+    std::vector<int> gridOps() const
+    {
+        std::vector<int> result;
+        for (const auto op : shown)
+            if (playing[(size_t) op])
+                result.push_back (op);
+        return result.empty() ? shown : result;
+    }
+
     void layoutMatrix()
     {
+        const auto ops = gridOps();
         const auto extras = matrixExtrasShown();
         auto inner = matrixCard.reduced (10, 0);
         inner.removeFromTop (26);
@@ -663,13 +676,13 @@ private:
 
         for (int source = 0; source < OscillatorIds::count; ++source)
         {
-            const auto sourceShown = std::find (shown.begin(), shown.end(), source) != shown.end();
+            const auto sourceShown = std::find (ops.begin(), ops.end(), source) != ops.end();
             outs[(size_t) source]->setVisible (sourceShown);
             noiseKnobs[(size_t) source]->setVisible (sourceShown && extras);
 
             for (int target = 0; target < OscillatorIds::count; ++target)
                 knobs[(size_t) source][(size_t) target]->setVisible (
-                    sourceShown && std::find (shown.begin(), shown.end(), target) != shown.end());
+                    sourceShown && std::find (ops.begin(), ops.end(), target) != ops.end());
         }
         noiseColourKnob->setVisible (extras);
         ringMod->setVisible (extras);
@@ -681,7 +694,7 @@ private:
 
         // One cell size for every patch: the grid (row names and cells)
         // centred across the card, the card as tall as what it holds.
-        const auto count = juce::jmax (1, (int) shown.size());
+        const auto count = juce::jmax (1, (int) ops.size());
         const auto rows = count + (extras ? 1 : 0);
         const auto bottomHeight = extras ? 62 + 6 : 28;
         // (Three oscillators or fewer draw larger cells, so the matrix of a
@@ -691,7 +704,7 @@ private:
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (small ? 130 : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
+        const auto rowHeight = juce::jmin (small ? (count <= 2 ? 168 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
         const auto columnWidth = juce::jmin (small ? 124 : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
@@ -702,7 +715,7 @@ private:
         matrixGridBottom = grid.getBottom();
         auto heads = grid.removeFromTop (18);
         heads.removeFromLeft (headWidth);
-        for (const auto i : shown)
+        for (const auto i : ops)
             columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
 
         grid.removeFromTop (4);
@@ -712,7 +725,7 @@ private:
         compactCells = rowHeight < 82;
         const auto layoutCells = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
         {
-            for (const auto target : shown)
+            for (const auto target : ops)
             {
                 auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
                 storeCell (target, cell);
@@ -738,7 +751,7 @@ private:
             return head.withSizeKeepingCentre (head.getWidth(), juce::jmin (60, head.getHeight()));
         };
 
-        for (const auto source : shown)
+        for (const auto source : ops)
         {
             auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
             auto head = row.removeFromLeft (headWidth);
@@ -820,6 +833,7 @@ private:
 
     void paintMatrix (juce::Graphics& g)
     {
+        const auto ops = gridOps();
         IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", "rows modulate columns", fmColour(), 0);
 
         g.setColour (IlanaTheme::Ui::text3);
@@ -886,9 +900,9 @@ private:
             }
         };
 
-        for (const auto source : shown)
+        for (const auto source : ops)
         {
-            for (const auto target : shown)
+            for (const auto target : ops)
             {
                 const auto cell = cells[(size_t) source][(size_t) target].toFloat();
                 paintCell (source, target, cell, FmDiagram::oscColour (source));
@@ -905,11 +919,11 @@ private:
         // Each amount under its knob (compact cells), or a DX7 feedback's
         // number in the corner (I6-40).
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (const auto target : shown)
+        for (const auto target : ops)
         {
             for (int source = noiseHead.isEmpty() ? 0 : -1; source < OscillatorIds::count; ++source)
             {
-                if (source >= 0 && std::find (shown.begin(), shown.end(), source) == shown.end())
+                if (source >= 0 && std::find (ops.begin(), ops.end(), source) == ops.end())
                     continue;
                 const auto& knob = cellKnob (source, target);
                 const auto cell = source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target];
@@ -935,7 +949,7 @@ private:
         // "OFF" away from its switch (I6-37; review 8, I8-20).
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
 
-        for (const auto i : shown)
+        for (const auto i : ops)
         {
             const auto name = "OSC " + juce::String (i + 1);
             const auto live = fmIn[(size_t) i] && playing[(size_t) i];

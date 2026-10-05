@@ -163,7 +163,7 @@ private:
         repaint();
     }
 
-    static constexpr int numOctaves = 3;
+    static constexpr int numOctaves = 6; // C1 to C6 (design pass: doubled)
     static constexpr int firstNote = 36;
     static constexpr int whiteCount = 7 * numOctaves;
 

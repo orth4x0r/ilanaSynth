@@ -270,7 +270,7 @@ private:
 
             g.setColour (isSelected ? colour : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body * scale, isSelected));
-            g.drawFittedText (item.name, label.toNearestInt(), juce::Justification::centred, 1, 0.8f);
+            IlanaTheme::drawFitted (g, item.name, label.toNearestInt(), juce::Justification::centred, 1);
         }
     }
 

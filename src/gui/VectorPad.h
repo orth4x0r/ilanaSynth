@@ -76,7 +76,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("VECTOR OFF  -  switch on to mix the corners",
+            g.drawText (juce::String::fromUTF8 ("VECTOR OFF  \xc2\xb7  switch on to mix the corners"),
                         area.withSizeKeepingCentre (area.getWidth(), 18.0f).translated (0.0f, -24.0f),
                         juce::Justification::centred);
         }
@@ -171,8 +171,8 @@ public:
         return read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f;
     }
 
-    // "OSC 1  25%" while the vector plays; "OSC 4 (none)" for an
-    // oscillator the patch doesn't have, "(off)" for one switched off; no
+    // "OSC 1  25%" while the vector plays; "OSC 4: none" for an
+    // oscillator the patch doesn't have, ": off" for one switched off; no
     // share while the vector is off (UI review 6, V29).
     juce::String getCornerLabel (int corner, float weight) const
     {
@@ -180,10 +180,10 @@ public:
         const auto name = "OSC " + juce::String (osc + 1);
 
         if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
-            return name + " (none)";
+            return name + ": none";
 
         if (! isCornerSounding (corner))
-            return name + " (off)";
+            return name + ": off";
 
         return read ("vec_on") > 0.5f ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%" : name;
     }

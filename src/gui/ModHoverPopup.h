@@ -256,7 +256,7 @@ public:
             g.setColour (IlanaTheme::Ui::text.withAlpha (dim));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             const auto name = sourceMode ? ModNames::destination (row.destination) : ModNames::sourceUpper (row.source, &processorRef);
-            g.drawFittedText (name, line.removeFromLeft (nameWidth()), juce::Justification::centredLeft, 1, 0.85f);
+            IlanaTheme::drawFitted (g, name, line.removeFromLeft (nameWidth()), juce::Justification::centredLeft, 1);
 
             const auto depthText = (row.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (row.depth * 100.0f)) + "%";
             g.setColour (IlanaTheme::Ui::text2.withAlpha (dim));
@@ -295,16 +295,16 @@ public:
             g.setColour (warningColour());
 
             for (const auto& warning : warnings)
-                g.drawFittedText ("! " + warning.substring (0, 1).toUpperCase() + warning.substring (1) + ": no effect now",
-                                  area.removeFromTop (warningHeight), juce::Justification::centredLeft, 1, 0.85f);
+                IlanaTheme::drawFitted (g, "! " + warning.substring (0, 1).toUpperCase() + warning.substring (1) + ": no effect now",
+                                  area.removeFromTop (warningHeight), juce::Justification::centredLeft, 1);
         }
 
         if (sourceMode && rows.empty())
         {
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             g.setColour (IlanaTheme::Ui::text2);
-            g.drawFittedText ("Drag it onto any knob to route it there.", area.removeFromTop (rowHeight),
-                              juce::Justification::centredLeft, 1, 0.85f);
+            IlanaTheme::drawFitted (g, "Drag it onto any knob to route it there.", area.removeFromTop (rowHeight),
+                              juce::Justification::centredLeft, 1);
         }
 
         if (evolveMacro >= 0)

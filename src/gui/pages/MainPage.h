@@ -368,8 +368,8 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawFittedText (shownAmpNote, ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0).withTrimmedLeft (4),
-                              juce::Justification::centredLeft, 2, 1.0f);
+            IlanaTheme::drawFitted (g, shownAmpNote, ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0).withTrimmedLeft (4),
+                              juce::Justification::centredLeft, 2);
         }
         paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
     }
@@ -1064,7 +1064,7 @@ private:
                 continue;
             }
 
-            paintTitle (card, name, tint, strip.shownOn, strip.role, {});
+            paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), {}); // off: the dimming says it (S8-12)
 
             if (strip.opEg)
             {

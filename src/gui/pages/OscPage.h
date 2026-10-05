@@ -101,9 +101,9 @@ inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc)
     {
         juce::StringArray parts;
         if (const auto from = sources (p, osc); ! from.empty())
-            parts.add ("FM from " + oscList (from, "OSC "));
+            parts.add ("FM FROM " + oscList (from, "OSC ")); // upper case as on the tab (review 8, S8-30)
         if (const auto into = targets (p, osc); ! into.empty())
-            parts.add ("FM into " + oscList (into, "OSC "));
+            parts.add ("FM INTO " + oscList (into, "OSC "));
         return parts.joinIntoString (", ");
     }
 
@@ -253,7 +253,7 @@ class OscPage : public juce::Component,
               bridgeBuzz (state, prefix + "_bridge_buzz", "BRIDGE BUZZ"),
               fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE"),
               hammer (state, prefix + "_hammer_hard", "HAMMER"),
-              couple (state, prefix + "_couple", "STRING COUPLING"),
+              couple (state, prefix + "_couple", "COUPLING"), // the section says STRING (I8-25)
               damper (state, prefix + "_damper", "DAMPER"),
               registerMap (state, prefix + "_register", "REGISTER"),
               epDistance (state, prefix + "_ep_distance", "DISTANCE"),
@@ -655,7 +655,7 @@ public:
 
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText (isOff (selected) ? juce::String ("off  -  switch on to hear it") : shownRole, subtitleArea,
+            g.drawText (isOff (selected) ? juce::String::fromUTF8 ("off  \xc2\xb7  switch on to hear it") : shownRole, subtitleArea,
                         juce::Justification::centredLeft, true);
 
             if (! controlBay.isEmpty())
@@ -666,7 +666,7 @@ public:
             {
                 g.setColour (tint.withAlpha (0.8f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                g.drawFittedText (name, area, juce::Justification::topLeft, 1);
+                IlanaTheme::drawFitted (g, name, area, juce::Justification::topLeft, 1);
             }
         }
 
@@ -678,7 +678,7 @@ public:
         {
             g.setColour (name == "SUB" ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawFittedText (name, area, juce::Justification::topLeft, 1);
+            IlanaTheme::drawFitted (g, name, area, juce::Justification::topLeft, 1);
         }
         for (const auto& divider : sharedDividers)
         {
@@ -824,8 +824,15 @@ private:
         auto tabRow = getLocalBounds().reduced (12, pageMargin).removeFromTop (tabRowHeight);
         const auto canAdd = numShown() < OscillatorIds::count;
         addButton.setVisible (canAdd);
-        oscTabs.setBounds (tabRow.withWidth (juce::jmin (tabRow.getWidth() - (canAdd ? 116 : 0), oscTabs.getIdealWidth())));
-        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getY() + 2, 104, tabRow.getHeight() - 4));
+        // Named as PLAY's (review 8, I8-31): "+ ADD OSC 4".
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (! processorRef.isOscillatorShown (i))
+            {
+                addButton.setButtonText ("+  ADD OSC " + juce::String (i + 1));
+                break;
+            }
+        oscTabs.setBounds (tabRow.withWidth (juce::jmin (tabRow.getWidth() - (canAdd ? 130 : 0), oscTabs.getIdealWidth())));
+        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getY() + 2, 118, tabRow.getHeight() - 4));
 
         if (! sharedCard.isEmpty())
         {
@@ -852,7 +859,7 @@ private:
             const auto mode = juce::jlimit (0, 4, getMode (osc));
             StateTabs::Item item;
             item.name = "OSC " + juce::String (osc + 1);
-            item.state = isOff (osc) ? juce::String ("OFF") : role.isNotEmpty() ? role : juce::String (modeNames[mode]);
+            item.state = isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[mode]); // off: the dot says it
             item.colour = oscColour (osc);
             item.lit = ! isOff (osc);
             item.tooltip = "OSC " + juce::String (osc + 1) + ": " + juce::String (modeNames[mode]).toLowerCase()
@@ -864,16 +871,13 @@ private:
         oscTabs.setItems (items);
         oscTabs.setSelected (selectedTab);
 
-        const auto keysOn = readBool ("sb_on") || readFloat ("stretch") > 0.001f || readFloat ("pedal_res") > 0.001f
-                            || readFloat ("mech_key") > 0.001f || readFloat ("mech_damper") > 0.001f || readFloat ("mech_pedal") > 0.001f;
-        const auto voiceOn = readFloat ("voice_spread") > 0.001f || readFloat ("unison_random") > 0.001f || readFloat ("drift") > 0.001f;
-        sharedTabs.setItems ({ { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on") || readFloat ("noise_level") > 0.0005f,
+        sharedTabs.setItems ({ { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
-                               { "VOICE", {}, IlanaTheme::Ui::text2, voiceOn, "How the unison voices spread, start and drift" },
+                               { "VOICE", {}, IlanaTheme::Ui::text2, true, "How the unison voices spread, start and drift", false },
                                { "SYMPATHETIC STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
                                  "Shared drone strings that ring with everything you play" },
-                               { "ACOUSTIC KEYS", {}, IlanaTheme::Ui::text2, keysOn,
-                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises" } });
+                               { "ACOUSTIC KEYS", {}, IlanaTheme::Ui::text2, true,
+                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
         sharedTabs.setSelected (sharedSelected);
     }
 

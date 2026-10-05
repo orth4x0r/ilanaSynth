@@ -1297,10 +1297,10 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawFittedText (anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
+        IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
                                                                              "\xc3\x97 this cell. Hover a dot to add a route."))
                                            : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
-                          topNote, juce::Justification::topLeft, 3, 1.0f);
+                          topNote, juce::Justification::topLeft, 3);
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
         // an empty one is a dot until the mouse is over it.
@@ -1379,7 +1379,8 @@ private:
             }
         }
 
-        // Column and row headings: an off oscillator says so (I6-37).
+        // Column and row headings: an off oscillator is dimmed, with no
+        // "OFF" away from its switch (I6-37; review 8, I8-20).
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
 
         for (const auto i : shown)
@@ -1387,10 +1388,10 @@ private:
             const auto name = "OSC " + juce::String (i + 1);
             const auto live = fmIn[(size_t) i] && playing[(size_t) i];
             g.setColour (FmDiagram::oscColour (i).withAlpha (live ? 1.0f : 0.4f));
-            g.drawText (! playing[(size_t) i] ? name + ": OFF" : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
+            g.drawText (! playing[(size_t) i] ? name : ! fmIn[(size_t) i] ? name + ": NO FM IN" : "TO " + name,
                         columnHeads[(size_t) i], juce::Justification::centred);
             g.setColour (playing[(size_t) i] ? FmDiagram::oscColour (i) : IlanaTheme::Ui::text3);
-            g.drawText (playing[(size_t) i] ? name : name + ": OFF", rowHeads[(size_t) i].withHeight (18),
+            g.drawText (name, rowHeads[(size_t) i].withHeight (18),
                         juce::Justification::centredLeft);
         }
 
@@ -1419,8 +1420,8 @@ private:
                     juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawFittedText ("RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
-                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 3, 1.0f);
+        IlanaTheme::drawFitted (g, "RING MOD multiplies OSC 1 by OSC 2. SYNC restarts OSC 2 with each cycle of OSC 1.",
+                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 3);
     }
 
     // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import

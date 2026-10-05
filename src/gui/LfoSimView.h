@@ -183,7 +183,7 @@ private:
             g.setColour (tagColour.withAlpha (0.55f));
             g.drawRoundedRectangle (tag.reduced (0.5f), 7.0f, 1.0f);
             g.setColour (tagColour);
-            g.drawFittedText (text, tag.reduced (7.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.85f);
+            IlanaTheme::drawFitted (g, text, tag.reduced (7.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
         }
         area.removeFromTop (18.0f);
 

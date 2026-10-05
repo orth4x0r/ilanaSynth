@@ -656,7 +656,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "How long the string rings.";
 
     if (isOscParameter (id, "_string_damp", false))
-        return "Loop damping - higher is darker and more muted.";
+        return "Loop damping: higher is darker and more muted.";
 
     if (isOscParameter (id, "_string_sustain", false))
         return "Level of the continuous excitation (ignore for Burst).";
@@ -698,7 +698,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far below the played note the sub sits.";
 
     if (id == "noise_level")
-        return "Noise level - hats, breath, destruction. COLOUR beside it darkens it.";
+        return "Noise level: hats, breath, destruction. COLOUR beside it darkens it.";
 
     if (id == "noise_color")
         return "Colour of the noise you hear: dark rumble to full white noise (as the NOISE FM row's COLOUR on FM).";
@@ -711,7 +711,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Osc1 modulates its own phase. Noisy, chaotic FM.";
 
     if (id == "ring_mod")
-        return "Ring-modulates Osc1 with Osc2 - metallic and clangy.";
+        return "Ring-modulates Osc1 with Osc2: metallic and clangy.";
 
     if (id == "hard_sync")
         return "Resets Osc2 phase every Osc1 cycle. Tune with Osc2 SEMI for screams.";
@@ -724,7 +724,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Spreads a chord across the unison voices. Needs Unison above 1.";
 
     if (id == "voice_spread")
-        return "Random stereo position per voice - instant width for pads.";
+        return "Random stereo position per voice: instant width for pads.";
 
     if (id == "unison_random")
         return "Randomises unison start phases for a softer, phasey attack.";
@@ -895,7 +895,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "voice_mode")
         return "Poly plays chords. Mono is one voice that retriggers the envelopes on every note. "
-               "Legato is one voice where overlapping notes only slide the pitch - classic for basses and leads.";
+               "Legato is one voice where overlapping notes only slide the pitch: classic for basses and leads.";
 
     if (id == "poly_voices")
         return "Maximum voices sounding at once in Poly mode. Fewer voices save CPU and make old notes "
@@ -945,7 +945,7 @@ inline juce::String describeParameter (const juce::String& id)
         if (id.contains ("_step"))
             return "Step value when the shape is Steps.";
 
-        return "Low frequency modulator - assign it in MOD > MATRIX.";
+        return "Low frequency modulator: assign it in MOD > MATRIX.";
     }
 
     // Mod matrix (patterned)
@@ -1076,7 +1076,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     // Effects
     if (id == "fx_drive_on" || id == "fx_drive_amount" || id == "fx_drive_mix")
-        return "Saturation stage - warm to destroyed.";
+        return "Saturation stage: warm to destroyed.";
 
     if (id == "fx_fold")
         return "Wavefolder: folds peaks back for harsh, buzzy harmonics.";
@@ -1089,7 +1089,7 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "fx_phaser_on" || id == "fx_phaser_rate" || id == "fx_phaser_depth"
         || id == "fx_phaser_feedback" || id == "fx_phaser_mix")
-        return "Classic sweeping phaser - the Virus move.";
+        return "Classic sweeping phaser: the Virus move.";
 
     if (id == "fx_chorus_on" || id == "fx_chorus_rate" || id == "fx_chorus_depth" || id == "fx_chorus_mix")
         return "Thickening chorus for width.";
@@ -1099,7 +1099,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Main delay. Damping darkens repeats.";
 
     if (id == "fx_delay_pitch")
-        return "Pitch-shifts the delay feedback - the Sophie trick.";
+        return "Pitch-shifts the delay feedback: the Sophie trick.";
 
     if (id == "fx_delay_wow")
         return "Tape-style pitch drift of the delay time.";
@@ -1150,7 +1150,7 @@ inline juce::String describeParameter (const juce::String& id)
             return "Tube is warm and asymmetric, Fuzz is hard, Clean is soft.";
 
         if (id == "fx_amp_drive")
-            return "Input gain into the amp - the main dirt control.";
+            return "Input gain into the amp: the main dirt control.";
 
         if (id == "fx_amp_bass" || id == "fx_amp_mid" || id == "fx_amp_treble")
             return "Tone stack band gain.";
@@ -1179,7 +1179,7 @@ inline juce::String describeParameter (const juce::String& id)
     }
 
     if (id == "fx_haas_delay")
-        return "Delays the right channel - width without chorus.";
+        return "Delays the right channel: width without chorus.";
 
     if (id == "fx_haas_mix")
         return "How much of the delayed side you hear.";
@@ -1207,7 +1207,7 @@ inline juce::String describeParameter (const juce::String& id)
             return "Length of the feedback loop in milliseconds.";
 
         if (id == "fx_feedback_tone")
-            return "Damps the feedback loop - lower is darker.";
+            return "Damps the feedback loop: lower is darker.";
 
         return "Mix of the recirculating feedback loop.";
     }
@@ -1216,7 +1216,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Flanger: whooshing comb sweep from a very short modulated delay.";
 
     if (id.startsWith ("fx_dim_"))
-        return "Dimension: lush slow modulated delays - width without wobble.";
+        return "Dimension: lush slow modulated delays; width without wobble.";
 
     if (id.startsWith ("fx_gate_"))
         return "Tempo-synced trance gate with shaped patterns and smoothing.";
@@ -1236,7 +1236,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("fx_aw_"))
     {
         if (id == "fx_aw_algo")
-            return "Airwindows: Chris Johnson's algorithms (MIT) - tape, consoles, EQ, dynamics, reverbs, stereo, lo-fi. Changing it starts the new one fresh.";
+            return "Airwindows: Chris Johnson's algorithms (MIT); tape, consoles, EQ, dynamics, reverbs, stereo, lo-fi. Changing it starts the new one fresh.";
 
         if (id == "fx_aw_mix")
             return "Blend of the Airwindows algorithm with the dry signal.";
@@ -1263,7 +1263,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Tempo-free tremolo with selectable LFO shapes.";
 
     if (id == "fx_shifter_shift" || id == "fx_shifter_mix")
-        return "Frequency shifter (Hz, not semitones) - inharmonic and metallic.";
+        return "Frequency shifter (Hz, not semitones): inharmonic and metallic.";
 
     if (id == "fx_ring_freq" || id == "fx_ring_mix")
         return "Ring modulation with an internal carrier oscillator.";
@@ -1332,7 +1332,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Filter 2 has its own envelope.";
 
     if (id.startsWith ("e4_"))
-        return "Envelope 4 - a free mod source for the matrix.";
+        return "Envelope 4: a free mod source for the matrix.";
 
     if (id.endsWith ("_curve"))
         return "Envelope tension: positive is snappy, negative is slow then fast.";

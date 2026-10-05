@@ -111,7 +111,7 @@ public:
             const auto quiet = macroIndex >= 0 && ! isAssigned();
             g.setColour (hover ? IlanaTheme::Ui::text : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
             g.setFont (font);
-            g.drawFittedText (name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1, 0.8f);
+            IlanaTheme::drawFitted (g, name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1);
 
             // An evolving macro carries a small drift wave after its name
             // (its EVOLVE is on its card).

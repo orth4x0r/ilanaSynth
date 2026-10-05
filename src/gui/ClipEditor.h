@@ -1605,7 +1605,9 @@ private:
     int lowNote = 48;
     int gridIndex = defaultGrid;
     float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
-    bool drawMode = false;
+    // On by default (review 8, the Serum 2 speed table): the first click
+    // in an empty roll writes a note. D, or the DRAW button, turns it off.
+    bool drawMode = true;
     bool pitchViewTouched = false; // the pitches scrolled or zoomed by hand
     float paintOrigin = 0.0f;      // DRAW: the first note's start
     std::vector<int> paintCells;   // DRAW: the cells painted, in order
@@ -1754,7 +1756,6 @@ public:
         fit.setButtonText ("FIT");
         out.setTooltip ("Zoom out in time (Ctrl+wheel over the roll zooms around the pointer)");
         in.setTooltip ("Zoom in in time (Ctrl+wheel over the roll zooms around the pointer)");
-        fit.setTooltip ("Show the whole clip (or double-click the roll's ruler)");
         out.onClick = [this] { editor.zoomBy (0.5f); refresh(); };
         in.onClick = [this] { editor.zoomBy (2.0f); refresh(); };
         fit.onClick = [this] { editor.zoomToFit(); refresh(); };
@@ -1778,10 +1779,14 @@ public:
     }
 
 private:
+    // A greyed FIT says why (review 8, S8-39).
     void refresh()
     {
-        fit.setEnabled (editor.getZoom() > 1.001f);
-        out.setEnabled (editor.getZoom() > 1.001f);
+        const auto zoomed = editor.getZoom() > 1.001f;
+        fit.setEnabled (zoomed);
+        out.setEnabled (zoomed);
+        fit.setTooltip (zoomed ? "Fit\nShow the whole clip (or double-click the roll's ruler)."
+                               : "Fit\nThe whole clip is shown already: zoom in with + (or Ctrl+wheel over the roll) first.");
     }
 
     void timerCallback() override { refresh(); }

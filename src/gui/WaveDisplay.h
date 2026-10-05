@@ -785,7 +785,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (compact ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
-            g.drawFittedText (compact ? "DROP A SAMPLE" : "DROP A SAMPLE HERE", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+            IlanaTheme::drawFitted (g, compact ? "DROP A SAMPLE" : "DROP A SAMPLE HERE", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
             return;
         }
 
@@ -861,7 +861,7 @@ private:
             drawGrainCloud (g, plot, centreY, halfHeight);
 
             if (! compact)
-                drawHeaderText (g, sample->name, (reverse ? "REV " : "") + juce::String ("grains - drag to move"));
+                drawHeaderText (g, sample->name, (reverse ? "REV " : "") + juce::String::fromUTF8 ("grains \xc2\xb7 drag to move"));
 
             return;
         }

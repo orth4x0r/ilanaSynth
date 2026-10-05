@@ -382,7 +382,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         scopeButton.setToggleState (! scopeButton.getToggleState(), juce::dontSendNotification);
         setScopeOpen (scopeButton.getToggleState());
     };
-    content.addAndMakeVisible (headerScope);
+    content.addChildComponent (headerScope);
 
     voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice mode, how many voices, the pitch-bend range and glide.");
     voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -562,6 +562,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         setPresetDockShown (true);
     displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
 
+    headerScope.setVisible (settings->getBoolValue ("headerWaveform", true));
     setGpuRendering (settings->getBoolValue ("gpuRendering", true)
                      && juce::SystemStats::getEnvironmentVariable ("ILANA_NO_GPU", "").isEmpty());
 
@@ -1320,6 +1321,9 @@ void IlanaSynthAudioProcessorEditor::resized()
     // (The macro strip and the chips gave up a few pixels so the hover line
     // could have its own strip without taking any from the pages: S8-11.)
     auto strip = area.removeFromBottom (40).reduced (14, 1);
+    // The window's resize grip owns the corner: the meter keeps clear of
+    // it (review 8, S8-37, V8-30).
+    strip.removeFromRight (14);
     outputMeter->setBounds (strip.removeFromRight (24).withSizeKeepingCentre (24, strip.getHeight()));
     strip.removeFromRight (4);
     masterKnob->setBounds (strip.removeFromRight (108));
@@ -1471,8 +1475,10 @@ bool IlanaSynthAudioProcessorEditor::isScopeOpen() const
     return scopePanel != nullptr && scopePanel->isVisible();
 }
 
-// The current tab's page switch (and the scope button) sit at the right end
-// of the tab row.
+// The current tab's page switch follows the tabs, left-aligned beside the
+// tab it belongs to (review 8, V8-36: at the right end, beside SCOPE, it read
+// as a tool, not as the page's own pages); the scope, keys and help buttons
+// sit at the right end of the tab row.
 void IlanaSynthAudioProcessorEditor::layoutTabRow()
 {
     const auto bar = tabs.getBounds().withHeight (tabs.getTabBarDepth());
@@ -1484,13 +1490,18 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
     scopeButton.setBounds (row.removeFromRight (70));
     row.removeFromRight (10);
 
+    auto& tabBar = tabs.getTabbedButtonBar();
+    auto* lastTab = tabBar.getNumTabs() > 0 ? tabBar.getTabButton (tabBar.getNumTabs() - 1) : nullptr;
+    const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : row.getX();
+    row.setLeft (juce::jmax (row.getX(), tabsRight + 24));
+
     for (auto* section : sections)
     {
         const auto current = section == currentSection() && section->getNumPages() > 1;
         section->switcher.setVisible (current);
 
         if (current)
-            section->switcher.setBounds (row.removeFromRight (section->switcher.getIdealWidth()));
+            section->switcher.setBounds (row.removeFromLeft (juce::jmin (row.getWidth(), section->switcher.getIdealWidth())));
     }
 }
 
@@ -2148,6 +2159,9 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
     menu.addSubMenu ("Oversampling", oversampling);
     menu.addSubMenu (tuningOn ? "Tuning: " + tuningState.getDescription() : juce::String ("Tuning"), tuning, true, nullptr, tuningOn);
     menu.addItem (300, "Show keyboard", true, keyboardVisible);
+    // The live waveform under the preset name moves all the time beside
+    // the most-read text: it can be turned off (review 8, S8-41).
+    menu.addItem (320, "Waveform under the preset name", true, headerScope.isVisible());
    #if ILANA_GPU_UI
     menu.addItem (310, "GPU rendering (OpenGL)", true, openGL != nullptr);
    #endif
@@ -2193,6 +2207,13 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool voicesOnly, bool tun
                                 safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
                             else if (result == 300)
                                 safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                            else if (result == 320)
+                            {
+                                const auto show = ! safeThis->headerScope.isVisible();
+                                safeThis->headerScope.setVisible (show);
+                                safeThis->settings->setValue ("headerWaveform", show);
+                                safeThis->settings->saveIfNeeded();
+                            }
                            #if ILANA_GPU_UI
                             else if (result == 310)
                             {

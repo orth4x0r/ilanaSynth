@@ -202,7 +202,7 @@ public:
             // a quiet label, so the page doesn't say it twice.
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("PREVIEW  -  Physical oscillators only", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
+            g.drawText (juce::String::fromUTF8 ("PREVIEW  \xc2\xb7  Physical oscillators only"), bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
         }
     }
 
@@ -349,7 +349,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
                                        { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
                                        { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
-                                       { "_damper", "DAMPER" }, { "_couple", "STRING COUPLING" } };
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } }; // (I8-25)
     std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
 
     const auto plucked = excite <= 3 || excite == 10;

@@ -131,6 +131,7 @@ void expect (bool condition, const juce::String& message)
 #include "FilterFxUiTests.h"
 #include "ModulationReview8Tests.h"
 #include "LayoutUiTests8.h"
+#include "GlobalUiTests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -351,7 +352,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
                 hammerName = combo->getComboBox().getText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
-                    && knobFor ("osc1_couple", "STRING COUPLING") != nullptr,
+                    && knobFor ("osc1_couple", "COUPLING") != nullptr,
                 "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
         setParam ("osc1_excite", 0.0f);
         settle (300);
@@ -816,6 +817,8 @@ int runUiTests()
 {
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
+    // ILANA_UITEST_ONLY=R6 runs just review 8's R6 checks (a quick loop).
+    const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_UITEST_ONLY", {});
 
     const auto names = processor.getFactoryPresetNames();
     const auto neuroWobble = names.indexOf ("Neuro Wobble");
@@ -835,6 +838,15 @@ int runUiTests()
     // (the user's own choice is put back at the end).
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
+
+    if (only == "R6")
+    {
+        runGlobalReview8Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
 
     // Undo checks start from an empty history, with every parameter change
     // already in the tree (it otherwise catches up on a timer).
@@ -2655,6 +2667,7 @@ int runUiTests()
 
             ClipEditor clips (processor, juce::Colours::orange);
             clips.setSize (400, 200);
+            clips.setDrawMode (false); // (DRAW, on by default, places a note with one click)
             clearHistory();
             gesture (clips, { 80.0f, 100.0f }, { 80.0f, 100.0f }, 2); // a double-click adds a note
             settle (50);
@@ -2676,7 +2689,7 @@ int runUiTests()
             // UI review 6: one dirty state. If the dialog asks, the header
             // says EDITED; and it offers to save first.
             expect (pages->isEditedBadgeShown(), "when the dialog asks, the header's EDITED badge shows");
-            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "Save and load",
+            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "SAVE AND LOAD",
                     "the dialog offers Save and load (" + confirm->getAlternativeText() + ")");
 
             // Save and load on a factory preset opens Save As; cancelling
@@ -2801,6 +2814,10 @@ int runUiTests()
         settle (100);
         ClipEditor roll (processor, juce::Colours::orange);
         roll.setSize (400, 200);
+        // Review 8 (S8 speed table): a new roll opens in DRAW. The selection
+        // tests below run with it off.
+        expect (roll.isDrawMode(), "the clip roll opens with DRAW on");
+        roll.setDrawMode (false);
         const auto x = [&roll] (float beat) { return roll.xForBeat (beat); };
         const auto gridY = [&roll] (float fraction) { return roll.getGridArea().getY() + roll.getGridArea().getHeight() * fraction; };
 
@@ -4572,7 +4589,8 @@ int runUiTests()
                 expect (panel->isDocked() && panel->isVisible() && editor->getWidth() == baseWidth && editor->getHeight() == 720
                             && panel->getWidth() >= 1000 && panel->getY() > 60 && panel->getBottom() <= 720,
                         "docking opens the browser over the page, the window keeps its size (" + juce::String (baseWidth) + " -> "
-                            + juce::String (editor->getWidth()) + ", panel " + panel->getBounds().toString() + ")");
+                            + juce::String (editor->getWidth()) + "x" + juce::String (editor->getHeight()) + ", panel " + panel->getBounds().toString()
+                            + (panel->isDocked() ? " docked" : " floating") + (panel->isVisible() ? " shown)" : " hidden)"));
                 const auto start = processor.getCurrentPresetName();
                 panel->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
                 settle (150);
@@ -5972,8 +5990,8 @@ int runUiTests()
             for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
                 if (! pad->isCornerSounding (corner))
                     offCorner = corner;
-            expect (pad != nullptr && offCorner >= 0 && pad->getCornerLabel (offCorner, 0.5f).endsWith (")")
-                        && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains ("("),
+            expect (pad != nullptr && offCorner >= 0 && (pad->getCornerLabel (offCorner, 0.5f).endsWith (": off") || pad->getCornerLabel (offCorner, 0.5f).endsWith (": none"))
+                        && pad->isCornerSounding (0) && ! pad->getCornerLabel (0, 0.5f).contains (":"),
                     "VECTOR: Init's corners on switched-off oscillators say so, OSC 1's does not");
 
             // An oscillator the patch doesn't have reads "(none)"; no share
@@ -5981,13 +5999,13 @@ int runUiTests()
             auto none = false;
             for (int corner = 0; corner < 4 && pad != nullptr; ++corner)
                 if (! processor.isOscillatorShown (processor.getVectorCorner (corner)))
-                    none = pad->getCornerLabel (corner, 0.5f).endsWith ("(none)");
+                    none = pad->getCornerLabel (corner, 0.5f).endsWith (": none");
             auto* vecOn = processor.apvts.getParameter ("vec_on");
             const auto wasOn = vecOn->getValue();
             vecOn->setValueNotifyingHost (0.0f);
             settle (100);
             expect (none && pad != nullptr && ! pad->getCornerLabel (0, 0.5f).contains ("%"),
-                    "VECTOR: a corner without its oscillator reads '(none)'; no shares while the vector is off");
+                    "VECTOR: a corner without its oscillator reads ': none'; no shares while the vector is off");
             vecOn->setValueNotifyingHost (wasOn);
         }
 
@@ -6024,6 +6042,8 @@ int runUiTests()
     runModulationReview8Tests (processor, *pages);
     // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
     runLayoutReview8Tests (processor, *pages);
+    // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
+    runGlobalReview8Tests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();

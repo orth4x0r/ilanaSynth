@@ -214,24 +214,26 @@ public:
                         juce::Justification::centred);
         }
 
-        // The strip: every step in a row, hits tall, numbered under it
-        // (every fourth) when there is room.
+        // The strip: every step in a row, hits tall, under the same step
+        // ruler as the arp's and PROB SEQ's (review 8, I8-23): numbers over
+        // their steps, every fourth stronger (every fourth only when the
+        // steps are narrow), the step playing in the colour.
         const auto strip = area.withSizeKeepingCentre (area.getWidth(), juce::jlimit (juce::jmin (area.getHeight(), 46.0f),
                                                                                      juce::jmax (0.0f, area.getHeight() - 22.0f),
                                                                                      area.getHeight() * 0.42f));
         const auto width = strip.getWidth() / (float) steps;
 
-        if (strip.getBottom() + 16.0f <= area.getBottom())
+        if (strip.getY() - 17.0f >= area.getY())
         {
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto every = width >= 16.0f ? 1 : 4;
 
-            for (int step = 0; step < steps; step += 4)
+            for (int step = 0; step < steps; step += every)
             {
-                g.setColour (step == current && on ? colour : IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, step % 4 == 0));
+                g.setColour (step == current && on ? colour : juce::Colours::white.withAlpha (step % 4 == 0 ? 0.6f : 0.32f));
                 g.drawText (juce::String (step + 1),
-                            juce::Rectangle<float> (strip.getX() + (float) step * width, strip.getBottom() + 3.0f, juce::jmax (width, 24.0f), 13.0f)
-                                .toNearestInt(),
-                            juce::Justification::centredLeft);
+                            juce::Rectangle<float> (strip.getX() + (float) step * width, strip.getY() - 17.0f, width, 15.0f).toNearestInt(),
+                            every == 1 ? juce::Justification::centred : juce::Justification::centredLeft, false);
             }
         }
 
@@ -547,8 +549,8 @@ public:
     ArpLanesEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip ("Arp step lanes. Drag in VELOCITY, GATE and PITCH to draw; double-click a step to reset it. "
-                    "Click a step number to set how many steps loop.");
+        setTooltip (juce::String::fromUTF8 ("Arp step lanes. Drag in VEL (velocity), GATE \xc3\x97 (times the GATE knob's length) and PITCH to draw; "
+                                            "double-click a step to reset it. Click a step number to set how many steps loop."));
         startTimerHz (30);
     }
 
@@ -580,8 +582,10 @@ public:
         if (lane == velocity)
             return juce::String (juce::roundToInt (value));
 
+        // GATE scales the GATE knob's length (review 8, V8-22: the lane is
+        // GATE ×, so it doesn't read as a second GATE), in the ratio style.
         if (lane == gate)
-            return value < 0.005f ? juce::String ("rest") : juce::String (juce::roundToInt (value * 100.0f)) + "%";
+            return value < 0.005f ? juce::String ("rest") : juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + juce::String (value, 2);
 
         const auto semitones = juce::roundToInt (value);
         return semitones > 0 ? "+" + juce::String (semitones) : juce::String (semitones);
@@ -599,11 +603,15 @@ public:
         const auto engineStep = processorRef.getEngineDisplayStep();
         const auto playingStep = on && ! replaced && engineStep >= 0 ? engineStep % steps : -1;
         // Off (or played over by PROB SEQ): the lanes step back, with no
-        // plate over them (review 7, S7-19); the PATTERN header says why.
-        const auto alpha = on && ! replaced ? 1.0f : 0.32f;
+        // plate over them (review 7, S7-19), still readable, and an OFF
+        // badge in the ruler's corner (review 8, I8-24, S8-32); the PATTERN
+        // header says why.
+        const auto alpha = on && ! replaced ? 1.0f : 0.45f;
         const auto ruler = rulerBounds();
         const auto lanes = laneBounds();
-        const char* const names[] { "VELOCITY", "GATE", "PITCH  st" };
+        // The lane names as the clip roll's (VEL) and GENERATE's (VEL RND):
+        // one word for one thing (review 8, I8-23).
+        const juce::String names[] { "VEL", juce::String (juce::CharPointer_UTF8 ("GATE \xc3\x97")), "PITCH (st)" };
         const auto mouse = getMouseXYRelative().toFloat();
         const auto hoverLane = isMouseOver() && dragLane < 0 ? laneAt (mouse) : -1;
         const auto hoverStep = hoverLane >= 0 ? stepAt (mouse.x) : -1;
@@ -637,9 +645,9 @@ public:
                 }
                 else if (lane == gate)
                 {
-                    tick ("200%", top);
+                    tick (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "2", top);
                     if (area.getHeight() >= 44.0f)
-                        tick ("100%", area.getCentreY());
+                        tick (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1", area.getCentreY());
                     tick ("0", bottom);
                 }
                 else
@@ -702,7 +710,10 @@ public:
                 const auto hovered = lane == hoverLane && step == hoverStep;
                 g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : 0.045f) * (active ? 1.0f : 0.6f)));
                 g.fillRoundedRectangle (cell, 2.0f);
-                const auto fill = laneColour (lane).withAlpha ((playing || hovered ? 1.0f : 0.78f) * cellAlpha);
+                // Off, the bars also lose most of their colour, so they read
+                // as stored, not playing (I8-24), while the values stay clear.
+                const auto fill = (on ? laneColour (lane) : laneColour (lane).interpolatedWith (IlanaTheme::Ui::text2, 0.6f))
+                                      .withAlpha ((playing || hovered ? 1.0f : 0.78f) * cellAlpha);
 
                 if (lane == pitch)
                 {
@@ -740,18 +751,40 @@ public:
                 }
 
                 // A value moved off its default, under the pointer, or being
-                // drawn, reads out.
+                // drawn, reads out, in every lane the same way (review 8,
+                // S8-15): in a strip at the foot of its cell, or for PITCH
+                // at the end away from its bar, never across the zero line.
                 const auto dragging = lane == dragLane && step == dragStep;
 
-                if ((edited && lane == pitch) || dragging || hovered)
+                if (edited || dragging || hovered)
                 {
-                    g.setColour (juce::Colours::white.withAlpha ((dragging || hovered ? 1.0f : 0.85f) * (active ? 1.0f : 0.5f)));
+                    const auto strip = lane == pitch && value < 0.0f ? cell.withHeight (14.0f).translated (0.0f, 1.0f)
+                                                                     : cell.withTrimmedTop (cell.getHeight() - 15.0f);
+                    g.setColour (juce::Colours::white.withAlpha ((dragging || hovered ? 1.0f : 0.85f) * (active ? 1.0f : 0.5f)
+                                                                 * juce::jmax (alpha, 0.7f)));
                     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                    g.drawText (textFor (lane, value), cell.toNearestInt(), juce::Justification::centred);
+                    g.drawText (textFor (lane, value), strip.toNearestInt(), juce::Justification::centred, false);
                 }
             }
         }
 
+        if (! on)
+            paintOffBadge (g, ruler.withWidth (labelWidth - 4.0f), "OFF");
+    }
+
+    // The lanes' off badge, at the right of the ruler's STEP label.
+    static void paintOffBadge (juce::Graphics& g, juce::Rectangle<float> label, const juce::String& text)
+    {
+        const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 14.0f;
+        const auto badge = juce::Rectangle<float> (width, label.getHeight()).withPosition (label.getRight() - width, label.getY());
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (badge, badge.getHeight() * 0.5f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (badge.reduced (0.5f), badge.getHeight() * 0.5f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (font);
+        g.drawText (text, badge, juce::Justification::centred, false);
     }
 
     void mouseMove (const juce::MouseEvent&) override { repaint(); }

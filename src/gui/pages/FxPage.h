@@ -300,7 +300,7 @@ public:
             juce::Component::SafePointer<FxPage> safeThis (this);
             juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Copy to chain " + other,
                                                 "Replace chain " + other + " with a copy of this one?",
-                                                "Copy", "Cancel", this,
+                                                "COPY", "CANCEL", this,
                                                 juce::ModalCallbackFunction::create ([safeThis] (int result)
                                                 {
                                                     if (result != 1 || safeThis == nullptr)
@@ -1511,7 +1511,7 @@ private:
                             text.removeFromTop (20), juce::Justification::centredLeft, true);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawFittedText ("The rack keeps one set of settings per effect, so this slot runs slot " + juce::String (first + 1)
+                IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect, so this slot runs slot " + juce::String (first + 1)
                                       + "'s " + getSlotName (panel.type) + " again (older patches can do this). "
                                       + "Remove it, or keep it for the same sound.",
                                   text.withTrimmedRight (100), juce::Justification::topLeft, 2);

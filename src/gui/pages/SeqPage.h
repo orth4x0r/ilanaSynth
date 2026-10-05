@@ -92,6 +92,7 @@ public:
         clipDraw.setClickingTogglesState (true);
         clipDraw.onClick = [this] { clipEditor.setDrawMode (clipDraw.getToggleState()); };
         clipEditor.onDrawModeChanged = [this] (bool on) { clipDraw.setToggleState (on, juce::dontSendNotification); };
+        clipDraw.setToggleState (clipEditor.isDrawMode(), juce::dontSendNotification);
         addAll (*this, arpSteps, noteChain, scaleSwitch, strumSwitch, clipZoom, clipQuantise, clipExpand);
         noteChain.onOpenEngine = [this] (int engine) { engineTabs.setSelected (engine, true); };
         engineTabs.onSelect = [this] (int) { showEngineTab(); };
@@ -310,10 +311,17 @@ public:
                 return parameter->getCurrentValueAsText();
             return juce::String();
         };
-        const auto middleDot = juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "));
-        return "SNAP TO KEY " + (scaleSwitch.isOn() ? choiceText ("gen_root") + " " + choiceText ("gen_scale") : juce::String ("off"))
-             + middleDot + "STRUM " + (strumSwitch.isOn() ? choiceText ("spray_strum") : juce::String ("off"))
-             + middleDot + "SPRAY " + (readOn ("spray_on") ? juce::String ("on") : juce::String ("off"));
+        // Only the parts that are on: no "off" in text away from a switch
+        // (review 8, I8-20).
+        juce::StringArray parts;
+        if (scaleSwitch.isOn())
+            parts.add ("SNAP TO KEY " + choiceText ("gen_root") + " " + choiceText ("gen_scale"));
+        if (strumSwitch.isOn())
+            parts.add ("STRUM " + choiceText ("spray_strum"));
+        if (readOn ("spray_on"))
+            parts.add ("SPRAY");
+        return parts.isEmpty() ? juce::String ("nothing shapes the keys")
+                               : parts.joinIntoString (juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")));
     }
 
     void mouseUp (const juce::MouseEvent& event) override
@@ -414,10 +422,12 @@ public:
         pseqEditor.setBounds (display);
 
         // Every engine's row on one six-column grid, packed from the left
-        // (the switches are in the tabs).
-        layoutRow (controls, { &arpMode, &arpDiv, &arpOctaves, &arpGate, &arpChance, &arpSteps });
-        layoutRow (controls, { &eucTarget, &eucDiv, &eucSteps, &eucHits, &eucRotate, &eucGate });
-        layoutRow (controls, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr });
+        // (the switches are in the tabs): the shared controls first, in one
+        // order (RATE, STEPS, GATE), then the engine's own; menus and knobs
+        // on one label line (review 8, I8-23, S8-33, V8-22).
+        layoutRow (controls, { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance }, true);
+        layoutRow (controls, { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate }, true);
+        layoutRow (controls, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr }, true);
 
         // The clip's row is menus and buttons only (nine columns): the
         // piano roll takes the height the other engines' knobs need.

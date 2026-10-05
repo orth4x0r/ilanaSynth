@@ -151,7 +151,7 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     g.fillRoundedRectangle (tag, 7.5f);
     g.setColour (colour.withAlpha (0.9f));
     g.setFont (font);
-    g.drawFittedText (text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
+    IlanaTheme::drawFitted (g, text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1);
 }
 
 // The source currently hovered (chip, macro or LFO card), so knobs it
@@ -367,8 +367,8 @@ public:
             g.drawEllipse (area.reduced (0.5f), 1.0f);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawFittedText ("+" + juce::String ((int) dots.size() - numShown()), area.expanded (1.0f, 0.0f).translated (0.0f, 0.5f).toNearestInt(),
-                              juce::Justification::centred, 1, 0.8f);
+            IlanaTheme::drawFitted (g, "+" + juce::String ((int) dots.size() - numShown()), area.expanded (1.0f, 0.0f).translated (0.0f, 0.5f).toNearestInt(),
+                              juce::Justification::centred, 1);
         }
     }
 

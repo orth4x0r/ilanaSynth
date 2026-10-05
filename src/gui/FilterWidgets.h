@@ -267,7 +267,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.drawFittedText (FilterTypes::displayName (current), inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
+        IlanaTheme::drawFitted (g, FilterTypes::displayName (current), inner.toNearestInt(), juce::Justification::centredLeft, 1);
 
         for (const auto direction : { -1, 1 })
         {
@@ -536,12 +536,8 @@ public:
             drawBlock (g, layout.post, postLabel(), IlanaTheme::Ui::text2, true, false);
         drawBlock (g, layout.out, "OUT", juce::Colours::white, true, false);
 
-        if (! layout.offCaption.isEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("OFF", layout.offCaption, juce::Justification::centredRight);
-        }
+        // No "OFF" before the stubs: dashed and dim, they are the switches
+        // themselves, and their tooltips say it (review 8, I8-20).
 
         // Serial / parallel badge.
         const auto badgeHover = over && layout.badge.contains (mouse);
@@ -549,7 +545,7 @@ public:
         g.fillRoundedRectangle (layout.badge, 8.0f);
         g.setColour (IlanaTheme::accent());
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawFittedText (parallel ? "PARALLEL" : "SERIAL", layout.badge.toNearestInt(), juce::Justification::centred, 1, 0.8f);
+        IlanaTheme::drawFitted (g, parallel ? "PARALLEL" : "SERIAL", layout.badge.toNearestInt(), juce::Justification::centred, 1);
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -921,7 +917,7 @@ private:
         g.fillPath (dashed);
         g.setColour (hovered ? colour : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawFittedText (text, box.reduced (3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
+        IlanaTheme::drawFitted (g, text, box.reduced (3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
     }
 
     static void drawBlock (juce::Graphics& g, juce::Rectangle<float> box, const juce::String& text, juce::Colour colour,
@@ -933,7 +929,7 @@ private:
         g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, hovered ? 1.8f : 1.2f);
         g.setColour (lit ? colour : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawFittedText (text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, text.containsChar ('\n') ? 2 : 1, 0.8f);
+        IlanaTheme::drawFitted (g, text, box.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centred, text.containsChar ('\n') ? 2 : 1);
     }
 
     void timerCallback() override

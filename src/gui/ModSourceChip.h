@@ -116,9 +116,9 @@ public:
         const auto second = getSecondOutputBounds();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 17.0f))
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 17.0f))
                                     .withTrimmedRight (second.isEmpty() ? 3 : 22),
-                          juce::Justification::centred, 1, 0.85f);
+                          juce::Justification::centred, 1);
 
         if (! second.isEmpty())
         {
@@ -333,7 +333,7 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
         const auto caret = text.removeFromRight (10).toFloat();
-        g.drawFittedText (getLabel(), text, juce::Justification::centred, 1, 0.85f);
+        IlanaTheme::drawFitted (g, getLabel(), text, juce::Justification::centred, 1);
 
         juce::Path down;
         const auto c = caret.getCentre();

@@ -2321,8 +2321,8 @@ int runUiTests()
                 const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
                 // One layout on every patch (review 11, I11-5): the EXTRAS line opens and closes them.
                 {
-                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xba"));
-                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xb9"));
+                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba"));
+                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xb9"));
                     expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
                                 && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText),
                             "FM: a basic patch has the same EXTRAS line as a DX7 voice: RING MOD, SYNC and NOISE FM open from it and close again");
@@ -2358,7 +2358,7 @@ int runUiTests()
                             && neuroNext.getX() - neuroCell.getX() >= dxNext.getX() - dxCell.getX(),
                         "FM: a three-oscillator matrix's cells are as large as, or larger than, a six-oscillator one's (V9-8: "
                             + neuroCell.toString() + " / " + dxCell.toString() + ")");
-                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xba")))
+                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba")))
                             && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
                         "FM: a DX7 voice folds RING MOD, SYNC and NOISE FM behind MORE (S8-21)");
             }

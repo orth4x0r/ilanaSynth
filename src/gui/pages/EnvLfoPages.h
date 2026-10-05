@@ -674,7 +674,7 @@ public:
         auto header = panel.reduced (12, 0).withHeight (26);
         IlanaTheme::paintCardHeader (g, header, envelopeTitle (selected),
                                      unusedAmp ? juce::String (ampUnusedText())
-                                               : "drag the graph or the knobs; a segment's dot bends it, CURVE bends all",
+                                               : "drag the graph or the knobs",
                                      colour, 0);
     }
 

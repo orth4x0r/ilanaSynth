@@ -644,22 +644,22 @@ private:
         juce::StringArray fixed;
 
         if (info.source == Mod::Source::AmpEnv && FmOperatorInfo::ampEnvelopeInUse (processorRef))
-            fixed.add ("Amp");
+            fixed.add ("AMP");
         else if (info.source == Mod::Source::AmpEnv)
             fixed.add ("unused");
         if (info.source == Mod::Source::FilterEnv && std::abs (readParam ("f1_env")) > 0.001f)
-            fixed.add ("Filter 1");
+            fixed.add ("FILTER 1");
         if (info.source == Mod::Source::FilterEnv2 && std::abs (readParam ("f2_env")) > 0.001f)
-            fixed.add ("Filter 2");
+            fixed.add ("FILTER 2");
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
 
             if (env > 0 && processorRef.isOscillatorShown (osc) && (int) readParam (prefix + "_amp_env") == env)
-                fixed.add ("Osc" + juce::String (osc + 1) + " Amp");
+                fixed.add ("OSC " + juce::String (osc + 1) + " AMP");
             if ((int) readParam (prefix + "_pd_env") == env + 1)
-                fixed.add ("Osc" + juce::String (osc + 1) + " Warp");
+                fixed.add ("OSC " + juce::String (osc + 1) + " WARP");
         }
 
         return describeModTargets (processorRef, info.source, fixed);

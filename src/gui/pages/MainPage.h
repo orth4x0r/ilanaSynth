@@ -120,9 +120,9 @@ public:
                                                    juce::StringArray { "Sin", "Sqr", "Saw" });
         subOctave = std::make_unique<ChoicePills> (p.apvts, "sub_octave", juce::StringArray { "-1 Oct", "-2 Oct" }, subColour());
         subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", subColour(), true);
-        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
+        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", noiseTint(), false);
         subLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
-        noiseColour = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
+        noiseColour = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", noiseTint(), false);
         noiseLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
         noiseColour->setSizeRole (IlanaTheme::KnobSize::minimum);
         addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel, *noiseColour);
@@ -366,7 +366,7 @@ public:
             for (const auto env : envs)
                 names.add (envTabTitle (env));
             if (hidden > 0)
-                names.add ("+" + juce::String (hidden));
+                names.add (juce::String (hidden) + " MORE"); // (as the MOD pool says it: V13-16)
             return names;
         };
 
@@ -1362,6 +1362,8 @@ private:
     }
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
+    // The noise knobs wear the SUB colour at half strength, so COLOUR does not read as disabled (V13-15).
+    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.5f); }
 
     void layoutSubCard()
     {

@@ -545,7 +545,7 @@ public:
         {
             auto box = stackArea.reduced (12, 0);
             emptyHeading = box.removeFromTop (60).withTrimmedTop (6);
-            library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight())));
+            library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight() + 170)));
         }
 
         // The cards take their own height, and OUTPUT follows the last of

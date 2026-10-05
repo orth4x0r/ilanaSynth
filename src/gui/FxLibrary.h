@@ -254,7 +254,9 @@ public:
         {
             // The same small pill the effects with an Airwindows model carry as
             // their AIRWINDOWS button, here the only model (V12-21).
-            const auto pill = text.removeFromRight (70).withSizeKeepingCentre (70, juce::jmax (14, getHeight() - 10)).toFloat();
+            // (The width of the twin buttons beside the other effects, flush at the same edge: V13-17.)
+            const auto pill = juce::Rectangle<int> (getWidth() - 3 - 76 + 12, 0, 76 - 12 + 0, getHeight()).withSizeKeepingCentre (76 - 12, juce::jmax (14, getHeight() - 10)).toFloat();
+            text.removeFromRight (76 - 12);
             g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.04f));
             g.fillRoundedRectangle (pill, 4.0f);
             g.setColour (IlanaTheme::Ui::line);
@@ -402,6 +404,9 @@ public:
     void resized() override
     {
         headings.clear();
+        // The rows take the spare height (an empty rack is a whole page), up to
+        // a roomy button: the library fills its page rather than its top half.
+        const auto rowStep = juce::jlimit ((int) buttonHeight, 44, (int) buttonHeight + (getHeight() - preferredHeight()) / 9);
         const auto gap = 10;
         const auto columnWidth = (getWidth() - gap * (columns - 1)) / columns;
         std::array<int, columns> y {};
@@ -410,9 +415,9 @@ public:
         const auto placeEntry = [&] (const FxLibraryEntry& entry, int x, int top, int width)
         {
             const auto mainWidth = entry.twin >= 0 ? width - twinWidth - 3 : width;
-            buttons[index++]->setBounds (x, top, mainWidth, buttonHeight - 3);
+            buttons[index++]->setBounds (x, top, mainWidth, rowStep - 3);
             if (entry.twin >= 0)
-                buttons[index++]->setBounds (x + mainWidth + 3, top, twinWidth, buttonHeight - 3);
+                buttons[index++]->setBounds (x + mainWidth + 3, top, twinWidth, rowStep - 3);
         };
 
         for (const auto& group : fxLibraryGroups())
@@ -429,7 +434,7 @@ public:
             for (const auto& entry : group.entries)
             {
                 placeEntry (entry, x, top, columnWidth);
-                top += buttonHeight;
+                top += rowStep;
             }
         }
 
@@ -442,9 +447,9 @@ public:
             if (group.column < 0)
                 for (const auto& entry : group.entries)
                 {
-                    moreRow = moreRow.isEmpty() ? juce::Rectangle<int> (0, bottom, getWidth(), buttonHeight - 3) : moreRow;
+                    moreRow = moreRow.isEmpty() ? juce::Rectangle<int> (0, bottom, getWidth(), rowStep - 3) : moreRow;
                     placeEntry (entry, 0, bottom, columnWidth * 2 + gap);
-                    bottom += buttonHeight;
+                    bottom += rowStep;
                 }
     }
 

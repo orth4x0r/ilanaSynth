@@ -533,8 +533,9 @@ public:
             auto cell = clipZoom.getBounds().translated (column, 0).withTrimmedTop (13).withHeight (24);
             clipDraw.setBounds (cell);
             clipQuantise.setBounds (cell.translated (column, 0));
-            clipImport.setBounds (cell.withX (filesRow.getX()).withWidth (column));
-            clipExport.setBounds (clipImport.getBounds().translated (column, 0));
+            // (An 8 px gap between the two buttons, as the toolbar's others have: S13-8.)
+            clipImport.setBounds (cell.withX (filesRow.getX()).withWidth (column - 4));
+            clipExport.setBounds (clipImport.getBounds().translated (column + 4, 0));
             clipDivider = juce::Rectangle<int> (editRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
             clipDivider2 = juce::Rectangle<int> (filesRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
         }

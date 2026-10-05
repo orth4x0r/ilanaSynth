@@ -753,7 +753,9 @@ public:
         const auto idle = idleReason.isNotEmpty();
 
         // Flat row; the source's colour marks its left edge.
-        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active && ! idle ? 0.04f : 0.0f));
+        // (Every other row a shade lighter: a long list reads in lines, review 12, S12-9.)
+        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active && ! idle ? 0.04f : 0.0f)
+                         .interpolatedWith (juce::Colours::white, displayNumber % 2 == 0 ? 0.025f : 0.0f));
         g.fillRoundedRectangle (bounds, 5.0f);
         g.setColour (selected ? lastColour.withAlpha (0.8f) : IlanaTheme::Ui::line);
         g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, selected ? 1.5f : 1.0f);

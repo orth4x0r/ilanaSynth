@@ -65,7 +65,7 @@ public:
 
         // The well frames the plot only; the time ruler sits under it,
         // outside the frame (UI review 7, V7-23).
-        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (rulerHeight + 2.0f), 6.0f);
+        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (slim ? 0.0f : rulerHeight + 2.0f), 6.0f);
 
         const auto geo = layoutGeometry();
 
@@ -183,8 +183,16 @@ public:
     // curve, its handles or DELAY, and read as an axis.
     static constexpr float rulerHeight = 14.0f;
 
+    bool slim = false;
+
+public:
+    // PLAY's graph is a slim strip across the card: no time ruler under it.
+    void setSlim (bool shouldBeSlim) { slim = shouldBeSlim; repaint(); }
+
     juce::Rectangle<float> getPlotArea() const
     {
+        if (slim)
+            return getLocalBounds().toFloat().reduced (12.0f, 9.0f);
         return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 2.0f + 8.0f).reduced (12.0f, 0.0f);
     }
 
@@ -392,6 +400,9 @@ private:
         {
             return release > 0.0f && seconds < release ? geo.xS + seconds / release * (geo.xR - geo.xS) : -1.0f;
         };
+
+        if (slim)
+            return;
 
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
         g.setFont (font);

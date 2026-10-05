@@ -324,6 +324,10 @@ public:
 
     int getPreferredWidth() const { return viewWidth; }
 
+    // PLAY: the cards share the whole bar evenly (the design's thumbnails)
+    // instead of keeping a quarter each.
+    void setFillWidth (bool fill) { fillWidth = fill; repaint(); }
+
     // The cards folded into the overflow card right now (the UI test).
     std::vector<int> getFoldedCards() const
     {
@@ -533,8 +537,26 @@ private:
         for (const auto extra : visibleExtras())
             if (! extras[(size_t) extra].pinnedFirst)
                 ids.push_back (IlanaSynthAudioProcessor::numLfos + extra);
-        return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
-                                  folded);
+        auto items = PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
+                                        folded);
+
+        if (fillWidth && folded.empty() && ! ids.empty())
+        {
+            const auto view = (float) (viewWidth > 0 ? viewWidth : getWidth());
+            const auto width = (view - (withPlus ? PoolCards::plusWidth + PoolCards::gap : 0.0f) - PoolCards::gap * (float) ((int) ids.size() - 1))
+                               / (float) ids.size();
+            auto x = 0.0f;
+            for (auto& item : items)
+            {
+                const auto isCard = item.id != plusId;
+                item.bounds.setX (x);
+                if (isCard)
+                    item.bounds.setWidth (width);
+                x += item.bounds.getWidth() + PoolCards::gap;
+            }
+        }
+
+        return items;
     }
 
     std::vector<Item> layoutItems() const
@@ -830,6 +852,14 @@ private:
                 path.lineTo (x, y);
         }
 
+        // The wave filled down to the card's foot (the design's thumbnails).
+        auto filled (path);
+        filled.lineTo (plot.getRight(), plot.getBottom());
+        filled.lineTo (plot.getX(), plot.getBottom());
+        filled.closeSubPath();
+        g.setColour (colour.withAlpha (alpha * 0.16f));
+        g.fillPath (filled);
+
         g.setColour (colour.withAlpha (alpha));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
@@ -971,5 +1001,6 @@ private:
     int hoverIndex = -1;
     bool hoverRemove = false, hoverB = false;
     int viewWidth = 0;
+    bool fillWidth = false;
     int lastCardCount = -1;
 };

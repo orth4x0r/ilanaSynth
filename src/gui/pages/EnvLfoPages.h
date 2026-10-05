@@ -314,6 +314,94 @@ private:
     KnobControl rate, division;
 };
 
+// PLAY's LFO card RATE (the approved design): a labelled horizontal slider
+// with its value, on the card's one baseline with SHAPE, SYNC and RETRIG. As
+// LfoRateControl it follows SYNC (Hz, or a note value), and a source dropped
+// on it still routes to RATE.
+class LfoRateSlider : public juce::Component,
+                      public juce::DragAndDropTarget,
+                      private juce::Timer
+{
+public:
+    LfoRateSlider (IlanaSynthAudioProcessor& p, int lfoIndex, juce::Colour accent)
+        : processorRef (p),
+          lfo (lfoIndex),
+          rate (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_rate"),
+          division (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_div"),
+          destination (modRingConfigFor ("lfo" + juce::String (lfoIndex + 1) + "_rate").destination)
+    {
+        label.setText ("RATE", juce::dontSendNotification);
+        label.setJustificationType (juce::Justification::centredLeft);
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        label.setBorderSize ({ 0, 1, 0, 1 });
+        label.setInterceptsMouseClicks (false, false);
+        addAndMakeVisible (label);
+
+        for (auto* control : { &rate, &division })
+        {
+            control->getSlider().setColour (juce::Slider::rotarySliderFillColourId, accent);
+            control->getSlider().setColour (juce::Slider::trackColourId, accent);
+            addChildComponent (*control);
+        }
+
+        const juce::String tip ("LFO " + juce::String (lfoIndex + 1) + " rate\nHz while free-running; a note value at the host tempo while SYNC is on. "
+                                "Drop a modulation source here to modulate the rate.");
+        rate.getSlider().setTooltip (tip);
+        division.getSlider().setTooltip (tip);
+        refresh();
+        startTimerHz (10);
+    }
+
+    void addTo (juce::Component& parent) { parent.addChildComponent (*this); }
+    void setShown (bool shouldShow) { shown = shouldShow; setVisible (shown); refresh(); }
+    ValueSliderControl& getRateSlider() { return rate; }
+    ValueSliderControl& getDivisionSlider() { return division; }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        label.setBounds (area.removeFromTop (13));
+        // The slider line is the menus' box height, centred in it.
+        rate.setBounds (area);
+        division.setBounds (area);
+    }
+
+    bool isInterestedInDragSource (const SourceDetails& details) override
+    {
+        return destination != 0 && details.description.toString().startsWith ("modsource:");
+    }
+
+    void itemDropped (const SourceDetails& details) override
+    {
+        const auto source = details.description.toString().fromFirstOccurrenceOf ("modsource:", false, false).getIntValue();
+        processorRef.performEdit ("Add modulation", [this, source] { processorRef.assignModSlot (source, destination, 0.35f); });
+    }
+
+private:
+    bool isSynced() const
+    {
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
+        return sync != nullptr && sync->load() > 0.5f;
+    }
+
+    void refresh()
+    {
+        const auto synced = isSynced();
+        rate.setVisible (shown && ! synced);
+        division.setVisible (shown && synced);
+    }
+
+    void timerCallback() override { refresh(); }
+
+    IlanaSynthAudioProcessor& processorRef;
+    int lfo = 0;
+    bool shown = true;
+    juce::Label label;
+    ValueSliderControl rate, division;
+    int destination = 0;
+};
+
 // PLAY's OP ENV tab (UI review 8, I8-18): the Operator Env every operator
 // plays, drawn as one overlay of the operators' envelopes. It is a picture
 // and a link, not a second editor: a click opens the OP ENV editor.

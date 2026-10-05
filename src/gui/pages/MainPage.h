@@ -94,6 +94,8 @@ public:
             updateStrips();
         };
         oscColumn.addChildComponent (addOscButton);
+        oscColumn.addChildComponent (patchFlow);
+        oscColumn.addChildComponent (outputView);
 
         // Sub and noise in the last slot: the sub's shape and octave stacked
         // as the oscillators' menus are, its level and the noise.
@@ -502,6 +504,26 @@ public:
 
         subCard = column.removeFromTop (slotHeight);
         layoutSubCard();
+
+        // Height the column doesn't need goes to a live PATCH tile (the
+        // signal flow, as on FILTER) and, with room to spare, a live output
+        // view, so the left column never ends in dead space.
+        patchCard = outputCard = {};
+        column.removeFromTop (slotGap);
+        const auto spare = scrolls ? 0 : column.getHeight();
+        const auto showPatch = spare >= patchMinHeight;
+        const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
+        if (showPatch)
+        {
+            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : spare);
+            column.removeFromTop (slotGap);
+            if (showOutput)
+                outputCard = column.removeFromTop (column.getHeight());
+            patchFlow.setBounds (patchCard.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
+            outputView.setBounds (outputCard.withTrimmedTop (22).reduced (6, 0).withTrimmedBottom (8));
+        }
+        patchFlow.setVisible (showPatch);
+        outputView.setVisible (showOutput);
         oscColumn.repaint();
 
         const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
@@ -1146,6 +1168,18 @@ private:
             }
         }
 
+        if (! patchCard.isEmpty())
+        {
+            IlanaTheme::paintCard (g, patchCard.toFloat(), 6.0f, IlanaTheme::accent());
+            paintTitle (patchCard, "PATCH", IlanaTheme::accent(), true, {}, {});
+        }
+
+        if (! outputCard.isEmpty())
+        {
+            IlanaTheme::paintCard (g, outputCard.toFloat(), 6.0f, IlanaTheme::Ui::text2);
+            paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {}, {});
+        }
+
         if (! subCard.isEmpty())
         {
             IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
@@ -1208,7 +1242,10 @@ private:
     std::vector<int> envTabEnvs { 0 }, envHiddenEnvs;
     unsigned int lastShownEnvs = 0;
     EffectRules effectRules { processorRef };
-    juce::Rectangle<int> subCard;
+    juce::Rectangle<int> subCard, patchCard, outputCard;
+    SignalFlow patchFlow { processorRef };
+    OutputView outputView { processorRef };
+    static constexpr int patchMinHeight = 90, outputMinHeight = 70;
     std::unique_ptr<ToggleControl> subOn;
     std::unique_ptr<ComboControl> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;

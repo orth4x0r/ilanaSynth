@@ -379,15 +379,15 @@ inline juce::String describeParameter (const juce::String& id)
             return "What restarts a simulated shape: Note (each note), Free (never), Beat (each DIVISION of the host's "
                    "beat) or Generative (Euclid's hits, else the probability sequencer's steps). FIRE triggers it by hand.";
         if (suffix == "axis")
-            return "Which axis of the attractor output A carries; output B carries the next one (X then Y, Y then Z, "
-                   "Z then X). Mix puts X and Z together on A, and Y on B. The graph names both.";
+            return "Which axis of the attractor OUT 1 carries; OUT 2 carries the next one (X then Y, Y then Z, "
+                   "Z then X). Mix puts X and Z together on OUT 1, and Y on OUT 2. The graph names both.";
         if (suffix == "loop")
             return "Physics objects: start again once settled, instead of resting until the next trigger.";
         if (suffix == "seed")
             return "Which random sequence the shape plays. Free (0): every voice and every note gets its own. "
                    "1-999: the same repeatable sequence everywhere, restarting on each trigger (or FIRE).";
         if (suffix == "stereo")
-            return "Random shapes: how far output B departs from A (route B to the other side, or another target).";
+            return "Random shapes: how far OUT 2 departs from OUT 1 (route OUT 2 to the other side, or another target).";
         if (suffix == "fire")
             return "Triggers the LFO now.";
         if (suffix.length() == 2 && suffix[0] == 'p')
@@ -470,7 +470,7 @@ inline juce::String describeParameter (const juce::String& id)
     }
     if (isOscParameter (id, "_eg_out"))
         return "The operator's level on the Operator Env (the DX7's OUTPUT LEVEL, 0-99): how loud a carrier is, how deep "
-               "a modulator modulates, in dB below 99. TRIM scales it on top (0 dB is this level).";
+               "a modulator modulates, in dB below 99. The oscillator's LEVEL scales it on top (50 % plays it as set).";
     if (isOscParameter (id, "_eg_break"))
         return "Keyboard scaling's centre key (the DX7's BREAK POINT): LOW and HIGH DEPTH change the level below and above it.";
     if (isOscParameter (id, "_eg_ldepth"))

@@ -141,7 +141,7 @@ public:
         return scene.isEmpty() ? area : area.withTrimmedLeft (scene.getWidth() + 8.0f);
     }
 
-    // The scope's "A: ..." and "B: ..." tags along its top, which drag the
+    // The scope's "OUT 1: ..." and "OUT 2: ..." tags along its top, which drag the
     // LFO's two outputs onto knobs (UI review 6, I6-24).
     static juce::Rectangle<float> outputTagBounds (juce::Rectangle<float> scope, const juce::String& text, bool outputB)
     {
@@ -154,7 +154,7 @@ public:
     static juce::String outputTagText (const LfoSimInfo::Shape& info, int axis, bool outputB)
     {
         const auto names = outputNames (info, axis);
-        return outputB ? "B: " + names.second : "A: " + names.first;
+        return outputB ? "OUT 2: " + names.second : "OUT 1: " + names.first; // spelt out (UI review 9, V9-20)
     }
 
 private:

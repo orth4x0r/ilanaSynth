@@ -21,9 +21,10 @@ class FmPage : public juce::Component,
 {
     // One operator's settings: its tuning and feedback style, its ENVELOPE,
     // and its pitch and levels in one order on every page (RATIO, SEMI,
-    // FINE, LEVEL, TRIM: UI review 8, V8-5). On the Operator Env, LEVEL is
-    // its output level (dB) and TRIM the oscillator's level (%, I8-1);
-    // otherwise LEVEL is the oscillator's level and KEY LVL its key scaling.
+    // FINE, OUTPUT, LEVEL: UI review 8, V8-5). LEVEL is always the
+    // oscillator's level (%); on the Operator Env, OUTPUT is its output level
+    // (dB: review 9, I9-7, was LEVEL beside a TRIM); otherwise KEY SCALE is
+    // its key scaling (KEY LVL until review 9, I9-26).
     struct OperatorControls
     {
         OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefixIn, juce::Colour colour)
@@ -37,8 +38,8 @@ class FmPage : public juce::Component,
               semi (state, prefix + "_semi", "SEMI", colour, false),
               fine (state, prefix + "_fine", "FINE", colour, false),
               level (state, prefix + "_level", "LEVEL", colour, false),
-              keyLevel (state, prefix + "_key_level", "KEY LVL", colour, false),
-              egOut (state, prefix + "_eg_out", "LEVEL", colour, false)
+              keyLevel (state, prefix + "_key_level", "KEY SCALE", colour, false),
+              egOut (state, prefix + "_eg_out", "OUTPUT", colour, false)
         {
             FmOperatorInfo::sectionEnvelopeMenu (ampEnv.getComboBox());
         }
@@ -140,7 +141,7 @@ public:
         // plays the Operator Env.
         picker.onPick = [this] (int op) { selectOperator (op); };
         addAndMakeVisible (picker);
-        styleFmLink (pitchLfoLink, juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO \xe2\x80\xba"));
+        styleFmLink (pitchLfoLink, juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO"));
         pitchLfoLink.setTooltip ("The Operator Env's pitch envelope (OP PITCH) and LFO (OP LFO), for the whole voice: every "
                                  "oscillator on the Operator Env follows them. Edited in MOD's pools, with TRANSPOSE and SCALE SHIFT.");
         pitchLfoLink.onClick = [] { FmOperatorInfo::openPitchAndLfo(); };
@@ -490,13 +491,13 @@ private:
             controls.ratio.setVisible (selected && tune == OscTuning::Ratio);
             controls.snap.setVisible (selected && tune == OscTuning::Ratio);
             controls.fixedHz.setVisible (selected && tune == OscTuning::Fixed);
-            // One level story (I6-8, I8-1): on the Operator Env its output
-            // level is LEVEL (dB) and the oscillator's level TRIM (%), as on
-            // PLAY and OSC; the envelope's own scaling replaces KEY LVL.
+            // One level name (I6-8, I8-1; review 9, I9-7): LEVEL is the
+            // oscillator's level (%) on every patch and page; on the
+            // Operator Env its output level is OUTPUT (dB, the DX7's OUTPUT
+            // LEVEL), as on PLAY and OSC; the envelope's own scaling
+            // replaces KEY SCALE.
             controls.keyLevel.setVisible (selected && ! opEnv);
             controls.egOut.setVisible (selected && opEnv);
-            if (controls.level.getLabelText() != (opEnv && selected ? "TRIM" : "LEVEL"))
-                controls.level.setLabelText (opEnv && selected ? "TRIM" : "LEVEL");
         }
 
         envelope.setVisible (opEnv);
@@ -752,7 +753,7 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's LEVEL (on its card) "
+        IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's OUTPUT (on its card) "
                                                                              "\xc3\x97 this cell. Hover a dot to add a route."))
                                            : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
                           topNote, juce::Justification::topLeft, 3);

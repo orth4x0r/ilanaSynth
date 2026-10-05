@@ -50,8 +50,9 @@ public:
         return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 28.0f;
     }
 
-    // (plus room for an LFO's "B" sub-chip when it has one).
-    float getNaturalWidth() const { return widthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? 19.0f : 0.0f); }
+    // (plus room for an LFO's "OUT 2" sub-chip when it has one).
+    static constexpr float secondOutputRoom = 34.0f;
+    float getNaturalWidth() const { return widthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
 
     // The width the bar plans with: the name measured the same way at every
     // zoom (the font unsnapped, with room for the snapping to round up), so
@@ -60,7 +61,7 @@ public:
     {
         return layoutTextWidth (text) + 28.0f;
     }
-    float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? 19.0f : 0.0f); }
+    float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
 
     static float layoutTextWidth (const juce::String& text)
     {
@@ -73,19 +74,20 @@ public:
     // chip glows with it. Optional.
     std::function<float()> valueProvider;
 
-    // An LFO whose shape has a second output: a small "B" at the chip's right
-    // end drags that output (LFO n B) instead. Optional.
+    // An LFO whose shape has a second output: a small "OUT 2" at the chip's
+    // right end drags that output instead (spelt out, not a bare "B" that
+    // read as an A/B state: UI review 9, V9-20). Optional.
     std::function<bool()> hasSecondOutput;
     int secondIndex = 0;
 
-    // The "B" sub-chip's bounds, empty while there is none (the UI test reads it).
+    // The "OUT 2" sub-chip's bounds, empty while there is none (the UI test reads it).
     juce::Rectangle<float> getSecondOutputBounds() const
     {
         if (hasSecondOutput == nullptr || ! hasSecondOutput())
             return {};
 
         const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
-        return { bounds.getRight() - 19.0f, bounds.getY() + 3.0f, 16.0f, bounds.getHeight() - 6.0f };
+        return { bounds.getRight() - secondOutputRoom, bounds.getY() + 3.0f, secondOutputRoom - 3.0f, bounds.getHeight() - 6.0f };
     }
 
     void paint (juce::Graphics& g) override
@@ -117,7 +119,7 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
         IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 17.0f))
-                                    .withTrimmedRight (second.isEmpty() ? 3 : 22),
+                                    .withTrimmedRight (second.isEmpty() ? 3 : (int) secondOutputRoom + 3),
                           juce::Justification::centred, 1);
 
         if (! second.isEmpty())
@@ -128,23 +130,23 @@ public:
             g.setColour (colour.withAlpha (0.8f));
             g.drawRoundedRectangle (second.reduced (0.5f), 3.0f, 1.0f);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("B", second, juce::Justification::centred);
+            g.drawText ("OUT 2", second, juce::Justification::centred);
         }
     }
 
-    // Over the "B" sub-chip the tooltip names it as the shape's second
+    // Over the "OUT 2" sub-chip the tooltip names it as the shape's second
     // output (UI review 8, S8-16 / V8-28: a bare "B" read as an A/B state).
     juce::String getTooltip() override { return tooltipAt (getMouseXYRelative().toFloat()); }
 
     juce::String tooltipAt (juce::Point<float> position)
     {
         if (getSecondOutputBounds().contains (position))
-            return ModNames::source (secondIndex) + " (OUT B)\nThis shape's second output; the chip itself drags output A. "
-                                                    "Drag the B onto a knob to modulate that knob with it.";
+            return ModNames::source (secondIndex) + "\nThis shape's second output; the chip itself drags its first. "
+                                                    "Drag OUT 2 onto a knob to modulate that knob with it.";
         return juce::SettableTooltipClient::getTooltip();
     }
 
-    // Which output the mouse is over: the "B" sub-chip's, or the chip's own.
+    // Which output the mouse is over: the "OUT 2" sub-chip's, or the chip's own.
     int sourceAt (juce::Point<float> position) const
     {
         return getSecondOutputBounds().contains (position) ? secondIndex : index;

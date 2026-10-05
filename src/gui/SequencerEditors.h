@@ -155,7 +155,7 @@ public:
         startTimerHz (24);
     }
 
-    static juce::Colour colour() { return juce::Colour (0xffe0e6f0); } // the MSEG's source colour
+    static juce::Colour colour() { return juce::Colour::fromHSV (0.60f, 0.30f, 1.0f, 1.0f); } // the MSEG's source colour: an LFO pastel (UI review 9, I9-2)
 
     void visibilityChanged() override
     {

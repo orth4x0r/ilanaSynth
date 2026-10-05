@@ -25,7 +25,7 @@ inline std::function<void (int slot)>& openMatrixRow()
 
 // A source's one name, written as its chip is (UI-CONVENTIONS: module and
 // source names are upper case in labels, chips and combos; review 8,
-// I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 B". Tooltips and menus use it
+// I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 · OUT 2". Tooltips and menus use it
 // too, so a source never reads two ways. Nothing shortens it to a code. A
 // macro with a patch name leads with that name, as its knob in the strip
 // does, and only that name ("TONE", as the strip, the chips and the remap
@@ -59,7 +59,7 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
         return "LFO " + juce::String (lfo + 1);
 
     if (const auto lfo = Mod::lfoBIndexFor (s); lfo >= 0)
-        return "LFO " + juce::String (lfo + 1) + " B";
+        return "LFO " + juce::String (lfo + 1) + " \xc2\xb7 OUT 2"; // its second output, spelt out (UI review 9, V9-20)
 
     if (s >= S::Env6 && s <= S::Env16)
         return "ENV " + juce::String (6 + sourceIndex - (int) S::Env6);
@@ -437,7 +437,7 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
     if (id.contains ("_eg_"))
     {
         static const std::pair<const char*, const char*> fields[] {
-            { "_eg_out", "OP ENV Level" },        { "_eg_r1", "OP ENV Attack" },
+            { "_eg_out", "OP ENV Output" },        { "_eg_r1", "OP ENV Attack" },
             { "_eg_r2", "OP ENV Decay 1" },       { "_eg_r3", "OP ENV Decay 2" },
             { "_eg_r4", "OP ENV Release" },       { "_eg_l1", "OP ENV Peak" },
             { "_eg_l2", "OP ENV Mid" },           { "_eg_l3", "OP ENV Sustain" },
@@ -582,9 +582,9 @@ inline juce::String destination (int destination)
 }
 
 //==============================================================================
-// An oscillator's own level is TRIM on every page while it plays the
-// Operator Env, whose output level is its LEVEL (UI review 8, I8-2): the
-// matrix names it so then. The oscillator a level destination belongs to,
+// An oscillator's own level is LEVEL on every page, the Operator Env's
+// output level OUTPUT (UI review 9, I9-7; review 8's "Trim" while it played
+// the Operator Env is gone). The oscillator a level destination belongs to,
 // or -1.
 inline int levelDestinationOsc (int destination)
 {
@@ -609,7 +609,7 @@ inline bool playsOperatorEnv (const IlanaSynthAudioProcessor& processor, int osc
 inline DestinationName destinationParts (int destination, const IlanaSynthAudioProcessor& processor)
 {
     if (const auto osc = levelDestinationOsc (destination); osc >= 0 && playsOperatorEnv (processor, osc))
-        return { "OSC " + juce::String (osc + 1), "Trim" };
+        return { "OSC " + juce::String (osc + 1), "Level" };
     return destinationParts (destination);
 }
 

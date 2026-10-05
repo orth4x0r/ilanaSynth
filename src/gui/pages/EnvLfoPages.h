@@ -1206,6 +1206,25 @@ public:
         updateVisibility();
     }
 
+    // (PLAY's LFO card labels its switch the same way.) RETRIG on a plain shape (one LFO per voice, restarted by its note);
+    // PER VOICE on a simulated one, whose TRIGGER says when it restarts.
+    static void labelRunSwitch (ToggleControl& toggle, bool simulated)
+    {
+        const juce::String text (simulated ? "PER VOICE" : "RETRIG");
+        if (toggle.getButton().getButtonText() == text)
+            return;
+        toggle.getButton().setButtonText (text);
+        // The parameter's name stays the first line, as on every control.
+        const auto name = toggle.getButton().getTooltip().upToFirstOccurrenceOf ("\n", false, false);
+        const auto tooltip = name + (simulated ? "\nPer voice. On: each voice runs its own simulation, started by its note. Off: one run "
+                                                 "shared by every voice, restarted as TRIGGER says (a restart moves the held notes too)."
+                                               : "\nRetrigger. On: each voice runs its own LFO, restarted from START by its note. Off: "
+                                                 "one LFO shared by every voice, running free.");
+        toggle.setTooltip (tooltip);
+        toggle.getButton().setTooltip (tooltip);
+        toggle.repaint();
+    }
+
     // The UI test reaches these through here.
     int getSelected() const { return selected; }
     LfoRateControl& getRateControl (int lfo) { return controlsList[(size_t) juce::jlimit (0, (int) controlsList.size() - 1, lfo)]->rate; }
@@ -1234,7 +1253,7 @@ private:
               , stereo (state, "lfo" + juce::String (lfo) + "_stereo", "STEREO", accent, followsTheme)
               , seed (state, "lfo" + juce::String (lfo) + "_seed", "SEED", accent, followsTheme)
               , trigger (state, "lfo" + juce::String (lfo) + "_trigger", "TRIGGER")
-              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUTPUT A AXIS")
+              , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUT 1 AXIS")
               , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
@@ -1470,7 +1489,7 @@ private:
             if (routing.source != source && ! viaB && routing.aux != source)
                 continue;
             const auto depth = juce::roundToInt (routing.depth * 100.0f);
-            routes.add ((viaB ? "B " : routing.source != source ? "VIA " : "") + ModNames::destination (routing.destination) + "  "
+            routes.add ((viaB ? "OUT 2 " : routing.source != source ? "VIA " : "") + ModNames::destination (routing.destination) + "  "
                         + (depth > 0 ? "+" : "") + juce::String (depth) + "%");
             routeSlots.push_back (slot);
         }
@@ -1551,82 +1570,22 @@ private:
     int getRouteSlot (int row) const { return juce::isPositiveAndBelow (row, (int) routeHits.size()) ? routeHits[(size_t) row].second : -2; }
     juce::Point<int> getRouteCentre (int row) const { return routeHits[(size_t) row].first.getCentre(); }
 
-    // The first LFO the patch doesn't have yet (-1: all of them are in use).
-    int freeLfo() const
-    {
-        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            if (! processorRef.isLfoShown (lfo))
-                return lfo;
-        return -1;
-    }
-
-    // MOVE TO LFO: what the old MSEG module's routes do can move onto an LFO
+    // MOVE TO LFO: what the old MSEG module's routes do moves onto an LFO
     // drawn the same (SHAPE › MSEG), the one drawn-shape editor (UI review
-    // 8, I8-4 / V8-2). Only a looping, routed MSEG moves: an LFO always
-    // cycles and can't be an ENVELOPE. Nothing changes until it is pressed,
-    // so old patches keep sounding as they did.
+    // 8, I8-4 / V8-2). Patch loads do it already (review 9, I9-2); the
+    // button stays for a patch whose MSEG became movable since.
     bool msegMovable() const
     {
-        return read ("mseg_loop") > 0.5f && freeLfo() >= 0 && modSourceRouted (processorRef, Mod::Source::Mseg);
+        return processorRef.legacyMsegTargetLfo() >= 0;
     }
 
     void moveMsegToLfo()
     {
-        const auto lfo = freeLfo();
-        if (lfo < 0 || ! msegMovable())
+        const auto lfo = processorRef.legacyMsegTargetLfo();
+        if (lfo < 0)
             return;
 
-        float levels[4], times[4], total = 0.0f;
-        for (int i = 0; i < 4; ++i)
-        {
-            levels[i] = read ("mseg_level" + juce::String (i + 1));
-            times[i] = juce::jmax (0.01f, read ("mseg_time" + juce::String (i + 1)));
-            total += times[i];
-        }
-
-        // Its four points at their places in the cycle, back to the first
-        // at the end, as the looping MSEG plays them.
-        LfoCurve curve;
-        curve.points.clear();
-        auto x = 0.0f;
-        for (int i = 0; i < 4; ++i)
-        {
-            curve.points.push_back ({ x, levels[i], 0.0f });
-            x += times[i] / total;
-        }
-        curve.points.push_back ({ 1.0f, levels[0], 0.0f });
-
-        const auto prefix = "lfo" + juce::String (lfo + 1);
-        const auto lfoSource = Mod::lfoSourceFor (lfo);
-        processorRef.performEdit ("Move MSEG to LFO " + juce::String (lfo + 1), [this, lfo, &curve, &prefix, lfoSource]
-        {
-            const auto set = [this] (const juce::String& id, float value)
-            {
-                if (auto* parameter = processorRef.apvts.getParameter (id))
-                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-            };
-
-            processorRef.setLfoCurve (lfo, curve);
-            set (prefix + "_shape", (float) IlanaSynthAudioProcessor::curveShape);
-            set (prefix + "_rate", read ("mseg_rate"));
-            for (const auto* off : { "_sync", "_retrig", "_key", "_phase", "_smooth" })
-                set (prefix + off, 0.0f);
-
-            for (int slot = 0; slot < Mod::maxSlots; ++slot)
-            {
-                const auto routing = processorRef.readModSlot (slot);
-                if (routing.destination == 0)
-                    continue;
-                if (routing.source == Mod::Source::Mseg)
-                    processorRef.setModSlotValue (slot, "src", (float) (int) lfoSource);
-                if (routing.aux == Mod::Source::Mseg)
-                    processorRef.setModSlotValue (slot, "aux", (float) (int) lfoSource);
-                if (routing.destination == (int) Mod::Destination::MsegRate)
-                    processorRef.setModSlotValue (slot, "dst", (float) (int) Mod::lfoRateDestinationFor (lfo));
-            }
-        });
-
-        processorRef.setRevealed (IlanaSynthAudioProcessor::Module::Lfo, lfo, true);
+        processorRef.performEdit ("Move MSEG to LFO " + juce::String (lfo + 1), [this] { processorRef.moveLegacyMsegToLfo(); });
         thumbs.refreshLayout();
         select (lfo);
     }
@@ -1648,7 +1607,7 @@ private:
 
         opLfoEditor.setVisible (selected == opLfoId);
         msegEditor.setVisible (selected == msegId);
-        if (const auto lfo = freeLfo(); lfo >= 0)
+        if (const auto lfo = processorRef.legacyMsegTargetLfo(); lfo >= 0)
             msegMove.setButtonText ("MOVE TO LFO " + juce::String (lfo + 1));
         msegMove.setVisible (selected == msegId && msegMovable());
         msegLoop.setVisible (selected == msegId);
@@ -1670,6 +1629,10 @@ private:
             const auto shape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape")->load();
             const auto simulated = LfoSimShapes::isSim (shape);
             const auto& info = LfoSimInfo::get (simulated ? shape : LfoSimShapes::RandomHold);
+            // One trigger model (UI review 9, I9-1): the switch says where
+            // the LFO runs; when it restarts is RETRIG's note on a plain
+            // shape and TRIGGER's choice on a simulated one.
+            labelRunSwitch (c.retrig, simulated);
             c.phase.setVisible (visible && ! simulated);
             c.physA.setVisible (visible && LfoShapes::isPhysics (shape));
             c.physB.setVisible (visible && LfoShapes::isPhysics (shape));

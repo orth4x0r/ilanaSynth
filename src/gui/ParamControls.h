@@ -158,6 +158,18 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     IlanaTheme::drawFitted (g, text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1);
 }
 
+// The one "go to its full editor" idiom (UI review 9, I9-14): a raised
+// button reading "EDIT <WHAT> ›" at the right of a card header or line,
+// the same on every page (EDIT OP ENV, EDIT STRING, EDIT BODY...). Icons are
+// kept for pop-outs only.
+inline void styleJumpLink (juce::TextButton& button, const juce::String& what)
+{
+    button.setButtonText ("EDIT " + what + juce::String::fromUTF8 (" \xe2\x80\xba"));
+    button.getProperties().remove ("pill");
+    button.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+    button.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
+}
+
 // The source currently hovered (chip, macro or LFO card), so knobs it
 // modulates can light up. Message thread only.
 inline int& highlightedModSource()
@@ -227,7 +239,7 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case Mod::Source::ModWheel:   return juce::Colour::fromHSV (0.52f, 0.34f, 0.93f, 1.0f); // pale aqua
         case Mod::Source::Aftertouch: return juce::Colour::fromHSV (0.95f, 0.30f, 0.97f, 1.0f); // blush
         case Mod::Source::Expression: return juce::Colour::fromHSV (0.21f, 0.38f, 0.92f, 1.0f); // pale lime
-        case Mod::Source::Mseg:       return juce::Colour (0xffe0e6f0);
+        case Mod::Source::Mseg:       return juce::Colour::fromHSV (0.60f, 0.30f, 1.0f, 1.0f); // an LFO pastel, not white (I9-2)
         case Mod::Source::InputEnv:   return juce::Colour (0xffc9b79c); // sand
         case Mod::Source::VectorX:    return juce::Colour (0xff7fe0d8);
         case Mod::Source::VectorY:    return juce::Colour (0xff6fb8ff);
@@ -1954,6 +1966,13 @@ public:
 
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+
+    juce::String getLabelText() const { return label.getText(); }
+    void setLabelText (const juce::String& text)
+    {
+        if (label.getText() != text)
+            label.setText (text, juce::dontSendNotification);
+    }
 
     void resized() override
     {

@@ -198,9 +198,9 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     box = bounds;
                 }
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            const auto widest = juce::jmax (juce::GlyphArrangement::getStringWidth (font, "STRINGS"),
+            const auto widest = juce::jmax (juce::GlyphArrangement::getStringWidth (font, "STRINGS +"),
                                             juce::GlyphArrangement::getStringWidth (font, "SOUNDBOARD"));
-            expect (post == "STRINGS\nSOUNDBOARD" && box.getHeight() >= 28.0f && box.getWidth() - 8.0f >= widest,
+            expect (post == "STRINGS +\nSOUNDBOARD" && box.getHeight() >= 28.0f && box.getWidth() - 8.0f >= widest,
                     "SIGNAL FLOW: STRINGS / SOUNDBOARD spelled out on two lines and fit their block (" + box.toString() + ")");
         }
         setParam ("sym_on", 0.0f);
@@ -217,8 +217,8 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* boardOn = toggleFor ("sb_on");
         auto* amount = knobFor ("res_amount");
         auto* mix = knobFor ("sb_mix");
-        auto* bodyLink = buttonNamed (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba"));
-        auto* boardLink = buttonNamed (juce::CharPointer_UTF8 ("ACOUSTIC KEYS \xe2\x80\xba"));
+        auto* bodyLink = buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"));
+        auto* boardLink = buttonNamed (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba"));
         const auto clash = overlaps ({ bodyOn, boardOn, amount, knobFor ("res_decay"), mix, bodyLink, boardLink });
         expect (bodyOn != nullptr && boardOn != nullptr && amount != nullptr && mix != nullptr && bodyLink != nullptr && boardLink != nullptr
                     && clash.isEmpty(),

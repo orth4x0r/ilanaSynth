@@ -119,28 +119,29 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         picker->pick (0);
     settle (200);
 
-    // I8-1, V8-4: TRIM reads % on PLAY, FM and OSC; LEVEL dB.
+    // I8-1, V8-4: the oscillator's LEVEL (TRIM before UI review 9, I9-7)
+    // reads % on PLAY, FM and OSC; the operator's OUTPUT dB.
     {
         juce::StringArray trims;
         editor.showPage ("MAIN");
         settle (400);
-        trims.add (textOf (knobFor ("osc2_level", "TRIM")));
+        trims.add (textOf (knobFor ("osc2_level", "LEVEL")));
         editor.showPage ("FM");
         settle (400);
-        trims.add (textOf (knobFor ("osc1_level", "TRIM")));
-        const auto fmLevel = textOf (knobFor ("osc1_eg_out", "LEVEL"));
+        trims.add (textOf (knobFor ("osc1_level", "LEVEL")));
+        const auto fmLevel = textOf (knobFor ("osc1_eg_out", "OUTPUT"));
         editor.showPage ("OSC");
         settle (400);
-        trims.add (textOf (knobFor ("osc1_level", "TRIM")));
+        trims.add (textOf (knobFor ("osc1_level", "LEVEL")));
         auto allPercent = trims.size() == 3;
         for (const auto& text : trims)
             allPercent = allPercent && text.endsWith ("%");
-        expect (allPercent && fmLevel.endsWith ("dB"), "TRIM reads % on PLAY, FM and OSC, LEVEL dB (I8-1, V8-4: "
+        expect (allPercent && fmLevel.endsWith ("dB"), "LEVEL reads % on PLAY, FM and OSC, OUTPUT dB (I8-1, V8-4, I9-7: "
                                                            + trims.joinIntoString (" / ") + ", " + fmLevel + ")");
     }
 
-    // I8-2: the matrix calls TRIM "Trim" while the oscillator plays the
-    // Operator Env, "Level" otherwise; LEVEL stays "OP ENV Level".
+    // I8-2, I9-7: the oscillator's LEVEL is "Level" in the matrix whether
+    // or not it plays the Operator Env; OUTPUT is "OP ENV Output".
     {
         const auto separator = ModNames::separator();
         juce::ComboBox box;
@@ -152,9 +153,9 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         loadNamed ("Neuro Wobble");
         ModNames::nameOperatorTrims (box, processor);
         const auto plain = ModNames::destination ((int) D::Osc2Level, processor);
-        expect (onEnv == "OSC 2" + separator + "Trim" && boxText == onEnv && plain == "OSC 2" + separator + "Level"
+        expect (onEnv == "OSC 2" + separator + "Level" && boxText == onEnv && plain == "OSC 2" + separator + "Level"
                     && box.getText() == plain,
-                "the matrix names an operator's TRIM \"Trim\", a plain oscillator's \"Level\" (I8-2: " + onEnv + ", " + plain
+                "the matrix names an operator's LEVEL and a plain oscillator's \"Level\" alike (I8-2, I9-7: " + onEnv + ", " + plain
                     + "; menu " + boxText + ", " + box.getText() + ")");
         loadNamed ("E.PIANO 1 (ROM1A)");
     }
@@ -211,7 +212,7 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         // I8-8, S8-3, V8-21: a link named OP PITCH and OP LFO, beside
         // the picker, not a seventh pill; I8-10: the operators on the
         // one picker.
-        const auto link = shownButtons (juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO \xe2\x80\xba"));
+        const auto link = shownButtons (juce::String::fromUTF8 ("EDIT OP PITCH \xc2\xb7 OP LFO \xe2\x80\xba"));
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (editor, buttons);
         auto oldName = false;
@@ -251,7 +252,7 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         settle (300);
     }
 
-    // OSC: the picture opens FM; no table tools; SEMI and LEVEL / TRIM in
+    // OSC: the picture opens FM; no table tools; SEMI and OUTPUT / LEVEL in
     // FM's order; the caption names OP ENV (I8-15, I8-30, S8-9, V8-16).
     editor.showPage ("OSC");
     settle (400);
@@ -264,13 +265,13 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                 graph = candidate;
         auto* semi = knobFor ("osc1_semi");
         auto* fine = knobFor ("osc1_fine");
-        auto* level = knobFor ("osc1_eg_out", "LEVEL");
-        auto* trim = knobFor ("osc1_level", "TRIM");
+        auto* level = knobFor ("osc1_eg_out", "OUTPUT");
+        auto* trim = knobFor ("osc1_level", "LEVEL");
         const auto ordered = semi != nullptr && fine != nullptr && level != nullptr && trim != nullptr
                              && area (semi).getCentreX() < area (fine).getCentreX() && area (fine).getCentreX() < area (level).getCentreX()
                              && area (level).getCentreX() < area (trim).getCentreX();
         expect (graph != nullptr && graph->isReadOnly() && ordered,
-                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, LEVEL, TRIM as on FM (S8-4, V8-5)");
+                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT, LEVEL as on FM (S8-4, V8-5, I9-7)");
         expect (shownButtons ("RESAMPLE").empty() && shownButtons ("EDIT").empty() && shownButtons ("LOAD .WAV").empty()
                     && shownButtons ("3D").empty() && shownButtons ("SPEC").empty() && knobFor ("osc1_unison") == nullptr,
                 "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV, 3D / SPEC or UNISON 1 (I8-15, S8-9, V8-16)");

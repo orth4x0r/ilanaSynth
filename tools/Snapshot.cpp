@@ -178,7 +178,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
                 if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
-                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                    && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -191,7 +191,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<StateTabs> (editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                     return tabs->getItem (i).state;
         return juce::String();
     };
@@ -250,15 +250,15 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                 "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram (" + oscTabState (0) + ", " + oscTabState (1) + ")");
     }
 
-    // A DX7 voice: each strip shows the operator's LEVEL in dB (the FM
-    // card's), TRIM and FINE, its Operator Env instead of a sine, no FRAME
+    // A DX7 voice: each strip shows the operator's OUTPUT in dB (the FM
+    // card's), LEVEL and FINE, its Operator Env instead of a sine, no FRAME
     // (I7-2, I7-19).
     loadNamed ("E.PIANO 1 (ROM1A)");
     editor.showPage ("MAIN");
     settle (400);
     {
-        auto* level = knobFor ("osc2_eg_out", "LEVEL");
-        auto* trim = knobFor ("osc2_level", "TRIM");
+        auto* level = knobFor ("osc2_eg_out", "OUTPUT");
+        auto* trim = knobFor ("osc2_level", "LEVEL");
         const auto levelText = level != nullptr ? level->getSlider().getTextFromValue (level->getSlider().getValue()) : juce::String();
         std::vector<WaveDisplay*> waves;
         findAll<WaveDisplay> (editor, waves);
@@ -268,12 +268,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (level != nullptr && levelText.endsWith ("dB") && trim != nullptr && knobFor ("osc2_frame") == nullptr
                     && centreX (knobFor ("osc2_ratio")) < centreX (knobFor ("osc2_fine")) && centreX (knobFor ("osc2_fine")) < centreX (level)
                     && centreX (level) < centreX (trim) && compactWaves == 0,
-                "PLAY: an operator strip is RATIO, FINE, LEVEL (" + levelText + "), TRIM as on FM (V8-5), its Operator Env "
+                "PLAY: an operator strip is RATIO, FINE, OUTPUT (" + levelText + "), LEVEL as on FM (V8-5, I9-7), its Operator Env "
                 "pictured, no FRAME");
     }
 
     // OSC: the operator's card is its Operator Env (the FM graph), LEVEL,
-    // pitch with TRIM and one WAVE row, no warp, spectral or unison spread;
+    // pitch with LEVEL and one WAVE row, no warp, spectral or unison spread;
     // the one-frame sine shows as WAVE (I7-20, V7-16, V7-31, S7-12).
     editor.showPage ("OSC");
     settle (300);
@@ -286,10 +286,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
         auto* wave = oscWave (0);
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
-        expect (graph && knobFor ("osc1_eg_out", "LEVEL") != nullptr && knobFor ("osc1_level", "TRIM") != nullptr
+        expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "LEVEL") != nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
-                "OSC: an operator's card shows its Operator Env graph, LEVEL and TRIM, no wavetable warp or unison spread");
+                "OSC: an operator's card shows its Operator Env graph, OUTPUT and LEVEL, no wavetable warp or unison spread");
         expect (wave != nullptr && wave->getViewMode() == 0 && wave->getFrameReadout().isEmpty(),
                 "OSC: a one-frame sine opens as WAVE, with no frame readout");
 
@@ -347,8 +347,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
 
         // The exciters: one name table, in groups; a hammer has no pick
         // controls (I7-27).
+        // (Its controls are on PHYSICAL, the one string editor: I9-3.)
         setParam ("osc1_mode", 1.0f);
         setParam ("osc1_excite", 5.0f);
+        editor.showPage ("PHYSICAL");
         settle (400);
         std::vector<ComboControl*> combos;
         findAll<ComboControl> (editor, combos);
@@ -362,6 +364,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         setParam ("osc1_excite", 0.0f);
         settle (300);
         expect (knobFor ("osc1_string_pick_hardness") != nullptr, "OSC: a plucked burst has HARDNESS");
+        editor.showPage ("OSC");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -426,8 +429,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto sameLine = decay != nullptr && hammer != nullptr
                               && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
         expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
-                    && buttonNamed (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba")) != nullptr,
-                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, BODY links to FILTER");
+                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
+                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, EDIT BODY > links to FILTER");
         // The renamed exciter menu still shows its choice.
         juce::String exciteText;
         std::vector<ComboControl*> combos;
@@ -926,7 +929,7 @@ int runUiTests()
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
                 if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
-                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                    && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -1803,6 +1806,23 @@ int runUiTests()
         settle (300);
         expect (shownKnob ("fx_awsat_p1") && ! shownKnob ("fx_awsat_p4") && shownKnob ("fx_awsat_mix"),
                 "AW Saturation shows DENSITY and MIX but not the algorithm's Dry/Wet");
+        {
+            // The rack's words and units (I9-15 / S9-5): Density3 reads
+            // AMOUNT, LOW CUT and OUTPUT in dB, as the built-in twin would.
+            std::vector<KnobControl*> awKnobs;
+            findAll<KnobControl> (*editor, awKnobs);
+            juce::String labels, outputText;
+            for (const auto* id : { "fx_awsat_p1", "fx_awsat_p2", "fx_awsat_p3" })
+                for (auto* knob : awKnobs)
+                    if (knob->getParameterId() == id && visibleInTree (knob))
+                    {
+                        labels << knob->getLabelText() << "/";
+                        if (juce::String (id) == "fx_awsat_p3")
+                            outputText = knob->getSlider().getTextFromValue (knob->getSlider().getValue());
+                    }
+            expect (labels == "AMOUNT/LOW CUT/OUTPUT/" && outputText.endsWith (" dB"),
+                    "an Airwindows saturation reads AMOUNT, LOW CUT, OUTPUT in dB (" + labels + " " + outputText + ")");
+        }
         expect (shownDisplays() == 1, "AW Saturation shows its transfer curve");
         loadFx ({ 30 });
         if (auto* algo = processor.apvts.getParameter ("fx_aw_algo"))
@@ -2267,7 +2287,7 @@ int runUiTests()
                     std::vector<juce::TextButton*> all;
                     findAll<juce::TextButton> (*editor, all);
                     return std::any_of (all.begin(), all.end(), [] (juce::TextButton* button)
-                                        { return button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button); });
+                                        { return button->getButtonText().contains ("OP PITCH") && visibleInTree (button); });
                 };
                 const auto heightOnNeuro = diagramBounds().getHeight();
                 auto* neuroDiagram = findChild<FmDiagram> (*editor);
@@ -2313,7 +2333,7 @@ int runUiTests()
             }
 
             // The operator card speaks the synth's words: a rate as a time, a
-            // level as dB, the output as LEVEL and the oscillator level as TRIM.
+            // level as dB, the output as OUTPUT and the oscillator level as LEVEL.
             processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
             pages->showPage ("FM");
             settle (300);
@@ -2341,7 +2361,7 @@ int runUiTests()
                     trimLabel = knob->getLabelText();
             }
             expect (attackText.startsWith ("ATTACK ") && (attackText.endsWith (" ms") || attackText.endsWith (" s"))
-                        && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "LEVEL" && trimLabel == "TRIM",
+                        && peakText.startsWith ("PEAK ") && peakText.endsWith (" dB") && levelLabel == "OUTPUT" && trimLabel == "LEVEL",
                     "the Operator Env reads in the synth's words and units (" + attackText + ", " + peakText + ")");
 
             // Review 7: the time knobs turn the normal way (clockwise is
@@ -2432,7 +2452,7 @@ int runUiTests()
             // PITCH & LFO opens the voice's pitch envelope.
             findAll<juce::TextButton> (*editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button))
+                if (button->getButtonText().contains ("OP PITCH") && visibleInTree (button))
                     button->triggerClick();
             settle (300);
             graphs.clear();
@@ -2613,9 +2633,11 @@ int runUiTests()
         expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
                 "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
 
-        // M7.3: Tine and Reed swap the string controls for the pickup.
+        // M7.3: Tine and Reed swap the string controls for the pickup (on
+        // the PHYSICAL page, the one string editor: I9-3).
         set ("osc1_mode", 1.0f);
         set ("osc1_excite", 7.0f);
+        pages->showPage ("PHYSICAL");
         settle (300);
         expect (visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_ep_position") && visibleKnob ("osc1_hammer_hard")
                     && ! visibleKnob ("osc1_string_stiffness") && ! visibleKnob ("osc1_string_sustain"),
@@ -2624,6 +2646,7 @@ int runUiTests()
         settle (300);
         expect (! visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_string_stiffness"),
                 "a plucked string hides the pickup controls again");
+        pages->showPage ("OSC");
         set ("osc1_mode", 0.0f);
         settle (300);
 
@@ -3612,16 +3635,34 @@ int runUiTests()
                 if (auto* parameter = processor.apvts.getParameter (id))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
             };
+            // I9-1 / I9-19: one trigger model. The switch says where it runs
+            // (RETRIG on a plain shape, PER VOICE on a simulated one, whose
+            // TRIGGER says when it restarts), and the caption says both in
+            // the same words for every shape.
+            const auto runSwitchText = [&]
+            {
+                auto* toggle = dynamic_cast<ToggleControl*> (findToggle ("lfo1_retrig"));
+                return toggle != nullptr ? toggle->getButton().getButtonText() : juce::String();
+            };
+            const auto plainSwitch = runSwitchText();
+            const auto plainCaption = LfoShapeMenu::runCaption (processor, 0);
             setShape (LfoSimShapes::Bounce);
+            settle (150);
+            const auto simSwitch = runSwitchText();
             setParam ("lfo1_trigger", 0.0f);
             const auto onNote = LfoShapeMenu::runCaption (processor, 0);
             setParam ("lfo1_trigger", 1.0f);
             const auto free = LfoShapeMenu::runCaption (processor, 0);
             setParam ("lfo1_trigger", 0.0f);
             setShape (0);
-            expect (onNote.contains ("restarts on each note") && free.contains ("runs free") && ! onNote.contains ("free-running")
-                        && onNote.contains ("2 outputs"),
-                    "a Bounce LFO's caption follows TRIGGER ('" + onNote + "' / '" + free + "') and names its two outputs");
+            expect (onNote.contains ("restarts on any new note") && onNote.contains ("held notes") && free.contains ("runs free")
+                        && onNote.startsWith ("shared") && plainCaption == juce::String::fromUTF8 ("shared \xc2\xb7 runs free")
+                        && onNote.contains ("2 outputs") && ! onNote.contains ("restarts on each note"),
+                    "an LFO's caption says where it runs and when it restarts, the same words for plain and simulated shapes ('"
+                        + plainCaption + "' / '" + onNote + "' / '" + free + "')");
+            expect (plainSwitch == "RETRIG" && simSwitch == "PER VOICE",
+                    "the run switch reads RETRIG on a plain shape and PER VOICE on a simulated one, beside its TRIGGER ('" + plainSwitch
+                        + "' / '" + simSwitch + "')");
             settle (200);
         }
 
@@ -3646,9 +3687,12 @@ int runUiTests()
         }
     }
 
-    // UI review 8, I8-4 / S8-5 / V8-2: one MSEG. An old patch that routes the
-    // patch-level MSEG shows its card, and MOVE TO LFO puts it on an LFO
-    // drawn the same (SHAPE › MSEG), its routes with it; undo brings it back.
+    // UI review 8, I8-4 / S8-5 / V8-2: one MSEG. UI review 9, I9-2: an old
+    // patch that routes a looping MSEG module loads with it drawn on an LFO
+    // (SHAPE > MSEG, the same points and RATE) and its routes moved there, so
+    // no MSEG card or chip shows. A route made to it later (or a one-shot
+    // one) shows its card, in an LFO pastel, and MOVE TO LFO still moves it;
+    // undo brings it back.
     {
         const auto msegSweep = names.indexOf ("MSEG Sweep");
         processor.loadFactoryPreset (msegSweep);
@@ -3657,7 +3701,44 @@ int runUiTests()
         auto* page = pages->getCurrentPage();
         auto* lfoCards = page != nullptr ? findChild<LfoThumbBar> (*page) : nullptr;
         const auto msegCard = IlanaSynthAudioProcessor::numLfos;
-        expect (msegSweep >= 0 && lfoCards != nullptr && lfoCards->isCardInPool (msegCard) && modSourceInPatch (processor, Mod::Source::Mseg),
+        {
+            auto target = -1, fromLfo = 0;
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            {
+                const auto routing = processor.readModSlot (slot);
+                if (routing.destination != 0 && Mod::lfoIndexFor (routing.source) >= 0 && target < 0
+                    && juce::roundToInt (processor.apvts.getRawParameterValue ("lfo" + juce::String (Mod::lfoIndexFor (routing.source) + 1) + "_shape")->load())
+                           == IlanaSynthAudioProcessor::curveShape)
+                    target = Mod::lfoIndexFor (routing.source);
+            }
+            for (int slot = 0; target >= 0 && slot < Mod::maxSlots; ++slot)
+            {
+                const auto routing = processor.readModSlot (slot);
+                fromLfo += routing.destination != 0 && routing.source == Mod::lfoSourceFor (target) ? 1 : 0;
+            }
+            const auto curve = target >= 0 ? processor.getLfoCurve (target) : LfoCurve();
+            auto pointsMatch = curve.points.size() == 5;
+            for (int i = 0; pointsMatch && i < 4; ++i)
+                pointsMatch = std::abs (curve.points[(size_t) i].y - processor.apvts.getRawParameterValue ("mseg_level" + juce::String (i + 1))->load()) < 1.0e-4f;
+            const auto rate = target >= 0 ? processor.apvts.getRawParameterValue ("lfo" + juce::String (target + 1) + "_rate")->load() : 0.0f;
+            expect (msegSweep >= 0 && lfoCards != nullptr && ! lfoCards->isCardInPool (msegCard) && ! modSourceInPatch (processor, Mod::Source::Mseg)
+                        && target >= 0 && fromLfo == 2 && pointsMatch && processor.isLfoShown (target)
+                        && std::abs (rate - processor.apvts.getRawParameterValue ("mseg_rate")->load()) < 1.0e-3f,
+                    "MSEG Sweep loads with its MSEG drawn on LFO " + juce::String (target + 1)
+                        + " (SHAPE > MSEG, its points and RATE) and both routes there; no MSEG card or chip");
+            expect (modSourceColour ((int) Mod::Source::Mseg) != juce::Colour (0xffe0e6f0) && modSourceColour ((int) Mod::Source::Mseg).getSaturation() > 0.1f,
+                    "the MSEG source has an LFO pastel, not the white of a source without a family");
+        }
+
+        // A route made to the module afterwards: its card, and MOVE TO LFO.
+        processor.setModSlotValue (40, "src", (float) (int) Mod::Source::Mseg);
+        processor.setModSlotValue (40, "dst", 2.0f);
+        processor.setModSlotValue (40, "amt", 0.5f);
+        lfoCards = page != nullptr ? findChild<LfoThumbBar> (*page) : nullptr;
+        if (lfoCards != nullptr)
+            lfoCards->refreshLayout();
+        settle (300);
+        expect (lfoCards != nullptr && lfoCards->isCardInPool (msegCard) && modSourceInPatch (processor, Mod::Source::Mseg),
                 "a patch that routes the MSEG module shows its card");
         if (lfoCards != nullptr && lfoCards->isCardInPool (msegCard))
         {
@@ -3676,22 +3757,24 @@ int runUiTests()
                 move->triggerClick();
                 settle (300);
                 auto routesMoved = true;
-                auto fromLfo = 0;
                 for (int slot = 0; slot < Mod::maxSlots; ++slot)
-                {
-                    const auto routing = processor.readModSlot (slot);
-                    routesMoved = routesMoved && routing.source != Mod::Source::Mseg;
-                    fromLfo += routing.destination != 0 && routing.source == Mod::lfoSourceFor (target) ? 1 : 0;
-                }
+                    routesMoved = routesMoved && processor.readModSlot (slot).source != Mod::Source::Mseg;
                 const auto shape = juce::roundToInt (processor.apvts.getRawParameterValue ("lfo" + juce::String (target + 1) + "_shape")->load());
-                expect (target >= 0 && routesMoved && fromLfo == 2 && shape == IlanaSynthAudioProcessor::curveShape
-                            && ! lfoCards->isCardInPool (msegCard) && processor.isLfoShown (target),
+                expect (target >= 0 && routesMoved && processor.readModSlot (40).source == Mod::lfoSourceFor (target)
+                            && shape == IlanaSynthAudioProcessor::curveShape && ! lfoCards->isCardInPool (msegCard) && processor.isLfoShown (target),
                         "MOVE TO LFO draws the MSEG on LFO " + juce::String (target + 1) + " (SHAPE > MSEG) with its routes, and its card goes");
                 processor.getUndoManager().undo();
                 settle (300);
                 expect (modSourceRouted (processor, Mod::Source::Mseg), "undo puts the MSEG's routes back");
             }
         }
+
+        // A one-shot MSEG (LOOP off) stays a module: an LFO always cycles.
+        if (auto* loop = processor.apvts.getParameter ("mseg_loop"))
+            loop->setValueNotifyingHost (0.0f);
+        settle (100);
+        expect (processor.legacyMsegTargetLfo() < 0 && ! processor.moveLegacyMsegToLfo() && modSourceRouted (processor, Mod::Source::Mseg),
+                "a one-shot MSEG stays the module (no LFO can play it once)");
         processor.loadFactoryPreset (neuroWobble);
         settle (300);
     }
@@ -3854,31 +3937,55 @@ int runUiTests()
             bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
         // (UI review 8, V8-23: the body's switch and main controls are here
         // too now, with links to the rest.)
-        expect (pageButtons.contains (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba"))
-                    && pageButtons.contains (juce::CharPointer_UTF8 ("ACOUSTIC KEYS \xe2\x80\xba")) && bodySwitch,
+        expect (pageButtons.contains (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"))
+                    && pageButtons.contains (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba")) && bodySwitch,
                 "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (ACOUSTIC KEYS)");
 
+        // UI review 9, I9-3: the string has one editor. The OSC card keeps
+        // the moving string, the exciter, DECAY and DAMP, and EDIT STRING ›
+        // opens PHYSICAL on that oscillator; the rest is PHYSICAL's alone.
         pages->showPage ("OSC");
         settle (300);
         selectOscTab (physicalPrefix.getTrailingIntValue() - 1);
         std::vector<KnobControl*> oscKnobs;
         findAll<KnobControl> (*editor, oscKnobs);
-        juce::StringArray missing;
+        juce::StringArray onCard;
         for (const auto& id : listIds)
-        {
-            auto* parameter = processor.apvts.getParameter (id);
-            if (dynamic_cast<juce::AudioParameterFloat*> (parameter) == nullptr)
-                continue;
-            if (std::none_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
-                missing.add (id);
-        }
+            if (std::any_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
+                onCard.add (id);
         std::vector<PhysicalView*> views;
         findAll<PhysicalView> (*editor, views);
         auto stringShown = false;
         for (auto* view : views)
             stringShown = stringShown || visibleInTree (view);
-        expect (missing.isEmpty() && stringShown,
-                "the OSC card shows the same physical controls and the moving string (missing: " + missing.joinIntoString (", ") + ")");
+        const juce::StringArray expectedOnCard { physicalPrefix + "_string_decay", physicalPrefix + "_string_damp" };
+        expect (onCard == expectedOnCard && stringShown,
+                "the OSC card shows the moving string with DECAY and DAMP only; the string's other controls are PHYSICAL's ("
+                    + onCard.joinIntoString (", ") + ")");
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            juce::TextButton* editString = nullptr;
+            for (auto* button : buttons)
+                if (visibleInTree (button) && button->getButtonText() == juce::String::fromUTF8 ("EDIT STRING \xe2\x80\xba"))
+                    editString = button;
+            if (editString != nullptr)
+            {
+                editString->triggerClick();
+                settle (300);
+            }
+            auto onString = false;
+            {
+                std::vector<PhysicalView*> physicalViews;
+                if (auto* current = pages->getCurrentPage())
+                    findAll<PhysicalView> (*current, physicalViews);
+                for (auto* candidate : physicalViews)
+                    onString = onString || (visibleInTree (candidate) && candidate->getOscillator() == physicalPrefix
+                                            && candidate->getWidth() > pages->getWidth() / 2);
+            }
+            expect (editString != nullptr && onString,
+                    "OSC's EDIT STRING > opens PHYSICAL on that oscillator");
+        }
 
         processor.loadFactoryPreset (neuroWobble);
         settle (600);
@@ -5634,6 +5741,11 @@ int runUiTests()
                 expect (describeValue ("amp_delay", 0.0f) == "0 ms" && describeValue ("fe_hold", 0.0f) == "0 ms"
                             && describeValue ("opeg_lfo_delay", 0.0f) == "0 ms",
                         "an envelope's DELAY / HOLD and the Op LFO's DELAY at 0 read 0 ms, not Off");
+                // A word in a number's place reads dim (I9-25).
+                expect (IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 0.0f))
+                            && IlanaLookAndFeel::isPlaceholderValue (describeValue ("osc1_string_excite_pos", 0.0f))
+                            && ! IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 3.0f)),
+                        "SEED's Free and EXCITE POS's Auto read dim, the numbers do not");
 
                 // "+" adds the next LFO and opens it; its x takes it away
                 // again at once while nothing routes it.
@@ -5786,11 +5898,12 @@ int runUiTests()
                             {
                                 settle (100);
                                 if ((chip->getSecondOutputBounds().isEmpty() || chip->secondIndex != (int) Mod::Source::Lfo1B))
-                                    problems.add ("LFO 1's chip has no B");
-                                // S8-16 / V8-28: over the B, the tooltip names OUT B.
-                                else if (! chip->tooltipAt (chip->getSecondOutputBounds().getCentre()).contains ("(OUT B)")
-                                         || chip->tooltipAt ({ 4.0f, 4.0f }).contains ("OUT B"))
-                                    problems.add ("LFO 1's B has no OUT B tooltip");
+                                    problems.add ("LFO 1's chip has no OUT 2");
+                                // S8-16 / V8-28 / V9-20: over the sub-chip, the
+                                // tooltip names the second output, spelt out.
+                                else if (! chip->tooltipAt (chip->getSecondOutputBounds().getCentre()).contains ("OUT 2")
+                                         || chip->tooltipAt ({ 4.0f, 4.0f }).contains ("OUT 2"))
+                                    problems.add ("LFO 1's OUT 2 has no tooltip naming it");
                             }
                     }
                     expect (problems.isEmpty(), "every simulated LFO shape's knobs show name, dial and value apart, no control overlaps, "
@@ -5987,7 +6100,8 @@ int runUiTests()
                     for (int source = 1; source < names.size() && onlyPool; ++source)
                         if (offered.contains (names[source]) && ! modSourceInPatch (processor, (Mod::Source) source))
                             onlyPool = false;
-                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("AMP ENV")
+                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains (juce::String::fromUTF8 ("LFO 1 \xc2\xb7 OUT 2"))
+                               && offered.contains ("AMP ENV")
                                && ! offered.contains (names[(int) Mod::lfoSourceFor (hiddenLfo)])
                                && offered.contains ("New LFO  (LFO " + juce::String (hiddenLfo + 1) + ")");
 
@@ -7050,7 +7164,7 @@ int main (int argc, char** argv)
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*page, buttons);
         for (auto* button : buttons)
-            if (button->getButtonText().startsWith ("OP PITCH") && button->onClick != nullptr)
+            if (button->getButtonText().contains ("OP PITCH") && button->onClick != nullptr)
             {
                 // The link opens OP PITCH on MOD.
                 button->onClick();
@@ -7470,7 +7584,7 @@ int main (int argc, char** argv)
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*page, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText().startsWith ("OP PITCH") && button->isVisible() && button->onClick != nullptr)
+                if (button->getButtonText().contains ("OP PITCH") && button->isVisible() && button->onClick != nullptr)
                 {
                     button->onClick();
                     settle (300);
@@ -7922,6 +8036,42 @@ int main (int argc, char** argv)
         pages->showPage ("FM");
         settle (400);
         save (*editor, outDir.getChildFile ("fm-no-input.png"));
+        processor.loadFactoryPreset (0);
+        pages->showPage ("MAIN");
+        settle (300);
+    }
+
+    // Sample mode (UI review 9, I9-22): OSC 1 empty with its LOAD, then an
+    // SFZ's two zones under the wave.
+    {
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-shot-sfz");
+        folder.createDirectory();
+        {
+            juce::AudioBuffer<float> tone (1, 22050);
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (0, i, 0.5f * std::sin ((float) i * 0.06f) * std::exp (-(float) i / 8000.0f));
+            juce::WavAudioFormat wav;
+            auto file = folder.getChildFile ("tone.wav");
+            file.deleteFile();
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 44100.0, 1, 16, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+                }
+            folder.getChildFile ("test.sfz").replaceWithText ("<region> sample=tone.wav lokey=36 hikey=59 pitch_keycenter=48\n"
+                                                              "<region> sample=tone.wav lokey=60 hikey=84 pitch_keycenter=72\n");
+        }
+        processor.loadFactoryPreset (0);
+        if (auto* parameter = processor.apvts.getParameter ("osc1_mode"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
+        pages->showPage ("OSC");
+        settle (400);
+        save (*editor, outDir.getChildFile ("osc-sample-empty.png"));
+        processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+        settle (500);
+        save (*editor, outDir.getChildFile ("osc-sample-sfz.png"));
+        folder.deleteRecursively();
         processor.loadFactoryPreset (0);
         pages->showPage ("MAIN");
         settle (300);

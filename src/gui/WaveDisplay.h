@@ -798,7 +798,8 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (compact ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
-            IlanaTheme::drawFitted (g, compact ? "DROP A SAMPLE" : "DROP A SAMPLE HERE", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+            // (A hint, so a sentence: UI review 9, I9-22.)
+            IlanaTheme::drawFitted (g, compact ? "Drop a sample" : "Drop a sample here, or LOAD one", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
             return;
         }
 
@@ -931,8 +932,9 @@ private:
         }
 
         if (! compact)
-            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + " zones, " : juce::String())
-                                                 + (reverse ? "REV " : "") + juce::String (loop ? "loop" : "1-shot"));
+            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
+                                                                           : juce::String())
+                                                 + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"));
     }
 
     // The zones as boxes on a keyboard strip: the used key range across
@@ -1406,7 +1408,41 @@ private:
         g.setColour (dragging ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText (readout, footerArea().reduced (4.0f, 0.0f), juce::Justification::centredLeft, true);
+
+        // What a drag on the plot does, at the footer's right while there is
+        // room (UI review 9, S9-18: the warp drag had no visible hint).
+        if (const auto hint = getDragHint(); hint.isNotEmpty() && ! dragging)
+        {
+            const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto footer = footerArea().reduced (4.0f, 0.0f);
+            const auto used = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), readout);
+            if (juce::GlyphArrangement::getStringWidth (font, hint) + used + 16.0f <= footer.getWidth())
+            {
+                g.setFont (font);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (hint, footer, juce::Justification::centredRight, false);
+            }
+        }
     }
+
+public:
+    // The footer's drag hint: across moves the frame of a table with more
+    // than one, up and down the first WARP's amount once a warp is chosen
+    // (the UI test reads it).
+    juce::String getDragHint() const
+    {
+        if (compact || ! isTableMode() || subTableMapping || shownViewMode() == 2)
+            return {};
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+        const auto frames = table != nullptr && ! isStaticTable (table);
+        if (frames && canDragWarp())
+            return juce::String::fromUTF8 ("drag across: frame \xc2\xb7 up / down: warp");
+        if (frames)
+            return "drag across: frame";
+        return canDragWarp() ? "drag up / down: warp" : juce::String();
+    }
+
+private:
 
     void mouseDownOnHeader (const juce::MouseEvent& event)
     {

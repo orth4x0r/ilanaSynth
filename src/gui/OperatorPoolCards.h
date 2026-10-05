@@ -278,11 +278,10 @@ inline void paintOperatorPanel (juce::Graphics& g, juce::Rectangle<int> panel, c
     IlanaTheme::paintCardHeader (g, panel.reduced (12, 0).withHeight (26), title, subtitle, OperatorPool::colour(), reserveRight);
 }
 
-inline void styleFmLink (juce::TextButton& button, const juce::String& text = juce::String::fromUTF8 ("FM \xe2\x80\xba"))
+// (The jump links' one style since UI review 9, I9-14: "EDIT ON FM ›".)
+inline void styleFmLink (juce::TextButton& button, const juce::String& what = "ON FM")
 {
-    button.setButtonText (text);
-    button.getProperties().set ("pill", true);
-    button.setColour (juce::TextButton::buttonOnColourId, OperatorPool::colour());
+    styleJumpLink (button, what);
 }
 
 // TRANSPOSE (UI review 8, S8-19): a knob in semitones, as SCALE SHIFT beside
@@ -611,7 +610,7 @@ public:
         headerLeft = header.getRight();
         if (fmLink.isVisible())
         {
-            fmLink.setBounds (header.removeFromRight (46));
+            fmLink.setBounds (header.removeFromRight (84));
             header.removeFromRight (8);
             headerLeft = fmLink.getX();
         }

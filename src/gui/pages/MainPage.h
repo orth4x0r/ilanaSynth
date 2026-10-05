@@ -49,6 +49,7 @@ public:
             {
                 TableBrowser::show (processorRef, id, colour, table->getComboBox());
             });
+            strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "");
             const auto knob = [&] (const juce::String& suffix, const juce::String& label)
             {
                 const auto id = prefix + suffix;
@@ -69,7 +70,7 @@ public:
             // follows the FM card's order: RATIO, FINE, its OUTPUT in dB, the
             // oscillator's own LEVEL (I7-2, I7-19; review 8, V8-5; 9, I9-7).
             strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
-            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
+            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_warp_amt", "WARP"), knob ("_unison", "UNI"), knob ("_detune", "DET") };
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
             strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
@@ -78,7 +79,7 @@ public:
             // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
             strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
 
-            addAll (oscColumn, *strip->on, *strip->mode, *strip->table);
+            addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp);
             oscColumn.addChildComponent (*strip->excite);
 
             strips.push_back (std::move (strip));
@@ -433,7 +434,7 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (12, 10);
-        auto left = area.removeFromLeft ((int) ((float) area.getWidth() * 0.54f));
+        auto left = area.removeFromLeft ((int) ((float) area.getWidth() * 0.56f));
         area.removeFromLeft (10);
         auto right = area;
 
@@ -649,7 +650,7 @@ private:
     struct OscStrip
     {
         std::unique_ptr<ToggleControl> on;
-        std::unique_ptr<ComboControl> mode, excite, table;
+        std::unique_ptr<ComboControl> mode, excite, table, warp;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
         // The first column by TUNING (semitones, ratio, fixed Hz); the other
         // three by mode, or the Operator Env's.
@@ -790,13 +791,13 @@ private:
         if (isFolded (index))
         {
             for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
-                                   (juce::Component*) strip.excite.get(), (juce::Component*) &wave (index) })
+                                   (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) &wave (index) })
                 control->setVisible (false);
             strip.on->setVisible (true);
             return;
         }
 
-        std::vector<juce::Component*> controls { strip.mode.get(), strip.table.get(), strip.excite.get(), &wave (index) };
+        std::vector<juce::Component*> controls { strip.mode.get(), strip.table.get(), strip.excite.get(), strip.warp.get(), &wave (index) };
 
         if (strip.opEg)
             strip.thumb.update (processorRef, index);
@@ -809,6 +810,7 @@ private:
             }
 
         strip.table->setVisible (shown && mode == 0);
+        strip.warp->setVisible (shown && mode == 0 && ! strip.opEg);
         strip.excite->setVisible (shown && mode == 1);
         // An operator names itself where the MODE menu goes (its mode is
         // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
@@ -1108,7 +1110,7 @@ private:
         const auto side = juce::jmin (column.getWidth(), column.getHeight());
         columns.picture = column.withSizeKeepingCentre (side, side);
         inner.removeFromLeft (6);
-        columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24);
+        columns.menus = inner.removeFromLeft (menuWidth).withSizeKeepingCentre (menuWidth, 24 + 4 + 24 + 4 + 24);
         inner.removeFromLeft (4);
         columns.knobs = inner;
         return columns;
@@ -1134,7 +1136,11 @@ private:
         const auto mode = juce::jmax (0, strip.shownMode);
 
         if (mode == 0)
-            strip.table->setBounds (menus);
+        {
+            strip.table->setBounds (menus.removeFromTop (24));
+            menus.removeFromTop (4);
+            strip.warp->setBounds (menus.removeFromTop (24));
+        }
         else if (mode == 1)
             strip.excite->setBounds (menus);
 
@@ -1294,8 +1300,8 @@ private:
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
     static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
-    static constexpr int minSlotHeight = 68, maxSlotHeight = 124, foldedHeight = 40;
-    static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
+    static constexpr int minSlotHeight = 92, maxSlotHeight = 124, foldedHeight = 40;
+    static constexpr int titleWidth = 84, pictureWidth = 72, menuWidth = 100, switchWidth = 46, minKnobsWidth = 300;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind

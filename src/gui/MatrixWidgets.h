@@ -126,7 +126,7 @@ inline juce::PopupMenu buildDestinationMenu()
         {
             juce::PopupMenu menu;
             for (const auto& module : order)
-                menu.addSubMenu (module, menus[module]);
+                menu.addSubMenu (module.toUpperCase(), menus[module]);
             return menu;
         }
     };
@@ -158,7 +158,7 @@ inline juce::PopupMenu buildDestinationMenu()
 
         if (id.startsWith ("fx_"))
         {
-            effects.add (destination, id.startsWith ("fx_slot") ? juce::String ("FX Slot Blend") : juce::String());
+            effects.add (destination, id.startsWith ("fx_slot") ? juce::String ("FX SLOT BLEND") : juce::String());
             continue;
         }
 
@@ -546,8 +546,10 @@ public:
     {
         for (int m = 0; m < names.size(); ++m)
         {
+            // As every source is named (ModNames::source): "TONE (M1)".
             const auto base = "Macro " + juce::String (m + 1);
-            const auto text = names[m] == base ? base : base + " (" + names[m] + ")";
+            const auto text = names[m].equalsIgnoreCase (base) || names[m].isEmpty() ? base.toUpperCase()
+                                                                                      : names[m].toUpperCase() + " (M" + juce::String (m + 1) + ")";
             const auto itemId = (int) Mod::macroSourceFor (m) + 1;
 
             for (auto* box : { &source, &via })
@@ -806,7 +808,9 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (0, 3);
+        // A taller row (few routings fill the page: V8-20) keeps its controls
+        // at their size, centred.
+        auto area = getLocalBounds().withSizeKeepingCentre (getWidth(), juce::jmin (getHeight(), rowHeight + 2)).reduced (0, 3);
         area.removeFromLeft (Columns::number);
         bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (32, 18));
         area.removeFromLeft (Columns::gap * 2);

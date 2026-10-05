@@ -47,7 +47,7 @@ public:
     // The width the chip needs for its name (the bar shares out the rest).
     static float widthFor (const juce::String& text)
     {
-        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 30.0f;
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 28.0f;
     }
 
     // (plus room for an LFO's "B" sub-chip when it has one).
@@ -58,7 +58,7 @@ public:
     // the bar folds alike at 75 % and 100 % (V7-39).
     static float layoutWidthFor (const juce::String& text)
     {
-        return layoutTextWidth (text) + 30.0f;
+        return layoutTextWidth (text) + 28.0f;
     }
     float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? 19.0f : 0.0f); }
 
@@ -246,10 +246,11 @@ private:
     float hoverRest = 0.0f;
 };
 
-// When the bar can't fit every chip, the LFOs, the envelopes and then the
-// performance sources each fold their last chips into one group chip
-// ("LFO +4"), with a dot per source in its colour. Hover or click it to open
-// a tray of those chips above it; they drag and pin like any other.
+// When a region of the bar can't fit every chip (the LFOs, the envelopes,
+// the performance sources), it folds its last chips into one chip at its
+// end, "+4", with a dot per source in its colour (one look for all three:
+// the region says which group). Hover or click it to open a tray of those
+// chips above it; they drag and pin like any other.
 class ModSourceGroupChip : public juce::Component,
                            public juce::SettableTooltipClient,
                            private IlanaAnim::FrameTimer
@@ -273,25 +274,26 @@ public:
         juce::StringArray names;
         for (const auto source : sources)
             names.add (ModNames::sourceUpper (source));
-        setTooltip (names.joinIntoString (",  ") + "\nHover or click to show them; drag one onto a knob to modulate it.");
+        setTooltip (group + ": " + names.joinIntoString (",  ") + "\nHover or click to show them; drag one onto a knob to modulate it.");
         repaint();
     }
 
     const std::vector<int>& getSources() const { return sources; }
-    juce::String getLabel() const { return group + " +" + juce::String ((int) sources.size()); }
-    float getNaturalWidth() const { return widthFor (group, (int) sources.size()); }
+    juce::String getLabel() const { return "+" + juce::String ((int) sources.size()); }
+    const juce::String& getGroupName() const { return group; }
+    float getNaturalWidth() const { return widthFor ({}, (int) sources.size()); }
 
-    float getLayoutWidth() const { return layoutWidthFor (group, (int) sources.size()); }
-    static float layoutWidthFor (const juce::String& groupName, int count)
+    float getLayoutWidth() const { return layoutWidthFor ({}, (int) sources.size()); }
+    static float layoutWidthFor (const juce::String&, int count)
     {
-        return ModSourceChip::layoutTextWidth (groupName + " +" + juce::String (count)) + 28.0f;
+        return ModSourceChip::layoutTextWidth ("+" + juce::String (count)) + 28.0f;
     }
 
     // The width a group chip of n sources needs.
-    static float widthFor (const juce::String& groupName, int count)
+    static float widthFor (const juce::String&, int count)
     {
         return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true),
-                                                                 groupName + " +" + juce::String (count))
+                                                                 "+" + juce::String (count))
                + 28.0f;
     }
 

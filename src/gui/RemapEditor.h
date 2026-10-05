@@ -78,6 +78,18 @@ public:
         shapesButton.setBounds (top.removeFromRight (78));
     }
 
+    // Replaces the curve with one of the presets (SHAPES, or the matrix's
+    // quick shape tiles), as one undo step.
+    void applyShape (int index)
+    {
+        processorRef.beginEdit (editName());
+        curve = shape (index);
+        commit();
+        processorRef.endEdit();
+    }
+
+    const LfoCurve& getCurve() const { return curve; }
+
     static juce::StringArray getShapeNames()
     {
         return { "Straight", "Invert", "Ease In", "Ease Out", "S-Curve", "Dead Zone", "Peak", "Steps 4", "Gate" };
@@ -449,4 +461,57 @@ private:
     juce::String titleSuffix;
     juce::TextButton shapesButton, closeButton;
     std::function<void()> onClose;
+};
+
+// A preset remap curve as a small tile (the matrix's dock lists them beside
+// the open editor): its curve over a well, its name under it. A click
+// applies it.
+class RemapShapeTile : public juce::Button
+{
+public:
+    explicit RemapShapeTile (int shapeIndexIn)
+        : juce::Button (RemapEditor::getShapeNames()[shapeIndexIn]), shapeIndex (shapeIndexIn)
+    {
+        setTooltip (getName() + "\nUse this curve for the open routing.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    int getShapeIndex() const { return shapeIndex; }
+    juce::Colour colour = IlanaTheme::accent();
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        const auto nameArea = bounds.removeFromBottom (13.0f);
+        const auto plot = bounds.reduced (2.0f);
+        IlanaTheme::paintWell (g, plot, 4.0f);
+        if (highlighted || down)
+        {
+            g.setColour (colour.withAlpha (down ? 0.25f : 0.12f));
+            g.fillRoundedRectangle (plot, 4.0f);
+        }
+
+        const auto curve = RemapEditor::shape (shapeIndex);
+        const auto inner = plot.reduced (4.0f, 4.0f);
+        juce::Path path;
+        for (int i = 0; i <= 32; ++i)
+        {
+            const auto x = juce::jmin (0.9999f, (float) i / 32.0f);
+            const auto point = juce::Point<float> (inner.getX() + inner.getWidth() * (float) i / 32.0f,
+                                                   inner.getCentreY() - curve.valueAt (x) * inner.getHeight() * 0.5f);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setColour (colour.withAlpha (highlighted || down ? 1.0f : 0.8f));
+        g.strokePath (path, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawFittedText (getName().toUpperCase(), nameArea.toNearestInt(), juce::Justification::centred, 1, 0.9f);
+    }
+
+private:
+    int shapeIndex;
 };

@@ -59,6 +59,9 @@ public:
             setMouseCursor (juce::MouseCursor::DraggingHandCursor);
         }
 
+        if (macroIndex >= 0)
+            refreshTargets();
+
         startPollingHz (60); // follows its value, no animation of its own
     }
 
@@ -100,12 +103,39 @@ public:
             // card (rest on it) the same.
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto name = title.toUpperCase();
-            const auto markWidth = idleTargets > 0 ? 14 : 0;
+            const auto markWidth = (idleTargets > 0 ? 14 : 0) + (evolving ? 16 : 0);
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
-            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            // A macro routed nowhere reads quietly, so the preset's own
+            // macros stand out (V8-37).
+            const auto quiet = macroIndex >= 0 && ! isAssigned();
+            g.setColour (hover ? IlanaTheme::Ui::text : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
             g.setFont (font);
             g.drawFittedText (name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1, 0.8f);
+
+            // An evolving macro carries a small drift wave after its name
+            // (its EVOLVE is on its card).
+            if (evolving)
+            {
+                const auto capHeight = juce::Font (font).getAscent() * 0.72f;
+                const auto wave = juce::Rectangle<float> ((float) nameArea.getX() + 4.0f,
+                                                          (float) nameArea.getBottom() - juce::Font (font).getDescent() - capHeight,
+                                                          11.0f, capHeight);
+                juce::Path path;
+                for (int i = 0; i <= 12; ++i)
+                {
+                    const auto t = (float) i / 12.0f;
+                    const auto point = juce::Point<float> (wave.getX() + t * wave.getWidth(),
+                                                           wave.getCentreY() - std::sin (t * juce::MathConstants<float>::twoPi) * wave.getHeight() * 0.4f);
+                    if (i == 0)
+                        path.startNewSubPath (point);
+                    else
+                        path.lineTo (point);
+                }
+                g.setColour (modSourceColour ((int) Mod::macroSourceFor (macroIndex)));
+                g.strokePath (path, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                nameArea.removeFromLeft (16);
+            }
 
             markBounds = {};
             if (idleTargets > 0)
@@ -130,10 +160,23 @@ public:
             text.removeFromTop (text.getHeight() / 2);
         }
 
+        if (macroIndex >= 0 && ! isAssigned())
+        {
+            // Nothing to move yet: say how to give it something.
+            g.setColour (hover ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("+ ASSIGN", text, juce::Justification::topLeft, true);
+            return;
+        }
+
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)); // a live value
         g.drawText (valueText(), text, juce::Justification::topLeft, true);
     }
+
+    // Whether the macro moves anything: a routing, or its own EVOLVE.
+    bool isAssigned() const { return routedTargets > 0 || evolving; }
+    bool isEvolving() const { return evolving; }
 
     void resized() override
     {
@@ -234,6 +277,33 @@ private:
         return area.reduced (0, 6);
     }
 
+public:
+    // Reads the macro's routings and EVOLVE again (the timer does it a few
+    // times a second; the tests call it).
+    void refreshTargets()
+    {
+        juce::String text;
+        const auto idle = countIdleTargets (text);
+        idleText = text;
+        auto routed = 0;
+        for (int i = 0; i < Mod::maxSlots; ++i)
+        {
+            const auto slot = processorRef.readModSlot (i);
+            routed += slot.source == Mod::macroSourceFor (macroIndex) && slot.destination != 0 ? 1 : 0;
+        }
+        const auto* evolve = processorRef.apvts.getRawParameterValue ("macro" + juce::String (macroIndex + 1) + "_evolve");
+        const auto nowEvolving = evolve != nullptr && evolve->load() > 0.0005f;
+        if (idle != idleTargets || routed != routedTargets || nowEvolving != evolving)
+        {
+            idleTargets = idle;
+            routedTargets = routed;
+            evolving = nowEvolving;
+            knob.setAlpha (isAssigned() ? 1.0f : 0.55f);
+            repaint();
+        }
+    }
+
+private:
     int countIdleTargets (juce::String& text) const
     {
         const auto source = Mod::macroSourceFor (macroIndex);
@@ -277,18 +347,11 @@ private:
             else if (! resting)
                 hoverRest = 0.0f;
 
-            // Its idle targets, a few times a second.
+            // Its targets and idle targets, a few times a second.
             if ((idleCheck += frameSeconds()) > 0.4f)
             {
                 idleCheck = 0.0f;
-                juce::String text;
-                const auto idle = countIdleTargets (text);
-                idleText = text;
-                if (idle != idleTargets)
-                {
-                    idleTargets = idle;
-                    repaint();
-                }
+                refreshTargets();
             }
         }
 
@@ -309,7 +372,8 @@ private:
     int macroIndex = -1;
     float lastValue = -1.0f;
     float hoverRest = 0.0f, idleCheck = 1.0f;
-    int idleTargets = 0;
+    int idleTargets = 0, routedTargets = -1;
+    bool evolving = false;
     juce::String idleText;
     juce::Rectangle<int> markBounds;
     bool hover = false;

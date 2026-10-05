@@ -8,13 +8,13 @@
 #include "AnimationUtils.h"
 
 // The hover line (UI review 6: the status line only while hovering). It
-// has no row of its own: while the mouse rests on a control that explains
-// itself (its tooltip text), the line fades in just above the source chip
-// row (review 7, S7-20: never over the chips) with the control's name and
-// description, and fades out when the mouse leaves it, comes down to the
-// chips or the macros (quietArea), or a drag is under way. A control the
-// line would cover gets no line (its tooltip still shows). It never takes
-// a click.
+// has a thin row of its own between the pages and the source chips (review
+// 8, S8-11 / V8-31: it used to float over the cards' bottom edges; review
+// 7, S7-20: never over the chips): while the mouse rests on a control that
+// explains itself (its tooltip text), the line fades in with the control's
+// name and description, and fades out when the mouse leaves it, comes down
+// to the chips or the macros (quietArea), or a drag is under way. It never
+// takes a click.
 class InfoStrip : public juce::Component,
                   private IlanaAnim::FrameTimer
 {

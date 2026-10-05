@@ -13,10 +13,12 @@
 // were: these are display names only.
 namespace ModNames
 {
-// A source's canonical name, in title case ("Filt 2 Env", "Mod Wheel",
-// "Pressure"). Surfaces drawn in capitals (chips, tabs, card titles) show it
-// upper-cased; nothing shortens it to a code. A macro takes its patch name
-// when it has one: "Macro 1 (TONE)".
+// A source's one name, written as its chip is (UI-CONVENTIONS: module and
+// source names are upper case in labels, chips and combos; review 8,
+// I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 B". Tooltips and menus use it
+// too, so a source never reads two ways. Nothing shortens it to a code. A
+// macro with a patch name leads with that name, as its knob in the strip
+// does, and keeps its number after it: "TONE (M1)" (S8-26).
 inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* processor = nullptr)
 {
     using S = Mod::Source;
@@ -26,7 +28,7 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
     {
         const auto base = "Macro " + juce::String (macro + 1);
         const auto name = processor != nullptr ? processor->getMacroName (macro) : base;
-        return name == base || name.isEmpty() ? base : base + " (" + name + ")";
+        return name.equalsIgnoreCase (base) || name.isEmpty() ? base.toUpperCase() : name.toUpperCase() + " (M" + juce::String (macro + 1) + ")";
     }
 
     if (const auto lfo = Mod::lfoIndexFor (s); lfo >= 0)
@@ -36,43 +38,43 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
         return "LFO " + juce::String (lfo + 1) + " B";
 
     if (s >= S::Env6 && s <= S::Env16)
-        return "Env " + juce::String (6 + sourceIndex - (int) S::Env6);
+        return "ENV " + juce::String (6 + sourceIndex - (int) S::Env6);
 
     switch (s)
     {
         case S::None:       return "None";
-        case S::AmpEnv:     return "Amp Env";
-        case S::FilterEnv:  return "Filt Env";
-        case S::FilterEnv2: return "Filt 2 Env";
-        case S::ModEnv:     return "Mod Env";
-        case S::Env4:       return "Env 5";
-        case S::Velocity:   return "Velocity";
-        case S::KeyTrack:   return "Key Track";
-        case S::Random:     return "Random";
-        case S::ModWheel:   return "Mod Wheel";
-        case S::Aftertouch: return "Pressure";
-        case S::Expression: return "Expression";
-        case S::ClockSh:    return "Clocked S&H";
+        case S::AmpEnv:     return "AMP ENV";
+        case S::FilterEnv:  return "FILT ENV";
+        case S::FilterEnv2: return "FILT 2 ENV";
+        case S::ModEnv:     return "MOD ENV";
+        case S::Env4:       return "ENV 5";
+        case S::Velocity:   return "VELOCITY";
+        case S::KeyTrack:   return "KEY TRACK";
+        case S::Random:     return "RANDOM";
+        case S::ModWheel:   return "MOD WHEEL";
+        case S::Aftertouch: return "PRESSURE";
+        case S::Expression: return "EXPRESSION";
+        case S::ClockSh:    return "CLOCKED S&H";
         case S::Mseg:       return "MSEG";
-        case S::InputEnv:   return "Input Env";
-        case S::VectorX:    return "Vector X";
-        case S::VectorY:    return "Vector Y";
+        case S::InputEnv:   return "INPUT ENV";
+        case S::VectorX:    return "VECTOR X";
+        case S::VectorY:    return "VECTOR Y";
         case S::OpLfo:      return "OP LFO";
         case S::OpPitchEnv: return "OP PITCH";
         default:            break;
     }
 
-    return Mod::getSourceNames()[sourceIndex];
+    return Mod::getSourceNames()[sourceIndex].toUpperCase();
 }
 
-// The same in capitals, for chips and card titles. A macro shows its own
-// name alone there ("TONE"), as the macro strip does.
+// The name a chip or card title shows. A macro shows its own name alone
+// there ("TONE"), as the macro strip does.
 inline juce::String sourceUpper (int sourceIndex, const IlanaSynthAudioProcessor* processor = nullptr)
 {
     if (const auto macro = Mod::macroIndexFor ((Mod::Source) sourceIndex); macro >= 0 && processor != nullptr)
         return processor->getMacroName (macro).toUpperCase();
 
-    return source (sourceIndex).toUpperCase();
+    return source (sourceIndex);
 }
 
 // Every source in the order the pickers list them, grouped: LFOs (A then
@@ -197,8 +199,13 @@ inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcesso
 }
 
 //==============================================================================
-// Destinations, written module first as the pages label them:
-// "Filter 1 › Cutoff", "OSC 2 › Level", "FM › OSC 2 → OSC 1", "FX Reverb › Mix".
+// Destinations, written by one formatter everywhere (the matrix, the knob
+// cards, the macro card, the remap header, the hover line, tooltips): the
+// module in capitals as its card names it, then the control as its knob is
+// labelled, "MODULE › Control" (review 8: V8-13, I8-12, S8-11):
+// "FILTER 1 › Cutoff", "OSC 2 › Semi", "FM › OSC 2 → OSC 1", "FX REVERB › Mix".
+// The parts below keep the module's plain spelling ("Filter 1"), which the
+// menus and the idle checks match against; full() writes it.
 
 inline const juce::String& separator()
 {
@@ -216,7 +223,7 @@ inline const juce::String& arrow()
 struct DestinationName
 {
     juce::String module, control;
-    juce::String full() const { return control.isEmpty() ? module : module + separator() + control; }
+    juce::String full() const { return control.isEmpty() ? module : module.toUpperCase() + separator() + control; }
 };
 
 namespace detail
@@ -512,18 +519,27 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
 }
 } // namespace detail
 
+// A control the matrix used to name apart from its knob, named as the knob
+// is labelled (V8-13: the knob says SEMI, so the route does too).
+inline DestinationName asLabelled (DestinationName name)
+{
+    if (name.module.startsWith ("OSC ") && name.control == "Pitch")
+        name.control = "Semi";
+    return name;
+}
+
 inline DestinationName destinationParts (int destination)
 {
     if (const auto param = Mod::paramDestinationIndex (destination); param >= 0)
     {
         const auto& entry = Mod::getParamDestinations()[(size_t) param];
-        return detail::paramName (entry.id, entry.name);
+        return asLabelled (detail::paramName (entry.id, entry.name));
     }
 
-    return detail::explicitName (destination);
+    return asLabelled (detail::explicitName (destination));
 }
 
-// "Filter 1 › Cutoff". Cached: menus and the matrix ask for hundreds.
+// "FILTER 1 › Cutoff". Cached: menus and the matrix ask for hundreds.
 inline juce::String destination (int destination)
 {
     static const juce::StringArray names = []

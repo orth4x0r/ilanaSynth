@@ -20,13 +20,20 @@
 // The same card opens for a source (a macro in the bottom strip, a source
 // chip): then it lists where the source goes, and warns about targets whose
 // module is off ("FX Reverb is switched off"), which such a routing can't be
-// heard through (UI review 6, V6-26 / S6-15).
+// heard through (UI review 6, V6-26 / S6-15). A macro's card also holds
+// its EVOLVE (the macro drifting on its own within a range, and how fast)
+// and FREEZE: per-macro behaviour lives on the macro (review 8, I8-13).
 class ModHoverPopup : public juce::Component,
                       private IlanaAnim::FrameTimer
 {
 public:
     explicit ModHoverPopup (IlanaSynthAudioProcessor& processor) : processorRef (processor)
     {
+        freezeButton.setButtonText ("FREEZE");
+        freezeButton.setTooltip ("Freeze\nKeeps every evolving macro where it has drifted to, and stops the drift (all macros).");
+        freezeButton.onClick = [this] { processorRef.performEdit ("Freeze Evolve", [this] { processorRef.freezeEvolve(); }); };
+        addChildComponent (freezeButton);
+
         setAlwaysOnTop (true);
         setRepaintsOnMouseActivity (true);
         instance() = this;
@@ -79,6 +86,10 @@ public:
     // Why a row's target can't be heard now (empty when it can); the tests.
     juce::String getRowWarning (int row) const { return juce::isPositiveAndBelow (row, getNumRows()) ? rows[(size_t) row].idle : juce::String(); }
     bool isEngaged() const { return isMouseOver (true) || dragRow >= 0 || menuOpen; }
+    // A macro's EVOLVE controls on its card (null on other cards); the tests.
+    ValueSliderControl* getEvolveAmount() const { return evolveAmount.get(); }
+    ValueSliderControl* getEvolveRate() const { return evolveRate.get(); }
+    juce::TextButton& getFreezeButton() { return freezeButton; }
     void close() { dismiss(); }
 
     juce::Rectangle<int> getRowBounds (int row) const
@@ -208,7 +219,7 @@ public:
         else
         {
             g.setColour (IlanaTheme::Ui::text2);
-            g.drawText (title.toUpperCase(), header, juce::Justification::centredLeft);
+            g.drawText (title, header, juce::Justification::centredLeft);
         }
 
         for (int index = 0; index < (int) rows.size(); ++index)
@@ -295,6 +306,63 @@ public:
             g.drawFittedText ("Drag it onto any knob to route it there.", area.removeFromTop (rowHeight),
                               juce::Justification::centredLeft, 1, 0.85f);
         }
+
+        if (evolveMacro >= 0)
+            paintEvolve (g);
+    }
+
+    // A macro's EVOLVE: a hairline, its name, where the macro is set and
+    // where it has drifted to, then its two sliders' labels.
+    void paintEvolve (juce::Graphics& g)
+    {
+        const auto section = evolveArea();
+        g.setColour (IlanaTheme::Ui::line);
+        g.fillRect (section.getX(), section.getY(), section.getWidth(), 1);
+
+        auto header = section.withTrimmedTop (5).withHeight (evolveHeaderHeight);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (IlanaTheme::Ui::text);
+        g.drawText ("EVOLVE", header, juce::Justification::centredLeft);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        const auto evolving = readParam ("macro" + juce::String (evolveMacro + 1) + "_evolve") > 0.0005f;
+        g.drawText (evolving ? "drifts in range" : "off: set AMOUNT", header.withTrimmedLeft (52), juce::Justification::centredLeft);
+
+        if (evolving)
+        {
+            // Set (a tick) and drifted to (a dot), left of FREEZE.
+            const auto bar = juce::Rectangle<float> ((float) freezeButton.getX() - 76.0f, (float) header.getCentreY() - 2.0f, 66.0f, 4.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRoundedRectangle (bar, 2.0f);
+            const auto set = readParam ("macro" + juce::String (evolveMacro + 1));
+            const auto now = processorRef.macroValue (evolveMacro);
+            g.setColour (juce::Colours::white.withAlpha (0.5f));
+            g.fillRect (bar.getX() + bar.getWidth() * set - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f);
+            g.setColour (modSourceColour (cardSource));
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ bar.getX() + bar.getWidth() * now, bar.getCentreY() }));
+        }
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (IlanaTheme::Ui::text2);
+        for (auto* slider : { evolveAmount.get(), evolveRate.get() })
+            if (slider != nullptr)
+                g.drawText (slider == evolveAmount.get() ? "AMOUNT" : "RATE",
+                            juce::Rectangle<int> (section.getX(), slider->getY(), evolveLabelWidth, slider->getHeight()),
+                            juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        if (evolveMacro < 0)
+            return;
+
+        auto section = evolveArea().withTrimmedTop (5);
+        auto header = section.removeFromTop (evolveHeaderHeight);
+        freezeButton.setBounds (header.removeFromRight (64).reduced (0, 1));
+        section.removeFromTop (3);
+        for (auto* slider : { evolveAmount.get(), evolveRate.get() })
+            if (slider != nullptr)
+                slider->setBounds (section.removeFromTop (evolveRowHeight).withTrimmedLeft (evolveLabelWidth).reduced (0, 2));
     }
 
     static juce::Colour warningColour() { return juce::Colour (0xffffb020); }
@@ -317,22 +385,77 @@ private:
     static constexpr int warningHeight = 14;
     static constexpr int maxRows = 12;
 
-    int nameWidth() const { return sourceMode ? 150 : 92; }
-    int cardWidth() const { return sourceMode ? 290 : 230; }
+    // A knob's card is as wide as its title and its sources' names need,
+    // so it covers no more of the page than it must (S8-35).
+    int nameWidth() const { return sourceMode ? 150 : knobNameWidth; }
+    int cardWidth() const { return sourceMode ? 290 : knobCardWidth; }
+
+    void fitKnobCard()
+    {
+        const auto labelFont = IlanaTheme::font (IlanaTheme::TextSize::label);
+        auto widest = 0;
+        for (const auto& row : rows)
+            widest = juce::jmax (widest, juce::GlyphArrangement::getStringWidthInt (labelFont, ModNames::sourceUpper (row.source, &processorRef)));
+        knobNameWidth = juce::jlimit (48, 120, widest + 6);
+        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), title);
+        knobCardWidth = juce::jlimit (170, 260, juce::jmax (titleWidth + 24, 20 + 14 + knobNameWidth + 64 + 46));
+    }
+
+    static constexpr int evolveHeaderHeight = 18, evolveRowHeight = 24, evolveLabelWidth = 56;
+    static constexpr int evolveHeight = 6 + evolveHeaderHeight + 3 + 2 * evolveRowHeight;
 
     int cardHeight() const
     {
         const auto shownRows = juce::jmax (sourceMode ? 1 : 0, (int) rows.size());
-        return padTop * 2 + headerHeight + shownRows * rowHeight + (warnings.isEmpty() ? 0 : 3 + warnings.size() * warningHeight);
+        return padTop * 2 + headerHeight + shownRows * rowHeight + (warnings.isEmpty() ? 0 : 3 + warnings.size() * warningHeight)
+               + (evolveMacro >= 0 ? evolveHeight : 0);
+    }
+
+    // The EVOLVE section: the bottom of a macro's card.
+    juce::Rectangle<int> evolveArea() const
+    {
+        return getLocalBounds().reduced (10, padTop).removeFromBottom (evolveHeight);
+    }
+
+    float readParam (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    // A macro's card carries its EVOLVE sliders; other cards none.
+    void setEvolveMacro (int macro)
+    {
+        if (macro == evolveMacro)
+            return;
+
+        evolveAmount.reset();
+        evolveRate.reset();
+        evolveMacro = macro;
+        freezeButton.setVisible (macro >= 0);
+
+        if (macro < 0)
+            return;
+
+        const auto prefix = "macro" + juce::String (macro + 1);
+        evolveAmount = std::make_unique<ValueSliderControl> (processorRef.apvts, prefix + "_evolve");
+        evolveRate = std::make_unique<ValueSliderControl> (processorRef.apvts, prefix + "_evolve_rate");
+        for (auto* slider : { evolveAmount.get(), evolveRate.get() })
+        {
+            slider->getSlider().setColour (juce::Slider::trackColourId, modSourceColour (cardSource));
+            addAndMakeVisible (*slider);
+        }
     }
 
     void open (juce::Component& knob, int destinationIn, const juce::String& titleIn)
     {
         owner = &knob;
         sourceMode = false;
+        setEvolveMacro (-1);
         destination = destinationIn;
         title = titleIn;
         readRows();
+        fitKnobCard();
 
         if (rows.empty() || getParentComponent() == nullptr)
         {
@@ -368,6 +491,7 @@ private:
         cardSource = source;
         title = ModNames::sourceUpper (source, &processorRef);
         leaveSeconds = 0.0f;
+        setEvolveMacro (Mod::macroIndexFor ((Mod::Source) source));
         readRows();
         placeAboveAnchor();
         setVisible (true);
@@ -388,6 +512,7 @@ private:
         const auto x = juce::jlimit (6, juce::jmax (6, parent->getWidth() - cardWidth() - 6), anchorArea.getX());
         const auto y = juce::jmax (6, anchorArea.getY() - height - 4);
         setBounds (x, y, cardWidth(), height);
+        resized(); // (the same size for another macro still moves its sliders)
     }
 
     void dismiss()
@@ -405,6 +530,8 @@ private:
         sourceMode = false;
         setVisible (false);
         stopTimer();
+        // (Not from inside a slider's own callback: the card is hidden and
+        // its sliders go when it next opens for something else.)
     }
 
     void readRows()
@@ -457,7 +584,8 @@ private:
         // snapshots) stays.
         if (sourceMode && ! menuOpen && dragRow < 0 && ! held)
         {
-            if (owner->isMouseOver (true) || isMouseOver (true))
+            // (A slider being dragged keeps it, wherever the mouse goes.)
+            if (owner->isMouseOver (true) || isMouseOver (true) || isMouseButtonDown (true))
                 leaveSeconds = 0.0f;
             else if ((leaveSeconds += frameSeconds()) > 0.3f)
             {
@@ -579,4 +707,8 @@ private:
     float dragStartDepth = 0.0f;
     juce::RangedAudioParameter* dragParameter = nullptr;
     bool menuOpen = false;
+    int evolveMacro = -1;
+    int knobNameWidth = 92, knobCardWidth = 230;
+    std::unique_ptr<ValueSliderControl> evolveAmount, evolveRate;
+    juce::TextButton freezeButton;
 };

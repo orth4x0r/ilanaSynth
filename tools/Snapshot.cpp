@@ -129,6 +129,7 @@ void expect (bool condition, const juce::String& message)
 
 #include "ModulationUiTests.h"
 #include "FilterFxUiTests.h"
+#include "ModulationReview8Tests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -387,17 +388,11 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (300);
         std::vector<ModSourceChip*> chips;
         findAll<ModSourceChip> (editor, chips);
-        // In the bar, as a chip of its own or, the bar being full, in the
-        // MORE group chip it folds rare sources into (Q2's folding).
-        std::vector<ModSourceGroupChip*> groupChips;
-        findAll<ModSourceGroupChip> (editor, groupChips);
+        // In the bar as chips of their own: played sources fold last (S8-20).
         const auto inBar = [&] (Mod::Source source)
         {
             for (auto* chip : chips)
                 if (visibleInTree (chip) && chip->getSourceIndex() == (int) source)
-                    return 1;
-            for (auto* group : groupChips)
-                if (visibleInTree (group) && std::find (group->getSources().begin(), group->getSources().end(), (int) source) != group->getSources().end())
                     return 1;
             return 0;
         };
@@ -1322,10 +1317,10 @@ int runUiTests()
             findAll<juce::ComboBox> (*row, combos);
 
             for (auto* combo : combos)
-                showsMacroName = showsMacroName || combo->getText() == "Macro 1 (TONE)";
+                showsMacroName = showsMacroName || combo->getText() == "TONE (M1)";
         }
 
-        expect (showsMacroName, "matrix source shows the macro's name ('Macro 1 (TONE)')");
+        expect (showsMacroName, "matrix source shows the macro's name first ('TONE (M1)')");
     }
 
     // ENV/LFO: every envelope has a card, and picking one shows its controls.
@@ -3363,74 +3358,69 @@ int runUiTests()
         expect (Mod::getSourceNames().contains ("LFO 16 B"), "every LFO's output B is a mod source");
     }
 
-    // M8.5: the VECTOR page has the pad and EVOLVE.
+    // M8.5: the VECTOR page has the pad (EVOLVE moved onto the macro card,
+    // and VECTOR X / Y live in the source bar only: review 8, I8-13/14).
     {
         pages->showPage ("VECTOR");
         settle (200);
         auto* page = pages->getCurrentPage();
         expect (page != nullptr && findChild<VectorPadDisplay> (*page) != nullptr, "the VECTOR page shows the vector pad");
         std::vector<KnobControl*> knobs;
+        std::vector<ModSourceChip*> pageChips;
         if (page != nullptr)
+        {
             findAll<KnobControl> (*page, knobs);
-        // EVOLVE: a row for each macro that evolves, "+ MACRO" for the rest
-        // (UI review 6, S36).
-        const auto evolveRows = [&knobs]
+            findAll<ModSourceChip> (*page, pageChips);
+        }
+        auto evolveKnobs = 0;
+        for (auto* knob : knobs)
+            evolveKnobs += knob->getParameterId().contains ("_evolve") ? 1 : 0;
+        expect (evolveKnobs == 0 && pageChips.empty(), "VECTOR has no EVOLVE pane and no VECTOR X / Y chips of its own (I8-13, I8-14)");
+
+        // EVOLVE on the macro's card: AMOUNT and RATE sliders for that
+        // macro, and FREEZE; a macro that evolves wears a mark in the strip.
+        pages->showPage ("MAIN");
+        settle (200);
+        std::vector<StripKnob*> macros;
+        findAll<StripKnob> (*editor, macros);
+        StripKnob* macro3 = nullptr;
+        for (auto* macro : macros)
+            if (macro->getMacroIndex() == 2)
+                macro3 = macro;
+        auto* card = ModHoverPopup::instance();
+        if (macro3 != nullptr && card != nullptr)
         {
-            auto count = 0;
-            for (auto* knob : knobs)
-                if (knob->getParameterId().endsWith ("_evolve") && visibleInTree (knob))
-                    ++count;
-            return count;
-        };
-        auto evolving = 0;
-        for (int m = 0; m < Mod::numMacros; ++m)
-            evolving += processor.apvts.getRawParameterValue ("macro" + juce::String (m + 1) + "_evolve")->load() > 0.0005f ? 1 : 0;
-        expect (evolveRows() == evolving, "EVOLVE has a row for each evolving macro only (" + juce::String (evolveRows()) + " of "
-                                              + juce::String (evolving) + ")");
-        if (page != nullptr)
-        {
-            const auto before = evolveRows();
-            auto* evolve = processor.apvts.getParameter ("macro" + juce::String (Mod::numMacros) + "_evolve");
+            macro3->openCard();
+            card->holdOpen (true);
+            settle (100);
+            auto* amount = card->getEvolveAmount();
+            auto* rate = card->getEvolveRate();
+            const auto ids = amount != nullptr && rate != nullptr
+                             && amount->getSlider().getTooltip().startsWith (processor.apvts.getParameter ("macro3_evolve")->getName (64))
+                             && rate->getSlider().getTooltip().startsWith (processor.apvts.getParameter ("macro3_evolve_rate")->getName (64));
+            const auto inside = amount != nullptr && card->getLocalBounds().contains (amount->getBounds())
+                                && rate != nullptr && card->getLocalBounds().contains (rate->getBounds())
+                                && ! amount->getBounds().intersects (rate->getBounds())
+                                && card->getLocalBounds().contains (card->getFreezeButton().getBounds())
+                                && card->getFreezeButton().isVisible();
+            expect (ids && inside, "a macro's card carries its EVOLVE (AMOUNT, RATE) and FREEZE, inside the card, not overlapping");
+            auto* evolve = processor.apvts.getParameter ("macro3_evolve");
             const auto evolveWas = evolve->getValue();
             evolve->setValueNotifyingHost (0.5f);
-            settle (200);
-            std::vector<juce::TextButton*> buttons;
-            findAll<juce::TextButton> (*page, buttons);
-            auto addMacro = false;
-            for (auto* button : buttons)
-                addMacro = addMacro || (visibleInTree (button) && button->getButtonText().contains ("MACRO"));
-            expect (evolveRows() == juce::jmin (Mod::numMacros, before + (evolveWas > 0.0005f ? 0 : 1)) && addMacro,
-                    "a macro that evolves gets its EVOLVE row; + MACRO offers the others");
+            macro3->refreshTargets();
+            const auto marked = macro3->isEvolving() && macro3->isAssigned();
             evolve->setValueNotifyingHost (evolveWas);
-
-            // VEC X / VEC Y to drag, while the vector is on.
-            const auto chipsShown = [page]
-            {
-                std::vector<ModSourceChip*> chips;
-                findAll<ModSourceChip> (*page, chips);
-                auto shown = 0;
-                for (auto* chip : chips)
-                    shown += visibleInTree (chip) && (chip->getSourceIndex() == (int) Mod::Source::VectorX
-                                                      || chip->getSourceIndex() == (int) Mod::Source::VectorY) ? 1 : 0;
-                return shown;
-            };
-            auto* vecOn = processor.apvts.getParameter ("vec_on");
-            const auto wasOn = vecOn->getValue();
-            vecOn->setValueNotifyingHost (1.0f);
-            settle (200);
-            const auto onChips = chipsShown();
-            vecOn->setValueNotifyingHost (0.0f);
-            settle (200);
-            expect (onChips == 2 && chipsShown() == 0, "VECTOR shows VEC X / VEC Y chips while it is on, not while off");
-            vecOn->setValueNotifyingHost (wasOn);
+            macro3->refreshTargets();
+            expect (marked, "an evolving macro is marked in the strip and counts as assigned");
+            card->holdOpen (false);
+            card->close();
+            // A knob's card has no EVOLVE.
+            expect (card->getEvolveAmount() == nullptr || ! card->isVisible(), "only a macro's card has EVOLVE");
         }
-        std::vector<juce::TextButton*> buttons;
-        if (page != nullptr)
-            findAll<juce::TextButton> (*page, buttons);
-        auto freeze = false;
-        for (auto* b : buttons)
-            freeze = freeze || b->getButtonText() == "FREEZE";
-        expect (freeze, "EVOLVE has a FREEZE button");
+        else
+        {
+            expect (false, "the macro strip and its card exist");
+        }
     }
 
     // M8.6: BOUNCE on every oscillator card; a bounce turns the card to
@@ -3849,9 +3839,10 @@ int runUiTests()
                 expect (compact == 0, "every chip shows its source's full name (" + juce::String (compact) + " codes)");
             }
 
-            // "+" adds a source to the pool: LFO 9 (chip index 8) gets a chip.
+            // "+" adds a source to the pool: LFO 9 (chip index 9, after OP
+            // LFO) gets a chip.
             const auto lfoMask = processor.isRevealed (Module::Lfo, 8);
-            pages->addPoolSource (8);
+            pages->addPoolSource (9);
             settle (100);
             {
                 std::vector<ModSourceChip*> found;
@@ -3859,7 +3850,21 @@ int runUiTests()
                 auto lfo9 = false;
                 for (auto* chip : found)
                     lfo9 = lfo9 || (chip->isVisible() && chip->getSourceIndex() == (int) Mod::lfoSourceFor (8));
-                expect (processor.isRevealed (Module::Lfo, 8) && lfo9, "the chip picker adds LFO 9 to the pool and the row");
+                // (Or folded into its region's "+N", the LFO region being full.)
+                std::vector<ModSourceGroupChip*> groups;
+                findAll<ModSourceGroupChip> (*editor, groups);
+                for (auto* group : groups)
+                    lfo9 = lfo9 || (group->isVisible() && std::find (group->getSources().begin(), group->getSources().end(),
+                                                                     (int) Mod::lfoSourceFor (8)) != group->getSources().end());
+                juce::StringArray seen;
+                for (auto* chip : found)
+                    if (chip->isVisible())
+                        seen.add (chip->getSourceName());
+                for (auto* group : groups)
+                    if (group->isVisible())
+                        seen.add (group->getLabel());
+                expect (processor.isRevealed (Module::Lfo, 8) && lfo9, "the chip picker adds LFO 9 to the pool and the row ("
+                                                                           + seen.joinIntoString (" | ") + ")");
             }
             processor.setRevealed (Module::Lfo, 8, lfoMask);
 
@@ -3894,12 +3899,14 @@ int runUiTests()
                     }
                 return std::make_tuple (folded, visibleGroups, biggest);
             };
-            for (int wait = 0; wait < 40 && std::get<0> (chipState()) + std::get<0> (groupState()) < 32 + 6; ++wait)
+            // (32 LFOs and envelopes and the five performance sources; the
+            // patch MSEG shows only while routed: review 8.)
+            for (int wait = 0; wait < 40 && std::get<0> (chipState()) + std::get<0> (groupState()) < 32 + 5; ++wait)
                 settle (50);
             {
                 const auto [shown, compact, strays, strayNames] = chipState();
                 const auto [folded, visibleGroups, biggest] = groupState();
-                expect (shown + folded >= 32 + 6 && compact == 0 && visibleGroups > 0,
+                expect (shown + folded >= 32 + 5 && compact == 0 && visibleGroups > 0,
                         "a full pool keeps every source (" + juce::String (shown) + " chips, " + juce::String (folded) + " in "
                             + juce::String (visibleGroups) + " group chips), none shortened (" + juce::String (compact) + ")");
 
@@ -4001,15 +4008,19 @@ int runUiTests()
                     numbered = numbered && visible[i]->getDisplayNumber() == (int) i + 1;
                     duplicates += visible[i]->isDuplicate() ? 1 : 0;
                 }
-                const auto lastSlot = visible.empty() ? 0 : visible.back()->getSlotIndex() + 1;
+                auto lastSlot = 0;
+                for (auto* row : visible)
+                    lastSlot = juce::jmax (lastSlot, row->getSlotIndex() + 1);
                 expect (numbered && lastSlot > (int) visible.size(),
-                        "matrix rows are numbered 1.." + juce::String (visible.size()) + " as shown (the last is slot " + juce::String (lastSlot) + ")");
+                        "matrix rows are numbered 1.." + juce::String (visible.size()) + " as shown (the last slot used is " + juce::String (lastSlot) + ")");
                 // Factory presets load with their repeated routings merged
                 // (review 6, S5-9): Neuro Wobble's two LFO 1 > Filter 1
                 // Cutoff rows are one row now.
                 expect (duplicates == 0, "a factory preset loads with no repeated routing (" + juce::String (duplicates) + " flagged)");
+                // Rows grow to fill a page the dock's note doesn't fit on
+                // (V8-20), up to 38 px, their controls at their own size.
                 if (! visible.empty())
-                    expect (visible[0]->getHeight() <= 34, "matrix rows are compact (" + juce::String (visible[0]->getHeight()) + " px)");
+                    expect (visible[0]->getHeight() <= 38, "matrix rows stay compact (" + juce::String (visible[0]->getHeight()) + " px)");
             }
 
             if (auto* page = pages->getCurrentPage())
@@ -4035,7 +4046,8 @@ int runUiTests()
                             && add->getY() < lastRowBottom + 10,
                         "+ ADD MODULATION is the row after the last routing, not a header button");
 
-                // A click on SOURCE sorts by source name; on # goes back to slot order.
+                // The rows open grouped by source (S8-25), in the bar's order;
+                // a click on SOURCE reverses that, on # goes back to slot order.
                 const auto clickAt = [&] (juce::Point<float> at)
                 {
                     page->mouseUp (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f,
@@ -4043,20 +4055,26 @@ int runUiTests()
                                                      juce::Time::getCurrentTime(), 1, false));
                     settle (100);
                 };
-                using C = MatrixRow::Columns;
-                const auto headingY = 6.0f + 32.0f + 9.0f;
-                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap * 2) + 20.0f, headingY });
-                auto bySource = true;
+                const auto sourceRank = [&] (MatrixRow* row)
+                {
+                    const auto& order = ModNames::sourcesInMenuOrder();
+                    return (int) std::distance (order.begin(), std::find (order.begin(), order.end(),
+                                                                          (int) processor.readModSlot (row->getSlotIndex()).source));
+                };
+                const auto sortedBySource = [&] (bool reversed)
                 {
                     const auto visible = shownRows();
+                    auto sorted = ! visible.empty() && visible[0]->getDisplayNumber() == 1;
                     for (size_t i = 1; i < visible.size(); ++i)
-                    {
-                        const auto a = ModNames::source ((int) processor.readModSlot (visible[i - 1]->getSlotIndex()).source, &processor);
-                        const auto b = ModNames::source ((int) processor.readModSlot (visible[i]->getSlotIndex()).source, &processor);
-                        bySource = bySource && a.compareNatural (b) <= 0;
-                    }
-                    bySource = bySource && ! visible.empty() && visible[0]->getDisplayNumber() == 1;
-                }
+                        sorted = sorted && (reversed ? sourceRank (visible[i - 1]) >= sourceRank (visible[i])
+                                                     : sourceRank (visible[i - 1]) <= sourceRank (visible[i]));
+                    return sorted;
+                };
+                using C = MatrixRow::Columns;
+                const auto headingY = 6.0f + 32.0f + 9.0f;
+                const auto grouped = sortedBySource (false);
+                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap * 2) + 20.0f, headingY });
+                const auto bySource = grouped && sortedBySource (true);
                 clickAt ({ 20.0f, headingY });
                 auto bySlot = true;
                 {
@@ -4064,7 +4082,9 @@ int runUiTests()
                     for (size_t i = 1; i < visible.size(); ++i)
                         bySlot = bySlot && visible[i - 1]->getSlotIndex() < visible[i]->getSlotIndex();
                 }
-                expect (bySource && bySlot, "clicking SOURCE sorts the matrix by source, # goes back to slot order");
+                expect (bySource && bySlot, "the matrix opens grouped by source, SOURCE reverses it, # goes back to slot order");
+                // (Back to the opening order for the tests after.)
+                clickAt ({ 12.0f + (float) (C::number + C::bypass + C::gap * 2) + 20.0f, headingY });
 
                 // The remap editor opens in the dock under the rows: no row
                 // moves, none is covered, and its X closes it (V6-22).
@@ -5608,7 +5628,7 @@ int runUiTests()
                     for (int source = 1; source < names.size() && onlyPool; ++source)
                         if (offered.contains (names[source]) && ! modSourceInPatch (processor, (Mod::Source) source))
                             onlyPool = false;
-                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("Amp Env")
+                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("AMP ENV")
                                && ! offered.contains (names[(int) Mod::lfoSourceFor (hiddenLfo)])
                                && offered.contains ("New LFO  (LFO " + juce::String (hiddenLfo + 1) + ")");
 
@@ -5984,6 +6004,9 @@ int runUiTests()
 
     // UI review 7, FILTER and FX.
     runFilterFxTests (processor, *pages);
+
+    // UI review 8, R4: modulation.
+    runModulationReview8Tests (processor, *pages);
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();

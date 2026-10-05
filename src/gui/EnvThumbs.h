@@ -302,8 +302,18 @@ private:
         for (const auto extra : visibleExtras())
             if (! extras[(size_t) extra].pinnedFirst)
                 ids.push_back ((int) envs.size() + extra);
+        // A card that plays no part now (an unused envelope) shrinks to a chip.
+        std::vector<int> compact;
+        for (const auto id : ids)
+        {
+            if (id == selected)
+                continue;
+            if (id < (int) envs.size() ? envs[(size_t) id].source == Mod::Source::AmpEnv && ! isInUse (id)
+                                       : extras[(size_t) id - envs.size()].isActive != nullptr && ! extras[(size_t) id - envs.size()].isActive())
+                compact.push_back (id);
+        }
         return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
-                                  folded);
+                                  folded, compact);
     }
 
     std::vector<Item> layoutItems() const

@@ -150,8 +150,11 @@ struct Placed
 };
 
 // `ids` in their order; `folded` gets the ones in the overflow menu.
+// `compact` names the cards that play no part now (an unused envelope):
+// they shrink to compactWidth and the others take the room (I13-11).
+inline constexpr float compactWidth = 104.0f;
 inline std::vector<Placed> layout (const std::vector<int>& ids, int selected, bool withPlus, int plusId, float viewWidth,
-                                   float height, std::vector<int>& folded)
+                                   float height, std::vector<int>& folded, const std::vector<int>& compact = {})
 {
     folded.clear();
     const auto view = juce::jmax (1.0f, viewWidth);
@@ -173,12 +176,24 @@ inline std::vector<Placed> layout (const std::vector<int>& ids, int selected, bo
         width = juce::jmax (40.0f, (room - gap * (float) (fit - 1)) / (float) fit);
     }
 
+    auto shrunk = 0;
+    for (const auto id : shown)
+        shrunk += folded.empty() && std::find (compact.begin(), compact.end(), id) != compact.end() ? 1 : 0;
+    const auto others = (int) shown.size() - shrunk;
+    if (shrunk > 0 && others > 0)
+    {
+        const auto fitted = (view - plusPart - gap * (float) ((int) shown.size() - 1) - compactWidth * (float) shrunk) / (float) others;
+        width = juce::jmax (width, juce::jmin (fitted, (view - gap * 3.0f) / 4.0f * 1.25f));
+    }
+
     std::vector<Placed> items;
     auto x = 0.0f;
     for (const auto id : shown)
     {
-        items.push_back ({ id, { x, 0.0f, width, height } });
-        x += width + gap;
+        const auto w = shrunk > 0 && others > 0 && folded.empty() && std::find (compact.begin(), compact.end(), id) != compact.end()
+                           ? juce::jmin (width, compactWidth) : width;
+        items.push_back ({ id, { x, 0.0f, w, height } });
+        x += w + gap;
     }
     if (! folded.empty())
     {

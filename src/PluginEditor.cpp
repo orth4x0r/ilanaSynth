@@ -1718,7 +1718,10 @@ void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& 
     const auto current = processorRef.getCurrentPresetName();
     ConfirmOverlay::Choices choices;
     choices.confirmText = confirmText;
-    choices.alternativeText = confirmText.startsWith ("Roll") ? "Save and roll" : "Save and load";
+    // A factory preset has no file to save over: the first step is a name
+    // dialog, and the button says so (I13-16).
+    const auto asksName = ! PresetFiles::loadedUserPreset (processorRef).existsAsFile();
+    choices.alternativeText = juce::String (asksName ? "Save as... and " : "Save and ") + (confirmText.startsWith ("Roll") ? "roll" : "load");
     choices.onAlternative = [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), then]
     {
         if (safeThis == nullptr)
@@ -2117,7 +2120,7 @@ void IlanaSynthAudioProcessorEditor::updateMasterTooltip()
 void IlanaSynthAudioProcessorEditor::showPresetMenu()
 {
     juce::PopupMenu menu;
-    menu.addItem (1, "Init patch");
+    menu.addItem (1, "New patch");
     menu.addSeparator();
     menu.addItem (2, "Save preset", true);
     menu.addItem (7, "Save preset as...");

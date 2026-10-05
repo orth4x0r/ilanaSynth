@@ -2897,8 +2897,8 @@ int runUiTests()
             // UI review 6: one dirty state. If the dialog asks, the header
             // says EDITED; and it offers to save first.
             expect (pages->isEditedBadgeShown(), "when the dialog asks, the header's EDITED badge shows");
-            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "SAVE AND LOAD",
-                    "the dialog offers Save and load (" + confirm->getAlternativeText() + ")");
+            expect (confirm->hasAlternative() && confirm->getAlternativeText() == "SAVE AS... AND LOAD",
+                    "the dialog offers Save as and load on a factory preset (" + confirm->getAlternativeText() + ")");
 
             // Save and load on a factory preset opens Save As; cancelling
             // it keeps the edited patch.

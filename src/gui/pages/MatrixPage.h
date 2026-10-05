@@ -1015,8 +1015,9 @@ private:
         addRow.setVisible (! visibleRows.empty() && visibleRows.size() < (size_t) Mod::maxSlots);
         if (addRow.isVisible())
         {
-            addRow.setBounds (0, y + 2, width, rowHeight - 4);
-            y += rowHeight;
+            // (The one add tile's height, as on every page: V14-19.)
+            addRow.setBounds (0, y + 1, width, DashedAddButton::standardHeight);
+            y += DashedAddButton::standardHeight + 2;
         }
 
         list.setSize (width, y + 8);

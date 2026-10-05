@@ -532,18 +532,15 @@ private:
 class DiceFxButton : public juce::TextButton
 {
 public:
-    DiceFxButton() : juce::TextButton ("FX") {}
+    // A word, not the header's dice glyph again (I14-9): this one acts on the chain only.
+    DiceFxButton() : juce::TextButton ("RANDOMISE FX") {}
 
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         getLookAndFeel().drawButtonBackground (g, *this, findColour (juce::TextButton::buttonColourId), highlighted, down);
-        auto area = getLocalBounds().toFloat();
-        const auto content = area.withSizeKeepingCentre (38.0f, area.getHeight());
-        const auto colour = highlighted ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2;
-        g.setColour (colour);
-        g.fillPath (IlanaIcons::make (IlanaIcons::Icon::Dice, content.withWidth (18.0f).withSizeKeepingCentre (18.0f, 18.0f)));
+        g.setColour (highlighted ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::pillFont());
-        g.drawText (getButtonText(), content.withTrimmedLeft (20.0f), juce::Justification::centredLeft);
+        IlanaTheme::drawFitted (g, getButtonText(), getLocalBounds().reduced (6, 0), juce::Justification::centred);
     }
 };
 

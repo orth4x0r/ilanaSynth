@@ -1462,7 +1462,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
 
-    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - 12, 76, 24);
+    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - DashedAddButton::standardHeight / 2, 76, DashedAddButton::standardHeight);
     macroPlusButton.setVisible (plusWidth > 0);
 
     auto chipsRow = area.removeFromBottom (24).reduced (14, 1);

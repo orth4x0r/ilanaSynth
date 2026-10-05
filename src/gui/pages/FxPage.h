@@ -526,7 +526,7 @@ public:
             // load one), the two chains as the only tabs and the dice at the
             // right: three kinds of button were five buttons (V12-21).
             fileButton.setBounds (left.removeFromLeft (84).reduced (0, 3));
-            diceButton.setBounds (toolbar.removeFromRight (64).reduced (0, 3));
+            diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 3));
         }
         copyChainButton.setVisible (false);
 

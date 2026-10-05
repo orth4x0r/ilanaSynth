@@ -425,8 +425,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto sameLine = decay != nullptr && hammer != nullptr
                               && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
         expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
-                    && buttonNamed (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba")) != nullptr,
-                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, BODY links to FILTER");
+                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
+                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, EDIT BODY > links to FILTER");
         // The renamed exciter menu still shows its choice.
         juce::String exciteText;
         std::vector<ComboControl*> combos;
@@ -3896,31 +3896,55 @@ int runUiTests()
             bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
         // (UI review 8, V8-23: the body's switch and main controls are here
         // too now, with links to the rest.)
-        expect (pageButtons.contains (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba"))
-                    && pageButtons.contains (juce::CharPointer_UTF8 ("ACOUSTIC KEYS \xe2\x80\xba")) && bodySwitch,
+        expect (pageButtons.contains (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"))
+                    && pageButtons.contains (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba")) && bodySwitch,
                 "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (ACOUSTIC KEYS)");
 
+        // UI review 9, I9-3: the string has one editor. The OSC card keeps
+        // the moving string, the exciter, DECAY and DAMP, and EDIT STRING ›
+        // opens PHYSICAL on that oscillator; the rest is PHYSICAL's alone.
         pages->showPage ("OSC");
         settle (300);
         selectOscTab (physicalPrefix.getTrailingIntValue() - 1);
         std::vector<KnobControl*> oscKnobs;
         findAll<KnobControl> (*editor, oscKnobs);
-        juce::StringArray missing;
+        juce::StringArray onCard;
         for (const auto& id : listIds)
-        {
-            auto* parameter = processor.apvts.getParameter (id);
-            if (dynamic_cast<juce::AudioParameterFloat*> (parameter) == nullptr)
-                continue;
-            if (std::none_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
-                missing.add (id);
-        }
+            if (std::any_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
+                onCard.add (id);
         std::vector<PhysicalView*> views;
         findAll<PhysicalView> (*editor, views);
         auto stringShown = false;
         for (auto* view : views)
             stringShown = stringShown || visibleInTree (view);
-        expect (missing.isEmpty() && stringShown,
-                "the OSC card shows the same physical controls and the moving string (missing: " + missing.joinIntoString (", ") + ")");
+        const juce::StringArray expectedOnCard { physicalPrefix + "_string_decay", physicalPrefix + "_string_damp" };
+        expect (onCard == expectedOnCard && stringShown,
+                "the OSC card shows the moving string with DECAY and DAMP only; the string's other controls are PHYSICAL's ("
+                    + onCard.joinIntoString (", ") + ")");
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            juce::TextButton* editString = nullptr;
+            for (auto* button : buttons)
+                if (visibleInTree (button) && button->getButtonText() == juce::String::fromUTF8 ("EDIT STRING \xe2\x80\xba"))
+                    editString = button;
+            if (editString != nullptr)
+            {
+                editString->triggerClick();
+                settle (300);
+            }
+            auto onString = false;
+            {
+                std::vector<PhysicalView*> physicalViews;
+                if (auto* current = pages->getCurrentPage())
+                    findAll<PhysicalView> (*current, physicalViews);
+                for (auto* candidate : physicalViews)
+                    onString = onString || (visibleInTree (candidate) && candidate->getOscillator() == physicalPrefix
+                                            && candidate->getWidth() > pages->getWidth() / 2);
+            }
+            expect (editString != nullptr && onString,
+                    "OSC's EDIT STRING > opens PHYSICAL on that oscillator");
+        }
 
         processor.loadFactoryPreset (neuroWobble);
         settle (600);

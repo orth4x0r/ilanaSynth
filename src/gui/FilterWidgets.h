@@ -515,7 +515,7 @@ public:
         {
             const auto osc = layout.sources[(size_t) row];
             // A modulator (OUT off) says so on its box; its dashed loop shows what it modulates.
-            const auto name = osc == subNoise ? juce::String ("SUB/NOISE")
+            const auto name = osc == subNoise ? juce::String ("SUB + NOISE") // its one name (UI review 9, I9-10)
                                               : "OSC " + juce::String (osc + 1) + (isHeard (osc) ? juce::String() : juce::String (" FM"));
             drawBlock (g, layout.osc[(size_t) row], name, oscColour (osc),
                        isSourceOn (osc) && (isHeard (osc) || ! fmTargets (osc).empty()), over && layout.osc[(size_t) row].contains (mouse));
@@ -762,7 +762,9 @@ private:
         const auto board = read ("sb_on") > 0.5f;
         // Spelled out as on the OSC page, on two lines when both run (UI
         // review 8, V8-27).
-        return strings && board ? "STRINGS\nSOUNDBOARD" : (strings ? "STRINGS" : "SOUNDBOARD");
+        // One name each (review 9, I9-10): the OSC tab's SYMPATHETIC
+        // STRINGS, shortened to its noun, and SOUNDBOARD, joined by "+".
+        return strings && board ? "STRINGS +\nSOUNDBOARD" : (strings ? "STRINGS" : "SOUNDBOARD");
     }
 
     bool isSourceOn (int osc) const

@@ -191,7 +191,7 @@ public:
                                envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
 
-        opEgButton.setButtonText (juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba"));
+        styleJumpLink (opEgButton, "OP ENV");
         opEgButton.setTooltip ("Open the Operator Env's editor");
         opEgButton.onClick = [this]
         {

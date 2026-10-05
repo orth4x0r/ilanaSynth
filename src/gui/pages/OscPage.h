@@ -234,6 +234,10 @@ inline void groupExciteMenu (ComboControl& control)
     });
 }
 
+// Opens the PHYSICAL page on an oscillator's string (defined after
+// PhysicalPage, in FilterVectorPhysicalPages.h).
+void showPhysicalString (juce::Component& from, int osc);
+
 class OscPage : public juce::Component,
                 private juce::AudioProcessorValueTreeState::Listener,
                 private juce::AsyncUpdater,
@@ -492,15 +496,22 @@ public:
 
         // The Operator Env has one editor, on FM's operator card; here a
         // picture of it and a link there (UI review 8, S8-4).
-        opEnvButton.setButtonText (juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba"));
+        styleJumpLink (opEnvButton, "OP ENV");
         opEnvButton.setTooltip ("This operator plays its OP ENV: edit it on the FM page");
         opEnvButton.onClick = [this]
         {
             if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
                 editor->showOperatorEnvelope (selected);
         };
-        styleHeaderButton (opEnvButton);
         addChildComponent (opEnvButton);
+
+        // A Physical oscillator's string has one editor, the PHYSICAL page;
+        // here its picture, its main knobs and a link there (UI review 9,
+        // I9-3).
+        styleJumpLink (stringButton, "STRING");
+        stringButton.setTooltip ("Every control of this oscillator's string, exciter and body is on the PHYSICAL page");
+        stringButton.onClick = [this] { showPhysicalString (*this, selected); };
+        addChildComponent (stringButton);
 
         sampleLoadButton.setButtonText ("LOAD");
         sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample");
@@ -966,18 +977,10 @@ private:
         }
         else if (mode == 1)
         {
-            const auto& lookup = physicalLookup[(size_t) index];
-
-            for (const auto& [name, specs] : physicalControlRows (juce::roundToInt (readFloat (prefix + "_excite"))))
-            {
-                std::vector<juce::Component*> items;
-
-                for (const auto& spec : specs)
-                    if (const auto found = lookup.find (spec.suffix); found != lookup.end())
-                        items.push_back (found->second);
-
-                rows.push_back ({ name, items });
-            }
+            // The string is edited on PHYSICAL only (UI review 9, I9-3): the
+            // card keeps its exciter, DECAY and DAMP (PLAY's two) and
+            // EDIT STRING › in the header.
+            rows.push_back ({ "STRING", { &osc.excite, &osc.stringDecay, &osc.stringDamp } });
         }
         else if (mode == 2)
             rows.push_back ({ "SAMPLE", { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleStart, &osc.sampleEnd,
@@ -1022,7 +1025,8 @@ private:
         osc.mode.setBounds (header.removeFromLeft (132).withSizeKeepingCentre (132, 24));
         header.removeFromLeft (10);
 
-        for (auto* button : { opEnvButton.isVisible() ? &opEnvButton : nullptr, &loadButton (index), &sampleLoadButton,
+        for (auto* button : { opEnvButton.isVisible() ? &opEnvButton : nullptr, stringButton.isVisible() ? &stringButton : nullptr,
+                              &loadButton (index), &sampleLoadButton,
                               editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
             if (button != nullptr && button->isVisible())
             {
@@ -1378,6 +1382,7 @@ private:
         shownRows = rowsKey (index);
         // Any mode can play the Operator Env (I7-20).
         opEnvButton.setVisible (opEnv);
+        stringButton.setVisible (mode == 1);
         opEnvGraph.setVisible (false);
         opEnvGraph.setSource (prefix, oscColour (index));
 
@@ -1650,7 +1655,7 @@ private:
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
     IlanaSynthAudioProcessor::BounceRequest bounceRequest;
     int bouncingOsc = -1, bounceButtonWide = -1;
-    juce::TextButton addButton, opEnvButton, sampleLoadButton;
+    juce::TextButton addButton, opEnvButton, stringButton, sampleLoadButton;
     // The Operator Env's graph, for the chosen operator (the FM card's).
     OperatorEnvDisplay opEnvGraph { processorRef };
     StateTabs oscTabs, sharedTabs;

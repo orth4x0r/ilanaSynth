@@ -57,6 +57,7 @@ public:
     }
 
     void setOscillator (const juce::String& newPrefix) { prefix = newPrefix; restart(); }
+    const juce::String& getOscillator() const { return prefix; } // (the UI test reads it)
     // Drawn in the oscillator's identity colour, like the rest of its page.
     void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
 

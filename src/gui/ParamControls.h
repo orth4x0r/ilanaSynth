@@ -158,6 +158,18 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     IlanaTheme::drawFitted (g, text, tag.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1);
 }
 
+// The one "go to its full editor" idiom (UI review 9, I9-14): a raised
+// button reading "EDIT <WHAT> ›" at the right of a card header or line,
+// the same on every page (EDIT OP ENV, EDIT STRING, EDIT BODY...). Icons are
+// kept for pop-outs only.
+inline void styleJumpLink (juce::TextButton& button, const juce::String& what)
+{
+    button.setButtonText ("EDIT " + what + juce::String::fromUTF8 (" \xe2\x80\xba"));
+    button.getProperties().remove ("pill");
+    button.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+    button.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
+}
+
 // The source currently hovered (chip, macro or LFO card), so knobs it
 // modulates can light up. Message thread only.
 inline int& highlightedModSource()

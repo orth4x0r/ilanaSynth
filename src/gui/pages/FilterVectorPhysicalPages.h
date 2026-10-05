@@ -475,21 +475,18 @@ public:
         };
         addChildComponent (makePhysical);
 
-        bodyLink.setButtonText (juce::CharPointer_UTF8 ("FILTER \xe2\x80\xba"));
+        styleJumpLink (bodyLink, "BODY");
         bodyLink.setTooltip ("All of the body's controls are on the FILTER page");
         bodyLink.onClick = [this]
         {
             if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
                 editor->showPage ("FILTER");
         };
-        boardLink.setButtonText (juce::CharPointer_UTF8 ("ACOUSTIC KEYS \xe2\x80\xba"));
+        styleJumpLink (boardLink, "SOUNDBOARD");
         boardLink.setTooltip ("All of the soundboard's controls are on OSC, under ACOUSTIC KEYS");
         boardLink.onClick = [this] { showAcousticKeys(); };
         for (auto* button : { &bodyLink, &boardLink })
-        {
-            button->setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
             addAndMakeVisible (*button);
-        }
 
         for (auto* knob : { &bodyAmount, &bodyDecay, &boardMix })
             knob->setSizeRole (IlanaTheme::KnobSize::small);
@@ -652,21 +649,22 @@ public:
             auto body = band.removeFromTop (bodyLineHeight);
             bodyLine = body.removeFromLeft (body.getWidth() / 2);
             boardLine = body.withTrimmedLeft (16);
-            // Name, switch, the main controls, then the link to the rest.
+            // The name with its switch after it on the group's header line
+            // (UI-CONVENTIONS: a part's switch in its sub-box header; UI
+            // review 9, I9-4), then the main controls and the link.
             const auto group = [] (juce::Rectangle<int> line, int nameWidth, ToggleControl& power, ComboControl& menu,
                                    std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth)
             {
+                // (The bare switch keeps a 13 px label band over its pill.)
+                power.setBounds (line.getX() + nameWidth, line.getY() - 13 - 1, 40, 13 + 20);
                 link.setBounds (line.removeFromRight (linkWidth).withSizeKeepingCentre (linkWidth, 22).translated (0, 6));
-                line.removeFromLeft (nameWidth);
-                power.setBounds (line.removeFromLeft (44).withSizeKeepingCentre (40, 37).translated (0, 6));
-                line.removeFromLeft (6);
                 menu.setBounds (line.removeFromLeft (124).withSizeKeepingCentre (124, 44).translated (0, 4));
                 line.removeFromLeft (8);
                 for (auto* knob : knobs)
                     knob->setBounds (line.removeFromLeft (76));
             };
-            group (bodyLine, 46, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 92);
-            group (boardLine, 96, boardOn, boardModel, { &boardMix }, boardLink, 136);
+            group (bodyLine, 46, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120);
+            group (boardLine, 96, boardOn, boardModel, { &boardMix }, boardLink, 176);
         }
 
         auto inner = viewCard.reduced (10, 0);
@@ -688,6 +686,9 @@ public:
     }
 
     int getChosenOscillator() const { return chosen; }
+
+    // Opens on an oscillator's string (OSC's EDIT STRING ›, UI review 9, I9-3).
+    void showOscillator (int osc) { choose (osc, true); }
 
     // The controls shown for the chosen oscillator's string, in order (the
     // UI test compares them with the OSC card's).
@@ -896,4 +897,17 @@ private:
     bool pickedByHand = false, lastPhysical = false;
     juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyLine, boardLine;
 };
+// OSC's EDIT STRING ›: the PHYSICAL page, on that oscillator.
+void showPhysicalString (juce::Component& from, int osc)
+{
+    auto* editor = from.findParentComponentOfClass<IlanaSynthAudioProcessorEditor>();
+    auto* section = from.findParentComponentOfClass<SectionPage>();
+    if (editor == nullptr || section == nullptr)
+        return;
+
+    if (auto* page = dynamic_cast<PhysicalPage*> (section->getPage (section->indexOf ("PHYSICAL"))))
+        page->showOscillator (osc);
+    editor->showPage ("PHYSICAL");
+}
+
 } // namespace

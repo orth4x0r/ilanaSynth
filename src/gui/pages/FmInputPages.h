@@ -141,7 +141,7 @@ public:
         // plays the Operator Env.
         picker.onPick = [this] (int op) { selectOperator (op); };
         addAndMakeVisible (picker);
-        styleFmLink (pitchLfoLink, juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO \xe2\x80\xba"));
+        styleFmLink (pitchLfoLink, juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO"));
         pitchLfoLink.setTooltip ("The Operator Env's pitch envelope (OP PITCH) and LFO (OP LFO), for the whole voice: every "
                                  "oscillator on the Operator Env follows them. Edited in MOD's pools, with TRANSPOSE and SCALE SHIFT.");
         pitchLfoLink.onClick = [] { FmOperatorInfo::openPitchAndLfo(); };

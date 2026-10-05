@@ -3,6 +3,8 @@
 // expect, visibleInTree); runLayoutReview9Tests runs from runUiTests, and
 // alone with ILANA_UITEST_ONLY=T1.
 #pragma once
+#include <map>
+#include <set>
 
 // The largest rectangle of a page's bare background (V9-1, V9-3, V9-7,
 // V9-8, V9-9): a page is painted, and every pixel that still equals the page
@@ -104,8 +106,8 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         probe.armed = true;
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         const auto wide = (int) std::ceil (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "-30.9 dB"));
-        IlanaTheme::drawFitted (g, "-30.9 dB", juce::Rectangle<int> (0, 0, wide - 4, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
-        IlanaTheme::drawFitted (g, "20.00 kHz", juce::Rectangle<int> (0, 0, 52, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
+        IlanaTheme::drawFitted (g, "-30.9 dB", juce::Rectangle<int> (0, 0, wide / 2, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
+        IlanaTheme::drawFitted (g, "20.00 kHz", juce::Rectangle<int> (0, 0, 36, 20), juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
         probe.armed = false;
         auto keepsUnits = true;
         for (const auto& line : probe.respelled)
@@ -121,14 +123,24 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         loadNamed ("Neuro Wobble");
         editor.showPage ("ENV/LFO");
         settle (400);
-        std::set<float> sizes;
-        for (const auto* id : { "amp_delay", "amp_attack", "amp_hold", "amp_decay", "amp_sustain", "amp_release" })
-            if (auto* knob = knobFor (id))
-            {
-                const auto& properties = knob->getNameLabel().getProperties();
-                sizes.insert (properties.contains ("fitCap") ? (float) properties["fitCap"] : -1.0f);
-            }
-        expect (sizes.size() == 1 && *sizes.begin() > 0.0f, "the envelope row's names share one size (" + juce::String ((int) sizes.size()) + " sizes)");
+        std::vector<KnobControl*> all;
+        findAll<KnobControl> (editor, all);
+        std::map<juce::Component*, std::set<float>> byRow;
+        for (auto* knob : all)
+            if (visibleInTree (knob) && ! knob->getBounds().isEmpty() && ! knob->isCompact())
+                for (const auto* suffix : { "_delay", "_attack", "_hold", "_decay", "_sustain", "_release" })
+                    if (knob->getParameterId().endsWith (suffix))
+                    {
+                        const auto& properties = knob->getNameLabel().getProperties();
+                        byRow[knob->getParentComponent()].insert (properties.contains ("fitCap") ? (float) properties["fitCap"] : -1.0f);
+                    }
+        auto rows = 0, split = 0;
+        for (const auto& row : byRow)
+        {
+            rows += 1;
+            split += row.second.size() == 1 && *row.second.begin() > 0.0f ? 0 : 1;
+        }
+        expect (rows > 0 && split == 0, "the envelope row's names share one size (" + juce::String (rows) + " rows, " + juce::String (split) + " split)");
     }
 
     // The window at both zooms, for the checks that look at pixels.

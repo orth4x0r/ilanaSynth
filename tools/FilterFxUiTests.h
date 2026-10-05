@@ -136,13 +136,17 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         auto* fold = shownKnob ("west_fold");
         auto* amount = shownKnob ("res_amount");
         auto* decay = shownKnob ("res_decay");
-        const auto offDrawn = fold != nullptr && amount != nullptr && decay != nullptr
-                              && fold->getAlpha() <= offAlpha && amount->getAlpha() <= offAlpha && decay->getAlpha() <= offAlpha;
+        (void) offAlpha;
+        const auto offDrawn = fold == nullptr && amount == nullptr && decay == nullptr; // folded to a header (V9-4)
         setParam ("west_on", 1.0f);
         setParam ("res_on", 1.0f);
         settle (400);
-        expect (offDrawn && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
-                "WEST and BODY draw every knob at the off alpha while off, and in full while on");
+        fold = shownKnob ("west_fold");
+        amount = shownKnob ("res_amount");
+        decay = shownKnob ("res_decay");
+        expect (offDrawn && fold != nullptr && amount != nullptr && decay != nullptr
+                    && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
+                "WEST and BODY fold to a header while off (no knobs), and draw every knob in full while on");
 
         auto* place = shownCombo ("west_pos");
         auto* bodyType = shownCombo ("body_type");
@@ -263,8 +267,8 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             if (visibleInTree (toggle) && toggle->getTooltip().startsWith (processor.apvts.getParameter ("master_clip")->getName (64)))
                 softClip = toggle;
         expect (softClip != nullptr && softClip->getParentComponent() != nullptr
-                    && softClip->getBottom() < softClip->getParentComponent()->getHeight() - 120,
-                "OUTPUT sits under the last card, not at the foot of an emptier page");
+                    && softClip->getBottom() <= softClip->getParentComponent()->getHeight(),
+                "OUTPUT sits inside the page (the rows grow into spare height, V9-3)");
 
         // V7-22, V7-43: CHAIN 1 / 2 (not a second A/B), the header's dice for the chain.
         std::vector<DiceFxButton*> dice;

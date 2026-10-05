@@ -420,7 +420,9 @@ private:
         // no ticks of its own ("+100 ms" read as a second axis).
         for (const auto inRelease : { false })
         {
-            // Longest first, so where ticks crowd the bigger time keeps its label.
+            // The decades first (10 ms, 100 ms, 1 s, 10 s keep their labels),
+            // then the in-between times where they fit; longest first within each.
+            for (const auto pass : { 0, 1 })
             for (const auto seconds : { 20.0f, 10.0f, 5.0f, 2.0f, 1.0f, 0.5f, 0.2f, 0.1f, 0.05f, 0.02f, 0.01f, 0.005f, 0.002f })
             {
                 const auto x = inRelease ? releaseX (seconds) : noteX (seconds);
@@ -430,23 +432,34 @@ private:
 
                 const auto decade = std::abs (std::log10 (seconds) - std::round (std::log10 (seconds))) < 1.0e-3f && seconds >= 0.01f;
 
-                if (! decade)
+                if ((pass == 0) != decade)
+                    continue;
+
+                // The in-between times (20 ms, 50 ms, 200 ms, 0.5 s, 2 s, 5 s) are
+                // labelled too where there is room, so a long stage reads more
+                // than two ticks (V10-19); where there isn't, a short mark.
+                const auto text = (inRelease ? "+" : "") + (seconds < 1.0f ? juce::String (juce::roundToInt (seconds * 1000.0f)) + " ms"
+                                                                          : juce::String (juce::roundToInt (seconds)) + " s");
+                const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
+                const auto span = juce::Range<float> (x + 3.0f, x + 3.0f + width);
+                const auto fits = span.getEnd() <= geo.plot.getRight() + 10.0f
+                                  && ! std::any_of (labelled.begin(), labelled.end(),
+                                                    [span] (juce::Range<float> other) { return other.expanded (4.0f).intersects (span); });
+
+                if (! decade && (! fits || seconds < 0.02f))
                 {
                     g.setColour (juce::Colours::white.withAlpha (0.12f));
                     g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 1.0f));
                     continue;
                 }
 
-                g.setColour (juce::Colours::white.withAlpha (0.06f));
-                g.fillRect (juce::Rectangle<float> (1.0f, geo.yBottom - geo.yTop).withPosition (x, geo.yTop));
+                if (decade)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.06f));
+                    g.fillRect (juce::Rectangle<float> (1.0f, geo.yBottom - geo.yTop).withPosition (x, geo.yTop));
+                }
 
-                const auto text = (inRelease ? "+" : "") + (seconds < 1.0f ? juce::String (juce::roundToInt (seconds * 1000.0f)) + " ms"
-                                                                          : juce::String (juce::roundToInt (seconds)) + " s");
-                const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
-                const auto span = juce::Range<float> (x + 3.0f, x + 3.0f + width);
-
-                if (span.getEnd() > geo.plot.getRight() + 10.0f
-                    || std::any_of (labelled.begin(), labelled.end(), [span] (juce::Range<float> other) { return other.expanded (4.0f).intersects (span); }))
+                if (! fits)
                     continue;
 
                 labelled.push_back (span);

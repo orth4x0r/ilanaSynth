@@ -964,6 +964,7 @@ private:
     // on switch), then rows of controls sized to their knobs, with the
     // family's display on the left where the module has one. Cards whose
     // controls fit in half the width sit two to a row (S6-26).
+    static constexpr int knobCellWidth = 88, maxDisplayWidth = 600, maxHalfDisplayWidth = 250;
     static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int blendWidth = 104, soloWidth = 52, bandWidth = 100, knobColumn = 84;
@@ -1303,9 +1304,22 @@ private:
         auto rowsArea = body.removeFromTop (rows * cardRowHeight + extra);
 
         // The family's picture, left of the knobs.
+        // A row of knobs is a tight group at the picture's right edge, one
+        // fixed cell each; what the card has to spare goes to the picture, up
+        // to a cap, and then stays empty at the right (V10-5: not knobs spread
+        // 700 px apart).
+        auto menusInRow = 0;
+        for (auto* item : items)
+            menusInRow += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
+        const auto knobsOnly = menusInRow == 0 && items.size() <= 8 && hasCardDisplay (type) && ! items.empty();
+        const auto knobsWidth = (int) items.size() * knobCellWidth;
+
         if (hasCardDisplay (type))
         {
-            const auto displayWidth = juce::jmin (rowsArea.getWidth() / 3, displayWidthFor (type, panel.half));
+            auto displayWidth = juce::jmin (rowsArea.getWidth() / 3, displayWidthFor (type, panel.half));
+            if (knobsOnly)
+                displayWidth = juce::jlimit (displayWidth, juce::jmax (displayWidth, panel.half ? maxHalfDisplayWidth : maxDisplayWidth),
+                                             rowsArea.getWidth() - knobsWidth - 12);
             const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
             rowsArea.removeFromLeft (12);
 
@@ -1333,13 +1347,13 @@ private:
             auto menus = 0;
             for (auto* item : items)
                 menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-            const auto maxWidth = juce::jmin (rowsArea.getWidth(), (int) items.size() * (panel.half ? 110 : 150) + menus * 40);
+            const auto maxWidth = juce::jmin (rowsArea.getWidth(), knobsOnly ? knobsWidth : (int) items.size() * (panel.half ? 110 : 150) + menus * 40);
             // A row led by a menu (an ALGORITHM) starts at the row's left, so
             // the menu stays put when the card switches model (UI review 8,
             // I8-33); a row of knobs is centred.
             const auto ledByMenu = ! items.empty() && dynamic_cast<ComboControl*> (items.front()) != nullptr;
             auto row = rowsArea.removeFromTop (cardRowHeight + extra);
-            layoutRow (ledByMenu ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, row.getHeight()), items, false, 1.4f);
+            layoutRow (ledByMenu || knobsOnly ? row.withWidth (maxWidth) : row.withSizeKeepingCentre (maxWidth, row.getHeight()), items, false, 1.4f);
         }
 
         body.removeFromTop (cardPadding);

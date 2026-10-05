@@ -133,6 +133,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests8.h"
 #include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
+#include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "Review9T2Tests.h"
 
@@ -423,6 +424,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("PHYSICAL");
     settle (400);
     {
+        for (const char* id : { "res_on", "sb_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        settle (300);
         auto* page = editor.getCurrentPage();
         auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* decay = knobFor ("osc1_string_decay");
@@ -778,8 +783,10 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         if (found)
         {
             const auto row = topOf (count);
-            expect (topOf (scale) == row && topOf (root) == row && topOf (snap) == row && topOf (strum) == row
-                        && topOf (strumTime) == row && topOf (pitch) == row && topOf (spread) == row,
+            // (Menu-only boxes centre their row, S10-12, so a menu sits a few px lower than a knob.)
+            const auto sameRow = [&] (juce::Component* c) { return std::abs (topOf (c) - row) <= 24; };
+            expect (sameRow (scale) && sameRow (root) && sameRow (snap) && sameRow (strum)
+                        && sameRow (strumTime) && sameRow (pitch) && sameRow (spread),
                     "GENERATE's controls are one row, every name on one line");
             expect (xOf (root) < xOf (scale) && xOf (scale) < xOf (snap) && xOf (snap) < xOf (strum) && xOf (strum) < xOf (strumTime)
                         && xOf (strumTime) < xOf (pitch) && xOf (pitch) < xOf (count) && xOf (spread) < xOf (velocity),
@@ -856,9 +863,11 @@ int runUiTests()
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
 
-    if (only == "T1" || only == "T2")
+    if (only == "T1" || only == "T2" || only == "U1")
     {
-        if (only == "T1")
+        if (only == "U1")
+            runLayoutReview10Tests (processor, *pages);
+        else if (only == "T1")
             runLayoutReview9Tests (processor, *pages);
         else
             runReview9T2Tests (processor, *pages);
@@ -3671,9 +3680,9 @@ int runUiTests()
             const auto free = LfoShapeMenu::runCaption (processor, 0);
             setParam ("lfo1_trigger", 0.0f);
             setShape (0);
-            expect (onNote.contains ("restarts on any new note") && onNote.contains ("held notes") && free.contains ("runs free")
+            expect (onNote.contains ("restarts on note") && free.contains ("runs free")
                         && onNote.startsWith ("shared") && plainCaption == juce::String::fromUTF8 ("shared \xc2\xb7 runs free")
-                        && onNote.contains ("2 outputs") && ! onNote.contains ("restarts on each note"),
+                        && onNote.contains ("2 outputs") && onNote.length() < 48,
                     "an LFO's caption says where it runs and when it restarts, the same words for plain and simulated shapes ('"
                         + plainCaption + "' / '" + onNote + "' / '" + free + "')");
             expect (plainSwitch == "RETRIG" && simSwitch == "PER VOICE",
@@ -3936,6 +3945,11 @@ int runUiTests()
                     listIds.add (physicalPrefix + spec.suffix);
         expect (! pageIds.isEmpty() && pageIds == listIds, "PHYSICAL shows the physical control list (" + pageIds.joinIntoString (" ") + ")");
 
+        // (BODY and the SOUNDBOARD fold to a line while off, V10-9: switched on, they show their links.)
+        for (const char* id : { "res_on", "sb_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        settle (400);
         juce::StringArray pageButtons;
         {
             std::vector<juce::TextButton*> buttons;
@@ -4884,7 +4898,7 @@ int runUiTests()
                 if (auto* button = key ("3D"))
                     button->triggerClick();
                 settle (60);
-                expect (wave->getFrameReadout().startsWith ("FRAME"), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
+                expect (wave->getFrameReadout().startsWith ("frame "), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
 
                 const auto table = [&processor] { return juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()); };
                 const auto before = table();
@@ -5380,6 +5394,7 @@ int runUiTests()
             // The wavetable browser: a search field, spaced Title Case names.
             {
                 TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+                browser.setLookAndFeel (&editor->getLookAndFeel());
                 browser.setSize (740, 520);
                 const auto all = browser.getShownNames();
                 browser.setSearchText ("saw");
@@ -6374,7 +6389,7 @@ int runUiTests()
             for (auto* wave : waves)
                 if (visibleInTree (wave) && readout.isEmpty())
                     readout = wave->getFrameReadout();
-            expect (readout.startsWith ("FRAME ") && readout.contains (" / "), "the WAVE view reads out the frame ('" + readout + "')");
+            expect (readout.startsWith ("frame ") && readout.contains (" of "), "the WAVE view reads out the frame ('" + readout + "')");
         }
 
         // One dimming rule (V26): a control that does nothing now dims, says
@@ -6510,6 +6525,7 @@ int runUiTests()
     // UI review 8, R5: PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX layout.
     runLayoutReview8Tests (processor, *pages);
     runLayoutReview9Tests (processor, *pages);
+    runLayoutReview10Tests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.
@@ -7322,6 +7338,7 @@ int main (int argc, char** argv)
             settingsFile->setValue ("tablefav_Basic", "1");
         {
             TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setLookAndFeel (&pages->getLookAndFeel());
             browser.setSize (912, 576);
             settle (200);
             save (browser, outDir.getChildFile ("t2-table-browser.png"));
@@ -7394,6 +7411,7 @@ int main (int argc, char** argv)
 
         {
             TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setLookAndFeel (&pages->getLookAndFeel());
             browser.setSize (912, 576);
             browser.setSearchText ("saw");
             settle (200);
@@ -8244,6 +8262,7 @@ int main (int argc, char** argv)
     // The wavetable browser on its own.
     {
         TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setLookAndFeel (&editor->getLookAndFeel());
         browser.setSize (740, 520);
         settle (100);
         save (browser, outDir.getChildFile ("table-browser.png"));

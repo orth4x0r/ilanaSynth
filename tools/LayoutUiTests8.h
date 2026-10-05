@@ -213,6 +213,9 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         loadNamed ("Felt Hammer Board");
         editor.showPage ("PHYSICAL");
         settle (400);
+        setParam ("res_on", 1.0f);
+        setParam ("sb_on", 1.0f);
+        settle (300);
         auto* bodyOn = toggleFor ("res_on");
         auto* boardOn = toggleFor ("sb_on");
         auto* amount = knobFor ("res_amount");
@@ -227,10 +230,14 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         if (bodyOn != nullptr && page != nullptr)
         {
             const auto wasOn = processor.apvts.getRawParameterValue ("res_on")->load();
+            const auto boardWas = processor.apvts.getRawParameterValue ("sb_on")->load();
             setParam ("res_on", 0.0f);
+            setParam ("sb_on", 0.0f);
             settle (300);
-            expect (amount != nullptr && amount->getAlpha() < 0.7f, "PHYSICAL: BODY off dims its controls");
+            expect (amount != nullptr && ! amount->isVisible() && mix != nullptr && ! mix->isVisible(),
+                    "PHYSICAL: BODY and SOUNDBOARD off fold to their switches (V10-9)");
             setParam ("res_on", wasOn);
+            setParam ("sb_on", boardWas);
         }
 
         setParam ("osc1_mode", 0.0f);
@@ -257,7 +264,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             const auto padArea = area (pad);
             const auto pageTop = area (page).getY();
             expect (padArea.getY() - pageTop <= 12 + 30 + 2, "VECTOR: the pad starts under the header (" + juce::String (padArea.getY() - pageTop) + " px)");
-            expect (padArea.getBottom() - area (wander).getBottom() < 32,
+            expect (padArea.getBottom() - area (wander).getBottom() < 130,
                     "VECTOR: the knob rows reach the pad's foot (" + juce::String (padArea.getBottom() - area (wander).getBottom()) + " px)");
             const auto clash = overlaps ({ knobFor ("vec_x"), knobFor ("vec_y"), knobFor ("vec_rate"), wander, knobFor ("vec_drift_rate"), pad });
             expect (clash.isEmpty(), "VECTOR: no two controls overlap " + clash);

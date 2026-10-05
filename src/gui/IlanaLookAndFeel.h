@@ -179,7 +179,16 @@ struct TextFitProbe
     juce::StringArray shrunk, cut;
     juce::StringArray cutDetails; // "text: needs N px of M at H"
     juce::StringArray respelled;  // "text -> line": a value drawn without its space or with a shorter unit
+    juce::StringArray garbled;    // text holding double-encoded UTF-8 (V10-1)
 };
+
+// Whether a string holds the marks of UTF-8 read as Latin-1 and encoded again
+// ("Â·" for a middle dot, "â€" for a dash or quote): never real text here.
+inline bool isMojibake (const juce::String& text)
+{
+    return text.contains (juce::String::fromUTF8 ("\xc3\x82")) || text.contains (juce::String::fromUTF8 ("\xc3\x83"))
+           || text.contains (juce::String::fromUTF8 ("\xc3\xa2\xe2\x82\xac")) || text.contains (juce::String::fromUTF8 ("\xef\xbf\xbd"));
+}
 
 inline TextFitProbe& textFitProbe()
 {
@@ -194,7 +203,8 @@ inline TextFitProbe& textFitProbe()
 //   1. a smaller size, down to `floorHeight` (the floor for its kind: the
 //      interactive one for values, menus and buttons);
 //   2. the same, with its letters set a little closer (tracking, up to
-//      0.12 of the height between letters: spacing, not narrower glyphs);
+//      0.04 of the height between letters: spacing, not narrower glyphs,
+//      and never enough to close a gap between words);
 //   3. for a value with a unit ("-30.9 dB"), the space goes and a long
 //      unit is shortened ("kHz" to "k"): a value never loses its unit;
 //   4. down to the passive floor (still 10 px at 75 %), tracked;
@@ -219,7 +229,9 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
         smaller = font.withHeight (height);
     }
 
-    for (auto tracking = -0.01f; tracking >= -0.1201f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
+    // (Tracking is a touch only, never more than 0.04 of the height: more
+    // closes the gap between words, "AMPENV", and reads as condensed type.)
+    for (auto tracking = -0.01f; tracking >= -0.0401f && juce::GlyphArrangement::getStringWidth (smaller, line) > room + 0.01f;
          tracking -= 0.01f)
         smaller = font.withHeight (height).withExtraKerningFactor (tracking);
 
@@ -237,6 +249,9 @@ inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Recta
 {
     if (area.isEmpty() || text.isEmpty())
         return;
+
+    if (auto& probe = textFitProbe(); probe.armed && isMojibake (text))
+        probe.garbled.addIfNotAlreadyThere (text);
 
     if (text.containsAnyOf ("\r\n"))
     {
@@ -700,6 +715,7 @@ public:
     {
         auto* label = LookAndFeel_V4::createSliderTextBox (slider);
         label->getProperties().set ("tabular", true); // a live value
+        label->setBorderSize ({ 1, 1, 1, 1 });          // (the value keeps its room, and its unit's space: V10-8)
         label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
         return label;
     }
@@ -1028,7 +1044,7 @@ public:
             // dim, as a default rather than a setting (UI review 9, I9-25).
             const auto placeholder = dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
                                      && isPlaceholderValue (label.getText());
-            g.setColour ((placeholder ? IlanaTheme::Ui::text2 : label.findColour (juce::Label::textColourId)).withMultipliedAlpha (alpha));
+            g.setColour ((placeholder ? IlanaTheme::Ui::text3 : label.findColour (juce::Label::textColourId)).withMultipliedAlpha (alpha)); // (dimmer than a number: I10-15)
             g.setFont (font);
             const auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
             // Never condensed (V8-12): shrunk to the floor, then cut. A value

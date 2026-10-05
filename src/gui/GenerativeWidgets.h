@@ -736,7 +736,10 @@ public:
                 g.fillRoundedRectangle (full, 2.0f);
                 // Off, the bars also lose most of their colour, so they read
                 // as stored, not playing (I8-24), while the values stay clear.
-                const auto fill = (on ? laneColour (lane) : laneColour (lane).interpolatedWith (IlanaTheme::Ui::text2, 0.6f))
+                // (A lane's bars are the engine's own look: while it is off they
+                // are plain grey, not the lane's colour, so a stored pattern
+                // never reads as a playing one: S10-13.)
+                const auto fill = (on ? laneColour (lane) : IlanaTheme::Ui::text3.withAlpha (0.8f))
                                       .withAlpha ((playing || hovered ? 1.0f : 0.78f) * cellAlpha);
 
                 if (lane == pitch)

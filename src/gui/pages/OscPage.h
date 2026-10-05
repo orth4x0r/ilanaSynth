@@ -700,6 +700,17 @@ public:
         if (! sharedCard.isEmpty())
             IlanaTheme::paintRecessedPanel (g, sharedCard.toFloat(), 6.0f);
 
+        // Folded: what is off, and what opens it (the sub's switch).
+        if (shownSharedFolded)
+        {
+            const auto left = sharedTabs.getRight() + 12;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "sub off, no noise: switch the sub on to set them",
+                                    juce::Rectangle<int> (left, sharedCard.getY(), sharedCard.getRight() - 70 - left, sharedHeaderHeight),
+                                    juce::Justification::centredLeft, 1);
+        }
+
         // SUB + NOISE's two halves, each named at its left.
         for (const auto& [area, name] : sharedLabels)
         {
@@ -731,7 +742,10 @@ public:
         auto area = getLocalBounds().reduced (12, pageMargin);
         area.removeFromTop (tabRowHeight + gap);
 
-        sharedCard = area.removeFromBottom (sharedHeight);
+        // SUB + NOISE with the sub off and no noise folds to its header (the
+        // tabs and the switch), as WEST and BODY do on FILTER (V10-9).
+        shownSharedFolded = sharedFolded();
+        sharedCard = area.removeFromBottom (shownSharedFolded ? sharedHeaderHeight + 6 : sharedHeight);
         area.removeFromBottom (gap);
         oscCard = area;
         layoutTabs();
@@ -774,7 +788,7 @@ public:
 
 private:
     static constexpr const char* listenedSuffixes[] { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env", "_spectral", "_tune", "_amp_env" };
-    static constexpr const char* listenedIds[] { "sym_on", "sym_manual", "sym_count", "sb_on", "subosc_on" };
+    static constexpr const char* listenedIds[] { "sym_on", "sym_manual", "sym_count", "sb_on", "subosc_on", "noise_level" };
 
     template <typename... Components>
     void addChildComponents (Components&... components)
@@ -817,6 +831,9 @@ private:
 
     int lastRevealVersion = -1;
     int selected = 0, sharedSelected = 0;
+    bool shownSharedFolded = false;
+
+    bool sharedFolded() const { return sharedSelected == 0 && ! readBool ("subosc_on") && readFloat ("noise_level") <= 0.0005f; }
     juce::String shownRole;
     juce::Rectangle<int> oscCard, sharedCard, controlBay, subtitleArea;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels, sharedLabels;
@@ -1115,6 +1132,14 @@ private:
         sharedLabels.clear();
         sharedDividers.clear();
         auto row = sharedCard.withTrimmedTop (sharedHeaderHeight).reduced (8, 0).withTrimmedBottom (4);
+
+        if (shownSharedFolded)
+        {
+            for (auto* item : sharedItems (0))
+                if (item != nullptr)
+                    item->setBounds ({});
+            return;
+        }
 
         // SUB + NOISE in two named halves (the sub's controls, then after
         // the gap the noise's), so its row reads as two small modules
@@ -1487,6 +1512,12 @@ private:
 
     void updateEnabled()
     {
+        if (sharedFolded() != shownSharedFolded)
+        {
+            resized();
+            repaint();
+        }
+
         // The sub's controls follow its switch; noise has its own level.
         const auto subIsOn = readBool ("subosc_on");
         for (auto* control : { static_cast<juce::Component*> (&subShape), static_cast<juce::Component*> (&subOctave),

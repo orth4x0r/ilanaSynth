@@ -214,7 +214,7 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText ("QUICK SHAPES", juce::Rectangle<int> (info.getX(), shapeTiles.front()->getY() - 16, info.getWidth(), 14),
                         juce::Justification::centredLeft);
-            info = info.withBottom (shapeTiles.front()->getY() - 18);
+            info = info.withBottom (shapeTiles.front()->getY() - 24); // (6 px clear of the caption: V10-22)
         }
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.setColour (IlanaTheme::Ui::text2);
@@ -226,8 +226,11 @@ public:
             "Left to right: the source's range.  Bottom to top: what it sends.",
             "Click to add a point, drag the middle dots to bend, double-click to remove.",
         };
+        // Two lines to a sentence where the dock is tall enough for three,
+        // else one line each, so none runs into QUICK SHAPES.
+        const auto twoLines = info.getHeight() >= 3 * 32;
         for (const auto& line : lines)
-            IlanaTheme::drawFitted (g, line, info.removeFromTop (20), juce::Justification::centredLeft, 1);
+            IlanaTheme::drawFitted (g, line, info.removeFromTop (twoLines ? 32 : 20), juce::Justification::topLeft, twoLines ? 2 : 1);
     }
 
     // A click on a sortable heading.
@@ -541,7 +544,7 @@ public:
             if (tilesShown)
             {
                 tile->colour = modSourceColour ((int) processorRef.readModSlot (remapEditor->getSlotIndex()).source);
-                tile->setBounds (tiles.removeFromLeft (tileWidth).reduced (2, 0));
+                tile->setBounds (tiles.removeFromLeft (tileWidth).reduced (3, 0)); // (names keep 6 px between them: V10-22)
             }
         }
 

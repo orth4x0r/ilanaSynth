@@ -189,6 +189,9 @@ public:
     // The tag chips offered under the field, and a click on one.
     juce::StringArray getSuggestedTags() const { return suggestions; }
 
+    // Where the chips sit (the UI test checks they clear the field above).
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> getChipBoxes() const { return chipBoxes(); }
+
     // The chip that opens the text field, and whether the field shows.
     static juce::String typeYourOwnLabel() { return "+  type your own"; }
     bool isTagsFieldOpen() const { return tagsField.isVisible(); }
@@ -476,7 +479,8 @@ private:
             return boxes;
 
         const auto font = chipFont();
-        auto x = chipArea.getX(), y = chipArea.getY();
+        // (Clear of an open field whatever the last layout was: V10-11.)
+        auto x = chipArea.getX(), y = tagsField.isVisible() ? juce::jmax (chipArea.getY(), tagsField.getBottom() + 8) : chipArea.getY();
 
         auto offered = suggestions;
         if (! tagsField.isVisible())

@@ -509,7 +509,7 @@ public:
 
         g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, getName().toUpperCase(), nameArea.toNearestInt(), juce::Justification::centred, 1);
+        IlanaTheme::drawFitted (g, getName().toUpperCase(), nameArea.reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
     }
 
 private:

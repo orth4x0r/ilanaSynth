@@ -666,8 +666,12 @@ private:
         // (Three oscillators or fewer draw larger cells, so the matrix of a
         // small patch fills its card: UI review 9, V9-8.)
         const auto small = count <= 3;
-        const auto rowHeight = juce::jmin (small ? 96 : cellHeight, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
-        const auto columnWidth = juce::jmin (small ? 110 : cellWidth, (inner.getWidth() - headWidth) / count);
+        // (Cells are sized for their count, not stretched to the card: a
+        // three-oscillator matrix has modest cells, a six-operator one larger
+        // than its minimum, so neither is a grid of empty boxes or leaves the
+        // card's foot bare: V10-13.)
+        const auto rowHeight = juce::jmin (small ? 72 : 66, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
+        const auto columnWidth = juce::jmin (small ? 84 : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;

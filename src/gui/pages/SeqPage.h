@@ -75,6 +75,27 @@ public:
         addAll (*this, engineTabs, euclidDisplay, eucTarget, eucDiv, eucSteps, eucHits, eucRotate, eucGate,
                 pseqEditor, pseqDiv, pseqLength, pseqGate, clipEditor, clipIndex, clipMode, clipBars,
                 clipGrid, clipImport, clipDraw);
+        // One gate for SNAP TO KEY and STRUM: their switches do "off", so
+        // the menus beside them list only what is on (review 9, S9-9).
+        for (auto* control : { &genScale, &sprayStrum })
+        {
+            juce::Component::SafePointer<juce::ComboBox> box (&control->getComboBox());
+            control->setPopupOverride ([box]
+            {
+                if (box == nullptr)
+                    return;
+
+                juce::PopupMenu menu;
+                for (int i = 1; i < box->getNumItems(); ++i)
+                    menu.addItem (box->getItemId (i), box->getItemText (i), true, box->getSelectedItemIndex() == i);
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (box.getComponent()).withMinimumWidth (box->getWidth()),
+                                    [box] (int id)
+                                    {
+                                        if (id > 0 && box != nullptr)
+                                            box->setSelectedId (id, juce::sendNotificationSync);
+                                    });
+            });
+        }
         clipImport.setButtonText ("IMPORT MIDI");
         clipImport.setTooltip ("Import MIDI\nReads the first track with notes of a .mid file into the chosen clip, "
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
@@ -427,7 +448,9 @@ public:
         // on one label line (review 8, I8-23, S8-33, V8-22).
         layoutRow (controls, { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance }, true);
         layoutRow (controls, { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate }, true);
-        layoutRow (controls, { &pseqDiv, &pseqLength, &pseqGate, nullptr, nullptr, nullptr }, true);
+        // PROB SEQ has three: centred, not three and an empty half row
+        // (review 9, S9-15).
+        layoutRow (controls.reduced (controls.getWidth() / 4, 0), { &pseqDiv, &pseqLength, &pseqGate }, true);
 
         // The clip's row is menus and buttons only (nine columns): the
         // piano roll takes the height the other engines' knobs need.

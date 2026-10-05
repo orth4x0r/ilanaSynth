@@ -19,6 +19,11 @@ inline float read (const IlanaSynthAudioProcessor& processor, const juce::String
     return 0.0f;
 }
 
+// Drawing in a pattern engine that is off switches it on, in the same undo
+// step as the first stroke (review 9, S9-3: one click on the tab, not a
+// tab and a switch).
+inline void switchOnIfOff (IlanaSynthAudioProcessor& processor, const juce::String& id);
+
 // Sets a parameter from the editor as one undoable gesture.
 inline void write (IlanaSynthAudioProcessor& processor, const juce::String& id, float value)
 {
@@ -33,6 +38,12 @@ inline void write (IlanaSynthAudioProcessor& processor, const juce::String& id, 
         parameter->setValueNotifyingHost (normalised);
         parameter->endChangeGesture();
     }
+}
+
+inline void switchOnIfOff (IlanaSynthAudioProcessor& processor, const juce::String& id)
+{
+    if (read (processor, id) < 0.5f)
+        write (processor, id, 1.0f);
 }
 } // namespace GenerativeWidgets
 
@@ -254,6 +265,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override
     {
         processorRef.getUndoManager().beginNewTransaction ("Euclid");
+        GenerativeWidgets::switchOnIfOff (processorRef, "euc_on");
         dragHits = juce::roundToInt (GenerativeWidgets::read (processorRef, "euc_hits"));
         dragRotate = juce::roundToInt (GenerativeWidgets::read (processorRef, "euc_rotate"));
     }
@@ -406,6 +418,9 @@ public:
         processorRef.getUndoManager().beginNewTransaction ("Probability sequencer");
         dragLane = laneAt (event.position);
 
+        if (dragLane >= 0)
+            GenerativeWidgets::switchOnIfOff (processorRef, "pseq_on");
+
         // A step number sets how many steps loop, as on the arp's ruler.
         if (dragLane < 0)
         {
@@ -549,8 +564,8 @@ public:
     ArpLanesEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip (juce::String::fromUTF8 ("Arp step lanes. Drag in VEL (velocity), GATE \xc3\x97 (times the GATE knob's length) and PITCH to draw; "
-                                            "double-click a step to reset it. Click a step number to set how many steps loop."));
+        setTooltip (juce::String::fromUTF8 ("Arp step lanes. Drag in VEL (velocity), STEP LEN (times the GATE knob's length; 0 rests the step) and PITCH to draw; "
+                                            "drawing switches the arp on. Double-click a step to reset it. Click a step number to set how many steps loop."));
         startTimerHz (30);
     }
 
@@ -582,8 +597,8 @@ public:
         if (lane == velocity)
             return juce::String (juce::roundToInt (value));
 
-        // GATE scales the GATE knob's length (review 8, V8-22: the lane is
-        // GATE ×, so it doesn't read as a second GATE), in the ratio style.
+        // STEP LEN scales the GATE knob's length (review 9, I9-13: the lane is
+        // not a second GATE), in the ratio style.
         if (lane == gate)
             return value < 0.005f ? juce::String ("rest") : juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + juce::String (value, 2);
 
@@ -611,7 +626,7 @@ public:
         const auto lanes = laneBounds();
         // The lane names as the clip roll's (VEL) and GENERATE's (VEL RND):
         // one word for one thing (review 8, I8-23).
-        const juce::String names[] { "VEL", juce::String (juce::CharPointer_UTF8 ("GATE \xc3\x97")), "PITCH (st)" };
+        const juce::String names[] { "VEL", "STEP LEN", "PITCH (st)" };
         const auto mouse = getMouseXYRelative().toFloat();
         const auto hoverLane = isMouseOver() && dragLane < 0 ? laneAt (mouse) : -1;
         const auto hoverStep = hoverLane >= 0 ? stepAt (mouse.x) : -1;
@@ -637,7 +652,8 @@ public:
 
             if (area.getHeight() >= 30.0f)
             {
-                const auto top = area.getY() + 5.0f, bottom = area.getBottom() - 5.0f;
+                const auto bars = barsOf (area);
+                const auto top = bars.getY() + 5.0f, bottom = bars.getBottom() - 5.0f;
                 if (lane == velocity)
                 {
                     tick ("127", top);
@@ -647,14 +663,14 @@ public:
                 {
                     tick (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "2", top);
                     if (area.getHeight() >= 44.0f)
-                        tick (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1", area.getCentreY());
+                        tick (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) + "1", bars.getCentreY());
                     tick ("0", bottom);
                 }
                 else
                 {
                     tick ("+12", top);
                     if (area.getHeight() >= 44.0f)
-                        tick ("0", area.getCentreY());
+                        tick ("0", bars.getCentreY());
                     tick (juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92")) + "12", bottom);
                 }
             }
@@ -664,13 +680,18 @@ public:
 
         // PITCH's 0 st line runs the whole lane, over the cells' gaps.
         {
-            const auto lane = lanes[(size_t) pitch].withTrimmedLeft (labelWidth);
+            const auto lane = barsOf (lanes[(size_t) pitch]).withTrimmedLeft (labelWidth);
             g.setColour (juce::Colours::white.withAlpha (0.2f));
             g.fillRect (lane.getX(), lane.getCentreY() - 0.5f, lane.getWidth(), 1.0f);
         }
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText ("STEP", ruler.withWidth (labelWidth).toNearestInt(), juce::Justification::centredLeft);
+        // (While off, the corner says so instead: "ARP OFF", not a bare OFF
+        // beside STEP; drawing in the lanes switches it on. Review 9, S9-16.)
+        if (on)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("STEP", ruler.withWidth (labelWidth).toNearestInt(), juce::Justification::centredLeft);
+        }
 
         for (int step = 0; step < 16; ++step)
         {
@@ -702,14 +723,15 @@ public:
 
             for (int lane = 0; lane < numLanes; ++lane)
             {
-                const auto cell = columnFor (step, lanes[(size_t) lane]).reduced (1.5f, 0.0f);
+                const auto full = columnFor (step, lanes[(size_t) lane]).reduced (1.5f, 0.0f);
+                const auto cell = barsOf (full);
                 const auto value = read (processorRef, idFor (lane, step));
                 const auto unit = juce::jlimit (0.0f, 1.0f, toUnit (lane, value));
                 const auto edited = std::abs (value - defaultFor (lane)) > 1.0e-3f;
 
                 const auto hovered = lane == hoverLane && step == hoverStep;
                 g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : 0.045f) * (active ? 1.0f : 0.6f)));
-                g.fillRoundedRectangle (cell, 2.0f);
+                g.fillRoundedRectangle (full, 2.0f);
                 // Off, the bars also lose most of their colour, so they read
                 // as stored, not playing (I8-24), while the values stay clear.
                 const auto fill = (on ? laneColour (lane) : laneColour (lane).interpolatedWith (IlanaTheme::Ui::text2, 0.6f))
@@ -752,14 +774,15 @@ public:
 
                 // A value moved off its default, under the pointer, or being
                 // drawn, reads out, in every lane the same way (review 8,
-                // S8-15): in a strip at the foot of its cell, or for PITCH
-                // at the end away from its bar, never across the zero line.
+                // S8-15; review 9, S9-13): in the readout row at the foot of
+                // its lane, never over a bar. (A lane too short for the row
+                // prints at its foot, as before.)
                 const auto dragging = lane == dragLane && step == dragStep;
 
                 if (edited || dragging || hovered)
                 {
-                    const auto strip = lane == pitch && value < 0.0f ? cell.withHeight (14.0f).translated (0.0f, 1.0f)
-                                                                     : cell.withTrimmedTop (cell.getHeight() - 15.0f);
+                    const auto strip = cell.getHeight() < full.getHeight() ? full.withTrimmedTop (cell.getHeight())
+                                                                           : full.withTrimmedTop (full.getHeight() - 15.0f);
                     g.setColour (juce::Colours::white.withAlpha ((dragging || hovered ? 1.0f : 0.85f) * (active ? 1.0f : 0.5f)
                                                                  * juce::jmax (alpha, 0.7f)));
                     g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
@@ -769,7 +792,7 @@ public:
         }
 
         if (! on)
-            paintOffBadge (g, ruler.withWidth (labelWidth - 4.0f), "OFF");
+            paintOffBadge (g, ruler.withWidth (labelWidth - 4.0f), "ARP OFF");
     }
 
     // The lanes' off badge, at the right of the ruler's STEP label.
@@ -777,7 +800,7 @@ public:
     {
         const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 14.0f;
-        const auto badge = juce::Rectangle<float> (width, label.getHeight()).withPosition (label.getRight() - width, label.getY());
+        const auto badge = juce::Rectangle<float> (width, label.getHeight()).withPosition (label.getX(), label.getY());
         g.setColour (IlanaTheme::Ui::raised);
         g.fillRoundedRectangle (badge, badge.getHeight() * 0.5f);
         g.setColour (IlanaTheme::Ui::line);
@@ -813,8 +836,9 @@ public:
             return;
         }
 
-        processorRef.beginEdit (juce::String ("Arp ") + (dragLane == velocity ? "velocity" : dragLane == gate ? "gate" : "transpose"));
+        processorRef.beginEdit (juce::String ("Arp ") + (dragLane == velocity ? "velocity" : dragLane == gate ? "step length" : "transpose"));
         editOpen = true;
+        GenerativeWidgets::switchOnIfOff (processorRef, "arp_on");
         lastPosition = event.position;
         drawAt (event.position, event.position);
     }
@@ -862,7 +886,7 @@ public:
 
 private:
     static constexpr float labelWidth = 86.0f; // the name, then the scale
-    static constexpr float rulerHeight = 15.0f;
+    static constexpr float rulerHeight = 15.0f, readoutHeight = 14.0f;
 
     int numSteps() const { return juce::jlimit (1, 16, juce::roundToInt (GenerativeWidgets::read (processorRef, "arp_steps"))); }
 
@@ -881,6 +905,13 @@ private:
         lanes[1] = area.removeFromTop (height * 0.3f).withTrimmedBottom (4.0f);
         lanes[2] = area;
         return lanes;
+    }
+
+    // The bars' part of a lane: a readout row at its foot, the same place in
+    // every lane (review 9, S9-13), when the lane is tall enough for both.
+    static juce::Rectangle<float> barsOf (juce::Rectangle<float> lane)
+    {
+        return lane.getHeight() >= 36.0f ? lane.withTrimmedBottom (readoutHeight) : lane;
     }
 
     static juce::Rectangle<float> columnFor (int step, juce::Rectangle<float> lane)
@@ -923,6 +954,7 @@ private:
             return;
 
         const auto lane = laneBounds()[(size_t) dragLane];
+        const auto bars = barsOf (lane);
         const auto first = stepAt (juce::jlimit (lane.getX() + labelWidth, lane.getRight(), juce::jmin (from.x, to.x)));
         const auto last = stepAt (juce::jlimit (lane.getX() + labelWidth, lane.getRight(), juce::jmax (from.x, to.x)));
 
@@ -931,7 +963,7 @@ private:
             const auto centreX = columnFor (step, lane).getCentreX();
             const auto t = std::abs (to.x - from.x) < 1.0f ? 1.0f : juce::jlimit (0.0f, 1.0f, (centreX - from.x) / (to.x - from.x));
             const auto y = from.y + (to.y - from.y) * t;
-            const auto unit = (lane.getBottom() - y) / juce::jmax (1.0f, lane.getHeight());
+            const auto unit = (bars.getBottom() - y) / juce::jmax (1.0f, bars.getHeight());
             GenerativeWidgets::write (processorRef, idFor (dragLane, step), fromUnit (dragLane, unit));
         }
 
@@ -1034,41 +1066,41 @@ public:
 
         const auto engine = seqOn ? juce::String ("PROB SEQ") : arpOn ? juce::String ("ARP") : juce::String();
         const bool engineOn[] { arpOn, euclidOn, seqOn, clipOn };
-        const char* const offNotes[] { "ARP is off: switch it on in its tab to play the lanes",
-                                       "EUCLID is off: switch it on in its tab to play the rhythm",
-                                       "PROB SEQ is off: switch it on in its tab to play the steps",
-                                       "CLIP is off: switch it on in its tab to play the clip" };
+        const char* const offNotes[] { "ARP is off: draw to switch it on",
+                                       "EUCLID is off: drag to switch it on",
+                                       "PROB SEQ is off: draw to switch it on",
+                                       "CLIP is off: switch it on in its tab" };
 
         // The order follows the chain: how the stages combine, the last
         // stage's part last (review 7, S7-37).
         if (juce::isPositiveAndBelow (shownEngine, 4) && ! engineOn[shownEngine])
             note = offNotes[shownEngine];
         else if (seqOn && arpOn)
-            note = "PROB SEQ plays instead of the ARP";
+            note = "PROB SEQ replaces the ARP";
         else if (euclidNotes && engine.isNotEmpty() && clipOn && ! clipHost)
-            note = "EUCLID rests " + engine + "'s steps; each step transposes the clip";
+            note = "EUCLID gates; steps transpose CLIP";
         else if (euclidNotes && clipOn && ! clipHost)
-            note = "EUCLID's hits trigger the clip; CLIP supplies the notes";
+            note = "EUCLID's hits trigger the clip";
         else if (euclidNotes && engine.isNotEmpty())
-            note = "EUCLID rests " + engine + "'s steps between its hits";
+            note = "EUCLID rests " + engine + "'s steps";
         else if (euclidNotes)
-            note = "EUCLID plays the held chord on each hit";
+            note = "EUCLID plays the held chord";
         else if (clipOn && ! clipHost && engine.isNotEmpty())
-            note = engine + "'s notes transpose the clip";
+            note = engine + " transposes the clip";
         else if (clipOn && ! clipHost)
-            note = "a held key plays the clip (C3 as written)";
+            note = "a held key plays the clip";
         else if (clipOn)
-            note = "the clip plays with the host; keys play over it";
+            note = "the clip plays with the host";
         else if (euclidOn && euclidTarget == 1)
-            note = "EUCLID re-strikes the Physical strings";
+            note = "EUCLID re-strikes the strings";
         else if (euclidOn)
-            note = "EUCLID drives the Trance Gate effect";
+            note = "EUCLID drives the Trance Gate";
         else if (engine.isEmpty())
-            note = "no pattern engine on: keys play the voices";
+            note = "no pattern engine is on";
         else if (seqOn)
-            note = "hold keys: each step rolls its chance";
+            note = "each step rolls its chance";
         else
-            note = "hold keys: the ARP plays them in MODE's order";
+            note = "the ARP plays held keys";
 
         return list;
     }

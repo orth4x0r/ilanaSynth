@@ -3283,7 +3283,7 @@ int runUiTests()
             }
             expect (engineTabs->isTabOn (0) && engineTabs->isTabOn (2) && ! engineTabs->isTabOn (1) && ! engineTabs->isTabOn (3),
                     "the ARP and PROB SEQ tabs light while they are on, EUCLID's and CLIP's don't");
-            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ plays instead of the ARP",
+            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ replaces the ARP",
                     "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
 
             // The arp's settings step back while PROB SEQ plays instead.

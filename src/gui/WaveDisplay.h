@@ -1003,9 +1003,9 @@ private:
     static juce::String frameText (int frames, float position, bool playingNow = true)
     {
         // (The frame playing now, modulation included; the FRAME knob is the
-        // set value: S9-12. One caption, "frame 6 of 64 now": S10-6.)
+        // set value: S9-12. One caption, "frame 6 of 64, playing": S10-6.)
         return "frame " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
-               + " of " + juce::String (frames) + (playingNow ? " now" : "");
+               + " of " + juce::String (frames) + (playingNow ? ", playing" : "");
     }
 
     // Where the cycle sits in the table (after modulation, gliding): a slim

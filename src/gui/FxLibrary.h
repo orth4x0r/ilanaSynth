@@ -254,7 +254,8 @@ public:
         {
             g.setColour (colour.withAlpha (0.6f));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("AW", text.removeFromRight (20), juce::Justification::centredRight);
+            // The word, not its initials (review 10, S10-11).
+            g.drawText ("AIRWINDOWS", text.removeFromRight (64), juce::Justification::centredRight);
         }
 
         g.setColour (textColour);
@@ -309,7 +310,7 @@ public:
     // Called after a pick (the call-out closes itself with it).
     std::function<void()> afterPick;
 
-    static constexpr int columns = 5, buttonHeight = 26, headingHeight = 18, groupGap = 10, twinWidth = 34;
+    static constexpr int columns = 5, buttonHeight = 26, headingHeight = 18, groupGap = 10, twinWidth = 34, legendHeight = 14;
 
     // The tallest column's height, buttons and headings, and the row under them.
     static int preferredHeight()
@@ -328,7 +329,7 @@ public:
                 height += groupGap;
             height += headingHeight + (int) group.entries.size() * buttonHeight;
         }
-        return *std::max_element (heights.begin(), heights.end()) + below;
+        return *std::max_element (heights.begin(), heights.end()) + below + groupGap + legendHeight;
     }
 
     // Marks what is in the rack, and says so in the tooltips.
@@ -377,6 +378,11 @@ public:
             g.drawText (heading.text, heading.bounds.withTrimmedLeft (2), juce::Justification::bottomLeft);
         }
 
+        // What the small AW boxes are (S10-11).
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.drawText ("AW = the Airwindows version of the effect beside it; a card switches between the two.", legend, juce::Justification::centredLeft);
+
         // A hairline over the row under the columns.
         if (! moreRow.isEmpty() && std::any_of (buttons.begin(), buttons.end(), [] (const auto& b)
                                                 { return b->getKind() == FxLibraryButton::Kind::more && b->isVisible(); }))
@@ -422,6 +428,8 @@ public:
 
         // The row under the columns, across them.
         auto bottom = *std::max_element (y.begin(), y.end()) + groupGap;
+        legend = { 2, bottom - groupGap / 2, getWidth() - 4, legendHeight };
+        bottom += legendHeight;
         moreRow = {};
         for (const auto& group : fxLibraryGroups())
             if (group.column < 0)
@@ -444,7 +452,7 @@ private:
     std::function<void (int)> onPick;
     std::vector<std::unique_ptr<FxLibraryButton>> buttons;
     std::vector<Heading> headings;
-    juce::Rectangle<int> moreRow;
+    juce::Rectangle<int> moreRow, legend;
 };
 
 // A card's model switch, for an effect with an Airwindows model (I7-28): two

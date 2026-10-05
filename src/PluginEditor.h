@@ -274,8 +274,12 @@ public:
 private:
     std::function<void (int)> editOperator;
     std::unique_ptr<KeyboardStrip> keyboard;
-    // All eight macros, always shown (UI review 6, S6-38).
+    // All eight macros exist; the strip shows the first four, and more once
+    // they are named, routed or added with "+" (review 10, S10-10).
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
+    juce::TextButton macroPlusButton { "+" };
+    int shownMacros = 4, addedMacros = 0;
+    void updateMacroStrip();
     // (Voices, pitch-bend range, voice mode, glide and legato live in the
     // VOICES menu.)
     std::unique_ptr<StripKnob> masterKnob;

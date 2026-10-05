@@ -31,6 +31,19 @@ public:
         addRow.onClick = [this] { addRouting(); };
         list.addChildComponent (addRow);
 
+        // A long matrix: type part of a source or destination name to show
+        // only those rows (review 10, S10-8). Shown from a few routes up.
+        filterField.setTextToShowWhenEmpty ("Filter by source or destination", IlanaTheme::Ui::text3.withAlpha (0.7f));
+        filterField.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        filterField.setColour (juce::TextEditor::backgroundColourId, IlanaTheme::Ui::well);
+        filterField.setColour (juce::TextEditor::outlineColourId, IlanaTheme::Ui::line);
+        filterField.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
+        filterField.setIndents (8, 4);
+        filterField.setTooltip ("Filter\nShows only the routings whose source or destination name contains this text.");
+        filterField.onTextChange = [this] { updateRows (true); };
+        filterField.onEscapeKey = [this] { filterField.clear(); };
+        addChildComponent (filterField);
+
         // Shown while rows repeat a routing: folds each pair into one row.
         mergeButton.setTooltip ("Merge repeated routings\nRows with the same source and destination add up; each pair becomes "
                                 "one row with the two depths added (the sound stays the same).");
@@ -82,11 +95,12 @@ public:
 
         const auto used = (int) visibleRows.size();
 
-        const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.isVisible() ? addButton.getX() : getWidth() - 12) - 12;
+        const auto titleRight = (filterField.isVisible() ? filterField.getX() : mergeButton.isVisible() ? mergeButton.getX() : addButton.isVisible() ? addButton.getX() : getWidth() - 12) - 12;
         paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
                            // A fragment caption (I9-9): the how-to is a hint
                            // line in the dock below.
-                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " routes"
+                           (totalUsed > used ? juce::String (used) + " of " + juce::String (totalUsed) + " routes shown"
+                                                : juce::String (used) + " of " + juce::String (Mod::maxSlots) + " routes")
                            + (numDuplicates > 0 ? juce::String::fromUTF8 (" \xc2\xb7 ") + repeatText : juce::String())
                            + (numIdle > 0 ? juce::String::fromUTF8 (" \xc2\xb7 ") + juce::String (numIdle) + " into a module that is off (dimmed)"
                                           : juce::String()));
@@ -103,9 +117,17 @@ public:
         }
 
         // An empty matrix has no columns to head: just the ways in.
-        if (visibleRows.empty())
+        if (totalUsed == 0)
         {
             paintEmptyState (g);
+            return;
+        }
+
+        if (visibleRows.empty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("No routing matches the filter.", getLocalBounds().withTrimmedTop (80), juce::Justification::centredTop);
             return;
         }
 
@@ -480,6 +502,8 @@ public:
         addButton.setBounds (top.removeFromRight (190).withTrimmedTop (6).withTrimmedBottom (2));
         top.removeFromRight (8);
         mergeButton.setBounds (top.removeFromRight (210).withTrimmedTop (6).withTrimmedBottom (2));
+        top.removeFromRight (8);
+        filterField.setBounds (top.removeFromRight (210).withTrimmedTop (5).withTrimmedBottom (1));
         headerArea = area.removeFromTop (18);
 
         // Rows grow a little taller while there are few (V7-20), never past
@@ -723,9 +747,23 @@ private:
         refreshPoolSources();
 
         auto used = sortedSlots();
+        totalUsed = (int) used.size();
+
+        // The filter keeps the rows whose source or destination name has the
+        // typed text in it.
+        const auto wanted = filterField.getText().trim();
+        if (wanted.isNotEmpty())
+            used.erase (std::remove_if (used.begin(), used.end(), [&] (int index)
+            {
+                const auto slot = processorRef.readModSlot (index);
+                return ! (ModNames::destination (slot.destination, processorRef).containsIgnoreCase (wanted)
+                          || ModNames::source ((int) slot.source, &processorRef).containsIgnoreCase (wanted)
+                          || ModNames::source ((int) slot.aux, &processorRef).containsIgnoreCase (wanted));
+            }), used.end());
+        filterField.setVisible (totalUsed >= 5 || wanted.isNotEmpty());
 
         for (auto& button : starterButtons)
-            button->setVisible (used.empty());
+            button->setVisible (totalUsed == 0);
 
         // Rows don't jump about under the mouse: while a button is held (an
         // amount being dragged, a menu open), a new order waits.
@@ -807,7 +845,7 @@ private:
                 row->setVisible (std::find (used.begin(), used.end(), row->getSlotIndex()) != used.end());
 
             addButton.setEnabled (used.size() < (size_t) Mod::maxSlots);
-            addButton.setVisible (used.empty());
+            addButton.setVisible (totalUsed == 0);
             resized();
             repaint();
         }
@@ -877,7 +915,7 @@ private:
 
         // The empty state's cable plays for a few seconds after the page
         // opens, and while the mouse is over it, then rests.
-        if (visibleRows.empty() && (emptyShownSeconds < 6.0f || isMouseOver (true)))
+        if (totalUsed == 0 && (emptyShownSeconds < 6.0f || isMouseOver (true)))
         {
             emptyShownSeconds += frameSeconds();
             emptyClock += frameSeconds();
@@ -937,6 +975,8 @@ private:
     juce::Component list;
     std::vector<std::unique_ptr<MatrixRow>> rows;
     std::vector<int> visibleRows;
+    int totalUsed = 0; // the routings in use, before the filter
+    juce::TextEditor filterField;
     juce::TextButton addButton, mergeButton;
     DashedAddButton addRow { "+  ADD MODULATION", "+  ADD MODULATION" };
     std::vector<std::unique_ptr<juce::TextButton>> starterButtons;

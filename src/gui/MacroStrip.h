@@ -103,7 +103,11 @@ public:
             // card (rest on it) the same.
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto name = title.toUpperCase();
-            const auto markWidth = (idleTargets > 0 ? 14 : 0) + (evolving ? 16 : 0);
+            // The warning is a word in the warning colour, "TALK · OFF" (review 10,
+            // I10-14), not a bare triangle.
+            const juce::String warning (juce::String::fromUTF8 ("\xc2\xb7 ") + "OFF");
+            const auto warningFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto markWidth = (idleTargets > 0 ? juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 10 : 0) + (evolving ? 16 : 0);
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
             // A macro routed nowhere reads quietly, so the preset's own
@@ -140,19 +144,13 @@ public:
             markBounds = {};
             if (idleTargets > 0)
             {
-                // A triangle as tall as the capitals, on the name's baseline.
-                const auto capHeight = juce::Font (font).getAscent() * 0.72f;
-                const auto mark = juce::Rectangle<float> ((float) nameArea.getX() + 4.0f,
-                                                          (float) nameArea.getBottom() - juce::Font (font).getDescent() - capHeight - 1.0f,
-                                                          capHeight * 1.1f, capHeight + 1.0f);
-                juce::Path triangle;
-                triangle.addTriangle (mark.getCentreX(), mark.getY(), mark.getRight(), mark.getBottom(), mark.getX(), mark.getBottom());
+                // The word after the name, on its baseline.
+                const auto width = juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 2;
+                const auto mark = nameArea.removeFromLeft (6 + width).withTrimmedLeft (6);
                 g.setColour (juce::Colour (0xffffb020));
-                g.fillPath (triangle);
-                g.setColour (IlanaTheme::Ui::bg);
-                g.fillRect (juce::Rectangle<float> (1.4f, mark.getHeight() * 0.36f).withCentre ({ mark.getCentreX(), mark.getY() + mark.getHeight() * 0.5f }));
-                g.fillRect (juce::Rectangle<float> (1.4f, 1.4f).withCentre ({ mark.getCentreX(), mark.getBottom() - 2.2f }));
-                markBounds = mark.expanded (3.0f).toNearestInt();
+                g.setFont (warningFont);
+                g.drawText (warning, mark, juce::Justification::bottomLeft);
+                markBounds = mark.expanded (3).getIntersection (getLocalBounds());
             }
         }
         else

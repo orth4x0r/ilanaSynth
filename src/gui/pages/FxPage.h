@@ -1499,14 +1499,24 @@ private:
 
             if (showsAirwindowsBadge (panel.type) && ! hasModelSwitch (panel.type) && subtitle.getWidth() >= 88)
             {
-                const auto tag = subtitle.removeFromLeft (84).toFloat().withSizeKeepingCentre (84.0f, 16.0f);
+                // The badge names the algorithm too, "AIRWINDOWS · Tape Hack 2"
+                // (review 10, I10-9), as far as there is room.
+                juce::String badgeText ("AIRWINDOWS");
+                if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0)
+                {
+                    const auto& category = airwindows::categoryModules()[(size_t) c];
+                    badgeText << juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))
+                              << airwindowsDisplayName (airwindows::registry()[(size_t) category.algorithms[(size_t) categoryChoice (c)]].name);
+                }
+                const auto wanted = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), badgeText) + 20;
+                const auto tag = subtitle.removeFromLeft (juce::jlimit (84, juce::jmax (84, subtitle.getWidth() - 4), wanted)).toFloat().withHeight (16.0f).withY ((float) subtitle.getCentreY() - 8.0f);
                 g.setColour (colour.withAlpha (0.14f));
                 g.fillRoundedRectangle (tag, 8.0f);
                 g.setColour (colour.withAlpha (0.55f));
                 g.drawRoundedRectangle (tag.reduced (0.5f), 8.0f, 1.0f);
                 g.setColour (colour.interpolatedWith (juce::Colours::white, 0.4f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("AIRWINDOWS", tag, juce::Justification::centred);
+                IlanaTheme::drawFitted (g, badgeText.toUpperCase(), tag.toNearestInt(), juce::Justification::centred, 1);
                 subtitle.removeFromLeft (8);
             }
 

@@ -110,6 +110,28 @@ void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Recta
                 room, juce::Justification::centredLeft, false);
 }
 
+// The one title of a box inside a card (SEQ's GENERATE parts, VECTOR's
+// boxes, PHYSICAL's BODY and SOUNDBOARD; review 10, I10-7): the name in the
+// label font, a quiet state word after it, and the box's switch at the right
+// (reserveRight leaves its room).
+void paintSubBoxTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& title, const juce::String& state,
+                       bool on, int reserveRight = 0)
+{
+    header.removeFromRight (reserveRight);
+    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+    const auto width = juce::GlyphArrangement::getStringWidthInt (font, title);
+    g.setColour (on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+    g.setFont (font);
+    g.drawText (title, header, juce::Justification::centredLeft);
+
+    if (state.isEmpty())
+        return;
+
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+    g.drawText (state, header.withTrimmedLeft (width + 8), juce::Justification::centredLeft, true);
+}
+
 // Page headings sit where a card's title does: 12 px in from the card edge
 // (cards start 12 px in from the page), 26 px tall like a card's header.
 constexpr int headingX = 24, headingHeight = 26;

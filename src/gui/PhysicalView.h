@@ -199,11 +199,8 @@ public:
         {
             g.setColour (IlanaTheme::Ui::well.withAlpha (0.5f));
             g.fillRoundedRectangle (bounds, 8.0f);
-            // The card beside it says why and offers the switch; here only
-            // a quiet label, so the page doesn't say it twice.
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (juce::String::fromUTF8 ("PREVIEW  \xc2\xb7  Physical oscillators only"), bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
+            // The card beside it says why and offers the switch; the picture
+            // carries no label (review 10, I10-12).
         }
     }
 

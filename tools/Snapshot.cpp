@@ -2340,7 +2340,7 @@ int runUiTests()
                             && neuroNext.getX() - neuroCell.getX() >= dxNext.getX() - dxCell.getX(),
                         "FM: a three-oscillator matrix's cells are as large as, or larger than, a six-oscillator one's (V9-8: "
                             + neuroCell.toString() + " / " + dxCell.toString() + ")");
-                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("MORE: RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM")))
+                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xba")))
                             && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
                         "FM: a DX7 voice folds RING MOD, SYNC and NOISE FM behind MORE (S8-21)");
             }

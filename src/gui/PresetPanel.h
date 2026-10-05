@@ -473,7 +473,7 @@ public:
                               list.getBounds().reduced (16, 0), juce::Justification::centred, 2);
         }
 
-        if (docked)
+        if (docked || ! detailsArea.isEmpty())
             paintDetails (g);
     }
 
@@ -513,6 +513,15 @@ public:
         auto left = area.removeFromLeft (150);
         area.removeFromLeft (10);
         sidebar.setBounds (left.reduced (1));
+
+        // On a wide drop-down the preset's details sit beside the list, as
+        // docked (review 10, S10-5).
+        detailsArea = {};
+        if (getWidth() >= wideWidth)
+        {
+            detailsArea = area.removeFromRight (250);
+            area.removeFromRight (10);
+        }
 
         auto searchRow = area.removeFromTop (30);
         sortButton.setBounds (searchRow.removeFromRight (128).reduced (1, 2));
@@ -572,7 +581,7 @@ public:
     }
 
 private:
-    static constexpr int rowHeight = 28;
+    static constexpr int rowHeight = 28, wideWidth = 900;
 
     // The list sits in a recessed frame; its height is a whole number of
     // rows, so the last row is never cut in half (the frame keeps the

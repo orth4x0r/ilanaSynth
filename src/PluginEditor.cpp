@@ -418,6 +418,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         content.addAndMakeVisible (*knob);
         macroKnobs.push_back (std::move (knob));
     }
+    macroPlusButton.setTooltip ("Show the next macro");
+    macroPlusButton.onClick = [this]
+    {
+        addedMacros = juce::jmin (4, shownMacros - 4 + 1);
+        updateMacroStrip();
+    };
+    content.addChildComponent (macroPlusButton);
     // Master is a setting rather than a sound control: neutral, so it doesn't
     // outshine the page (and yellow stays the macros' colour).
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
@@ -1083,6 +1090,34 @@ void IlanaSynthAudioProcessorEditor::addPoolSource (int chipIndex)
     updateChipVisibility();
 }
 
+// The macros the strip shows: the first four, any named, moved or routed,
+// and the ones added with "+" (S10-10: half of the eight were placeholders).
+void IlanaSynthAudioProcessorEditor::updateMacroStrip()
+{
+    auto wanted = 4 + addedMacros;
+
+    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue ("macro" + juce::String (macro + 1));
+        const auto named = processorRef.getMacroName (macro) != "Macro " + juce::String (macro + 1);
+        const auto routed = usedModSources[(size_t) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) Mod::macroSourceFor (macro))];
+
+        if (named || routed || (value != nullptr && value->load() > 0.001f))
+            wanted = juce::jmax (wanted, macro + 1);
+    }
+
+    wanted = juce::jlimit (4, (int) macroKnobs.size(), wanted);
+
+    if (wanted != shownMacros)
+    {
+        shownMacros = wanted;
+        resized();
+    }
+
+    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
+        macroKnobs[(size_t) macro]->setVisible (macro < shownMacros);
+}
+
 void IlanaSynthAudioProcessorEditor::timerCallback()
 {
     applyDisplayScale();
@@ -1131,12 +1166,13 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
         const auto text = "Voices: " + juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + " of "
                           + juce::String (maxVoices) + " playing\nNotes sounding / the most that can sound. "
-                          + "Click for the voice mode, how many voices the pitch-bend range and glide.";
+                          + "Click for the voice settings (OSC > VOICE).";
 
         if (voicesArea.getTooltip() != text)
             voicesArea.setTooltip (text);
     }
 
+    updateMacroStrip();
     updateTuningIndicator();
 
     if (transitionPage == nullptr)
@@ -1399,11 +1435,15 @@ void IlanaSynthAudioProcessorEditor::resized()
     masterKnob->setBounds (strip.removeFromRight (108));
     strip.removeFromRight (10);
 
-    // All eight macros, side by side.
-    const auto macroWidth = strip.getWidth() / juce::jmax (1, (int) macroKnobs.size());
+    // The macros in use, side by side, and "+" for the next.
+    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? 32 : 0;
+    const auto macroWidth = (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros);
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
+
+    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - 14, 28, 28);
+    macroPlusButton.setVisible (plusWidth > 0);
 
     auto chipsRow = area.removeFromBottom (24).reduced (14, 1);
 
@@ -1953,6 +1993,10 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
 
     for (auto& knob : macroKnobs)
         knob->refreshName();
+
+    // A new patch starts from the macros it uses.
+    if (nameChanged)
+        addedMacros = 0;
 }
 
 void IlanaSynthAudioProcessorEditor::updateUndoButtons()
@@ -2440,7 +2484,8 @@ void IlanaSynthAudioProcessorEditor::togglePresetPanel()
 
     // Drop down under the preset name, kept inside the window.
     {
-        const auto width = 660;
+        // Wide enough for the details card beside the list (S10-5).
+        const auto width = designWidth >= 1200 ? 920 : 660;
         const auto x = juce::jlimit (10, designWidth - 10 - width, presetDisplay.getX() - 40);
         presetPanel->setBounds (x, presetDisplay.getBottom() + 6, width, 540);
         presetPanel->setScrimArea (content.getLocalBounds());

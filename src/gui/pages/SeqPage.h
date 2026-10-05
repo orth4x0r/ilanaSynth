@@ -315,15 +315,7 @@ public:
 
             IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
             auto header = part.box.reduced (10, 0).removeFromTop (boxHeaderHeight);
-            header.removeFromRight (44); // the switch
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-            const auto width = juce::GlyphArrangement::getStringWidthInt (font, part.title);
-            g.setColour (part.on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-            g.setFont (font);
-            g.drawText (part.title, header, juce::Justification::centredLeft);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (part.note, header.withTrimmedLeft (width + 8), juce::Justification::centredLeft, true);
+            paintSubBoxTitle (g, header, part.title, part.note, part.on, 44); // (44: the switch)
         }
     }
 

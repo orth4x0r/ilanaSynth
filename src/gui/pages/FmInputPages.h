@@ -27,7 +27,7 @@ class FmPage : public juce::Component,
     // its key scaling (KEY LVL until review 9, I9-26).
     struct OperatorControls
     {
-        OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefixIn, juce::Colour colour)
+        OperatorControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefixIn, juce::Colour colour, int index)
             : prefix (prefixIn),
               tune (state, prefix + "_tune", "TUNING"),
               snap (state, prefix + "_ratio_snap", "SNAP"),
@@ -39,18 +39,21 @@ class FmPage : public juce::Component,
               fine (state, prefix + "_fine", "FINE", colour, false),
               level (state, prefix + "_level", "LEVEL", colour, false),
               keyLevel (state, prefix + "_key_level", "KEY SCALE", colour, false),
-              egOut (state, prefix + "_eg_out", "OUTPUT", colour, false)
+              egOut (state, prefix + "_eg_out", "OUTPUT", colour, false),
+              // The operator's feedback, beside FB TYPE (it is also the matrix
+              // diagonal's cell: review 10, I10-4).
+              feedback (state, FmDiagram::routeId (index, index), "FEEDBACK", colour, false)
         {
             FmOperatorInfo::sectionEnvelopeMenu (ampEnv.getComboBox());
         }
 
         juce::String prefix;
         ComboControl tune, snap, feedbackType, ampEnv;
-        KnobControl ratio, fixedHz, semi, fine, level, keyLevel, egOut;
+        KnobControl ratio, fixedHz, semi, fine, level, keyLevel, egOut, feedback;
 
         std::vector<juce::Component*> all()
         {
-            return { &tune, &snap, &feedbackType, &ampEnv, &ratio, &fixedHz, &semi, &fine, &level, &keyLevel, &egOut };
+            return { &tune, &snap, &feedbackType, &ampEnv, &ratio, &fixedHz, &semi, &fine, &level, &keyLevel, &egOut, &feedback };
         }
     };
 
@@ -105,7 +108,7 @@ public:
             addAndMakeVisible (*noiseKnobs[(size_t) source]);
 
             const juce::String prefix (OscillatorIds::prefixes[(size_t) source]);
-            operators[(size_t) source] = std::make_unique<OperatorControls> (p.apvts, prefix, FmDiagram::oscColour (source));
+            operators[(size_t) source] = std::make_unique<OperatorControls> (p.apvts, prefix, FmDiagram::oscColour (source), source);
             for (auto* control : operators[(size_t) source]->all())
                 addChildComponent (control);
 
@@ -120,7 +123,11 @@ public:
         noiseColourKnob->setSizeRole (IlanaTheme::KnobSize::mini);
         addAndMakeVisible (*noiseColourKnob);
 
-        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("MORE: RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM")));
+        // The same heading as the open section ("EXTRAS", at the matrix's
+        // foot) whatever the operator count (review 10, I10-5).
+        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xba")));
+        moreButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        moreButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         moreButton.setTooltip ("RING MOD and SYNC 2 TO 1 (OSC 1 and OSC 2 only) and the NOISE FM row: classic FM extras a DX7 "
                                "voice doesn't use.");
         moreButton.onClick = [this]
@@ -598,6 +605,8 @@ private:
             bottom.push_back (&controls.keyLevel);
         }
 
+        bottom.push_back (&controls.feedback);
+
         // Menus and knobs on one grid (as many columns as the longer row), so
         // each menu sits over a knob.
         const auto columns = juce::jmax (top.size(), bottom.size());
@@ -752,8 +761,9 @@ private:
         }
         else
         {
-            moreButton.setBounds (juce::Rectangle<int> (inner.getX(), juce::jmin (inner.getBottom() - 22, gridBottom), inner.getWidth(), 22)
-                                      .withSizeKeepingCentre (juce::jmin (inner.getWidth() - 8, 260), 22));
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
+                                                                           moreButton.getButtonText()) + 28;
+            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, juce::jmin (inner.getBottom() - 22, gridBottom), juce::jmin (inner.getWidth() - 8, width), 22));
         }
     }
 
@@ -882,7 +892,7 @@ private:
         g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD and SYNC: OSC 1 \xc3\x97 OSC 2 only")), pairText.withHeight (pairText.getHeight() / 2).translated (0, 4),
                     juce::Justification::bottomLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));

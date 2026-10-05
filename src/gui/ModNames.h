@@ -227,7 +227,7 @@ inline void fillSourceMenu (juce::PopupMenu& menu, const IlanaSynthAudioProcesso
 // cards, the macro card, the remap header, the hover line, tooltips): the
 // module in capitals as its card names it, then the control as its knob is
 // labelled, "MODULE › Control" (review 8: V8-13, I8-12, S8-11):
-// "FILTER 1 › Cutoff", "OSC 2 › Semi", "FM › OSC 2 → OSC 1", "FX REVERB › Mix".
+// "FILTER 1 › Cutoff", "OSC 2 › Semi", "FM › OSC 2 › OSC 1", "FX REVERB › Mix".
 // The parts below keep the module's plain spelling ("Filter 1"), which the
 // menus and the idle checks match against; full() writes it.
 
@@ -237,9 +237,10 @@ inline const juce::String& separator()
     return text;
 }
 
+// One arrow in a destination: "FM › OSC 2 › OSC 1" (review 10, I10-8).
 inline const juce::String& arrow()
 {
-    static const juce::String text = juce::String::fromUTF8 (" \xe2\x86\x92 ");
+    static const juce::String text = juce::String::fromUTF8 (" \xe2\x80\xba ");
     return text;
 }
 

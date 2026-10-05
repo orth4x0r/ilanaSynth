@@ -403,9 +403,7 @@ public:
         for (const auto& part : boxes)
         {
             IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (part.title, part.box.reduced (10, 0).withHeight (boxHeaderHeight), juce::Justification::centredLeft);
+            paintSubBoxTitle (g, part.box.reduced (10, 0).withHeight (boxHeaderHeight), part.title, {}, false);
         }
     }
 
@@ -595,12 +593,9 @@ public:
                                                   .withX (emptyCard.getX() + 14);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ".",
-                        message.removeFromTop (22), juce::Justification::centred);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("Above is the string it would get. Switch it to Physical to play it and edit it here.", message,
-                        juce::Justification::centred);
+            // One sentence, once (the preview above it carries no label of its own: I10-12).
+            IlanaTheme::drawFitted (g, "OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ". Switch it to Physical to hear this string.",
+                                    message, juce::Justification::centred, 2);
             return;
         }
 
@@ -619,13 +614,9 @@ public:
         // its switch and main controls after the name.
         g.setColour (juce::Colours::white.withAlpha (0.07f));
         g.fillRect (bodyLine.getX(), bodyLine.getY() - 4, stringCard.getRight() - 12 - bodyLine.getX(), 1);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         for (const auto& [line, name, isOn] : { std::tuple<juce::Rectangle<int>, const char*, bool> { bodyLine, "BODY", readParam ("res_on") > 0.5f },
                                                 { boardLine, "SOUNDBOARD", readParam ("sb_on") > 0.5f } })
-        {
-            g.setColour (colour().withAlpha (isOn ? 0.8f : 0.4f));
-            g.drawText (name, line.withHeight (18), juce::Justification::centredLeft);
-        }
+            paintSubBoxTitle (g, line.withHeight (18), name, {}, isOn); // (the one box title: I10-7)
     }
 
     void resized() override

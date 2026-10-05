@@ -446,7 +446,7 @@ public:
             auto area = opEnvNoteArea;
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (juce::String (count) + (count == 1 ? " OPERATOR PLAYS THE OPERATOR ENV" : " OPERATORS PLAY THE OPERATOR ENV"),
+            g.drawText (juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV"),
                         area.removeFromTop (14), juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));

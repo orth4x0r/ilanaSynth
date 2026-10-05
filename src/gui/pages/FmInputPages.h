@@ -193,8 +193,8 @@ public:
         const auto reserve = operatorCard.getRight() - tabsLeft + 8;
         const auto colour = FmDiagram::oscColour (selectedOperator);
         IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-        // On the Operator Env the card says what it is: an operator (I12-18).
-        IlanaTheme::paintCardHeader (g, header, (usesOperatorEnv (selectedOperator) ? "OPERATOR " : "OSC ") + juce::String (selectedOperator + 1),
+        // On the Operator Env the card says what it is: an operator, after its one name (I12-18, I13-1).
+        IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1) + (usesOperatorEnv (selectedOperator) ? " . OPERATOR" : ""),
                                      operatorText(), colour, reserve);
 
         // An operator on another envelope: where that envelope is edited.

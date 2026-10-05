@@ -354,7 +354,7 @@ public:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         const auto count = (int) operators.size();
-        g.drawText (count == 1 ? juce::String ("1 operator") : juce::String (count) + " operators", bounds.reduced (8.0f, 3.0f).removeFromTop (12.0f),
+        g.drawText (count == 1 ? juce::String ("1 oscillator") : juce::String (count) + " oscillators", bounds.reduced (8.0f, 3.0f).removeFromTop (12.0f),
                     juce::Justification::centredRight);
     }
 

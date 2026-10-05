@@ -1083,12 +1083,16 @@ private:
                                 [this] (int osc)
                                 {
                                     // Off: the dot says it. One rule on every page (I12-2): the
-                                    // chosen tab is wide with its role, the others a dot and a
-                                    // number; their roles are in their tooltips.
+                                    // chosen tab is wide with its engine, the others a dot and a
+                                    // number; the role (OUT, MOD -> 2) is in every tab's tooltip
+                                    // and the FM pill (I13-2). An FM operator's engine is OPERATOR.
                                     if (osc != selected)
                                         return juce::String();
-                                    const auto role = OscRole::describe (processorRef, osc);
-                                    return isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
+                                    if (isOff (osc))
+                                        return juce::String();
+                                    return OscRole::usesOperatorEg (processorRef, osc) && getMode (osc) == 0
+                                               ? juce::String ("OPERATOR")
+                                               : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
                                 });
         oscTabs.setSelectedOsc (selected);
 

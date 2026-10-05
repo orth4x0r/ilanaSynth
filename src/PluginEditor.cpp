@@ -55,6 +55,7 @@
 #include "gui/pages/SeqPage.h"
 #include "gui/pages/MainPage.h"
 #include "gui/pages/MatrixPage.h"
+#include "gui/FxInfoText.h"
 #include "gui/pages/FxWidgets.h"
 #include "gui/pages/FxPage.h"
 

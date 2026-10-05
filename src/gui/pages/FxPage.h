@@ -558,7 +558,7 @@ public:
             // The rack's spare height goes to its rows (a taller graph, the
             // knobs centred in it), so the page doesn't end in a blank band
             // (UI review 9, V9-3).
-            rowExtra = juce::jlimit (0, 48, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
+            rowExtra = juce::jlimit (0, 90, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
             stackView.setBounds (stackArea);
             layoutStack();
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
@@ -956,6 +956,7 @@ private:
         int slot = 0, type = 0;
         bool duplicate = false;
         juce::Rectangle<int> bounds;
+        juce::Rectangle<int> well; // the picture slot of a card with no display: a sentence on what the effect does
     };
 
     // Banded slots next to each other, drawn as one bracketed group: a
@@ -970,7 +971,7 @@ private:
     // on switch), then rows of controls sized to their knobs, with the
     // family's display on the left where the module has one. Cards whose
     // controls fit in half the width sit two to a row (S6-26).
-    static constexpr int knobCellWidth = 88, cardDisplayWidth = 220, minCardWidth = 360;
+    static constexpr int knobCellWidth = 88, cardDisplayWidth = 220, minDisplayWidth = 150, maxDisplayWidth = 340, minCardWidth = 360;
     static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int blendWidth = 104, soloWidth = 24, bandWidth = 100, knobColumn = 84;
@@ -1029,6 +1030,28 @@ private:
     }
 
     static bool hasCardDisplay (int type) { return type == 29 || FxDisplay::hasDisplay (type); }
+
+    // Every card has a picture slot on its left: the effect's display, or for
+    // one without (FREEZE, the WIDENER, most Airwindows modules) a sentence on
+    // what it does, so no card is half blank (UI review 13, V13-1, I13-3).
+    static bool hasCardPicture (int type) { return type > 0; }
+
+    // The Airwindows algorithm a module type is running (its registry index), or -1.
+    int airwindowsIndexFor (int type) const
+    {
+        if (type == 30)
+            return airwindowsAlgorithm();
+        if (const auto c = airwindows::categoryForFxType (type); c >= 0)
+            return airwindows::categoryModules()[(size_t) c].algorithms[(size_t) categoryChoice (c)];
+        return -1;
+    }
+
+    juce::String cardInfoText (int type) const
+    {
+        if (const auto index = airwindowsIndexFor (type); index >= 0)
+            return FxInfoText::forAirwindows (airwindows::registry()[(size_t) index].name);
+        return FxInfoText::forType (type);
+    }
 
 
     // The header's controls, right to left from the on switch.
@@ -1091,8 +1114,15 @@ private:
         // (More than eight controls are two rows of half.)
         const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
         const auto menuShare = juce::jmin (menus, columns);
-        const auto row = 20 + (hasCardDisplay (panel.type) ? cardDisplayWidth + 12 : 0) + columns * knobCellWidth + menuShare * 70;
+        const auto row = 20 + (hasCardPicture (panel.type) ? cardDisplayWidth + 12 : 0) + columns * knobCellWidth + menuShare * 70;
         return std::max ({ header, row, minCardWidth, panel.type == 16 ? 720 : 0, panel.type == 9 ? 520 : 0 });
+    }
+
+    // The narrowest a card lays out at: its picture can give up a little.
+    int minimumWidth (const StackPanel& panel) const
+    {
+        const auto natural = naturalWidth (panel);
+        return panel.duplicate ? natural : natural - (hasCardPicture (panel.type) ? cardDisplayWidth - minDisplayWidth : 0);
     }
 
     int cardHeight (const StackPanel& panel) const
@@ -1163,7 +1193,7 @@ private:
 
             if (kind == 0)
             {
-                y = flowCards (cards, i, end, 0, width, y);
+                y = flowCards (cards, i, end, 0, width, y, end == cards.size());
             }
             else
             {
@@ -1217,48 +1247,45 @@ private:
         stackContent.repaint();
     }
 
-    // Cards from..to in rows, left to right, each at its type's width and as
-    // many to a row as fit (UI review 11, V11-4); a row that is not full
-    // stays left, no card is stretched to fill it. A row is as tall as its
-    // tallest card. Inside a split group the same widths hold.
+    // Cards from..to on a two-column grid, in chain order (UI review 13,
+    // V13-1): a card that fits half the rack's width takes half, and two of
+    // them share a row; a wider one, or a half card with no partner, takes the
+    // whole row. Nothing is left short of the right edge: a lone last half
+    // card leaves its other half to the + ADD EFFECT tile. A row is as tall
+    // as its tallest card. Inside a split group the same grid holds.
     int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y, bool addTileAtEnd = false)
     {
-        juce::ignoreUnused (addTileAtEnd);
+        const auto half = (width - cardGap) / 2;
+        const auto fitsHalf = [this, half] (const StackPanel& card) { return minimumWidth (card) <= half; };
 
         for (auto k = from; k < to;)
         {
-            auto end = k;
-            auto used = 0, height = 0;
-            while (end < to)
+            const auto pair = fitsHalf (cards[k]) && k + 1 < to && fitsHalf (cards[k + 1]);
+            const auto lone = fitsHalf (cards[k]) && k + 1 == to && addTileAtEnd && firstEmptySlot() >= 0;
+            const auto height = pair ? juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1])) : cardHeight (cards[k]);
+
+            if (pair)
             {
-                const auto w = juce::jmin (width, naturalWidth (cards[end]));
-                if (end > k && used + cardGap + w > width)
-                    break;
-                used += (end > k ? cardGap : 0) + w;
-                height = juce::jmax (height, cardHeight (cards[end]));
-                ++end;
+                placeCard (cards[k], { x, y, half, height });
+                placeCard (cards[k + 1], { x + half + cardGap, y, width - half - cardGap, height });
+                lastRowHole = {};
+                k += 2;
+            }
+            else if (lone)
+            {
+                placeCard (cards[k], { x, y, half, height });
+                lastRowHole = { x + half + cardGap, y, width - half - cardGap, height };
+                k += 1;
+            }
+            else
+            {
+                placeCard (cards[k], { x, y, width, height });
+                lastRowHole = {};
+                k += 1;
             }
 
-            // A row that ends a little short of the rack's edge shares the
-            // slack between its cards, so the right edge is flush; a short
-            // last row keeps natural widths (V12-4). A real hole is for
-            // the + ADD EFFECT tile.
-            const auto slack = width - used;
-            const auto count = (int) (end - k);
-            const auto justify = slack > 0 && slack <= width / 5 && (end < to || slack < 140);
-            auto left = x;
-            for (auto i = k; i < end; ++i)
-            {
-                const auto share = justify ? slack / count + ((int) (i - k) < slack % count ? 1 : 0) : 0;
-                const auto w = juce::jmin (width, naturalWidth (cards[i])) + share;
-                placeCard (cards[i], { left, y, w, height });
-                left += w + cardGap;
-            }
-
-            lastRowHole = (justify || end < to) ? juce::Rectangle<int>() : juce::Rectangle<int> (left, y, x + width - left, height);
             ++rowsPlaced;
             y += height + cardGap;
-            k = end;
         }
 
         return y;
@@ -1312,21 +1339,25 @@ private:
         const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
         const auto knobsWidth = columns * knobCellWidth + juce::jmin (menusInRow, columns) * 70;
 
-        if (hasCardDisplay (type))
+        if (hasCardPicture (type))
         {
-            const auto displayWidth = juce::jmin (cardDisplayWidth, juce::jmax (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3));
+            // The picture takes what the controls leave, between its floor and
+            // its cap: a half-width card shows a roomy graph, not a hole.
+            const auto displayWidth = juce::jlimit (minDisplayWidth, maxDisplayWidth, juce::jmin (rowsArea.getWidth() - knobsWidth - 12, rowsArea.getWidth() / 3 + 40));
             const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
             rowsArea.removeFromLeft (12);
 
             if (type == 29)
                 eqCurve.setBounds (displayArea);
-            else
+            else if (hasCardDisplay (type))
             {
                 auto& display = *displays[(size_t) slot];
                 display.setType (type, fxColour (type));
                 display.setBounds (displayArea);
                 display.setVisible (true);
             }
+            else
+                panel.well = displayArea;
         }
 
         if (items.size() > 8)
@@ -1539,14 +1570,30 @@ private:
                 const auto first = slotHoldingType (panel.type, panel.slot);
                 g.setColour (IlanaTheme::Ui::text);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                g.drawText ("Duplicate " + getSlotName (panel.type) + " (not supported): it shares slot " + juce::String (first + 1) + "'s settings",
-                            text.removeFromTop (20), juce::Justification::centredLeft, true);
+                IlanaTheme::drawFitted (g, "Duplicate " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
+                                        text.removeFromTop (20).withTrimmedRight (100), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect, so this slot runs slot " + juce::String (first + 1)
-                                      + "'s " + getSlotName (panel.type) + " again. "
-                                      + "Remove it, or keep it for the same sound.",
-                                  text.withTrimmedRight (100), juce::Justification::topLeft, 2);
+                IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect. Remove this slot, or keep it to run the same sound twice.",
+                                        text.withTrimmedRight (100), juce::Justification::topLeft, 2);
+            }
+
+            // The picture slot of a card without a display: what the effect does.
+            if (! panel.well.isEmpty() && ! panel.duplicate)
+            {
+                const auto well = panel.well.toFloat();
+                IlanaTheme::paintWell (g, well, 6.0f);
+                const auto text = cardInfoText (panel.type);
+                auto inner = panel.well.reduced (8, 0);
+                auto caption = inner.removeFromTop (19).withTrimmedTop (3);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                const auto index = airwindowsIndexFor (panel.type);
+                IlanaTheme::drawFitted (g, index >= 0 ? airwindowsDisplayName (airwindows::registry()[(size_t) index].name).toUpperCase() : juce::String ("WHAT IT DOES"),
+                                        caption, juce::Justification::centredLeft);
+                g.setColour (isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+                IlanaTheme::drawFitted (g, text, inner.withTrimmedBottom (6), juce::Justification::topLeft, 7);
             }
 
             // A card that just arrived or moved flashes once.

@@ -958,7 +958,14 @@ private:
         for (const auto v : impulseEnvelope)
             peak = juce::jmax (peak, v);
 
-        if (! impulseEnvelope.empty() && peak > 1.0e-5f)
+        // A lone spike at the start is the dry hit with nothing after it:
+        // say so instead of drawing one static line (UI review 13, I13-3).
+        auto after = 0.0f;
+        for (size_t i = 4; i < impulseEnvelope.size(); ++i)
+            after = juce::jmax (after, impulseEnvelope[i]);
+        const auto hasTail = after > peak * 0.003f;
+
+        if (! impulseEnvelope.empty() && peak > 1.0e-5f && hasTail)
         {
             // Levels in dB over 48 dB below the loudest moment, as bars.
             const auto width = plot.getWidth() / (float) impulseEnvelope.size();
@@ -975,7 +982,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText ("no tail at these settings", plot, juce::Justification::centred);
+            g.drawText (isSpace() ? "no tail at these settings" : "no echo within " + juce::String (impulseSeconds, 1) + " s at these settings", plot, juce::Justification::centred);
         }
 
         paintCaption (g, isSpace() ? "IMPULSE" : "ECHOES", juce::String (impulseSeconds, 1) + " s");

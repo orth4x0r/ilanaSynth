@@ -114,8 +114,16 @@ public:
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
         {
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
-                if (popup && shownStrips[(size_t) osc] && titleArea (oscCards[(size_t) osc]).contains (point))
-                    showOscMenu (osc);
+                if (shownStrips[(size_t) osc] && titleArea (oscCards[(size_t) osc]).reduced (0, 6).removeFromTop (16).contains (point))
+                {
+                    // Right-click: the menu; click: all of this oscillator's
+                    // controls on OSC (review 9, S9-4: PLAY's strip is the
+                    // quick copy).
+                    if (popup)
+                        showOscMenu (osc);
+                    else if (onEditOscillator != nullptr)
+                        onEditOscillator (osc);
+                }
         };
 
         oscColumn.onPaint = [this] (juce::Graphics& g) { paintColumn (g); };
@@ -263,7 +271,7 @@ public:
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
     }
 
-    std::function<void (int)> onEditLfo, onEditEnvelope, onEditOperator;
+    std::function<void (int)> onEditLfo, onEditEnvelope, onEditOperator, onEditOscillator;
     std::function<void (const juce::String&)> onOpenPage;
 
     static juce::Colour lfoColour (int index)
@@ -1118,6 +1126,12 @@ private:
             }
 
             paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), {}); // off: the dimming says it (S8-12)
+
+            // The title opens the oscillator's full page: a trailing "›".
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), titleArea (card).reduced (0, 6).removeFromTop (16).removeFromRight (12),
+                        juce::Justification::centredRight);
 
             if (strip.opEg)
             {

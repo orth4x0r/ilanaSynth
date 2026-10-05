@@ -1512,7 +1512,7 @@ private:
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
                 IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect, so this slot runs slot " + juce::String (first + 1)
-                                      + "'s " + getSlotName (panel.type) + " again (older patches can do this). "
+                                      + "'s " + getSlotName (panel.type) + " again. "
                                       + "Remove it, or keep it for the same sound.",
                                   text.withTrimmedRight (100), juce::Justification::topLeft, 2);
             }

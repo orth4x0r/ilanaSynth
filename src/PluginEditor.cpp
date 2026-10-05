@@ -225,6 +225,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         options.filenameSuffix = "settings";
         options.folderName = "ilanaSynth";
         settings = std::make_unique<juce::PropertiesFile> (options);
+        tableBrowserSettings() = settings.get();
     }
 
     themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, settings->getIntValue ("themeIndex", 0));
@@ -286,7 +287,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
-    addSection ("OSC", { { "OSC", "OSCILLATORS", new OscPageViewport (p) }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
+    auto* oscViewport = new OscPageViewport (p);
+    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
@@ -318,6 +320,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
+    // PLAY's oscillator title: that oscillator's full page.
+    mainPage->onEditOscillator = [this, oscViewport] (int osc)
+    {
+        if (auto* page = oscViewport->getPage())
+            page->selectOscillator (osc);
+        showPage ("OSC");
+    };
 
     // EDIT OP ENV (PLAY and OSC): the operator's envelope lives on FM.
     editOperator = [this, fmPage] (int op)
@@ -669,6 +678,7 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
     FmOperatorInfo::hooks().openOperator = nullptr;
     FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
     ModNames::openMatrixRow() = nullptr;
+    tableBrowserSettings() = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
     setLookAndFeel (nullptr);

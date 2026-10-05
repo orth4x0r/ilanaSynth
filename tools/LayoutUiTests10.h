@@ -228,12 +228,14 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (tooBig.isEmpty(), "no card holds a large empty interior at 100 % or 75 %" + (tooBig.isEmpty() ? juce::String() : ": " + tooBig.joinIntoString ("; ")));
     }
 
-    // V11-1: PLAY always has its PATCH tile (the signal flow), whatever the
-    // patch or the oscillator count, at 100 % and 75 %.
+    // V11-1, as redesigned (ilana, 2026-10-05): the strips fill PLAY's column
+    // first, and the PATCH tile (the signal flow) only takes real spare room.
+    // Where it shows it is one whole tile, never a squashed sliver, at 100 %
+    // and 75 %. (The dead-area checks cover the column's foot.)
     {
         auto* top = editor.getTopLevelComponent();
         const auto before = top->getBounds();
-        juce::StringArray missing;
+        juce::StringArray missing, shownOn;
         for (const auto* preset : { "Init", "Neuro Wobble", "E.PIANO 1 (ROM1A)", "Felt Hammer Board" })
         {
             loadNamed (preset);
@@ -247,15 +249,19 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                 settle (300);
                 std::vector<SignalFlow*> flows;
                 findAll<SignalFlow> (*editor.getCurrentPage(), flows);
-                const auto shownFlow = std::count_if (flows.begin(), flows.end(), [] (SignalFlow* f) { return f->isVisible() && f->getHeight() >= 60; });
-                if (shownFlow != 1)
+                const auto shownFlow = std::count_if (flows.begin(), flows.end(), [] (SignalFlow* f) { return f->isVisible(); });
+                const auto squashed = std::count_if (flows.begin(), flows.end(), [] (SignalFlow* f) { return f->isVisible() && f->getHeight() < 60; });
+                if (shownFlow > 1 || squashed > 0)
                     missing.add (juce::String (preset) + (small ? " 75%" : ""));
+                if (shownFlow == 1)
+                    shownOn.add (juce::String (preset) + (small ? " 75%" : ""));
             }
         }
         top->setBounds (before);
         editor.showPage ("MAIN");
         settle (300);
-        expect (missing.isEmpty(), "PLAY always shows its PATCH tile" + (missing.isEmpty() ? juce::String() : ": missing on " + missing.joinIntoString (", ")));
+        std::cout << "  (PATCH tile on PLAY: " << (shownOn.isEmpty() ? juce::String ("none") : shownOn.joinIntoString (", ")) << ")" << std::endl;
+        expect (missing.isEmpty(), "PLAY's PATCH tile, where it shows, is one whole tile" + (missing.isEmpty() ? juce::String() : ": squashed or doubled on " + missing.joinIntoString (", ")));
     }
 
     // V10-11: SAVE AS's tag chips clear the tags field above them, with the
@@ -353,10 +359,10 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             const auto bounds = area (wave);
             tallest = juce::jmax (tallest, bounds.getHeight());
             const auto ratio = (float) bounds.getWidth() / (float) juce::jmax (1, bounds.getHeight());
-            squarish = squarish && ratio > 0.75f && ratio < 1.34f;
+            squarish = squarish && ratio > 0.9f && ratio < 2.4f && bounds.getWidth() >= 140; // wide and big: the picture gets the room (ilana, 2026-10-05)
             shape << bounds.getWidth() << "x" << bounds.getHeight() << " ";
         }
-        expect (! shownWaves().empty() && tallest <= 150 && squarish, "PLAY's oscillator pictures are square and no taller than 150 px (" + shape + ")");
+        expect (! shownWaves().empty() && tallest <= 200 && squarish, "PLAY's oscillator pictures are wide, at least 140 px and no taller than 200 px (" + shape + ")");
 
         loadNamed ("Init");
         editor.showPage ("MAIN");
@@ -366,7 +372,11 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto patchShown = false;
         for (auto* flow : flows)
             patchShown = patchShown || (visibleInTree (flow) && area (flow).getHeight() >= 50);
-        expect (patchShown, "the PATCH tile shows on PLAY at the default size (Init)");
+        auto grown = 0;
+        for (auto* wave : shownWaves())
+            grown = juce::jmax (grown, area (wave).getHeight());
+        // The column ends in no bare band: a PATCH tile, or strips grown to fill it.
+        expect (patchShown || grown >= 130, "PLAY's left column has no dead band at the default size (Init: PATCH tile or strips grown to " + juce::String (grown) + " px)");
     }
 
     // V10-8: a value keeps its unit's space in a DX7 voice's strips (nothing

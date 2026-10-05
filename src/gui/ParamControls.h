@@ -143,7 +143,9 @@ inline void paintTargetTag (juce::Graphics& g, juce::Rectangle<float> area, cons
     if (wanted > area.getWidth() && ! below.isEmpty())
         area = below;
 
-    if (text.isEmpty() || area.getWidth() < 28.0f)
+    // A tag that still doesn't fit is left out rather than squeezed: the
+    // card's tooltip names its targets (review 8, V8-29).
+    if (text.isEmpty() || wanted > area.getWidth())
         return;
 
     const auto width = juce::jmin (area.getWidth(), wanted);

@@ -351,29 +351,28 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
             settle (200);
         }
 
-    // I8-39: on a patch without operators the editor offers to use it.
+    // On a patch without operators the OP ENV card is not in the pool (R3,
+    // I8-5: the Operator Env's parts only where used). I8-39: the editor
+    // itself, opened there anyway, greys its knobs and offers USE ON OSC.
     loadNamed ("Neuro Wobble");
     editor.showPage ("ENV/LFO");
     settle (400);
     if (auto* modPage = editor.getCurrentPage())
         if (auto* envCards = findChild<EnvThumbBar> (*modPage))
-        {
-            envCards->onSelect (16);
-            settle (400);
-            auto* pool = shownEditor();
-            auto* attack = pool != nullptr ? pool->getKnob (0, 0) : nullptr;
-            expect (pool != nullptr && visibleInTree (&pool->getUseButton()) && pool->getUseButton().getButtonText().startsWith ("USE ON OSC")
-                        && attack != nullptr && attack->getAlpha() < 0.9f,
-                    "OP ENV unused: its knobs greyed, a USE ON OSC button offered (I8-39: "
-                        + juce::String (pool != nullptr ? "editor" : "no editor")
-                        + (pool != nullptr ? ", button " + juce::String (visibleInTree (&pool->getUseButton()) ? "shown " : "hidden ")
-                                                 + pool->getUseButton().getButtonText()
-                                           : juce::String())
-                        + (attack != nullptr ? ", alpha " + juce::String (attack->getAlpha(), 2) + " " + attack->getParameterId() : juce::String())
-                        + (FmOperatorInfo::anyOperatorEnv (processor) ? ", operators play" : "") + ")");
-            envCards->onSelect (0);
-            settle (200);
-        }
+            expect (! envCards->isCardInPool (16), "OP ENV has no MOD pool card on a patch without operators (I8-5)");
+    {
+        OperatorEnvEditor unusedEditor (processor, OperatorEnvEditor::Place::pool);
+        unusedEditor.setBounds (0, 0, 600, 240);
+        unusedEditor.setVisible (false);
+        unusedEditor.setVisible (true);
+        auto* attack = unusedEditor.getKnob (0, 0);
+        expect (unusedEditor.getUseButton().isVisible() && unusedEditor.getUseButton().getButtonText().startsWith ("USE ON OSC")
+                    && attack != nullptr && attack->getAlpha() < 0.9f,
+                "OP ENV unused: its knobs greyed, a USE ON OSC button offered (I8-39: button "
+                    + juce::String (unusedEditor.getUseButton().isVisible() ? "shown " : "hidden ")
+                    + unusedEditor.getUseButton().getButtonText()
+                    + (attack != nullptr ? ", alpha " + juce::String (attack->getAlpha(), 2) : juce::String ()) + ")");
+    }
 
     // I8-10: PHYSICAL picks its oscillator on the same picker.
     loadNamed ("Init");

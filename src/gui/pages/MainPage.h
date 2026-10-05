@@ -392,9 +392,9 @@ public:
             const auto count = (int) OperatorPool::operatorsOnEnv (processorRef).size();
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawFittedText (juce::String (count) + (count == 1 ? " oscillator plays" : " oscillators play")
+            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " oscillator plays" : " oscillators play")
                                   + " the Operator Env, each operator its own. It shapes their levels; AMP ENV is unused.",
-                              opEnvNoteArea, juce::Justification::topLeft, 4, 1.0f);
+                              opEnvNoteArea, juce::Justification::topLeft, 4);
         }
 
         if (selectedEnv == 0 && ! ampNoteArea.isEmpty())

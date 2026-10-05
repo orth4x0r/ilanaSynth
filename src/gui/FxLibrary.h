@@ -379,8 +379,8 @@ public:
         }
 
         // What the small AW boxes are (S10-11).
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         g.drawText ("AIRWINDOWS beside an effect is its Airwindows version; a card switches between the two.", legend, juce::Justification::centredLeft);
 
         // A hairline over the row under the columns.

@@ -560,7 +560,7 @@ public:
         addChildComponent (stringButton);
 
         sampleLoadButton.setButtonText ("LOAD...");
-        sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample");
+        sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample.  You can also drop a .wav or .sfz file on the picture");
         sampleLoadButton.onClick = [this] { waveDisplay (selected).showSampleMenu (sampleLoadButton); };
         styleHeaderButton (sampleLoadButton);
         addChildComponent (sampleLoadButton);

@@ -1767,7 +1767,7 @@ int runUiTests()
         loadFx ({ 27, 2, 20 }); // Neuro Wobble's rack: Vowel, Drive, OTT
         checkCards ("3 effects", true);
         expect (shownDisplays() == 3, "Vowel, Drive and OTT cards each show a display");
-        expect (findButtons ("SOLO").size() == 3, "each card header has a SOLO button");
+        expect (findButtons ("S").size() == 3, "each card header has a SOLO button");
         loadFx ({ 27, 2, 20, 13 });
         checkCards ("4 effects", false);
         loadFx ({ 9, 4, 13, 21 });
@@ -1795,7 +1795,7 @@ int runUiTests()
         taps->setValueNotifyingHost (0.0f);
 
         // Solo is a visible button in the card header.
-        if (auto soloButtons = findButtons ("SOLO"); ! soloButtons.empty())
+        if (auto soloButtons = findButtons ("S"); ! soloButtons.empty())
         {
             soloButtons.front()->triggerClick();
             settle (200);

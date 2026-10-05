@@ -391,7 +391,7 @@ public:
             stackContent.addChildComponent (header.type);
 
             header.solo.setClickingTogglesState (true);
-            header.solo.setTooltip ("Solo: hear only this slot's effect (wet only)");
+            header.solo.setTooltip ("SOLO: hear only this slot's effect (wet only)");
             IlanaTheme::makePill (header.solo, IlanaTheme::accent());
             if (auto* solo = p.apvts.getParameter (prefix + "_solo"))
                 header.soloAttachment = std::make_unique<juce::ButtonParameterAttachment> (*solo, header.solo, nullptr);
@@ -970,7 +970,7 @@ private:
     static constexpr int knobCellWidth = 88, cardDisplayWidth = 220, minCardWidth = 360;
     static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
-    static constexpr int blendWidth = 104, soloWidth = 52, bandWidth = 100, knobColumn = 84;
+    static constexpr int blendWidth = 104, soloWidth = 24, bandWidth = 100, knobColumn = 84;
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 
@@ -1777,7 +1777,7 @@ private:
     struct CardHeader
     {
         FxTypeButton type;
-        juce::TextButton solo { "SOLO" };
+        juce::TextButton solo { "S" };
         juce::ComboBox band;
         BlendSlider blend;
         std::unique_ptr<KnobControl> mix;

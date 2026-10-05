@@ -313,10 +313,10 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             const auto bounds = area (wave);
             tallest = juce::jmax (tallest, bounds.getHeight());
             const auto ratio = (float) bounds.getWidth() / (float) juce::jmax (1, bounds.getHeight());
-            squarish = squarish && ratio > 0.75f && ratio < 1.34f;
+            squarish = squarish && ratio > 0.9f && ratio < 2.4f && bounds.getWidth() >= 140; // wide and big: the picture gets the room (ilana, 2026-10-05)
             shape << bounds.getWidth() << "x" << bounds.getHeight() << " ";
         }
-        expect (! shownWaves().empty() && tallest <= 150 && squarish, "PLAY's oscillator pictures are square and no taller than 150 px (" + shape + ")");
+        expect (! shownWaves().empty() && tallest <= 200 && squarish, "PLAY's oscillator pictures are wide, at least 140 px and no taller than 200 px (" + shape + ")");
 
         loadNamed ("Init");
         editor.showPage ("MAIN");
@@ -326,7 +326,11 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto patchShown = false;
         for (auto* flow : flows)
             patchShown = patchShown || (visibleInTree (flow) && area (flow).getHeight() >= 50);
-        expect (patchShown, "the PATCH tile shows on PLAY at the default size (Init)");
+        auto grown = 0;
+        for (auto* wave : shownWaves())
+            grown = juce::jmax (grown, area (wave).getHeight());
+        // The column ends in no bare band: a PATCH tile, or strips grown to fill it.
+        expect (patchShown || grown >= 130, "PLAY's left column has no dead band at the default size (Init: PATCH tile or strips grown to " + juce::String (grown) + " px)");
     }
 
     // V10-8: a value keeps its unit's space in a DX7 voice's strips (nothing

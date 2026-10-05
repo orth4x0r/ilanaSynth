@@ -107,6 +107,38 @@ inline juce::String describe (const IlanaSynthAudioProcessor& p, int osc)
     return juce::String (out ? "OUT, MOD " : "MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 ") + numbers.joinIntoString (", ");
 }
 
+// A modulator: it feeds other oscillators and is not itself heard. Its
+// OUTPUT is a modulation depth, so the knob says DEPTH (review 12, I12-3).
+inline bool isModulator (const IlanaSynthAudioProcessor& p, int osc)
+{
+    return read (p, prefix (osc) + "_out") <= 0.5f && ! targets (p, osc).empty();
+}
+
+inline const char* outputKnobName (const IlanaSynthAudioProcessor& p, int osc)
+{
+    return isModulator (p, osc) ? "DEPTH" : "OUTPUT";
+}
+
+// PLAY's strip role line: what the oscillator does with its OUTPUT. A carrier
+// goes "TO OUTPUT", a modulator "MODULATES 1, 3" (I12-3); the tabs keep the
+// short form of describe().
+inline juce::String roleLine (const IlanaSynthAudioProcessor& p, int osc)
+{
+    if (describe (p, osc).isEmpty())
+        return {};
+
+    const auto out = read (p, prefix (osc) + "_out") > 0.5f;
+    const auto modulated = targets (p, osc);
+    if (modulated.empty())
+        return out ? "TO OUTPUT" : "SILENT";
+
+    juce::StringArray numbers;
+    for (const auto target : modulated)
+        numbers.add (juce::String (target + 1));
+
+    return juce::String (out ? "TO OUTPUT, MODULATES " : "MODULATES ") + numbers.joinIntoString (", ");
+}
+
 // The same in words, for tooltips and the OSC card's header.
 inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc)
 {
@@ -807,7 +839,7 @@ public:
 
     void selectShared (int index)
     {
-        sharedSelected = juce::jlimit (0, numShared - 1, index);
+        sharedSelected = juce::jlimit (0, shownShared - 1, index);
         sharedTabs.setSelected (sharedSelected);
         updateModeVisibility();
         // SUB + NOISE folds while off: picking it (or leaving it) re-lays the card.
@@ -866,6 +898,24 @@ private:
         return std::find (row.second.begin(), row.second.end(), &opEnvGraph) != row.second.end() ? 2 : 1;
     }
     static constexpr int numShared = 5;
+    int shownShared = numShared; // the tabs drawn: three on an operator voice (I12-6)
+
+    // An operator voice (an Operator Env oscillator, none physical) with the
+    // strings and the soundboard off.
+    bool sharedPhysicalTabsHidden() const
+    {
+        if (readBool ("sym_on") || readBool ("sb_on"))
+            return false;
+        bool anyOperator = false;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc))
+            {
+                if (getMode (osc) == 1)
+                    return false;
+                anyOperator = anyOperator || OscRole::usesOperatorEg (processorRef, osc);
+            }
+        return anyOperator;
+    }
 
     int lastRevealVersion = -1;
     int selected = 0, sharedSelected = 0;
@@ -970,17 +1020,32 @@ private:
                                 });
         oscTabs.setSelectedOsc (selected);
 
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (const auto name = juce::String (OscRole::outputKnobName (processorRef, osc)); controls[(size_t) osc]->egOut.getLabelText() != name)
+                controls[(size_t) osc]->egOut.setLabelText (name);
+
         // SUB + NOISE belong to the oscillators; after the gap, the global
         // drawer: voice settings, the spread and drift every voice shares, the
         // shared strings and the keys' body (review 10, S10-3, S10-4).
-        sharedTabs.setItems ({ { "VOICE", voiceModeName(), IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide.  The header's VOICES opens this.", false, false },
+        std::vector<StateTabs::Item> sharedItemsList { { "VOICE", voiceModeName(), IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide.  The header's VOICES opens this.", false, false },
                                { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
                                { "SPREAD & DRIFT", {}, IlanaTheme::Ui::text2, true, "How far the voices spread across the stereo field, how their phases start and how far they drift.  The unison itself is on the oscillator's card.", false },
                                { "STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
                                  "Sympathetic strings: shared drone strings that ring with everything you play" },
                                { "SOUNDBOARD", {}, IlanaTheme::Ui::text2, true,
-                                 "The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
+                                 "The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } };
+        // An operator voice has no strings or soundboard to tune: the last two
+        // tabs wait until an oscillator is physical or they are on (I12-6).
+        if (sharedPhysicalTabsHidden())
+            sharedItemsList.resize (sharedSympathetic);
+        shownShared = (int) sharedItemsList.size();
+        sharedTabs.setItems (std::move (sharedItemsList));
+        if (sharedSelected >= shownShared)
+        {
+            sharedSelected = sharedVoice;
+            triggerAsyncUpdate();
+        }
         sharedTabs.setSelected (sharedSelected);
     }
 
@@ -1013,9 +1078,9 @@ private:
                 wave.push_back (&osc.unison);
             rows.push_back ({ "WAVE", wave });
             // The one level an operator shows is OUTPUT (review 10, I10-1;
-            // review 11, I11-1): the oscillator's own level into the voice
-            // stays reachable, one quiet row below.
-            rows.push_back ({ "ADVANCED", { &osc.trim } });
+            // review 12, I12-1): the oscillator's own level into the voice
+            // (VOICE LEVEL) is not drawn here at all; it stays a parameter
+            // (the host's list, the matrix).
             return rows;
         }
 
@@ -1648,8 +1713,6 @@ private:
             // An amount whose stage or envelope is Off does nothing: dim it.
             if (enabled)
             {
-                // The operator's own level sits quiet under ADVANCED (review 11, I11-1).
-                osc.trim.setAlpha (OscRole::usesOperatorEg (processorRef, index) ? 0.7f : 1.0f);
                 osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
                 osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
             }

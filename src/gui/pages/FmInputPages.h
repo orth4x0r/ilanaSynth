@@ -508,6 +508,8 @@ private:
             // replaces KEY SCALE.
             controls.keyLevel.setVisible (selected && ! opEnv);
             controls.egOut.setVisible (selected && opEnv);
+            if (const auto name = juce::String (OscRole::outputKnobName (processorRef, op)); controls.egOut.getLabelText() != name)
+                controls.egOut.setLabelText (name);
             // One level on an operator (review 10, I10-1): OUTPUT. The
             // oscillator's own level (VOICE LEVEL) is on the OSC page.
             controls.level.setVisible (selected && ! opEnv);

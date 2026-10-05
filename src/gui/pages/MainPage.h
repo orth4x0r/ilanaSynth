@@ -795,8 +795,13 @@ private:
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
             const auto tuning = OscRole::tuning (processorRef, index);
-            const auto role = OscRole::describe (processorRef, index);
+            const auto role = OscRole::roleLine (processorRef, index);
             const auto opEg = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
+
+            // A modulator's OUTPUT is a depth (I12-3).
+            if (auto* outKnob = strip.operatorEnvKnobs[1])
+                if (const auto name = juce::String (OscRole::outputKnobName (processorRef, index)); outKnob->getLabelText() != name)
+                    outKnob->setLabelText (name);
 
             if (role != strip.role || (opEg && strip.thumb.update (processorRef, index)))
             {
@@ -1387,10 +1392,10 @@ private:
                 g.drawText ("OP ENV", roomy (card) ? juce::Rectangle<int> (picture.getX() + 6, picture.getBottom() - 16, 60, 12)
                                                    : juce::Rectangle<int> (card.getX() + 17, card.getBottom() - 21, titleWidth - 12, 12),
                             juce::Justification::centredLeft);
-                // An operator has no MODE menu: its place says what it is.
+                // An operator has no MODE menu: its place labels the wave under it (S12-13).
                 g.setColour (strip.shownOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                IlanaTheme::drawFitted (g, "OPERATOR", stripColumns (card).menus.withHeight (24).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+                IlanaTheme::drawFitted (g, "WAVE", stripColumns (card).menus.withHeight (24).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
             }
         }
 

@@ -707,7 +707,11 @@ private:
                     return geo.stageX[(size_t) stage] + (float) ((seconds - start) / span) * (geo.stageX[(size_t) stage + 1] - geo.stageX[(size_t) stage]);
                 start += span;
             }
-            return -1.0f;
+            // Past the stages, the note holds until KEY UP: its time runs on
+            // at the graph's square-root scale, so a still envelope (the
+            // pitch one, as often as not) has a ruler too (I9-11).
+            const auto x = geo.stageX[3] + geo.scale * (timeUnits (seconds) - timeUnits (start));
+            return seconds > start && x < geo.keyUpX - 2.0f ? x : -1.0f;
         };
         const auto releaseX = [&] (double seconds) -> float
         {
@@ -736,11 +740,8 @@ private:
             g.setFont (font);
         }
 
-        // A still envelope has no times to mark: KEY UP only (I8-28).
-        if (std::all_of (curve.values.begin(), curve.values.end(),
-                         [this] (double v) { return std::abs (v - curve.values.front()) < 1.0e-9; }))
-            return;
-
+        // (A still envelope's stages take no time, so mark nothing: no
+        // stray ticks, I8-28; the hold still has its times, I9-11.)
         for (const auto inRelease : { false, true })
             for (const auto seconds : { 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002 })
             {

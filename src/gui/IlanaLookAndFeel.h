@@ -970,6 +970,13 @@ public:
         label.setFont (getComboBoxFont (box));
     }
 
+    // The value words that mean "no setting of its own" (the knob's
+    // automatic or free state), drawn dim under a knob.
+    static bool isPlaceholderValue (const juce::String& text)
+    {
+        return text == "Auto" || text == "Free" || text == "Off" || text == "None";
+    }
+
     // Labels (slider values included) never draw a box: a value reads as
     // text under its knob on every page.
     void drawLabel (juce::Graphics& g, juce::Label& label) override
@@ -980,7 +987,11 @@ public:
         {
             const auto alpha = label.isEnabled() ? 1.0f : 0.5f;
             const auto font = getLabelFont (label);
-            g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
+            // A word standing in for a number ("Auto", "Free", "Off") reads
+            // dim, as a default rather than a setting (UI review 9, I9-25).
+            const auto placeholder = dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
+                                     && isPlaceholderValue (label.getText());
+            g.setColour ((placeholder ? IlanaTheme::Ui::text2 : label.findColour (juce::Label::textColourId)).withMultipliedAlpha (alpha));
             g.setFont (font);
             const auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
             // Never condensed (V8-12): shrunk to the floor, then cut. A value

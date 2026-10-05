@@ -177,7 +177,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
                 if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
-                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                    && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -190,7 +190,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<StateTabs> (editor, rows);
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                     return tabs->getItem (i).state;
         return juce::String();
     };
@@ -346,8 +346,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
 
         // The exciters: one name table, in groups; a hammer has no pick
         // controls (I7-27).
+        // (Its controls are on PHYSICAL, the one string editor: I9-3.)
         setParam ("osc1_mode", 1.0f);
         setParam ("osc1_excite", 5.0f);
+        editor.showPage ("PHYSICAL");
         settle (400);
         std::vector<ComboControl*> combos;
         findAll<ComboControl> (editor, combos);
@@ -361,6 +363,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         setParam ("osc1_excite", 0.0f);
         settle (300);
         expect (knobFor ("osc1_string_pick_hardness") != nullptr, "OSC: a plucked burst has HARDNESS");
+        editor.showPage ("OSC");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -908,7 +911,7 @@ int runUiTests()
         for (auto* tabs : rows)
             for (int i = 0; i < tabs->getNumItems(); ++i)
                 if (tabs->getItem (i).name == "OSC " + juce::String (osc + 1) && tabs->onSelect != nullptr
-                    && dynamic_cast<OscPicker*> (tabs) == nullptr)
+                    && (dynamic_cast<OscPicker*> (tabs) == nullptr || tabs->getName() == "OSC tabs"))
                 {
                     tabs->setSelected (i);
                     tabs->onSelect (i);
@@ -1785,6 +1788,23 @@ int runUiTests()
         settle (300);
         expect (shownKnob ("fx_awsat_p1") && ! shownKnob ("fx_awsat_p4") && shownKnob ("fx_awsat_mix"),
                 "AW Saturation shows DENSITY and MIX but not the algorithm's Dry/Wet");
+        {
+            // The rack's words and units (I9-15 / S9-5): Density3 reads
+            // AMOUNT, LOW CUT and OUTPUT in dB, as the built-in twin would.
+            std::vector<KnobControl*> awKnobs;
+            findAll<KnobControl> (*editor, awKnobs);
+            juce::String labels, outputText;
+            for (const auto* id : { "fx_awsat_p1", "fx_awsat_p2", "fx_awsat_p3" })
+                for (auto* knob : awKnobs)
+                    if (knob->getParameterId() == id && visibleInTree (knob))
+                    {
+                        labels << knob->getLabelText() << "/";
+                        if (juce::String (id) == "fx_awsat_p3")
+                            outputText = knob->getSlider().getTextFromValue (knob->getSlider().getValue());
+                    }
+            expect (labels == "AMOUNT/LOW CUT/OUTPUT/" && outputText.endsWith (" dB"),
+                    "an Airwindows saturation reads AMOUNT, LOW CUT, OUTPUT in dB (" + labels + " " + outputText + ")");
+        }
         expect (shownDisplays() == 1, "AW Saturation shows its transfer curve");
         loadFx ({ 30 });
         if (auto* algo = processor.apvts.getParameter ("fx_aw_algo"))
@@ -2249,7 +2269,7 @@ int runUiTests()
                     std::vector<juce::TextButton*> all;
                     findAll<juce::TextButton> (*editor, all);
                     return std::any_of (all.begin(), all.end(), [] (juce::TextButton* button)
-                                        { return button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button); });
+                                        { return button->getButtonText().contains ("OP PITCH") && visibleInTree (button); });
                 };
                 const auto heightOnNeuro = diagramBounds().getHeight();
                 auto* neuroDiagram = findChild<FmDiagram> (*editor);
@@ -2414,7 +2434,7 @@ int runUiTests()
             // PITCH & LFO opens the voice's pitch envelope.
             findAll<juce::TextButton> (*editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText().startsWith ("OP PITCH") && visibleInTree (button))
+                if (button->getButtonText().contains ("OP PITCH") && visibleInTree (button))
                     button->triggerClick();
             settle (300);
             graphs.clear();
@@ -2595,9 +2615,11 @@ int runUiTests()
         expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
                 "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
 
-        // M7.3: Tine and Reed swap the string controls for the pickup.
+        // M7.3: Tine and Reed swap the string controls for the pickup (on
+        // the PHYSICAL page, the one string editor: I9-3).
         set ("osc1_mode", 1.0f);
         set ("osc1_excite", 7.0f);
+        pages->showPage ("PHYSICAL");
         settle (300);
         expect (visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_ep_position") && visibleKnob ("osc1_hammer_hard")
                     && ! visibleKnob ("osc1_string_stiffness") && ! visibleKnob ("osc1_string_sustain"),
@@ -2606,6 +2628,7 @@ int runUiTests()
         settle (300);
         expect (! visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_string_stiffness"),
                 "a plucked string hides the pickup controls again");
+        pages->showPage ("OSC");
         set ("osc1_mode", 0.0f);
         settle (300);
 
@@ -5700,6 +5723,11 @@ int runUiTests()
                 expect (describeValue ("amp_delay", 0.0f) == "0 ms" && describeValue ("fe_hold", 0.0f) == "0 ms"
                             && describeValue ("opeg_lfo_delay", 0.0f) == "0 ms",
                         "an envelope's DELAY / HOLD and the Op LFO's DELAY at 0 read 0 ms, not Off");
+                // A word in a number's place reads dim (I9-25).
+                expect (IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 0.0f))
+                            && IlanaLookAndFeel::isPlaceholderValue (describeValue ("osc1_string_excite_pos", 0.0f))
+                            && ! IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 3.0f)),
+                        "SEED's Free and EXCITE POS's Auto read dim, the numbers do not");
 
                 // "+" adds the next LFO and opens it; its x takes it away
                 // again at once while nothing routes it.
@@ -6054,7 +6082,8 @@ int runUiTests()
                     for (int source = 1; source < names.size() && onlyPool; ++source)
                         if (offered.contains (names[source]) && ! modSourceInPatch (processor, (Mod::Source) source))
                             onlyPool = false;
-                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains ("LFO 1 B") && offered.contains ("AMP ENV")
+                    onlyPool = onlyPool && offered.contains ("LFO 1") && offered.contains (juce::String::fromUTF8 ("LFO 1 \xc2\xb7 OUT 2"))
+                               && offered.contains ("AMP ENV")
                                && ! offered.contains (names[(int) Mod::lfoSourceFor (hiddenLfo)])
                                && offered.contains ("New LFO  (LFO " + juce::String (hiddenLfo + 1) + ")");
 
@@ -7114,7 +7143,7 @@ int main (int argc, char** argv)
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*page, buttons);
         for (auto* button : buttons)
-            if (button->getButtonText().startsWith ("OP PITCH") && button->onClick != nullptr)
+            if (button->getButtonText().contains ("OP PITCH") && button->onClick != nullptr)
             {
                 // The link opens OP PITCH on MOD.
                 button->onClick();
@@ -7421,7 +7450,7 @@ int main (int argc, char** argv)
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*page, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText().startsWith ("OP PITCH") && button->isVisible() && button->onClick != nullptr)
+                if (button->getButtonText().contains ("OP PITCH") && button->isVisible() && button->onClick != nullptr)
                 {
                     button->onClick();
                     settle (300);

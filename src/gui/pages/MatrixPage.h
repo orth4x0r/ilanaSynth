@@ -84,13 +84,12 @@ public:
 
         const auto titleRight = (mergeButton.isVisible() ? mergeButton.getX() : addButton.isVisible() ? addButton.getX() : getWidth() - 12) - 12;
         paintSectionTitle (g, "MODULATION", juce::Rectangle<int> (headingX, 12, juce::jmax (100, titleRight - headingX), headingHeight),
-                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " slots in use"
-                           // (The how-to only while there's nothing to report.)
-                           + (numDuplicates > 0 ? ",  " + repeatText : juce::String())
-                           + (numIdle > 0 ? ",  " + juce::String (numIdle) + " into a module that is off (dimmed)" : juce::String())
-                           + (numDuplicates > 0 || numIdle > 0 ? juce::String (".")
-                                                               : juce::String (".   Drag a source onto any knob, then drag its ring "
-                                                                               "on the knob to set the depth.")));
+                           // A fragment caption (I9-9): the how-to is a hint
+                           // line in the dock below.
+                           juce::String (used) + " of " + juce::String (Mod::maxSlots) + " routes"
+                           + (numDuplicates > 0 ? juce::String::fromUTF8 (" \xc2\xb7 ") + repeatText : juce::String())
+                           + (numIdle > 0 ? juce::String::fromUTF8 (" \xc2\xb7 ") + juce::String (numIdle) + " into a module that is off (dimmed)"
+                                          : juce::String()));
 
         // An empty matrix has no columns to head: just the ways in.
         if (visibleRows.empty())
@@ -158,6 +157,8 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText ("Click a row's CURVE to draw how its source maps to the amount here.",
                         area.withTrimmedTop (area.getHeight() * 0.5f - 2.0f).withHeight (18.0f), juce::Justification::centred);
+            g.drawText ("To add a route, drag a source onto any knob, then drag its ring on the knob to set the depth.",
+                        area.withTrimmedTop (area.getHeight() * 0.5f + 18.0f).withHeight (18.0f), juce::Justification::centred);
             return;
         }
 

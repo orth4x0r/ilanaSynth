@@ -1967,6 +1967,13 @@ public:
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
 
+    juce::String getLabelText() const { return label.getText(); }
+    void setLabelText (const juce::String& text)
+    {
+        if (label.getText() != text)
+            label.setText (text, juce::dontSendNotification);
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();

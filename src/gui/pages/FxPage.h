@@ -396,7 +396,7 @@ public:
                 header.soloAttachment = std::make_unique<juce::ButtonParameterAttachment> (*solo, header.solo, nullptr);
             stackContent.addChildComponent (header.solo);
 
-            header.band.addItemList ({ "FULL BAND", "LOW BAND", "MID BAND", "HIGH BAND", "M/S MID", "M/S SIDE" }, 1);
+            header.band.addItemList ({ "Full Band", "Low Band", "Mid Band", "High Band", "M/S Mid", "M/S Side" }, 1);
             header.band.setTooltip ("Band: the part of the signal this slot works on (the full signal, the LOW / MID / HIGH band, "
                                     "or the Mid or Side of the stereo image); the rest passes around it. Banded slots next to "
                                     "each other form a split group, with its crossovers above them.");
@@ -1952,20 +1952,61 @@ private:
     }
 
     // Airwindows' knob names are cut to fit its 8-character plugin labels
-    // ("Pressre", "Feedbk"); the card has room for the whole word.
+    // ("Pressre", "Feedbk"), and say in the plugin's words what the card's
+    // own modules call AMOUNT, LOW CUT or OUTPUT: the card shows the whole
+    // word, in the rack's vocabulary (UI review 9, I9-15 / S9-5).
     static juce::String airwindowsKnobLabel (const char* name)
     {
         static const std::map<juce::String, juce::String> full {
-            { "Compres", "Compress" }, { "Feedbk", "Feedback" }, { "Highpas", "Highpass" }, { "Pressre", "Pressure" },
+            { "Compres", "Compress" }, { "Feedbk", "Feedback" }, { "Pressre", "Pressure" },
             { "Mewines", "Mewiness" }, { "filters Q", "Filter Q" }, { "HeadBmp", "Head Bump" }, { "Head B", "Head Bump" },
-            { "Gv Wear", "Groove Wear" }, { "RmSize", "Room Size" }, { "MakeupGn", "Makeup Gain" }, { "Mid HiP", "Mid Highpass" },
-            { "SideHiP", "Side Highpass" }, { "MonoBs", "Mono Bass" }, { "NonLin", "Nonlinear" }, { "FMDepth", "FM Depth" },
-            { "FMSpeed", "FM Speed" }, { "BitShift", "Bit Shift" }, { "Gnd", "Ground" }, { "11K tap", "11K Tap" },
-            { "15K tap", "15K Tap" }, { "22K tap", "22K Tap" } };
+            { "Gv Wear", "Groove Wear" }, { "RmSize", "Size" }, { "MakeupGn", "Makeup Gain" }, { "Mid HiP", "Mid Low Cut" },
+            { "SideHiP", "Side Low Cut" }, { "MonoBs", "Mono Bass" }, { "NonLin", "Nonlinear" }, { "FMDepth", "FM Depth" },
+            { "FMSpeed", "FM Rate" }, { "BitShift", "Bit Shift" }, { "Gnd", "Ground" }, { "11K tap", "11K Tap" },
+            { "15K tap", "15K Tap" }, { "22K tap", "22K Tap" },
+            // The rack's words for the same controls.
+            { "Density", "Amount" }, { "Highpass", "Low Cut" }, { "Highpas", "Low Cut" }, { "Lowpass", "High Cut" },
+            { "Out Level", "Output" }, { "Output Level", "Output" }, { "Output Gain", "Output" }, { "Output Trim", "Output" },
+            { "Input Gain", "Input" }, { "Input Trim", "Input" }, { "Regen", "Feedback" }, { "Speed", "Rate" },
+            { "Reso", "Resonance" }, { "Rez", "Resonance" }, { "Damping", "Damping" } };
         const juce::String text (name);
         const auto found = full.find (text);
         return (found != full.end() ? found->second : text).toUpperCase();
     }
+
+    // The knobs whose plugin value is a plain gain (the code multiplies the
+    // signal by it, 0 to 1): these read in dB. The rest have no unit in the
+    // plugin and read 0 to 100 % of their range.
+    static bool isAirwindowsGain (const airwindows::Info& info, int k)
+    {
+        static const std::map<juce::String, juce::String> gains {
+            { "Density", "Out Level" }, { "Drive", "Out Level" }, { "Spiral2", "Output" }, { "Air", "Output Level" },
+            { "Holt2", "Output" }, { "DrumSlam", "Output" }, { "Density3", "Output" }, { "Desk4", "Output Trim" } };
+        const auto found = gains.find (juce::String (info.name));
+        return found != gains.end() && found->second == juce::String (info.knobs[k].name)
+               && info.knobs[k].lo == 0.0f && info.knobs[k].hi == 1.0f;
+    }
+
+    // A gain knob's text in dB; the others keep the parameter's own %.
+    void setAirwindowsUnit (KnobControl& knob, const airwindows::Info& info, int k)
+    {
+        auto& slider = knob.getSlider();
+        if (awPercentText.find (&slider) == awPercentText.end())
+            awPercentText[&slider] = slider.textFromValueFunction;
+
+        if (isAirwindowsGain (info, k))
+            slider.textFromValueFunction = [] (double value)
+            {
+                return value <= 0.0005 ? juce::String ("-inf dB")
+                                       : juce::String (juce::Decibels::gainToDecibels (value), 1) + " dB";
+            };
+        else
+            slider.textFromValueFunction = awPercentText[&slider];
+        slider.updateText();
+        knob.repaint();
+    }
+
+    std::map<juce::Slider*, std::function<juce::String (double)>> awPercentText;
 
     // Airwindows' plugin names as words: "ToTape6" reads "To Tape 6",
     // "Console7Channel" "Console 7 Channel". Display only: the saved choice
@@ -2010,8 +2051,10 @@ private:
     // I8-34).
     static juce::String airwindowsKnobTip (const airwindows::Info& info, int k)
     {
-        return airwindowsKnobLabel (info.knobs[k].name) + " (Airwindows " + juce::String (info.name) + ")\n"
-               "The plugin's own control, shown as 0 to 100 % of its range: Airwindows gives it no unit.";
+        return airwindowsKnobLabel (info.knobs[k].name) + " (Airwindows " + juce::String (info.name) + ": \""
+               + juce::String (info.knobs[k].name) + "\")\n"
+               + (isAirwindowsGain (info, k) ? "The plugin's output gain, in dB."
+                                             : "The plugin's own control, shown as 0 to 100 % of its range: Airwindows gives it no unit.");
     }
 
     static void setKnobTip (KnobControl& knob, const juce::String& tip)
@@ -2033,6 +2076,7 @@ private:
             {
                 knobs[k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
                 setKnobTip (*knobs[k], airwindowsKnobTip (info, k));
+                setAirwindowsUnit (*knobs[k], info, k);
             }
             knobs[k]->setVisible (loaded && used);
         }
@@ -2135,6 +2179,7 @@ private:
             {
                 controls.knobs[(size_t) k]->setLabelText (airwindowsKnobLabel (info.knobs[k].name));
                 setKnobTip (*controls.knobs[(size_t) k], airwindowsKnobTip (info, k));
+                setAirwindowsUnit (*controls.knobs[(size_t) k], info, k);
             }
             controls.knobs[(size_t) k]->setVisible (loaded && used);
         }

@@ -11,9 +11,9 @@
 
 // The one way to pick an oscillator (UI review 8, I8-10): OSC's tabs
 // (StateTabs), each oscillator in its colour, its tag lit while it plays.
-// FM's operator card, MOD's OP ENV editor and PHYSICAL use it; OSC uses the
-// same tabs with each oscillator's role after its name. Short of room the
-// names shrink to their numbers.
+// OSC (with each oscillator's role after its name), FM's operator card,
+// MOD's OP ENV editor and PHYSICAL all use this class (UI review 9, I9-5).
+// Short of room the names shrink to their numbers: the compact variant.
 class OscPicker : public StateTabs
 {
 public:
@@ -32,13 +32,15 @@ public:
     // The oscillators offered, in order; lit while they play; each one's
     // tooltip.
     void setOscillators (const std::vector<int>& list, const std::function<bool (int)>& isLit,
-                         const std::function<juce::String (int)>& tooltipFor = {})
+                         const std::function<juce::String (int)>& tooltipFor = {},
+                         const std::function<juce::String (int)>& stateFor = {})
     {
         std::vector<Item> items;
         for (const auto osc : list)
         {
             Item item;
             item.name = "OSC " + juce::String (osc + 1);
+            item.state = stateFor != nullptr ? stateFor (osc) : juce::String();
             item.colour = IlanaTheme::oscColour (osc);
             item.lit = isLit == nullptr || isLit (osc);
             item.tooltip = tooltipFor != nullptr ? tooltipFor (osc) : "Pick OSC " + juce::String (osc + 1);

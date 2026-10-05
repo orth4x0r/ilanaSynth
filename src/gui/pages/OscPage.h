@@ -551,7 +551,8 @@ public:
             addChildComponent (*note);
         sbOn.showAsSwitch();
 
-        oscTabs.onSelect = [this] (int tab) { selectOscillator (oscForTab (tab)); };
+        oscTabs.setName ("OSC tabs"); // (the UI test finds them by it)
+        oscTabs.onPick = [this] (int osc) { selectOscillator (osc); };
         oscTabs.onMenu = [this] (int tab) { showOscMenu (oscForTab (tab)); };
         addAndMakeVisible (oscTabs);
         sharedTabs.onSelect = [this] (int tab) { selectShared (tab); };
@@ -874,32 +875,29 @@ private:
     void updateTabItems()
     {
         static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
-        std::vector<StateTabs::Item> items;
-        auto selectedTab = 0;
-
+        std::vector<int> shown;
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
-        {
-            if (! processorRef.isOscillatorShown (osc))
-                continue;
+            if (processorRef.isOscillatorShown (osc))
+                shown.push_back (osc);
 
-            if (osc == selected)
-                selectedTab = (int) items.size();
-
-            const auto role = OscRole::describe (processorRef, osc);
-            const auto mode = juce::jlimit (0, 4, getMode (osc));
-            StateTabs::Item item;
-            item.name = "OSC " + juce::String (osc + 1);
-            item.state = isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[mode]); // off: the dot says it
-            item.colour = oscColour (osc);
-            item.lit = ! isOff (osc);
-            item.tooltip = "OSC " + juce::String (osc + 1) + ": " + juce::String (modeNames[mode]).toLowerCase()
-                           + (role.isNotEmpty() ? ", " + OscRole::describeLong (processorRef, osc) : juce::String())
-                           + (isOff (osc) ? ", switched off" : "") + ".  Right-click to switch it off or remove it.";
-            items.push_back (item);
-        }
-
-        oscTabs.setItems (items);
-        oscTabs.setSelected (selectedTab);
+        // The one oscillator picker (UI review 9, I9-5), each tab with the
+        // oscillator's role after its name.
+        oscTabs.setOscillators (shown, [this] (int osc) { return ! isOff (osc); },
+                                [this] (int osc)
+                                {
+                                    const auto role = OscRole::describe (processorRef, osc);
+                                    const auto mode = juce::jlimit (0, 4, getMode (osc));
+                                    return "OSC " + juce::String (osc + 1) + ": " + juce::String (modeNames[mode]).toLowerCase()
+                                           + (role.isNotEmpty() ? ", " + OscRole::describeLong (processorRef, osc) : juce::String())
+                                           + (isOff (osc) ? ", switched off" : "") + ".  Right-click to switch it off or remove it.";
+                                },
+                                [this] (int osc)
+                                {
+                                    // Off: the dot says it.
+                                    const auto role = OscRole::describe (processorRef, osc);
+                                    return isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
+                                });
+        oscTabs.setSelectedOsc (selected);
 
         sharedTabs.setItems ({ { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
                                  "The sub oscillator and the noise, under every oscillator" },
@@ -1356,6 +1354,20 @@ private:
         // An operator on the Operator Env plays a plain cycle: no table
         // tools, no resampling (UI review 8, I8-15, S8-9, V8-16).
         const auto opEnv = OscRole::usesOperatorEg (processorRef, index);
+        // An FM operator reads as one (UI review 9, I9-6): its mode says
+        // Operator (as PLAY's strip does) and its table is its WAVE.
+        {
+            auto& modeBox = osc.mode.getComboBox();
+            const juce::String modeText (opEnv ? "Operator" : "Wavetable");
+            if (modeBox.getItemText (0) != modeText)
+            {
+                const auto wasSelected = modeBox.getSelectedId() == 1;
+                modeBox.changeItemText (1, modeText);
+                if (wasSelected)
+                    modeBox.setText (modeText, juce::dontSendNotification);
+            }
+            osc.table.setLabelText (opEnv ? "WAVE" : "TABLE");
+        }
         editButtons[(size_t) index]->setVisible (mode == 0 && ! opEnv);
         // LOAD loads what the mode plays: a wavetable (LOAD .WAV), or a
         // sample or SF2 / SFZ multisample (LOAD, UI review 4, V30; review
@@ -1658,7 +1670,8 @@ private:
     juce::TextButton addButton, opEnvButton, stringButton, sampleLoadButton;
     // The Operator Env's graph, for the chosen operator (the FM card's).
     OperatorEnvDisplay opEnvGraph { processorRef };
-    StateTabs oscTabs, sharedTabs;
+    OscPicker oscTabs;
+    StateTabs sharedTabs;
     std::unique_ptr<juce::FileChooser> tableChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
     // Each oscillator's controls by parameter suffix, for the shared

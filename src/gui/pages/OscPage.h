@@ -808,8 +808,11 @@ public:
             for (const auto& [area, name] : rowLabels)
             {
                 g.setColour (tint.withAlpha (0.8f));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                IlanaTheme::drawFitted (g, name, area, juce::Justification::topLeft, 1);
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+                g.setFont (font);
+                // (Only as wide as the words, so the box never reaches the first control's label.)
+                IlanaTheme::drawFitted (g, name, area.withWidth (juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, name) + 2)),
+                                        juce::Justification::topLeft, 1);
             }
         }
 

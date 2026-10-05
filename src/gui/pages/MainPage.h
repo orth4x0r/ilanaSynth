@@ -451,9 +451,14 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             IlanaTheme::drawFitted (g, "FILTER OFF", well.toNearestInt().withTrimmedBottom ((int) (well.getHeight() / 2.0f)), juce::Justification::centredBottom, 1);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, "a DX7 voice has none: turn CUTOFF down to bring one in",
-                                    well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0), juce::Justification::centredTop, 2);
+            const auto noteFont = IlanaTheme::font (IlanaTheme::TextSize::label);
+            g.setFont (noteFont);
+            const juce::String note ("a DX7 voice has none: turn CUTOFF down to bring one in");
+            // (A box only as wide and tall as the words, so it never reaches the controls around the well.)
+            auto noteArea = well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0);
+            noteArea = noteArea.withSizeKeepingCentre (juce::jmin (noteArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (noteFont, note) + 2), noteArea.getHeight())
+                               .withHeight (juce::jmin (noteArea.getHeight(), 2 * (int) std::ceil (noteFont.getHeight()) + 2));
+            IlanaTheme::drawFitted (g, note, noteArea, juce::Justification::centredTop, 2);
         }
         paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
 

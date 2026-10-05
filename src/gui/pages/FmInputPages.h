@@ -160,6 +160,10 @@ public:
 
         refreshShown();
         refreshFmInputs (true);
+        // The classic FM extras (ring mod, sync, noise FM) are open on a patch
+        // that isn't a DX7 voice: they are the controls it has to fill the
+        // matrix card with (V14-5).
+        extrasOpen = ! anyOperatorEnv();
         selectOperator (shown.empty() ? 0 : shown.front());
         startTimerHz (12);
     }
@@ -193,9 +197,10 @@ public:
         const auto reserve = operatorCard.getRight() - tabsLeft + 8;
         const auto colour = FmDiagram::oscColour (selectedOperator);
         IlanaTheme::paintCard (g, operatorCard.toFloat(), 7.0f, colour.withAlpha (0.35f));
-        // On the Operator Env the card says what it is: an operator, after its one name (I12-18, I13-1).
-        IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1) + (usesOperatorEnv (selectedOperator) ? " . OPERATOR" : ""),
-                                     operatorText(), colour, reserve);
+        // On the Operator Env the caption says what it is: an operator, after the one name (I12-18, I13-1; the title
+        // alone, as on every card, so it never reaches the picker: I14-1).
+        IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1),
+                                     (usesOperatorEnv (selectedOperator) ? juce::String (juce::String::fromUTF8 ("operator \xc2\xb7 ")) : juce::String()) + operatorText(), colour, reserve);
 
         // An operator on another envelope: where that envelope is edited.
         if (! usesOperatorEnv (selectedOperator))
@@ -253,6 +258,9 @@ public:
             repaint (matrixCard);
         if (inputsChanged)
             updateOperatorVisibility();
+
+        if (anyOperatorEnv() != lastAnyOperatorEnv)
+            extrasOpen = ! anyOperatorEnv();
 
         if (refreshShown() || tuneChanged || diagram.getMinimumHeight() != lastDiagramMinimum
             || anyOperatorEnv() != lastAnyOperatorEnv || matrixExtrasShown() != lastExtrasShown)

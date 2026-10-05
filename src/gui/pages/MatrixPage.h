@@ -180,20 +180,9 @@ public:
         if (dockArea.isEmpty())
             return;
 
+        // (Never a text box: a dock with room opens a curve by itself, V14-4.)
         if (remapEditor == nullptr)
-        {
-            const auto area = dockArea.toFloat().reduced (2.0f);
-            IlanaTheme::paintRecessedPanel (g, area, 8.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("REMAP", area.withTrimmedTop (area.getHeight() * 0.5f - 22.0f).withHeight (18.0f), juce::Justification::centred);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("Click a row's CURVE to draw how its source maps to the amount here.",
-                        area.withTrimmedTop (area.getHeight() * 0.5f - 2.0f).withHeight (18.0f), juce::Justification::centred);
-            g.drawText ("To add a route, drag a source onto any knob, then drag its ring on the knob to set the depth.",
-                        area.withTrimmedTop (area.getHeight() * 0.5f + 18.0f).withHeight (18.0f), juce::Justification::centred);
             return;
-        }
 
         // The routing the curve belongs to.
         const auto slot = processorRef.readModSlot (remapEditor->getSlotIndex());
@@ -231,6 +220,7 @@ public:
                 + (bipolar ? "bipolar (-1 to 1 across)" : "unipolar (0 to 1 across)"),
             "Left to right: the source's range.  Bottom to top: what it sends.",
             "Click to add a point, drag the middle dots to bend, double-click to remove.",
+            "Click another row's CURVE to edit that one. To add a route, drag a source onto any knob, then drag its ring on the knob to set the depth.",
         };
         // Two lines to a sentence where the dock is tall enough for three,
         // else one line each, so none runs into QUICK SHAPES.
@@ -300,8 +290,10 @@ public:
         }
 
         closeRemap();
+        dockDismissed = false;
         const auto colour = modSourceColour ((int) processorRef.readModSlot (slot).source);
         remapEditor = std::make_unique<RemapEditor> (processorRef, slot, colour);
+        dockAutomatic = false;
         remapEditor->setOnClose ([safeThis = juce::Component::SafePointer<MatrixPage> (this)]
         {
             // Not from inside the editor's own click.
@@ -329,10 +321,42 @@ public:
         repaint();
     }
 
+    // The dock's own opening (no scrolling, no relayout: resized() is the caller).
+    void openRemapQuietly (int slot, bool automatic)
+    {
+        remapEditor = std::make_unique<RemapEditor> (processorRef, slot, modSourceColour ((int) processorRef.readModSlot (slot).source));
+        dockAutomatic = automatic;
+        remapEditor->setOnClose ([safeThis = juce::Component::SafePointer<MatrixPage> (this)]
+        {
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr)
+                    safeThis->closeRemap();
+            });
+        });
+        addAndMakeVisible (*remapEditor);
+
+        for (auto& row : rows)
+            row->setSelected (row->getSlotIndex() == slot);
+    }
+
+    void closeRemapQuietly()
+    {
+        removeChildComponent (remapEditor.get());
+        remapEditor.reset();
+        dockAutomatic = false;
+
+        for (auto& row : rows)
+            row->setSelected (false);
+    }
+
+    // (The X closes it for good until a curve is opened by hand again.)
     void closeRemap()
     {
         if (remapEditor == nullptr)
             return;
+
+        dockDismissed = true;
 
         removeChildComponent (remapEditor.get());
         remapEditor.reset();
@@ -537,15 +561,40 @@ public:
         // The rows never move for it, the list just scrolls above it (V6-22).
         const auto rowsHeight = listRows * (rowHeight + 1) + 8 + headingsHeight;
         const auto spare = area.getHeight() - rowsHeight;
+
+        // The dock always holds a curve (V14-4): a short matrix opens its first
+        // row's by itself and gives it every spare pixel; once the rows need
+        // the room that automatic one goes again (a curve the user opened stays).
+        if (! visibleRows.empty() && remapEditor == nullptr && ! dockDismissed && spare >= dockHeight + 8)
+            openRemapQuietly (visibleRows.front(), true);
+        else if (remapEditor != nullptr && dockAutomatic && spare < dockHeight + 8)
+            closeRemapQuietly();
+
         if (! visibleRows.empty() && remapEditor != nullptr)
-            dockArea = area.removeFromBottom (dockHeight).withTrimmedTop (8);
-        else if (! visibleRows.empty() && spare >= 96)
-            dockArea = area.removeFromBottom (spare).withTrimmedTop (8);
+            dockArea = area.removeFromBottom (juce::jlimit ((int) dockHeight, 400, spare)).withTrimmedTop (8);
         else
             dockArea = {};
 
+        // Over an open dock the list ends at a whole row, not half-way through
+        // one (V11-9, S14-10): the last row that fits, with the headings the
+        // list has, and the dock takes what that leaves.
+        if (remapEditor != nullptr && ! dockArea.isEmpty() && area.getHeight() < rowsHeight)
+        {
+            viewport.setBounds (area);
+            layoutList();
+            auto fit = 0;
+            for (const auto index : visibleRows)
+                if (const auto bottom = rows[(size_t) index]->getBottom() + 2; bottom <= area.getHeight())
+                    fit = juce::jmax (fit, bottom);
+            if (fit >= rowHeight + 1 && fit < area.getHeight())
+            {
+                dockArea = dockArea.withTop (dockArea.getY() + (fit - area.getHeight()));
+                area = area.withHeight (fit);
+            }
+        }
+
         if (remapEditor != nullptr)
-            remapEditor->setBounds (dockArea.withWidth (juce::jmin (560, dockArea.getWidth() * 3 / 5)));
+            remapEditor->setBounds (dockArea.withWidth (juce::jmin (dockArea.getWidth() * 3 / 5, juce::jmax (560, dockArea.getHeight() * 2))));
 
         // The tiles: one row along the bottom of the dock's info side.
         const auto tilesShown = remapEditor != nullptr;
@@ -562,10 +611,6 @@ public:
             }
         }
 
-        // Over an open dock the list ends at a whole row, not half-way through
-        // one (V11-9).
-        if (remapEditor != nullptr && ! dockArea.isEmpty() && area.getHeight() < rowsHeight)
-            area = area.withHeight (juce::jmax (rowHeight + 1, area.getHeight() / (rowHeight + 1) * (rowHeight + 1)));
         viewport.setBounds (area);
         layoutList();
         layoutStarters();
@@ -605,7 +650,7 @@ private:
         add ("ON", C::bypass, C::gap * 2, Sort::none);
         add ("SOURCE", C::source, C::gap, Sort::source);
         add ("VIA", C::via (viaExpanded), C::gap * 2, Sort::none);
-        add ("AMOUNT", C::amount, C::gap, Sort::amount);
+        add ("AMOUNT", C::amount (viaExpanded), C::gap, Sort::amount);
         add ("CURVE", C::curve, C::gap, Sort::none);
         add ("POLARITY", C::polarity, C::gap * 3, Sort::none);
         add ("DESTINATION", C::destination, C::gap, Sort::destination);
@@ -1038,6 +1083,7 @@ private:
     juce::String repeatText;
     juce::Rectangle<int> dockArea;
     std::unique_ptr<RemapEditor> remapEditor;
+    bool dockDismissed = false, dockAutomatic = false;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::StringArray shownMacroNames;

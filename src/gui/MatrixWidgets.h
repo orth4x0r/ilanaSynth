@@ -821,9 +821,11 @@ public:
     // until some row uses it.
     struct Columns
     {
-        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 80, viaPill = 56,
-                             amount = 190, curve = 50, polarity = 76, destination = 244, remove = 24, gap = 6;
+        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 40, viaPill = 40,
+                             amountBase = 190, curve = 50, polarity = 76, destination = 244, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
+        // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
+        static int amount (bool viaExpanded) { return amountBase + (viaExpanded ? 0 : viaWide - viaNarrow); }
     };
 
     static constexpr int rowHeight = 28;
@@ -840,9 +842,9 @@ public:
         area.removeFromLeft (Columns::gap);
         const auto viaArea = area.removeFromLeft (Columns::via (viaExpanded));
         via.setBounds (viaArea);
-        viaButton.setBounds (viaArea.withWidth (Columns::viaPill).reduced (0, 2));
+        viaButton.setBounds (viaArea.withWidth (juce::jmin (viaArea.getWidth(), Columns::viaPill)).reduced (0, 2));
         area.removeFromLeft (Columns::gap * 2);
-        amount.setBounds (area.removeFromLeft (Columns::amount));
+        amount.setBounds (area.removeFromLeft (Columns::amount (viaExpanded)));
         area.removeFromLeft (Columns::gap);
         curve.setBounds (area.removeFromLeft (Columns::curve));
         area.removeFromLeft (Columns::gap);

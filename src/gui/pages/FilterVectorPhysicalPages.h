@@ -339,7 +339,7 @@ public:
           drift (p.apvts, "vec_drift", "WANDER", colour(), true),
           driftRate (p.apvts, "vec_drift_rate", "WANDER RATE", colour(), true)
     {
-        addAll (*this, pad, on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
+        addAll (*this, pad, cornerWaves[0], cornerWaves[1], cornerWaves[2], cornerWaves[3], on, path, cornerA, cornerB, cornerC, cornerD, x, y, rate, drift, driftRate);
         path.showAsSwitch();
 
         // The corners name the oscillators as the pad does ("OSC 1").
@@ -420,29 +420,35 @@ public:
         // The vector's on switch in its header, like every card's.
         on.setBounds (IlanaTheme::cardSwitchBounds (vectorCard, vectorCard.getY() + 14));
         // Two boxes fill the controls column's height (no empty foot): CORNERS
-        // (the four menus, two by two) over POSITION AND MOTION (X, Y, PATH
-        // and its rate, WANDER and its rate: two rows of three).
+        // (the four menus, two by two, each over a picture of its oscillator,
+        // V14-2) over POSITION AND MOTION in one row (X, Y, PATH, its rate,
+        // WANDER and its rate).
         constexpr int gap = 8, padding = 12;
-        cornersBox = inner.removeFromTop (juce::jlimit (boxHeaderHeight + 2 * 44 + 8, boxHeaderHeight + 2 * 60 + 8, (inner.getHeight() - gap) * 38 / 100));
+        const auto motionHeight = boxHeaderHeight + 2 + 100 + 12;
+        cornersBox = inner.removeFromTop (juce::jmax (boxHeaderHeight + 2 * 90, inner.getHeight() - gap - motionHeight));
         inner.removeFromTop (gap);
         motionBox = inner;
 
-        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
+        auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (8);
         const auto rowHeight = corners.getHeight() / 2;
-        const auto place = [rowHeight] (juce::Rectangle<int> row) { return row.withSizeKeepingCentre (row.getWidth(), juce::jmin (row.getHeight(), 46)).reduced (3, 0); };
-        auto combos1 = corners.removeFromTop (rowHeight);
-        cornerA.setBounds (place (combos1.removeFromLeft (combos1.getWidth() / 2)));
-        cornerB.setBounds (place (combos1));
-        auto combos2 = corners;
-        cornerC.setBounds (place (combos2.removeFromLeft (combos2.getWidth() / 2)));
-        cornerD.setBounds (place (combos2));
+        auto row1 = corners.removeFromTop (rowHeight);
+        auto row2 = corners;
+        const auto cell = [this] (juce::Rectangle<int> area, ComboControl& menu, VectorCornerWave& wave)
+        {
+            area = area.reduced (3, 2);
+            menu.setBounds (area.removeFromTop (46));
+            area.removeFromTop (2);
+            wave.setBounds (area);
+        };
+        cell (row1.removeFromLeft (row1.getWidth() / 2), cornerA, cornerWaves[0]);
+        cell (row1, cornerB, cornerWaves[1]);
+        cell (row2.removeFromLeft (row2.getWidth() / 2), cornerC, cornerWaves[2]);
+        cell (row2, cornerD, cornerWaves[3]);
 
         for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
-            knob->setSizeRole (juce::jmin (64, juce::jmax (IlanaTheme::KnobSize::main, (motionBox.getHeight() - boxHeaderHeight) / 2 - 40)));
+            knob->setSizeRole (juce::jmin (64, juce::jmax (IlanaTheme::KnobSize::main, (motionBox.getHeight() - boxHeaderHeight) - 40)));
         auto knobs = motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
-        auto first = knobs.removeFromTop (knobs.getHeight() / 2);
-        layoutRow (first, { &x, &y, &path });
-        layoutRow (knobs, { &rate, &drift, &driftRate });
+        layoutRow (knobs, { &x, &y, &path, &rate, &drift, &driftRate });
     }
 
 private:
@@ -498,6 +504,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
     VectorPadDisplay pad;
+    std::array<VectorCornerWave, 4> cornerWaves { VectorCornerWave (processorRef, 0), VectorCornerWave (processorRef, 1),
+                                                  VectorCornerWave (processorRef, 2), VectorCornerWave (processorRef, 3) };
     ToggleControl on, path;
     ComboControl cornerA, cornerB, cornerC, cornerD;
     KnobControl x, y, rate, drift, driftRate;
@@ -610,30 +618,26 @@ public:
             IlanaTheme::paintCardHeader (g, card.reduced (12, 0).removeFromTop (28), name, note, tag);
         };
 
-        // Not a Physical oscillator: one centred card that says so and
-        // offers the switch, rather than an empty picture beside it.
+        IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
+        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
+        title (viewCard, "PHYSICAL", isPhysical (chosen) ? "OSC " + juce::String (chosen + 1) + "'s string, moving as you play"
+                                                         : "OSC " + juce::String (chosen + 1) + "'s string as Physical would play it", colour());
+
+        // Not a Physical oscillator: the page keeps its shape (the string, its
+        // controls dimmed) and one line on the picker's row says why and
+        // offers the switch, rather than a page of its own (V14-3).
         if (! isPhysical (chosen))
         {
-            IlanaTheme::paintCard (g, emptyCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-            title (emptyCard, "PHYSICAL", "a string, what excites it and its body", colour());
             static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
             const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
-            auto message = makePhysical.getBounds().withHeight (44).translated (0, -60).withWidth (emptyCard.getWidth() - 28)
-                                                  .withX (emptyCard.getX() + 14);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            // One sentence, once (the preview above it carries no label of its own: I10-12).
             // An FM operator is not offered a string: switching it would take it out of the FM voice (V12-24).
             IlanaTheme::drawFitted (g, isOperatorVoice (chosen)
                                            ? "OSC " + juce::String (chosen + 1) + " is an FM operator. Pick another oscillator for a string."
                                            : "OSC " + juce::String (chosen + 1) + " plays " + plays[mode] + ". Switch it to Physical to hear this string.",
-                                    message, juce::Justification::centred, 2);
-            return;
+                                    messageArea, juce::Justification::centredLeft, 1);
         }
-
-        IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-        IlanaTheme::paintCard (g, stringCard.toFloat(), 7.0f, colour().withAlpha (0.25f));
-        title (viewCard, "PHYSICAL", "OSC " + juce::String (chosen + 1) + "'s string, moving as you play", colour());
 
         for (const auto& [area, name] : rowLabels)
         {
@@ -660,40 +664,12 @@ public:
         const auto physical = isPhysical (chosen);
         rowLabels.clear();
 
-        for (juce::Component* c : { (juce::Component*) &bodyLink, (juce::Component*) &boardLink, (juce::Component*) &bodyOn,
-                                    (juce::Component*) &boardOn, (juce::Component*) &bodyType, (juce::Component*) &boardModel,
-                                    (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay, (juce::Component*) &boardMix,
-                                    (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyMaterial, (juce::Component*) &bodySize,
-                                    (juce::Component*) &bodyOffset, (juce::Component*) &bodyKeytrack, (juce::Component*) &bodyCoupling,
-                                    (juce::Component*) &boardTone, (juce::Component*) &boardSize, (juce::Component*) &boardStretch })
-            c->setVisible (physical);
-
-        // Not physical: the view still shows, in its own preview look and
-        // dimmed, what the switch would give (drawn from the oscillator's
-        // string settings), on a card at the page's own margins with the
-        // picker where the physical card has it (UI review 8, V8-24, V8-6).
+        // The page keeps its shape for any oscillator; a non-physical one's
+        // string controls are dimmed (updateAvailability).
         view.setInterceptsMouseClicks (physical, physical);
-        view.setAlpha (physical ? 1.0f : 0.4f);
+        view.setAlpha (physical ? 1.0f : 0.75f);
+        messageArea = {};
 
-        if (! physical)
-        {
-            // Card height only (V11-15): the sentence, the button and a small
-            // preview, not a page-sized dim picture.
-            // The whole page (V13-9): the string larger, the sentence and the
-            // switch under it, no floor.
-            emptyCard = area;
-            auto inner = emptyCard.reduced (10, 0);
-            inner.removeFromTop (30);
-            const auto pickerWidth = juce::jmin (inner.getWidth(), oscPicker.getIdealWidth());
-            oscPicker.setBounds (inner.removeFromTop (30).withSizeKeepingCentre (pickerWidth, 26));
-            makePhysical.setBounds (juce::Rectangle<int> (240, 34).withCentre ({ emptyCard.getCentreX(), emptyCard.getBottom() - 36 }));
-            inner.removeFromTop (6);
-            inner.removeFromBottom (124); // the message and the switch
-            view.setBounds (inner);
-            return;
-        }
-
-        emptyCard = {};
 
         // The controls in a band under the view: STRING, then EXCITER on
         // the same line when it fits, each group named over its first
@@ -801,8 +777,14 @@ public:
         auto inner = viewCard.reduced (10, 0);
         inner.removeFromTop (30);
         auto picker = inner.removeFromTop (30);
-        oscPicker.setBounds (picker.withWidth (juce::jmin (picker.getWidth(), oscPicker.getIdealWidth())).withSizeKeepingCentre (
-            juce::jmin (picker.getWidth(), oscPicker.getIdealWidth()), 26));
+        const auto pickerWidth = juce::jmin (picker.getWidth(), oscPicker.getIdealWidth());
+        oscPicker.setBounds (picker.withWidth (pickerWidth).withSizeKeepingCentre (pickerWidth, 26));
+        if (! physical)
+        {
+            auto rest = picker.withTrimmedLeft (pickerWidth + 16);
+            makePhysical.setBounds (rest.removeFromRight (190).withSizeKeepingCentre (190, 28));
+            messageArea = rest.withTrimmedRight (12);
+        }
         inner.removeFromTop (6);
         inner.removeFromBottom (10);
 
@@ -965,10 +947,12 @@ private:
     {
         const auto physical = isPhysical (chosen);
         makePhysical.setVisible (! physical && ! isOperatorVoice (chosen));
+        // A non-physical oscillator's string controls stay, dimmed.
+        const auto stringAlpha = physical ? 1.0f : FilterColours::offAlpha;
         if (excite != nullptr)
-            excite->setVisible (physical);
+            excite->setAlpha (stringAlpha);
         for (auto& control : controls)
-            control->setVisible (physical);
+            control->setAlpha (stringAlpha);
         if (pickup != nullptr)
             pickup->setVisible (physical && (shownExcite == 7 || shownExcite == 8));
         std::vector<int> shownOscs;
@@ -1036,7 +1020,7 @@ private:
     int chosen = 0, shownExcite = -1;
     float shownBody = -1.0f;
     bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> emptyCard, viewCard, stringCard, bodyLine, boardLine;
+    juce::Rectangle<int> messageArea, viewCard, stringCard, bodyLine, boardLine;
 };
 // OSC's EDIT STRING ›: the PHYSICAL page, on that oscillator.
 void showPhysicalString (juce::Component& from, int osc)

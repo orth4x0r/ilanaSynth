@@ -133,6 +133,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests8.h"
 #include "GlobalUiTests.h"
 #include "OperatorUiTests.h"
+#include "Review9T2Tests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
 // labels and SEQ GENERATE's grid.
@@ -484,6 +485,14 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
             // fixed allowance leaving a gap above NEW IN.
             expect (tutorial->panelBounds().getHeight() < 431, "the tour's panel is as tall as its tips ("
                                                                    + juce::String (tutorial->panelBounds().getHeight()) + " px)");
+            // Review 9, S9-20: the pills are behind WHAT'S NEW; closed, the
+            // tour is the tips and one line.
+            expect (! tutorial->isWhatsNewOpen() && tutorial->chipBounds().empty(), "the tour opens with the NEW IN pills folded away");
+            const auto closedHeight = tutorial->panelBounds().getHeight();
+            tutorial->setWhatsNewOpen (true);
+            settle (100);
+            expect (tutorial->panelBounds().getHeight() > closedHeight && tutorial->panelBounds().getHeight() < 431,
+                    "opening WHAT'S NEW grows the panel (" + juce::String (closedHeight) + " to " + juce::String (tutorial->panelBounds().getHeight()) + " px)");
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
                                                                           + juce::String ((int) tutorial->chipBounds().size()) + " of "
                                                                           + juce::String ((int) features.size()) + ")");
@@ -842,6 +851,15 @@ int runUiTests()
     // (the user's own choice is put back at the end).
     const auto askedBefore = pages->asksBeforeReplacingEdits();
     pages->setAsksBeforeReplacingEdits (false);
+
+    if (only == "T2")
+    {
+        runReview9T2Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
 
     if (only == "R6")
     {
@@ -3367,7 +3385,7 @@ int runUiTests()
                 juce::String clipNote;
                 if (chain != nullptr)
                     chain->stages (clipNote);
-                expect (clipNote == "EUCLID's hits trigger the clip; CLIP supplies the notes",
+                expect (clipNote == "EUCLID's hits trigger the clip",
                         "with EUCLID and CLIP on the header says how they combine ('" + clipNote + "')");
                 set ("euc_on", 0.0f);
                 set ("clip_on", 0.0f);
@@ -4345,7 +4363,7 @@ int runUiTests()
                 // Rows grow to fill a page the dock's note doesn't fit on
                 // (V8-20), up to 38 px, their controls at their own size.
                 if (! visible.empty())
-                    expect (visible[0]->getHeight() <= 38, "matrix rows stay compact (" + juce::String (visible[0]->getHeight()) + " px)");
+                    expect (visible[0]->getHeight() <= 34, "matrix rows stay compact (" + juce::String (visible[0]->getHeight()) + " px)");
             }
 
             if (auto* page = pages->getCurrentPage())
@@ -6347,6 +6365,9 @@ int runUiTests()
     // Batch H (UI review 4: V19, V27, V28, S17, S20, S23, S25).
     runSmallThingsTests (processor, *pages);
 
+    // UI review 9, T2: voice, SEQ, matrix, browser, macros.
+    runReview9T2Tests (processor, *pages);
+
     // UI review 7, Q4: PLAY, OSC, PHYSICAL, VECTOR.
     runPlayOscReview7Tests (processor, *pages);
 
@@ -7062,6 +7083,119 @@ int main (int argc, char** argv)
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         settle (400);
         save (*editor, outDir.getChildFile ("fm-warp.png"));
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_T2: review 9's package T2 views (the VOICE tab, PROB SEQ
+    // and CLIP with notes, the tour with WHAT'S NEW open, the remap dock, the
+    // table browser with a favourite), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_T2", "").isNotEmpty())
+    {
+        pages->showPage ("OSC");
+        settle (300);
+        std::vector<StateTabs*> tabRows;
+        findAll<StateTabs> (*editor, tabRows);
+        for (auto* tabs : tabRows)
+            for (int i = 0; i < tabs->getNumItems(); ++i)
+                if (tabs->getItem (i).name == "VOICE" && tabs->onSelect != nullptr)
+                {
+                    tabs->setSelected (i);
+                    tabs->onSelect (i);
+                }
+        settle (300);
+        save (*editor, outDir.getChildFile ("t2-osc-voice.png"));
+
+        pages->showPage ("ARP/SEQ");
+        settle (300);
+        std::vector<CardTabs*> engineTabs;
+        findAll<CardTabs> (*editor, engineTabs);
+        for (auto* tabs : engineTabs)
+            if (tabs->getNames().contains ("PROB SEQ") && visibleInTree (tabs))
+            {
+                tabs->setSelected (2, true);
+                settle (300);
+                save (*editor, outDir.getChildFile ("t2-seq-probseq.png"));
+                tabs->setSelected (1, true);
+                settle (300);
+                save (*editor, outDir.getChildFile ("t2-seq-euclid.png"));
+                Clip clip;
+                clip.bars = 2;
+                clip.notes = { { 0.0f, 1.0f, 60, 100 }, { 1.0f, 0.5f, 64, 70 }, { 2.0f, 1.0f, 67, 127 }, { 4.0f, 2.0f, 62, 40 }, { 6.0f, 1.0f, 65, 90 } };
+                processor.getClipState().setClip (0, clip);
+                tabs->setSelected (3, true);
+                settle (500);
+                save (*editor, outDir.getChildFile ("t2-seq-clip.png"));
+                tabs->setSelected (0, true);
+            }
+
+        pages->showPage ("MATRIX");
+        settle (300);
+        std::vector<CurveControl*> curves;
+        findAll<CurveControl> (*editor, curves);
+        for (auto* curve : curves)
+            if (visibleInTree (curve))
+            {
+                curve->openRemapEditor();
+                break;
+            }
+        settle (400);
+        save (*editor, outDir.getChildFile ("t2-matrix-remap.png"));
+
+        pages->showPage ("MAIN");
+        if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        {
+            tutorial->setVisible (true);
+            tutorial->toFront (false);
+            settle (500);
+            save (*editor, outDir.getChildFile ("t2-tour-closed.png"));
+            tutorial->setWhatsNewOpen (true);
+            settle (200);
+            save (*editor, outDir.getChildFile ("t2-tour-open.png"));
+            tutorial->setVisible (false);
+        }
+
+        if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)
+        {
+            display->onClick();
+            settle (500);
+            if (auto* panel = findChild<PresetPanel> (*editor); panel != nullptr && panel->onDockRequest != nullptr)
+            {
+                panel->selectFilter ("");
+                panel->clickChip ("pack:dx7");
+                panel->clickChip ("bank:ROM1A");
+                settle (200);
+                save (*editor, outDir.getChildFile ("t2-browser-dx7.png"));
+                panel->onDockRequest (true);
+                settle (500);
+                save (*editor, outDir.getChildFile ("t2-browser-docked-dx7.png"));
+                panel->clickChip ("bank:ROM1A");
+                panel->clickChip ("pack:dx7");
+                panel->selectFilter ("");
+                panel->onDockRequest (false);
+                settle (300);
+                panel->close();
+                settle (300);
+            }
+        }
+
+        pages->savePresetAs();
+        settle (300);
+        save (*editor, outDir.getChildFile ("t2-save-as.png"));
+        pages->getSaveOverlay().setTagsFieldOpen (true);
+        settle (200);
+        save (*editor, outDir.getChildFile ("t2-save-as-field.png"));
+        pages->getSaveOverlay().cancel();
+
+        if (auto* settingsFile = tableBrowserSettings())
+            settingsFile->setValue ("tablefav_Basic", "1");
+        {
+            TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+            browser.setSize (912, 576);
+            settle (200);
+            save (browser, outDir.getChildFile ("t2-table-browser.png"));
+        }
+        if (auto* settingsFile = tableBrowserSettings())
+            settingsFile->removeValue ("tablefav_Basic");
         return 0;
     }
 

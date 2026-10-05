@@ -289,6 +289,15 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                 "pictured, no FRAME");
     }
 
+    // Review 14 (I14-3): a DX7 voice with both filters open has no filter;
+    // PLAY says so, dims everything but CUTOFF, which brings one in.
+    {
+        auto* reso = knobFor ("f1_reso");
+        auto* cutoff = knobFor ("f1_cutoff");
+        expect (reso != nullptr && cutoff != nullptr && reso->getAlpha() < 0.99f && cutoff->getAlpha() > 0.99f,
+                "PLAY: a DX7 voice's filter knobs dim but CUTOFF, which brings a filter in (I14-3)");
+    }
+
     // OSC: the operator's card is its Operator Env (the FM graph), LEVEL,
     // pitch with LEVEL and one WAVE row, no warp, spectral or unison spread;
     // the one-frame sine shows as WAVE (I7-20, V7-16, V7-31, S7-12).
@@ -4170,6 +4179,50 @@ int runUiTests()
         settle (400);
         expect (litBefore && dimmed && markerFor2 == 0 && f2Cutoff->getAlpha() > 0.99f,
                 "WEST in Filter 2's place dims Filter 2's card and the graph stops offering Filter 2's marker");
+    }
+
+    // Review 14 (I14-5, V14-12): WEST and BODY open together (WEST on shows
+    // BODY's knobs too, dimmed, so no hole sits beside it), and Filter 2 has
+    // a switch in its header that parks CUTOFF at the top and brings it back.
+    {
+        processor.loadFactoryPreset (0);
+        pages->showPage ("FILTER");
+        settle (300);
+        const auto visibleKnob = [&editor] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && visibleInTree (knob))
+                    return knob;
+            return (KnobControl*) nullptr;
+        };
+        const auto foldedTogether = visibleKnob ("west_fold") == nullptr && visibleKnob ("body_material") == nullptr;
+        setParam ("west_on", 1.0f);
+        settle (400);
+        const auto openTogether = visibleKnob ("west_fold") != nullptr && visibleKnob ("body_material") != nullptr;
+        setParam ("west_on", 0.0f);
+        settle (400);
+        expect (foldedTogether && openTogether, "WEST and BODY fold together and open together (I14-5)");
+
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (*editor, buttons);
+        juce::TextButton* f2Switch = nullptr;
+        for (auto* button : buttons)
+            if (visibleInTree (button) && button->getButtonText().isEmpty() && button->getProperties().contains ("switch"))
+                f2Switch = button;
+        expect (f2Switch != nullptr && f2Switch->getToggleState() == false, "FILTER 2 has a switch in its header, off while it is open at 20 kHz (V14-12)");
+        if (f2Switch != nullptr)
+        {
+            f2Switch->triggerClick();
+            settle (300);
+            const auto cutoffOn = readParam ("f2_cutoff");
+            f2Switch->triggerClick();
+            settle (300);
+            expect (cutoffOn < 19000.0f && readParam ("f2_cutoff") >= 19999.0f, "the F2 switch brings a cutoff in and parks it at the top again (V14-12)");
+        }
+        setParam ("f2_cutoff", 20000.0f);
+        settle (200);
     }
 
     // UI review 6 (V6-18, S6-21): the graph's markers sit on their filter's

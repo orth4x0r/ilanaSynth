@@ -1317,7 +1317,7 @@ private:
         {
             // A thin frame scrubber under a wavetable's picture (S12-2).
             auto picture = display;
-            const auto scrubber = picture.getHeight() > 150 ? picture.removeFromBottom (18) : juce::Rectangle<int>();
+            const auto scrubber = picture.getHeight() > 150 && mode == 0 ? picture.removeFromBottom (18) : juce::Rectangle<int>(); // (only a wavetable has one)
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
@@ -1405,6 +1405,15 @@ private:
             row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), subShare + noiseShare), row.getHeight());
             auto half = row.removeFromLeft (row.getWidth() * subShare / juce::jmax (1, subShare + noiseShare));
             sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
+            // The band beside the tabs says what MODE does, in a line or two (the
+            // paragraph that took the controls' width is gone: V14-9).
+            if (sharedSelected == sharedVoice)
+            {
+                const auto noteLeft = sharedTabs.getRight() + 18;
+                sharedNoteArea = { noteLeft, sharedCard.getY() + 4, sharedCard.getRight() - 12 - noteLeft, sharedHeaderHeight - 4 };
+                sharedNote = "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. GLIDE slides the pitch from the last note.";
+            }
+
             for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, sharedSelected == sharedVoice ? "NOTES" : "SUB", &sub },
                                                { &row, sharedSelected == sharedVoice ? "STEREO" : "NOISE", &noise } })
             {
@@ -1506,8 +1515,8 @@ private:
         if (dynamic_cast<ComboControl*> (item) != nullptr)
             return 1.5f;
 
-        if (dynamic_cast<ToggleControl*> (item) != nullptr)
-            return 0.75f;
+        if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+            return toggle->getButton().getButtonText().length() > 8 ? 1.05f : 0.75f; // (LEGATO ONLY keeps its name at 75 %)
 
         return 1.1f;
     }

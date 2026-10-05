@@ -317,7 +317,8 @@ public:
 
         // Init's category is its own name: show it as the start-up label does.
         const auto categoryText = category.isNotEmpty() && ! category.equalsIgnoreCase ("Init") ? category.toUpperCase()
-                                                                                                : juce::String ("PRESET");
+                                                                                                : name.isEmpty() || name.equalsIgnoreCase ("Init") ? juce::String ("NEW PATCH") // (I14-7: not "PRESET" over Init)
+                                                                                                                                                      : juce::String ("PRESET");
         auto categoryRow = text.removeFromTop (12);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (notice.isNotEmpty() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);

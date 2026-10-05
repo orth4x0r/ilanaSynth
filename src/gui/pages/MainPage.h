@@ -66,8 +66,8 @@ public:
             // Four columns in one order for every mode (UI review 7, V7-26,
             // S7-3): the pitch (SEMI, or a wavetable's RATIO or FIXED), LEVEL,
             // then the mode's two main knobs. An operator on the Operator Env
-            // follows the FM card's order: RATIO, FINE, its LEVEL in dB, the
-            // oscillator's own level as TRIM (I7-2, I7-19; review 8, V8-5).
+            // follows the FM card's order: RATIO, FINE, its OUTPUT in dB, the
+            // oscillator's own LEVEL (I7-2, I7-19; review 8, V8-5; 9, I9-7).
             strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
             strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
@@ -75,7 +75,7 @@ public:
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
-            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "LEVEL"), knob ("_level", "TRIM") };
+            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT"), knob ("_level", "LEVEL") }; // one level name (I9-7)
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table);
             oscColumn.addChildComponent (*strip->excite);
@@ -405,6 +405,18 @@ public:
                               juce::Justification::centredLeft, 2);
         }
         paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
+
+        // How the selected LFO runs, in MOD's words (UI review 9, I9-19).
+        if (! lfoCard.isEmpty() && shownLfoCaption.isNotEmpty())
+        {
+            const auto centreY = titleCentreY (lfoCard);
+            const auto titleRight = lfoCard.getX() + 24
+                                    + juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), "LFO") + 10;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, shownLfoCaption, juce::Rectangle<int> (titleRight, centreY - 8, lfoCard.getRight() - 12 - titleRight, 16),
+                                    juce::Justification::centredLeft, 1);
+        }
     }
 
     void resized() override
@@ -903,6 +915,23 @@ private:
 
         effectRules.apply();
 
+        // The LFO card's caption and run switch follow its shape (I9-1 / I9-19).
+        {
+            const auto lfo = lfoTabs.getSelected();
+            const auto caption = LfoShapeMenu::runCaption (processorRef, lfo);
+            if (caption != shownLfoCaption)
+            {
+                shownLfoCaption = caption;
+                repaint (lfoCard);
+            }
+            if (juce::isPositiveAndBelow (lfo, (int) lfoSets.size()))
+                if (auto* retrig = dynamic_cast<ToggleControl*> (lfoSets[(size_t) lfo]->items[2].get()))
+                {
+                    const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+                    LfoSection::labelRunSwitch (*retrig, shape != nullptr && LfoSimShapes::isSim (juce::roundToInt (shape->load())));
+                }
+        }
+
         // The sub's controls follow its switch; noise has its own level.
         {
             const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
@@ -971,6 +1000,8 @@ private:
         return operatorEg == playing ? juce::String (EnvSection::ampUnusedText())
                                      : juce::String ("unused: the oscillators play other envelopes");
     }
+
+    juce::String shownLfoCaption;
 
     int firstOperatorEg() const
     {

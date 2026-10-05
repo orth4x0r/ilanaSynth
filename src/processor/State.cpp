@@ -792,6 +792,8 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
     apvts.replaceState (state);
+    // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
+    moveLegacyMsegToLfo();
     updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
 }
 

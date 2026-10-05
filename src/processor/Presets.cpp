@@ -1094,6 +1094,9 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     // row with the depths added (the same sound; review 6, S5-9).
     mergeDuplicateModSlots();
 
+    // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
+    moveLegacyMsegToLfo();
+
     updateExciterLevelMatch (false);
 }
 

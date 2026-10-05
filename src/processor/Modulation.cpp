@@ -42,6 +42,118 @@ void IlanaSynthAudioProcessor::setLfoCurve (int lfoIndex, const LfoCurve& curve)
     lfoCurveTables[(size_t) lfoIndex] = table;
 }
 
+int IlanaSynthAudioProcessor::legacyMsegTargetLfo() const
+{
+    const auto param = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto routed = [this] (Mod::Source source)
+    {
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = readModSlot (slot);
+            if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+                return true;
+        }
+        return false;
+    };
+
+    // A one-shot MSEG is an envelope, which an LFO can't be; as an
+    // oscillator's ENVELOPE or warp envelope it plays per note.
+    if (param ("mseg_loop") <= 0.5f || ! routed (Mod::Source::Mseg))
+        return -1;
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        if (juce::roundToInt (param (prefix + "_amp_env")) == 16 || juce::roundToInt (param (prefix + "_pd_env")) == 17)
+            return -1;
+    }
+
+    // LFO 4 draws from the generator LFO 1-3, the Clocked S&H and the
+    // gate's Random pattern share: at a new rate its draws land elsewhere,
+    // so it takes the MSEG only when none of those is heard.
+    auto sharedRandomHeard = routed (Mod::Source::ClockSh);
+    for (int slot = 1; slot <= numFxSlots; ++slot)
+        sharedRandomHeard = sharedRandomHeard || juce::roundToInt (param ("fx_slot" + juce::String (slot))) == 16;
+    for (int lfo = 0; lfo < 3; ++lfo)
+    {
+        const auto shape = juce::roundToInt (param ("lfo" + juce::String (lfo + 1) + "_shape"));
+        const auto random = shape == LfoShapes::SampleHold || LfoShapes::isStateful (shape) || LfoSimShapes::isSim (shape);
+        sharedRandomHeard = sharedRandomHeard
+                            || (random && (routed (Mod::lfoSourceFor (lfo)) || routed (Mod::lfoBSourceFor (lfo))));
+    }
+
+    for (int lfo = sharedRandomHeard ? 4 : 0; lfo < numLfos; ++lfo)
+        if (! isLfoShown (lfo))
+            return lfo;
+    return -1;
+}
+
+bool IlanaSynthAudioProcessor::moveLegacyMsegToLfo()
+{
+    // ILANA_KEEP_MSEG_MODULE=1 keeps the module, to compare the two.
+    const auto lfo = legacyMsegTargetLfo();
+    if (lfo < 0 || juce::SystemStats::getEnvironmentVariable ("ILANA_KEEP_MSEG_MODULE", {}).isNotEmpty())
+        return false;
+
+    const auto param = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* parameter = apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    // Its four points at their places in the cycle and back to the first at
+    // the end, joined by straight lines, as the looping module plays them.
+    float levels[Mseg::numPoints], times[Mseg::numPoints], total = 0.0f;
+    for (int i = 0; i < Mseg::numPoints; ++i)
+    {
+        levels[i] = juce::jlimit (-1.0f, 1.0f, param ("mseg_level" + juce::String (i + 1)));
+        times[i] = juce::jmax (0.01f, param ("mseg_time" + juce::String (i + 1)));
+        total += times[i];
+    }
+
+    LfoCurve curve;
+    curve.points.clear();
+    auto x = 0.0f;
+    for (int i = 0; i < Mseg::numPoints; ++i)
+    {
+        curve.points.push_back ({ x, levels[i], 0.0f });
+        x += times[i] / total;
+    }
+    curve.points.push_back ({ 1.0f, levels[0], 0.0f });
+    setLfoCurve (lfo, curve);
+
+    const auto prefix = "lfo" + juce::String (lfo + 1);
+    set (prefix + "_shape", (float) curveShape);
+    set (prefix + "_rate", param ("mseg_rate"));
+    for (const auto* off : { "_sync", "_retrig", "_key", "_phase", "_smooth" })
+        set (prefix + off, 0.0f);
+
+    const auto lfoSource = Mod::lfoSourceFor (lfo);
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = readModSlot (slot);
+        if (routing.destination == 0)
+            continue;
+        if (routing.source == Mod::Source::Mseg)
+            setModSlotValue (slot, "src", (float) (int) lfoSource);
+        if (routing.aux == Mod::Source::Mseg)
+            setModSlotValue (slot, "aux", (float) (int) lfoSource);
+        if (routing.destination == (int) Mod::Destination::MsegRate)
+            setModSlotValue (slot, "dst", (float) (int) Mod::lfoRateDestinationFor (lfo));
+    }
+
+    setRevealed (Module::Lfo, lfo, true);
+    return true;
+}
+
 bool IlanaSynthAudioProcessor::isIdentityRemap (const LfoCurve& curve)
 {
     const auto& p = curve.points;

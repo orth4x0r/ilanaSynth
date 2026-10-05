@@ -341,6 +341,16 @@ public:
     LfoCurve getLfoCurve (int lfoIndex) const;
     void setLfoCurve (int lfoIndex, const LfoCurve& curve);
 
+    // The old four-point MSEG module (UI review 9, I9-2): a looping, routed
+    // MSEG that no oscillator plays as its ENVELOPE becomes an LFO drawn the
+    // same (SHAPE › MSEG, its four points, its RATE) with its routes, so a
+    // patch has one MSEG editor. Patch loads run it; the LFO is the first
+    // free one whose random draws nothing else hears (LFO 1-4 share a
+    // generator with the Clocked S&H and the gate). legacyMsegTargetLfo is
+    // that LFO, or -1 when the MSEG stays a module. Message thread.
+    int legacyMsegTargetLfo() const;
+    bool moveLegacyMsegToLfo();
+
     // A drawn remap curve per mod slot (Vital's per-route remap). A straight
     // line from -1 to 1 is off; the slot then shapes as before.
     static LfoCurve identityRemap() { LfoCurve curve; curve.points = { { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } }; return curve; }

@@ -82,8 +82,8 @@ inline juce::String tuningText (const IlanaSynthAudioProcessor& p, int osc)
     return (semi > 0 ? "+" : "") + juce::String (semi) + " st";
 }
 
-// Its level: LEVEL in % or, on the Operator Env, its output level in dB with
-// TRIM (LEVEL, 50% = as set) on top.
+// Its level: LEVEL in % or, on the Operator Env, its OUTPUT in dB with
+// LEVEL (50% = as set) on top.
 inline juce::String levelText (const IlanaSynthAudioProcessor& p, int osc)
 {
     const auto prefix = prefixOf (osc);

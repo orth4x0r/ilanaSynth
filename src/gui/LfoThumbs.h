@@ -432,7 +432,7 @@ public:
         {
             if (! container->isDragAndDropActive())
             {
-                // The card's "B" tag drags output B.
+                // The card's "OUT 2" tag drags the second output.
                 const auto fromB = index < IlanaSynthAudioProcessor::numLfos
                                    && outputBTag (index, boundsOfCard (index).toFloat()).contains (event.getMouseDownPosition().toFloat());
                 auto image = createComponentSnapshot (boundsOfCard (index), true, 1.0f);
@@ -569,8 +569,8 @@ private:
         if (hoverRemove)
             return isRouted (id) ? "Remove LFO " + juce::String (id + 1) + " (asks first: it is routed)" : "Remove LFO " + juce::String (id + 1);
         if (hoverB)
-            return "LFO " + juce::String (id + 1) + " B (output B)\nThis shape has two outputs: the card drags output A, this tag "
-                   "output B (" + juce::String (LfoSimInfo::get ((int) readParam (id, "_shape")).outB).toLowerCase()
+            return "LFO " + juce::String (id + 1) + " \xc2\xb7 OUT 2\nThis shape has two outputs: the card drags OUT 1, this tag "
+                   "OUT 2 (" + juce::String (LfoSimInfo::get ((int) readParam (id, "_shape")).outB).toLowerCase()
                    + "). Drag it onto a knob to modulate that knob with it.";
         const auto drives = describeModTargets (processorRef, Mod::lfoSourceFor (id));
         return "LFO " + juce::String (id + 1) + (drives.isNotEmpty() ? " (drives " + drives + ")" : juce::String())
@@ -722,16 +722,22 @@ private:
         }
     }
 
-    // A simulated shape's second output, as a small "OUT B" tag at the
-    // card's bottom right that drags LFO n B (UI review 6, I6-24; named, not
-    // a bare "B" that read as an A/B state: review 8, S8-16 / V8-28). Empty
-    // for the other shapes.
+    // A simulated shape's second output, as a small "OUT 2" tag on the
+    // title line right after the name, that drags LFO n's second output (UI
+    // review 6, I6-24; named, not a bare "B" that read as an A/B state:
+    // review 8, S8-16 / V8-28; off the trace, in the header row: review 9,
+    // V9-16 / V9-20). Empty for the other shapes.
+    static constexpr float outputTagWidth = 40.0f;
+
     juce::Rectangle<float> outputBTag (int lfo, juce::Rectangle<float> card) const
     {
         if (! LfoSimShapes::isSim ((int) readParam (lfo, "_shape")))
             return {};
 
-        return { card.getRight() - 46.0f, card.getBottom() - 19.0f, 40.0f, 14.0f };
+        const auto titleFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, "LFO " + juce::String (lfo + 1));
+        const auto titleRow = card.reduced (8.0f, 5.0f).withHeight (16.0f);
+        return { titleRow.getX() + titleWidth + 8.0f, titleRow.getY() + 1.0f, outputTagWidth, 14.0f };
     }
 
     void paintFrame (juce::Graphics& g, juce::Rectangle<float> card, juce::Colour colour, bool active, bool hovered) const
@@ -755,10 +761,10 @@ private:
     // Title, what it drives, the rate. No dot after the name: the target tag
     // says it is routed, and the on dot is kept for switches (UI review 8,
     // V8-40). A tag too long for the title line drops onto the trace only
-    // while the card is hovered (`dropTag`), so a narrow card (PLAY's) keeps
-    // its picture clear (V8-29); its tooltip names the targets.
+    // when `dropTag` asks (no card does since review 9, V9-16: the trace
+    // stays clear and the tooltip names the targets).
     void paintTitleRow (juce::Graphics& g, juce::Rectangle<float> titleRow, const juce::String& title, const juce::String& rateText,
-                        const juce::String& targets, juce::Colour colour, bool active, bool dropTag) const
+                        const juce::String& targets, juce::Colour colour, bool active, bool dropTag, float afterTitle = 0.0f) const
     {
         const auto titleFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
         const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
@@ -774,7 +780,7 @@ private:
         // What it drives, on the title line between the name and the rate
         // (in the lower corner it sat on the curve).
         const auto rateWidth = rateText.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), rateText);
-        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 10.0f).withTrimmedRight (rateWidth + 8.0f), targets, colour,
+        paintTargetTag (g, titleRow.withTrimmedLeft (titleWidth + 10.0f + afterTitle).withTrimmedRight (rateWidth + 8.0f), targets, colour,
                         dropTag ? titleRow.translated (0.0f, titleRow.getHeight() + 3.0f) : juce::Rectangle<float>());
     }
 
@@ -844,12 +850,14 @@ private:
         const auto phase = (double) processorRef.getLfoPhase (lfo);
         paintDot (g, plot, colour, phase, shapeValue (lfo, shape, phase));
 
-        // Over the trace: a target tag too long for the title line drops
-        // onto the plot. The hovered card's "x" takes the rate's corner.
+        // The hovered card's "x" takes the rate's corner. Nothing is drawn
+        // over the trace (UI review 9, V9-16): a target tag too long for the
+        // title line is left to the tooltip.
+        const auto tag = outputBTag (lfo, card);
         paintTitleRow (g, hovered ? titleRow.withTrimmedRight (18.0f) : titleRow, "LFO " + juce::String (lfo + 1), rateText, targets,
-                       colour, active, hovered);
+                       colour, active, false, tag.isEmpty() ? 0.0f : outputTagWidth + 6.0f);
 
-        if (const auto tag = outputBTag (lfo, card); ! tag.isEmpty())
+        if (! tag.isEmpty())
         {
             const auto hot = hovered && hoverB;
             g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
@@ -857,7 +865,7 @@ private:
             g.setColour (colour.withAlpha (hot ? 1.0f : 0.6f));
             g.drawRoundedRectangle (tag.reduced (0.5f), 4.0f, 1.0f);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("OUT B", tag, juce::Justification::centred);
+            g.drawText ("OUT 2", tag, juce::Justification::centred);
         }
 
         if (hovered)
@@ -903,7 +911,7 @@ private:
         }
 
         paintTitleRow (g, titleRow, info.title, info.rateText != nullptr ? info.rateText() : juce::String(), targets, info.colour,
-                       active, hovered);
+                       active, false);
     }
 
     void timerCallback() override

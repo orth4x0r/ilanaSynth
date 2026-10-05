@@ -799,6 +799,9 @@ void IlanaSynthAudioProcessorEditor::updateChipVisibility()
                          : kind == -3   ? processorRef.apvts.getRawParameterValue ("vec_on")->load() > 0.5f
                          : kind == -4   ? msegModuleInUse (processorRef)
                          : kind == lfoKind ? processorRef.isLfoShown (index)
+                         // AMP ENV leaves the bar while the voice plays the
+                         // Operator Env and nothing uses it (UI review 9, S9-17).
+                         : index == 0      ? envelopeInUse (processorRef, 0) || ! FmOperatorInfo::anyOperatorEnv (processorRef)
                                            : envelopeShown (processorRef, index);
         const auto wanted = shown || usedModSources[(size_t) source];
 

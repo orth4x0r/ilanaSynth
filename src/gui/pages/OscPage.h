@@ -324,8 +324,8 @@ class OscPage : public juce::Component,
               tune (state, prefix + "_tune", "TUNING"),
               ratio (state, prefix + "_ratio", "RATIO"),
               fixedHz (state, prefix + "_fixed_hz", "FIXED"),
-              egOut (state, prefix + "_eg_out", "LEVEL"),
-              trim (state, prefix + "_level", "TRIM"),
+              egOut (state, prefix + "_eg_out", "OUTPUT"), // one level name (UI review 9, I9-7)
+              trim (state, prefix + "_level", "LEVEL"),
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
               feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
 
@@ -353,8 +353,8 @@ class OscPage : public juce::Component,
         // An FM operator's tuning, as on the FM page (UI review 6, I6-5).
         ComboControl tune;
         KnobControl ratio, fixedHz;
-        // An operator on the Operator Env: its LEVEL (dB) and the
-        // oscillator's level as TRIM, as the FM card names them, and its
+        // An operator on the Operator Env: its OUTPUT (dB) and the
+        // oscillator's LEVEL, as the FM card names them, and its
         // feedback (UI review 7, I7-2, I7-20).
         KnobControl egOut, trim, feedback;
         ComboControl feedbackType;
@@ -911,7 +911,7 @@ private:
 
         // An operator on the Operator Env: its envelope as a picture that
         // opens its one editor (FM's card, UI review 8, S8-4), then its pitch
-        // and levels in the FM card's order (RATIO, SEMI, FINE, LEVEL, TRIM:
+        // and levels in the FM card's order (RATIO, SEMI, FINE, OUTPUT, LEVEL:
         // V8-5), then the wave it plays; UNISON only once it is on (I8-15).
         if (mode == 0 && OscRole::usesOperatorEg (processorRef, index))
         {

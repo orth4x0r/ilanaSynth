@@ -227,7 +227,7 @@ inline juce::Colour modSourceColour (int sourceIndex)
         case Mod::Source::ModWheel:   return juce::Colour::fromHSV (0.52f, 0.34f, 0.93f, 1.0f); // pale aqua
         case Mod::Source::Aftertouch: return juce::Colour::fromHSV (0.95f, 0.30f, 0.97f, 1.0f); // blush
         case Mod::Source::Expression: return juce::Colour::fromHSV (0.21f, 0.38f, 0.92f, 1.0f); // pale lime
-        case Mod::Source::Mseg:       return juce::Colour (0xffe0e6f0);
+        case Mod::Source::Mseg:       return juce::Colour::fromHSV (0.60f, 0.30f, 1.0f, 1.0f); // an LFO pastel, not white (I9-2)
         case Mod::Source::InputEnv:   return juce::Colour (0xffc9b79c); // sand
         case Mod::Source::VectorX:    return juce::Colour (0xff7fe0d8);
         case Mod::Source::VectorY:    return juce::Colour (0xff6fb8ff);

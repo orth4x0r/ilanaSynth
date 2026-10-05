@@ -3366,6 +3366,28 @@ int runUiTests()
             expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ replaces the ARP",
                     "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
 
+            // S12-4: the chain lists the engines in the tab order, and each opens its tab.
+            {
+                set ("euc_on", 1.0f);
+                set ("euc_target", 0.0f);
+                set ("clip_on", 1.0f);
+                settle (300);
+                juce::String orderNote;
+                auto last = -1, opens = 0;
+                auto ordered = true;
+                for (const auto& stage : chain->stages (orderNote))
+                    if (stage.engine >= 0)
+                    {
+                        ordered = ordered && stage.engine >= last;
+                        last = stage.engine;
+                        ++opens;
+                    }
+                expect (ordered && opens >= 3, "the note path lists ARP, EUCLID, PROB SEQ, CLIP in the tab order, each opening its tab (S12-4)");
+                set ("euc_on", 0.0f);
+                set ("clip_on", 0.0f);
+                settle (200);
+            }
+
             // The arp's settings step back while PROB SEQ plays instead.
             KnobControl* arpGate = nullptr;
             {

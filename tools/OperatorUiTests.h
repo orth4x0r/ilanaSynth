@@ -140,6 +140,28 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                     + " / " + oscOutput + ", " + voiceLevel + ")");
     }
 
+    // I12-6: the OSC drawer on an operator voice has no STRINGS or SOUNDBOARD
+    // tab; I12-3: a modulator says what it modulates and its OUTPUT is a DEPTH.
+    {
+        editor.showPage ("OSC");
+        settle (400);
+        std::vector<StateTabs*> rows;
+        findAll<StateTabs> (editor, rows);
+        auto voice = false, strings = false;
+        for (auto* tabs : rows)
+            if (visibleInTree (tabs))
+                for (int i = 0; i < tabs->getNumItems(); ++i)
+                {
+                    voice = voice || tabs->getItem (i).name == "VOICE";
+                    strings = strings || tabs->getItem (i).name == "STRINGS" || tabs->getItem (i).name == "SOUNDBOARD";
+                }
+        expect (voice && ! strings, "OSC: an operator voice's drawer has no STRINGS or SOUNDBOARD tab (I12-6)");
+        editor.showPage ("MAIN");
+        settle (300);
+        expect (knobFor ("osc2_eg_out", "DEPTH") != nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
+                "PLAY: a modulator's level knob reads DEPTH, a carrier's OUTPUT (I12-3)");
+    }
+
     // I8-2, I9-7: the oscillator's LEVEL is "Level" in the matrix whether
     // or not it plays the Operator Env; OUTPUT is "OP ENV Output".
     {

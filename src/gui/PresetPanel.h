@@ -97,8 +97,8 @@ public:
         saveAsButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
         updateDeleteButton();
 
-        sortMode = settings != nullptr ? juce::jlimit (0, 2, settings->getIntValue ("presetSort", 0)) : 0;
-        sortButton.setTooltip ("Sort the list by name, by category, or with favourites first");
+        sortMode = settings != nullptr ? juce::jlimit (0, 3, settings->getIntValue ("presetSort", 0)) : 0;
+        sortButton.setTooltip ("Sort the list by name, by category, with favourites first, or with the ones you loaded last first");
         sortButton.onClick = [this] { showSortMenu(); };
         addAndMakeVisible (sortButton);
         updateSortButton();
@@ -289,11 +289,11 @@ public:
     bool isOpen() const { return isVisible() && ! closing; }
 
     // Sort orders (kept in the settings).
-    enum SortMode { sortByName = 0, sortByCategory, sortFavouritesFirst };
+    enum SortMode { sortByName = 0, sortByCategory, sortFavouritesFirst, sortRecentFirst };
 
     void setSortMode (int mode)
     {
-        sortMode = juce::jlimit (0, 2, mode);
+        sortMode = juce::jlimit (0, 3, mode);
 
         if (settings != nullptr)
         {
@@ -438,16 +438,10 @@ public:
         // The same keys docked and floating (review 7).
         const auto keys = juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close"));
 
-        if (docked)
-        {
-            g.drawText (count, header.withTrimmedLeft (84), juce::Justification::centredLeft);
-            g.drawText (keys, header.withTrimmedRight (dockButton.getWidth() + closeDockButton.getWidth() + 20), juce::Justification::centred);
-        }
-        else
-        {
-            g.drawText (keys, header.withTrimmedRight (dockButton.getWidth() + 40), juce::Justification::centred);
-            g.drawText (count, header.withTrimmedRight (dockButton.getWidth() + 8), juce::Justification::centredRight);
-        }
+        // One layout floating and docked: the count after the title, the keys
+        // centred (review 11, S11-15).
+        g.drawText (count, header.withTrimmedLeft (84), juce::Justification::centredLeft);
+        g.drawText (keys, header.withTrimmedRight (dockButton.getWidth() + (docked ? closeDockButton.getWidth() + 20 : 40)), juce::Justification::centred);
 
         IlanaTheme::paintRecessedPanel (g, search.getBounds().toFloat().expanded (1.0f), 6.0f);
 
@@ -469,6 +463,8 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             IlanaTheme::drawFitted (g, filterKey == favouritesKey && search.isEmpty() && selectedTags.isEmpty()
                                   ? juce::String ("No favourites yet. Click the star on a preset to add it.")
+                                  : filterKey == recentKey && search.isEmpty() && selectedTags.isEmpty()
+                                  ? juce::String ("Nothing loaded from this browser yet.")
                                   : juce::String ("No presets match. Clear the search or a chip to see more."),
                               list.getBounds().reduced (16, 0), juce::Justification::centred, 2);
         }
@@ -761,6 +757,7 @@ private:
     juce::TextButton closeDockButton { juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) };
 
     static constexpr const char* favouritesKey = "*fav";
+    static constexpr const char* recentKey = "*recent";
     static constexpr const char* userKey = "*user";
 
     // The category column.
@@ -1242,6 +1239,14 @@ private:
         entries.push_back ({ "", "All", names.size() - repeatCount(), IlanaTheme::accent(), false });
         entries.push_back ({ favouritesKey, "Favourites", favourites, juce::Colour (0xffffd447), false });
         entries.push_back ({ userKey, "User", users, juce::Colours::white.withAlpha (0.6f), false });
+        {
+            // The last presets loaded from this browser (review 11, S11-8).
+            auto recent = 0;
+            const auto list = recentNames();
+            for (int i = 0; i < names.size(); ++i)
+                recent += list.contains (names[i]) ? 1 : 0;
+            entries.push_back ({ recentKey, "Recent", recent, juce::Colour (0xff7fd1ff), false });
+        }
 
         auto first = true;
 
@@ -1252,7 +1257,7 @@ private:
             first = false;
         }
 
-        if (! filterKey.isEmpty() && filterKey != favouritesKey && filterKey != userKey && ! shownCategories.contains (filterKey))
+        if (! filterKey.isEmpty() && filterKey != favouritesKey && filterKey != userKey && filterKey != recentKey && ! shownCategories.contains (filterKey))
             filterKey = {};
 
         sidebar.entries = std::move (entries);
@@ -1641,12 +1646,33 @@ private:
 
         selectedPreset = filtered[row];
         updateDeleteButton();
+        noteRecent (names[selectedPreset]);
 
         if (onLoad != nullptr)
             onLoad (selectedPreset, closeAfter);
 
         list.repaint();
         repaint (detailsArea);
+    }
+
+    // The presets loaded from the browser, newest first (kept in the settings).
+    juce::StringArray recentNames() const
+    {
+        return settings != nullptr ? juce::StringArray::fromLines (settings->getValue ("presetRecent")) : juce::StringArray();
+    }
+
+    void noteRecent (const juce::String& name)
+    {
+        if (settings == nullptr || name.isEmpty())
+            return;
+
+        auto list = recentNames();
+        list.removeString (name);
+        list.insert (0, name);
+        while (list.size() > 24)
+            list.remove (list.size() - 1);
+        settings->setValue ("presetRecent", list.joinIntoString ("\n"));
+        settings->saveIfNeeded();
     }
 
     void loadRandom()
@@ -1786,6 +1812,9 @@ private:
 
         if (filterKey == userKey)
             return isUserPreset (i);
+
+        if (filterKey == recentKey)
+            return recentNames().contains (names[i]);
 
         if (filterKey.isNotEmpty())
             return categories[i] == filterKey;
@@ -2007,6 +2036,7 @@ private:
         };
 
         std::vector<int> order (filtered.begin(), filtered.end());
+        const auto recentList = sortMode == sortRecentFirst ? recentNames() : juce::StringArray();
 
         std::stable_sort (order.begin(), order.end(), [&] (int a, int b)
         {
@@ -2014,6 +2044,14 @@ private:
             {
                 const auto rankA = rank (categories[a]), rankB = rank (categories[b]);
                 return rankA != rankB ? rankA < rankB : categories[a].compareNatural (categories[b], false) < 0;
+            }
+
+            if (sortMode == sortRecentFirst)
+            {
+                const auto rankA = recentList.indexOf (names[a]), rankB = recentList.indexOf (names[b]);
+
+                if (rankA != rankB)
+                    return rankA >= 0 && (rankB < 0 || rankA < rankB);
             }
 
             if (sortMode == sortFavouritesFirst)
@@ -2037,7 +2075,7 @@ private:
 
     void updateSortButton()
     {
-        static const char* labels[] { "SORT: NAME", "SORT: CATEGORY", "SORT: FAVOURITES" };
+        static const char* labels[] { "SORT: NAME", "SORT: CATEGORY", "SORT: FAVOURITES", "SORT: RECENT" };
         sortButton.setButtonText (juce::String (labels[sortMode]) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
     }
 
@@ -2047,6 +2085,7 @@ private:
         menu.addItem (1, "Name (A-Z)", true, sortMode == sortByName);
         menu.addItem (2, "Category, then name", true, sortMode == sortByCategory);
         menu.addItem (3, "Favourites first", true, sortMode == sortFavouritesFirst);
+        menu.addItem (4, "Recently loaded first", true, sortMode == sortRecentFirst);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&sortButton),
                             [safeThis = juce::Component::SafePointer<PresetPanel> (this)] (int result)

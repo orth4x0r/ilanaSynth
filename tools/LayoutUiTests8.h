@@ -192,16 +192,15 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             juce::String post;
             juce::Rectangle<float> box;
             for (const auto& [name, bounds] : flow->getBlocks())
-                if (name.startsWith ("STRINGS"))
+                if (name == "PHYSICAL")
                 {
                     post = name;
                     box = bounds;
                 }
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            const auto widest = juce::jmax (juce::GlyphArrangement::getStringWidth (font, "STRINGS +"),
-                                            juce::GlyphArrangement::getStringWidth (font, "SOUNDBOARD"));
-            expect (post == "STRINGS +\nSOUNDBOARD" && box.getHeight() >= 28.0f && box.getWidth() - 8.0f >= widest,
-                    "SIGNAL FLOW: STRINGS / SOUNDBOARD spelled out on two lines and fit their block (" + box.toString() + ")");
+            const auto widest = juce::GlyphArrangement::getStringWidth (font, "PHYSICAL");
+            expect (post == "PHYSICAL" && box.getHeight() >= 14.0f && box.getWidth() - 8.0f >= widest,
+                    "SIGNAL FLOW: strings and soundboard together are one PHYSICAL node, never a joined name that wraps (I11-8; " + box.toString() + ")");
         }
         setParam ("sym_on", 0.0f);
     }

@@ -160,7 +160,7 @@ public:
 
         assignBounds = {};
 
-        if (macroIndex >= 0 && ! isAssigned())
+        if (macroIndex >= 0 && ! isAssigned() && (! quietAssign || hover))
         {
             // Nothing to move yet: a small button that adds a routing from
             // this macro in the matrix (review 9, I9-20), so macros 5-8 need
@@ -188,6 +188,18 @@ public:
     // Whether the macro moves anything: a routing, or its own EVOLVE.
     bool isAssigned() const { return routedTargets > 0 || evolving; }
     bool isEvolving() const { return evolving; }
+
+    // With every macro idle, only the first keeps its + ASSIGN showing; the
+    // others show it on hover, so four identical pills read as one
+    // (review 11, S11-9).
+    void setQuietAssign (bool quiet)
+    {
+        if (quiet != quietAssign)
+        {
+            quietAssign = quiet;
+            repaint();
+        }
+    }
 
     void resized() override
     {
@@ -416,7 +428,7 @@ private:
     bool evolving = false;
     juce::String idleText;
     juce::Rectangle<int> markBounds;
-    bool hover = false, overAssign = false;
+    bool hover = false, overAssign = false, quietAssign = false;
     juce::Rectangle<int> assignBounds;
 };
 

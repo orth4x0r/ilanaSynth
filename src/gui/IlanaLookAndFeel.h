@@ -1018,7 +1018,8 @@ public:
     // automatic or free state), drawn dim under a knob.
     static bool isPlaceholderValue (const juce::String& text)
     {
-        return text == "Auto" || text == "Free" || text == "Off" || text == "None";
+        // ("Auto" and "Random" are settings and read in the value colour: review 11, S11-17.)
+        return text == "Free" || text == "Off" || text == "None";
     }
 
     // Labels (slider values included) never draw a box: a value reads as

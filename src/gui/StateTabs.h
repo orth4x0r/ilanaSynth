@@ -163,11 +163,13 @@ private:
     }
 
     // Shortest of all, a name keeps its last word ("OSC 3" as "3", where an
-    // oscillator picker sits in a tight header: UI review 8, I8-10).
+    // oscillator picker sits in a tight header: UI review 8, I8-10); the tab
+    // chosen keeps its whole name, so the pill still reads "OSC 3" (review
+    // 11, I11-2).
     juce::String shownName (int index, int level) const
     {
         const auto& name = items[(size_t) index].name;
-        return level >= 3 ? name.fromLastOccurrenceOf (" ", false, false) : name;
+        return level >= 3 && index != selected ? name.fromLastOccurrenceOf (" ", false, false) : name;
     }
 
     int nameWidth (int index, int level = 0) const

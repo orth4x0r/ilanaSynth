@@ -379,7 +379,7 @@ private:
 // ENV 1-16's names on the MOD page (cards, panel title), 0-based.
 inline juce::String envelopeTitle (int env)
 {
-    const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV" };
+    const juce::StringArray titles { "AMP ENV", "FILT ENV", "FILT 2 ENV", "ENV 4" };
     return env < 4 ? titles[env] : "ENV " + juce::String (env + 1);
 }
 

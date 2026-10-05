@@ -201,7 +201,7 @@ inline juce::String runCaption (const IlanaSynthAudioProcessor& processor, int l
 
     juce::String caption (juce::CharPointer_UTF8 { text });
     if (LfoSimShapes::isSim (shape))
-        caption << juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 2 outputs"));
+        caption << juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 OUT 2"));
     return caption;
 }
 

@@ -112,7 +112,9 @@ public:
     // review 7 found a fixed allowance left a gap above NEW IN), centred.
     juce::Rectangle<int> panelBounds() const
     {
-        const auto area = getLocalBounds().reduced (70);
+        // A reading column, not the window's width (review 11, S11-16).
+        auto area = getLocalBounds().reduced (70);
+        area = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 720), area.getHeight());
         const auto tipsWidth = area.getWidth() - 56 - (area.getWidth() - 56) / 5;
         const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight() + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
@@ -377,7 +379,31 @@ public:
 private:
     static constexpr float chipHeight = 26.0f, chipGap = 6.0f;
     // The heading alone, or with two rows of chips under it.
-    int newBandHeight() const { return newOpen ? 22 + 3 + 2 * 26 + 6 + 2 : 22; }
+    // (As many rows as the chips need at the column's width: review 11, S11-16.)
+    int newBandHeight() const { return newOpen ? 22 + 3 + chipRows() * 26 + (chipRows() - 1) * 6 + 2 : 22; }
+
+    int chipRows() const
+    {
+        const auto width = (float) juce::jmin (getWidth() - 140, 720) - 56.0f;
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        auto rows = 1;
+        auto x = 0.0f;
+
+        for (const auto& feature : whatsNew())
+        {
+            const auto chip = (float) juce::GlyphArrangement::getStringWidthInt (font, feature.label) + 22.0f;
+
+            if (x + chip > width && x > 0.0f)
+            {
+                ++rows;
+                x = 0.0f;
+            }
+
+            x += chip + 8.0f;
+        }
+
+        return rows;
+    }
 
     // The heading and the tips, as drawTipColumn lays them out.
     static int tipColumnHeight (int width, const juce::StringArray& tips)

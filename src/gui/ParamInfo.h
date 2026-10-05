@@ -79,7 +79,7 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "fx_smear_density")
         return juce::String (juce::roundToInt (value)) + " grains";
     if (id.startsWith ("lfo") && id.endsWith ("_seed"))
-        return juce::roundToInt (value) == 0 ? juce::String ("Free") : "#" + juce::String (juce::roundToInt (value));
+        return juce::roundToInt (value) == 0 ? juce::String ("Random") : "#" + juce::String (juce::roundToInt (value)); // (a value, not a label that forgot one: review 11, S11-17)
     // Amounts from -1 to 1 as signed percent (mod depths, step values).
     if ((id.startsWith ("mod") && id.endsWith ("_amt")) || (id.startsWith ("lfo") && id.contains ("_step")))
         return (juce::roundToInt (value * 100.0f) > 0 ? "+" : "") + juce::String (juce::roundToInt (value * 100.0f)) + "%";

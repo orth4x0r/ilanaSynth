@@ -66,10 +66,11 @@ public:
     }
     int dx7NumberAt (int cell) const { return page == basic ? 0 : cell + 1 + (page == dx7High ? 16 : 0); }
 
-    // A BASIC tile's short name: B1-B9, as the heading writes it (V7-14).
+    // A BASIC tile's name, as the heading writes it: "2-OP STACK", not a
+    // code to learn (V7-14; review 11, I11-12).
     static juce::String basicName (int index)
     {
-        return "B" + juce::String (index + 1) + " " + juce::String (FmAlgorithms::all()[(size_t) index].name).toUpperCase();
+        return juce::String (FmAlgorithms::all()[(size_t) index].name).toUpperCase();
     }
 
     // The BASIC tile nearest a routing no tile matches: the same routes
@@ -156,11 +157,11 @@ public:
                 g.fillPath (dashed);
             }
 
-            // Its name in short: the DX7's own number, or B1-B9 on BASIC
+            // Its name in short: the DX7's own number, or 1-9 on BASIC
             // (V7-14).
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.setColour (lit ? accent() : IlanaTheme::Ui::text2);
-            g.drawText (page == basic ? "B" + juce::String (index + 1) : juce::String (dx7NumberAt (index)),
+            g.drawText (page == basic ? juce::String (index + 1) : juce::String (dx7NumberAt (index)),
                         cell.reduced (3.0f, 1.0f).toNearestInt(), juce::Justification::topLeft);
             // Picking it adds oscillators: say so (UI review 6, S6-45; the
             // tooltip names them, V7-14).
@@ -320,7 +321,7 @@ private:
     juce::String describeCell (int index) const
     {
         const auto& algorithm = algorithmAt (index);
-        auto text = page == basic ? "B" + juce::String (index + 1) + " " + algorithm.name + " (" + juce::String (algorithm.numOperators) + " operators)"
+        auto text = page == basic ? juce::String (algorithm.name) + " (" + juce::String (algorithm.numOperators) + " operators)"
                                   : juce::String (algorithm.name) + ": " + FmAlgorithms::dx7Description (dx7NumberAt (index));
         if (algorithm.numOperators > shownCount())
             text << ". Adds OSC " << (shownCount() + 1) << (algorithm.numOperators - shownCount() > 1 ? "-" + juce::String (algorithm.numOperators) : juce::String())

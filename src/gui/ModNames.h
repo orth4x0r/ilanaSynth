@@ -70,7 +70,7 @@ inline juce::String source (int sourceIndex, const IlanaSynthAudioProcessor* pro
         case S::AmpEnv:     return "AMP ENV";
         case S::FilterEnv:  return "FILT ENV";
         case S::FilterEnv2: return "FILT 2 ENV";
-        case S::ModEnv:     return "MOD ENV";
+        case S::ModEnv:     return "ENV 4"; // numbered like ENV 5, ENV 6 (review 11, S11-13)
         case S::Env4:       return "ENV 5";
         case S::Velocity:   return "VELOCITY";
         case S::KeyTrack:   return "KEY TRACK";
@@ -388,10 +388,10 @@ inline DestinationName explicitName (int destination)
         case D::FeDecay:         return { "Filt Env", "Decay" };
         case D::FeSustain:       return { "Filt Env", "Sustain" };
         case D::FeRelease:       return { "Filt Env", "Release" };
-        case D::MeAttack:        return { "Mod Env", "Attack" };
-        case D::MeDecay:         return { "Mod Env", "Decay" };
-        case D::MeSustain:       return { "Mod Env", "Sustain" };
-        case D::MeRelease:       return { "Mod Env", "Release" };
+        case D::MeAttack:        return { "Env 4", "Attack" };
+        case D::MeDecay:         return { "Env 4", "Decay" };
+        case D::MeSustain:       return { "Env 4", "Sustain" };
+        case D::MeRelease:       return { "Env 4", "Release" };
         case D::F2eAttack:       return { "Filt 2 Env", "Attack" };
         case D::F2eDecay:        return { "Filt 2 Env", "Decay" };
         case D::F2eSustain:      return { "Filt 2 Env", "Sustain" };
@@ -490,7 +490,7 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
     // Envelope settings: "Amp Env › Delay", "Env 7 › Attack".
     {
         static const std::pair<const char*, const char*> envelopes[] {
-            { "amp_", "Amp Env" }, { "fe_", "Filt Env" }, { "f2e_", "Filt 2 Env" }, { "me_", "Mod Env" }, { "e4_", "Env 5" }
+            { "amp_", "Amp Env" }, { "fe_", "Filt Env" }, { "f2e_", "Filt 2 Env" }, { "me_", "Env 4" }, { "e4_", "Env 5" }
         };
         static const std::pair<const char*, const char*> fields[] {
             { "attack", "Attack" }, { "decay", "Decay" }, { "sustain", "Sustain" }, { "release", "Release" },

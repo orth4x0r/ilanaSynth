@@ -737,29 +737,29 @@ public:
             auto body = band.removeFromTop (bodyBlockHeight);
             bodyLine = body.removeFromLeft (body.getWidth() / 2);
             boardLine = body.withTrimmedLeft (16);
-            // The name with its switch after it on the group's header line
-            // (UI-CONVENTIONS: a part's switch in its sub-box header; UI
-            // review 9, I9-4), then the main controls and the link.
-            const auto group = [] (juce::Rectangle<int> line, int nameWidth, ToggleControl& power, ComboControl& menu,
+            // One header for every box (review 11, I11-6, I11-14): the name at
+            // the left, its link and then its switch at the right, the main
+            // controls on the line under it.
+            const auto group = [] (juce::Rectangle<int> line, ToggleControl& power, ComboControl& menu,
                                    std::initializer_list<KnobControl*> knobs, juce::TextButton& link, int linkWidth, bool open)
             {
+                auto header = line.removeFromTop (24);
                 // (The bare switch keeps a 13 px label band over its pill.)
-                power.setBounds (line.getX() + nameWidth, line.getY() - 13 - 1, 40, 13 + 20);
-                // Off: the name and the switch only.
+                power.setBounds (header.getRight() - 40, header.getY() - 13 - 1, 40, 13 + 20);
                 menu.setVisible (open);
                 link.setVisible (open);
                 for (auto* knob : knobs)
                     knob->setVisible (open);
                 if (! open)
                     return;
-                link.setBounds (line.removeFromRight (linkWidth).withSizeKeepingCentre (linkWidth, 22).translated (0, 6));
+                link.setBounds (juce::Rectangle<int> (header.getRight() - 40 - 8 - linkWidth, header.getY(), linkWidth, 22));
                 menu.setBounds (line.removeFromLeft (124).withSizeKeepingCentre (124, 44).translated (0, 4));
-                line.removeFromLeft (juce::jmax (8, nameWidth + 40 + 4 - 124)); // (the knobs clear of the switch)
+                line.removeFromLeft (8);
                 for (auto* knob : knobs)
                     knob->setBounds (line.removeFromLeft (76));
             };
-            group (bodyLine, 46, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120, bodyOpen);
-            group (boardLine, 96, boardOn, boardModel, { &boardMix }, boardLink, 176, boardOpen);
+            group (bodyLine, bodyOn, bodyType, { &bodyAmount, &bodyDecay }, bodyLink, 120, bodyOpen);
+            group (boardLine, boardOn, boardModel, { &boardMix }, boardLink, 176, boardOpen);
         }
 
         auto inner = viewCard.reduced (10, 0);
@@ -790,7 +790,7 @@ public:
     juce::StringArray getControlIds() const { return controlIds; }
 
 private:
-    static constexpr int bodyLineHeight = 72, foldedBodyLineHeight = 30;
+    static constexpr int bodyLineHeight = 96, foldedBodyLineHeight = 30;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
 

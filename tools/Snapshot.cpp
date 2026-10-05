@@ -248,7 +248,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         // words, operator or not (I8-19).
         editor.showPage ("OSC");
         settle (300);
-        expect (oscTabState (0) == "OUT" && oscTabState (1) == "OUT, MOD > 1",
+        expect (oscTabState (0) == "OUT" && oscTabState (1) == juce::String ("OUT, MOD ") + juce::String::fromUTF8 ("\xe2\x86\x92 1"),
                 "OSC: Neuro Wobble's oscillators read OUT / OUT, MOD > 1, as the FM diagram (" + oscTabState (0) + ", " + oscTabState (1) + ")");
     }
 
@@ -292,8 +292,10 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
                 "OSC: an operator's card shows its Operator Env graph, OUTPUT and VOICE LEVEL, no wavetable warp or unison spread");
-        expect (wave != nullptr && wave->getViewMode() == 0 && wave->getFrameReadout().isEmpty(),
-                "OSC: a one-frame sine opens as WAVE, with no frame readout");
+        // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
+        // is the one place the wave is chosen, and VOICE LEVEL sits in its own ADVANCED row.
+        expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") != nullptr,
+                "OSC: an Operator Env operator has the envelope and one WAVE menu, no sine picture (V11-7)");
 
         // EDIT OP ENV whatever the mode (I7-20).
         setParam ("osc1_mode", 1.0f);
@@ -500,7 +502,7 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
             const auto closedHeight = tutorial->panelBounds().getHeight();
             tutorial->setWhatsNewOpen (true);
             settle (100);
-            expect (tutorial->panelBounds().getHeight() > closedHeight && tutorial->panelBounds().getHeight() < 431,
+            expect (tutorial->panelBounds().getHeight() > closedHeight && tutorial->panelBounds().getHeight() < 470, // (the 720 px column wraps the pills to three rows: S11-16)
                     "opening WHAT'S NEW grows the panel (" + juce::String (closedHeight) + " to " + juce::String (tutorial->panelBounds().getHeight()) + " px)");
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
                                                                           + juce::String ((int) tutorial->chipBounds().size()) + " of "
@@ -2054,8 +2056,8 @@ int runUiTests()
             settle (400);
             expect (processor.findMatchingDx7Algorithm() == 5 && processor.isOscillatorShown (5),
                     "clicking DX7 algorithm 5 routes six operators and is found as 5");
-            expect (visibleKnob ("fm_6to5") && visibleKnob ("fm_noise6"),
-                    "the FM matrix grows to six operators, with the noise row");
+            expect (visibleKnob ("fm_6to5") && ! visibleKnob ("fm_noise6"),
+                    "the FM matrix grows to six operators, its noise row behind the EXTRAS line (I11-5)");
 
             processor.getUndoManager().undo();
             settle (300);
@@ -2317,7 +2319,14 @@ int runUiTests()
                                         && neuroDiagram->getCaptionTexts()[2].isEmpty() && neuroDiagram->getCaptionTexts()[0].isNotEmpty();
                 expect (offCaption, "FM: an off oscillator's node shows no tuning or level captions (S8-36)");
                 const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
-                expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"), "FM: a basic patch shows RING MOD, SYNC and NOISE FM");
+                // One layout on every patch (review 11, I11-5): the EXTRAS line opens and closes them.
+                {
+                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xba"));
+                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS  \xc2\xb7  RING MOD  \xc2\xb7  SYNC  \xc2\xb7  NOISE FM  \xe2\x80\xb9"));
+                    expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
+                                && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText),
+                            "FM: a basic patch has the same EXTRAS line as a DX7 voice: RING MOD, SYNC and NOISE FM open from it and close again");
+                }
                 expect (! pitchLfoLinkShown(), "FM: no OP PITCH link on a patch without the Operator Env");
                 std::vector<EnvelopeDisplay*> graphs;
                 findAll<EnvelopeDisplay> (*editor, graphs);
@@ -3682,7 +3691,7 @@ int runUiTests()
             setShape (0);
             expect (onNote.contains ("restarts on note") && free.contains ("runs free")
                         && onNote.startsWith ("shared") && plainCaption == juce::String::fromUTF8 ("shared \xc2\xb7 runs free")
-                        && onNote.contains ("2 outputs") && onNote.length() < 48,
+                        && onNote.contains ("OUT 2") && onNote.length() < 48,
                     "an LFO's caption says where it runs and when it restarts, the same words for plain and simulated shapes ('"
                         + plainCaption + "' / '" + onNote + "' / '" + free + "')");
             expect (plainSwitch == "RETRIG" && simSwitch == "PER VOICE",
@@ -5774,11 +5783,13 @@ int runUiTests()
                 expect (describeValue ("amp_delay", 0.0f) == "0 ms" && describeValue ("fe_hold", 0.0f) == "0 ms"
                             && describeValue ("opeg_lfo_delay", 0.0f) == "0 ms",
                         "an envelope's DELAY / HOLD and the Op LFO's DELAY at 0 read 0 ms, not Off");
-                // A word in a number's place reads dim (I9-25).
-                expect (IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 0.0f))
-                            && IlanaLookAndFeel::isPlaceholderValue (describeValue ("osc1_string_excite_pos", 0.0f))
+                // A word in a number's place is a value, not a dim label that forgot one
+                // (I9-25, review 11 S11-17): SEED reads Random, EXCITE POS Auto, in the value colour.
+                expect (describeValue ("lfo1_seed", 0.0f) == "Random" && describeValue ("osc1_string_excite_pos", 0.0f) == "Auto"
+                            && ! IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 0.0f))
+                            && ! IlanaLookAndFeel::isPlaceholderValue (describeValue ("osc1_string_excite_pos", 0.0f))
                             && ! IlanaLookAndFeel::isPlaceholderValue (describeValue ("lfo1_seed", 3.0f)),
-                        "SEED's Free and EXCITE POS's Auto read dim, the numbers do not");
+                        "SEED reads Random and EXCITE POS Auto in the value colour, as the numbers do");
 
                 // "+" adds the next LFO and opens it; its x takes it away
                 // again at once while nothing routes it.
@@ -6092,7 +6103,7 @@ int runUiTests()
                     juce::StringArray want;
                     for (int env = 0; env < 16; ++env)
                         if (envelopeShown (processor, env))
-                            want.add (env < 4 ? juce::StringArray { "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV" }[env] : "ENV " + juce::String (env + 1));
+                            want.add (env < 4 ? juce::StringArray { "AMP ENV", "FILT ENV", "FILT 2 ENV", "ENV 4" }[env] : "ENV " + juce::String (env + 1));
                     const auto overflow = names.size() > 0 && names[names.size() - 1].startsWith ("+");
                     auto matches = names.size() > 0;
                     for (int tab = 0; tab < names.size() - (overflow ? 1 : 0); ++tab)

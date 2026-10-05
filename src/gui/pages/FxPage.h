@@ -352,7 +352,7 @@ public:
         tapGrid.setName ("CUSTOM TAP GRID"); // (the UI test finds it by name)
 
         // The final stage after the rack.
-        softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "SOFT CLIP");
+        softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "ON"); // its name is drawn at its left (review 11, S11-14)
         softClip->showAsSwitch();
         clipGain = std::make_unique<StripKnob> (p, "master_clip_gain", "Clip Gain");
         addAndMakeVisible (*softClip);
@@ -462,10 +462,12 @@ public:
             IlanaTheme::paintCardTitle (g, outputStrip.withWidth (110).withTrimmedLeft (14), "OUTPUT", IlanaTheme::Ui::text2);
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            // Read in order after its controls, like a card's subtitle.
-            g.drawText ("after the rack, before the master volume",
-                        outputStrip.withLeft (clipGain != nullptr ? clipGain->getRight() + 24 : outputStrip.getX()).withTrimmedRight (14),
-                        juce::Justification::centredLeft);
+            // The caption at the right, as a card's subtitle sits after its title.
+            g.drawText ("after the rack, before the master volume", outputStrip.withTrimmedRight (14), juce::Justification::centredRight);
+            // A label left of its switch, as on the rest of the page.
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("SOFT CLIP", outputStrip.withLeft (outputStrip.getX() + 110).withWidth (84), juce::Justification::centredLeft);
         }
 
         if (library->isVisible())
@@ -569,8 +571,9 @@ public:
         {
             auto strip = outputStrip.reduced (6, 3);
             strip.removeFromLeft (104); // the tagged OUTPUT title
-            softClip->setBounds (strip.removeFromLeft (120));
-            strip.removeFromLeft (10);
+            strip.removeFromLeft (84); // the label drawn left of the switch
+            softClip->setBounds (strip.removeFromLeft (50));
+            strip.removeFromLeft (30);
             clipGain->setBounds (strip.removeFromLeft (160));
         }
         repaint();

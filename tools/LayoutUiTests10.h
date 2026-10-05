@@ -462,8 +462,8 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             std::vector<StateTabs*> rows;
             findAll<StateTabs> (editor, rows);
             for (auto* tabs : rows)
-                if (tabs->getNumItems() > 0 && tabs->getItem (0).name == "SUB + NOISE" && tabs->onSelect != nullptr)
-                    tabs->onSelect (0);
+                if (tabs->getNumItems() > 1 && tabs->getItem (1).name == "SUB + NOISE" && tabs->onSelect != nullptr)
+                    tabs->onSelect (1); // (VOICE is first now: review 11, S11-1)
         }
         settle (300);
         const auto subOff = ! shownKnob ("subosc_level");

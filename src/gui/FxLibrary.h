@@ -190,7 +190,7 @@ inline juce::String airwindowsBadgeTip (int type)
 // colour once it is in the rack (V6-25: a dot, and a click on it shows its
 // card, as the rack takes each effect once; V7-42: its name dims, so it
 // doesn't read as a second one to add). An Airwindows model beside its
-// effect is a narrow "AW" button; an Airwindows module without a twin
+// effect is a small "AIRWINDOWS" button; an Airwindows module without a twin
 // carries an AW tag.
 class FxLibraryButton : public juce::TextButton
 {
@@ -198,7 +198,7 @@ public:
     enum class Kind { effect, airwindowsModel, airwindowsOnly, more };
 
     FxLibraryButton (int typeIn, const juce::String& name, Kind kindIn = Kind::effect)
-        : juce::TextButton (kindIn == Kind::airwindowsModel ? juce::String ("AW") : name.toUpperCase()), type (typeIn), kind (kindIn) {}
+        : juce::TextButton (kindIn == Kind::airwindowsModel ? juce::String ("AIRWINDOWS") : name.toUpperCase()), type (typeIn), kind (kindIn) {}
 
     int getType() const { return type; }
     Kind getKind() const { return kind; }
@@ -310,7 +310,7 @@ public:
     // Called after a pick (the call-out closes itself with it).
     std::function<void()> afterPick;
 
-    static constexpr int columns = 5, buttonHeight = 26, headingHeight = 18, groupGap = 10, twinWidth = 34, legendHeight = 14;
+    static constexpr int columns = 5, buttonHeight = 26, headingHeight = 18, groupGap = 10, twinWidth = 76, legendHeight = 14;
 
     // The tallest column's height, buttons and headings, and the row under them.
     static int preferredHeight()
@@ -348,7 +348,7 @@ public:
                                        + ": click to show its card (the rack takes each effect once)."
                                  : "Add " + name + " to the first empty slot.";
             if (button->getKind() == FxLibraryButton::Kind::effect && twin >= 0)
-                tip << "\nAW beside it is its Airwindows model; a card switches between the two.";
+                tip << "\nAIRWINDOWS beside it is its Airwindows model; a card switches between the two.";
             if (isAirwindowsFxType (type))
                 tip << "\n" << airwindowsBadgeTip (type);
             button->setTooltip (tip);
@@ -381,7 +381,7 @@ public:
         // What the small AW boxes are (S10-11).
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("AW = the Airwindows version of the effect beside it; a card switches between the two.", legend, juce::Justification::centredLeft);
+        g.drawText ("AIRWINDOWS beside an effect is its Airwindows version; a card switches between the two.", legend, juce::Justification::centredLeft);
 
         // A hairline over the row under the columns.
         if (! moreRow.isEmpty() && std::any_of (buttons.begin(), buttons.end(), [] (const auto& b)

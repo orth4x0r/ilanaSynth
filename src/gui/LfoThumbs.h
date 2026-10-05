@@ -840,7 +840,8 @@ private:
                                      : describeValue ("lfo" + juce::String (lfo + 1) + "_rate", readParam (lfo, "_rate")); // as the RATE knob shows it
 
         const auto targets = cachedTargets (lfo);
-        const auto plot = inner.reduced (0.0f, 3.0f);
+        // (The trace sits below the title line, clear of the routing tag: review 11, S11-11.)
+        const auto plot = inner.withTrimmedTop (7.0f).reduced (0.0f, 3.0f);
         const auto shape = (int) readParam (lfo, "_shape");
 
         // Unassigned LFOs are drawn faint.
@@ -885,7 +886,7 @@ private:
         auto inner = card.reduced (8.0f, 5.0f);
         const auto titleRow = inner.removeFromTop (16.0f);
         const auto targets = extraTargets[extra];
-        const auto plot = inner.reduced (0.0f, 3.0f);
+        const auto plot = inner.withTrimmedTop (7.0f).reduced (0.0f, 3.0f);
 
         const auto inUse = isExtraActive (extra);
 

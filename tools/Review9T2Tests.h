@@ -94,9 +94,9 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
             auto unisonTabs = 0;
             for (int i = 0; i < shared->getNumItems(); ++i)
                 unisonTabs += shared->getItem (i).name == "UNISON" ? 1 : 0;
-            expect (unisonTabs == 0 && shared->getItem (0).name == "SUB + NOISE" && shared->getItem (voiceIndex).groupStart
-                        && voiceIndex == 1,
-                    "the strip's tabs: SUB + NOISE, then the global group (VOICE first), no UNISON tab (S10-3, S10-4)");
+            expect (unisonTabs == 0 && shared->getItem (0).name == "VOICE" && shared->getItem (1).name == "SUB + NOISE"
+                        && voiceIndex == 0 && shared->getItem (voiceIndex).state == "POLY",
+                    "the strip's tabs: VOICE first (naming its mode), then SUB + NOISE, no UNISON tab (S10-3, S10-4, review 11 S11-1)");
         }
 
         if (shared != nullptr && voiceIndex >= 0 && shared->onSelect != nullptr)

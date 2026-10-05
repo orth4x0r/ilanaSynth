@@ -116,6 +116,12 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+   #if JUCE_LINUX || JUCE_BSD
+    // Keeps the VST3 host's run loop alive; see HostRunLoopKeepAlive in
+    // PluginProcessor.cpp.
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &hostRunLoopKeepAlive; }
+   #endif
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
@@ -1077,6 +1083,14 @@ private:
     };
     std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 }, dataEpoch { 0 }, sampleEpoch { 0 };
     ParamEpoch paramEpochListener { paramEpoch };
+
+   #if JUCE_LINUX || JUCE_BSD
+    struct HostRunLoopKeepAlive final : juce::VST3ClientExtensions
+    {
+        void setIHostApplication (Steinberg::FUnknown* host) override;
+    };
+    HostRunLoopKeepAlive hostRunLoopKeepAlive;
+   #endif
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;

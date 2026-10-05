@@ -24,6 +24,39 @@ public:
 };
 } // namespace
 
+#if JUCE_LINUX || JUCE_BSD
+JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wzero-as-null-pointer-constant", "-Wshadow", "-Wextra-semi",
+                                     "-Wnon-virtual-dtor", "-Wsign-conversion")
+ #include <pluginterfaces/base/funknown.h>
+JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+
+// A host built with JUCE (pluginval, AudioPluginHost, Waveform...) gives
+// every plugin instance a host context, and all of them share one run loop
+// (RunLoop::Impl, a SharedResourcePointer) that holds the FDs our JUCE
+// registers through IRunLoop. When the last instance is deleted, the
+// context release frees that run loop from inside LinuxEventLoop's
+// dispatchPendingEvents(), which has already copied the callbacks of every
+// FD that was ready in that poll. If one of ours was ready (a timer
+// message, which APVTS posts several times a second), the copied callback
+// then runs on the freed run loop and writes into its freed map:
+// valgrind shows it on the first "Open plugin (cold)" teardown, and the
+// corrupted heap made pluginval segfault after printing SUCCESS now and
+// then. The plugin can't reach into the host's loop, so it keeps the first
+// host context it is given for the rest of the process (one reference,
+// never released: releasing it later would only move the same free into
+// another dispatch pass, and releasing at exit would call into a host
+// that is shutting down). Linux only: the shared run loop is the Linux
+// IRunLoop.
+void IlanaSynthAudioProcessor::HostRunLoopKeepAlive::setIHostApplication (Steinberg::FUnknown* host)
+{
+    static std::atomic<Steinberg::FUnknown*> kept { nullptr };
+    Steinberg::FUnknown* none = nullptr;
+
+    if (host != nullptr && kept.compare_exchange_strong (none, host))
+        host->addRef();
+}
+#endif
+
 // Built once per process, on all cores (the 120 tables take a few
 // seconds on one).
 FactoryTables::FactoryTables()

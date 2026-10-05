@@ -2666,21 +2666,21 @@ int runUiTests()
             settle (200);
         }
 
-        // OSC: picking a warp opens the PD chain row.
+        // OSC: the PD chain row is always there (V14-6); its amounts dim while their stage is Off.
         pages->showPage ("OSC");
         settle (300);
         set ("osc1_mode", 0.0f);
         set ("osc1_warp", 0.0f);
         set ("osc1_warp2", 0.0f);
         settle (300);
-        const auto hiddenBefore = ! visibleKnob ("osc1_warp2_amt");
+        const auto drawnBefore = visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt");
         set ("osc1_warp", (float) Warp::PdSaw);
         settle (300);
         set ("osc1_warp2", 1.0f);
         set ("osc1_pd_env", 1.0f);
         settle (300);
-        expect (hiddenBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
-                "a warp on OSC 1 opens its PD chain row (second stage and warp envelope)");
+        expect (drawnBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
+                "OSC 1 always shows its PD chain row (second stage and warp envelope)");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
         // the PHYSICAL page, the one string editor: I9-3).

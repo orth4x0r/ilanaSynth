@@ -92,6 +92,10 @@ public:
             addAndMakeVisible (field);
         }
 
+        // Characters a file name can't hold are dropped as they are typed, with
+        // a quiet hint (review 10, S10-15).
+        nameFilter.onRemoved = [this] (const juce::String& removed) { showRemoved (removed); };
+        nameField.setInputFilter (&nameFilter, false);
         nameField.onTextChange = [this] { updateNote(); };
         tagsField.setTextToShowWhenEmpty ("Optional, separated by commas", IlanaTheme::Ui::text3.withAlpha (0.7f));
         tagsField.onTextChange = [this] { repaint(); };
@@ -544,6 +548,45 @@ private:
         repaint();
     }
 
+    // The name field's filter: what the file name can't hold never gets in.
+    struct NameFilter : public juce::TextEditor::InputFilter
+    {
+        juce::String filterNewText (juce::TextEditor&, const juce::String& newInput) override
+        {
+            juce::String removed;
+            PresetFiles::legalName ("a" + newInput + "a", &removed);
+
+            if (removed.isEmpty())
+                return newInput;
+
+            juce::String kept, dropped;
+            for (auto pointer = newInput.getCharPointer(); ! pointer.isEmpty();)
+            {
+                const auto c = pointer.getAndAdvance();
+                (removed.containsChar (c) ? dropped : kept) += juce::String::charToString (c);
+            }
+
+            if (onRemoved != nullptr)
+                onRemoved (dropped);
+            return kept;
+        }
+
+        std::function<void (const juce::String&)> onRemoved;
+    };
+
+    void showRemoved (const juce::String& removed)
+    {
+        if (removed.isEmpty())
+            return;
+
+        juce::String shown;
+        for (auto pointer = removed.getCharPointer(); ! pointer.isEmpty();)
+            shown << juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9c")) << juce::String::charToString (pointer.getAndAdvance())
+                  << juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x9d")) << " ";
+        removedHint = shown.trim() + " can't be used in a name.";
+        setNote (removedHint, false);
+    }
+
     // Says which characters the name will lose, as it is typed.
     void updateNote()
     {
@@ -552,7 +595,8 @@ private:
 
         if (removed.isEmpty())
         {
-            setNote ({}, false);
+            setNote (removedHint, false);
+            removedHint = {};
             return;
         }
 
@@ -574,6 +618,8 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::PropertiesFile* settings = nullptr;
     juce::TextEditor nameField, tagsField, authorField, commentField;
+    NameFilter nameFilter;
+    juce::String removedHint;
     juce::StringArray suggestions;
     juce::Rectangle<int> noteArea, chipArea, authorLabel, hoveredChip;
     juce::ComboBox categoryBox;

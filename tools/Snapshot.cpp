@@ -341,7 +341,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto loaded = processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
         settle (400);
         auto* wave = oscWave (0);
-        expect (buttonNamed ("LOAD") != nullptr, "OSC: Sample mode has a LOAD button");
+        expect (buttonNamed ("LOAD...") != nullptr, "OSC: Sample mode has a LOAD... button (I10-11)");
         expect (loaded && wave != nullptr && wave->getZoneCount() == 2, "OSC: an SFZ's two zones show under the sample ("
                                                                             + juce::String (wave != nullptr ? wave->getZoneCount() : -1) + ")");
         folder.deleteRecursively();
@@ -990,7 +990,7 @@ int runUiTests()
         juce::TextButton* compare = nullptr;
         for (auto* b : buttons)
         {
-            keys = b->getButtonText() == "KEYS" ? b : keys;
+            keys = b->getButtonText() == "KEYBOARD" ? b : keys;
             compare = dynamic_cast<ABButton*> (b) != nullptr ? b : compare;
         }
 
@@ -2676,7 +2676,7 @@ int runUiTests()
             findAll<juce::TextButton> (*editor, buttons);
             juce::TextButton* editButton = nullptr;
             for (auto* button : buttons)
-                if (button->getButtonText() == "EDIT" && visibleInTree (button) && editButton == nullptr)
+                if (button->getButtonText().startsWith ("EDIT TABLE") && visibleInTree (button) && editButton == nullptr)
                     editButton = button;
             expect (editButton != nullptr, "the OSC page has an EDIT button for the wavetable");
             if (editButton != nullptr)
@@ -3955,7 +3955,7 @@ int runUiTests()
         // too now, with links to the rest.)
         expect (pageButtons.contains (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"))
                     && pageButtons.contains (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba")) && bodySwitch,
-                "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (ACOUSTIC KEYS)");
+                "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (SOUNDBOARD)");
 
         // UI review 9, I9-3: the string has one editor. The OSC card keeps
         // the moving string, the exciter, DECAY and DAMP, and EDIT STRING ›

@@ -498,6 +498,9 @@ private:
             // replaces KEY SCALE.
             controls.keyLevel.setVisible (selected && ! opEnv);
             controls.egOut.setVisible (selected && opEnv);
+            // One level on an operator (review 10, I10-1): OUTPUT. The
+            // oscillator's own level (VOICE LEVEL) is on the OSC page.
+            controls.level.setVisible (selected && ! opEnv);
         }
 
         envelope.setVisible (opEnv);
@@ -588,7 +591,6 @@ private:
         if (opEnv)
         {
             bottom.push_back (&controls.egOut);
-            bottom.push_back (&controls.level);
         }
         else
         {

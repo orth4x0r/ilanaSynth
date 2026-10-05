@@ -198,7 +198,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 const auto& item = tabs->getItem (i);
                 if (item.name == "VOICE")
                     voiceDot = item.dot;
-                if (item.name == "ACOUSTIC KEYS")
+                if (item.name == "SOUNDBOARD")
                     keysDot = item.dot;
                 if (item.name == "SUB + NOISE")
                     subDotFollowsSwitch = item.dot && ! item.lit;
@@ -206,7 +206,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     offWord = item.state.containsIgnoreCase ("off");
             }
         expect (! voiceDot && ! keysDot && subDotFollowsSwitch && ! offWord,
-                "OSC's tabs: no dot on VOICE or ACOUSTIC KEYS, SUB + NOISE's dot follows its switch, no OFF in an off oscillator's tab");
+                "OSC's tabs: no dot on VOICE or SOUNDBOARD, SUB + NOISE's dot follows its switch, no OFF in an off oscillator's tab");
         setParam ("osc2_on", 1.0f);
         loadNamed ("Neuro Wobble");
     }

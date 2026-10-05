@@ -205,7 +205,7 @@ private:
     ABButton abButton;
     IconButton diceButton { "dice", IlanaIcons::Icon::Dice, "Randomise\nRoll a new patch, or randomise one part of it." };
     IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nVoice mode, voices and pitch-bend range, skin, interface size, keyboard and the welcome tour." };
-    juce::TextButton keysButton { "KEYS" };
+    juce::TextButton keysButton { "KEYBOARD" };
     juce::TextButton helpButton { "?" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;

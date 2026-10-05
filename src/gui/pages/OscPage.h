@@ -329,7 +329,7 @@ class OscPage : public juce::Component,
               ratio (state, prefix + "_ratio", "RATIO"),
               fixedHz (state, prefix + "_fixed_hz", "FIXED"),
               egOut (state, prefix + "_eg_out", "OUTPUT"), // one level name (UI review 9, I9-7)
-              trim (state, prefix + "_level", "LEVEL"),
+              trim (state, prefix + "_level", "VOICE LEVEL"),
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
               feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
 
@@ -391,8 +391,9 @@ public:
                 prefix + "_mode", i, oscColour (i), false);
             // There is room here for every frame at once (UI review 5, V6).
             waveDisplays[(size_t) i]->setViewMode (1);
-            loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD .WAV");
+            loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD...");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
+            styleJumpLink (*editButtons[(size_t) i], "TABLE");
             // RESAMPLE: one name for the resampler, apart from the Bounce
             // LFO shapes (UI review 7, I7-25).
             bounceButtons[(size_t) i] = std::make_unique<juce::TextButton> ("RESAMPLE");
@@ -513,7 +514,7 @@ public:
         stringButton.onClick = [this] { showPhysicalString (*this, selected); };
         addChildComponent (stringButton);
 
-        sampleLoadButton.setButtonText ("LOAD");
+        sampleLoadButton.setButtonText ("LOAD...");
         sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample");
         sampleLoadButton.onClick = [this] { waveDisplay (selected).showSampleMenu (sampleLoadButton); };
         styleHeaderButton (sampleLoadButton);
@@ -752,8 +753,8 @@ public:
 
     int getSelectedOscillator() const { return selected; }
 
-    // The shared section below the card: SUB + NOISE, VOICE, SYMPATHETIC
-    // STRINGS or ACOUSTIC KEYS.
+    // The shared section below the card: SUB + NOISE, VOICE, SPREAD & DRIFT,
+    // STRINGS (sympathetic) or SOUNDBOARD.
     // The tabs, in their order (the groups: the sub and noise, then the
     // global drawer).
     enum SharedTab { sharedSubNoise = 0, sharedVoice, sharedSpread, sharedSympathetic, sharedKeys };
@@ -921,10 +922,10 @@ private:
                                  "The sub oscillator and the noise, under every oscillator" },
                                { "VOICE", {}, IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide.  The header's VOICES opens this.", false, true },
                                { "SPREAD & DRIFT", {}, IlanaTheme::Ui::text2, true, "How far the voices spread across the stereo field, how their phases start and how far they drift.  The unison itself is on the oscillator's card.", false },
-                               { "SYMPATHETIC STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
-                                 "Shared drone strings that ring with everything you play" },
-                               { "ACOUSTIC KEYS", {}, IlanaTheme::Ui::text2, true,
-                                 "Soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
+                               { "STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
+                                 "Sympathetic strings: shared drone strings that ring with everything you play" },
+                               { "SOUNDBOARD", {}, IlanaTheme::Ui::text2, true,
+                                 "The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } });
         sharedTabs.setSelected (sharedSelected);
     }
 
@@ -950,11 +951,14 @@ private:
                 pitch.push_back (&osc.ratio);
             if (tuning == OscTuning::Fixed)
                 pitch.push_back (&osc.fixedHz);
-            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.trim, &osc.pan, &osc.ampEnv });
-            rows.push_back ({ "PITCH & LEVEL", pitch });
+            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.pan, &osc.ampEnv });
+            rows.push_back ({ "PITCH & OUTPUT", pitch });
             std::vector<juce::Component*> wave { &osc.table, &osc.feedback, &osc.feedbackType };
             if (readFloat (prefix + "_unison") > 1.5f)
                 wave.push_back (&osc.unison);
+            // The oscillator's level into the voice, after OUTPUT: the one
+            // level an operator shows is OUTPUT (review 10, I10-1).
+            wave.push_back (&osc.trim);
             rows.push_back ({ "WAVE", wave });
             return rows;
         }
@@ -1398,7 +1402,7 @@ private:
             osc.table.setLabelText (opEnv ? "WAVE" : "TABLE");
         }
         editButtons[(size_t) index]->setVisible (mode == 0 && ! opEnv);
-        // LOAD loads what the mode plays: a wavetable (LOAD .WAV), or a
+        // LOAD loads what the mode plays: a wavetable (LOAD...), or a
         // sample or SF2 / SFZ multisample (LOAD, UI review 4, V30; review
         // 7, I7-24).
         loadButton (index).setVisible (mode == 0 && ! opEnv);

@@ -75,7 +75,8 @@ public:
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
-            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT"), knob ("_level", "LEVEL") }; // one level name (I9-7)
+            // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
+            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table);
             oscColumn.addChildComponent (*strip->excite);

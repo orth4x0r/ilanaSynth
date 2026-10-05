@@ -126,20 +126,14 @@ public:
         {
             const auto open = openBounds();
             const auto hovered = isMouseOver() && open.contains (mouse);
-            g.setColour (juce::Colours::white.withAlpha (hovered ? 0.9f : 0.45f));
-
-            // Two-arrow "expand" glyph.
-            const auto box = open.withSizeKeepingCentre (11.0f, 11.0f);
-            juce::Path glyph;
-            glyph.startNewSubPath (box.getX() + 4.0f, box.getY());
-            glyph.lineTo (box.getRight(), box.getY());
-            glyph.lineTo (box.getRight(), box.getY() + 7.0f);
-            glyph.startNewSubPath (box.getRight(), box.getY());
-            glyph.lineTo (box.getX() + 3.0f, box.getBottom() - 3.0f);
-            glyph.startNewSubPath (box.getX(), box.getY() + 4.0f);
-            glyph.lineTo (box.getX(), box.getBottom());
-            glyph.lineTo (box.getX() + 7.0f, box.getBottom());
-            g.strokePath (glyph, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            // The one "go to its full editor" idiom, "EDIT ›" (review 10,
+            // I10-2): the same words as the header links, not a glyph.
+            const auto box = open.reduced (2.0f, 2.0f);
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, hovered ? 0.08f : 0.0f));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.setColour (hovered ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), box, juce::Justification::centred);
         }
     }
 
@@ -175,7 +169,7 @@ public:
             else if (pillBounds (i).contains (event.position))
                 tip = "Show " + names[i] + "'s settings (the switch in the tab turns it on or off)";
 
-        setTooltip (hasOpen && openBounds().contains (event.position) ? juce::String ("Open the full page for this section") : tip);
+        setTooltip (hasOpen && openBounds().contains (event.position) ? juce::String ("Edit\nOpen the full page for this section") : tip);
         repaint(); // the switch under the pointer
     }
 
@@ -189,7 +183,7 @@ public:
 
 private:
     static constexpr int gap = 4;
-    static constexpr int openWidth = 24;
+    static constexpr int openWidth = 58;
 
     static constexpr int idealPadding = 16;
 

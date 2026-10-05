@@ -1570,7 +1570,7 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
     auto row = bar.reduced (4, 5);
     helpButton.setBounds (row.removeFromRight (28));
     row.removeFromRight (4);
-    keysButton.setBounds (row.removeFromRight (56));
+    keysButton.setBounds (row.removeFromRight (84));
     row.removeFromRight (4);
     scopeButton.setBounds (row.removeFromRight (70));
     row.removeFromRight (10);

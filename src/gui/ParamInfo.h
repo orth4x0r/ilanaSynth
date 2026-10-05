@@ -470,7 +470,7 @@ inline juce::String describeParameter (const juce::String& id)
     }
     if (isOscParameter (id, "_eg_out"))
         return "The operator's level on the Operator Env (the DX7's OUTPUT LEVEL, 0-99): how loud a carrier is, how deep "
-               "a modulator modulates, in dB below 99. The oscillator's LEVEL scales it on top (50 % plays it as set).";
+               "a modulator modulates, in dB below 99. The oscillator's VOICE LEVEL (OSC page) scales it on top (50 % plays it as set).";
     if (isOscParameter (id, "_eg_break"))
         return "Keyboard scaling's centre key (the DX7's BREAK POINT): LOW and HIGH DEPTH change the level below and above it.";
     if (isOscParameter (id, "_eg_ldepth"))

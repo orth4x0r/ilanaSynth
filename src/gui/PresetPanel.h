@@ -82,7 +82,7 @@ public:
         folderButton.onClick = [this] { processorRef.getUserPresetDirectory().revealToUser(); };
         folderButton.setTooltip ("Open your user preset folder");
         surpriseButton.onClick = [this] { loadRandom(); };
-        surpriseButton.setTooltip ("Load a random preset from the list shown");
+        surpriseButton.setTooltip ("Random preset\nLoads a random preset from the list shown.");
         importButton.onClick = [this]
         {
             if (onImportSyx != nullptr)
@@ -93,7 +93,7 @@ public:
         for (auto* button : { &surpriseButton, &saveAsButton, &deleteButton, &folderButton, &importButton })
             addAndMakeVisible (button);
 
-        // SAVE AS is the main action; SURPRISE ME is an ordinary button.
+        // SAVE AS is the main action; RANDOM PRESET is an ordinary button.
         saveAsButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent().withAlpha (0.35f));
         updateDeleteButton();
 
@@ -2229,7 +2229,7 @@ private:
     Sidebar sidebar;
     juce::ListBox list { "presets", this };
     juce::Rectangle<int> listFrame, detailsArea;
-    juce::TextButton surpriseButton { "SURPRISE ME" };
+    juce::TextButton surpriseButton { "RANDOM PRESET" };
     juce::TextButton saveAsButton { "SAVE AS" };
     juce::TextButton deleteButton { "DELETE" };
     juce::TextButton folderButton { "FOLDER" };

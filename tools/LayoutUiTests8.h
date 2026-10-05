@@ -321,9 +321,9 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
 
         // The toolbar in one group at the left.
         auto* copy = buttonNamed ("COPY TO 2");
-        auto* file = buttonNamed ("SAVE / LOAD");
+        auto* file = buttonNamed ("SAVE / LOAD CHAIN");
         expect (copy != nullptr && file != nullptr && area (file).getX() - area (copy).getRight() < 200,
-                "FX: the dice and SAVE / LOAD sit with the chain buttons (S8-40)");
+                "FX: the dice and SAVE / LOAD CHAIN sit with the chain buttons (S8-40)");
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });

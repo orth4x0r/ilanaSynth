@@ -552,7 +552,7 @@ public:
                 editor->showPage ("FILTER");
         };
         styleJumpLink (boardLink, "SOUNDBOARD");
-        boardLink.setTooltip ("All of the soundboard's controls are on OSC, under ACOUSTIC KEYS");
+        boardLink.setTooltip ("All of the soundboard's controls are on OSC, under SOUNDBOARD");
         boardLink.onClick = [this] { showAcousticKeys(); };
         for (auto* button : { &bodyLink, &boardLink })
             addAndMakeVisible (*button);

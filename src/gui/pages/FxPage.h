@@ -266,7 +266,7 @@ public:
                         ownMix[type] = true;
                 }
 
-        diceButton.setTooltip ("Randomise the FX chain: new effects (each once) in every slot of this chain. Undo brings the old chain back.");
+        diceButton.setTooltip ("Randomise FX\nRandomises the FX chain: new effects (each once) in every slot of this chain. Undo brings the old chain back.");
         diceButton.onClick = [this]
         {
             processorRef.getUndoManager().beginNewTransaction ("Dice FX chain");
@@ -526,7 +526,7 @@ public:
             left.removeFromLeft (16);
             diceButton.setBounds (left.removeFromLeft (64).reduced (0, 3));
             left.removeFromLeft (6);
-            fileButton.setBounds (left.removeFromLeft (104).reduced (0, 3));
+            fileButton.setBounds (left.removeFromLeft (150).reduced (0, 3));
         }
 
         area.removeFromTop (8);
@@ -1897,7 +1897,7 @@ private:
     // The toolbar: CHAIN 1 / 2, named apart from the header's A / B
     // compare; the dice as the header's, for the chain (V7-43).
     DiceFxButton diceButton;
-    juce::TextButton fileButton { "SAVE / LOAD" };
+    juce::TextButton fileButton { "SAVE / LOAD CHAIN" };
     juce::TextButton loadIrButton { "LOAD IR" };
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };

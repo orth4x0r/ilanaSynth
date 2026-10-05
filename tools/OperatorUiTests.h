@@ -266,13 +266,15 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         auto* semi = knobFor ("osc1_semi");
         auto* fine = knobFor ("osc1_fine");
         auto* level = knobFor ("osc1_eg_out", "OUTPUT");
-        auto* trim = knobFor ("osc1_level", "LEVEL");
+        // One level in the row (OUTPUT); the oscillator's own is VOICE LEVEL, in
+        // the next row (review 10, I10-1).
+        auto* trim = knobFor ("osc1_level", "VOICE LEVEL");
         const auto ordered = semi != nullptr && fine != nullptr && level != nullptr && trim != nullptr
                              && area (semi).getCentreX() < area (fine).getCentreX() && area (fine).getCentreX() < area (level).getCentreX()
-                             && area (level).getCentreX() < area (trim).getCentreX();
+                             && area (trim).getY() > area (level).getY() && knobFor ("osc1_level", "LEVEL") == nullptr;
         expect (graph != nullptr && graph->isReadOnly() && ordered,
-                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT, LEVEL as on FM (S8-4, V8-5, I9-7)");
-        expect (shownButtons ("RESAMPLE").empty() && shownButtons ("EDIT").empty() && shownButtons ("LOAD .WAV").empty()
+                "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT as on FM, VOICE LEVEL apart (S8-4, V8-5, I10-1)");
+        expect (shownButtons ("RESAMPLE").empty() && shownButtons (juce::String ("EDIT TABLE ") + juce::String::fromUTF8 ("\xe2\x80\xba")).empty() && shownButtons ("LOAD...").empty()
                     && shownButtons ("3D").empty() && shownButtons ("SPEC").empty() && knobFor ("osc1_unison") == nullptr,
                 "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV, 3D / SPEC or UNISON 1 (I8-15, S8-9, V8-16)");
         juce::String role;

@@ -732,6 +732,12 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             IlanaTheme::drawFitted (g, name, area, juce::Justification::topLeft, 1);
         }
+        if (! sharedNoteArea.isEmpty() && sharedNote.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, sharedNote, sharedNoteArea, juce::Justification::topLeft, 5);
+        }
         for (const auto& divider : sharedDividers)
         {
             g.setColour (juce::Colours::white.withAlpha (0.07f));
@@ -876,6 +882,8 @@ private:
     juce::Rectangle<int> oscCard, sharedCard, controlBay, subtitleArea;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels, sharedLabels;
     std::vector<juce::Rectangle<int>> sharedDividers;
+    juce::Rectangle<int> sharedNoteArea;
+    juce::String sharedNote;
 
     bool readBool (const juce::String& id) const
     {
@@ -1154,7 +1162,7 @@ private:
         for (const auto& row : rows)
             units += rowUnits (row);
         const auto unitHeight = juce::jmin (maxRowHeight, content.getHeight() / juce::jmax (1, units));
-        controlBay = content.withHeight (juce::jmin (content.getHeight(), unitHeight * units + 6)).expanded (4, 0);
+        controlBay = content.withHeight (juce::jmin (content.getHeight(), unitHeight * units - 4)).expanded (4, 0);
 
         // The grid is as many columns as the widest row, six at least.
         size_t gridColumns = 6;
@@ -1185,6 +1193,8 @@ private:
         // (review 11, S11-4, I11-6); folded, the sub's is beside its hint.
         sharedLabels.clear();
         sharedDividers.clear();
+        sharedNoteArea = {};
+        sharedNote = {};
         auto row = sharedCard.withTrimmedTop (sharedHeaderHeight).reduced (8, 0).withTrimmedBottom (4);
 
         if (shownSharedFolded)
@@ -1222,6 +1232,28 @@ private:
                 sharedLabels.push_back ({ area->removeFromLeft (rowLabelWidth - 24).reduced (8, 0).withTrimmedTop (3).withHeight (18), name });
                 layoutSlots (*area, *group);
             }
+            return;
+        }
+
+        // VOICE and SPREAD & DRIFT hold few controls: they stand at the left in
+        // cells of one size and a line of words fills the rest of the card, so
+        // the drawer has no bare right half (V12-3).
+        if (sharedSelected == sharedVoice || sharedSelected == sharedSpread)
+        {
+            auto items = sharedItems (sharedSelected);
+            while (! items.empty() && items.back() == nullptr)
+                items.pop_back();
+            auto weight = 0.0f;
+            for (auto* item : items)
+                weight += slotWeight (item);
+            const auto width = juce::jmin (row.getWidth() * 3 / 4, juce::roundToInt (weight * 128.0f));
+            layoutSlots (row.removeFromLeft (width), items);
+            sharedNoteArea = row.withTrimmedLeft (18).withTrimmedRight (6).withTrimmedTop (6);
+            sharedNote = sharedSelected == sharedVoice
+                             ? "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. VOICES caps how many play at once; "
+                               "GLIDE slides the pitch from the last note."
+                             : "SPREAD pans the unison voices across the stereo field. UNI PHASE sets where each voice's cycle starts. "
+                               "ANALOG DRIFT lets every voice wander a little in pitch, as an old synth would.";
             return;
         }
 

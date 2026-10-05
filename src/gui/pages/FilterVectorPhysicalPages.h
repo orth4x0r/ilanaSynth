@@ -419,8 +419,9 @@ public:
         // foot under the controls).
         // (The pad is not kept square: the page's spare width is the pad's,
         // not the boxes': V10-14.)
-        const auto controlsWidth = 330;
-        const auto padWidth = juce::jmax (200, inner.getWidth() - controlsWidth - 12);
+        // (The pad is a square: it takes the card's height and the controls
+        // the rest of the width, so no bare strip stands beside it, V12-3.)
+        const auto padWidth = juce::jlimit (200, juce::jmax (200, inner.getWidth() - 330 - 12), inner.getHeight());
         pad.setBounds (inner.removeFromLeft (padWidth));
         inner.removeFromLeft (12);
         // The vector's on switch in its header, like every card's.
@@ -429,7 +430,8 @@ public:
         // (12 px of padding, controls in a left-aligned row of fixed cells):
         // CORNERS (the four menus, two by two), POSITION (X, Y) and MOTION
         // (PATH and its rate, WANDER and its rate).
-        constexpr int gap = 8, padding = 12, cellWidth = 92;
+        constexpr int gap = 8, padding = 12;
+        const auto cellWidth = juce::jlimit (92, 130, (inner.getWidth() - 2 * padding) / 4);
         const auto spare = juce::jmax (0, inner.getHeight() - 2 * gap - (boxHeaderHeight + 2 * 44 + 8) - 2 * (boxHeaderHeight + 82));
         const auto extra = juce::jmin (24, spare / 3);
         cornersBox = inner.removeFromTop (boxHeaderHeight + 2 * 44 + 8 + extra);

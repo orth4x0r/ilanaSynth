@@ -642,17 +642,8 @@ private:
         // The FM style across the top, a note on what sets the depth beside
         // it; OSC 1 and OSC 2's ring mod and sync in a row under the matrix
         // (V6-14).
-        // What the card holds is centred in it, so a small patch's matrix has no
-        // bare band at its foot (V11-3).
-        {
-            const auto n = juce::jmax (1, (int) shown.size());
-            const auto r = n + (extras ? 1 : 0);
-            const auto bottom = extras ? 62 + 6 : 28;
-            const auto cell = juce::jmin (n <= 3 ? 72 : 66, (inner.getHeight() - 44 - 6 - 22 - bottom - 8) / r);
-            const auto spare = inner.getHeight() - (44 + 6 + 22 + cell * r + bottom + 12);
-            if (spare > 8)
-                inner.removeFromTop (juce::jmin (spare / 2, 60));
-        }
+        // (The block starts right under the header: a small patch's cells are
+        // sized up to fill the card instead, V12-6.)
         auto top = inner.removeFromTop (44);
         mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 2)).reduced (3, 2));
         topNote = top.withTrimmedLeft (12).withTrimmedTop (13);
@@ -688,8 +679,8 @@ private:
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (small ? 72 : 66, (inner.getHeight() - 22 - bottomHeight - 8) / rows);
-        const auto columnWidth = juce::jmin (small ? 84 : 76, (inner.getWidth() - headWidth) / count);
+        const auto rowHeight = juce::jmin (small ? 110 : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
+        const auto columnWidth = juce::jmin (small ? 110 : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
@@ -794,6 +785,12 @@ private:
                                                                            moreButton.getButtonText()) + 34;
             moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, juce::jmin (inner.getBottom() - 22, gridBottom), juce::jmin (inner.getWidth() - 8, width), 22));
         }
+
+        // A line under the controls says what the matrix holds in words.
+        const auto readoutTop = (extras ? pairRow.getBottom() : moreButton.getBottom()) + 8;
+        readoutArea = matrixCard.getBottom() - 8 - readoutTop >= readoutHeight - 4
+                          ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, readoutHeight)
+                          : juce::Rectangle<int>();
     }
 
     void paintMatrix (juce::Graphics& g)
@@ -806,6 +803,31 @@ private:
                                                                              "\xc3\x97 this cell. Hover a dot to add a route."))
                                            : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
                           topNote, juce::Justification::topLeft, 3);
+
+        if (! readoutArea.isEmpty())
+        {
+            juce::StringArray routes;
+            auto strongest = 0.0f;
+            juce::String best;
+            for (const auto source : shown)
+                for (const auto target : shown)
+                    if (source != target && isLiveCell (source, target) && cellAmount (source, target) > 0.001f)
+                    {
+                        const auto text = "OSC " + juce::String (source + 1) + " modulates OSC " + juce::String (target + 1) + " at "
+                                          + juce::String (juce::roundToInt (cellAmount (source, target) * 100.0f)) + " %";
+                        routes.add (text);
+                        if (cellAmount (source, target) > strongest)
+                        {
+                            strongest = cellAmount (source, target);
+                            best = text;
+                        }
+                    }
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, routes.isEmpty() ? juce::String ("No FM routes yet: hover a cell and click its dot.")
+                                                         : best + (routes.size() > 1 ? ", and " + juce::String (routes.size() - 1) + " more." : "."),
+                                    readoutArea, juce::Justification::centredLeft, 1);
+        }
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
         // an empty one is a dot until the mouse is over it.
@@ -955,6 +977,7 @@ private:
     }
 
     int matrixGridBottom = 0;
+    static constexpr int readoutHeight = 24;
     static constexpr int headWidth = 76;
     static constexpr int operatorCardHeight = 240;
     // Matrix cells: one size for every patch, about the size six
@@ -986,7 +1009,7 @@ private:
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, pairRow, pairText, ampHint;
+    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, pairRow, pairText, ampHint, readoutArea;
     std::vector<std::atomic<float>*> tuneValues;
     std::array<int, OscillatorIds::count * 3> lastTune {};
     std::vector<int> shown;

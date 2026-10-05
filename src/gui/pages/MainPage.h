@@ -220,7 +220,7 @@ public:
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
 
         styleJumpLink (opEgButton, "OP ENV");
-        opEgButton.setTooltip ("Open the Operator Env's editor");
+        opEgButton.setTooltip ("Open the Operator Env's editor. Each operator plays its own copy; it shapes their levels, and AMP ENV is unused.");
         opEgButton.onClick = [this]
         {
             if (onEditOperator != nullptr)
@@ -288,6 +288,8 @@ public:
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
+        for (const auto* id : { "subosc_on", "noise_level" })
+            processorRef.apvts.addParameterListener (id, this);
 
         startTimerHz (8);
     }
@@ -297,6 +299,8 @@ public:
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
+        for (const auto* id : { "subosc_on", "noise_level" })
+            processorRef.apvts.removeParameterListener (id, this);
     }
 
     std::function<void (int)> onEditLfo, onEditEnvelope, onEditOperator, onEditOscillator;
@@ -422,15 +426,40 @@ public:
         paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
         paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
 
-        // OP ENV: what plays it, beside its picture.
+        // OP ENV: what plays it, beside its picture: each operator's OUTPUT as
+        // a bar (V12-13; the sentence on what the Operator Env does is in
+        // the tooltip of EDIT OP ENV).
         if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
         {
-            const auto count = (int) OperatorPool::operatorsOnEnv (processorRef).size();
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, juce::String (count) + (count == 1 ? " oscillator plays" : " oscillators play")
-                                  + " the Operator Env, each operator its own. It shapes their levels; AMP ENV is unused.",
-                              opEnvNoteArea, juce::Justification::topLeft, 4);
+            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+            const auto count = (int) operators.size();
+            auto area = opEnvNoteArea;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV"),
+                        area.removeFromTop (14), juce::Justification::centredLeft);
+            area.removeFromTop (4);
+            const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
+            for (int i = 0; i < count && rowHeight >= 10; ++i)
+            {
+                const auto osc = operators[(size_t) i];
+                const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
+                if (parameter == nullptr)
+                    continue;
+                auto row = area.removeFromTop (rowHeight);
+                g.setColour (OscPage::oscColour (osc));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.drawText ("OSC " + juce::String (osc + 1), row.removeFromLeft (46), juce::Justification::centredLeft);
+                const auto value = row.removeFromRight (62);
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText (parameter->getCurrentValueAsText(), value, juce::Justification::centredRight);
+                const auto bar = row.withSizeKeepingCentre (row.getWidth() - 6, 6).toFloat();
+                g.setColour (juce::Colours::white.withAlpha (0.07f));
+                g.fillRoundedRectangle (bar, 3.0f);
+                g.setColour (OscPage::oscColour (osc).withAlpha (0.85f));
+                g.fillRoundedRectangle (bar.withWidth (juce::jmax (3.0f, bar.getWidth() * parameter->getValue())), 3.0f);
+            }
         }
 
         if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
@@ -480,7 +509,8 @@ public:
                 folded += isFolded (osc) ? 1 : 0;
             }
         const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
-        const auto flexible = shown - folded + 1; // the open strips and SUB + NOISE
+        folded += subFolded ? 1 : 0;
+        const auto flexible = shown + 1 - folded; // the open strips and SUB + NOISE
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
         // The strips fill the column first, up to a cap (ilana, 2026-10-05: the
         // pictures and knobs get the room); the PATCH tile (and the OUTPUT
@@ -510,7 +540,7 @@ public:
                 addCard (isFolded (osc) ? foldedHeight : slotHeight);
         if (addRow > 0)
             addCard (addRowHeight);
-        addCard (slotHeight);
+        addCard (subFolded ? foldedHeight : slotHeight);
         const auto scrolls = columnHeight > left.getHeight();
         // A scrolling column ends its view at a strip's foot, so no strip
         // shows cut in half (V13, S8).
@@ -560,7 +590,7 @@ public:
             addOscButton.setVisible (true);
         }
 
-        subCard = column.removeFromTop (slotHeight);
+        subCard = column.removeFromTop (subFolded ? foldedHeight : slotHeight);
         layoutSubCard();
 
         // Height the strips don't take goes to a live PATCH tile (the signal
@@ -816,6 +846,16 @@ private:
             }
         }
 
+        // SUB + NOISE folds like a switched-off oscillator while the sub is off
+        // and there is no noise (as on OSC; V12-7).
+        const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
+        const auto subFold = readInt ("subosc_on") == 0 && (noise == nullptr || noise->load() < 0.0005f);
+        if (subFold != subFolded)
+        {
+            subFolded = subFold;
+            changed = true;
+        }
+
         if (changed)
             resized();
     }
@@ -1039,6 +1079,20 @@ private:
         }
 
         effectRules.apply();
+
+        // The OP ENV card's bars follow the operators' OUTPUTs.
+        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
+        {
+            auto sum = 0.0f;
+            for (const auto osc : OperatorPool::operatorsOnEnv (processorRef))
+                if (const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out"))
+                    sum += parameter->getValue() * (float) (osc + 1);
+            if (sum != lastOperatorOutputs)
+            {
+                lastOperatorOutputs = sum;
+                repaint (envCard);
+            }
+        }
 
         // The LFO card's caption and run switch follow its shape (I9-1 / I9-19).
         {
@@ -1270,7 +1324,12 @@ private:
 
     void layoutSubCard()
     {
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) ? subCard.getY() + headerHeight / 2 + 6 : subCard.getCentreY() - 1));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) && ! subFolded ? subCard.getY() + headerHeight / 2 + 6 : subCard.getCentreY() - 1));
+        for (auto* item : { (juce::Component*) subShape.get(), (juce::Component*) subOctave.get(), (juce::Component*) subLevel.get(),
+                            (juce::Component*) noiseLevel.get(), (juce::Component*) noiseColour.get() })
+            item->setVisible (! subFolded);
+        if (subFolded)
+            return;
         const auto columns = stripColumns (subCard);
         auto menus = columns.menus;
 
@@ -1406,7 +1465,22 @@ private:
             paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {}, {}, true);
         }
 
-        if (! subCard.isEmpty())
+        if (! subCard.isEmpty() && subFolded)
+        {
+            // Folded like an off oscillator: the dimmed title, what it would play, the switch.
+            IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour().withAlpha (0.3f));
+            const auto line = subCard.withSizeKeepingCentre (subCard.getWidth(), 16);
+            IlanaTheme::paintTag (g, { (float) subCard.getX() + 15.0f, (float) line.getCentreY() }, subColour().withAlpha (0.4f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            g.drawText ("SUB + NOISE", line.withX (subCard.getX() + 24).withWidth (juce::jmax (titleWidth, 100)), juce::Justification::centredLeft);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            static const char* const shapes[] { "Sine", "Square", "Saw" };
+            const auto columns = stripColumns (subCard);
+            g.drawText (juce::String (shapes[juce::jlimit (0, 2, readInt ("sub_shape"))]) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 sub off, no noise")),
+                        line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()), juce::Justification::centredLeft, true);
+        }
+        else if (! subCard.isEmpty())
         {
             IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
             paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, {}, roomy (subCard));
@@ -1476,6 +1550,8 @@ private:
     OutputView outputView { processorRef };
     static constexpr int patchMinHeight = 90, outputMinHeight = 70, maxPatchOnlyHeight = 120, maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
+    bool subFolded = false;
+    float lastOperatorOutputs = 0.0f;
     std::unique_ptr<ChoicePills> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;

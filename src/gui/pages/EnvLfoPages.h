@@ -1408,7 +1408,7 @@ private:
         static constexpr int rowGap = 8;
         std::array<juce::Rectangle<int>, 3> left;
         juce::Rectangle<int> right;
-        int knobHeight = 0;
+        int knobHeight = 0, oneRowHeight = 0;
         bool twoRows = true;
 
         // Switch `index` of `slots` across the second left row.
@@ -1444,12 +1444,15 @@ private:
                 return;
             }
 
+            // (Knobs for one row only take its taller height, so what the
+            // LFO drives has a band no wider than its text needs: V12-3.)
+            const auto height = knobs.size() <= (size_t) perRow ? oneRowHeight : knobHeight;
             for (size_t row = 0; row < 2 && row * (size_t) perRow < knobs.size(); ++row)
             {
                 std::vector<juce::Component*> items ((size_t) perRow, nullptr);
                 for (size_t k = 0; k < (size_t) perRow && row * (size_t) perRow + k < knobs.size(); ++k)
                     items[k] = knobs[row * (size_t) perRow + k];
-                layoutRow (right.withTrimmedTop ((int) row * (knobHeight + rowGap)).withHeight (knobHeight), items);
+                layoutRow (right.withTrimmedTop ((int) row * (height + rowGap)).withHeight (height), items);
             }
         }
 
@@ -1464,8 +1467,8 @@ private:
                 return {};
             if (secondKnobRowUsed || ! twoRows)
                 return { left[0].getX(), top, left[0].getWidth(), bottom - top };
-            return { left[0].getX(), juce::jmax (top, right.getY() + knobHeight + 4), right.getRight() - left[0].getX(),
-                     bottom - juce::jmax (top, right.getY() + knobHeight + 4) };
+            return { left[0].getX(), juce::jmax (top, right.getY() + oneRowHeight + 4), right.getRight() - left[0].getX(),
+                     bottom - juce::jmax (top, right.getY() + oneRowHeight + 4) };
         }
     };
 
@@ -1480,6 +1483,7 @@ private:
         constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
         grid.knobHeight = (inner.getHeight() - Grid::rowGap) / 2;
         grid.twoRows = grid.knobHeight >= smallestKnob;
+        grid.oneRowHeight = juce::jmax (grid.knobHeight, inner.getHeight() - 52);
         if (! grid.twoRows)
             grid.knobHeight = inner.getHeight();
         return grid;
@@ -1543,8 +1547,10 @@ private:
         }
 
         const auto columns = area.getWidth() >= 360 ? 2 : 1;
-        const auto rows = juce::jmax (1, area.getHeight() / 14);
-        const auto capacity = rows * columns;
+        const auto fitRows = juce::jmax (1, area.getHeight() / 14);
+        // (Routes share the columns evenly, so a short list is not one tall stack.)
+        const auto rows = juce::jmin (fitRows, juce::jmax (1, (routes.size() + columns - 1) / columns));
+        const auto capacity = fitRows * columns;
         const auto columnWidth = area.getWidth() / columns;
         for (int i = 0; i < routes.size() && i < capacity; ++i)
         {

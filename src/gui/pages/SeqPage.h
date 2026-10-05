@@ -437,20 +437,26 @@ public:
         noteChain.setBounds (header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("PATTERN") - 4).withTrimmedRight (12).reduced (0, 3));
 
         arpArea.removeFromBottom (6);
+        // The note engines' controls stand in a column of two beside the lanes
+        // when the card is tall enough for three rows (so the lanes use the
+        // width and no row ends 1,000 px short, V12-5); a short card keeps
+        // them in one row under the lanes. (The clip's roll always has its row.)
+        const auto cellHeight = knobRowHeight;
+        const auto columnMode = arpArea.getHeight() >= 3 * cellHeight + 28;
         const auto controls = arpArea.removeFromBottom (knobRowHeight);
         arpArea.removeFromBottom (6);
-        const auto display = arpArea.reduced (0, 2);
+        const auto rowDisplay = arpArea.reduced (0, 2);
+        auto laneArea = arpCard.reduced (10, 0).withTrimmedTop (26).withTrimmedBottom (6);
+        auto sideColumn = laneArea.removeFromRight (2 * seqCellWidth + 12);
+        laneArea.removeFromRight (10);
+        const auto display = columnMode ? laneArea.reduced (0, 2) : rowDisplay;
         arpLanes.setBounds (display);
         euclidDisplay.setBounds (display);
         pseqEditor.setBounds (display);
 
-        // Every engine's row on one grid of fixed cells, packed from the left
-        // (the switches are in the tabs): the shared controls first, in one
-        // order (RATE, STEPS, GATE), then the engine's own; menus and knobs
-        // on one label line (review 8, I8-23, S8-33, V8-22). A cell is as
-        // wide for a menu as for a knob, and a row with fewer controls ends
-        // sooner instead of spreading over the card (V10-5, S10-9).
-        const auto packed = [&controls] (int count) { return controls.withWidth (juce::jmin (controls.getWidth(), count * seqCellWidth)); };
+        // Every engine's controls on one grid of fixed cells: the shared ones
+        // first, in one order (RATE, STEPS, GATE), then the engine's own;
+        // menus and knobs on one label line (review 8, I8-23, S8-33, V8-22).
         // (A knob sits at its cell's left edge, so its label and a menu's start
         // on the same grid line: V11-5.)
         const auto leftAligned = [] (juce::Rectangle<int> row, const std::vector<juce::Component*>& items)
@@ -460,16 +466,34 @@ public:
                 if (dynamic_cast<KnobControl*> (item) != nullptr)
                     item->setBounds (item->getBounds().withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
         };
-        leftAligned (packed (6), { &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance });
-        leftAligned (packed (6), { &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate });
-        leftAligned (packed (3), { &pseqDiv, &pseqLength, &pseqGate });
+        const auto engineRow = [&] (const std::vector<juce::Component*>& items)
+        {
+            if (columnMode)
+            {
+                auto column = sideColumn;
+                const auto perRow = 2;
+                for (size_t k = 0; k < items.size(); k += (size_t) perRow)
+                {
+                    std::vector<juce::Component*> pair { items[k], k + 1 < items.size() ? items[k + 1] : nullptr };
+                    leftAligned (column.removeFromTop (cellHeight).withTrimmedRight (0), pair);
+                }
+            }
+            else
+            {
+                // One row, the cells sharing the card's width (at least a cell each).
+                leftAligned (controls, items);
+            }
+        };
+        engineRow ({ &arpDiv, &arpSteps, &arpGate, &arpMode, &arpOctaves, &arpChance });
+        engineRow ({ &eucDiv, &eucSteps, &eucGate, &eucTarget, &eucHits, &eucRotate });
+        engineRow ({ &pseqDiv, &pseqLength, &pseqGate });
 
         // The clip's row is menus and buttons only (ten columns): the
         // piano roll takes the height the other engines' knobs need.
         {
             constexpr int menuHeight = 13 + 24;
             const auto clipRow = controls.withTrimmedTop (controls.getHeight() - menuHeight - 6);
-            clipEditor.setBounds (display.withBottom (clipRow.getY() - 6));
+            clipEditor.setBounds (rowDisplay.withBottom (clipRow.getY() - 6));
             layoutRow (clipRow, { &clipIndex, &clipMode, &clipBars, &clipGrid, &clipZoom, nullptr, nullptr, nullptr, nullptr, nullptr });
 
             // The buttons line up with the menus' boxes.

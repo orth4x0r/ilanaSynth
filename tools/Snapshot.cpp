@@ -7187,6 +7187,23 @@ int main (int argc, char** argv)
     if (pages == nullptr)
         return 1;
 
+    // ILANA_SNAPSHOT_PLAY: just PLAY (UI review 12): the patch as loaded, then
+    // with oscillators 4 and 5 added, then all six; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PLAY", "").isNotEmpty())
+    {
+        pages->showPage ("MAIN");
+        settle (500);
+        save (*editor, outDir.getChildFile ("play.png"));
+        processor.addOscillator (3);
+        processor.addOscillator (4);
+        settle (500);
+        save (*editor, outDir.getChildFile ("play-5osc.png"));
+        processor.addOscillator (5);
+        settle (500);
+        save (*editor, outDir.getChildFile ("play-6osc.png"));
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_FM: just the FM page (UI review 6's DX7 pass): the
     // first operator, its KEYS & VELOCITY tab, PITCH & LFO, each other
     // operator, then the patch on DX7 algorithm 1 (the tallest stack); then stop.

@@ -1146,6 +1146,7 @@ private:
 
         auto y = stackTopMargin; // (room for the first card's glow)
         rowsPlaced = 0;
+        lastRowHole = {};
         size_t stripIndex = 0;
         addEffectCard = {};
 
@@ -1193,7 +1194,13 @@ private:
 
         // A quiet tile after the last effect (or beside a lone half card at
         // the end) while the rack has room: the one + ADD EFFECT.
-        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
+        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0 && lastRowHole.getWidth() >= minAddTileWidth
+            && lastRowHole.getBottom() + cardGap == y && splitGroups.empty())
+        {
+            // The hole beside the last card is the tile's place.
+            addEffectCard = lastRowHole;
+        }
+        else if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
         {
             addEffectCard = { 0, y, width, DashedAddButton::standardHeight };
             y += DashedAddButton::standardHeight + cardGap;
@@ -1229,14 +1236,23 @@ private:
                 ++end;
             }
 
+            // A row that ends a little short of the rack's edge shares the
+            // slack between its cards, so the right edge is flush; a short
+            // last row keeps natural widths (V12-4). A real hole is for
+            // the + ADD EFFECT tile.
+            const auto slack = width - used;
+            const auto count = (int) (end - k);
+            const auto justify = slack > 0 && slack <= width / 5 && (end < to || slack < 140);
             auto left = x;
             for (auto i = k; i < end; ++i)
             {
-                const auto w = juce::jmin (width, naturalWidth (cards[i]));
+                const auto share = justify ? slack / count + ((int) (i - k) < slack % count ? 1 : 0) : 0;
+                const auto w = juce::jmin (width, naturalWidth (cards[i])) + share;
                 placeCard (cards[i], { left, y, w, height });
                 left += w + cardGap;
             }
 
+            lastRowHole = (justify || end < to) ? juce::Rectangle<int>() : juce::Rectangle<int> (left, y, x + width - left, height);
             ++rowsPlaced;
             y += height + cardGap;
             k = end;
@@ -1766,7 +1782,8 @@ private:
 
     juce::Viewport stackView;
     FxStackContent stackContent;
-    juce::Rectangle<int> addEffectCard;
+    juce::Rectangle<int> addEffectCard, lastRowHole;
+    static constexpr int minAddTileWidth = 200;
     std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
     std::unique_ptr<FxLibraryView> library;
     // (At most five split groups: each needs a plain card or the end after it.)

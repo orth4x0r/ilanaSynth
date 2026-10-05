@@ -3945,6 +3945,11 @@ int runUiTests()
                     listIds.add (physicalPrefix + spec.suffix);
         expect (! pageIds.isEmpty() && pageIds == listIds, "PHYSICAL shows the physical control list (" + pageIds.joinIntoString (" ") + ")");
 
+        // (BODY and the SOUNDBOARD fold to a line while off, V10-9: switched on, they show their links.)
+        for (const char* id : { "res_on", "sb_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        settle (400);
         juce::StringArray pageButtons;
         {
             std::vector<juce::TextButton*> buttons;

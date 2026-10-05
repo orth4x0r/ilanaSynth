@@ -659,7 +659,7 @@ public:
         // The controls in a band under the view: STRING, then EXCITER on
         // the same line when it fits, each group named over its first
         // control; the body line at the foot.
-        const auto columns = juce::jlimit (8, 14, (area.getWidth() - 24) / 88);
+        const auto columns = juce::jlimit (8, 16, (area.getWidth() - 24) / 76);
         // A menu takes two columns, so its text has room (V10-6: "PianoHammer"
         // was squeezed into one).
         const auto unitsOf = [] (juce::Component* item) { return dynamic_cast<ComboControl*> (item) != nullptr ? 2 : 1; };

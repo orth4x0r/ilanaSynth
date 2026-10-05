@@ -1034,7 +1034,11 @@ private:
                                 },
                                 [this] (int osc)
                                 {
-                                    // Off: the dot says it.
+                                    // Off: the dot says it. One rule on every page (I12-2): the
+                                    // chosen tab is wide with its role, the others a dot and a
+                                    // number; their roles are in their tooltips.
+                                    if (osc != selected)
+                                        return juce::String();
                                     const auto role = OscRole::describe (processorRef, osc);
                                     return isOff (osc) ? juce::String() : role.isNotEmpty() ? role : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
                                 });

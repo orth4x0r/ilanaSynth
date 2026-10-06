@@ -1569,9 +1569,14 @@ private:
               , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
             // The LFO's own colour lights its switches (the design's SYNC), as it does its knobs.
-            if (! followsTheme)
-                for (auto* toggle : { &sync, &retrig, &key, &loop, &kick })
-                    toggle->getButton().setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.85f));
+            for (auto* toggle : { &sync, &retrig, &key, &loop, &kick })
+            {
+                toggle->getButton().setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.85f));
+                toggle->setSwitchColour (accent); // (a switch takes its colour from this, not the button's on colour)
+            }
+
+            // The SHAPE menu carries the LFO's colour too (the design's .sel.c).
+            shape.setTint (accent);
 
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
                 sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),

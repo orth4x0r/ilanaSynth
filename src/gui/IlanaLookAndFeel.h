@@ -575,11 +575,16 @@ inline bool hasFamilyColour (juce::Colour colour) { return colour.getSaturation(
 
 inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& text, juce::Colour colour)
 {
-    if (hasFamilyColour (colour))
+    const auto tagged = hasFamilyColour (colour);
+
+    if (tagged)
         paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
+
     g.setColour (Ui::text);
     g.setFont (cardTitleFont());
-    g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
+    // (A title never ends in an ellipsis: it shrinks to fit, as every other
+    // text does. A card with no tag starts at its own left edge.)
+    drawFitted (g, text, header.withTrimmedLeft (tagged ? 14 : 0), juce::Justification::centredLeft, 1, TextSize::minInteractive);
 }
 
 // A card's header, the same everywhere: tag, title, then a quiet subtitle

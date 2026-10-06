@@ -2091,7 +2091,7 @@ public:
         // (The sheet's .sel.c: the colour at 55 % into the hairline, 10 % into ink 3.)
         combo.setColour (juce::ComboBox::outlineColourId, IlanaTheme::Ui::line.interpolatedWith (tint, 0.55f));
         combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.1f));
-        label.setColour (juce::Label::textColourId, tint);
+        // (Only the box takes the colour: the name stays the sheet's grey .lbl.)
         label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
         combo.repaint();
         label.repaint();

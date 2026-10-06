@@ -1500,6 +1500,11 @@ private:
                                               cellWidth, rowHeight);
             auto* item = items[(size_t) i];
 
+            // The dial grows with the row (a short rack's rows are taller), so
+            // a tall row's knobs fill it instead of floating in a band.
+            if (auto* knob = dynamic_cast<KnobControl*> (item))
+                knob->setInlineDial (juce::jlimit (40, 56, rowHeight - 18));
+
             if (dynamic_cast<ComboControl*> (item) != nullptr)
                 item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));
             else if (dynamic_cast<ToggleControl*> (item) != nullptr)

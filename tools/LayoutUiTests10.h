@@ -535,30 +535,25 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         setParam ("res_on", 0.0f);
         setParam ("sb_on", 0.0f);
         setParam ("body_coupling_mode", 0.0f);
-        const auto shownKnob = [&editor] (const juce::String& id)
+        editor.showPage ("OSC");
+        settle (300);
+        // (The approved OSC design never folds the sub away: its controls stay
+        // drawn, dimmed in place while the switch is off, and light when it is on.)
+        const auto subAlpha = [&editor] () -> float
         {
             std::vector<KnobControl*> knobs;
             findAll<KnobControl> (editor, knobs);
             for (auto* knob : knobs)
-                if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
-                    return true;
-            return false;
+                if (knob->getParameterId() == "subosc_level" && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    return knob->getAlpha();
+            return -1.0f;
         };
-        editor.showPage ("OSC");
+        setParam ("subosc_on", 0.0f);
         settle (300);
-        {
-            // SUB + NOISE (an earlier test may leave VOICE open).
-            std::vector<StateTabs*> rows;
-            findAll<StateTabs> (editor, rows);
-            for (auto* tabs : rows)
-                if (tabs->getNumItems() > 1 && tabs->getItem (1).name == "SUB + NOISE" && tabs->onSelect != nullptr)
-                    tabs->onSelect (1); // (VOICE is first now: review 11, S11-1)
-        }
-        settle (300);
-        const auto subOff = ! shownKnob ("subosc_level");
+        const auto subOff = subAlpha() > 0.0f && subAlpha() < 0.99f;
         setParam ("subosc_on", 1.0f);
         settle (600);
-        const auto subOn = shownKnob ("subosc_level");
+        const auto subOn = subAlpha() > 0.99f;
         setParam ("subosc_on", 0.0f);
         settle (300);
         editor.showPage ("PHYSICAL");
@@ -579,8 +574,8 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto bodyOn = bodyKnob ("res_amount") != nullptr && bodyKnob ("res_amount")->getAlpha() > 0.99f;
         setParam ("res_on", 0.0f);
         settle (300);
-        expect (subOff && subOn && bodyOff && bodyOn, "SUB + NOISE folds and BODY dims while off, both light when switched on (sub "
-                                                          + juce::String (subOff ? "folds" : "stays") + "/" + juce::String (subOn ? "opens" : "stays shut")
+        expect (subOff && subOn && bodyOff && bodyOn, "SUB dims in place and BODY dims while off, both light when switched on (sub "
+                                                          + juce::String (subOff ? "dims" : "stays lit") + "/" + juce::String (subOn ? "opens" : "stays shut")
                                                           + ", body " + juce::String (bodyOff ? "dims" : "stays lit") + "/" + juce::String (bodyOn ? "opens" : "stays shut") + ")");
         editor.showPage ("MAIN");
         settle (200);

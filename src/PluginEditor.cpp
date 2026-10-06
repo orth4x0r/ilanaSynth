@@ -328,6 +328,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             page->selectShared (OscPage::sharedVoice);
         showPage ("OSC");
     };
+    getOscCardBounds = [this, oscViewport] (int osc) -> juce::Rectangle<int>
+    {
+        if (auto* page = oscViewport->getPage())
+            return getLocalArea (page, page->getCardBounds (osc));
+        return {};
+    };
     // PLAY's oscillator title: that oscillator's full page.
     mainPage->onEditOscillator = [this, oscViewport] (int osc)
     {

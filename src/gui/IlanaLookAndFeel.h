@@ -171,6 +171,20 @@ inline juce::FontOptions font (float height, bool bold = false, bool tabular = f
     return tabular ? options.withFeatureEnabled ("tnum") : options;
 }
 
+// An inline knob's value text (the OSC cards, the voice strip): left-aligned
+// under the name, in the label size, so a cell of a dial and a few words holds
+// it. `on` false restores the usual centred value.
+inline void styleInlineValueBox (juce::Slider& slider, bool on)
+{
+    for (auto* child : slider.getChildren())
+        if (auto* box = dynamic_cast<juce::Label*> (child))
+        {
+            box->setJustificationType (on ? juce::Justification::centredLeft : juce::Justification::centred);
+            box->setBorderSize (on ? juce::BorderSize<int> (1, 0, 1, 1) : juce::BorderSize<int> (1, 1, 1, 1));
+            box->setFont (font (on ? TextSize::label : TextSize::body, false, true));
+        }
+}
+
 // The UI test's other probe (UI review 8, V8-12 / I8-25): while armed, every
 // text drawFitted() below had to shrink, and every one it still had to cut.
 struct TextFitProbe
@@ -757,7 +771,32 @@ public:
         label->getProperties().set ("tabular", true); // a live value
         label->setBorderSize ({ 1, 1, 1, 1 });          // (the value keeps its room, and its unit's space: V10-8)
         label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
+
+        if (slider.getProperties().getWithDefault ("inlineKnob", false))
+        {
+            label->setJustificationType (juce::Justification::centredLeft);
+            label->setBorderSize ({ 1, 0, 1, 1 });
+            label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
+        }
+
         return label;
+    }
+
+    // An inline knob (a dial with its name and value to the right): the dial
+    // a square at the left, the value under the middle line.
+    juce::Slider::SliderLayout getSliderLayout (juce::Slider& slider) override
+    {
+        if (slider.getProperties().getWithDefault ("inlineKnob", false))
+        {
+            const auto area = slider.getLocalBounds();
+            const auto dial = juce::jmin (area.getHeight(), 40);
+            juce::Slider::SliderLayout layout;
+            layout.sliderBounds = juce::Rectangle<int> (dial, dial).withCentre ({ dial / 2, area.getCentreY() });
+            layout.textBoxBounds = { dial + 3, area.getCentreY(), juce::jmax (0, area.getWidth() - dial - 3), 14 };
+            return layout;
+        }
+
+        return LookAndFeel_V4::getSliderLayout (slider);
     }
 
     void applyAccent()
@@ -961,8 +1000,28 @@ public:
             const auto amount = button.getProperties().contains ("switchAmount")
                                     ? (float) button.getProperties()["switchAmount"]
                                     : (button.getToggleState() ? 1.0f : 0.0f);
-            // Centred in its space, under its name when it has one.
-            paintSwitch (g, bounds, amount, accent(), hover);
+            // A group's own name draws the state: a dot, then the name in the
+            // family colour, dimmed while off (drawn here, on the switch that
+            // takes the click, so nothing sits over its text).
+            if (button.getProperties().contains ("groupName"))
+            {
+                const auto on = button.getToggleState();
+                const auto area = button.getLocalBounds().toFloat();
+                const auto groupColour = juce::Colour ((juce::uint32) (int) button.getProperties()["groupColour"]);
+                IlanaTheme::paintOnDot (g, { area.getX() + 4.0f, area.getCentreY() }, groupColour, on);
+                g.setColour (groupColour.withAlpha (on ? 0.9f : 0.55f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (13),
+                                        juce::Justification::centredLeft, 1);
+                return;
+            }
+
+            // Centred in its space, under its name when it has one; in the
+            // owner's colour when it has one (an oscillator's).
+            const auto colour = button.getProperties().contains ("switchColour")
+                                    ? juce::Colour ((juce::uint32) (int) button.getProperties()["switchColour"])
+                                    : accent();
+            paintSwitch (g, bounds, amount, colour, hover);
             return;
         }
 

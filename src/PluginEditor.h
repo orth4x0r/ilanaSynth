@@ -60,6 +60,8 @@ public:
     void showPage (const juce::String& id);
     // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
     std::function<void()> showVoicePanel;
+    // OSC's card for an oscillator, in this editor's coordinates (the UI tests).
+    std::function<juce::Rectangle<int> (int)> getOscCardBounds;
     // An oscillator's Operator EG: the FM page with that operator chosen.
     void showOperatorEnvelope (int op);
     juce::String getCurrentPageId() const;

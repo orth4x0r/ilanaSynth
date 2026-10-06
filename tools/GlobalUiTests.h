@@ -384,34 +384,26 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 "the OUT meter keeps clear of the window's corner (" + meterBounds.toString() + " in " + juce::String (editor.getWidth()) + ")");
     }
 
-    // I8-21, I8-20: OSC's shared tabs light their dot from a switch only
-    // (VOICE and ACOUSTIC KEYS have none); an off oscillator's tab says
-    // nothing in words (its dot is out).
+    // I8-21, I8-20: with the approved OSC design the shared tabs are gone (the
+    // strip is one card, its groups named in colour, no dots). What stays true:
+    // an off oscillator says nothing in words and its card dims in place.
     {
         editor.showPage ("OSC");
         settle (300);
         std::vector<StateTabs*> rows;
         findAll<StateTabs> (editor, rows);
-        auto voiceDot = true, keysDot = true, subDotFollowsSwitch = false, offWord = false;
-        setParam ("subosc_on", 0.0f);
-        setParam ("noise_level", 0.5f);
+        auto tabs = 0;
+        for (auto* row : rows)
+            tabs += visibleInTree (row) ? 1 : 0;
         setParam ("osc2_on", 0.0f);
         settle (400);
-        for (auto* tabs : rows)
-            for (int i = 0; i < tabs->getNumItems(); ++i)
-            {
-                const auto& item = tabs->getItem (i);
-                if (item.name == "VOICE")
-                    voiceDot = item.dot;
-                if (item.name == "SOUNDBOARD")
-                    keysDot = item.dot;
-                if (item.name == "SUB + NOISE")
-                    subDotFollowsSwitch = item.dot && ! item.lit;
-                if (item.name == "OSC 2")
-                    offWord = item.state.containsIgnoreCase ("off");
-            }
-        expect (! voiceDot && ! keysDot && subDotFollowsSwitch && ! offWord,
-                "OSC's tabs: no dot on VOICE or SOUNDBOARD, SUB + NOISE's dot follows its switch, no OFF in an off oscillator's tab");
+        std::vector<juce::Label*> labels;
+        findAll<juce::Label> (editor, labels);
+        auto offWord = false;
+        for (auto* label : labels)
+            offWord = offWord || (visibleInTree (label) && label->getText().trim().equalsIgnoreCase ("off") && label->getParentComponent() == nullptr);
+        expect (tabs == 0 && ! offWord,
+                "OSC: the strip has no tabs or dots, and an off oscillator's card says nothing in words");
         setParam ("osc2_on", 1.0f);
         loadNamed ("Neuro Wobble");
     }

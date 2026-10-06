@@ -209,7 +209,7 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             const auto envelopeName = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
             IlanaTheme::drawFitted (g, "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here.",
-                                    ampHint, juce::Justification::centredLeft, 1);
+                                    ampHint, juce::Justification::centredLeft, 3);
         }
 
         paintMatrix (g);
@@ -546,6 +546,82 @@ private:
         }
     }
 
+    // The operator card's two looks: the stacked row of the Operator Env's
+    // host area, or the plain card's grid of inline knobs (the design's
+    // 3 x 2 grid: the dial with its name and value beside it).
+    static void setOperatorCardStyle (OperatorControls& controls, bool grid)
+    {
+        for (auto* knob : { &controls.ratio, &controls.fixedHz, &controls.semi, &controls.fine, &controls.level,
+                            &controls.keyLevel, &controls.feedback })
+            knob->setInlineKnob (grid);
+        controls.feedbackType.setCompactLayout (grid);
+    }
+
+    // An operator on any envelope but the Operator Env: TUNING, SNAP and
+    // ENVELOPE in one row, two rows of three inline knobs, FB TYPE with the
+    // hint under them, and the envelope's graph filling the height at the
+    // right; no empty strip anywhere in the card.
+    void layoutPlainOperator (OperatorControls& controls)
+    {
+        for (auto& each : operators)
+            setOperatorCardStyle (*each, true);
+
+        auto inner = operatorCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        inner.removeFromBottom (8);
+        const auto gridWidth = juce::jmin (336, inner.getWidth() * 62 / 100);
+        auto left = inner.removeFromLeft (gridWidth);
+        inner.removeFromLeft (10);
+        if (ampGraph != nullptr)
+            ampGraph->setBounds (inner);
+
+        const auto tune = juce::roundToInt (read (OscillatorIds::prefixes[(size_t) selectedOperator] + juce::String ("_tune")));
+        std::vector<juce::Component*> menus { &controls.tune };
+        if (tune == OscTuning::Ratio)
+            menus.push_back (&controls.snap);
+        menus.push_back (&controls.ampEnv);
+
+        std::vector<juce::Component*> knobsInGrid;
+        if (tune == OscTuning::Ratio)
+            knobsInGrid.push_back (&controls.ratio);
+        if (tune == OscTuning::Fixed)
+            knobsInGrid.push_back (&controls.fixedHz);
+        for (auto* knob : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel, &controls.feedback })
+            knobsInGrid.push_back (knob);
+        // Five knobs leave the grid's last cell: FB TYPE takes it, the hint
+        // then has the foot row to itself.
+        const auto fbInGrid = knobsInGrid.size() < 6;
+        if (fbInGrid)
+            knobsInGrid.push_back (&controls.feedbackType);
+
+        constexpr int menuHeight = 40, footHeight = 30, gap = 6, columns = 3;
+        layoutRow (left.removeFromTop (menuHeight), menus);
+        left.removeFromTop (gap);
+        auto foot = left.removeFromBottom (footHeight);
+        left.removeFromBottom (gap);
+        const auto rowHeight = (left.getHeight() - gap) / 2;
+        const auto cellWidth = left.getWidth() / columns;
+
+        for (size_t i = 0; i < knobsInGrid.size(); ++i)
+        {
+            const auto column = (int) i % columns, row = (int) i / columns;
+            auto cell = juce::Rectangle<int> (left.getX() + column * cellWidth, left.getY() + row * (rowHeight + gap), cellWidth, rowHeight);
+            if (knobsInGrid[i] == &controls.feedbackType)
+                cell = cell.withSizeKeepingCentre (cell.getWidth() - 8, 30);
+            else
+                cell = cell.reduced (2, 0);
+            knobsInGrid[i]->setBounds (cell);
+        }
+
+        if (fbInGrid)
+            ampHint = foot.withTrimmedLeft (2);
+        else
+        {
+            controls.feedbackType.setBounds (foot.removeFromLeft (92).withSizeKeepingCentre (92, 30));
+            ampHint = foot.withTrimmedLeft (8);
+        }
+    }
+
     void layoutOperatorCard()
     {
         auto inner = operatorCard.reduced (10, 0);
@@ -572,6 +648,8 @@ private:
 
         auto& controls = *operators[(size_t) selectedOperator];
         const auto opEnv = usesOperatorEnv (selectedOperator);
+        for (auto& each : operators)
+            setOperatorCardStyle (*each, false);
         // On the Operator Env, the envelope's editor takes the card: its
         // graph at the right, its tabs and knobs along the bottom; the
         // operator's own controls go in the space it leaves.
@@ -582,16 +660,8 @@ private:
         }
         else
         {
-            // Its envelope's graph where the Operator Env's would be, and a
-            // line under the knobs on where that envelope is edited.
-            ampHint = inner.removeFromBottom (16).withTrimmedLeft (2);
-            inner.removeFromBottom (4);
-            const auto graph = inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2);
-            if (ampGraph != nullptr)
-                ampGraph->setBounds (graph);
-            ampHint.setRight (graph.getX() - 8);
-            // The menus and knobs at their natural height, not stretched.
-            inner = inner.withHeight (juce::jmin (inner.getHeight(), 46 + 4 + 96));
+            layoutPlainOperator (controls);
+            return;
         }
         const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
 

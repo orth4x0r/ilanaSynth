@@ -7536,6 +7536,13 @@ int main (int argc, char** argv)
             settle (300);
             save (*editor, outDir.getChildFile ("fm-dx7-algorithm-" + number + ".png"));
         }
+        // Operator 1 on the Operator Env: the card as the DX7 voices have it.
+        if (auto* parameter = processor.apvts.getParameter ("osc1_amp_env"))
+        {
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) OperatorEg::envelopeChoice));
+            settle (400);
+            save (*editor, outDir.getChildFile ("fm-opeg.png"));
+        }
         // OSC 2's WARP FM from OSC 1, drawn dashed beside the routes.
         for (const auto& [id, value] : { std::pair<const char*, float> { "osc2_warp", (float) Warp::Fm }, { "osc2_warp_amt", 0.5f } })
             if (auto* parameter = processor.apvts.getParameter (id))

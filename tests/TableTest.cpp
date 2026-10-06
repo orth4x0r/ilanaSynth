@@ -8532,6 +8532,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
 #include "SplitterTests.inc"
+#include "ParallelFxTests.inc"
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
 #include "DemoRender.inc"
@@ -9007,6 +9008,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PARALLEL_FX_TEST", "").isNotEmpty())
+    {
+        runParallelFxTests();
+        std::cout << (failures == 0 ? "PARALLEL FX TESTS PASSED" : "PARALLEL FX TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SPLITTER_TEST", "").isNotEmpty())
     {
         runSplitterTests();
@@ -9416,6 +9424,7 @@ int main()
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });
     timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
+    timedRun ("runParallelFxTests", [] { runParallelFxTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });
 

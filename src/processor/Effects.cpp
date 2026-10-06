@@ -1,20 +1,106 @@
 #include "ProcessorInternal.h"
 
+// The rack's routing (fx_routing): SERIES, each effect feeds the next one
+// (as every patch before it was added); PARALLEL, each effect hears the
+// rack's input and their outputs are averaged.
 void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
 {
+    if (getParam (fxRoutingRef) > 0.5f)
+        return processEffectsParallel (buffer);
+
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto& ids = fxSlotIds[(size_t) (slot - 1)];
-        const auto type = (int) getParam (ids.type);
-
-        if (type == 0 || getParam (ids.bypass) > 0.5f)
+        if (! isFxSlotActive (slot - 1))
         {
-            fxSlotCpu[(size_t) (slot - 1)].store (0.0f);
-            fxSlotIn[(size_t) (slot - 1)].store (0.0f);
-            fxSlotOut[(size_t) (slot - 1)].store (0.0f);
+            clearFxSlotMeters (slot - 1);
             continue;
         }
 
+        runFxSlot (slot, buffer);
+    }
+
+    sanitiseBuffer (buffer);
+}
+
+bool IlanaSynthAudioProcessor::isFxSlotActive (int index)
+{
+    const auto& ids = fxSlotIds[(size_t) index];
+    return (int) getParam (ids.type) != 0 && getParam (ids.bypass) <= 0.5f;
+}
+
+void IlanaSynthAudioProcessor::clearFxSlotMeters (int index)
+{
+    fxSlotCpu[(size_t) index].store (0.0f);
+    fxSlotIn[(size_t) index].store (0.0f);
+    fxSlotOut[(size_t) index].store (0.0f);
+}
+
+// PARALLEL: every working slot runs on its own copy of the rack's input
+// (with its own MIX, band and solo exactly as in series), and the copies are
+// averaged: out = (1 / N) * sum of the N branches. Averaging, not 1 / sqrt(N),
+// because each branch carries the dry signal (MIX below 100 %, a band split's
+// untouched part) and EQ / drive / dynamics keep the branches correlated:
+// N branches that leave the signal alone give back exactly the input, and a
+// rack with one working slot sounds the same in either routing. A soloed
+// slot is heard alone (with any other soloed ones, averaged among them);
+// the others keep running so their tails and meters stay live.
+void IlanaSynthAudioProcessor::processEffectsParallel (juce::AudioBuffer<float>& buffer)
+{
+    const auto numChannels = buffer.getNumChannels();
+    const auto numSamples = buffer.getNumSamples();
+    auto active = 0, soloed = 0;
+
+    for (int index = 0; index < numFxSlots; ++index)
+    {
+        if (! isFxSlotActive (index))
+        {
+            clearFxSlotMeters (index);
+            continue;
+        }
+
+        ++active;
+        if (getParam (fxSlotIds[(size_t) index].solo) > 0.5f)
+            ++soloed;
+    }
+
+    if (active > 0)
+    {
+        if (fxParallelIn.getNumChannels() < numChannels || fxParallelIn.getNumSamples() < numSamples)
+            fxParallelIn.setSize (numChannels, numSamples, false, false, true);
+        fxBranch.setSize (numChannels, numSamples, false, false, true); // (the slot works on its whole length)
+
+        for (int channel = 0; channel < numChannels; ++channel)
+            fxParallelIn.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+        buffer.clear();
+
+        const auto gain = 1.0f / (float) (soloed > 0 ? soloed : active);
+
+        for (int slot = 1; slot <= numFxSlots; ++slot)
+        {
+            if (! isFxSlotActive (slot - 1))
+                continue;
+
+            for (int channel = 0; channel < numChannels; ++channel)
+                fxBranch.copyFrom (channel, 0, fxParallelIn, channel, 0, numSamples);
+
+            runFxSlot (slot, fxBranch);
+
+            if (soloed == 0 || getParam (fxSlotIds[(size_t) (slot - 1)].solo) > 0.5f)
+                for (int channel = 0; channel < numChannels; ++channel)
+                    buffer.addFrom (channel, 0, fxBranch, channel, 0, numSamples, gain);
+        }
+    }
+
+    sanitiseBuffer (buffer);
+}
+
+// One working slot on the buffer, in place: its MIX, band and solo, the
+// level meters and the CPU share.
+void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& buffer)
+{
+    {
+        const auto& ids = fxSlotIds[(size_t) (slot - 1)];
+        const auto type = (int) getParam (ids.type);
         const auto solo = getParam (ids.solo) > 0.5f;
         const auto blend = getParam (ids.mix);
         const auto startTicks = juce::Time::getHighResolutionTicks();
@@ -82,8 +168,6 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         auto& cpu = fxSlotCpu[(size_t) (slot - 1)];
         cpu.store (cpu.load() * 0.9f + usage * 0.1f);
     }
-
-    sanitiseBuffer (buffer);
 }
 
 void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend)
@@ -1759,6 +1843,11 @@ bool IlanaSynthAudioProcessor::loadFxChainFromFile (const juce::File& file)
     if (xml == nullptr || ! xml->hasTagName ("ilanafxchain"))
         return false;
 
+    // A chain file saved before the rack had a routing switch is series.
+    if (xml->getChildByAttribute ("id", "fx_routing") == nullptr)
+        if (auto* routing = apvts.getParameter ("fx_routing"))
+            routing->setValueNotifyingHost (routing->getDefaultValue());
+
     for (auto* element = xml->getFirstChildElement(); element != nullptr; element = element->getNextElement())
     {
         const auto id = element->getStringAttribute ("id");
@@ -1796,6 +1885,11 @@ juce::String IlanaSynthAudioProcessor::captureFxChain()
 void IlanaSynthAudioProcessor::applyFxChain (const juce::String& state)
 {
     const auto tokens = juce::StringArray::fromTokens (state, ";", "");
+
+    // A chain stored before the rack had a routing switch was series.
+    if (! state.contains ("fx_routing="))
+        if (auto* routing = apvts.getParameter ("fx_routing"))
+            routing->setValueNotifyingHost (routing->getDefaultValue());
 
     for (const auto& token : tokens)
     {

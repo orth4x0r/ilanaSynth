@@ -1119,5 +1119,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // noise's scale. White, as in every older patch.
     addFloat ("noise_color", "Noise Colour", 0.0f, 1.0f, 1.0f);
 
+    // Design round 2: the FX rack's routing. SERIES (each effect feeds the
+    // next one) as in every older patch; PARALLEL (every effect hears the
+    // rack's input, their outputs averaged; see processEffectsParallel).
+    addChoice ("fx_routing", "FX Routing", { "Series", "Parallel" }, 0);
+
     return layout;
 }

@@ -7519,6 +7519,10 @@ int main (int argc, char** argv)
         fill ({ 27, 2, 20, 36, 34 });
         setParam ("fx_slot4_bypass", 1.0f);
         shot ("mock");
+        // The same rack routed in parallel (design round 2: the ladder rail).
+        setParam ("fx_routing", 1.0f);
+        shot ("mock-parallel");
+        setParam ("fx_routing", 0.0f);
         fill ({ 27, 2, 20, 7, 13, 9, 18, 1 });
         shot ("eight");
         fill ({ 27, 2, 20, 7, 13, 9, 18, 1, 29, 4 });

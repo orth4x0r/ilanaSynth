@@ -305,6 +305,57 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     && dice.size() == 1 && dice.front()->getButtonText() == "RANDOMISE FX" && dice.front()->getTooltip().startsWith ("Randomise FX"),
                 "the FX toolbar has CHAIN 1 / CHAIN 2 and a RANDOMISE FX button (I14-9)");
 
+        // Design round 2: SERIES / PARALLEL is a working switch bound to
+        // fx_routing (series by default), a click is one undo step, the
+        // parameter drives the switch back, and the rail turns into a
+        // ladder (the input's bus down the left, x = 13 in the rail).
+        {
+            auto series = shownButtons ("SERIES"), parallel = shownButtons ("PARALLEL");
+            const auto routing = [&processor] { return processor.apvts.getRawParameterValue ("fx_routing")->load(); };
+            expect (series.size() == 1 && parallel.size() == 1, "the FX top bar has one SERIES and one PARALLEL button");
+            if (series.size() == 1 && parallel.size() == 1)
+            {
+                auto* page = series.front()->getParentComponent();
+                const auto busPixels = [page]
+                {
+                    const auto image = page->createComponentSnapshot (page->getLocalBounds(), true, 1.0f);
+                    const auto green = IlanaTheme::oscColour (2);
+                    auto count = 0;
+                    for (int y = 80; y < juce::jmin (image.getHeight(), 400); ++y)
+                    {
+                        const auto pixel = image.getPixelAt (13, y);
+                        if (std::abs (pixel.getFloatRed() - green.getFloatRed()) + std::abs (pixel.getFloatGreen() - green.getFloatGreen())
+                                + std::abs (pixel.getFloatBlue() - green.getFloatBlue()) < 0.45f && pixel.getFloatGreen() > 0.3f)
+                            ++count;
+                    }
+                    return count;
+                };
+                loadFx ({ 27, 2, 20 });
+                const auto startsSeries = routing() < 0.5f && series.front()->getToggleState() && ! parallel.front()->getToggleState();
+                const auto seriesBus = busPixels();
+                parallel.front()->onClick();
+                settle (200);
+                const auto clicked = routing() > 0.5f && parallel.front()->getToggleState() && ! series.front()->getToggleState();
+                const auto parallelBus = busPixels();
+                processor.getUndoManager().undo();
+                settle (200);
+                const auto undone = routing() < 0.5f && series.front()->getToggleState();
+                setParam ("fx_routing", 1.0f);
+                settle (200);
+                const auto followsParameter = parallel.front()->getToggleState() && ! series.front()->getToggleState();
+                series.front()->onClick();
+                settle (200);
+                expect (startsSeries && clicked && undone && followsParameter && routing() < 0.5f,
+                        "SERIES / PARALLEL: series by default, a click sets fx_routing, undo puts it back, the switch follows the parameter");
+                expect (parallelBus > 4 * juce::jmax (1, seriesBus) && parallelBus > 60,
+                        "PARALLEL draws the rail as a ladder: the input's bus runs down the rail's left ("
+                            + juce::String (parallelBus) + " bus pixels against " + juce::String (seriesBus) + " in series)");
+                expect (parallel.front()->getTooltip().startsWith ("Parallel") && series.front()->getTooltip().startsWith ("Series")
+                            && parallel.front()->getDescription().isNotEmpty(),
+                        "SERIES / PARALLEL have tooltips and accessible descriptions");
+            }
+        }
+
         // V7-42: the dice never puts one effect in two slots.
         auto duplicates = 0;
         for (int roll = 0; roll < 30; ++roll)

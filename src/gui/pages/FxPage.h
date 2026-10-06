@@ -359,6 +359,28 @@ public:
         IlanaTheme::makePill (chainBButton, IlanaTheme::accent());
         addAndMakeVisible (chainAButton);
         addAndMakeVisible (chainBButton);
+
+        // SERIES / PARALLEL: the rack's routing (fx_routing), one undo step a
+        // click. A mode, as the slot types, so not automatable (no MIDI learn).
+        seriesButton.setTooltip ("Series\nEach effect feeds the next one, top to bottom.");
+        parallelButton.setTooltip ("Parallel\nEvery effect hears the rack's input; their outputs are summed "
+                                   "(averaged, so effects that leave the sound alone give it back unchanged).");
+        seriesButton.setDescription ("FX routing: series");
+        parallelButton.setDescription ("FX routing: parallel");
+        for (auto* button : { &seriesButton, &parallelButton })
+        {
+            IlanaTheme::makePill (*button, IlanaTheme::accent());
+            button->setRadioGroupId (0x5e71a1);
+            addAndMakeVisible (*button);
+        }
+        seriesButton.onClick = [this] { setRouting (false); };
+        parallelButton.onClick = [this] { setRouting (true); };
+        if (auto* routing = p.apvts.getParameter ("fx_routing"))
+        {
+            routingAttachment = std::make_unique<juce::ParameterAttachment> (
+                *routing, [this] (float value) { routingChanged (value > 0.5f); }, nullptr);
+            routingAttachment->sendInitialUpdate();
+        }
         addChildComponent (copyChainButton); // (its action is in the CHAIN menu)
         tapGrid.setVisible (false);
         tapGrid.setName ("CUSTOM TAP GRID"); // (the UI test finds it by name)
@@ -476,21 +498,37 @@ public:
 
         // The top bar: the two chains as one switch, the routing and what it means.
         IlanaTheme::paintWell (g, chainSeg.toFloat(), (float) chainSeg.getHeight() * 0.5f);
-        IlanaTheme::paintPill (g, seriesBadge.toFloat(), "SERIES", IlanaTheme::accent(), true);
+        IlanaTheme::paintWell (g, routingSeg.toFloat(), (float) routingSeg.getHeight() * 0.5f);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("each effect feeds the next one", seriesHint, juce::Justification::centredLeft, true);
+        g.drawText (routingHintText(), routingHint, juce::Justification::centredLeft, true);
 
-        // The rail's ends: IN above the first effect, OUT under the last.
+        // The rail's ends: IN above the first effect, OUT under the last. In
+        // PARALLEL two buses leave IN and reach OUT: the input's on the left,
+        // which every effect taps, and the sum's on the right.
         const auto railX = (float) inColumn.getCentreX();
-        paintRailPill (g, inColumn, "IN");
         if (! stackView.isVisible())
+        {
+            paintRailPill (g, inColumn, "IN");
             return paintOutput (g);
+        }
 
-        paintRailLine (g, railX, (float) inColumn.getCentreY() + 11.0f, (float) stackView.getY() + 1.0f, firstRailColour(), false);
+        if (parallelRouting)
+        {
+            const auto inX = (float) inColumn.getX() + (float) parallelInBusX;
+            const auto outX = (float) outColumn.getX() + (float) parallelOutBusX;
+            paintRailLine (g, inX, (float) inColumn.getCentreY() + 8.0f, (float) stackView.getY() + 1.0f, railGood(), false);
+            paintRailLine (g, outX, (float) stackView.getBottom() - 1.0f, (float) outColumn.getCentreY() - 8.0f, railGood(), false);
+            paintRailArrow (g, outX, (float) outColumn.getCentreY() - 8.0f, railGood(), false);
+        }
+        else
+        {
+            paintRailLine (g, railX, (float) inColumn.getCentreY() + 11.0f, (float) stackView.getY() + 1.0f, firstRailColour(), false);
+            paintRailLine (g, railX, (float) stackView.getBottom() - 1.0f, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
+            paintRailArrow (g, railX, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
+        }
+        paintRailPill (g, inColumn, "IN");
         paintRailPill (g, outColumn, "OUT");
-        paintRailLine (g, railX, (float) stackView.getBottom() - 1.0f, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
-        paintRailArrow (g, railX, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
         paintOutput (g);
     }
 
@@ -564,14 +602,16 @@ public:
         chainAButton.setBounds (chainSeg.withTrimmedLeft (3).removeFromLeft (64).reduced (0, 2));
         chainBButton.setBounds (chainSeg.withTrimmedLeft (3 + 66).removeFromLeft (64).reduced (0, 2));
         toolbar.removeFromLeft (10);
-        seriesBadge = toolbar.removeFromLeft (76).reduced (0, 2);
+        routingSeg = toolbar.removeFromLeft (152);
+        seriesButton.setBounds (routingSeg.withTrimmedLeft (3).removeFromLeft (66).reduced (0, 2));
+        parallelButton.setBounds (routingSeg.withTrimmedLeft (3 + 68).removeFromLeft (78).reduced (0, 2));
         toolbar.removeFromLeft (10);
         diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
         toolbar.removeFromRight (6);
         addButton.setBounds (toolbar.removeFromRight (62).reduced (0, 2));
         toolbar.removeFromRight (6);
         fileButton.setBounds (toolbar.removeFromRight (84).reduced (0, 2));
-        seriesHint = toolbar.withTrimmedRight (10);
+        routingHint = toolbar.withTrimmedRight (10);
         copyChainButton.setVisible (false);
         area.removeFromTop (rowGap - stackTopMargin);
 
@@ -960,6 +1000,33 @@ private:
                                   });
     }
 
+    // The routing switch: a click is one named undo step; the parameter
+    // (a click, undo, a patch or chain load) sets the switch and the rail.
+    void setRouting (bool parallel)
+    {
+        if (routingAttachment == nullptr || parallel == parallelRouting)
+            return routingChanged (parallelRouting);
+
+        processorRef.performEdit (parallel ? "FX routing: parallel" : "FX routing: series",
+                                  [this, parallel] { routingAttachment->setValueAsCompleteGesture (parallel ? 1.0f : 0.0f); });
+    }
+
+    void routingChanged (bool parallel)
+    {
+        seriesButton.setToggleState (! parallel, juce::dontSendNotification);
+        parallelButton.setToggleState (parallel, juce::dontSendNotification);
+        if (parallel == parallelRouting)
+            return;
+        parallelRouting = parallel;
+        repaint();
+        stackContent.repaint();
+    }
+
+    juce::String routingHintText() const
+    {
+        return parallelRouting ? "every effect hears the input, outputs are summed" : "each effect feeds the next one";
+    }
+
     void chainABChanged()
     {
         chainAButton.setToggleState (processorRef.isShowingChainA(), juce::dontSendNotification);
@@ -1034,6 +1101,8 @@ private:
     // Row geometry (px of the 1060 x 720 design): the rail is 56 wide, a row
     // is 80 high (64 when the rack is long), its left block 156 wide, its knobs
     // 116 x 44 cells with the dial's name and value beside it.
+    // The parallel ladder's buses, x in the rail (inside the IN / OUT pills).
+    static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
     static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 80, duplicateHeight = 56;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
@@ -1584,6 +1653,9 @@ private:
     // and a dashed node and BYPASS for a slot that is off.
     void paintRail (juce::Graphics& g)
     {
+        if (parallelRouting)
+            return paintParallelRail (g);
+
         const auto x = (float) railWidth * 0.5f;
 
         for (size_t i = 0; i < stackPanels.size(); ++i)
@@ -1597,14 +1669,76 @@ private:
 
             paintRailLine (g, x, top - (i == 0 ? 6.0f : 0.0f), nextTop, colour, off);
             paintRailArrow (g, x, nextTop, colour, off);
+            paintRailNode (g, x, centre, colour, off);
+            paintRailChip (g, panel, x);
+        }
+    }
 
-            const auto node = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ x, centre });
-            g.setColour (off ? IlanaTheme::Ui::raised : colour);
-            g.fillEllipse (node);
-            g.setColour (colour.withAlpha (off ? 0.6f : 1.0f));
-            g.drawEllipse (node.reduced (1.0f), 2.0f);
+    // A slot's node on the rail: filled in its colour, hollow while it is off.
+    static void paintRailNode (juce::Graphics& g, float x, float centre, juce::Colour colour, bool off)
+    {
+        const auto node = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ x, centre });
+        g.setColour (off ? IlanaTheme::Ui::raised : colour);
+        g.fillEllipse (node);
+        g.setColour (colour.withAlpha (off ? 0.6f : 1.0f));
+        g.drawEllipse (node.reduced (1.0f), 2.0f);
+    }
 
-            // The chip in the gap under the row: what the slot did to the level.
+    // PARALLEL: a ladder. The input's bus runs down the left from IN, the
+    // sum's down the right to OUT; each effect's node sits on a rung between
+    // them (dashed while it is off), so every effect hears the input and
+    // every output joins the sum. The chips read each branch's own gain.
+    void paintParallelRail (juce::Graphics& g)
+    {
+        if (stackPanels.empty())
+            return;
+
+        const auto x = (float) railWidth * 0.5f;
+        const auto inX = (float) parallelInBusX, outX = (float) parallelOutBusX;
+        const auto firstCentre = (float) stackPanels.front().bounds.getCentreY();
+        const auto lastCentre = (float) stackPanels.back().bounds.getCentreY();
+
+        paintRailLine (g, inX, 0.0f, lastCentre + 1.0f, railGood(), false);
+        paintRailLine (g, outX, firstCentre - 1.0f, (float) stackContent.getHeight(), railGood(), false);
+
+        for (const auto& panel : stackPanels)
+        {
+            const auto colour = fxColour (panel.type);
+            const auto off = isModuleOff (panel.slot);
+            const auto centre = (float) panel.bounds.getCentreY();
+
+            paintRailRung (g, inX + 1.0f, x - 6.0f, centre, colour, off);
+            paintRailRung (g, x + 6.0f, outX - 1.0f, centre, colour, off);
+            paintRailNode (g, x, centre, colour, off);
+        }
+
+        for (const auto& panel : stackPanels)
+            paintRailChip (g, panel, x);
+    }
+
+    // A rung of the parallel ladder, left to right, its arrow at the right end.
+    static void paintRailRung (juce::Graphics& g, float from, float to, float y, juce::Colour colour, bool dim)
+    {
+        g.setColour (colour.withAlpha (dim ? 0.45f : 0.8f));
+        if (dim)
+        {
+            const float pattern[] { 3.0f, 2.0f };
+            g.drawDashedLine (juce::Line<float> (from, y, to - 4.0f, y), pattern, 2, 2.0f);
+        }
+        else
+            g.fillRect (from, y - 1.0f, to - 4.0f - from, 2.0f);
+
+        juce::Path arrow;
+        arrow.addTriangle (to - 5.0f, y - 3.5f, to - 5.0f, y + 3.5f, to, y);
+        g.setColour (colour.withAlpha (dim ? 0.45f : 0.9f));
+        g.fillPath (arrow);
+    }
+
+    // The chip in the gap under a row: what the slot did to the level.
+    void paintRailChip (juce::Graphics& g, const StackPanel& panel, float x)
+    {
+        {
+            const auto off = isModuleOff (panel.slot);
             const auto chipCentre = juce::Point<float> (x, (float) panel.bounds.getBottom() + (float) rowGap * 0.5f);
             const auto slot = panel.slot;
             const auto text = off ? juce::String ("BYPASS") : railText (slot);
@@ -2005,7 +2139,7 @@ private:
     std::unique_ptr<ToggleControl> softClip;
     std::unique_ptr<StripKnob> clipGain;
     std::unique_ptr<OutputMeter> outputMeter;
-    juce::Rectangle<int> outputStrip, emptyHeading, inColumn, outColumn, chainSeg, seriesBadge, seriesHint;
+    juce::Rectangle<int> outputStrip, emptyHeading, inColumn, outColumn, chainSeg, routingSeg, routingHint;
     juce::Rectangle<int> outputTitle, outputSoftLabel, outputSeparator, outputHint;
     juce::StringArray slotNames;
     std::vector<std::vector<juce::Component*>> slotGroups;
@@ -2154,6 +2288,9 @@ private:
     juce::TextButton loadIrButton { "LOAD IR" };
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };
+    juce::TextButton seriesButton { "SERIES" }, parallelButton { "PARALLEL" };
+    std::unique_ptr<juce::ParameterAttachment> routingAttachment;
+    bool parallelRouting = false;
     juce::TextButton copyChainButton { "COPY TO 2" };
     juce::TextButton addButton { "+ ADD" };
     std::array<bool, 64> ownMix {};

@@ -541,6 +541,10 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     lfoBuffers.setSize (numLfoChannels, expectedBlockSize * oversamplingFactor.load(), false, false, true);
 
+    // PARALLEL FX routing's buffers, so the audio thread need not size them.
+    fxParallelIn.setSize (2, expectedBlockSize, false, true, true);
+    fxBranch.setSize (2, expectedBlockSize, false, true, true);
+
     // M7.5: room for the input at up to 4x oversampling, and 3 s of history.
     liveDry.setSize (2, expectedBlockSize, false, true, false);
     dryDelayRing.setSize (2, 1024, false, true, false);

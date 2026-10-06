@@ -1130,6 +1130,11 @@ inline juce::String describeParameter (const juce::String& id)
         || id == "fx_reverb_width" || id == "fx_reverb_mix")
         return "Space and depth.";
 
+    if (id == "fx_routing")
+        return "How the rack's effects connect. Series: each effect feeds the next one. Parallel: every effect hears "
+               "the rack's input and their outputs are averaged (so effects that leave the sound alone give it back "
+               "unchanged); a soloed effect is heard alone.";
+
     if (id.endsWith ("_bypass"))
         return "Bypasses this rack slot without losing its settings.";
 

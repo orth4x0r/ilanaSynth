@@ -254,7 +254,7 @@ public:
             }
             else
             {
-                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 1.6f);
+                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 2.0f); // (the sheet's 2 px trace)
             }
 
             // The x axis is the phase of one cycle, so the frame isn't marked
@@ -1455,7 +1455,7 @@ private:
         }
 
         g.setColour (colour);
-        g.strokePath (path, juce::PathStrokeType (thickness));
+        g.strokePath (path, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     // The phase warps the oscillator applies itself (not FM or Ring), for

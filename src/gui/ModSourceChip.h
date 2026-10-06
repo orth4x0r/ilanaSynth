@@ -103,19 +103,20 @@ public:
         const auto pinned = isPinned();
         const auto lit = juce::jmax (hover, glow, pinned ? 1.0f : 0.0f);
 
-        // Grey chips; the source's colour is only a dot, which glows while
-        // the source is moving something.
-        if (lit > 0.02f)
-            IlanaTheme::paintGlow (g, bounds, radius, colour, 0.9f * hover + 0.8f * glow);
-
-        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, juce::jmax (0.08f * hover + 0.1f * glow, pinned ? 0.22f : 0.0f)));
+        // The sheet's chip (.chip): ink 2, a hairline, a 7 px dot in the
+        // source's colour; pinned (.chip.on) the colour at 22 % with a 70 %
+        // rim. The dot breathes while the source is moving something.
+        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (colour, juce::jmax (0.06f * hover + 0.08f * glow, pinned ? 0.22f : 0.0f)));
         g.fillRoundedRectangle (bounds, radius);
-        g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        g.setColour (pinned ? colour.withAlpha (0.7f) : IlanaTheme::Ui::line.interpolatedWith (colour, 0.6f * juce::jmax (hover, glow)));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 
         const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 10.0f, bounds.getCentreY() });
-        g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
-        g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        if (glow > 0.02f)
+        {
+            g.setColour (colour.withAlpha (0.35f * glow));
+            g.fillEllipse (dot.expanded (1.0f + 2.0f * glow));
+        }
         g.setColour (colour);
         g.fillEllipse (dot);
 

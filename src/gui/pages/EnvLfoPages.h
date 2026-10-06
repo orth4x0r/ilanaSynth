@@ -1744,7 +1744,7 @@ private:
 
             // (Knobs for one row only take its taller height, so what the
             // LFO drives has a band no wider than its text needs: V12-3.)
-            const auto height = knobs.size() <= (size_t) perRow ? oneRowHeight : knobHeight;
+            const auto height = oneRowHeight; // the same row height for one or two rows, so RATE never moves
             for (size_t row = 0; row < 2 && row * (size_t) perRow < knobs.size(); ++row)
             {
                 std::vector<juce::Component*> items ((size_t) perRow, nullptr);

@@ -967,7 +967,9 @@ public:
         if (inlineDial == largest)
             return;
         inlineDial = largest;
+        slider.getProperties().set ("inlineDial", largest); // (the look-and-feel's slider layout reads it)
         resized();
+        slider.resized(); // (its bounds may not change, its layout does)
     }
 
     // A value drawn as a faded dash while `shown` says it does nothing (an

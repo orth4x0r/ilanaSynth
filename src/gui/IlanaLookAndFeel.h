@@ -967,7 +967,8 @@ public:
         if (slider.getProperties().getWithDefault ("inlineKnob", false))
         {
             const auto area = slider.getLocalBounds();
-            const auto dial = juce::jmin (area.getHeight(), 40);
+            // (40, or the knob's own inline size: the FX rack's taller rows.)
+            const auto dial = juce::jmin (area.getHeight(), (int) slider.getProperties().getWithDefault ("inlineDial", 40));
             juce::Slider::SliderLayout layout;
             layout.sliderBounds = juce::Rectangle<int> (dial, dial).withCentre ({ dial / 2, area.getCentreY() });
             layout.textBoxBounds = { dial + 3, area.getCentreY(), juce::jmax (0, area.getWidth() - dial - 3), 14 };

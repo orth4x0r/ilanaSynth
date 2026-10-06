@@ -10,6 +10,8 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         if (type == 0 || getParam (ids.bypass) > 0.5f)
         {
             fxSlotCpu[(size_t) (slot - 1)].store (0.0f);
+            fxSlotIn[(size_t) (slot - 1)].store (0.0f);
+            fxSlotOut[(size_t) (slot - 1)].store (0.0f);
             continue;
         }
 
@@ -19,6 +21,18 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
         const auto band = (int) getParam (ids.band);
+        const auto levelOf = [&buffer, numChannels, numSamples]
+        {
+            auto sum = 0.0f;
+            for (int channel = 0; channel < numChannels; ++channel)
+            {
+                const auto* data = buffer.getReadPointer (channel);
+                for (int i = 0; i < numSamples; ++i)
+                    sum += data[i] * data[i];
+            }
+            return std::sqrt (sum / (float) juce::jmax (1, numChannels * numSamples));
+        };
+        const auto levelIn = levelOf();
 
         if (band > 0 && numChannels == 2)
         {
@@ -53,6 +67,13 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         }
 
         sanitiseBuffer (buffer);
+
+        {
+            auto& in = fxSlotIn[(size_t) (slot - 1)];
+            auto& out = fxSlotOut[(size_t) (slot - 1)];
+            in.store (in.load() * 0.8f + levelIn * 0.2f);
+            out.store (out.load() * 0.8f + levelOf() * 0.2f);
+        }
 
         const auto elapsedSeconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startTicks);
         const auto availableSeconds = (double) numSamples / juce::jmax (1.0, currentSampleRate);

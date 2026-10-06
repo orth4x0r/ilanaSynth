@@ -79,6 +79,12 @@ public:
     // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
     void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze[0].getBands (out); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    // What a slot did to the signal in the last blocks: its input and output
+    // levels (RMS, linear, smoothed), both 0 while the slot is empty or
+    // bypassed. A reading for the rack's signal rail only; it never touches
+    // the audio.
+    float getFxSlotInLevel (int slot) const { return fxSlotIn[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    float getFxSlotOutLevel (int slot) const { return fxSlotOut[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
@@ -1154,6 +1160,7 @@ private:
     double stutterPosition = 0.0;
     float stutterRate = 1.0f;
     std::array<std::atomic<float>, numFxSlots> fxSlotCpu {};
+    std::array<std::atomic<float>, numFxSlots> fxSlotIn {}, fxSlotOut {};
     juce::String chainA, chainB;
     bool chainBValid = false;
     bool showingChainA = true;

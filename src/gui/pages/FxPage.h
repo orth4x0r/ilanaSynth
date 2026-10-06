@@ -266,6 +266,19 @@ public:
                         ownMix[type] = true;
                 }
 
+        // The rack's row grid: knobs with their name and value beside the dial,
+        // menus 18 px under a small name, switches with their name beside them.
+        for (auto& group : slotGroups)
+            for (auto* item : group)
+            {
+                if (auto* knob = dynamic_cast<KnobControl*> (item))
+                    knob->setInlineKnob (true);
+                else if (auto* combo = dynamic_cast<ComboControl*> (item))
+                    combo->setCompactLayout (true);
+                else if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+                    toggle->setInlineLabel (true);
+            }
+
         diceButton.setTooltip ("Randomise FX\nRandomises the FX chain: new effects (each once) in every slot of this chain. Undo brings the old chain back.");
         diceButton.onClick = [this]
         {
@@ -311,9 +324,7 @@ public:
                                                 }));
         };
         // The rack's one + ADD EFFECT is the tile after the last card (S7-16).
-        addEffectTile.setTooltip ("Add an effect to the next empty slot: the library, every effect grouped by what it does");
-        addEffectTile.onClick = [this] { showLibrary (addEffectTile, addEffectTile.getLocalBounds()); };
-        stackContent.addChildComponent (addEffectTile);
+        addButton.onClick = [this] { showLibrary (addButton, addButton.getLocalBounds()); };
         fileButton.setTooltip ("This chain as a whole: copy it over the other chain, save it to a file, or load one into it");
         fileButton.onClick = [this] { showFileMenu(); };
         // The chain's own actions are quiet.
@@ -342,6 +353,7 @@ public:
         };
 
         addAndMakeVisible (diceButton);
+        addAndMakeVisible (addButton);
         addAndMakeVisible (fileButton);
         IlanaTheme::makePill (chainAButton, IlanaTheme::accent());
         IlanaTheme::makePill (chainBButton, IlanaTheme::accent());
@@ -354,9 +366,12 @@ public:
         // The final stage after the rack.
         softClip = std::make_unique<ToggleControl> (p.apvts, "master_clip", "ON"); // its name is drawn at its left (review 11, S11-14)
         softClip->showAsSwitch();
+        softClip->setBareSwitch (true);
         clipGain = std::make_unique<StripKnob> (p, "master_clip_gain", "Clip Gain");
         addAndMakeVisible (*softClip);
         addAndMakeVisible (*clipGain);
+        outputMeter = std::make_unique<OutputMeter> (p);
+        addAndMakeVisible (*outputMeter);
 
         // Every loaded module's controls live in one scrolling stack.
         for (auto& group : slotGroups)
@@ -412,6 +427,7 @@ public:
             // effect has no MIX of its own: one widget, one name and one
             // place for dry / wet on every card (UI review 8, S8-6).
             header.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX", IlanaTheme::accent(), false);
+            header.mix->setInlineKnob (true);
             stackContent.addChildComponent (*header.mix);
 
             header.model.onSwitch = [this, slot]
@@ -421,7 +437,9 @@ public:
                     processorRef.performEdit ("Change effect to " + getSlotName (other), [this, slot, other] { processorRef.assignFxSlot (slot + 1, other); });
                 updateVisibility();
             };
-            stackContent.addChildComponent (header.model);
+            // (The model switch's logic stays; the row shows it as the engine tag.)
+            header.chip.onClick = [&header] { if (header.model.onSwitch != nullptr) header.model.onSwitch(); };
+            stackContent.addChildComponent (header.chip);
 
             header.remove.setTooltip ("Take this duplicate out of the rack (the first card keeps the settings)");
             header.remove.onClick = [this, slot] { removeSlot (slot); };
@@ -456,19 +474,44 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        if (! outputStrip.isEmpty())
-        {
-            IlanaTheme::paintRecessedPanel (g, outputStrip.toFloat(), 6.0f);
-            IlanaTheme::paintCardTitle (g, outputStrip.withWidth (110).withTrimmedLeft (14), "OUTPUT", IlanaTheme::Ui::text2);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            // The caption at the right, as a card's subtitle sits after its title.
-            g.drawText ("after the rack, before the master volume", outputStrip.withTrimmedRight (14), juce::Justification::centredRight);
-            // A label left of its switch, as on the rest of the page.
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("SOFT CLIP", outputStrip.withLeft (outputStrip.getX() + 110).withWidth (84), juce::Justification::centredLeft);
-        }
+        // The top bar: the two chains as one switch, the routing and what it means.
+        IlanaTheme::paintWell (g, chainSeg.toFloat(), (float) chainSeg.getHeight() * 0.5f);
+        IlanaTheme::paintPill (g, seriesBadge.toFloat(), "SERIES", IlanaTheme::accent(), true);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        g.drawText ("each effect feeds the next one", seriesHint, juce::Justification::centredLeft, true);
+
+        // The rail's ends: IN above the first effect, OUT under the last.
+        const auto railX = (float) inColumn.getCentreX();
+        paintRailPill (g, inColumn, "IN");
+        if (! stackView.isVisible())
+            return paintOutput (g);
+
+        paintRailLine (g, railX, (float) inColumn.getCentreY() + 11.0f, (float) stackView.getY() + 1.0f, firstRailColour(), false);
+        paintRailPill (g, outColumn, "OUT");
+        paintRailLine (g, railX, (float) stackView.getBottom() - 1.0f, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
+        paintRailArrow (g, railX, (float) outColumn.getCentreY() - 11.0f, lastRailColour(), false);
+        paintOutput (g);
+    }
+
+    void paintOutput (juce::Graphics& g)
+    {
+        if (outputStrip.isEmpty())
+            return;
+
+        if (! stackView.isVisible())
+            paintRailPill (g, outColumn, "OUT");
+
+        IlanaTheme::paintCard (g, outputStrip.toFloat(), 8.0f, IlanaTheme::Ui::line);
+        IlanaTheme::paintCardTitle (g, outputTitle, "OUTPUT", IlanaTheme::Ui::text2);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        g.drawText ("SOFT CLIP", outputSoftLabel, juce::Justification::centredLeft);
+        g.setColour (IlanaTheme::Ui::line);
+        g.fillRect (outputSeparator);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        g.drawText ("after the rack, before the master volume", outputHint, juce::Justification::centredRight, true);
 
         if (library->isVisible())
         {
@@ -478,7 +521,7 @@ public:
             g.drawText ("The rack is empty", heading.removeFromTop (26), juce::Justification::centredLeft);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText ("Pick an effect to start the chain. Each one goes into the next slot; drag a card's header to reorder them.",
+            g.drawText ("Pick an effect to start the chain. Each one goes into the next slot; drag a row's name to reorder them.",
                         heading.removeFromTop (20), juce::Justification::centredLeft);
         }
     }
@@ -510,30 +553,31 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12);
+        auto area = getLocalBounds().reduced (0, 8);
 
-        // The toolbar: the two chains on the left, the dice and the
-        // chain's file on the right.
-        auto toolbar = area.removeFromTop (24);
-        {
-            auto left = toolbar;
-            left.removeFromLeft (headingX - area.getX() - 2);
-            chainAButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
-            left.removeFromLeft (4);
-            chainBButton.setBounds (left.removeFromLeft (76).reduced (0, 2));
-            left.removeFromLeft (8);
-            // One menu for what acts on the chain as a whole (copy it, save it,
-            // load one), the two chains as the only tabs and the dice at the
-            // right: three kinds of button were five buttons (V12-21).
-            fileButton.setBounds (left.removeFromLeft (84).reduced (0, 3));
-            diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 3));
-        }
+        // The top bar: IN above the rail, the two chains, the routing; at the
+        // right the chain's file menu, + ADD and the dice.
+        auto toolbar = area.removeFromTop (toolbarHeight);
+        inColumn = toolbar.removeFromLeft (railWidth);
+        toolbar.removeFromLeft (railGap);
+        chainSeg = toolbar.removeFromLeft (136);
+        chainAButton.setBounds (chainSeg.withTrimmedLeft (3).removeFromLeft (64).reduced (0, 2));
+        chainBButton.setBounds (chainSeg.withTrimmedLeft (3 + 66).removeFromLeft (64).reduced (0, 2));
+        toolbar.removeFromLeft (10);
+        seriesBadge = toolbar.removeFromLeft (76).reduced (0, 2);
+        toolbar.removeFromLeft (10);
+        diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
+        toolbar.removeFromRight (6);
+        addButton.setBounds (toolbar.removeFromRight (62).reduced (0, 2));
+        toolbar.removeFromRight (6);
+        fileButton.setBounds (toolbar.removeFromRight (84).reduced (0, 2));
+        seriesHint = toolbar.withTrimmedRight (10);
         copyChainButton.setVisible (false);
+        area.removeFromTop (rowGap - stackTopMargin);
 
-        area.removeFromTop (8);
-
-        constexpr int outputHeight = 46, outputGap = 6;
-        auto stackArea = area.withTrimmedBottom (outputHeight + outputGap);
+        auto outRow = area.removeFromBottom (outputHeight);
+        area.removeFromBottom (rowGap);
+        auto stackArea = area;
 
         // An empty rack shows the library in the stack's place (one view
         // of the chain, not a list beside the cards: S5-18, S6-25).
@@ -548,34 +592,49 @@ public:
             library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight() + 170)));
         }
 
-        // The cards take their own height, and OUTPUT follows the last of
-        // them (V7-29, S7-16: no empty band above it).
+        // The rows take their own height (stretched to 96 at most, squeezed to
+        // 64 when the rack is long, scrolling beyond); OUTPUT follows the last
+        // of them (V7-29, S7-16: no empty band above it).
+        availableStackHeight = stackArea.getHeight();
         stackView.setBounds (stackArea);
-        rowExtra = 0;
         layoutStack();
-        if (! empty && stackNaturalHeight < stackArea.getHeight())
+        if (! empty)
         {
-            // The rack's spare height goes to its rows (a taller graph, the
-            // knobs centred in it), so the page doesn't end in a blank band
-            // (UI review 9, V9-3).
-            rowExtra = juce::jlimit (0, 90, (stackArea.getHeight() - stackNaturalHeight) / juce::jmax (1, stackRows));
-            stackView.setBounds (stackArea);
-            layoutStack();
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
             layoutStack();
+            // (The chip under the last row reaches past the gap, so the view's foot margin
+            // is 4 px more than it: OUTPUT closes up on it unless the rack scrolls.)
+            outRow.setY (stackNaturalHeight < stackArea.getHeight() ? stackView.getBottom() - (stackFootMargin - rowGap)
+                                                                    : stackView.getBottom() + rowGap);
         }
 
-        outputStrip = empty ? area.withTop (area.getBottom() - outputHeight)
-                            : juce::Rectangle<int> (area.getX(), stackView.getBottom() + outputGap, area.getWidth(), outputHeight);
+        outputStrip = outRow.withTrimmedLeft (railWidth + railGap);
+        outColumn = outRow.withWidth (railWidth);
         {
-            auto strip = outputStrip.reduced (6, 3);
-            strip.removeFromLeft (104); // the tagged OUTPUT title
-            strip.removeFromLeft (84); // the label drawn left of the switch
-            softClip->setBounds (strip.removeFromLeft (50));
-            strip.removeFromLeft (30);
-            clipGain->setBounds (strip.removeFromLeft (160));
+            auto strip = outputStrip.reduced (14, 0);
+            outputTitle = strip.removeFromLeft (64);
+            strip.removeFromLeft (18);
+            outputSoftLabel = strip.removeFromLeft (68);
+            strip.removeFromLeft (6);
+            softClip->setBounds (strip.removeFromLeft (40).withSizeKeepingCentre (40, 22));
+            strip.removeFromLeft (18);
+            outputSeparator = strip.removeFromLeft (1).withSizeKeepingCentre (1, 26);
+            strip.removeFromLeft (18);
+            clipGain->setBounds (strip.removeFromLeft (160).reduced (0, 3));
+            outputMeter->setBounds (strip.removeFromRight (130).withSizeKeepingCentre (130, 30));
+            strip.removeFromRight (14);
+            outputHint = strip;
         }
+        updateAddButton();
         repaint();
+    }
+
+    void updateAddButton()
+    {
+        const auto free = firstEmptySlot() >= 0;
+        addButton.setEnabled (free);
+        addButton.setTooltip (free ? "Add an effect to the next empty slot: the library, every effect grouped by what it does"
+                                   : "Every slot is in use: remove an effect to add another.");
     }
 
 private:
@@ -949,14 +1008,19 @@ private:
     bool tapsEnabled() const { return processorRef.apvts.getRawParameterValue ("fx_taps_on")->load() > 0.5f; }
     bool delaySynced() const { return processorRef.apvts.getRawParameterValue ("fx_delay_sync")->load() > 0.5f; }
 
-    // One card per loaded slot, in chain order. A module type loaded twice
-    // shares its settings, so later copies say so and offer REMOVE.
+    // One row per loaded slot, in chain order (the design's signal rail:
+    // the rail at the left, then a headless row: number, name, solo, power
+    // and engine; the effect's live picture; its knobs). A module type
+    // loaded twice shares its settings, so later copies say so and offer
+    // REMOVE.
     struct StackPanel
     {
         int slot = 0, type = 0;
         bool duplicate = false;
         juce::Rectangle<int> bounds;
-        juce::Rectangle<int> well; // the picture slot of a card with no display: a sentence on what the effect does
+        juce::Rectangle<int> well;   // the picture slot of a row with no display: a sentence on what the effect does
+        juce::Rectangle<int> handle; // the left block: where a drag reorders the chain
+        juce::Rectangle<int> number; // the slot's number badge
     };
 
     // Banded slots next to each other, drawn as one bracketed group: a
@@ -967,19 +1031,23 @@ private:
         bool frequency = true;
     };
 
-    // Card geometry: a 30 px header (number, type menu, blend, solo, band,
-    // on switch), then rows of controls sized to their knobs, with the
-    // family's display on the left where the module has one. Cards whose
-    // controls fit in half the width sit two to a row (S6-26).
-    static constexpr int knobCellWidth = 88, cardDisplayWidth = 220, minDisplayWidth = 150, maxDisplayWidth = 340, minCardWidth = 360;
-    static constexpr int cardHeaderHeight = 30, cardRowHeight = 96, cardPadding = 6, stackTopMargin = 8, cardGap = 8;
+    // Row geometry (px of the 1060 x 720 design): the rail is 56 wide, a row
+    // is 80 high (64 when the rack is long), its left block 156 wide, its knobs
+    // 116 x 44 cells with the dial's name and value beside it.
+    static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
+    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 80, duplicateHeight = 56;
+    static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
-    static constexpr int blendWidth = 104, soloWidth = 24, bandWidth = 100, knobColumn = 84;
+    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 
+    // The knob grid: up to five across, as many rows as the controls need.
+    static int columnsFor (int count) { return count <= 5 ? juce::jmax (1, count) : (count == 6 ? 3 : (count <= 8 ? 4 : 5)); }
+    static int rowsFor (int count) { return count <= 0 ? 1 : (count + columnsFor (count) - 1) / columnsFor (count); }
+
     // The controls a card lays out in its rows (its on switch goes in the
-    // header; an Airwindows knob the algorithm doesn't use is skipped).
+    // left block; an Airwindows knob the algorithm doesn't use is skipped).
     std::vector<juce::Component*> rowItems (int type, ToggleControl** power = nullptr) const
     {
         std::vector<juce::Component*> items;
@@ -998,7 +1066,7 @@ private:
                 items.push_back (item);
         }
 
-        // One on switch per module, at the header's switch place: its own
+        // One on switch per module, at the row's switch place: its own
         // on parameter, or else the slot's bypass (and the toggle joins the rows).
         if (found != nullptr && enableParamFor (type) == nullptr)
         {
@@ -1011,7 +1079,7 @@ private:
         return items;
     }
 
-    // A card's row: its module's controls, then the slot's MIX where the
+    // A row's controls: its module's, then the slot's MIX where the
     // effect has none of its own (in the family's colour), or BLEND on an
     // old patch that set the slot's dry / wet beside the effect's MIX.
     std::vector<juce::Component*> cardItems (const StackPanel& panel, ToggleControl** power = nullptr) const
@@ -1029,11 +1097,29 @@ private:
         return items;
     }
 
-    static bool hasCardDisplay (int type) { return type == 29 || FxDisplay::hasDisplay (type); }
+    // Everything the knob grid holds: the controls, the band menu of a banded
+    // slot (first) and the reverb's LOAD IR (last).
+    std::vector<juce::Component*> gridItems (const StackPanel& panel, ToggleControl** power = nullptr)
+    {
+        auto items = cardItems (panel, power);
+        if (showsBand (panel.slot))
+            items.insert (items.begin(), &cardHeaders[(size_t) panel.slot].band);
+        if (panel.type == 13 && ! panel.duplicate)
+            items.push_back (&loadIrButton);
+        return items;
+    }
 
-    // Every card has a picture slot on its left: the effect's display, or for
-    // one without (FREEZE, the WIDENER, most Airwindows modules) a sentence on
-    // what it does, so no card is half blank (UI review 13, V13-1, I13-3).
+    int gridCount (const StackPanel& panel) const
+    {
+        return (int) cardItems (panel).size() + (showsBand (panel.slot) ? 1 : 0) + (panel.type == 13 && ! panel.duplicate ? 1 : 0);
+    }
+
+    static bool hasCardDisplay (int type) { return type == 29 || type == 16 || FxDisplay::hasDisplay (type); }
+
+    // Every row has a picture in its middle: the effect's display, or for one
+    // without (FREEZE, the WIDENER, most Airwindows modules) a sentence on
+    // what it does with its in and out levels beside it, so no row is half
+    // blank (UI review 13, V13-1, I13-3).
     static bool hasCardPicture (int type) { return type > 0; }
 
     // The Airwindows algorithm a module type is running (its registry index), or -1.
@@ -1051,20 +1137,6 @@ private:
         if (const auto index = airwindowsIndexFor (type); index >= 0)
             return FxInfoText::forAirwindows (airwindows::registry()[(size_t) index].name);
         return FxInfoText::forType (type);
-    }
-
-
-    // The header's controls, right to left from the on switch.
-    int headerControlsWidth (const StackPanel& panel) const
-    {
-        return 8 + 48 + (showsBand (panel.slot) ? bandWidth + 6 : 0) + soloWidth + 6 + 4
-               + (panel.type == 13 && ! panel.duplicate ? 82 : 0);
-    }
-
-    int titleWidth (const StackPanel& panel) const
-    {
-        return 34 + IlanaTheme::cardTitleWidth (cardTitle (panel.type)) + 4
-               + (hasModelSwitch (panel.type) ? FxModelSwitch::preferredWidth + 12 : (showsAirwindowsBadge (panel.type) ? 96 : 0));
     }
 
     // The band menu only where a slot works on a band (inside a split
@@ -1095,48 +1167,29 @@ private:
         return getSlotName (base).toUpperCase();
     }
 
-    // One width per effect type (V11-4), whatever sits beside it or how many
-    // cards the chain has: the header, or the display at its cap and the
-    // knobs in their fixed cells (a menu takes about two), whichever is
-    // wider. Cards are no wider than that; the rack's width only decides how
-    // many fit in a row.
-    int naturalWidth (const StackPanel& panel, bool compact = false) const
-    {
-        const auto header = titleWidth (panel) + headerControlsWidth (panel);
-        if (panel.duplicate)
-            return juce::jmax (header, minCardWidth);
-
-        const auto items = cardItems (panel);
-        auto menus = 0;
-        for (auto* item : items)
-            menus += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-
-        // (More than eight controls are two rows of half.)
-        const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
-        const auto menuShare = juce::jmin (menus, columns);
-        // Compact: the picture at its floor and the cells as tight as the
-        // labels allow, what a half-width card makes do with.
-        const auto row = 20 + (hasCardPicture (panel.type) ? (compact ? minDisplayWidth : cardDisplayWidth) + 12 : 0)
-                         + columns * (compact ? 66 : knobCellWidth) + menuShare * (compact ? 30 : 70);
-        return std::max ({ header, row, compact ? 360 : minCardWidth, panel.type == 16 ? (compact ? 640 : 720) : 0, panel.type == 9 ? (compact ? 440 : 520) : 0 });
-    }
-
-    // The narrowest a card lays out at.
-    int minimumWidth (const StackPanel& panel) const { return naturalWidth (panel, true); }
-
-    int cardHeight (const StackPanel& panel) const
+    // A row's height: 80 for one line of knobs, taller for more (the grid is
+    // 44 per line), plus the delay's tap grid while TAPS is on.
+    int naturalHeight (const StackPanel& panel) const
     {
         if (panel.duplicate)
-            return cardHeaderHeight + 66;
+            return duplicateHeight;
 
-        const auto rows = cardItems (panel).size() > 8 ? 2 : 1;
-        auto height = cardHeaderHeight + rows * cardRowHeight + (rows == 1 ? rowExtra : 0) + cardPadding;
-        if (panel.type == 9 && tapsEnabled())
-            height += 56;
-        if (panel.type == 16)
-            height += 78;
-        return height;
+        const auto rows = rowsFor (gridCount (panel));
+        return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * cellHeight) + (panel.type == 9 && tapsEnabled() ? tapGridHeight : 0);
     }
+
+    // The least a row compresses to when the rack is long: a single line of
+    // knobs drops to 64; taller grids keep their lines at 40.
+    int minimumHeight (const StackPanel& panel) const
+    {
+        if (panel.duplicate)
+            return duplicateHeight;
+
+        const auto rows = rowsFor (gridCount (panel));
+        return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * 40) + (panel.type == 9 && tapsEnabled() ? tapGridHeight : 0);
+    }
+
+    bool isStretchy (const StackPanel& panel) const { return ! panel.duplicate && rowsFor (gridCount (panel)) == 1; }
 
     void layoutStack()
     {
@@ -1147,7 +1200,7 @@ private:
             slotSwitch->setVisible (false);
         for (auto& header : cardHeaders)
             for (juce::Component* item : { (juce::Component*) &header.type, (juce::Component*) &header.solo, (juce::Component*) &header.band,
-                                           (juce::Component*) &header.blend, (juce::Component*) &header.remove, (juce::Component*) &header.model,
+                                           (juce::Component*) &header.remove, (juce::Component*) &header.chip,
                                            (juce::Component*) header.mix.get() })
                 item->setVisible (false);
         for (auto& display : displays)
@@ -1155,9 +1208,7 @@ private:
         for (auto& strip : crossoverStrips)
             strip->setVisible (false);
 
-        const auto width = juce::jmax (100, stackView.getWidth() - stackView.getScrollBarThickness() - 4);
-
-        // The cards in chain order, each marked half width where it fits.
+        // The cards in chain order.
         std::vector<StackPanel> cards;
         std::array<bool, 64> placed {};
 
@@ -1176,165 +1227,238 @@ private:
             cards.push_back (panel);
         }
 
-        auto y = stackTopMargin; // (room for the first card's glow)
-        rowsPlaced = 0;
-        size_t stripIndex = 0;
-        addEffectCard = {};
-
+        // A run of cards with the same kind of band: plain, or one split group.
+        struct Run { size_t from, to; int kind; };
+        std::vector<Run> runs;
         for (size_t i = 0; i < cards.size();)
         {
-            // A run of cards with the same kind of band: plain, or one split group.
             const auto kind = splitKind (getSlotBand (cards[i].slot));
             auto end = i + 1;
             while (end < cards.size() && splitKind (getSlotBand (cards[end].slot)) == kind)
                 ++end;
-
-            if (kind == 0)
-            {
-                y = flowCards (cards, i, end, 0, width, y);
-            }
-            else
-            {
-                SplitGroup group;
-                group.frequency = kind == 1;
-                const auto top = y;
-
-                if (group.frequency && stripIndex < crossoverStrips.size())
-                {
-                    std::array<bool, 3> used {};
-                    for (auto k = i; k < end; ++k)
-                        if (const auto band = getSlotBand (cards[k].slot); band >= 1 && band <= 3)
-                            used[(size_t) band - 1] = true;
-                    auto& strip = *crossoverStrips[stripIndex++];
-                    // (Clear of the first cards' on switches, whose label space rises above them.)
-                    strip.setBounds (juce::Rectangle<int> (splitInsetLeft + 150, top + 6, width - splitInsetLeft - 150 - 14, 20));
-                    strip.setBandsUsed (used);
-                    strip.setVisible (true);
-                }
-
-                y = flowCards (cards, i, end, splitInsetLeft, width - splitInsetLeft - splitInsetRight, top + splitHeaderHeight);
-                group.bounds = { 0, top, width, y - cardGap + splitInsetRight - top };
-                y = group.bounds.getBottom() + cardGap;
-                splitGroups.push_back (group);
-            }
-
+            runs.push_back ({ i, end, kind });
             i = end;
+        }
+
+        // Heights: every row at its natural height; a short rack stretches its
+        // single-line rows (to 96 at most), a long one compresses them (to 64)
+        // before the stack scrolls.
+        const auto viewHeight = availableStackHeight;
+        auto overhead = stackTopMargin + stackFootMargin + juce::jmax (0, (int) cards.size() - 1) * rowGap;
+        for (const auto& run : runs)
+            overhead += run.kind != 0 ? splitHeaderHeight + splitInsetRight : 0;
+
+        std::vector<int> heights;
+        auto naturalTotal = overhead;
+        auto stretchy = 0;
+        for (const auto& card : cards)
+        {
+            heights.push_back (naturalHeight (card));
+            naturalTotal += heights.back();
+            stretchy += isStretchy (card) ? 1 : 0;
+        }
+
+        if (naturalTotal < viewHeight && stretchy > 0)
+        {
+            const auto each = (viewHeight - naturalTotal) / stretchy;
+            for (size_t i = 0; i < cards.size(); ++i)
+                if (isStretchy (cards[i]))
+                    heights[i] = juce::jmin (rowHeightMost, heights[i] + each);
+        }
+        else if (naturalTotal > viewHeight)
+        {
+            auto deficit = naturalTotal - viewHeight;
+            for (auto pass = 0; pass < 3 && deficit > 0; ++pass)
+                for (size_t i = 0; i < cards.size() && deficit > 0; ++i)
+                {
+                    const auto room = heights[i] - minimumHeight (cards[i]);
+                    if (room <= 0 || ! isStretchy (cards[i]))
+                        continue;
+                    const auto take = juce::jmin (room, juce::jmax (1, (deficit + stretchy - 1) / juce::jmax (1, stretchy)));
+                    heights[i] -= take;
+                    deficit -= take;
+                }
+        }
+
+        auto contentHeight = overhead;
+        for (auto height : heights)
+            contentHeight += height;
+        // (A scroll bar takes its width from the rows, not the rail.)
+        const auto scrolls = contentHeight > viewHeight;
+        const auto width = juce::jmax (100, stackView.getWidth() - (scrolls ? stackView.getScrollBarThickness() + 2 : 0));
+        const auto cardX = railWidth + railGap;
+
+        auto y = stackTopMargin; // (room for the first card's glow)
+        rowsPlaced = 0;
+        size_t stripIndex = 0;
+
+        for (const auto& run : runs)
+        {
+            if (run.kind == 0)
+            {
+                for (auto k = run.from; k < run.to; ++k)
+                {
+                    placeCard (cards[k], { cardX, y, width - cardX, heights[k] });
+                    y += heights[k] + rowGap;
+                    ++rowsPlaced;
+                }
+                continue;
+            }
+
+            SplitGroup group;
+            group.frequency = run.kind == 1;
+            const auto top = y;
+
+            if (group.frequency && stripIndex < crossoverStrips.size())
+            {
+                std::array<bool, 3> used {};
+                for (auto k = run.from; k < run.to; ++k)
+                    if (const auto band = getSlotBand (cards[k].slot); band >= 1 && band <= 3)
+                        used[(size_t) band - 1] = true;
+                auto& strip = *crossoverStrips[stripIndex++];
+                strip.setBounds (juce::Rectangle<int> (cardX + splitInsetLeft + 150, top + 6, width - cardX - splitInsetLeft - 150 - 14, 20));
+                strip.setBandsUsed (used);
+                strip.setVisible (true);
+            }
+
+            y = top + splitHeaderHeight;
+            for (auto k = run.from; k < run.to; ++k)
+            {
+                placeCard (cards[k], { cardX + splitInsetLeft, y, width - cardX - splitInsetLeft - splitInsetRight, heights[k] });
+                y += heights[k] + rowGap;
+                ++rowsPlaced;
+            }
+            group.bounds = { cardX, top, width - cardX, y - rowGap + splitInsetRight - top };
+            y = group.bounds.getBottom() + rowGap;
+            splitGroups.push_back (group);
         }
 
         updateModuleDimming();
 
-        // A quiet tile on its own row after the last effect while the rack has
-        // room: the one + ADD EFFECT (V14-1: never a card-sized hole beside a
-        // lone last card; that card takes the whole row instead).
-        if (addEffectCard.isEmpty() && ! stackPanels.empty() && firstEmptySlot() >= 0)
-        {
-            addEffectCard = { 0, y, width, DashedAddButton::standardHeight };
-            y += DashedAddButton::standardHeight + cardGap;
-        }
-        addEffectTile.setBounds (addEffectCard);
-        addEffectTile.setVisible (! addEffectCard.isEmpty());
-
-        stackNaturalHeight = y;
+        stackNaturalHeight = y - rowGap + stackFootMargin;
         stackRows = rowsPlaced;
-        stackContent.setSize (width, juce::jmax (y, stackView.getHeight()));
+        stackContent.setSize (width, juce::jmax (stackNaturalHeight, stackView.getHeight()));
         stackContent.repaint();
     }
 
-    // Cards from..to on a two-column grid, in chain order (UI review 13,
-    // V13-1): a card that fits half the rack's width takes half, and two of
-    // them share a row; a wider one, or a half card with no partner, takes the
-    // whole row, its picture growing into the room.  A lone last card takes the
-    // whole row (V14-1). A row is as tall
-    // as its tallest card. Inside a split group the same grid holds.
-    int flowCards (std::vector<StackPanel>& cards, size_t from, size_t to, int x, int width, int y)
+    // The card's left block: its number and name on one line, SOLO, the
+    // power switch and the engine tag under them.
+    struct LeftBlock { juce::Rectangle<int> number, name, solo, power, chip; };
+
+    static LeftBlock leftBlockFor (juce::Rectangle<int> card)
     {
-        const auto half = (width - cardGap) / 2;
-        const auto fitsHalf = [this, half] (const StackPanel& card) { return minimumWidth (card) <= half; };
+        auto block = card.withTrimmedLeft (10).withWidth (leftWidth).withSizeKeepingCentre (leftWidth, 48);
+        block.setX (card.getX() + 10);
+        auto line1 = block.removeFromTop (22);
+        block.removeFromTop (6);
+        auto line2 = block.removeFromTop (20);
 
-        for (auto k = from; k < to;)
-        {
-            const auto pair = fitsHalf (cards[k]) && k + 1 < to && fitsHalf (cards[k + 1]);
-            const auto height = pair ? juce::jmax (cardHeight (cards[k]), cardHeight (cards[k + 1])) : cardHeight (cards[k]);
-
-            if (pair)
-            {
-                placeCard (cards[k], { x, y, half, height });
-                placeCard (cards[k + 1], { x + half + cardGap, y, width - half - cardGap, height });
-                k += 2;
-            }
-            else
-            {
-                placeCard (cards[k], { x, y, width, height });
-                k += 1;
-            }
-
-            ++rowsPlaced;
-            y += height + cardGap;
-        }
-
-        return y;
+        LeftBlock result;
+        result.number = line1.removeFromLeft (18).withSizeKeepingCentre (18, 18);
+        line1.removeFromLeft (4);
+        result.name = line1;
+        result.solo = line2.removeFromLeft (24);
+        line2.removeFromLeft (6);
+        result.power = line2.removeFromLeft (36);
+        line2.removeFromLeft (6);
+        result.chip = line2.withHeight (20);
+        return result;
     }
 
     void placeCard (StackPanel panel, juce::Rectangle<int> bounds)
     {
         panel.bounds = bounds;
-        layoutCardHeader (panel);
         const auto slot = panel.slot;
         const auto type = panel.type;
+        auto& header = cardHeaders[(size_t) slot];
+        const auto left = leftBlockFor (bounds);
+        panel.number = left.number;
+        panel.handle = bounds.withWidth (leftWidth + 20);
+
+        header.type.setTitle (cardTitle (type), isModuleOff (slot) ? IlanaTheme::Ui::text3 : fxColour (type));
+        header.type.setBounds (left.name.withWidth (juce::jmin (left.name.getWidth(), header.type.preferredWidth())));
+        header.type.setVisible (true);
+        header.type.setTooltip ("Slot " + juce::String (slot + 1) + ": " + getSlotName (type)
+                                + ". Click to change the effect, move or remove it; drag the number or name to reorder."
+                                + (isAirwindowsType (type) ? "\n" + airwindowsBadgeTip (type) : juce::String()));
+        header.solo.setBounds (left.solo);
+        header.solo.setVisible (true);
+
+        // The engine: BUILT-IN or AIRWINDOWS, and where there is a twin a click
+        // swaps the slot to it (each model keeps its own settings).
+        {
+            const auto airwindows = isAirwindowsType (type);
+            const auto twin = hasModelSwitch (type) ? fxTwinOf (type) : -1;
+            const auto free = twin > 0 && slotHoldingType (twin, slot) < 0;
+            header.chip.setState (airwindows ? "AIRWINDOWS" : "BUILT-IN", fxColour (type), free);
+            header.chip.setBounds (left.chip.withWidth (juce::jmin (left.chip.getWidth(), 88)));
+            header.chip.setTooltip (twin > 0
+                                        ? "Model: " + getSlotName (airwindows ? twin : type) + " built in, or its Airwindows model, "
+                                              + getSlotName (airwindows ? type : twin) + ". Click the other to swap this slot's effect (each keeps its own settings)."
+                                              + (slotHoldingType (twin, slot) >= 0 ? "\nThe other model is in slot " + juce::String (slotHoldingType (twin, slot) + 1) + " already." : juce::String())
+                                              + "\n" + airwindowsBadgeTip (airwindows ? type : twin)
+                                        : (airwindows ? airwindowsBadgeTip (type) : "This effect is part of the synth (no Airwindows model)."));
+            header.chip.setVisible (true);
+        }
+
+        auto inner = bounds.reduced (10, rowPad).withTrimmedLeft (leftWidth + 10);
 
         if (panel.duplicate)
         {
             // Duplicates share settings but bypass on their own.
+            slotSwitches[(size_t) slot]->setBare (true);
             slotSwitches[(size_t) slot]->setVisible (true);
-            slotSwitches[(size_t) slot]->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
-            auto& remove = cardHeaders[(size_t) slot].remove;
-            remove.setBounds (panel.bounds.getRight() - 12 - 84, panel.bounds.getBottom() - 12 - 24, 84, 24);
+            slotSwitches[(size_t) slot]->setBounds (left.power.withHeight (20));
+            auto& remove = header.remove;
+            remove.setBounds (juce::Rectangle<int> (bounds.getRight() - 12 - 84, bounds.getCentreY() - 12, 84, 24));
             remove.setVisible (true);
+            panel.well = {};
             stackPanels.push_back (panel);
             return;
         }
 
-        auto body = panel.bounds.reduced (10, 0);
-        body.removeFromTop (cardHeaderHeight);
-
         ToggleControl* power = nullptr;
-        const auto items = cardItems (panel, &power);
+        const auto items = gridItems (panel, &power);
         if (showsSlotMix (panel))
-            cardHeaders[(size_t) slot].mix->setVisible (true);
+            header.mix->setVisible (true);
+        if (showsBand (slot))
+            header.band.setVisible (true);
 
         if (power != nullptr)
-            power->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
+        {
+            power->setInlineLabel (false);
+            power->setBareSwitch (true);
+            power->setBounds (left.power.withHeight (20));
+        }
         else
         {
+            slotSwitches[(size_t) slot]->setBare (true);
             slotSwitches[(size_t) slot]->setVisible (true);
-            slotSwitches[(size_t) slot]->setBounds (IlanaTheme::cardSwitchBounds (panel.bounds, panel.bounds.getY() + 14));
+            slotSwitches[(size_t) slot]->setBounds (left.power.withHeight (20));
         }
 
-        const auto rows = items.size() > 8 ? 2 : 1;
-        const auto extra = rows == 1 ? rowExtra : 0;
-        auto rowsArea = body.removeFromTop (rows * cardRowHeight + extra);
+        // The delay's tap grid under the row while TAPS is on.
+        if (type == 9 && tapsEnabled())
+            tapGrid.setBounds (inner.removeFromBottom (tapGridHeight - 4).withTrimmedBottom (2).withTrimmedTop (2));
 
-        // The family's picture (at its cap), then the controls in fixed
-        // cells from its right edge (V11-4, V11-6: no empty column, rows
-        // left-aligned on one grid).
-        auto menusInRow = 0;
-        for (auto* item : items)
-            menusInRow += dynamic_cast<ComboControl*> (item) != nullptr ? 1 : 0;
-        const auto columns = items.size() > 8 ? (int) (items.size() + 1) / 2 : (int) items.size();
-        const auto wide = panel.bounds.getWidth() > 600;
-        const auto knobsWidth = columns * knobCellWidth + juce::jmin (menusInRow, columns) * 70;
+        // The knobs in their cells at the right, the picture taking the rest.
+        const auto count = (int) items.size();
+        const auto columns = columnsFor (count), rows = rowsFor (count);
+        const auto room = inner.getWidth() - minDisplayWidth - 10;
+        const auto cellWidth = juce::jlimit (92, knobCellWidth, count > 0 ? room / juce::jmax (1, columns) : knobCellWidth);
+        auto knobsArea = count > 0 ? inner.removeFromRight (columns * cellWidth) : juce::Rectangle<int>();
+        if (count > 0)
+            inner.removeFromRight (10);
 
+        panel.well = {};
         if (hasCardPicture (type))
         {
-            // The picture takes what the controls leave, between its floor and
-            // its cap: a half-width card shows a roomy graph, not a hole.
-            const auto displayWidth = juce::jlimit (minDisplayWidth, hasCardDisplay (type) ? (wide ? 900 : maxDisplayWidth) : 300, rowsArea.getWidth() - knobsWidth - 12);
-            const auto displayArea = rowsArea.removeFromLeft (displayWidth).reduced (0, 6);
-            rowsArea.removeFromLeft (12);
-
+            const auto displayArea = inner;
             if (type == 29)
                 eqCurve.setBounds (displayArea);
-            else if (hasCardDisplay (type))
+            else if (type == 16)
+                gateGrid->setBounds (displayArea);
+            else if (FxDisplay::hasDisplay (type))
             {
                 auto& display = *displays[(size_t) slot];
                 display.setType (type, fxColour (type));
@@ -1345,80 +1469,26 @@ private:
                 panel.well = displayArea;
         }
 
-        if (items.size() > 8)
+        const auto rowHeight = knobsArea.getHeight() / juce::jmax (1, rows);
+        for (int i = 0; i < count; ++i)
         {
-            const auto half = (int) (items.size() + 1) / 2;
-            layoutRow (rowsArea.removeFromTop (cardRowHeight), std::vector<juce::Component*> (items.begin(), items.begin() + half));
-            layoutRow (rowsArea.removeFromTop (cardRowHeight), std::vector<juce::Component*> (items.begin() + half, items.end()));
+            auto cell = juce::Rectangle<int> (knobsArea.getX() + (i % columns) * cellWidth, knobsArea.getY() + (i / columns) * rowHeight,
+                                              cellWidth, rowHeight);
+            auto* item = items[(size_t) i];
+
+            if (dynamic_cast<ComboControl*> (item) != nullptr)
+                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));
+            else if (dynamic_cast<ToggleControl*> (item) != nullptr)
+                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 24));
+            else if (item == &cardHeaders[(size_t) slot].band)
+                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 22));
+            else if (item == &loadIrButton)
+                item->setBounds (cell.withSizeKeepingCentre (86, 22));
+            else
+                item->setBounds (cell.reduced (2, 0));
         }
-        else
-            layoutRow (rowsArea.removeFromTop (cardRowHeight + extra), items, false, 1.4f);
-
-        body.removeFromTop (cardPadding);
-
-        if (type == 9 && tapsEnabled())
-            tapGrid.setBounds (body.removeFromTop (56).reduced (0, 2).withTrimmedBottom (4));
-
-        if (type == 16)
-            gateGrid->setBounds (body.removeFromTop (78).reduced (0, 2).withTrimmedBottom (4));
 
         stackPanels.push_back (panel);
-    }
-
-    // A card's header, right to left from the on switch: the band, SOLO,
-    // the slot's BLEND and, on the reverb, LOAD IR; on the left the slot's
-    // number, then the title as the type menu.
-    void layoutCardHeader (const StackPanel& panel)
-    {
-        auto& header = cardHeaders[(size_t) panel.slot];
-        const auto top = panel.bounds.getY();
-        const auto lineY = top + 5;
-
-        header.type.setTitle (cardTitle (panel.type), isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : fxColour (panel.type));
-        header.type.setBounds (panel.bounds.getX() + 34, top + 4, header.type.preferredWidth(), 22);
-        header.type.setVisible (true);
-        header.type.setTooltip ("Slot " + juce::String (panel.slot + 1) + ": " + getSlotName (panel.type)
-                                + ". Click to change the effect, move or remove it; drag the header to reorder."
-                                + (isAirwindowsType (panel.type) ? "\n" + airwindowsBadgeTip (panel.type) : juce::String()));
-
-        auto right = IlanaTheme::cardSwitchBounds (panel.bounds, top + 14).getX() - 8;
-        if (showsBand (panel.slot))
-        {
-            header.band.setBounds (right - bandWidth, lineY, bandWidth, 20);
-            header.band.setVisible (true);
-            right -= bandWidth + 6;
-        }
-        header.solo.setBounds (right - soloWidth, lineY, soloWidth, 20);
-        header.solo.setVisible (true);
-        right -= soloWidth + 6;
-        // (The slot's dry / wet is a MIX knob in the row now, S8-6.)
-        header.blend.setBounds (right, lineY, 0, 20); // (the subtitle stops here)
-        right -= 4;
-
-        if (panel.type == 13 && ! panel.duplicate)
-        {
-            loadIrButton.setBounds (right - 76, lineY + 1, 76, 18);
-            right -= 82;
-        }
-
-        // The model switch after the title, where it fits.
-        if (hasModelSwitch (panel.type) && ! panel.duplicate)
-        {
-            const auto switchX = header.type.getRight() + 6;
-            if (switchX + FxModelSwitch::preferredWidth <= right - 4)
-            {
-                const auto other = fxTwinOf (panel.type);
-                const auto holder = slotHoldingType (other, panel.slot);
-                header.model.setBounds (switchX, top + 7, FxModelSwitch::preferredWidth, 16);
-                header.model.setState (isAirwindowsType (panel.type), holder < 0, fxColour (panel.type));
-                header.model.setTooltip ("Model: " + getSlotName (isAirwindowsType (panel.type) ? other : panel.type) + " built in, or its Airwindows model, "
-                                         + getSlotName (isAirwindowsType (panel.type) ? panel.type : other) + ". Click the other to swap this slot's effect "
-                                         "(each keeps its own settings)."
-                                         + (holder >= 0 ? "\nThe other model is in slot " + juce::String (holder + 1) + " already." : juce::String())
-                                         + "\n" + airwindowsBadgeTip (isAirwindowsType (panel.type) ? panel.type : other));
-                header.model.setVisible (true);
-            }
-        }
     }
 
     int firstEmptySlot() const
@@ -1462,10 +1532,134 @@ private:
         }
     }
 
+    static juce::Colour railGood() { return IlanaTheme::oscColour (2); }
+
+    // The first and the last loaded effects' colours (the rail's ends).
+    juce::Colour firstRailColour() const
+    {
+        return stackPanels.empty() ? IlanaTheme::Ui::line : fxColour (stackPanels.front().type);
+    }
+    juce::Colour lastRailColour() const
+    {
+        return stackPanels.empty() ? IlanaTheme::Ui::line : fxColour (stackPanels.back().type);
+    }
+
+    // A node on the rail: IN or OUT, a pill in the signal's green.
+    static void paintRailPill (juce::Graphics& g, juce::Rectangle<int> column, const juce::String& text)
+    {
+        const auto pill = juce::Rectangle<float> (36.0f, 22.0f).withCentre (column.toFloat().getCentre());
+        g.setColour (railGood().withAlpha (0.18f));
+        g.fillRoundedRectangle (pill, 11.0f);
+        g.setColour (railGood().withAlpha (0.7f));
+        g.drawRoundedRectangle (pill.reduced (0.5f), 11.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (text, pill, juce::Justification::centred);
+    }
+
+    // The rail's line in a slot's colour: solid while the slot works, dashed
+    // and faint while it is bypassed or off.
+    static void paintRailLine (juce::Graphics& g, float x, float from, float to, juce::Colour colour, bool dashed)
+    {
+        g.setColour (colour.withAlpha (dashed ? 0.45f : 0.8f));
+        if (dashed)
+        {
+            const float pattern[] { 4.0f, 3.0f };
+            g.drawDashedLine (juce::Line<float> (x, from, x, to), pattern, 2, 2.0f);
+        }
+        else
+            g.fillRect (x - 1.0f, from, 2.0f, to - from);
+    }
+
+    static void paintRailArrow (juce::Graphics& g, float x, float tipY, juce::Colour colour, bool dim)
+    {
+        juce::Path arrow;
+        arrow.addTriangle (x - 4.0f, tipY - 6.0f, x + 4.0f, tipY - 6.0f, x, tipY);
+        g.setColour (colour.withAlpha (dim ? 0.45f : 0.9f));
+        g.fillPath (arrow);
+    }
+
+    // The signal rail down the left of the rows: one node per effect in its
+    // colour, the gain change of each slot in a chip between it and the next,
+    // and a dashed node and BYPASS for a slot that is off.
+    void paintRail (juce::Graphics& g)
+    {
+        const auto x = (float) railWidth * 0.5f;
+
+        for (size_t i = 0; i < stackPanels.size(); ++i)
+        {
+            const auto& panel = stackPanels[i];
+            const auto colour = fxColour (panel.type);
+            const auto off = isModuleOff (panel.slot);
+            const auto top = (float) panel.bounds.getY();
+            const auto nextTop = i + 1 < stackPanels.size() ? (float) stackPanels[i + 1].bounds.getY() : (float) panel.bounds.getBottom() + (float) rowGap;
+            const auto centre = (float) panel.bounds.getCentreY();
+
+            paintRailLine (g, x, top - (i == 0 ? 6.0f : 0.0f), nextTop, colour, off);
+            paintRailArrow (g, x, nextTop, colour, off);
+
+            const auto node = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ x, centre });
+            g.setColour (off ? IlanaTheme::Ui::raised : colour);
+            g.fillEllipse (node);
+            g.setColour (colour.withAlpha (off ? 0.6f : 1.0f));
+            g.drawEllipse (node.reduced (1.0f), 2.0f);
+
+            // The chip in the gap under the row: what the slot did to the level.
+            const auto chipCentre = juce::Point<float> (x, (float) panel.bounds.getBottom() + (float) rowGap * 0.5f);
+            const auto slot = panel.slot;
+            const auto text = off ? juce::String ("BYPASS") : railText (slot);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), text);
+            const auto chipWidth = (off ? 0.0f : 21.0f) + textWidth + 12.0f;
+            const auto chip = juce::Rectangle<float> (chipWidth, 16.0f).withCentre (chipCentre);
+            g.setColour (IlanaTheme::Ui::well);
+            g.fillRoundedRectangle (chip, 8.0f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (chip.reduced (0.5f), 8.0f, 1.0f);
+
+            auto inside = chip.reduced (6.0f, 0.0f);
+            if (! off)
+            {
+                const auto bar = inside.removeFromLeft (16.0f).withSizeKeepingCentre (16.0f, 4.0f);
+                inside.removeFromLeft (5.0f);
+                g.setColour (IlanaTheme::Ui::track);
+                g.fillRoundedRectangle (bar, 2.0f);
+                const auto fill = railFill (slot);
+                g.setColour (fill > 0.97f ? juce::Colour (0xffff4f5e) : railGood());
+                g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * fill), 2.0f);
+            }
+            g.setColour (off ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
+            g.setFont (font);
+            g.drawText (text, inside, juce::Justification::centred);
+        }
+    }
+
+    // The slot's gain change as the chip reads it: "+2.4 dB", or a dash while
+    // nothing passes through (nothing to compare).
+    juce::String railText (int slot) const
+    {
+        const auto in = processorRef.getFxSlotInLevel (slot);
+        if (in < 1.0e-4f)
+            return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94 dB"));
+        const auto db = juce::Decibels::gainToDecibels (processorRef.getFxSlotOutLevel (slot) / in, -60.0f);
+        if (std::abs (db) < 0.05f)
+            return "0.0 dB";
+        return (db > 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
+    }
+
+    // The level leaving the slot, 0 to 1 over -48 to 0 dB, for the chip's bar.
+    float railFill (int slot) const
+    {
+        const auto db = juce::Decibels::gainToDecibels (processorRef.getFxSlotOutLevel (slot), -60.0f);
+        return juce::jlimit (0.0f, 1.0f, (db + 54.0f) / 54.0f);
+    }
+
     void paintStack (juce::Graphics& g)
     {
         for (const auto& group : splitGroups)
             paintSplitGroup (g, group);
+
+        paintRail (g);
 
         for (const auto& panel : stackPanels)
         {
@@ -1473,7 +1667,6 @@ private:
             const auto bounds = panel.bounds.toFloat();
             const auto selected = panel.slot == selectedSlot;
             const auto off = isModuleOff (panel.slot);
-            const auto& header = cardHeaders[(size_t) panel.slot];
 
             if (panel.slot == dragSlot && dragActive)
             {
@@ -1494,92 +1687,32 @@ private:
                 g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.2f);
             }
 
-            // The slot's number, a small badge before the title.
-            const auto badge = juce::Rectangle<float> (18.0f, 16.0f).withPosition (bounds.getX() + 11.0f, bounds.getY() + 7.0f);
+            // The slot's number, a small badge before the name.
+            const auto badge = panel.number.toFloat();
             g.setColour (juce::Colours::white.withAlpha (0.07f));
-            g.fillRoundedRectangle (badge, 4.0f);
+            g.fillRoundedRectangle (badge, 5.0f);
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true, true));
             g.drawText (juce::String (panel.slot + 1), badge, juce::Justification::centred);
 
-            // After the title: the Airwindows badge, "off", the slot's CPU,
-            // as far as the header's controls leave room.
-            auto subtitle = juce::Rectangle<int> (header.type.getRight() + 6, panel.bounds.getY(), 0, cardHeaderHeight);
-            subtitle.setRight ((panel.type == 13 && ! panel.duplicate ? loadIrButton.getX() : header.blend.getX()) - 8);
-            if (header.model.isVisible())
-                subtitle.setLeft (header.model.getRight() + 8);
-
-            if (showsAirwindowsBadge (panel.type) && ! hasModelSwitch (panel.type) && subtitle.getWidth() >= 88)
-            {
-                // The badge names the algorithm too, "AIRWINDOWS · Tape Hack 2"
-                // (review 10, I10-9), as far as there is room.
-                juce::String badgeText ("AIRWINDOWS");
-                if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0)
-                {
-                    const auto& category = airwindows::categoryModules()[(size_t) c];
-                    badgeText << juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "))
-                              << airwindowsDisplayName (airwindows::registry()[(size_t) category.algorithms[(size_t) categoryChoice (c)]].name);
-                }
-                const auto wanted = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), badgeText) + 20;
-                const auto tag = subtitle.removeFromLeft (juce::jlimit (84, juce::jmax (84, subtitle.getWidth() - 4), wanted)).toFloat().withHeight (16.0f).withY ((float) subtitle.getCentreY() - 8.0f);
-                g.setColour (colour.withAlpha (0.14f));
-                g.fillRoundedRectangle (tag, 8.0f);
-                g.setColour (colour.withAlpha (0.55f));
-                g.drawRoundedRectangle (tag.reduced (0.5f), 8.0f, 1.0f);
-                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.4f));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                IlanaTheme::drawFitted (g, badgeText.toUpperCase(), tag.toNearestInt(), juce::Justification::centred, 1);
-                subtitle.removeFromLeft (8);
-            }
-
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            if (off)
-            {
-                g.drawText ("off", subtitle, juce::Justification::centredLeft, true);
-            }
-            // The slot's CPU only while the card is under the mouse: beside
-            // every name it was noise, and a number that came and went on
-            // some cards read as an error (UI review 8, V8-34; 9, V9-21).
-            else if (const auto cpu = processorRef.getFxSlotCpu (panel.slot);
-                     cpu > 0.0005f && stackContent.isMouseOver (true) && panel.bounds.contains (stackContent.getMouseXYRelative())
-                     && subtitle.getWidth() >= 70)
-            {
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, false, true));
-                g.drawText ("CPU " + juce::String (cpu * 100.0f, 1) + "%", subtitle, juce::Justification::centredLeft, true);
-            }
-
             if (panel.duplicate)
             {
-                auto text = panel.bounds.withTrimmedTop (cardHeaderHeight).reduced (16, 6);
+                auto text = panel.bounds.withTrimmedLeft (leftWidth + 20).withTrimmedRight (110).reduced (4, 6);
                 const auto first = slotHoldingType (panel.type, panel.slot);
                 g.setColour (IlanaTheme::Ui::text);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
                 IlanaTheme::drawFitted (g, "Duplicate " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
-                                        text.removeFromTop (20).withTrimmedRight (100), juce::Justification::centredLeft);
+                                        text.removeFromTop (20), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
                 IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect. Remove this slot, or keep it to run the same sound twice.",
-                                        text.withTrimmedRight (100), juce::Justification::topLeft, 2);
+                                        text, juce::Justification::topLeft, 2);
             }
 
-            // The picture slot of a card without a display: what the effect does.
+            // The picture slot of a row without a display: what the effect
+            // does, and its level in and out beside it, live.
             if (! panel.well.isEmpty() && ! panel.duplicate)
-            {
-                const auto well = panel.well.toFloat();
-                IlanaTheme::paintWell (g, well, 6.0f);
-                const auto text = cardInfoText (panel.type);
-                auto inner = panel.well.reduced (8, 0);
-                auto caption = inner.removeFromTop (19).withTrimmedTop (3);
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                const auto index = airwindowsIndexFor (panel.type);
-                IlanaTheme::drawFitted (g, index >= 0 ? airwindowsDisplayName (airwindows::registry()[(size_t) index].name).toUpperCase() : juce::String ("WHAT IT DOES"),
-                                        caption, juce::Justification::centredLeft);
-                g.setColour (isModuleOff (panel.slot) ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-                IlanaTheme::drawFitted (g, text, inner.withTrimmedBottom (6), juce::Justification::topLeft, 7);
-            }
+                paintInfoWell (g, panel, off);
 
             // A card that just arrived or moved flashes once.
             if ((panel.slot == dropSlot || dropSlot == -2) && dropFlash > 0.01f)
@@ -1588,6 +1721,48 @@ private:
                 g.drawRoundedRectangle (bounds.expanded (dropFlash * 3.0f), 9.0f, 2.0f);
             }
         }
+    }
+
+    void paintInfoWell (juce::Graphics& g, const StackPanel& panel, bool off)
+    {
+        const auto well = panel.well.toFloat();
+        IlanaTheme::paintWell (g, well, 6.0f);
+        auto inner = panel.well.reduced (8, 0);
+
+        // IN and OUT meters at the right, the live reading of what the
+        // effect does to the level.
+        if (inner.getWidth() > 230)
+        {
+            auto meters = inner.removeFromRight (86).reduced (0, 8);
+            inner.removeFromRight (10);
+            const auto slot = panel.slot;
+            const auto in = off ? 0.0f : processorRef.getFxSlotInLevel (slot), out = off ? 0.0f : processorRef.getFxSlotOutLevel (slot);
+            const auto draw = [&] (juce::Rectangle<int> row, const char* name, float level)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText (name, row.removeFromLeft (22), juce::Justification::centredLeft);
+                const auto bar = row.toFloat().withSizeKeepingCentre ((float) row.getWidth(), 6.0f);
+                g.setColour (IlanaTheme::Ui::track);
+                g.fillRoundedRectangle (bar, 3.0f);
+                const auto fill = juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (level, -60.0f) + 48.0f) / 48.0f);
+                g.setColour (fxColour (panel.type).withAlpha (0.85f));
+                g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * fill), 3.0f);
+            };
+            const auto half = meters.getHeight() / 2;
+            draw (meters.removeFromTop (half), "IN", in);
+            draw (meters, "OUT", out);
+        }
+
+        auto caption = inner.removeFromTop (19).withTrimmedTop (3);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto index = airwindowsIndexFor (panel.type);
+        IlanaTheme::drawFitted (g, index >= 0 ? airwindowsDisplayName (airwindows::registry()[(size_t) index].name).toUpperCase() : juce::String ("WHAT IT DOES"),
+                                caption, juce::Justification::centredLeft);
+        g.setColour (off ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        IlanaTheme::drawFitted (g, cardInfoText (panel.type), inner.withTrimmedBottom (4), juce::Justification::topLeft, juce::jmax (2, inner.getHeight() / 13));
     }
 
     // While a card is dragged by its header: where it will land, and its
@@ -1657,8 +1832,8 @@ private:
                 return;
             }
 
-            // The header is the card's handle: a drag reorders the chain.
-            if (position.y < panel.bounds.getY() + cardHeaderHeight)
+            // The number and name block is the row's handle: a drag reorders the chain.
+            if (panel.handle.contains (position))
             {
                 dragSlot = panel.slot;
                 dragImage = stackContent.createComponentSnapshot (panel.bounds);
@@ -1707,7 +1882,7 @@ private:
     {
         auto overHeader = false;
         for (const auto& panel : stackPanels)
-            overHeader = overHeader || panel.bounds.withHeight (cardHeaderHeight).contains (event.getPosition());
+            overHeader = overHeader || panel.handle.contains (event.getPosition());
 
         stackContent.setMouseCursor (overHeader ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
     }
@@ -1795,6 +1970,24 @@ private:
             if (const auto mixName = reverbKeepDry.getButton().getToggleState() ? "WET" : "MIX"; reverbMix.getLabelText() != mixName)
                 reverbMix.setLabelText (mixName);
         }
+        // The rail's gain readouts and the info wells' meters follow the audio.
+        railTicks += ticks;
+        if (railTicks > 4.0f)
+        {
+            railTicks = 0.0f;
+            juce::String readings;
+            for (const auto& panel : stackPanels)
+                readings << railText (panel.slot) << (int) (railFill (panel.slot) * 40.0f) << ",";
+            if (readings != lastReadings)
+            {
+                lastReadings = readings;
+                stackContent.repaint (0, 0, railWidth, stackContent.getHeight());
+                for (const auto& panel : stackPanels)
+                    if (! panel.well.isEmpty())
+                        stackContent.repaint (panel.well);
+            }
+        }
+
         cpuTicks += ticks;
         if (cpuTicks > 30.0f)
         {
@@ -1811,13 +2004,14 @@ private:
     std::unique_ptr<GateGrid> gateGrid;
     std::unique_ptr<ToggleControl> softClip;
     std::unique_ptr<StripKnob> clipGain;
-    juce::Rectangle<int> outputStrip, emptyHeading;
+    std::unique_ptr<OutputMeter> outputMeter;
+    juce::Rectangle<int> outputStrip, emptyHeading, inColumn, outColumn, chainSeg, seriesBadge, seriesHint;
+    juce::Rectangle<int> outputTitle, outputSoftLabel, outputSeparator, outputHint;
     juce::StringArray slotNames;
     std::vector<std::vector<juce::Component*>> slotGroups;
 
     juce::Viewport stackView;
     FxStackContent stackContent;
-    juce::Rectangle<int> addEffectCard;
     std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
     std::unique_ptr<FxLibraryView> library;
     // (At most five split groups: each needs a plain card or the end after it.)
@@ -1834,6 +2028,7 @@ private:
         std::unique_ptr<KnobControl> mix;
         juce::TextButton remove { "REMOVE" };
         FxModelSwitch model;
+        FxEngineChip chip;
         std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
         std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
         std::unique_ptr<juce::SliderParameterAttachment> blendAttachment;
@@ -1887,10 +2082,29 @@ private:
             const auto alpha = off ? FilterColours::offAlpha : 1.0f;
             cardHeaders[(size_t) panel.slot].type.setTitle (cardTitle (panel.type), off ? IlanaTheme::Ui::text3 : fxColour (panel.type));
 
+            // The row's picture and tag dim with it.
+            {
+                auto& header = cardHeaders[(size_t) panel.slot];
+                for (juce::Component* part : { (juce::Component*) displays[(size_t) panel.slot].get(), (juce::Component*) &eqCurve,
+                                               (juce::Component*) gateGrid.get(), (juce::Component*) &tapGrid, (juce::Component*) &header.chip })
+                {
+                    const auto isOwn = (part == &eqCurve && panel.type != 29) || (part == gateGrid.get() && panel.type != 16)
+                                       || (part == &tapGrid && panel.type != 9);
+                    if (! isOwn && part->getAlpha() != alpha)
+                    {
+                        part->setAlpha (alpha);
+                        changed = true;
+                    }
+                }
+            }
+
+            ToggleControl* power = nullptr;
+            rowItems (panel.type, &power);
+
             for (auto* item : slotGroups[(size_t) panel.type])
             {
                 auto* toggle = dynamic_cast<ToggleControl*> (item);
-                const auto isPower = toggle != nullptr && toggle->isSwitch() && item->getY() < panel.bounds.getY() + 20;
+                const auto isPower = toggle != nullptr && toggle == power;
                 auto itemAlpha = alpha;
 
                 // The delay's times do nothing while SYNC is on, its DIV
@@ -1929,7 +2143,8 @@ private:
     juce::Point<int> dragGrabOffset;
     float dropFlash = 0.0f;
     int dropSlot = -1;
-    float cpuTicks = 0.0f;
+    float cpuTicks = 0.0f, railTicks = 0.0f;
+    juce::String lastReadings;
     std::array<int, IlanaSynthAudioProcessor::numFxSlots> lastTypes {};
     juce::String lastSignature;
     // The toolbar: CHAIN 1 / 2, named apart from the header's A / B
@@ -1940,9 +2155,9 @@ private:
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };
     juce::TextButton copyChainButton { "COPY TO 2" };
-    DashedAddButton addEffectTile { "+  ADD EFFECT", "+  ADD EFFECT" };
+    juce::TextButton addButton { "+ ADD" };
     std::array<bool, 64> ownMix {};
-    int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, rowExtra = 0;
+    int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, availableStackHeight = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     ComboControl ampMode;

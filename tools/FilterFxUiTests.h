@@ -284,7 +284,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                 "an effect's picture stays readable wherever it sits in the chain (Chorus, Reverb in either order: " + juce::String (chorusReverb.front())
                     + " and " + juce::String (swapped.empty() ? 0 : swapped.front()) + " px at the least)");
         loadFx ({ 7, 13 });
-        expect (shownButtons ("+  ADD EFFECT").size() == 1, "the rack has one + ADD EFFECT (the tile after the cards)");
+        expect (shownButtons ("+ ADD").size() == 1, "the rack has one + ADD, in its top bar");
 
         // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.
         loadFx ({ 27, 2, 20 });
@@ -328,16 +328,16 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
 
         // I7-28: the reverb card switches to its Airwindows model in place,
         // titled REVERB either way; the library offers the model beside it.
-        std::vector<FxModelSwitch*> switches;
-        findAll<FxModelSwitch> (editor, switches);
-        FxModelSwitch* reverbSwitch = nullptr;
+        std::vector<FxEngineChip*> switches;
+        findAll<FxEngineChip> (editor, switches);
+        FxEngineChip* reverbSwitch = nullptr;
         for (auto* candidate : switches)
-            if (visibleInTree (candidate) && reverbSwitch == nullptr)
+            if (visibleInTree (candidate) && reverbSwitch == nullptr && candidate->getTooltip().contains ("Reverb"))
                 reverbSwitch = candidate;
-        expect (reverbSwitch != nullptr, "the reverb card has a BUILT-IN / AIRWINDOWS model switch");
-        if (reverbSwitch != nullptr && reverbSwitch->onSwitch != nullptr)
+        expect (reverbSwitch != nullptr, "the reverb row has a BUILT-IN / AIRWINDOWS engine tag that swaps the model");
+        if (reverbSwitch != nullptr && reverbSwitch->onClick != nullptr)
         {
-            reverbSwitch->onSwitch();
+            reverbSwitch->onClick();
             settle (400);
             const auto type = (int) processor.apvts.getRawParameterValue ("fx_slot1")->load();
             juce::String title;

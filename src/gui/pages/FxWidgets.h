@@ -310,9 +310,12 @@ public:
         startTimerHz (10);
     }
 
+    // The rack's rows draw the pill alone, filling its area.
+    void setBare (bool shouldBeBare) { bare = shouldBeBare; repaint(); }
+
     void paint (juce::Graphics& g) override
     {
-        IlanaTheme::paintSwitch (g, getLocalBounds().withTrimmedTop (13).toFloat(), isOn() ? 1.0f : 0.0f,
+        IlanaTheme::paintSwitch (g, (bare ? getLocalBounds() : getLocalBounds().withTrimmedTop (13)).toFloat(), isOn() ? 1.0f : 0.0f,
                                  IlanaTheme::accent(), isMouseOver() ? 1.0f : 0.0f);
     }
 
@@ -343,6 +346,6 @@ private:
     }
 
     juce::RangedAudioParameter* parameter = nullptr;
-    bool shownOn = true;
+    bool shownOn = true, bare = false;
 };
 } // namespace

@@ -316,8 +316,8 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         settle (300);
         const auto matrix = shownAddButtons();
         editor.showPage ("MAIN");
-        expect (play.size() == 1 && osc.size() == 1 && fx.size() == 1 && matrix.size() >= 1,
-                "PLAY, OSC, FX and the matrix each add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
+        expect (play.size() == 1 && osc.size() == 1 && fx.isEmpty() && matrix.size() >= 1,
+                "PLAY, OSC and the matrix add with the one dashed add button, the FX rack with + ADD in its top bar (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }
 

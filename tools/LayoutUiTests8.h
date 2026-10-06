@@ -344,13 +344,14 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         // load; V12-21) and the dice at the right.
         auto* chainTwo = buttonNamed ("CHAIN 2");
         auto* file = buttonNamed (juce::String::fromUTF8 ("CHAIN \xe2\x96\xbe"));
-        expect (chainTwo != nullptr && file != nullptr && area (file).getX() - area (chainTwo).getRight() < 40
+        expect (chainTwo != nullptr && file != nullptr
+                    && std::abs (area (file).getCentreY() - area (chainTwo).getCentreY()) < 6
                     && buttonNamed ("COPY TO 2") == nullptr && buttonNamed ("SAVE / LOAD CHAIN") == nullptr,
-                "FX: the chains are the only tabs, with one CHAIN menu beside them (S8-40, V12-21)");
+                "FX: the chains are the only tabs, with one CHAIN menu on the same bar (S8-40, V12-21)");
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });
-        if (auto* add = buttonNamed ("+  ADD EFFECT"); add != nullptr)
+        if (auto* add = buttonNamed ("+ ADD"); add != nullptr)
         {
             add->triggerClick();
             settle (80); // (a call-out closes itself soon under xvfb)
@@ -361,14 +362,14 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 if (view->getName() == "FX LIBRARY" && visibleInTree (view))
                     callout = view;
             auto* all = callout != nullptr ? callout->findButton (30) : nullptr;
-            expect (all != nullptr && ! all->isVisible(), "FX: + ADD EFFECT doesn't offer AIRWINDOWS (ALL) to a rack without it (I8-33)");
+            expect (all != nullptr && ! all->isVisible(), "FX: + ADD doesn't offer AIRWINDOWS (ALL) to a rack without it (I8-33)");
             if (callout != nullptr)
                 if (auto* box = callout->findParentComponentOfClass<juce::CallOutBox>())
                     box->dismiss();
             settle (300);
         }
         else
-            expect (false, "FX: + ADD EFFECT is on the page");
+            expect (false, "FX: + ADD is on the page");
         loadNamed ("Init");
     }
 }

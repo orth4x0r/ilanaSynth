@@ -103,16 +103,7 @@ public:
             // card (rest on it) the same.
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto name = title.toUpperCase();
-            // The warning is a word in the warning colour, "TALK · OFF" (review 10,
-            // I10-14), not a bare triangle.
-            // (How many of its targets sit in a module that is off: "· 1 OFF", not a bare
-            // "OFF" that does not say what is off; I14-8.)
-            const juce::String warning (juce::String::fromUTF8 ("\xc2\xb7 ") + juce::String (juce::jmax (1, idleTargets)) + " OFF");
-            const auto warningFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            // What the macro does, in a number: "→ 3" routes (review 12, S12-10).
-            const auto routeText = routedTargets > 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : juce::String();
-            const auto routeWidth = routeText.isEmpty() ? 0 : juce::GlyphArrangement::getStringWidthInt (warningFont, routeText) + 8;
-            const auto markWidth = routeWidth + (idleTargets > 0 ? juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 10 : 0) + (evolving ? 16 : 0);
+            const auto markWidth = evolving ? 16 : 0;
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
                                                juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
             // A macro routed nowhere reads quietly, so the preset's own
@@ -121,13 +112,6 @@ public:
             g.setColour (hover ? IlanaTheme::Ui::text : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
             g.setFont (font);
             IlanaTheme::drawFitted (g, name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1);
-
-            if (routeWidth > 0 && nameArea.getWidth() >= routeWidth)
-            {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (warningFont);
-                g.drawText (routeText, nameArea.removeFromLeft (routeWidth).withTrimmedLeft (6), juce::Justification::bottomLeft);
-            }
 
             // An evolving macro carries a small drift wave after its name
             // (its EVOLVE is on its card).
@@ -154,16 +138,6 @@ public:
             }
 
             markBounds = {};
-            if (idleTargets > 0)
-            {
-                // The word after the name, on its baseline.
-                const auto width = juce::GlyphArrangement::getStringWidthInt (warningFont, warning) + 2;
-                const auto mark = nameArea.removeFromLeft (6 + width).withTrimmedLeft (6);
-                g.setColour (juce::Colour (0xffffb020));
-                g.setFont (warningFont);
-                g.drawText (warning, mark, juce::Justification::bottomLeft);
-                markBounds = mark.expanded (3).getIntersection (getLocalBounds());
-            }
         }
         else
         {
@@ -192,9 +166,28 @@ public:
             return;
         }
 
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)); // a live value
-        g.drawText (valueText(), text, juce::Justification::topLeft, true);
+        // The second line, as in the dock mockup: "→ 2" (how many things the
+        // macro moves) while it rests, its value while the mouse is on it;
+        // MASTER shows its level. A macro with targets that can't be heard
+        // says so there in the warning colour, "1 OFF" (its tooltip which, V7-28;
+        // I14-8: the count, not a bare "OFF").
+        if (macroIndex >= 0 && idleTargets > 0)
+        {
+            g.setColour (juce::Colour (0xffffb020));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            const auto warning = juce::String (idleTargets) + " OFF";
+            g.drawText (warning, text, juce::Justification::topLeft, true);
+            markBounds = text.withWidth (juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning) + 2))
+                             .expanded (3).getIntersection (getLocalBounds());
+            return;
+        }
+
+        const auto routed = macroIndex >= 0 && routedTargets > 0 && ! hover;
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (routed ? IlanaTheme::font (IlanaTheme::TextSize::label, true)
+                          : IlanaTheme::font (IlanaTheme::TextSize::label, false, true)); // a live value
+        g.drawText (routed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : valueText(),
+                    text, juce::Justification::topLeft, true);
     }
 
     // Whether the macro moves anything: a routing, or its own EVOLVE.
@@ -216,7 +209,7 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        knob.setBounds (area.removeFromLeft (juce::jmin (area.getHeight() + 4, 52)));
+        knob.setBounds (area.removeFromLeft (knobBox));
 
         auto text = textArea();
         nameEditor.setBounds (text.removeFromTop (text.getHeight() / 2).withTrimmedRight (10));
@@ -334,11 +327,14 @@ public:
     }
 
 private:
+    // The knob's cell (the ring inside is 8 px smaller: a 30 px dial).
+    static constexpr int knobBox = 38;
+
     juce::Rectangle<int> textArea() const
     {
         auto area = getLocalBounds();
-        area.removeFromLeft (juce::jmin (area.getHeight() + 4, 52) + 2);
-        return area.reduced (0, 6);
+        area.removeFromLeft (knobBox + 2);
+        return area.reduced (0, 3);
     }
 
 public:

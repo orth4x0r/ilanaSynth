@@ -774,29 +774,30 @@ public:
         setColour (juce::CaretComponent::caretColourId, accent);
     }
 
+    // The tab bar of the shell mockup: bold caps in grey (white while chosen),
+    // no pill, a 2 px accent underline under the chosen tab.
+    static juce::FontOptions tabFont() { return IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.08f); }
+
+    int getTabButtonBestWidth (juce::TabBarButton& button, int) override
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (tabFont()), button.getButtonText()) + 26;
+    }
+
     void drawTabButton (juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool isMouseDown) override
     {
-        const auto bounds = button.getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+        const auto bounds = button.getLocalBounds().toFloat();
         const auto active = button.getToggleState();
         const auto hover = animatedHover (&button, isMouseOver || isMouseDown, 14.0f);
         const auto lit = animatedHover (reinterpret_cast<const char*> (&button) + 1, active, 10.0f);
 
-        if (hover > 0.01f && ! active)
-        {
-            g.setColour (IlanaTheme::Ui::hover.withAlpha (0.6f * hover));
-            g.fillRoundedRectangle (bounds, 5.0f);
-        }
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (lit, hover * 0.7f)));
+        g.setFont (tabFont());
+        g.drawText (button.getButtonText(), bounds.withTrimmedBottom (1.0f), juce::Justification::centred);
 
-        g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (lit, hover * 0.6f)));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, active));
-        g.drawText (button.getButtonText(), bounds, juce::Justification::centred);
-
-        // The underline grows out from the centre and glows.
         if (lit > 0.01f)
         {
-            const auto width = (bounds.getWidth() - 16.0f) * lit;
+            const auto width = (bounds.getWidth() - 20.0f) * lit;
             const auto bar = juce::Rectangle<float> (width, 2.0f).withCentre ({ bounds.getCentreX(), bounds.getBottom() - 1.0f });
-            IlanaTheme::paintGlow (g, bar, 1.0f, IlanaTheme::accent(), lit * 1.4f);
             g.setColour (IlanaTheme::accent());
             g.fillRoundedRectangle (bar, 1.0f);
         }

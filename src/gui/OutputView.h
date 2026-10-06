@@ -79,15 +79,9 @@ public:
             // of the preset name (UI review 9, S9-26).
             // A small display, well and rim, with its baseline, not a line
             // under the name (S10-14).
-            g.setColour (IlanaTheme::Ui::well.withAlpha (0.8f));
-            g.fillRoundedRectangle (bounds, 4.0f);
-            g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
-            // Named, so a flat line is a quiet output and not a border (V12-11).
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("OUT", bounds.reduced (6.0f, 0.0f).removeFromLeft (24.0f), juce::Justification::centredLeft);
-            drawWave (g, bounds.withTrimmedLeft (30.0f).reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
+            // In the preset display (the shell mockup): the wave alone,
+            // faint, with no well or rim of its own.
+            drawWave (g, bounds.reduced (0.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
             return;
         }
 

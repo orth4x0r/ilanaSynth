@@ -1658,9 +1658,9 @@ int runUiTests()
             std::vector<juce::Button*> allButtons;
             findAll<juce::Button> (*editor, allButtons);
             for (auto* button : allButtons)
-                if (button->getButtonText() == "+  ADD EFFECT" && visibleInTree (button))
+                if (button->getButtonText() == "+ ADD" && visibleInTree (button))
                     addEffect = button;
-            expect (addEffect != nullptr, "the rack has + ADD EFFECT");
+            expect (addEffect != nullptr, "the rack's top bar has + ADD");
 
             if (addEffect != nullptr)
             {
@@ -1940,11 +1940,11 @@ int runUiTests()
             loadFx ({ 27, 2, 20 });
             auto titles = typeButtons();
             auto* viewport = stackViewport();
-            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getY() == titles[1]->getY()
-                        && titles[1]->getX() > viewport->getWidth() / 3,
-                    "Vowel and Drive sit side by side as half-width cards");
-            // The lone half card at the end keeps its width; + ADD EFFECT
-            // takes the other half (no knobs stranded across a full card).
+            // The design's rack: one 80 px row per effect, one under the other (10 px apart).
+            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX()
+                        && titles[1]->getY() - titles[0]->getY() == 90 && titles[2]->getY() - titles[1]->getY() == 90,
+                    "Vowel, Drive and OTT are 80 px rows one under the other");
+            // The knobs sit at the row's right end (no knobs stranded mid-row).
             if (titles.size() == 3 && viewport != nullptr)
             {
                 std::vector<KnobControl*> knobs;
@@ -1953,14 +1953,7 @@ int runUiTests()
                 for (auto* knob : knobs)
                     if (knob->getParameterId() == "fx_ott_mix" && visibleInTree (knob))
                         ottMixRight = knob->getRight();
-                std::vector<DashedAddButton*> adds;
-                findAll<DashedAddButton> (*editor, adds);
-                auto belowLast = false;
-                for (auto* add : adds)
-                    if (visibleInTree (add))
-                        belowLast = belowLast || editor->getLocalArea (add, add->getLocalBounds()).getY() > editor->getLocalArea (titles[2], titles[2]->getLocalBounds()).getY();
-                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && (belowLast || ! adds.empty()),
-                        "a lone card at the end of the chain takes the row, the slim + ADD EFFECT row below it (V9-3)");
+                expect (ottMixRight > viewport->getWidth() - 40, "a row's knobs end at its right edge (V9-3)");
             }
 
             loadFx ({ 7, 2, 13, 20 });

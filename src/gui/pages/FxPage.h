@@ -577,8 +577,7 @@ public:
 
         auto outRow = area.removeFromBottom (outputHeight);
         area.removeFromBottom (rowGap);
-        // (The chip under the last row reaches 3 px past the gap: the view's foot margin overlaps OUTPUT's top edge by 4.)
-        auto stackArea = area.withTrimmedBottom (-(stackFootMargin - rowGap));
+        auto stackArea = area;
 
         // An empty rack shows the library in the stack's place (one view
         // of the chain, not a list beside the cards: S5-18, S6-25).
@@ -603,7 +602,10 @@ public:
         {
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
             layoutStack();
-            outRow.setY (stackView.getBottom() - (stackFootMargin - rowGap));
+            // (The chip under the last row reaches past the gap, so the view's foot margin
+            // is 4 px more than it: OUTPUT closes up on it unless the rack scrolls.)
+            outRow.setY (stackNaturalHeight < stackArea.getHeight() ? stackView.getBottom() - (stackFootMargin - rowGap)
+                                                                    : stackView.getBottom() + rowGap);
         }
 
         outputStrip = outRow.withTrimmedLeft (railWidth + railGap);

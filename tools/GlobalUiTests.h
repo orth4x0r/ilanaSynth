@@ -294,19 +294,19 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             shownCorners += visibleInTree (corner) && corner->getHeight() > 60 ? 1 : 0;
         expect (shownCorners == 4, "VECTOR, off: the four corners show a picture of their oscillator (V14-2)");
 
-        // V14-1: an odd card count leaves no card-sized hole: the ADD EFFECT tile is a bar.
+        // V14-1: the rack has no card-sized hole: + ADD is a small button in its top bar.
         editor.showPage ("FX");
         settle (300);
-        std::vector<DashedAddButton*> tiles;
-        findAll<DashedAddButton> (editor, tiles);
-        auto tallTile = false, anyTile = false;
-        for (auto* tile : tiles)
-            if (visibleInTree (tile) && tile->getButtonText().contains ("ADD EFFECT"))
+        std::vector<juce::TextButton*> addButtons;
+        findAll<juce::TextButton> (editor, addButtons);
+        auto tallAdd = false, anyAdd = false;
+        for (auto* add : addButtons)
+            if (visibleInTree (add) && add->getButtonText() == "+ ADD")
             {
-                anyTile = true;
-                tallTile = tile->getHeight() > 48;
+                anyAdd = true;
+                tallAdd = add->getHeight() > 32;
             }
-        expect (anyTile && ! tallTile, "FX: the ADD EFFECT tile is a bar on its own row, not a card-sized hole (V14-1)");
+        expect (anyAdd && ! tallAdd, "FX: + ADD is a button in the top bar, not a card-sized hole (V14-1)");
 
         // V14-4: a short matrix shows a curve in its dock, never a text box.
         loadNamed ("Felt Hammer Board");

@@ -527,6 +527,54 @@ private:
     juce::Colour colour { IlanaTheme::accent() };
 };
 
+// An effect row's engine tag: BUILT-IN or AIRWINDOWS in the effect's colour.
+// On an effect with the other model a click swaps the slot to it (each model
+// keeps its own settings); on the rest it only says what runs.
+class FxEngineChip : public juce::Component,
+                     public juce::SettableTooltipClient
+{
+public:
+    std::function<void()> onClick;
+
+    void setState (const juce::String& newText, juce::Colour newColour, bool newClickable)
+    {
+        if (newText == text && newColour == colour && newClickable == clickable)
+            return;
+        text = newText;
+        colour = newColour;
+        clickable = newClickable;
+        setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto hot = clickable && isMouseOver();
+        g.setColour (colour.withAlpha (hot ? 0.28f : 0.16f));
+        g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+        g.setColour (colour.withAlpha (hot ? 0.9f : 0.6f));
+        g.drawRoundedRectangle (bounds, bounds.getHeight() * 0.5f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        IlanaTheme::drawFitted (g, text, getLocalBounds().reduced (6, 0), juce::Justification::centred, 1);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (clickable && onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+private:
+    juce::String text;
+    juce::Colour colour { IlanaTheme::accent() };
+    bool clickable = false;
+};
+
 // The FX chain's dice: the header's dice icon and "FX" (V7-43: "DICE FX"
 // read as a verb and didn't look related to the header's dice).
 class DiceFxButton : public juce::TextButton

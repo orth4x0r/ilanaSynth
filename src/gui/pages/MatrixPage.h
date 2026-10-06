@@ -1100,13 +1100,21 @@ private:
     {
         void paint (juce::Graphics& g) override
         {
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            // As the mockup: a small square swatch, the source's name in bold
+            // in its colour, the route count quiet after it.
+            const auto nameFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.06f);
             for (const auto& heading : headings)
             {
+                const auto name = heading.text.upToFirstOccurrenceOf ("   ", false, false);
+                const auto count = heading.text.fromFirstOccurrenceOf ("   ", false, false);
                 g.setColour (heading.colour);
-                g.fillRect (heading.area.withWidth (3).withTrimmedTop (3).withTrimmedBottom (2));
-                g.setColour (IlanaTheme::Ui::text2);
-                g.drawText (heading.text, heading.area.withTrimmedLeft (9), juce::Justification::centredLeft, true);
+                g.fillRoundedRectangle (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ (float) heading.area.getX() + 8.0f, (float) heading.area.getCentreY() }), 2.0f);
+                g.setFont (nameFont);
+                g.drawText (name, heading.area.withTrimmedLeft (18), juce::Justification::centredLeft, true);
+                const auto nameWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (nameFont), name);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                g.drawText (count, heading.area.withTrimmedLeft (18 + nameWidth + 8), juce::Justification::centredLeft, true);
             }
         }
 

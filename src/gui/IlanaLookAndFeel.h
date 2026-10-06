@@ -524,7 +524,7 @@ inline juce::String captionFragment (const juce::String& text)
 // Where a card title's subtitle can start: past the tag and the name.
 inline int cardTitleWidth (const juce::String& text)
 {
-    return juce::GlyphArrangement::getStringWidthInt (juce::Font (font (TextSize::body, true)), text) + 30;
+    return juce::GlyphArrangement::getStringWidthInt (juce::Font (font (15.0f, true).withKerningFactor (0.05f)), text) + 30;
 }
 
 // A card's title: its tag, then the name in the text colour. A card with no
@@ -537,7 +537,7 @@ inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, cons
     if (hasFamilyColour (colour))
         paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
     g.setColour (Ui::text);
-    g.setFont (font (TextSize::body, true));
+    g.setFont (font (15.0f, true).withKerningFactor (0.05f));
     g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
 }
 
@@ -770,7 +770,7 @@ public:
         auto* label = LookAndFeel_V4::createSliderTextBox (slider);
         label->getProperties().set ("tabular", true); // a live value
         label->setBorderSize ({ 1, 1, 1, 1 });          // (the value keeps its room, and its unit's space: V10-8)
-        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
+        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true, true)); // bold, as the mockup's values
 
         if (slider.getProperties().getWithDefault ("inlineKnob", false))
         {

@@ -51,7 +51,7 @@ public:
     // The width the chip needs for its name (the bar shares out the rest).
     static float widthFor (const juce::String& text)
     {
-        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 35.0f;
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 31.0f;
     }
 
     // (plus room for an LFO's "OUT 2" sub-chip when it has one).
@@ -63,7 +63,7 @@ public:
     // the bar folds alike at 75 % and 100 % (V7-39).
     static float layoutWidthFor (const juce::String& text)
     {
-        return layoutTextWidth (text) + 35.0f;
+        return layoutTextWidth (text) + 31.0f;
     }
     float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
 
@@ -122,8 +122,8 @@ public:
         const auto second = getSecondOutputBounds();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 20.5f))
-                                    .withTrimmedRight (second.isEmpty() ? 9 : (int) secondOutputRoom + 6),
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 19.0f))
+                                    .withTrimmedRight (second.isEmpty() ? 7 : (int) secondOutputRoom + 5),
                           juce::Justification::centred, 1);
 
         if (! second.isEmpty())

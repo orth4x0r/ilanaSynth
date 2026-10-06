@@ -739,7 +739,8 @@ public:
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
         label.setBorderSize ({ 0, 1, 0, 1 }); // (a name takes its whole cell: layoutRow fits it by that)
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        // Bold, letter-spaced caps names as drawn in the mockup.
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.05f));
         label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
         addAndMakeVisible (label);
 
@@ -2081,6 +2082,22 @@ public:
     juce::ComboBox& getComboBox() { return combo; }
     juce::Label& getNameLabel() { return label; }
 
+    // A family-coloured menu as the mockup draws the VECTOR corners: a tinted
+    // outline and fill, the name in the family colour.
+    void setTint (juce::Colour tint)
+    {
+        if (tint == currentTint)
+            return;
+
+        currentTint = tint;
+        combo.setColour (juce::ComboBox::outlineColourId, tint.withAlpha (0.75f));
+        combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.14f));
+        label.setColour (juce::Label::textColourId, tint);
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.05f));
+        combo.repaint();
+        label.repaint();
+    }
+
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
 
@@ -2184,6 +2201,7 @@ private:
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float hover = 0.0f;
+    juce::Colour currentTint;
     bool compactLayout = false;
 };
 

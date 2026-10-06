@@ -1112,7 +1112,7 @@ std::array<juce::Rectangle<float>, 3> IlanaSynthAudioProcessorEditor::chipRegion
         { "OP PITCH", "AMP ENV", "FILT ENV", "FILT 2 ENV" },
         { "VELOCITY", "KEY TRACK", "MOD WHEEL", "PRESSURE", "RANDOM" },
     } };
-    constexpr float groupGap = 18.0f; // room for the thin rule between groups
+    constexpr float groupGap = 14.0f; // room for the thin rule between groups
 
     std::array<float, 3> wanted {};
     auto total = 0.0f;

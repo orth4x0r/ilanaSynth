@@ -448,7 +448,7 @@ public:
         for (const auto& part : boxes)
         {
             IlanaTheme::paintRecessedPanel (g, part.box.toFloat(), 5.0f);
-            paintSubBoxTitle (g, part.box.reduced (10, 0).withHeight (boxHeaderHeight), part.title, {}, false);
+            paintSubBoxTitle (g, part.box.reduced (10, 0).withHeight (boxHeaderHeight), part.title, {}, false, 0, colour());
         }
     }
 
@@ -544,6 +544,13 @@ private:
                 }
                 box.setSelectedId (selected, juce::dontSendNotification);
             }
+        }
+
+        for (auto* corner : { &cornerA, &cornerB, &cornerC, &cornerD })
+        {
+            const auto id = corner->getComboBox().getSelectedId();
+            if (id >= 1 && id <= OscillatorIds::count)
+                corner->setTint (IlanaTheme::oscColour (id - 1));
         }
 
         const auto active = readParam ("vec_on") > 0.5f;

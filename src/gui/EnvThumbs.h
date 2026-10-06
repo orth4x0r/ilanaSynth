@@ -91,6 +91,9 @@ public:
     // more (cards past what fits fold into the overflow card).
     void setViewWidth (int width) { viewWidth = width; }
 
+    // MOD: the cards share the whole bar evenly, the "+" keeping `plusWidth`.
+    void setFillWidth (bool fill, float plusWidth = PoolCards::plusWidth) { fillWidth = fill; plusW = plusWidth; repaint(); }
+
     int getPreferredWidth() const { return viewWidth; }
 
     // The cards folded into the overflow card right now (the UI test).
@@ -312,8 +315,13 @@ private:
                                        : extras[(size_t) id - envs.size()].isActive != nullptr && ! extras[(size_t) id - envs.size()].isActive())
                 compact.push_back (id);
         }
-        return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
-                                  folded, compact);
+        auto items = PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
+                                        folded, compact);
+
+        if (fillWidth && folded.empty() && compact.empty() && ! ids.empty())
+            PoolCards::fillEvenly (items, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), plusW);
+
+        return items;
     }
 
     std::vector<Item> layoutItems() const
@@ -696,5 +704,7 @@ private:
     int hoverIndex = -1;
     bool hoverRemove = false;
     int viewWidth = 0;
+    bool fillWidth = false;
+    float plusW = PoolCards::plusWidth;
     int lastCardCount = -1;
 };

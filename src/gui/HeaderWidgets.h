@@ -181,6 +181,14 @@ public:
         repaint();
     }
 
+    // No key background: the button sits inside another display (the
+    // preset display's prev / next segments).
+    void setFlat (bool shouldBeFlat)
+    {
+        flat = shouldBeFlat;
+        repaint();
+    }
+
     void setIconColour (std::optional<juce::Colour> colour)
     {
         iconColour = colour;
@@ -192,20 +200,25 @@ public:
         const auto on = getToggleState();
         auto background = findColour (on ? juce::TextButton::buttonOnColourId : juce::TextButton::buttonColourId);
 
-        getLookAndFeel().drawButtonBackground (g, *this, background, isHighlighted, isDown);
+        if (! flat)
+            getLookAndFeel().drawButtonBackground (g, *this, background, isHighlighted, isDown);
+        else if (isHighlighted)
+        {
+            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
+            g.fillRect (getLocalBounds());
+        }
 
+        // SAVE, the header's one main action: the accent solid with dark text.
         if (emphasis && isEnabled())
         {
             const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-            g.setColour (IlanaTheme::accent().withAlpha (isDown ? 0.5f : (isHighlighted ? 0.42f : 0.32f)));
-            g.fillRoundedRectangle (bounds, juce::jmin (5.0f, bounds.getHeight() * 0.3f));
-            g.setColour (IlanaTheme::accent().withAlpha (0.85f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), juce::jmin (5.0f, bounds.getHeight() * 0.3f), 1.2f);
+            g.setColour (IlanaTheme::accent().brighter (isDown ? 0.0f : (isHighlighted ? 0.12f : 0.0f)).withMultipliedBrightness (isDown ? 0.9f : 1.0f));
+            g.fillRoundedRectangle (bounds, 8.0f);
         }
 
         auto area = getLocalBounds().toFloat().reduced (3.0f);
         const auto enabled = isEnabled();
-        auto colour = iconColour.value_or (on || emphasis ? juce::Colours::white : IlanaTheme::Ui::text2);
+        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : on ? juce::Colours::white : IlanaTheme::Ui::text2);
 
         if (! enabled)
             colour = colour.withAlpha (0.22f);
@@ -218,12 +231,13 @@ public:
         {
             const auto iconArea = area.removeFromLeft (area.getHeight());
             g.fillPath (IlanaIcons::make (icon, iconArea));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f));
             g.drawText (text, area.withTrimmedRight (2.0f), juce::Justification::centred);
         }
         else
         {
-            const auto side = juce::jmin (area.getWidth(), area.getHeight());
+            // 15 px of icon in a 30 px key (the mockup's size); the flat prev / next arrows keep their 24.
+            const auto side = flat ? juce::jmin (area.getWidth(), area.getHeight()) : juce::jmin (area.getWidth(), area.getHeight(), 21.0f);
             g.fillPath (IlanaIcons::make (icon, area.withSizeKeepingCentre (side, side)));
         }
     }
@@ -231,8 +245,45 @@ public:
 private:
     IlanaIcons::Icon icon;
     juce::String text;
-    bool emphasis = false;
+    bool emphasis = false, flat = false;
     std::optional<juce::Colour> iconColour;
+};
+
+// SCOPE, KEYBOARD and ? in the tab bar: a small ghost button (clear fill,
+// a thin rim, 6 px corners); lit with the accent while it is switched on.
+class GhostButton : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto on = getToggleState();
+
+        if (on)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.16f));
+            g.fillRoundedRectangle (bounds, 6.0f);
+        }
+        else if (isHighlighted || isDown)
+        {
+            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
+            g.fillRoundedRectangle (bounds, 6.0f);
+        }
+
+        g.setColour (on ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::line.brighter (isHighlighted ? 0.3f : 0.0f));
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+        g.setColour (on || isHighlighted ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f));
+        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+    }
+
+    // The width its text needs.
+    int getIdealWidth() const
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f)), getButtonText()) + 20;
+    }
 };
 
 // The preset name as the centrepiece of the header: an inset display with
@@ -285,55 +336,46 @@ public:
         }
     }
 
+    // The two 28 px segments at the ends hold the prev / next buttons (the
+    // editor lays them over this display); the live scope sits right of the
+    // name, faint.
+    static constexpr int arrowWidth = 28;
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        g.setColour (IlanaTheme::Ui::panel);
-        g.fillRoundedRectangle (bounds, 6.0f);
+        // (The field itself is painted by the editor, under the live wave.)
         g.setColour (hover ? IlanaTheme::accent().withAlpha (0.6f) : IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 10.0f, 1.0f);
 
         // A preset load flashes the field with a glow that fades out.
         if (flash > 0.01f)
         {
-            IlanaTheme::paintGlow (g, bounds.reduced (1.0f), 6.0f, IlanaTheme::accent(), 2.0f * flash);
+            IlanaTheme::paintGlow (g, bounds.reduced (1.0f), 10.0f, IlanaTheme::accent(), 2.0f * flash);
             g.setColour (IlanaTheme::accent().withAlpha (0.12f * flash));
-            g.fillRoundedRectangle (bounds, 6.0f);
+            g.fillRoundedRectangle (bounds, 10.0f);
             g.setColour (IlanaTheme::accent().withAlpha (0.7f * flash));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.2f);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 10.0f, 1.2f);
         }
 
-        auto text = getLocalBounds().reduced (12, 3);
+        // The rules between the arrows and the name.
+        g.setColour (IlanaTheme::Ui::line.darker (0.2f));
+        g.fillRect (juce::Rectangle<float> ((float) arrowWidth, 1.0f, 1.0f, bounds.getHeight() - 1.0f));
+        g.fillRect (juce::Rectangle<float> ((float) (getWidth() - arrowWidth - 1), 1.0f, 1.0f, bounds.getHeight() - 1.0f));
 
-        // Browse chevron on the right.
-        const auto chevronArea = text.removeFromRight (14).toFloat();
-        juce::Path chevron;
-        chevron.startNewSubPath (chevronArea.getCentreX() - 4.0f, chevronArea.getCentreY() - 2.0f);
-        chevron.lineTo (chevronArea.getCentreX(), chevronArea.getCentreY() + 2.0f);
-        chevron.lineTo (chevronArea.getCentreX() + 4.0f, chevronArea.getCentreY() - 2.0f);
-        g.setColour (hover ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
-        g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        auto text = getLocalBounds().withTrimmedLeft (arrowWidth + 12).withTrimmedRight (arrowWidth + 8).reduced (0, 3);
 
         // Init's category is its own name: show it as the start-up label does.
         const auto categoryText = category.isNotEmpty() && ! category.equalsIgnoreCase ("Init") ? category.toUpperCase()
                                                                                                 : name.isEmpty() || name.equalsIgnoreCase ("Init") ? juce::String ("NEW PATCH") // (I14-7: not "PRESET" over Init)
                                                                                                                                                       : juce::String ("PRESET");
-        auto categoryRow = text.removeFromTop (12);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (notice.isNotEmpty() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
-        g.drawText (notice.isNotEmpty() ? notice : categoryText, categoryRow, juce::Justification::centredLeft);
-
-        if (isModified && notice.isEmpty())
-        {
-            const auto width = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), categoryText);
-            const auto dot = juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) categoryRow.getX() + width + 9.0f, (float) categoryRow.getCentreY() });
-            g.setColour (IlanaTheme::accent().withAlpha (0.3f));
-            g.fillEllipse (dot.expanded (2.5f));
-            g.setColour (IlanaTheme::accent());
-            g.fillEllipse (dot);
-            g.drawText ("EDITED", categoryRow.withTrimmedLeft ((int) (width + 16.0f)), juce::Justification::centredLeft);
-        }
+        // "BASS · EDITED": the category and the edited mark in the accent, one line.
+        auto categoryRow = text.removeFromTop (14);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+        g.setColour (notice.isNotEmpty() ? IlanaTheme::accent() : (isModified ? IlanaTheme::accent() : IlanaTheme::Ui::text3));
+        g.drawText (notice.isNotEmpty() ? notice : categoryText + (isModified ? juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 EDITED")) : juce::String()),
+                    categoryRow, juce::Justification::centredLeft);
 
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (nameSize, true));
@@ -362,7 +404,7 @@ public:
 private:
     // The preset name is the header's centrepiece: a size up from the type
     // scale's "large".
-    static constexpr float nameSize = 21.0f;
+    static constexpr float nameSize = 17.0f;
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;

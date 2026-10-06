@@ -24,18 +24,18 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // The mockup's mark: a 34 px badge in an accent gradient with the
+        // waves in it, the name and, small beneath it, the version.
         const auto bounds = getLocalBounds().toFloat();
-        const auto badge = bounds.withWidth (bounds.getHeight()).reduced (2.0f);
+        const auto badge = bounds.withSizeKeepingCentre (34.0f, 34.0f).withX (bounds.getX());
+        const auto radius = 9.0f;
 
-        constexpr auto glow = 0.6f;
-        g.setColour (IlanaTheme::accent().withAlpha (0.08f + 0.12f * glow));
-        g.fillRoundedRectangle (badge.expanded (4.0f + 2.0f * glow), badge.getWidth() * 0.33f);
-
-        g.setColour (IlanaTheme::accent());
-        g.fillRoundedRectangle (badge, badge.getWidth() * 0.28f);
+        g.setGradientFill (juce::ColourGradient (IlanaTheme::accent().brighter (0.3f), badge.getX(), badge.getY(),
+                                                 IlanaTheme::accent().darker (0.05f), badge.getRight(), badge.getBottom(), false));
+        g.fillRoundedRectangle (badge, radius);
 
         juce::Path clip;
-        clip.addRoundedRectangle (badge, badge.getWidth() * 0.28f);
+        clip.addRoundedRectangle (badge, radius);
 
         {
             juce::Graphics::ScopedSaveState saveState (g);
@@ -67,22 +67,16 @@ public:
         }
 
         auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
-        if (nameCentreY > 0.0f)
-            textArea = textArea.withSizeKeepingCentre (textArea.getWidth(), 28.0f).withCentre ({ textArea.getCentreX(), nameCentreY });
-
-        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::display, true));
+        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title, true));
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (nameFont);
-        g.drawText ("ilanaSynth", textArea, juce::Justification::centredLeft);
+        g.drawText ("ilanaSynth", textArea.removeFromTop (textArea.getHeight() * 0.56f).withTrimmedTop (1.0f), juce::Justification::bottomLeft);
 
         if (version.isNotEmpty())
         {
-            // The version beside the name, on its upper half.
-            const auto nameWidth = juce::GlyphArrangement::getStringWidth (nameFont, "ilanaSynth");
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (version, textArea.withTrimmedLeft (nameWidth + 5.0f).withHeight (textArea.getHeight() * 0.55f),
-                        juce::Justification::centredLeft);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+            g.drawText (version.toUpperCase(), textArea, juce::Justification::topLeft);
         }
     }
 

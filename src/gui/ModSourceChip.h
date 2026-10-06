@@ -51,7 +51,7 @@ public:
     // The width the chip needs for its name (the bar shares out the rest).
     static float widthFor (const juce::String& text)
     {
-        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 28.0f;
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 24.0f;
     }
 
     // (plus room for an LFO's "OUT 2" sub-chip when it has one).
@@ -63,7 +63,7 @@ public:
     // the bar folds alike at 75 % and 100 % (V7-39).
     static float layoutWidthFor (const juce::String& text)
     {
-        return layoutTextWidth (text) + 28.0f;
+        return layoutTextWidth (text) + 24.0f;
     }
     float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
 
@@ -98,7 +98,7 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
         const auto colour = modSourceColour (index);
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        const auto radius = bounds.getHeight() * 0.5f; // a full pill, as in the mockup
         const auto glow = juce::jlimit (0.0f, 1.0f, activity);
         const auto pinned = isPinned();
         const auto lit = juce::jmax (hover, glow, pinned ? 1.0f : 0.0f);
@@ -108,12 +108,12 @@ public:
         if (lit > 0.02f)
             IlanaTheme::paintGlow (g, bounds, radius, colour, 0.9f * hover + 0.8f * glow);
 
-        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f * hover + 0.1f * glow));
+        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, juce::jmax (0.08f * hover + 0.1f * glow, pinned ? 0.22f : 0.0f)));
         g.fillRoundedRectangle (bounds, radius);
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, pinned ? 2.0f : 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 
-        const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ bounds.getX() + 11.0f, bounds.getCentreY() });
+        const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 11.0f, bounds.getCentreY() });
         g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
         g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
         g.setColour (colour);
@@ -122,7 +122,7 @@ public:
         const auto second = getSecondOutputBounds();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 17.0f))
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 15.0f))
                                     .withTrimmedRight (second.isEmpty() ? 3 : (int) secondOutputRoom + 3),
                           juce::Justification::centred, 1);
 

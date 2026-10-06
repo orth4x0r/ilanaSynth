@@ -596,14 +596,14 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
             processor.setRevealed (Module::Lfo, i, lfoBefore[(size_t) i]);
         expect (anchored, "a group chip's tray opens over that chip, not at the window's edge");
 
-        // The hover line sits above the chips, not over them.
+        // The hover line sits in the dock's macro row, under the chips, not over them.
         auto& line = editor.getHoverLine();
         auto overChips = false;
         for (auto* chip : found)
             if (chip->isVisible() && chip->getParentComponent() == line.getParentComponent())
                 overChips = overChips || chip->getBounds().intersects (line.getBounds());
-        expect (! overChips && lfoGroup != nullptr && line.getBounds().getBottom() <= lfoGroup->getY() + 2,
-                "the hover line sits above the source chips, not over them");
+        expect (! overChips && lfoGroup != nullptr && line.getBounds().getY() >= lfoGroup->getBottom() - 2,
+                "the hover line sits under the source chips, not over them");
 
         // Its title is the matrix's name for the knob.
         editor.showPage ("MAIN");

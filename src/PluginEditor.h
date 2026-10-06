@@ -174,7 +174,7 @@ private:
     float hostScaleFactor() const;
 
     // The hover line's own strip, between the pages and the source chips.
-    static constexpr int infoLineHeight = 16;
+    static constexpr int infoLineHeight = 22;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "1.3";
@@ -191,10 +191,23 @@ private:
     ConfirmOverlay confirmOverlay;
     SavePresetOverlay saveOverlay { processorRef };
 
-    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+    // The tabs span the whole width, so the pages start at x = 0 and keep their
+    // own 14 px gutter (the mockup's content rectangle); the tab bar's row of
+    // buttons is inset 14 px.
+    struct ShellTabs : public juce::TabbedComponent
+    {
+        ShellTabs() : juce::TabbedComponent (juce::TabbedButtonBar::TabsAtTop) {}
+
+        void resized() override
+        {
+            juce::TabbedComponent::resized();
+            getTabbedButtonBar().setBounds (14, 0, getWidth() - 28, getTabBarDepth());
+        }
+    };
+    ShellTabs tabs;
     std::vector<SectionPage*> sections; // owned by tabs
     std::unique_ptr<juce::Component> scopePanel;
-    juce::TextButton scopeButton { "SCOPE" };
+    GhostButton scopeButton { "SCOPE" };
 
     PresetDisplay presetDisplay;
     IconButton prevButton { "prev", IlanaIcons::Icon::ChevronLeft, "Previous preset" };
@@ -208,8 +221,8 @@ private:
     ABButton abButton;
     IconButton diceButton { "dice", IlanaIcons::Icon::Dice, "Randomise\nRoll a new patch, or randomise one part of it." };
     IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nVoice mode, voices and pitch-bend range, skin, interface size, keyboard and the welcome tour." };
-    juce::TextButton keysButton { "KEYBOARD" };
-    juce::TextButton helpButton { "?" };
+    GhostButton keysButton { "KEYBOARD" };
+    GhostButton helpButton { "?" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<WavetableEditor> wavetableEditor;
@@ -222,6 +235,15 @@ private:
     struct ClickArea : public juce::Component, public juce::SettableTooltipClient
     {
         std::function<void()> onClick;
+        // What the area draws (the tab bar's read-outs, the tuning pill).
+        std::function<void (juce::Graphics&, juce::Rectangle<int>, bool hover)> onPaint;
+        void paint (juce::Graphics& g) override
+        {
+            if (onPaint != nullptr)
+                onPaint (g, getLocalBounds(), isMouseOver());
+        }
+        void mouseEnter (const juce::MouseEvent&) override { if (onClick != nullptr) repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { if (onClick != nullptr) repaint(); }
         void mouseUp (const juce::MouseEvent& event) override
         {
             if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
@@ -243,13 +265,17 @@ private:
     bool browsingAccepted = false;
     void updateMasterTooltip();
     juce::String masterBaseTooltip, shownPresetLevel;
-    // The gap between the status line's tempo and its VOICES group.
-    static constexpr int statusGroupGap = 16;
-    // The status line's three pills: one width, one gap, flush right (V13-6).
-    static constexpr int pillY = 36, pillHeight = 18, pillWidth = 104, pillGap = 6;
-    static juce::Rectangle<int> cpuArea() { return { designWidth - 14 - pillWidth, pillY, pillWidth, pillHeight }; }
-    static juce::Rectangle<int> voicesPillArea() { return cpuArea().translated (-(pillWidth + pillGap), 0); }
-    static juce::Rectangle<int> bpmArea() { return voicesPillArea().translated (-(pillWidth + pillGap), 0); }
+    // The shell (shell mockup): a 52 px header, a 34 px tab bar and a 78 px
+    // dock; the pages get what is between (86 px from the top, 78 from the
+    // bottom).
+    static constexpr int headerHeight = 52, tabBarHeight = 34, dockHeight = 78;
+    // The tab bar's read-outs, right-aligned: tempo, VOICES (a button: it
+    // opens the voice settings) and CPU.
+    ClickArea bpmArea, cpuArea;
+    // The dock's place, and where its source groups part (x of the thin rules).
+    juce::Rectangle<int> dockBounds, chipRowBounds;
+    std::array<int, 2> chipSeparatorX {};
+    int statusStartX = 0;
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // Every LFO and envelope has a chip, shown while that module is in the
@@ -270,7 +296,7 @@ private:
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
-    juce::TextButton moreChipsButton;
+    GhostButton moreChipsButton;
     void updateChipVisibility();
     void layoutChips (juce::Rectangle<int> row);
     void showChipPicker();
@@ -285,7 +311,7 @@ private:
     // All eight macros exist; the strip shows the first four, and more once
     // they are named, routed or added with "+" (review 10, S10-10).
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
-    juce::TextButton macroPlusButton { "+ MACRO" };
+    GhostButton macroPlusButton { "+ MACRO" };
     int shownMacros = 4, addedMacros = 0;
     void updateMacroStrip();
     // (Voices, pitch-bend range, voice mode, glide and legato live in the

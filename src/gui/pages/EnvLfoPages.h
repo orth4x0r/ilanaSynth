@@ -722,6 +722,8 @@ public:
         // One card per envelope in the patch, the Operator Env's two, and a
         // "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits, cards fold
         // into a "N MORE" card; the pool never scrolls (UI review 7, V7-17).
+        // The design's pool: the cards share the bar, the "+" 50 px wide.
+        thumbs.setFillWidth (true, 50.0f);
         addAndMakeVisible (thumbs);
 
         // OP ENV and OP PITCH, pool members edited below like the others
@@ -909,7 +911,11 @@ public:
     // What the section needs below its cards: the panel's header and one
     // row of full-size knobs.
     static constexpr int cardHeight = 48;
-    static constexpr int panelHeightNeeded = 6 + 20 + (13 + IlanaTheme::KnobSize::main + 16) + 6 + 12;
+    // The editor row under the cards (the design's 118 px): the graph at the
+    // left (40 %), the knob card at the right, exactly as tall as its nine
+    // knobs and its header need.
+    static constexpr int editorHeight = 118;
+    static constexpr int panelHeightNeeded = editorHeight;
 
     void resized() override
     {
@@ -927,35 +933,16 @@ public:
         }
 
         const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
-        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft (area.getWidth() * 47 / 100 /* the LFO display above splits at the same place */).reduced (2));
-        area.removeFromLeft (8);
+        units[(size_t) unitIndex].display->setBounds (area.removeFromLeft ((area.getWidth() - 10) * 40 / 100));
+        area.removeFromLeft (10);
 
-        // Same panel shape as the LFOs: heading, then the stage knobs.
+        // The card: a 30 px header, then 8 px of padding round the knobs.
         panel = area;
-        auto inner = panel.reduced (10, 6);
-        inner.removeFromTop (20);
-        // First row: the ADSR, velocity and curve as before; second row:
-        // delay, hold and key rate.
-        const auto& knobs = units[(size_t) unitIndex].knobs;
-        const std::vector<juce::Component*> first (knobs.begin(), knobs.begin() + juce::jmin ((int) knobs.size(), 6));
-        const std::vector<juce::Component*> second (knobs.begin() + (int) first.size(), knobs.end());
-        // Two rows when both fit full-size knobs (the six stages, then VEL,
-        // CURVE and KEY RATE); otherwise one row of all of them in the
-        // graph's order, so the dials stay as big as the LFO's rather than
-        // shrinking to fit two short rows.
-        constexpr int fullRow = 13 + 58 + 16 + 6;
-
-        if (second.empty() || inner.getHeight() < fullRow * 2)
-        {
-            std::vector<juce::Component*> all (first);
-            all.insert (all.end(), second.begin(), second.end());
-            layoutRow (inner, all);
-            return;
-        }
-
-        auto rows = inner.withSizeKeepingCentre (inner.getWidth(), fullRow * 2);
-        layoutRow (rows.removeFromTop (fullRow), first);
-        layoutRow (rows.withWidth (rows.getWidth() * (int) second.size() / 6), second);
+        auto inner = panel.withTrimmedTop (30).reduced (10, 8);
+        // All nine in one row in the graph's order (DELAY ATTACK HOLD DECAY
+        // SUSTAIN RELEASE VEL CURVE KEY RATE); a row is as tall as its dial,
+        // its label and its value need, with no empty space under it.
+        layoutRow (inner, units[(size_t) unitIndex].knobs);
     }
 
     void paint (juce::Graphics& g) override
@@ -967,11 +954,20 @@ public:
         const auto unusedAmp = selected == 0 && ! FmOperatorInfo::ampEnvelopeInUse (processorRef);
 
         IlanaTheme::paintCard (g, panel.toFloat(), 7.0f, colour.withAlpha (unusedAmp ? 0.15f : 0.35f));
-        auto header = panel.reduced (12, 0).withHeight (26);
+        auto header = panel.reduced (12, 0).withHeight (30);
         IlanaTheme::paintCardHeader (g, header, envelopeTitle (selected),
                                      unusedAmp ? juce::String (ampUnusedText())
                                                : "drag the graph or the knobs",
                                      colour, 0);
+    }
+
+    // How many envelopes the pool holds (the heading's caption).
+    int countShown() const
+    {
+        auto count = 0;
+        for (int env = 0; env < opEnvId; ++env)
+            count += envelopeShown (processorRef, env) ? 1 : 0;
+        return count;
     }
 
     int getSelected() const { return selected; }
@@ -1205,6 +1201,7 @@ public:
         // One card per LFO in the patch, the modulators edited beside them,
         // then a "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits,
         // cards fold into a "N MORE" card; the pool never scrolls (V7-17).
+        thumbs.setFillWidth (true, 50.0f); // the design's pool: the cards share the bar, the "+" 50 px wide
         addAndMakeVisible (thumbs);
         thumbs.onLayoutChanged = [this] { resized(); repaint(); };
 
@@ -1339,7 +1336,7 @@ public:
     void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
     void handleAsyncUpdate() override { lastShape = -1; timerCallback(); }
 
-    static constexpr int cardHeight = 54;
+    static constexpr int cardHeight = 48;
 
     void resized() override
     {
@@ -1356,9 +1353,10 @@ public:
             return;
         }
 
-        // The same split for every shape (and as the envelopes below).
-        const auto displayArea = area.removeFromLeft (area.getWidth() * OperatorPool::graphPercent / 100).reduced (2);
-        area.removeFromLeft (8);
+        // The same split for every shape: the graph 112 : 100 against the
+        // card, 10 px between (the design's).
+        const auto displayArea = area.removeFromLeft ((area.getWidth() - 10) * 112 / 212);
+        area.removeFromLeft (10);
 
         // One grid for every shape and module (UI review 8, I8-17 / S8-7 /
         // V8-6): the left column holds SHAPE, then the switches, then
@@ -1367,8 +1365,7 @@ public:
         // away knobs and rows but never moves a control that stays. What
         // the grid leaves free at the bottom lists what the LFO drives.
         panel = area;
-        auto inner = panel.reduced (10, 6);
-        inner.removeFromTop (20);
+        const auto inner = panel.withTrimmedTop (30).reduced (10, 8);
         const auto grid = gridFor (inner);
         infoArea = {};
 
@@ -1449,7 +1446,7 @@ public:
         if (panel.isEmpty() || selected == opLfoId)
             return;
 
-        auto header = panel.reduced (12, 0).withHeight (26);
+        auto header = panel.reduced (12, 0).withHeight (30);
 
         if (selected == msegId || selected == clockId)
         {
@@ -1571,6 +1568,11 @@ private:
               , axis (state, "lfo" + juce::String (lfo) + "_axis", "OUT 1 AXIS")
               , loop (state, "lfo" + juce::String (lfo) + "_loop", "LOOP")
         {
+            // The LFO's own colour lights its switches (the design's SYNC), as it does its knobs.
+            if (! followsTheme)
+                for (auto* toggle : { &sync, &retrig, &key, &loop, &kick })
+                    toggle->getButton().setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.85f));
+
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
                 sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),
                                                               "P" + juce::String (param + 1), accent, followsTheme));
@@ -1742,7 +1744,7 @@ private:
 
             // (Knobs for one row only take its taller height, so what the
             // LFO drives has a band no wider than its text needs: V12-3.)
-            const auto height = knobs.size() <= (size_t) perRow ? oneRowHeight : knobHeight;
+            const auto height = oneRowHeight; // the same row height for one or two rows, so RATE never moves
             for (size_t row = 0; row < 2 && row * (size_t) perRow < knobs.size(); ++row)
             {
                 std::vector<juce::Component*> items ((size_t) perRow, nullptr);
@@ -1779,7 +1781,9 @@ private:
         constexpr int smallestKnob = 13 + IlanaTheme::KnobSize::minimum + 16;
         grid.knobHeight = (inner.getHeight() - Grid::rowGap) / 2;
         grid.twoRows = grid.knobHeight >= smallestKnob;
-        grid.oneRowHeight = grid.knobHeight;
+        // One row of knobs is as tall as its label, dial and value need (the
+        // design's 38 px dial): what the LFO drives takes the rest.
+        grid.oneRowHeight = juce::jmin (grid.knobHeight, 13 + 46 + 16);
         if (! grid.twoRows)
             grid.knobHeight = inner.getHeight();
         return grid;
@@ -1829,17 +1833,21 @@ private:
             routeSlots.push_back (slot);
         }
 
-        // The list sits in a recessed well, so a short list is not a bare band.
-        g.setColour (juce::Colours::black.withAlpha (0.22f));
-        g.fillRoundedRectangle (infoArea.toFloat(), 5.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.06f));
-        g.drawRoundedRectangle (infoArea.toFloat().reduced (0.5f), 5.0f, 1.0f);
+        // The design's group: a thin rim, "DRIVES" in the source's colour at the
+        // left and the number of routes at the right.
+        g.setColour (IlanaTheme::Ui::well);
+        g.fillRoundedRectangle (infoArea.toFloat(), 8.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (infoArea.toFloat().reduced (0.5f), 8.0f, 1.0f);
 
-        auto area = infoArea.reduced (8, 3);
-        auto title = area.removeFromTop (14);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (IlanaTheme::Ui::text3);
+        auto area = infoArea.reduced (10, 4);
+        auto title = area.removeFromTop (16);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+        g.setColour (colour);
         g.drawText ("DRIVES", title, juce::Justification::centredLeft);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText (juce::String (routes.size()) + (routes.size() == 1 ? " ROUTE" : " ROUTES"), title, juce::Justification::centredRight);
+        area.removeFromTop (2);
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         if (routes.isEmpty())
@@ -1878,9 +1886,11 @@ private:
             const auto nameWidth = juce::jmin (row.getWidth() * 55 / 100,
                                                juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), nameText) + 10);
             g.drawText (nameText, row.removeFromLeft (nameWidth), juce::Justification::centredLeft, true);
+            g.setColour (IlanaTheme::Ui::text);
             g.drawText (depthText, valueArea, juce::Justification::centredRight, true);
+            g.setColour (colour.withAlpha (hovered ? 1.0f : 0.85f));
             const auto depth = juce::jlimit (0.0f, 1.0f, std::abs (depthText.retainCharacters ("0123456789").getFloatValue()) / 100.0f);
-            const auto bar = row.withTrimmedLeft (6).withTrimmedRight (6).withSizeKeepingCentre (row.getWidth() - 12, 4).toFloat();
+            const auto bar = row.withTrimmedLeft (6).withTrimmedRight (6).withSizeKeepingCentre (row.getWidth() - 12, 5).toFloat();
             if (bar.getWidth() > 10.0f)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.06f));
@@ -2080,7 +2090,8 @@ class EnvLfoPage : public juce::Component
 {
 public:
     EnvLfoPage (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
-        : lfoSection (p, settingsRef),
+        : processorRef (p),
+          lfoSection (p, settingsRef),
           envSection (p, settingsRef)
     {
         addAndMakeVisible (lfoSection);
@@ -2094,37 +2105,47 @@ public:
     LfoSection& getLfoSection() { return lfoSection; }
     EnvSection& getEnvSection() { return envSection; }
 
+    // The design's page: a 14 px gutter, 10 px at the top and bottom; each
+    // section a 16 px heading with its caption, 8 px, the 48 px pool, 8 px,
+    // then the editor row. The envelopes' editor row is 118 px (its knobs
+    // and nothing more), the LFOs take the rest (a tall graph).
+    static constexpr int gutter = 14, verticalPad = 10, sectionGap = 10, headHeight = 16, headGap = 8;
+
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        // Headings on the card-title line every page uses (12 px down).
-        paintSectionTitle (g, "LFO", juce::Rectangle<int> (headingX, 12, 200, headingHeight));
-        paintSectionTitle (g, "ENVELOPES", juce::Rectangle<int> (headingX, lfoBottom + 4, 200, headingHeight));
+        auto count = 0;
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            count += processorRef.isLfoShown (lfo) ? 1 : 0;
+        const auto envelopes = envSection.countShown();
+
+        paintSectionTitle (g, "LFO", lfoHeading,
+                           juce::String (count) + (count == 1 ? " LFO" : " LFOs") + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 shared, runs free")));
+        paintSectionTitle (g, "ENVELOPES", envHeading,
+                           juce::String (envelopes) + (envelopes == 1 ? " envelope" : " envelopes")
+                               + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 drag the graph or the knobs")));
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12);
-        area.removeFromTop (headingHeight);
+        auto area = getLocalBounds().reduced (gutter, verticalPad);
+        auto envArea = area.removeFromBottom (headHeight + headGap + EnvSection::cardHeight + headGap + EnvSection::editorHeight);
+        area.removeFromBottom (sectionGap);
 
-        // The envelopes take what one row of full-size knobs needs (their
-        // graph beside it); the LFOs get the rest, so a chaos shape's two
-        // rows of knobs fit with their values clear of the dials.
-        const auto shared = area.getHeight() - headingHeight - 8;
-        const auto envHeight = juce::jlimit (EnvSection::cardHeight + 8 + EnvSection::panelHeightNeeded,
-                                             juce::jmax (EnvSection::cardHeight + 8 + EnvSection::panelHeightNeeded, shared / 2),
-                                             shared * 42 / 100);
-        auto lfoArea = area.removeFromTop (shared - envHeight);
-        lfoBottom = lfoArea.getBottom();
-        area.removeFromTop (headingHeight + 8);
-        envSection.setBounds (area);
-        lfoSection.setBounds (lfoArea);
+        lfoHeading = area.removeFromTop (headHeight);
+        area.removeFromTop (headGap);
+        lfoSection.setBounds (area);
+
+        envHeading = envArea.removeFromTop (headHeight);
+        envArea.removeFromTop (headGap);
+        envSection.setBounds (envArea);
     }
 
 private:
+    IlanaSynthAudioProcessor& processorRef;
     LfoSection lfoSection;
     EnvSection envSection;
-    int lfoBottom = 0;
+    juce::Rectangle<int> lfoHeading, envHeading;
 };
 } // namespace

@@ -26,50 +26,35 @@ public:
         return juce::String ("Output level (peak, ticks at 0, -12 and -24 dB).\n")
                + (loudest < 1.0e-5f ? juce::String ("Silent since the last reset.")
                                     : "Loudest peak: " + juce::String (db, 1) + " dB" + (clipped ? " (clipped)." : "."))
-               + "\nThe light above lights red if the output went over 0 dB; click to reset it.";
+               + "\nA red light at the right of the meter shows if the output went over 0 dB; click to reset it.";
     }
 
     bool isClipLit() const { return clipped; }
 
     void paint (juce::Graphics& g) override
     {
-        // A stereo instrument, not a sliver (UI review 13, V13-5): a name
-        // column on the left ("OUT", the loudest hold in dB, the clip light)
-        // and two bars about 14 px tall, left over right, with the 0, -12 and
-        // -24 dB ticks drawn across them.
-        auto whole = getLocalBounds().toFloat();
-        auto names = whole.removeFromLeft (58.0f);
-        whole.removeFromLeft (4.0f);
+        // The dock's meter (shell mockup): a 110 x 30 well holding two thin
+        // bars, left over right, with the 0, -12 and -24 dB ticks across
+        // them. The clip light is a red dot at the well's right end that
+        // only shows after a clip; the loudest peak is in the tooltip.
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 8.0f);
+        const auto inner = bounds.reduced (6.0f, 0.0f).withTrimmedRight (clipped ? 10.0f : 0.0f);
+        const auto barHeight = 6.0f;
+        const auto barsTop = bounds.getCentreY() - barHeight - 2.0f;
 
-        auto top = names.removeFromTop (names.getHeight() * 0.5f);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("OUT", top.withTrimmedLeft (2.0f), juce::Justification::bottomLeft);
-
-        // The clip light, a dot at the right of the name.
-        const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ top.getRight() - 6.0f, top.getBottom() - 7.0f });
-        g.setColour (clipped ? juce::Colour (0xffff4f5e) : IlanaTheme::Ui::raised);
-        g.fillEllipse (light);
-        g.setColour (clipped ? juce::Colour (0xffff4f5e).brighter (0.4f) : IlanaTheme::Ui::line);
-        g.drawEllipse (light.reduced (0.5f), 1.0f);
-
-        // The loudest hold in dB, so the meter has a number (V11-10).
+        if (clipped)
         {
-            const auto peak = juce::jmax (holds[0], holds[1]);
-            g.setColour (IlanaTheme::Ui::text2.withAlpha (peak > 0.001f ? 1.0f : 0.6f));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, false, true));
-            IlanaTheme::drawFitted (g, peak > 0.001f ? juce::String (juce::Decibels::gainToDecibels (peak, -60.0f), 1) + " dB" : juce::String ("-- dB"),
-                                    names.withTrimmedLeft (2.0f).toNearestInt(), juce::Justification::topLeft);
+            const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getRight() - 9.0f, bounds.getCentreY() });
+            g.setColour (juce::Colour (0xffff4f5e));
+            g.fillEllipse (light);
+            g.setColour (juce::Colour (0xffff4f5e).brighter (0.4f));
+            g.drawEllipse (light.reduced (0.5f), 1.0f);
         }
-
-        const auto bounds = whole.reduced (0.0f, 1.0f);
-        IlanaTheme::paintWell (g, bounds, 3.0f);
-        const auto inner = bounds.reduced (2.0f, 2.0f);
-        const auto barHeight = (inner.getHeight() - 2.0f) * 0.5f;
 
         for (int channel = 0; channel < 2; ++channel)
         {
-            const auto bar = juce::Rectangle<float> (inner.getX(), inner.getY() + (float) channel * (barHeight + 2.0f),
+            const auto bar = juce::Rectangle<float> (inner.getX(), barsTop + (float) channel * (barHeight + 4.0f),
                                                      inner.getWidth(), barHeight);
             const auto level = proportion (levels[(size_t) channel]);
             const auto filled = bar.withWidth (bar.getWidth() * level);
@@ -78,7 +63,7 @@ public:
                                            juce::Colour (0xffff4f5e), bar.getRight(), bar.getY(), false);
             gradient.addColour (proportion (juce::Decibels::decibelsToGain (-6.0f)), juce::Colour (0xffffd447));
             g.setGradientFill (gradient);
-            g.fillRect (filled);
+            g.fillRoundedRectangle (filled, 3.0f);
 
             const auto hold = proportion (holds[(size_t) channel]);
 
@@ -95,7 +80,7 @@ public:
         {
             const auto x = inner.getX() + inner.getWidth() * proportion (juce::Decibels::decibelsToGain (db));
             g.setColour (juce::Colours::black.withAlpha (0.45f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, inner.getY(), 1.0f, inner.getHeight()));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, barsTop, 1.0f, barHeight * 2.0f + 4.0f));
         }
     }
 

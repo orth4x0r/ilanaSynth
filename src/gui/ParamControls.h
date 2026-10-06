@@ -2195,11 +2195,13 @@ private:
         {
             if (popupOverride != nullptr)
             {
-                popupOverride();
-
                 // ComboBox marks its menu active on click and only clears that
-                // when its own menu closes; without this, later clicks are ignored.
+                // when its own menu closes; without this, later clicks are
+                // ignored. Cleared first: hidePopup() dismisses every open
+                // menu, so after the override it closed the override's own
+                // menu as it opened and nothing could be picked.
                 hidePopup();
+                popupOverride();
             }
             else
                 juce::ComboBox::showPopup();

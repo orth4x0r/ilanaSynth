@@ -458,11 +458,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* decay = knobFor ("osc1_string_decay");
         auto* hammer = knobFor ("osc1_hammer_hard");
+        // (STRING and EXCITER are two rows of one grid: the hammer sits under the decay.)
         const auto sameLine = decay != nullptr && hammer != nullptr
-                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
+                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() < editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
         expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
-                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
-                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, EDIT BODY > links to FILTER");
+                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba")) != nullptr,
+                "PHYSICAL: the string spans the page, STRING and EXCITER are rows of one grid, EDIT > links to FILTER");
         // The renamed exciter menu still shows its choice.
         juce::String exciteText;
         std::vector<ComboControl*> combos;
@@ -865,6 +866,8 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 // state, for the wiring that unit tests can't see.
 int runUiTests()
 {
+    // The FILTER page's SIGNAL FLOW opens on hover or click: the tests hold it open.
+    filterFlowForcedOpen() = true;
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
     // ILANA_UITEST_ONLY=R6 runs just review 8's R6 checks (a quick loop).
@@ -4023,8 +4026,8 @@ int runUiTests()
             bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
         // (UI review 8, V8-23: the body's switch and main controls are here
         // too now, with links to the rest.)
-        expect (pageButtons.contains (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"))
-                    && pageButtons.contains (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba")) && bodySwitch,
+        // (The design's rows carry one short "EDIT ›" each: the body's and the soundboard's.)
+        expect (std::count (pageButtons.begin(), pageButtons.end(), juce::String (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba"))) >= 2 && bodySwitch,
                 "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (SOUNDBOARD)");
 
         // UI review 9, I9-3: the string has one editor. The OSC card keeps
@@ -4198,13 +4201,15 @@ int runUiTests()
                     return knob;
             return (KnobControl*) nullptr;
         };
-        const auto foldedTogether = visibleKnob ("west_fold") == nullptr && visibleKnob ("body_material") == nullptr;
+        // (The design keeps them open, dimmed while off: controls dim in place.)
+        const auto foldedTogether = visibleKnob ("west_fold") != nullptr && visibleKnob ("west_fold")->getAlpha() < 0.99f
+                                    && visibleKnob ("body_material") != nullptr && visibleKnob ("body_material")->getAlpha() < 0.99f;
         setParam ("west_on", 1.0f);
         settle (400);
         const auto openTogether = visibleKnob ("west_fold") != nullptr && visibleKnob ("body_material") != nullptr;
         setParam ("west_on", 0.0f);
         settle (400);
-        expect (foldedTogether && openTogether, "WEST and BODY fold together and open together (I14-5)");
+        expect (foldedTogether && openTogether, "WEST and BODY dim together while off and light together when on (I14-5)");
 
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
@@ -5753,7 +5758,42 @@ int runUiTests()
                 return nullptr;
             };
 
-            for (const auto* page : { "ENV/LFO", "MAIN" })
+            // PLAY's RATE is the design's slider (SYNC swaps it for the division in place).
+            {
+                pages->showPage ("MAIN");
+                settle (300);
+                const auto findSlider = [&editor] (const juce::String& id) -> ValueSliderControl*
+                {
+                    std::vector<ValueSliderControl*> sliders;
+                    findAll<ValueSliderControl> (*editor, sliders);
+                    for (auto* slider : sliders)
+                        if (slider->getParameterId() == id && visibleInTree (slider) && slider->getWidth() > 0)
+                            return slider;
+                    return nullptr;
+                };
+                auto* sync = processor.apvts.getParameter ("lfo1_sync");
+                auto* divParam = processor.apvts.getParameter ("lfo1_div");
+                if (sync != nullptr && divParam != nullptr)
+                {
+                    const auto syncBefore = sync->getValue();
+                    sync->setValueNotifyingHost (1.0f);
+                    settle (300);
+                    auto* division = findSlider ("lfo1_div");
+                    const auto divText = divParam->getText (divParam->getValue(), 0);
+                    const auto shownText = division != nullptr ? division->getSlider().getTextFromValue (division->getSlider().getValue()) : juce::String();
+                    expect (division != nullptr && shownText == divText && findSlider ("lfo1_rate") == nullptr,
+                            "MAIN: a synced LFO's RATE slider shows the division ('" + shownText + "', want '" + divText + "')");
+                    sync->setValueNotifyingHost (0.0f);
+                    settle (300);
+                    expect (findSlider ("lfo1_rate") != nullptr && findSlider ("lfo1_div") == nullptr, "MAIN: free-running, RATE is the Hz slider again");
+                    sync->setValueNotifyingHost (syncBefore);
+                    settle (100);
+                }
+                else
+                    expect (false, "MAIN: an LFO RATE slider is on the page");
+            }
+
+            for (const auto* page : { "ENV/LFO" })
             {
                 pages->showPage (page);
                 settle (300);

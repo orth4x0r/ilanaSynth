@@ -164,6 +164,15 @@ public:
 
         // Filters: one set of controls per filter, swapped by the F1/F2 tabs.
         addAndMakeVisible (filterDisplay);
+        // A DX7 voice has no filter: the response says so (a label over its well).
+        filterOffNote.setText ("FILTER OFF\na DX7 voice has none: turn CUTOFF down to bring one in", juce::dontSendNotification);
+        filterOffNote.setJustificationType (juce::Justification::centred);
+        filterOffNote.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        filterOffNote.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        filterOffNote.setBorderSize ({ 0, 6, 0, 6 });
+        filterOffNote.setMinimumHorizontalScale (0.8f);
+        filterOffNote.setInterceptsMouseClicks (false, false);
+        addChildComponent (filterOffNote);
 
         for (int f = 0; f < 2; ++f)
         {
@@ -453,18 +462,6 @@ public:
         {
             const auto well = filterDisplay.getBounds().toFloat();
             IlanaTheme::paintWell (g, well, 6.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            IlanaTheme::drawFitted (g, "FILTER OFF", well.toNearestInt().withTrimmedBottom ((int) (well.getHeight() / 2.0f)), juce::Justification::centredBottom, 1);
-            g.setColour (IlanaTheme::Ui::text3);
-            const auto noteFont = IlanaTheme::font (IlanaTheme::TextSize::label);
-            g.setFont (noteFont);
-            const juce::String note ("a DX7 voice has none: turn CUTOFF down to bring one in");
-            // (A box only as wide and tall as the words, so it never reaches the controls around the well.)
-            auto noteArea = well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0);
-            noteArea = noteArea.withSizeKeepingCentre (juce::jmin (noteArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (noteFont, note) + 2), noteArea.getHeight())
-                               .withHeight (juce::jmin (noteArea.getHeight(), 2 * (int) std::ceil (noteFont.getHeight()) + 2));
-            IlanaTheme::drawFitted (g, note, noteArea, juce::Justification::centredTop, 2);
         }
         paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
 
@@ -489,7 +486,7 @@ public:
             IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
-            for (int i = 0; i < count && rowHeight >= 10; ++i)
+            for (int i = 0; i < count && rowHeight >= 8; ++i)
             {
                 const auto osc = operators[(size_t) i];
                 const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
@@ -706,6 +703,7 @@ public:
         {
             auto inner = filterCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
             filterDisplay.setBounds (inner.removeFromLeft (filterDisplayWidth));
+            filterOffNote.setBounds (filterDisplay.getBounds().reduced (4, 20));
             inner.removeFromLeft (12);
             const auto cellWidth = inner.getWidth() / 3, cellHeight = inner.getHeight() / 2;
             const auto cell = [&] (int index) { return juce::Rectangle<int> (inner.getX() + (index % 3) * cellWidth, inner.getY() + (index / 3) * cellHeight,
@@ -728,7 +726,14 @@ public:
         // one evenly spaced row under it.
         {
             auto inner = envCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
-            const auto displayArea = inner.removeFromTop (envGraphHeight);
+            // OP ENV: the picture takes the height its operators' bars leave.
+            auto graphHeight = envGraphHeight;
+            if (selectedEnv == opEnvTab)
+            {
+                const auto operators = (int) OperatorPool::operatorsOnEnv (processorRef).size();
+                graphHeight = juce::jlimit (36, 100, inner.getHeight() - 8 - (18 + 12 * juce::jmax (1, operators)));
+            }
+            const auto displayArea = inner.removeFromTop (graphHeight);
             inner.removeFromTop (8);
             ampNoteArea = shownAmpNote.isNotEmpty() ? displayArea.withTrimmedTop (displayArea.getHeight() - 22).reduced (6, 2) : juce::Rectangle<int>();
             opEgButton.setBounds (ampNoteArea.removeFromRight (100).withSizeKeepingCentre (96, 20));
@@ -1169,6 +1174,7 @@ private:
             {
                 operatorFilterOff = off;
                 filterDisplay.setVisible (! off);
+                filterOffNote.setVisible (off);
                 repaint (filterCard);
             }
         }
@@ -1709,6 +1715,7 @@ private:
     OperatorEnvOverview opEnvOverview { processorRef };
     juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
+    juce::Label filterOffNote;
     bool operatorFilterOff = false;
     juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;

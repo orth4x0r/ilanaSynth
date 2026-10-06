@@ -60,7 +60,16 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         for (auto* candidate : flows)
             if (visibleInTree (candidate))
                 flow = candidate;
-        auto* balance = shownKnob ("filter_balance");
+        // (BALANCE is in the strip too: the one inside the enlarged flow card is the one checked here.)
+        KnobControl* balance = nullptr;
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == "filter_balance" && visibleInTree (knob) && flow != nullptr && flow->getParentComponent() != nullptr
+                    && flow->getParentComponent()->isParentOf (knob))
+                    balance = knob;
+        }
         expect (flow != nullptr && balance != nullptr, "FILTER shows SIGNAL FLOW and BALANCE");
 
         const auto check = [&] (const juce::String& what)
@@ -137,7 +146,8 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         auto* amount = shownKnob ("res_amount");
         auto* decay = shownKnob ("res_decay");
         (void) offAlpha;
-        const auto offDrawn = fold == nullptr && amount == nullptr && decay == nullptr; // folded to a header (V9-4)
+        const auto offDrawn = fold != nullptr && amount != nullptr && decay != nullptr
+                              && fold->getAlpha() < 0.99f && amount->getAlpha() < 0.99f && decay->getAlpha() < 0.99f; // open, dimmed in place (the design)
         setParam ("west_on", 1.0f);
         setParam ("res_on", 1.0f);
         settle (400);
@@ -146,7 +156,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         decay = shownKnob ("res_decay");
         expect (offDrawn && fold != nullptr && amount != nullptr && decay != nullptr
                     && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
-                "WEST and BODY fold to a header while off (no knobs), and draw every knob in full while on");
+                "WEST and BODY stay open and dimmed while off, and draw every knob in full while on");
 
         auto* place = shownCombo ("west_pos");
         auto* bodyType = shownCombo ("body_type");

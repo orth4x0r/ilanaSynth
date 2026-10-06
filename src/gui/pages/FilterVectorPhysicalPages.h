@@ -884,7 +884,7 @@ public:
             {
                 if (dynamic_cast<ToggleControl*> (item) != nullptr)
                 {
-                    item->setBounds (grid.getX(), rowY (row) + 22, 70, 13 + 24);
+                    item->setBounds (grid.getX(), rowY (row) + 24, 70, 13 + 24);
                     continue;
                 }
                 place (item, column++, row);
@@ -912,8 +912,8 @@ public:
         const auto gutterBlock = [&] (const juce::String& name, int row, ToggleControl& power, juce::TextButton& link)
         {
             gutterName (name, row);
-            power.setBounds (grid.getX(), rowY (row) + 26 - 13 + 2, 40, 13 + 20);
-            link.setBounds (grid.getX() + 46, rowY (row) + 28, 50, 22);
+            power.setBounds (grid.getX(), rowY (row) + 22, 40, 13 + 20);
+            link.setBounds (grid.getX() + 46, rowY (row) + 35, 50, 22);
         };
         separator (2, 9);
         gutterBlock ("BODY", 2, bodyOn, bodyLink);

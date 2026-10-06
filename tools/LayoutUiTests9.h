@@ -267,8 +267,9 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         setParam ("body_coupling_mode", 0.0f);
         editor.showPage ("FILTER");
         settle (500);
-        const auto westOff = knobFor ("west_fold") == nullptr;
-        const auto bodyOff = knobFor ("res_amount") == nullptr;
+        // (The design keeps them open, dimmed while off.)
+        const auto westOff = knobFor ("west_fold") != nullptr && knobFor ("west_fold")->getAlpha() < 0.99f;
+        const auto bodyOff = knobFor ("res_amount") != nullptr && knobFor ("res_amount")->getAlpha() < 0.99f;
         setParam ("west_on", 1.0f);
         setParam ("res_on", 1.0f);
         settle (700);

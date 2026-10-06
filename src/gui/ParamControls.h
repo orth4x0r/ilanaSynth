@@ -2304,7 +2304,7 @@ private:
 class ValueSliderControl : public juce::Component
 {
 public:
-    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID)
+    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID) : parameterId (parameterID)
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 16);
@@ -2325,8 +2325,10 @@ public:
     void resized() override { slider.setBounds (getLocalBounds()); }
 
     juce::Slider& getSlider() { return slider; }
+    const juce::String& getParameterId() const { return parameterId; }
 
 private:
+    juce::String parameterId;
     juce::Slider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };

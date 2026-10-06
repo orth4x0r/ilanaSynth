@@ -319,7 +319,13 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         // (Design round 2: a short FX rack ends in the same dashed add row,
         // which fills the space its few effects leave; the rack's top bar
         // keeps its + ADD for a long rack, where the row has no room.)
-        expect (play.size() == 1 && osc.size() == 1 && fx.size() <= 1 && matrix.size() >= 1,
+        // (The oscillators' row adds a Wavetable, its right end an FM / DX7
+        // operator: one row, two ways in.)
+        const auto oscRow = [] (const juce::StringArray& texts)
+        {
+            return texts.size() == 2 && texts[0].startsWith ("+  ADD OSC") && texts[1] == "+  ADD FM / DX7";
+        };
+        expect (oscRow (play) && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
                 "PLAY, OSC, the matrix and a short FX rack add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }

@@ -137,6 +137,7 @@ void expect (bool condition, const juce::String& message)
 #include "GlobalUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
+#include "OscTypeUiTests.h"
 #include "Review9T2Tests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
@@ -263,7 +264,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         editor.showPage ("OSC");
         settle (400);
         selectOscTab (0);
-        expect (oscTabState (0) == "OPERATOR", "OSC: a DX7 operator's tab tag is its kind, OPERATOR (" + oscTabState (0) + ")");
+        expect (oscTabState (0) == "FM / DX7", "OSC: a DX7 operator's tab tag is its type, FM / DX7 (" + oscTabState (0) + ")");
         loadNamed ("Neuro Wobble");
         editor.showPage ("OSC");
         settle (300);
@@ -6833,6 +6834,7 @@ int runUiTests()
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
+    runOscTypeTests (processor, *pages);
 
     // Design sweep: every pop-up draws in the design's look. A menu shown on
     // the desktop never asks its target for a look, nor does an AlertWindow
@@ -7830,11 +7832,12 @@ int main (int argc, char** argv)
         processor.addOscillator (5);
         shot ("osc-6-top");
         shot ("osc-6-bottom", 10000);
-        // One of each engine: Sample, String, Operator EG, Grain, Live.
+        // One of each engine: Sample, String, FM / DX7 on the Operator EG, Grain, Live.
         set ("osc1_mode", 2.0f);
         set ("osc2_mode", 1.0f);
-        set ("osc3_amp_env", 17.0f);
-        set ("osc3_tune", 1.0f);
+        set ("sub_mode", 5.0f);
+        set ("sub_amp_env", 17.0f);
+        set ("sub_tune", 1.0f);
         set ("osc4_mode", 3.0f);
         set ("osc5_mode", 4.0f);
         processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
@@ -7850,13 +7853,16 @@ int main (int argc, char** argv)
         shot ("osc-sample-unison");
         set ("osc1_mode", 1.0f);
         shot ("osc-string-alone");
-        set ("osc1_mode", 0.0f);
+        set ("osc1_mode", 5.0f);
         set ("osc1_amp_env", 17.0f);
         set ("osc1_tune", 1.0f);
         shot ("osc-operator-alone");
+        // FM / DX7 on another envelope: its LEVEL where OUTPUT stands, the wave.
         set ("osc1_amp_env", 0.0f);
-        set ("osc1_tune", 0.0f);
         set ("osc1_unison", 1.0f);
+        shot ("osc-fm-plain");
+        set ("osc1_tune", 0.0f);
+        set ("osc1_mode", 0.0f);
         shot ("osc-1");
         // The strip opened under MORE.
         {

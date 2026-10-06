@@ -134,7 +134,9 @@ inline void bindModeMenu (ComboControl& control, IlanaSynthAudioProcessor& p, in
 // Ratio, Fixed Hz and OP ENV belong to FM / DX7. Elsewhere TUNING keeps only
 // Semitones (Ratio and Fixed Hz greyed, so the menu says where they are),
 // and a Wavetable's ENVELOPE has no OP ENV. The saved indices are unchanged.
-inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope, bool asOperator, bool envelopeChoice)
+// `current`: the ENVELOPE parameter's index, shown once the menu is rebuilt
+// (its attachment could not show OP ENV while the item was missing).
+inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope, bool asOperator, bool envelopeChoice, int current)
 {
     if (tune != nullptr)
         for (const auto choice : { OscTuning::Ratio, OscTuning::Fixed })
@@ -147,7 +149,11 @@ inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope,
     const auto id = OperatorEg::envelopeChoice + 1;
     const auto has = envelope->indexOfItemId (id) >= 0;
     if (has == envelopeChoice)
+    {
+        if (envelope->getSelectedId() != current + 1 && envelope->indexOfItemId (current + 1) >= 0)
+            envelope->setSelectedId (current + 1, juce::dontSendNotification);
         return;
+    }
 
     // Rebuilt in place, with any section headings, so the saved index keeps
     // its item.
@@ -161,7 +167,6 @@ inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope,
         entries.push_back ({ item.text, item.itemID, item.isSectionHeader });
     }
     const auto sectioned = std::any_of (entries.begin(), entries.end(), [] (const Entry& e) { return e.heading; });
-    const auto selected = envelope->getSelectedId();
     envelope->clear (juce::dontSendNotification);
     for (const auto& entry : entries)
     {
@@ -176,7 +181,7 @@ inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope,
             envelope->addSectionHeading ("FM PAGE");
         envelope->addItem ("OP ENV", id);
     }
-    envelope->setSelectedId (selected, juce::dontSendNotification);
+    envelope->setSelectedId (current + 1, juce::dontSendNotification);
 }
 
 inline juce::String oscList (const std::vector<int>& oscs, const juce::String& before)
@@ -1117,7 +1122,7 @@ public:
         addChildComponent (addButton);
         // FM / DX7 has its own way in (an operator: a sine tuned by ratio on
         // the Operator EG), beside the plain one.
-        addFmButton.setTooltip ("Add the next oscillator as an FM / DX7 operator: a sine tuned by ratio, on the Operator EG");
+        addFmButton.setTooltip ("Add the next oscillator as an FM / DX7 operator: a sine tuned by ratio, on its OP ENV");
         addFmButton.onClick = [this] { addOscillatorOfType (OscMode::fmOperator); };
         addChildComponent (addFmButton);
 
@@ -1401,9 +1406,23 @@ private:
                 add (osc.feedback, 1, 4, 2);
                 add (osc.feedbackType, 1, 6, 2);
                 // An operator has no unison spread (review 8, I8-15): its UNISON
-                // shows only once it is raised, on the third row.
-                if (readFloat (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_unison") > 1.5f)
-                    add (osc.unison, 2, 0);
+                // shows only once it is raised, on the third row; so do a
+                // table's shapers, only while one is in use (no factory
+                // operator uses them; an old patch's still shows what plays).
+                {
+                    auto col = 0;
+                    if (readFloat (prefix + "_unison") > 1.5f)
+                        add (osc.unison, 2, col++);
+                    const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
+                                                                            { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
+                    for (const auto& [menu, amount] : shapers)
+                        if (col <= 4 && readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2"
+                                                                            : menu == &osc.spectral ? "_spectral" : "_pd_env")) != 0)
+                        {
+                            add (*menu, 2, col++);
+                            add (*amount, 2, col++);
+                        }
+                }
                 break;
             }
             case Kind::physical:
@@ -1798,9 +1817,19 @@ private:
         {
             g.setColour (tint.withAlpha (0.8f));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            if (card.kind == Kind::fm && r == 2 && ! unisonShown (index))
-                continue;
-            IlanaTheme::drawFitted (g, rowName (card.kind, r),
+            // (An operator's third row is there only for UNISON or a shaper in use.)
+            auto name = rowName (card.kind, r);
+            if (card.kind == Kind::fm && r == 2)
+            {
+                auto shaper = false;
+                for (const auto& slot : slotsFor (index))
+                    shaper = shaper || (slot.row == 2 && slot.item != &controls[(size_t) index]->unison);
+                if (! shaper && ! unisonShown (index))
+                    continue;
+                if (shaper)
+                    name = unisonShown (index) ? "MORE" : "SHAPE";
+            }
+            IlanaTheme::drawFitted (g, name,
                                     juce::Rectangle<int> (card.labelX, card.rowY[(size_t) r], card.labelWidth, card.rowHeight), juce::Justification::centredLeft, 1);
         }
 
@@ -1819,7 +1848,7 @@ private:
     juce::String engineName (int index) const
     {
         if (getMode (index) == OscMode::fmOperator)
-            return OscRole::usesOperatorEg (processorRef, index) ? "FM operator, Operator EG" : "FM operator";
+            return OscRole::usesOperatorEg (processorRef, index) ? "FM operator, OP ENV" : "FM operator";
         return OscRole::modeName (getMode (index));
     }
 
@@ -2109,15 +2138,14 @@ private:
     // in its tooltip; also the OUTPUT / DEPTH name of an operator's level.
     void updateTabItems()
     {
-        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
+
         const auto shown = shownList();
 
         oscTabs.setOscillators (shown, [this] (int osc) { return ! isOff (osc); },
                                 [this] (int osc)
                                 {
                                     const auto role = OscRole::describe (processorRef, osc);
-                                    const auto mode = juce::jlimit (0, 4, getMode (osc));
-                                    return "OSC " + juce::String (osc + 1) + ": " + juce::String (modeNames[mode]).toLowerCase()
+                                    return "OSC " + juce::String (osc + 1) + ": " + OscRole::modeName (getMode (osc))
                                            + (role.isNotEmpty() ? ", " + OscRole::describeLong (processorRef, osc) : juce::String())
                                            + (isOff (osc) ? ", switched off" : "") + ".  Right-click its header to switch it off or remove it.";
                                 },
@@ -2125,9 +2153,8 @@ private:
                                 {
                                     if (osc != selected || isOff (osc))
                                         return juce::String();
-                                    return OscRole::usesOperatorEg (processorRef, osc) && getMode (osc) == 0
-                                               ? juce::String ("OPERATOR")
-                                               : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
+                                    // (The tag is the type: FM / DX7 for an operator.)
+                                    return OscRole::modeName (getMode (osc)).toUpperCase();
                                 });
         oscTabs.setSelectedOsc (selected);
 
@@ -2377,7 +2404,7 @@ private:
             // are its own: a Wavetable's menus don't offer them.
             osc.table.setLabelText (kind == Kind::fm ? "WAVE" : "TABLE");
             OscRole::showOperatorChoices (&osc.tune.getComboBox(), &osc.ampEnv.getComboBox(), kind == Kind::fm,
-                                          getMode (index) != OscMode::wavetable);
+                                          getMode (index) != OscMode::wavetable, readChoice (prefix + "_amp_env"));
 
             editButtons[(size_t) index]->setVisible (kind == Kind::wavetable);
             // LOAD loads what the mode plays: a wavetable (LOAD...), or a

@@ -737,8 +737,11 @@ private:
     {
         const auto osc = firstShownOscillator();
         if (auto* parameter = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (osc) + "_amp_env"))
-            processorRef.performEdit ("OSC " + juce::String (osc + 1) + " plays OP ENV", [parameter]
+            processorRef.performEdit ("OSC " + juce::String (osc + 1) + " plays OP ENV", [this, parameter, osc]
             {
+                // (OP ENV is FM / DX7's: a Wavetable becomes one, the same sound otherwise.)
+                if (juce::roundToInt (FmOperatorInfo::read (processorRef, FmOperatorInfo::prefixOf (osc) + "_mode")) == OscMode::wavetable)
+                    processorRef.setOscillatorMode (osc, OscMode::fmOperator);
                 parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) OperatorEg::envelopeChoice));
                 parameter->endChangeGesture();

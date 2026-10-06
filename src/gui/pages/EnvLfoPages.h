@@ -870,6 +870,9 @@ public:
     {
         if (auto* param = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (operatorEnvTarget()) + "_amp_env"))
         {
+            // (OP ENV is FM / DX7's: a Wavetable becomes one, the same sound otherwise.)
+            if (juce::roundToInt (FmOperatorInfo::read (processorRef, FmOperatorInfo::prefixOf (operatorEnvTarget()) + "_mode")) == OscMode::wavetable)
+                processorRef.setOscillatorMode (operatorEnvTarget(), OscMode::fmOperator);
             param->beginChangeGesture();
             param->setValueNotifyingHost (param->convertTo0to1 ((float) OperatorEg::envelopeChoice));
             param->endChangeGesture();

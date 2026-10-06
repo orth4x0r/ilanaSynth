@@ -158,8 +158,11 @@ public:
         addChildComponent (pitchLfoLink);
         // An oscillator of another type: one click makes it an FM / DX7
         // operator (the same sound, the operator's controls).
-        styleFmLink (makeOperator, "MAKE FM / DX7");
-        makeOperator.setTooltip ("Make this oscillator an FM / DX7 operator: it sounds the same, and gets ratio and fixed tuning and the Operator EG");
+        // (An action, not a jump: the pill the PHYSICAL page's SWITCH TO PHYSICAL is.)
+        makeOperator.setButtonText ("SWITCH TO FM / DX7");
+        IlanaTheme::makePill (makeOperator, fmColour());
+        makeOperator.setToggleState (true, juce::dontSendNotification);
+        makeOperator.setTooltip ("Make this oscillator an FM / DX7 operator: it sounds the same, and gets ratio and fixed tuning and the OP ENV");
         makeOperator.onClick = [this]
         {
             OscRole::chooseMode (processorRef, selectedOperator, OscMode::fmOperator);
@@ -224,8 +227,8 @@ public:
             const auto envelopeName = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
             IlanaTheme::drawFitted (g, isFmType (selectedOperator)
                                            ? "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here."
-                                           : "A " + OscRole::modeName (OscRole::mode (processorRef, selectedOperator))
-                                                 + " in the FM routes, tuned in semitones. Ratio, Fixed Hz and OP ENV are FM / DX7's.",
+                                           : OscRole::modeName (OscRole::mode (processorRef, selectedOperator))
+                                                 + ": tuned in semitones. Ratio and OP ENV are FM / DX7's.",
                                     ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
                                     juce::Justification::centredLeft, 3);
         }
@@ -526,7 +529,8 @@ private:
             // Ratio, Fixed Hz and OP ENV are the FM / DX7 type's (a
             // Wavetable's ENVELOPE has no OP ENV).
             OscRole::showOperatorChoices (&controls.tune.getComboBox(), &controls.ampEnv.getComboBox(), isFmType (op),
-                                          OscRole::mode (processorRef, op) != OscMode::wavetable);
+                                          OscRole::mode (processorRef, op) != OscMode::wavetable,
+                                          juce::roundToInt (read (FmOperatorInfo::prefixOf (op) + "_amp_env")));
             const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_tune"));
 
             for (auto* control : controls.all())

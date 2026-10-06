@@ -113,7 +113,7 @@ public:
         };
         oscColumn.addChildComponent (addOscButton);
         // An FM / DX7 operator has its own way in, at the row's right end.
-        addFmButton.setTooltip ("Add this oscillator as an FM / DX7 operator: a sine tuned by ratio, on the Operator EG");
+        addFmButton.setTooltip ("Add this oscillator as an FM / DX7 operator: a sine tuned by ratio, on its OP ENV");
         addFmButton.onClick = [this]
         {
             if (const auto next = firstEmptySlot(); next >= 0)
@@ -1749,7 +1749,7 @@ private:
     juce::Viewport oscView;
     Column oscColumn;
     DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
-    DashedAddButton addFmButton { "+  FM / DX7", "+  FM / DX7" };
+    DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1, hoverEditLink = -1;
     // The column: the strips and SUB + NOISE, all one height, and the

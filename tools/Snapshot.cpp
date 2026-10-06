@@ -6529,7 +6529,7 @@ int runUiTests()
                             break;
                         }
                 }
-                if (knob->getNumRings() > 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_DEBUG_RINGS", {}).isNotEmpty())
+                if (knob->getNumRoutings() > 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_DEBUG_RINGS", {}).isNotEmpty())
                     std::cout << "RINGS " << knob->getParameterId() << " shown " << knob->getNumRings() << " dial " << knob->getDialRadius()
                               << " room " << knob->getRingRoom() << " knob " << knob->getBounds().toString() << " centre "
                               << knob->getDialCentre().toString() << std::endl;
@@ -6864,6 +6864,19 @@ int runUiTests()
                 "sweep: the default look's menu rows are the design's (26 px, 5 px border)");
         const auto tip = lf.getTooltipBounds ("Frame\nWhere in the wavetable the oscillator plays.", { 100, 100 }, { 0, 0, 1000, 1000 });
         expect (tip.getWidth() <= 362 && tip.getHeight() >= 30, "sweep: a tooltip is the design's small card");
+        // The one animator: a state change eases (it does not jump) and settles.
+        {
+            static const int key = 0;
+            auto moving = false;
+            IlanaTheme::fadeValue (&key, 0, 0.0f, IlanaTheme::FadeRate::slide, true, moving);
+            juce::Thread::sleep (30);
+            const auto early = IlanaTheme::fadeValue (&key, 0, 1.0f, IlanaTheme::FadeRate::slide, true, moving);
+            const auto wasMoving = moving;
+            juce::Thread::sleep (100);
+            const auto settled = IlanaTheme::fadeValue (&key, 0, 1.0f, IlanaTheme::FadeRate::slide, true, moving);
+            expect (early > 0.05f && early < 0.95f && wasMoving && settled > early,
+                    "sweep: a switch or a choice eases to its new state (" + juce::String (early, 2) + " then " + juce::String (settled, 2) + ")");
+        }
         juce::Slider probe;
         expect (dynamic_cast<IlanaLookAndFeel*> (&probe.getLookAndFeel()) != nullptr,
                 "sweep: a component outside the editor (a dialog's, a file browser's) draws in the design's look");
@@ -7641,7 +7654,6 @@ int main (int argc, char** argv)
     //   widgets-knob-menu.png   FRAME's right-click menu with "Modulate with"
     //                           opened by the keys (the keyboard highlight)
     //   widgets-combo-menu.png  a type box's list
-    //   widgets-alert.png       a message box and a question
     //   widgets-sheet.png       tooltip, text fields (typing, with a selection,
     //                           and empty), scroll bar, progress, call-out box
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_WIDGETS", "").isNotEmpty())
@@ -7691,23 +7703,9 @@ int main (int argc, char** argv)
                 break;
             }
 
-        {
-            std::unique_ptr<juce::AlertWindow> info (lf.createAlertWindow ("Export MIDI", "This clip has no notes yet.", "OK", {}, {},
-                                                                           juce::MessageBoxIconType::InfoIcon, 1, nullptr));
-            std::unique_ptr<juce::AlertWindow> ask (lf.createAlertWindow ("Copy to chain B", "Replace chain B's effects with a copy of chain A's?",
-                                                                          "Copy", "Cancel", {}, juce::MessageBoxIconType::WarningIcon, 2, nullptr));
-            const auto a = info->createComponentSnapshot (info->getLocalBounds(), true, scale);
-            const auto b = ask->createComponentSnapshot (ask->getLocalBounds(), true, scale);
-            const auto gap = juce::roundToInt (16.0f * scale);
-            juce::Image sheet (juce::Image::ARGB, a.getWidth() + b.getWidth() + gap * 3, juce::jmax (a.getHeight(), b.getHeight()) + gap * 2, true);
-            {
-                juce::Graphics g (sheet);
-                g.fillAll (IlanaTheme::Ui::bg);
-                g.drawImageAt (a, gap, gap);
-                g.drawImageAt (b, gap * 2 + a.getWidth(), gap);
-            }
-            writePng (sheet, "widgets-alert.png");
-        }
+        // (No AlertWindow here: it is a top-level window, and a real window
+        // can't open under xvfb. It draws through drawAlertBox in the
+        // default look, which the uitest checks is the design's.)
 
         {
             struct Sheet : public juce::Component

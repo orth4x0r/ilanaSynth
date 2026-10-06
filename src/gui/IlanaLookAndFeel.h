@@ -972,13 +972,8 @@ public:
             const auto area = slider.getLocalBounds();
             // (40, or the knob's own inline size: the FX rack's taller rows.)
             const auto dial = juce::jmin (area.getHeight(), (int) slider.getProperties().getWithDefault ("inlineDial", 40));
-            // A knob that draws modulation rings keeps a band for them
-            // inside its cell: the dial a little smaller and in from the
-            // left, so its rings are never cut by the cell (design sweep).
-            const auto ringRoom = juce::jlimit (0, dial / 4, (int) slider.getProperties().getWithDefault ("inlineRingRoom", 0));
-            const auto side = dial - ringRoom;
             juce::Slider::SliderLayout layout;
-            layout.sliderBounds = juce::Rectangle<int> (side, side).withCentre ({ ringRoom + side / 2, area.getCentreY() });
+            layout.sliderBounds = juce::Rectangle<int> (dial, dial).withCentre ({ dial / 2, area.getCentreY() });
             layout.textBoxBounds = { dial + 3, area.getCentreY(), juce::jmax (0, area.getWidth() - dial - 3), 14 };
             return layout;
         }
@@ -1079,7 +1074,9 @@ public:
 
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
         const auto hover = animatedHover (&slider, slider.isMouseOver() || slider.isMouseButtonDown(), 12.0f);
-        const auto radius = juce::jlimit (14.0f, 30.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f);
+        // (An inline knob with rings caps its dial so a ring fits its cell: "dialRadiusCap".)
+        const auto radius = juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                                        juce::jlimit (14.0f, 30.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f));
         const auto centre = bounds.getCentre();
         const auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
         // The component sheet's knob (lib.js knobSvg): for a cell of s px the

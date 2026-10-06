@@ -1280,7 +1280,14 @@ public:
         if (compact && inlineText)
         {
             const auto dial = juce::jmin (area.getHeight(), maxDial);
+
+            // (As an inline knob: a modulatable dial a little smaller, so a ring fits the cell.)
+            if (ringConfig.destination != 0)
+                slider.getProperties().set ("dialRadiusCap", juce::jmax (9.0f, (float) dial * 0.5f - 4.0f));
+            else
+                slider.getProperties().remove ("dialRadiusCap");
             knobBounds = area.removeFromLeft (dial).withSizeKeepingCentre (dial, dial);
+
             slider.setBounds (knobBounds);
             area.removeFromLeft (6);
             const auto top = area.getY() + (area.getHeight() - 27) / 2;
@@ -1304,8 +1311,13 @@ public:
             // The dial is a square as high as the cell; the name above the
             // value, level with the dial's middle line, to its right.
             const auto dial = juce::jmin (area.getHeight(), inlineDial);
-            // (A modulatable dial leaves its rings a 4 px band: the look-and-feel's layout.)
-            slider.getProperties().set ("inlineRingRoom", ringConfig.destination != 0 ? 4 : 0);
+            // A modulatable dial in a low cell draws a little smaller, so at
+            // least one ring fits round it inside the cell (the mockup's
+            // inline knobs; none cut by the cell's edge, design sweep).
+            if (ringConfig.destination != 0)
+                slider.getProperties().set ("dialRadiusCap", juce::jmax (9.0f, (float) dial * 0.5f - 4.0f));
+            else
+                slider.getProperties().remove ("dialRadiusCap");
             knobBounds = area.withWidth (dial).withSizeKeepingCentre (dial, dial);
             slider.setBounds (area);
             const auto textX = knobBounds.getRight() + 3;
@@ -1459,7 +1471,8 @@ private:
     float dialRadius() const
     {
         const auto area = dialBounds();
-        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+        return juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                           juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f));
     }
 
     // A knob in a narrow cell has little room either side of its dial: the
@@ -1665,7 +1678,8 @@ private:
         // Deliberately not reduced like the knob itself: the mod ring sits
         // just outside the value arc.
         const auto area = rotaryArea();
-        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+        return juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                           juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f));
     }
 
     // The rotary is drawn above the value text box, so glow and mod ring must

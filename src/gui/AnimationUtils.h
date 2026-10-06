@@ -314,10 +314,10 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
 
     const auto smallW = juce::jmax (2, (int) ((float) snapshot.getWidth() * scale));
     const auto smallH = juce::jmax (2, (int) ((float) snapshot.getHeight() * scale));
-    auto small = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
+    auto shrunk = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
 
     {
-        juce::Image::BitmapData data (small, juce::Image::BitmapData::readWrite);
+        juce::Image::BitmapData data (shrunk, juce::Image::BitmapData::readWrite);
         const auto passes = juce::jlimit (1, 3, (int) std::round (radius));
 
         for (int pass = 0; pass < passes; ++pass)
@@ -357,6 +357,6 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
         }
     }
 
-    return small.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
+    return shrunk.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
 }
 } // namespace IlanaAnim

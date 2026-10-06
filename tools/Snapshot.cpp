@@ -6528,7 +6528,8 @@ int runUiTests()
                         }
                 }
                 if (! why.isEmpty())
-                    names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + ")");
+                    names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + "; knob " + knob->getLocalBounds().toString()
+                               + ", name " + name.toString() + ", rings " + rings.toString() + ")");
             }
         };
 
@@ -6837,52 +6838,29 @@ int runUiTests()
                     && dynamic_cast<IlanaLookAndFeel*> (&editor->getLookAndFeel()) != nullptr,
                 "sweep: while the editor is open its look is the default one (desktop menus, dialogs)");
 
-        pages->showPage ("MAIN");
-        settle (300);
-        std::vector<KnobControl*> knobs;
-        findAll<KnobControl> (*editor, knobs);
-        KnobControl* knob = nullptr;
-        for (auto* candidate : knobs)
-            if (knob == nullptr && visibleInTree (candidate) && candidate->getRingDestination() != 0)
-                knob = candidate;
-
-        const auto menuWindows = [&editor]
+        // (Real menu windows can't open under xvfb: unit-level checks.) A
+        // second editor opening and closing leaves the default in place;
+        // only the last one to close hands it back.
         {
-            std::vector<juce::Component*> windows;
-            auto& desktop = juce::Desktop::getInstance();
-            for (int i = 0; i < desktop.getNumComponents(); ++i)
-                if (auto* window = desktop.getComponent (i); window != nullptr && window != editor.get() && window->isVisible())
-                    windows.push_back (window);
-            return windows;
-        };
-
-        if (knob != nullptr && juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr)
-        {
-            const auto centre = knob->getLocalBounds().getCentre().toFloat();
-            const juce::MouseEvent rightClick (juce::Desktop::getInstance().getMainMouseSource(), centre,
-                                               juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier | juce::ModifierKeys::popupMenuClickModifier),
-                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, knob, knob, juce::Time::getCurrentTime(), centre,
-                                               juce::Time::getCurrentTime(), 1, false);
-            knob->mouseDown (rightClick);
-            settle (150);
-            auto windows = menuWindows();
-            if (! windows.empty())
-            {
-                // The keys open "Modulate with" (its highlight is the keyboard's).
-                windows.back()->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
-                windows.back()->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
-                settle (150);
-                windows = menuWindows();
-            }
-            auto designed = 0;
-            for (auto* window : windows)
-                designed += dynamic_cast<IlanaLookAndFeel*> (&window->getLookAndFeel()) != nullptr ? 1 : 0;
-            expect (windows.size() >= 2 && designed == (int) windows.size(),
-                    "sweep: a knob's right-click menu and its submenu draw in the design's look ("
-                        + juce::String (designed) + " of " + juce::String ((int) windows.size()) + " windows)");
-            juce::PopupMenu::dismissAllActiveMenus();
-            settle (150);
+            DefaultLookAndFeelScope second;
+            expect (&second.get() == &editor->getLookAndFeel(), "sweep: every open editor shares one look");
         }
+        expect (&juce::LookAndFeel::getDefaultLookAndFeel() == &editor->getLookAndFeel(),
+                "sweep: a second editor closing keeps the default look while one is still open");
+
+        // A menu with no look of its own (a knob's right-click menu, the
+        // header's and the dock's) takes the default; its submenus take
+        // their parent window's. The default's menu rows are the sheet's.
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+        int w = 0, h = 0;
+        lf.getIdealPopupMenuItemSize ("Modulate with", false, 18, w, h);
+        expect (h == IlanaLookAndFeel::menuRowHeight && lf.getPopupMenuBorderSize() == IlanaLookAndFeel::menuBorder,
+                "sweep: the default look's menu rows are the design's (26 px, 5 px border)");
+        const auto tip = lf.getTooltipBounds ("Frame\nWhere in the wavetable the oscillator plays.", { 100, 100 }, { 0, 0, 1000, 1000 });
+        expect (tip.getWidth() <= 362 && tip.getHeight() >= 30, "sweep: a tooltip is the design's small card");
+        juce::Slider probe;
+        expect (dynamic_cast<IlanaLookAndFeel*> (&probe.getLookAndFeel()) != nullptr,
+                "sweep: a component outside the editor (a dialog's, a file browser's) draws in the design's look");
     }
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
@@ -7424,44 +7402,75 @@ static int runLoadState (const juce::File& file)
     return 0;
 }
 
-#if JUCE_LINUX
- #include <dlfcn.h>
-// Under xvfb no window manager has made its atoms, and JUCE then sets a new
-// window's type with atom 0 (BadAtom, and the run hangs): make them first,
-// so the tests and snapshots can open real menus and windows.
-static void internWindowManagerAtoms()
+// A menu drawn offscreen row by row as its window draws it (border,
+// section headers, separators, ticks, submenu chevrons), `lit` the row
+// highlighted; several menus side by side on the page's ink.
+static juce::Image renderMenuSheet (juce::LookAndFeel& lf, std::vector<std::pair<juce::PopupMenu, int>> menus, float scale, int minWidth = 0)
 {
-    auto* library = dlopen ("libX11.so.6", RTLD_LAZY | RTLD_LOCAL);
-    if (library == nullptr)
-        return;
+    struct Row { juce::PopupMenu::Item item; int height; };
+    std::vector<std::vector<Row>> rows;
+    std::vector<juce::Point<int>> sizes;
+    const auto border = lf.getPopupMenuBorderSize();
 
-    using OpenDisplayFn = void* (*) (const char*);
-    using InternAtomFn = unsigned long (*) (void*, const char*, int);
-    using CloseDisplayFn = int (*) (void*);
-    const auto openDisplay = reinterpret_cast<OpenDisplayFn> (dlsym (library, "XOpenDisplay"));
-    const auto internAtom = reinterpret_cast<InternAtomFn> (dlsym (library, "XInternAtom"));
-    const auto closeDisplay = reinterpret_cast<CloseDisplayFn> (dlsym (library, "XCloseDisplay"));
-
-    if (openDisplay != nullptr && internAtom != nullptr && closeDisplay != nullptr)
-        if (auto* display = openDisplay (nullptr))
+    for (auto& [menu, lit] : menus)
+    {
+        std::vector<Row> list;
+        auto width = minWidth, height = 2 * border;
+        for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
         {
-            for (const auto* name : { "WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW", "_NET_WM_PING", "WM_CHANGE_STATE", "WM_STATE",
-                                      "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_NORMAL", "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_STATE",
-                                      "_NET_WM_STATE_HIDDEN", "_NET_WM_STATE_FULLSCREEN", "_NET_FRAME_EXTENTS", "_MOTIF_WM_HINTS",
-                                      "_NET_WM_ALLOWED_ACTIONS", "_NET_WM_ACTION_CLOSE", "_NET_WM_ACTION_FULLSCREEN",
-                                      "_NET_WM_ACTION_MINIMIZE", "_NET_WM_ACTION_RESIZE", "_NET_WM_MOVERESIZE" })
-                internAtom (display, name, 0);
-            // (Left open: an X server with no clients left resets, and its atoms go.)
-            juce::ignoreUnused (closeDisplay);
+            const auto& item = it.getItem();
+            int w = 0, h = 0;
+            if (item.isSectionHeader)
+                lf.getIdealPopupMenuSectionHeaderSizeWithOptions (item.text, -1, w, h, juce::PopupMenu::Options());
+            else
+                lf.getIdealPopupMenuItemSize (item.text, item.isSeparator, -1, w, h);
+            list.push_back ({ item, h });
+            width = juce::jmax (width, w + 2 * border);
+            height += h;
         }
+        rows.push_back (std::move (list));
+        sizes.push_back ({ width, height });
+    }
+
+    auto total = 20, tallest = 0;
+    for (const auto& size : sizes)
+    {
+        total += size.x + 20;
+        tallest = juce::jmax (tallest, size.y);
+    }
+
+    juce::Image image (juce::Image::ARGB, juce::roundToInt ((float) total * scale), juce::roundToInt ((float) (tallest + 40) * scale), true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale (scale));
+    g.fillAll (IlanaTheme::Ui::bg);
+    auto x = 20;
+
+    for (size_t m = 0; m < rows.size(); ++m)
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOrigin (x, 20);
+        lf.drawPopupMenuBackground (g, sizes[m].x, sizes[m].y);
+        auto y = border;
+        for (size_t i = 0; i < rows[m].size(); ++i)
+        {
+            const auto& [item, h] = rows[m][i];
+            const juce::Rectangle<int> row (border, y, sizes[m].x - 2 * border, h);
+            if (item.isSectionHeader)
+                lf.drawPopupMenuSectionHeader (g, row, item.text);
+            else
+                lf.drawPopupMenuItem (g, row, item.isSeparator, item.isEnabled, (int) i == menus[m].second, item.isTicked,
+                                      item.subMenu != nullptr, item.text, item.shortcutKeyDescription, item.image.get(),
+                                      item.colour != juce::Colour() ? &item.colour : nullptr);
+            y += h;
+        }
+        x += sizes[m].x + 20;
+    }
+
+    return image;
 }
-#endif
 
 int main (int argc, char** argv)
 {
-   #if JUCE_LINUX
-    internWindowManagerAtoms();
-   #endif
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     if (argc < 2)
@@ -7642,41 +7651,11 @@ int main (int argc, char** argv)
             std::cout << file.getFullPathName() << std::endl;
         };
 
-        // On screen, as in a host: menus open beside their knob.
-        editor->addToDesktop (juce::ComponentPeer::windowIsTemporary);
-        editor->setVisible (true);
+        // Offscreen, as the menu windows draw them (a real menu window
+        // can't open under xvfb): the look is the process default, which
+        // is what a desktop menu with no look of its own takes.
         pages->showPage ("MAIN");
         settle (400);
-
-        // Every window on the desktop but the editor, left to right on the page's ink.
-        const auto captureWindows = [&] (const juce::String& name)
-        {
-            std::vector<juce::Component*> windows;
-            auto& desktop = juce::Desktop::getInstance();
-            for (int i = 0; i < desktop.getNumComponents(); ++i)
-                if (auto* c = desktop.getComponent (i); c != nullptr && c != editor.get() && c->isVisible() && c->getWidth() > 0)
-                    windows.push_back (c);
-            std::sort (windows.begin(), windows.end(), [] (auto* a, auto* b) { return a->getScreenX() < b->getScreenX(); });
-            auto w = 16, h = 0;
-            for (auto* c : windows)
-            {
-                w += c->getWidth() + 16;
-                h = juce::jmax (h, c->getHeight());
-            }
-            juce::Image sheet (juce::Image::ARGB, juce::roundToInt ((float) w * scale), juce::roundToInt ((float) (h + 32) * scale), true);
-            {
-                juce::Graphics g (sheet);
-                g.fillAll (IlanaTheme::Ui::bg);
-                auto x = 16;
-                for (auto* c : windows)
-                {
-                    g.drawImage (c->createComponentSnapshot (c->getLocalBounds(), true, scale),
-                                 juce::Rectangle<float> ((float) x, 16.0f, (float) c->getWidth(), (float) c->getHeight()) * scale);
-                    x += c->getWidth() + 16;
-                }
-            }
-            writePng (sheet, name);
-        };
 
         std::vector<KnobControl*> knobs;
         findAll<KnobControl> (*editor, knobs);
@@ -7687,26 +7666,13 @@ int main (int argc, char** argv)
 
         if (knob != nullptr)
         {
-            const auto centre = knob->getLocalBounds().getCentre().toFloat();
-            const juce::MouseEvent rightClick (juce::Desktop::getInstance().getMainMouseSource(), centre,
-                                               juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier | juce::ModifierKeys::popupMenuClickModifier),
-                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, knob, knob, juce::Time::getCurrentTime(), centre,
-                                               juce::Time::getCurrentTime(), 1, false);
-            knob->mouseDown (rightClick);
-            settle (200);
-            auto& desktop = juce::Desktop::getInstance();
-            if (auto* menu = desktop.getNumComponents() > 0 ? desktop.getComponent (desktop.getNumComponents() - 1) : nullptr; menu != nullptr && menu != editor.get())
-            {
-                menu->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
-                menu->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
-                settle (200);
-                if (auto* sub = desktop.getComponent (desktop.getNumComponents() - 1); sub != nullptr && sub != menu)
-                    sub->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
-                settle (200);
-            }
-            captureWindows ("widgets-knob-menu.png");
-            juce::PopupMenu::dismissAllActiveMenus();
-            settle (300);
+            // The menu with "Modulate with" lit (keys), its submenu beside it.
+            const auto menu = knob->buildModMenu();
+            juce::PopupMenu sub;
+            for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+                if (it.getItem().subMenu != nullptr && sub.getNumItems() == 0)
+                    sub = *it.getItem().subMenu;
+            writePng (renderMenuSheet (lf, { { menu, 0 }, { sub, 1 } }, scale), "widgets-knob-menu.png");
         }
 
         std::vector<juce::ComboBox*> combos;
@@ -7714,13 +7680,8 @@ int main (int argc, char** argv)
         for (auto* combo : combos)
             if (visibleInTree (combo) && combo->getNumItems() > 3)
             {
-                combo->showPopup();
-                settle (300);
-                std::cerr << "DBG combo popup active " << combo->isPopupActive() << " desktop " << juce::Desktop::getInstance().getNumComponents() << " showing " << combo->isShowing() << std::endl;
-                for (int i = 0; i < juce::Desktop::getInstance().getNumComponents(); ++i) { auto* c = juce::Desktop::getInstance().getComponent (i); std::cerr << "  " << typeid (*c).name() << " " << c->getBounds().toString() << " vis " << c->isVisible() << std::endl; }
-                captureWindows ("widgets-combo-menu.png");
-                juce::PopupMenu::dismissAllActiveMenus();
-                settle (300);
+                writePng (renderMenuSheet (combo->getLookAndFeel(), { { *combo->getRootMenu(), 2 } }, scale, combo->getWidth()),
+                          "widgets-combo-menu.png");
                 break;
             }
 
@@ -7787,15 +7748,11 @@ int main (int argc, char** argv)
             callOutText.setColour (juce::Label::textColourId, IlanaTheme::Ui::text);
             callOutText.setSize (180, 60);
 
-            sheet.addToDesktop (juce::ComponentPeer::windowIsTemporary);
-            sheet.setVisible (true);
+            // (A child of the sheet, not a desktop window.)
             juce::CallOutBox callOut (callOutText, { 420, 40, 20, 20 }, &sheet);
-            settle (100);
-            typing.grabKeyboardFocus();
             typing.setHighlightedRegion ({ 6, 12 });
             settle (300);
             writePng (sheet.createComponentSnapshot (sheet.getLocalBounds(), true, scale), "widgets-sheet.png");
-            sheet.removeFromDesktop();
         }
 
         return 0;

@@ -79,7 +79,7 @@ inline constexpr float dimmedAlpha = 0.6f;
 namespace KnobSize
 {
     inline constexpr int main    = 48;
-    inline constexpr int small   = 40;
+    inline constexpr int compact = 40; // (not "small": a macro in rpcndr.h on Windows)
     inline constexpr int mini    = 36;
     inline constexpr int minimum = 28;
 }

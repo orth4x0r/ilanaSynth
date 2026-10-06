@@ -1393,7 +1393,30 @@ private:
     static constexpr float ringPitch = 3.5f, ringGap = 2.5f; // (the sheet: the first ring at the arc's radius + 3.5)
     static constexpr int maxRings = 3;
 
-    int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
+    // As many rings as the knob's cell holds at their tightest (2.5 px
+    // apart, the first 1.5 px off the dial), up to three: a ring is never
+    // cut flat by the cell's edge or drawn into the name above. The
+    // routings past them get the badge ("+N"), as those past three do
+    // (ilana's FRAME on OSC, design sweep).
+    int ringCapacity() const
+    {
+        const auto spare = ringRoom() - (dialRadius() + 1.5f);
+        return spare < 0.0f ? 0 : juce::jmin (maxRings, 1 + (int) std::floor (spare / 2.5f + 0.001f));
+    }
+    int numRings() const { return juce::jmin ((int) routings.size(), ringCapacity()); }
+
+    // How far from the dial's centre a ring's middle may run: inside the
+    // knob's sides with its stroke and outline, and under the name above
+    // (1 px of air) or the knob's own top, with a grabbed ring's half stroke.
+    float ringRoom() const
+    {
+        const auto centre = dialCentre();
+        const auto dialTop = dialBounds().getY();
+        const auto nameAbove = label.isVisible() && label.getText().isNotEmpty() && (float) label.getBottom() <= dialTop + 2.0f
+                               && (float) label.getX() < centre.x && (float) label.getRight() > centre.x;
+        const auto ceiling = nameAbove ? (float) label.getBottom() + 1.0f : 0.0f;
+        return juce::jmin (juce::jmin (centre.x, (float) getWidth() - centre.x) - 2.5f, centre.y - ceiling - 1.5f);
+    }
 
     // Where the look-and-feel draws the dial: the slider's rotary bounds
     // (above its value box), less its 4 px inset, radius 14-30.
@@ -1415,16 +1438,8 @@ private:
     float ringRadius (int index) const
     {
         const auto count = numRings();
-        const auto centre = dialCentre();
-        // Nor above the knob's name (or its own top): the outer ring keeps
-        // 1 px of air under the name, so no arc is cut flat by it or runs
-        // out of the cell (ilana's FRAME, design sweep).
-        const auto dialTop = dialBounds().getY();
-        const auto nameAbove = label.isVisible() && label.getText().isNotEmpty() && (float) label.getBottom() <= dialTop + 2.0f
-                               && (float) label.getX() < centre.x && (float) label.getRight() > centre.x;
-        const auto ceiling = nameAbove ? (float) label.getBottom() + 1.0f : 0.0f;
-        const auto room = juce::jmin (juce::jmin (centre.x, (float) getWidth() - centre.x) - 2.5f, // (the stroke and its outline)
-                                      centre.y - ceiling - 1.5f);                                  // (a grabbed ring's half stroke)
+        // (Nor past the cell's sides or into the name above: ringRoom.)
+        const auto room = ringRoom();
         const auto dial = dialRadius();
         auto base = dial + ringGap;
         auto pitch = ringPitch;
@@ -1666,7 +1681,8 @@ private:
         // time, V7-27). A knob too narrow for that leaves its routings to
         // the rings (and its card); only those past the three rings get a
         // badge, in its top-right corner: the routing's own, or "+N".
-        const auto roomBeside = getWidth() - x >= stripW - 1 && (badgesShown || (int) routings.size() > maxRings);
+        const auto shownRings = numRings();
+        const auto roomBeside = getWidth() - x >= stripW - 1 && (badgesShown || (int) routings.size() > shownRings);
         juce::Rectangle<int> bounds;
 
         if (roomBeside)
@@ -1678,8 +1694,8 @@ private:
         }
         else
         {
-            const auto extra = (int) routings.size() > maxRings ? std::vector<ModDotStrip::Dot> (routings.begin() + maxRings, routings.end())
-                                                                 : std::vector<ModDotStrip::Dot>();
+            const auto extra = (int) routings.size() > shownRings ? std::vector<ModDotStrip::Dot> (routings.begin() + shownRings, routings.end())
+                                                                   : std::vector<ModDotStrip::Dot>();
             dotStrip.setDots (extra);
             dotStrip.setMaxVisible (1);
             auto y = (int) (centre.y - dial) - pitch + 1;
@@ -1695,7 +1711,7 @@ private:
         }
 
         dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
-        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > maxRings));
+        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings));
 
         ringOverlay.setBounds (getLocalBounds());
         ringOverlay.setVisible (! routings.empty());
@@ -1794,13 +1810,14 @@ public:
         return sourceMenu;
     }
 
-private:
-    void showModMenu()
+    // The right-click menu (the snapshot tool draws it offscreen: a real
+    // menu window can't open under its X server).
+    juce::PopupMenu buildModMenu() const
     {
-        if (processorRef == nullptr)
-            return;
-
         juce::PopupMenu menu;
+
+        if (processorRef == nullptr)
+            return menu;
 
         if (ringConfig.destination != 0)
         {
@@ -1845,6 +1862,16 @@ private:
             addMidiLearnItems (menu, *processorRef, parameterId);
         }
 
+        return menu;
+    }
+
+private:
+    void showModMenu()
+    {
+        if (processorRef == nullptr)
+            return;
+
+        auto menu = buildModMenu();
         juce::Component::SafePointer<KnobControl> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -2306,9 +2333,9 @@ public:
     }
 
     // The name over the switch in the small size (the voice strip's LEGATO).
-    void setSmallName (bool small)
+    void setSmallName (bool shrunk)
     {
-        smallName = small;
+        smallName = shrunk;
         repaint();
     }
 

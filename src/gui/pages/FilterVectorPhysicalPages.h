@@ -741,7 +741,7 @@ public:
 
         for (auto* knob : { &bodyAmount, &bodyDecay, &boardMix, &bodyMaterial, &bodySize, &bodyOffset, &bodyKeytrack, &bodyCoupling,
                             &boardTone, &boardSize, &boardStretch })
-            knob->setSizeRole (IlanaTheme::KnobSize::small);
+            knob->setSizeRole (IlanaTheme::KnobSize::compact);
         addAll (*this, bodyOn, boardOn, bodyType, boardModel, bodyAmount, bodyDecay, boardMix, bodyCouplingMode, bodyMaterial, bodySize,
                 bodyOffset, bodyKeytrack, bodyCoupling, boardTone, boardSize, boardStretch);
         // Off, a module's controls dim, as on its own card (and stay drawn,
@@ -1046,7 +1046,7 @@ private:
                 else
                 {
                     auto knob = std::make_unique<KnobControl> (processorRef.apvts, id + suffix, spec.label, colour(), false);
-                    knob->setSizeRole (IlanaTheme::KnobSize::small);
+                    knob->setSizeRole (IlanaTheme::KnobSize::compact);
                     controls.push_back (std::move (knob));
                 }
 

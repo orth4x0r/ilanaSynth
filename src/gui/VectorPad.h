@@ -215,7 +215,8 @@ public:
                 for (int i = 0; i < (int) mix.size(); ++i)
                 {
                     const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (mix.size() - 1);
-                    const auto y = area.getCentreY() - juce::jlimit (-1.2f, 1.2f, mix[(size_t) i]) * area.getHeight() * 0.3f;
+                    // (Kept inside the pad: a loud mix used to run off its foot.)
+                    const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, mix[(size_t) i]) * area.getHeight() * 0.3f;
                     if (i == 0) trace.startNewSubPath (x, y); else trace.lineTo (x, y);
                 }
                 g.setColour (accent.withAlpha (read ("vec_on") > 0.5f ? 0.55f : 0.4f));

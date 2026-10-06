@@ -41,6 +41,7 @@ public:
             // Menus without a label line (their values name them: "Wavetable",
             // "Neuro"), stacked beside the picture; the tooltip says which.
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
+            strip->on->setSwitchColour (colour); // (the card's switch in its colour, as the sheet's)
             strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "");
             strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "");
             groupExciteMenu (*strip->excite);
@@ -272,6 +273,8 @@ public:
             LfoShapeMenu::apply (static_cast<ComboControl&> (*set->items.back()), p); // MOD's names and grouped list (I7-44)
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
+            for (int i = 1; i <= 2; ++i) // (the LFO's switches in its colour, as the sheet's)
+                static_cast<ToggleControl&> (*set->items[(size_t) i]).setSwitchColour (IlanaSynthAudioProcessor::lfoColour (lfo));
 
             for (auto& item : set->items)
                 addChildComponent (*item);
@@ -1304,7 +1307,7 @@ private:
         IlanaTheme::paintCard (g, card.toFloat(), 6.0f, tint);
         IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) centreY }, tint);
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        g.setFont (IlanaTheme::cardTitleFont());
         g.drawText (title, juce::Rectangle<int> (card.getX() + 24, centreY - 8, 200, 16), juce::Justification::centredLeft);
     }
 
@@ -1498,17 +1501,17 @@ private:
                 const auto line = card.withHeight (headerHeight + 10).reduced (0, 5).withTrimmedRight (switchWidth + 20 + editLinkWidth + 8);
                 IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
                 g.setColour (lit ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-                const auto nameFont = IlanaTheme::font (IlanaTheme::TextSize::body, true);
+                const auto nameFont = juce::Font (IlanaTheme::cardTitleFont());
                 g.setFont (nameFont);
                 g.drawText (title, line.withTrimmedLeft (24), juce::Justification::centredLeft);
 
                 if (line2.isNotEmpty())
                 {
-                    juce::GlyphArrangement glyphs;
-                    glyphs.addLineOfText (nameFont, title, 0.0f, 0.0f);
-                    g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
-                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                    g.drawText (line2, line.withTrimmedLeft (24 + (int) glyphs.getBoundingBox (0, -1, true).getWidth() + 12), juce::Justification::centredLeft, true);
+                    // (The card caption: the sheet's .cap, 8 px after the title.)
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+                    g.drawText (IlanaTheme::captionFragment (line2), line.withTrimmedLeft (24 + juce::GlyphArrangement::getStringWidthInt (nameFont, title) + 8),
+                                juce::Justification::centredLeft, true);
                 }
 
                 return;
@@ -1579,8 +1582,8 @@ private:
 
             // The title opens the oscillator's full page, and so does the
             // link beside the switch, worded like every other jump.
-            g.setColour (hoverEditLink == osc ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
-            g.setFont (IlanaTheme::pillFont());
+            g.setColour (hoverEditLink == osc ? tint.brighter (0.25f) : tint); // (the card's colour: the sheet's .lk)
+            g.setFont (IlanaTheme::linkFont());
             g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), editLinkArea (card), juce::Justification::centredRight);
 
             if (strip.opEg)

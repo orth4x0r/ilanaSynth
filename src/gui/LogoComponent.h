@@ -30,8 +30,10 @@ public:
         const auto badge = bounds.withSizeKeepingCentre (34.0f, 34.0f).withX (bounds.getX());
         const auto radius = 9.0f;
 
-        g.setGradientFill (juce::ColourGradient (IlanaTheme::accent().brighter (0.3f), badge.getX(), badge.getY(),
-                                                 IlanaTheme::accent().darker (0.05f), badge.getRight(), badge.getBottom(), false));
+        // (The sheet's 145 degree gradient, #ff8a52 to #ff5530 on the ember accent.)
+        const auto accent = IlanaTheme::accent();
+        g.setGradientFill (juce::ColourGradient (accent.interpolatedWith (juce::Colours::white, 0.12f).withRotatedHue (0.008f), badge.getX() + badge.getWidth() * 0.2f, badge.getY(),
+                                                 accent.withRotatedHue (-0.01f).withMultipliedSaturation (1.08f), badge.getRight() - badge.getWidth() * 0.2f, badge.getBottom(), false));
         g.fillRoundedRectangle (badge, radius);
 
         juce::Path clip;
@@ -64,7 +66,7 @@ public:
         }
 
         auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
-        const auto nameFont = juce::Font (IlanaTheme::font (19.5f, true));
+        const auto nameFont = juce::Font (IlanaTheme::font (20.5f, true)); // (15 px at 800)
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (nameFont);
         g.drawText ("ilanaSynth", textArea.removeFromTop (textArea.getHeight() * 0.56f).withTrimmedTop (1.0f), juce::Justification::bottomLeft);
@@ -72,7 +74,7 @@ public:
         if (version.isNotEmpty())
         {
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny).withKerningFactor (0.08f)); // (9 px at 600)
             g.drawText (version.toUpperCase(), textArea, juce::Justification::topLeft);
         }
     }

@@ -61,7 +61,7 @@ public:
     }
 
     // Wide enough for the tag, the name and the chevron.
-    int preferredWidth() const { return IlanaTheme::cardTitleWidth (title) + 4; }
+    int preferredWidth() const { return IlanaTheme::cardTitleWidth (title) + 14; }
 
     void paint (juce::Graphics& g) override
     {
@@ -73,8 +73,8 @@ public:
 
         IlanaTheme::paintCardTitle (g, getLocalBounds(), title, colour);
 
-        // The chevron after the name.
-        const auto x = (float) IlanaTheme::cardTitleWidth (title) - 12.0f;
+        // The chevron, 6 px after the name's letters.
+        const auto x = 14.0f + juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::cardTitleFont()), title) + 6.0f;
         const auto y = (float) getHeight() * 0.5f;
         juce::Path chevron;
         chevron.startNewSubPath (x, y - 2.0f);

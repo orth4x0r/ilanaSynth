@@ -231,8 +231,8 @@ inline juce::Colour modSourceColour (int sourceIndex)
     switch ((Mod::Source) sourceIndex)
     {
         case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
-        case Mod::Source::FilterEnv:  return juce::Colour (0xffc86bff);
-        case Mod::Source::FilterEnv2: return juce::Colour (0xff8f9dff);
+        case Mod::Source::FilterEnv:  return juce::Colour (0xffb46bff);
+        case Mod::Source::FilterEnv2: return juce::Colour (0xff7d86ff);
         case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
         case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
         // The performance sources: soft tints, each its own hue.
@@ -740,8 +740,9 @@ public:
         label.setJustificationType (juce::Justification::centred);
         label.setBorderSize ({ 0, 1, 0, 1 }); // (a name takes its whole cell: layoutRow fits it by that)
         // Bold, letter-spaced caps names as drawn in the mockup.
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.05f));
-        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        // (The sheet's .kl: 700, tracked 0.08 em, in t3.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.08f));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text3);
         addAndMakeVisible (label);
 
         dotStrip.onDepthChange = [this] (int slot, float depth)
@@ -1171,10 +1172,11 @@ public:
             else
                 range.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, a, b, true);
 
+            // The component sheet's modulation ring: a 2 px arc in the
+            // source's colour, solid; what it adds right now a brighter
+            // stretch; the depth handle shows while the ring is grabbed.
             const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-            g.strokePath (range, juce::PathStrokeType (width + (tight ? 1.0f : 1.6f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (colour.withAlpha (quiet ? 0.22f : (hot ? 0.75f : 0.55f)));
+            g.setColour (colour.withAlpha (quiet ? 0.3f : (hot ? 1.0f : 0.95f)));
             g.strokePath (range, rounded);
 
             if (dot.bypass)
@@ -1185,28 +1187,23 @@ public:
             const auto liveAngle = angleOf (baseNorm + live * ringConfig.scale);
             const auto baseAngle = angleOf (baseNorm);
 
-            if (std::abs (liveAngle - baseAngle) > 0.01f)
+            if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
             {
                 juce::Path now;
                 now.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (baseAngle, liveAngle),
                                    juce::jmax (baseAngle, liveAngle), true);
-                g.setColour (colour.withAlpha (quiet ? 0.4f : 1.0f));
+                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f));
                 g.strokePath (now, rounded);
             }
 
-            // The depth handle, then the live dot.
-            const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
-            const auto handle = juce::Rectangle<float> (hot ? 6.5f : 5.0f, hot ? 6.5f : 5.0f).withCentre (handleAt);
-            g.setColour (IlanaTheme::Ui::bg);
-            g.fillEllipse (handle.expanded (1.0f));
-            g.setColour (colour.withAlpha (quiet ? 0.5f : 1.0f));
-            g.fillEllipse (handle);
-
-            if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
+            if (hot)
             {
-                const auto dotAt = centre.getPointOnCircumference (radius, liveAngle);
-                g.setColour (juce::Colours::white.withAlpha (0.95f));
-                g.fillEllipse (juce::Rectangle<float> (3.2f, 3.2f).withCentre (dotAt));
+                const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
+                const auto handle = juce::Rectangle<float> (6.5f, 6.5f).withCentre (handleAt);
+                g.setColour (IlanaTheme::Ui::bg);
+                g.fillEllipse (handle.expanded (1.0f));
+                g.setColour (colour);
+                g.fillEllipse (handle);
             }
         }
     }
@@ -1365,7 +1362,7 @@ private:
     // every routing.
     static constexpr float ringStart = juce::MathConstants<float>::pi * 1.2f;
     static constexpr float ringEnd = juce::MathConstants<float>::pi * 2.8f;
-    static constexpr float ringPitch = 3.5f, ringGap = 3.0f;
+    static constexpr float ringPitch = 3.5f, ringGap = 2.5f; // (the sheet: the first ring at the arc's radius + 3.5)
     static constexpr int maxRings = 3;
 
     int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
@@ -2068,8 +2065,9 @@ public:
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
         label.setBorderSize ({ 0, 4, 0, 1 }); // (layoutRow fits a menu's name by these 5 px)
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        // (The sheet's field name, .lbl: bold tracked caps in t3, as a knob's.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text3);
         addAndMakeVisible (label);
 
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (state.getParameter (parameterID)))
@@ -2101,10 +2099,11 @@ public:
             return;
 
         currentTint = tint;
-        combo.setColour (juce::ComboBox::outlineColourId, tint.withAlpha (0.75f));
-        combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.14f));
-        label.setColour (juce::Label::textColourId, tint);
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.05f));
+        // (The sheet's .sel.c: the colour at 55 % into the hairline, 10 % into ink 3.)
+        combo.setColour (juce::ComboBox::outlineColourId, IlanaTheme::Ui::line.interpolatedWith (tint, 0.55f));
+        combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.1f));
+        // (Only the box takes the colour: the name stays the sheet's grey .lbl.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
         combo.repaint();
         label.repaint();
     }
@@ -2126,7 +2125,7 @@ public:
             return;
 
         compactLayout = shouldBeCompact;
-        label.setFont (IlanaTheme::font (compactLayout ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body));
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
         combo.getProperties().set ("compactMenu", compactLayout);
         resized();
     }
@@ -2164,11 +2163,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        if (hover > 0.01f)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.2f * hover));
-            g.fillRoundedRectangle (combo.getBounds().toFloat().expanded (2.0f), 5.0f);
-        }
+        // (Hover lights the select's own rim: drawComboBox.)
+        juce::ignoreUnused (g);
     }
 
 
@@ -2322,8 +2318,8 @@ public:
 
         if (inlineLabel && isSwitch())
         {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.07f));
             IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineSwitchWidth + 5),
                                     juce::Justification::centredLeft, 1);
             return;
@@ -2332,8 +2328,9 @@ public:
         // A named switch shows its name where other controls show a label.
         if (isSwitch() && button.getButtonText() != "ON")
         {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (smallName ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
+            // (Named as a knob is: the sheet's .lbl, bold tracked caps in t3.)
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (smallName ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
             g.drawText (button.getButtonText(), getLocalBounds().withHeight (smallName ? 11 : 13), juce::Justification::centred, true);
             return;
         }

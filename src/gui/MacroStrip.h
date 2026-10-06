@@ -101,7 +101,7 @@ public:
             // switched off) can't be heard: a small amber warning sign after
             // the name says so, its tooltip which (V7-28), and the macro's
             // card (rest on it) the same.
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f); // (the sheet's .mk b)
             const auto name = title.toUpperCase();
             const auto markWidth = evolving ? 16 : 0;
             const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
@@ -184,8 +184,8 @@ public:
 
         const auto routed = macroIndex >= 0 && routedTargets > 0 && ! hover;
         g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (routed ? IlanaTheme::font (IlanaTheme::TextSize::label, true)
-                          : IlanaTheme::font (IlanaTheme::TextSize::label, false, true)); // a live value
+        g.setFont (routed ? IlanaTheme::font (IlanaTheme::TextSize::label)
+                          : IlanaTheme::font (IlanaTheme::TextSize::label, false, true)); // a live value (the sheet's .mk i: 500)
         g.drawText (routed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : valueText(),
                     text, juce::Justification::topLeft, true);
     }

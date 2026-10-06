@@ -474,7 +474,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         bpmArea.setInterceptsMouseClicks (false, false);
         bpmArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
         {
-            paintReadout (g, area, "BPM", juce::String (processorRef.getCurrentBpm(), 1), IlanaTheme::Ui::text, IlanaTheme::Ui::text3);
+            paintReadout (g, area, "BPM", juce::String (processorRef.getCurrentBpm(), 1), IlanaTheme::Ui::text2, IlanaTheme::Ui::text3); // (the sheet's .stat b: t2)
         };
         content.addAndMakeVisible (bpmArea);
 
@@ -482,8 +482,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         cpuArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
         {
             const auto cpu = processorRef.getCpuUsage() * 100.0f;
-            const auto colour = cpu < 30.0f ? IlanaTheme::Ui::text
-                                            : (cpu < 60.0f ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
+            const auto colour = cpu < 30.0f ? IlanaTheme::Ui::text2
+                                            : (cpu < 60.0f ? IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
                                                            : IlanaTheme::accent().interpolatedWith (juce::Colours::red, juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
             paintReadout (g, area, "CPU", juce::String (juce::roundToInt (cpu)) + "%", colour, IlanaTheme::Ui::text3);
         };
@@ -507,9 +507,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             g.setFont (readoutFont());
             g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
             g.drawText (label, at.removeFromLeft (labelWidth), juce::Justification::centredLeft);
-            g.setColour (IlanaTheme::Ui::text);
+            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
             g.drawText (active, at.removeFromLeft (activeWidth), juce::Justification::centredLeft);
-            g.setColour (IlanaTheme::Ui::text);
             g.drawText (maxText, at, juce::Justification::centredLeft);
 
             if (hover)
@@ -1329,7 +1328,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     // The header (52 px).
     g.setColour (IlanaTheme::Ui::header);
     g.fillRect (juce::Rectangle<int> (0, 0, designWidth, headerHeight));
-    g.setColour (IlanaTheme::Ui::line.darker (0.3f));
+    g.setColour (IlanaTheme::Ui::line2);
     g.fillRect (juce::Rectangle<int> (0, headerHeight - 1, designWidth, 1));
 
     // The preset display's field (its rim, flash and text are the display's
@@ -1338,7 +1337,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     g.fillRoundedRectangle (presetDisplay.getBounds().toFloat().reduced (0.5f), 10.0f);
 
     // The rule between the edit and tool groups.
-    g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
+    g.setColour (IlanaTheme::Ui::line);
     for (const auto x : headerSeparatorX)
         if (x > 0)
             g.fillRect (juce::Rectangle<int> (x, 15, 1, 22));
@@ -1346,7 +1345,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     // The tab bar's ground and its hairline, under the tabs.
     g.setColour (IlanaTheme::Ui::bg);
     g.fillRect (juce::Rectangle<int> (0, headerHeight, designWidth, tabBarHeight));
-    g.setColour (IlanaTheme::Ui::line.darker (0.3f));
+    g.setColour (IlanaTheme::Ui::line2);
     g.fillRect (juce::Rectangle<int> (0, headerHeight + tabBarHeight - 1, designWidth, 1));
 
     // The dock (78 px): sources, then macros, master and the meter.
@@ -1354,7 +1353,7 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
     {
         g.setColour (IlanaTheme::Ui::header);
         g.fillRect (dockBounds);
-        g.setColour (IlanaTheme::Ui::line.darker (0.3f));
+        g.setColour (IlanaTheme::Ui::line2);
         g.fillRect (dockBounds.withHeight (1));
 
         g.setColour (IlanaTheme::Ui::line);

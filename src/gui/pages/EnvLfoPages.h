@@ -1578,6 +1578,9 @@ private:
                     toggle->setSwitchColour (accent);
                 }
 
+            // The SHAPE menu carries the LFO's colour too (the design's .sel.c).
+            shape.setTint (accent);
+
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
                 sim.push_back (std::make_unique<KnobControl> (state, "lfo" + juce::String (lfo) + "_p" + juce::String (param + 1),
                                                               "P" + juce::String (param + 1), accent, followsTheme));

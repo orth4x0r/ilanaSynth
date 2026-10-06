@@ -88,12 +88,12 @@ public:
         const auto lit = juce::Rectangle<float> (a.getX() + (b.getX() - a.getX()) * t, a.getY(),
                                                  a.getWidth() + (b.getWidth() - a.getWidth()) * t, a.getHeight()).reduced (0.0f, 2.0f);
 
-        g.setColour (Ui::raised.brighter (0.1f));
+        g.setColour (Ui::track); // (the sheet's .seg b.on: ink 4 with a 7 % white rim)
         g.fillRoundedRectangle (lit, 6.0f);
         g.setColour (juce::Colours::white.withAlpha (0.07f));
         g.drawRoundedRectangle (lit.reduced (0.5f), 6.0f, 1.0f);
 
-        g.setFont (font (TextSize::minInteractive, true).withKerningFactor (0.04f));
+        g.setFont (font (TextSize::minInteractive, true).withKerningFactor (0.08f));
 
         for (int i = 0; i < items.size(); ++i)
         {
@@ -145,7 +145,7 @@ public:
 private:
     static int segmentWidth (const juce::String& item)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f)), item) + 22;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.08f)), item) + 22;
     }
 
     juce::Rectangle<float> segmentBounds (int index) const

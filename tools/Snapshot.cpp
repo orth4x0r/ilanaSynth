@@ -99,7 +99,9 @@ void save (juce::Component& editor, const juce::File& file)
     if (beforeSave() != nullptr)
         beforeSave()();
 
-    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
+    // ILANA_SNAPSHOT_SCALE: the pixel scale of the PNGs (1.5 by default; 3 for close-ups).
+    static const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, scale > 0.1f ? scale : 1.5f);
     file.deleteFile();
     juce::FileOutputStream stream (file);
     juce::PNGImageFormat().writeImageToStream (image, stream);
@@ -7402,6 +7404,55 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_MENU: a menu drawn by the look-and-feel as the component
+    // sheet's MENU (a section name, a hovered item, a tick, a separator, a
+    // sub-menu), into menu.png at the snapshot scale; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_MENU", "").isNotEmpty())
+    {
+        auto& lf = editor->getLookAndFeel();
+        const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+        struct Item { juce::String text; bool header, separator, highlighted, ticked, sub; };
+        const Item items[] { { "ADD EFFECT", true, false, false, false, false }, { "Vowel", false, false, true, false, false },
+                             { "Drive", false, false, false, true, false }, { "OTT", false, false, false, false, false },
+                             { {}, false, true, false, false, false }, { "Airwindows", false, false, false, false, true } };
+        const auto width = 200;
+        auto height = 4;
+        std::vector<int> heights;
+        for (const auto& item : items)
+        {
+            int w = 0, h = 0;
+            lf.getIdealPopupMenuItemSize (item.text, item.separator, -1, w, h);
+            heights.push_back (item.header ? h + 4 : h);
+            height += heights.back();
+        }
+        height += 4;
+        juce::Image image (juce::Image::ARGB, juce::roundToInt ((float) (width + 40) * scale), juce::roundToInt ((float) (height + 40) * scale), true);
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            g.fillAll (IlanaTheme::Ui::bg);
+            g.setOrigin (20, 20);
+            lf.drawPopupMenuBackground (g, width, height);
+            auto y = 4;
+            for (size_t i = 0; i < std::size (items); ++i)
+            {
+                const auto& item = items[i];
+                const juce::Rectangle<int> row (0, y, width, heights[i]);
+                if (item.header)
+                    lf.drawPopupMenuSectionHeader (g, row, item.text);
+                else
+                    lf.drawPopupMenuItem (g, row, item.separator, true, item.highlighted, item.ticked, item.sub, item.text, {}, nullptr, nullptr);
+                y += heights[i];
+            }
+        }
+        const auto file = outDir.getChildFile ("menu.png");
+        file.deleteFile();
+        juce::FileOutputStream stream (file);
+        juce::PNGImageFormat().writeImageToStream (image, stream);
+        std::cout << file.getFullPathName() << std::endl;
+        return 0;
+    }
 
     // ILANA_SNAPSHOT_PLAY: just PLAY (UI review 12): the patch as loaded, then
     // with oscillators 4 and 5 added, then all six; then stop.

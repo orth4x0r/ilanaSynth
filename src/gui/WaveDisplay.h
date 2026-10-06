@@ -221,10 +221,28 @@ public:
 
         auto plot = bounds.reduced (10.0f, compact ? 5.0f : 10.0f);
 
+        // The OSC card's well (design round 2): a quarter grid behind the
+        // picture, the picture under the full height (the slim line shows
+        // over its top only while the mouse is on it), and the WAVE view as
+        // the design draws it, the table's frames stacked flat with the one
+        // playing lit.
+        const auto flatStack = slim && shownViewMode() == 0 && ! isStaticTable (processorRef.getWavetable (tableIndex));
         if (slim)
-            plot.removeFromTop ((float) slimHeader - 2.0f);
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            for (int i = 1; i < 4; ++i)
+            {
+                g.fillRect (juce::Rectangle<float> (bounds.getWidth() - 2.0f, 1.0f).withPosition (bounds.getX() + 1.0f, bounds.getY() + bounds.getHeight() * (float) i / 4.0f));
+                g.fillRect (juce::Rectangle<float> (1.0f, bounds.getHeight() - 2.0f).withPosition (bounds.getX() + bounds.getWidth() * (float) i / 4.0f, bounds.getY() + 1.0f));
+            }
+            plot.removeFromBottom (8.0f); // (the frame's number)
+        }
 
-        if (shownViewMode() == 1)
+        if (flatStack)
+        {
+            drawFlatStack (g, table, frame, plot);
+        }
+        else if (shownViewMode() == 1)
         {
             drawWaterfall (g, table, frame, plot);
         }
@@ -271,6 +289,35 @@ public:
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
 
+    // The design's 2D well: up to nine of the table's frames as flat lines one
+    // under the other (front to back, top to bottom), faint, and the cycle
+    // playing now lit at its place among them (warped when a warp is on).
+    void drawFlatStack (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const
+    {
+        const auto frameCount = table->getNumFrames();
+        const auto lines = juce::jmin (9, frameCount);
+        const auto amplitude = plot.getHeight() * 0.1f;
+        const auto top = plot.getY() + 1.5f * amplitude, span = plot.getHeight() - 3.0f * amplitude;
+        const auto yFor = [&] (float position) { return top + span * position; };
+
+        for (int i = 0; i < lines; ++i)
+        {
+            const auto position = lines > 1 ? (float) i / (float) (lines - 1) : 0.0f;
+            const auto index = juce::jlimit (0, frameCount - 1, juce::roundToInt (position * (float) (frameCount - 1)));
+            drawFrame (g, table, index, plot, yFor (position), amplitude, juce::Colours::white.withAlpha (0.2f), 1.0f);
+        }
+
+        const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
+        const auto centre = yFor (juce::jlimit (0.0f, 1.0f, frame));
+        if (hasWarp())
+        {
+            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
+            drawWarpedFrame (g, table, frameIndex, plot, centre, amplitude);
+        }
+        else
+            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour, 2.0f);
+    }
+
     // Where the slim line's view chip and arrows sit, for the UI tests.
     juce::Point<float> getSlimTarget (int which) const // 0 view chip, 1 previous, 2 next
     {
@@ -296,20 +343,33 @@ public:
     {
         const auto areas = slimAreas();
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (font);
-        g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), areas.previous, juce::Justification::centred);
-        g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), areas.next, juce::Justification::centred);
-        g.setColour (IlanaTheme::Ui::text2);
-        IlanaTheme::drawFitted (g, getTableName(), areas.name, juce::Justification::centredLeft, 1);
+
+        // The table's name, its arrows and the view chip show over the top of
+        // the picture while the mouse is on the well (the design's well is the
+        // picture alone); a view other than WAVE keeps its chip showing.
+        const auto hovered = isMouseOver (true);
+        if (hovered)
+        {
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.85f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat().removeFromTop ((float) slimHeader + 1.0f).reduced (1.0f, 1.0f), 5.0f);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (font);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), areas.previous, juce::Justification::centred);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), areas.next, juce::Justification::centred);
+            g.setColour (IlanaTheme::Ui::text2);
+            IlanaTheme::drawFitted (g, getTableName(), areas.name, juce::Justification::centredLeft, 1);
+        }
 
         static const char* const names[] { "WAVE", "3D", "SPEC" };
-        const auto chip = areas.view.toFloat().reduced (0.0f, 1.0f);
-        g.setColour (traceColour.withAlpha (0.18f));
-        g.fillRoundedRectangle (chip, 4.0f);
-        g.setColour (traceColour);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        IlanaTheme::drawFitted (g, names[juce::jlimit (0, 2, shownViewMode())], areas.view, juce::Justification::centred, 1);
+        if (hovered || shownViewMode() != 0)
+        {
+            const auto chip = areas.view.toFloat().reduced (0.0f, 1.0f);
+            g.setColour (traceColour.withAlpha (0.18f));
+            g.fillRoundedRectangle (chip, 4.0f);
+            g.setColour (traceColour);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, names[juce::jlimit (0, 2, shownViewMode())], areas.view, juce::Justification::centred, 1);
+        }
 
         // The frame the cycle comes from, at the picture's foot.
         if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)

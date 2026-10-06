@@ -630,8 +630,10 @@ public:
                 p, prefix + "_table", prefix + "_frame", prefix + "_unison",
                 prefix + "_spread", prefix + "_detune", false, juce::String {},
                 prefix + "_mode", i, oscColour (i), false);
-            // There is room here for every frame at once (UI review 5, V6).
-            waveDisplays[(size_t) i]->setViewMode (1);
+            // The card's well opens on the cycle, as the design draws it; its
+            // corner chip still steps to every frame at once (3D) and the
+            // harmonics (UI review 5, V6; design round 2).
+            waveDisplays[(size_t) i]->setViewMode (0);
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD...");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
             styleJumpLink (*editButtons[(size_t) i], "TABLE");

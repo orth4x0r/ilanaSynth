@@ -933,6 +933,16 @@ public:
 
     bool isInlineKnob() const { return inlineLayout; }
 
+    // The largest dial an inline knob draws (40 everywhere; the FX rack's rows
+    // grow their dials with the row when the rack is short).
+    void setInlineDial (int largest)
+    {
+        if (inlineDial == largest)
+            return;
+        inlineDial = largest;
+        resized();
+    }
+
     // A value drawn as a faded dash while `shown` says it does nothing (an
     // amount whose stage is Off): the knob keeps its place and its size.
     void setDashWhen (std::function<bool()> isIdle)
@@ -1241,7 +1251,7 @@ public:
         {
             // The dial is a square as high as the cell; the name above the
             // value, level with the dial's middle line, to its right.
-            const auto dial = juce::jmin (area.getHeight(), 40);
+            const auto dial = juce::jmin (area.getHeight(), inlineDial);
             knobBounds = area.withWidth (dial).withSizeKeepingCentre (dial, dial);
             slider.setBounds (area);
             const auto textX = knobBounds.getRight() + 3;
@@ -2038,6 +2048,7 @@ private:
     bool compact = false, inlineText = false;
     juce::Rectangle<int> inlineValueArea;
     bool inlineLayout = false;
+    int inlineDial = 40;
     std::function<bool()> dashWhen;
     bool sourceKnob = false;
     bool badgesShown = false; // the mouse is on the knob (or its badges)

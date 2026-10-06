@@ -70,6 +70,13 @@ public:
         std::array<float, 128> cycle {};
         const auto plot = area.reduced (8.0f, 8.0f);
 
+        // A quarter grid behind the cycle, as the design draws these wells.
+        g.setColour (juce::Colours::white.withAlpha (0.05f));
+        for (int i = 1; i < 4; ++i)
+        {
+            g.drawHorizontalLine ((int) (area.getY() + area.getHeight() * (float) i / 4.0f), area.getX() + 1.0f, area.getRight() - 1.0f);
+            g.drawVerticalLine ((int) (area.getX() + area.getWidth() * (float) i / 4.0f), area.getY() + 1.0f, area.getBottom() - 1.0f);
+        }
         g.setColour (IlanaTheme::Ui::line);
         g.drawHorizontalLine ((int) plot.getCentreY(), plot.getX(), plot.getRight());
 
@@ -155,13 +162,36 @@ public:
                 g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (corners[c]));
             }
 
-            g.setColour (sounding ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            // Each corner names its oscillator on a small pill with the
+            // oscillator's dot, as the design draws it.
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto label = getCornerLabel (c, weights[(size_t) c]);
-            auto box = juce::Rectangle<float> (area.getWidth() * 0.5f - 8.0f, 16.0f);
-            box.setPosition (c % 2 == 0 ? area.getX() + 6.0f : area.getRight() - box.getWidth() - 6.0f,
-                             c < 2 ? area.getY() + 4.0f : area.getBottom() - 20.0f);
-            g.drawText (label, box, c % 2 == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight);
+            const auto osc = processorRef.getVectorCorner (c);
+            const auto tint = osc >= 0 && osc < OscillatorIds::count ? IlanaTheme::oscColour (osc) : IlanaTheme::Ui::text3;
+            const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), label);
+            auto pill = juce::Rectangle<float> (textWidth + 28.0f, 20.0f);
+            pill.setPosition (c % 2 == 0 ? area.getX() + 6.0f : area.getRight() - pill.getWidth() - 6.0f,
+                              c < 2 ? area.getY() + 6.0f : area.getBottom() - 26.0f);
+            g.setColour (IlanaTheme::Ui::raised.withAlpha (0.85f));
+            g.fillRoundedRectangle (pill, 10.0f);
+            g.setColour ((sounding ? tint : IlanaTheme::Ui::line).withAlpha (sounding ? 0.7f : 1.0f));
+            g.drawRoundedRectangle (pill.reduced (0.5f), 10.0f, 1.0f);
+            g.setColour (sounding ? tint : IlanaTheme::Ui::text3);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ pill.getX() + 11.0f, pill.getCentreY() }));
+            g.setColour (sounding ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, label, pill.withTrimmedLeft (18.0f).withTrimmedRight (4.0f).toNearestInt(),
+                                    juce::Justification::centredLeft, 1);
+        }
+
+        // Where the puck sits, over the pad's top edge (the design's readout).
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("X " + juce::String (juce::roundToInt (live.x * 100.0f)) + "%  "
+                            + juce::String::fromUTF8 ("\xc2\xb7") + "  Y "
+                            + juce::String (juce::roundToInt (live.y * 100.0f)) + "%",
+                        area.withHeight (16.0f).translated (0.0f, 8.0f).toNearestInt(), juce::Justification::centred);
         }
 
         // The mix itself: the four corners' cycles at the puck's weights,
@@ -185,7 +215,8 @@ public:
                 for (int i = 0; i < (int) mix.size(); ++i)
                 {
                     const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (mix.size() - 1);
-                    const auto y = area.getCentreY() - juce::jlimit (-1.2f, 1.2f, mix[(size_t) i]) * area.getHeight() * 0.3f;
+                    // (Kept inside the pad: a loud mix used to run off its foot.)
+                    const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, mix[(size_t) i]) * area.getHeight() * 0.3f;
                     if (i == 0) trace.startNewSubPath (x, y); else trace.lineTo (x, y);
                 }
                 g.setColour (accent.withAlpha (read ("vec_on") > 0.5f ? 0.55f : 0.4f));

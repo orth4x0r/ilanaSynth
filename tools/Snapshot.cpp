@@ -1940,10 +1940,44 @@ int runUiTests()
             loadFx ({ 27, 2, 20 });
             auto titles = typeButtons();
             auto* viewport = stackViewport();
-            // The design's rack: one 80 px row per effect, one under the other (10 px apart).
-            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX()
-                        && titles[1]->getY() - titles[0]->getY() == 90 && titles[2]->getY() - titles[1]->getY() == 90,
-                    "Vowel, Drive and OTT are 80 px rows one under the other");
+            // The design's rack: one row per effect, one under the other (10 px
+            // apart); a short rack's rows grow from 80 (up to 120) and a dashed
+            // + ADD EFFECT row takes the rest, so no band is left empty.
+            {
+                const auto step1 = titles.size() == 3 ? titles[1]->getY() - titles[0]->getY() : 0;
+                const auto step2 = titles.size() == 3 ? titles[2]->getY() - titles[1]->getY() : 0;
+                expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX() && step1 == step2
+                            && step1 > 90 && step1 <= 130,
+                        "Vowel, Drive and OTT are equal rows one under the other, taller than 80 px on a short rack ("
+                            + juce::String (step1) + ", " + juce::String (step2) + ")");
+                std::vector<DashedAddButton*> tiles;
+                findAll<DashedAddButton> (*editor, tiles);
+                DashedAddButton* tile = nullptr;
+                for (auto* candidate : tiles)
+                    if (candidate->getButtonText().contains ("ADD EFFECT") && visibleInTree (candidate))
+                        tile = candidate;
+                const auto tileBox = tile != nullptr ? editor->getLocalArea (tile, tile->getLocalBounds()) : juce::Rectangle<int>();
+                const auto viewBox = viewport != nullptr ? editor->getLocalArea (viewport, viewport->getLocalBounds()) : juce::Rectangle<int>();
+                expect (tile != nullptr && tileBox.getY() >= viewBox.getBottom() - 4 && tileBox.getY() <= viewBox.getBottom() + 2
+                            && tileBox.getHeight() >= 40,
+                        "a short rack ends in a dashed + ADD EFFECT row right under its last effect");
+                if (tile != nullptr)
+                {
+                    tile->triggerClick();
+                    settle (80); // (a call-out closes itself within 200 ms under xvfb)
+                    FxLibraryView* shown = nullptr;
+                    std::vector<FxLibraryView*> views;
+                    findAll<FxLibraryView> (*editor, views);
+                    for (auto* view : views)
+                        if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                            shown = view;
+                    expect (shown != nullptr, "the dashed + ADD EFFECT row opens the library in a call-out");
+                    if (shown != nullptr)
+                        if (auto* box = shown->findParentComponentOfClass<juce::CallOutBox>())
+                            box->dismiss();
+                    settle (300);
+                }
+            }
             // The knobs sit at the row's right end (no knobs stranded mid-row).
             if (titles.size() == 3 && viewport != nullptr)
             {
@@ -4961,7 +4995,7 @@ int runUiTests()
 
             }
 
-            // On OSC the display opens in 3D, its views a WAVE | 3D | SPEC
+            // On OSC the display opens on the cycle (the design's 2D well), its views a WAVE | 3D | SPEC
             // control, its table named with arrows on it (UI review 5, V6,
             // V27; review 6, V21, V40).
             pages->showPage ("OSC");
@@ -4972,7 +5006,7 @@ int runUiTests()
             for (auto* candidate : waves)
                 if (visibleInTree (candidate) && candidate->getOscIndex() == 0)
                     wave = candidate;
-            expect (wave != nullptr && wave->getViewMode() == 1, "OSC opens OSC 1's display in 3D");
+            expect (wave != nullptr && wave->getViewMode() == 0, "OSC opens OSC 1's display on the cycle (WAVE), as the design draws it");
 
             if (wave != nullptr)
             {
@@ -5005,7 +5039,7 @@ int runUiTests()
                 auto spec = juce::String();
                 if (wave->isSlim())
                 {
-                    // The chip cycles WAVE > 3D > SPEC > WAVE; it starts on 3D.
+                    // The chip cycles WAVE > 3D > SPEC > WAVE; it starts on WAVE.
                     for (int i = 0; i < 3; ++i)
                     {
                         clickSlim (0);

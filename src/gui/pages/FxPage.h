@@ -325,6 +325,8 @@ public:
         };
         // The rack's one + ADD EFFECT is the tile after the last card (S7-16).
         addButton.onClick = [this] { showLibrary (addButton, addButton.getLocalBounds()); };
+        addTile.onClick = [this] { showLibrary (addTile, addTile.getLocalBounds().withSizeKeepingCentre (120, addTile.getHeight())); };
+        addChildComponent (addTile);
         fileButton.setTooltip ("This chain as a whole: copy it over the other chain, save it to a file, or load one into it");
         fileButton.onClick = [this] { showFileMenu(); };
         // The chain's own actions are quiet.
@@ -618,6 +620,7 @@ public:
         auto outRow = area.removeFromBottom (outputHeight);
         area.removeFromBottom (rowGap);
         auto stackArea = area;
+        addTile.setVisible (false);
 
         // An empty rack shows the library in the stack's place (one view
         // of the chain, not a list beside the cards: S5-18, S6-25).
@@ -634,10 +637,21 @@ public:
 
         // The rows take their own height (stretched to 96 at most, squeezed to
         // 64 when the rack is long, scrolling beyond); OUTPUT follows the last
-        // of them (V7-29, S7-16: no empty band above it).
-        availableStackHeight = stackArea.getHeight();
+        // of them (V7-29, S7-16: no empty band above it). A short rack with a
+        // free slot ends in a dashed "+ ADD EFFECT" row that takes the rest of
+        // the height, so OUTPUT closes the page where the design puts it
+        // (design round 2: no empty band under OUTPUT either).
+        const auto tileReserve = addTileMinimum + rowGap;
+        const auto offersTile = ! empty && firstEmptySlot() >= 0;
+        availableStackHeight = stackArea.getHeight() - (offersTile ? tileReserve : 0);
         stackView.setBounds (stackArea);
         layoutStack();
+        auto tile = offersTile && stackNaturalHeight <= availableStackHeight;
+        if (offersTile && ! tile)
+        {
+            availableStackHeight = stackArea.getHeight();
+            layoutStack();
+        }
         if (! empty)
         {
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
@@ -646,6 +660,14 @@ public:
             // is 4 px more than it: OUTPUT closes up on it unless the rack scrolls.)
             outRow.setY (stackNaturalHeight < stackArea.getHeight() ? stackView.getBottom() - (stackFootMargin - rowGap)
                                                                     : stackView.getBottom() + rowGap);
+            if (tile)
+            {
+                const auto top = stackView.getBottom() - (stackFootMargin - rowGap);
+                addTile.setBounds (stackArea.getX() + railWidth + railGap, top,
+                                   stackContent.getWidth() - railWidth - railGap, stackArea.getBottom() - top);
+                addTile.setVisible (true);
+                outRow.setY (addTile.getBottom() + rowGap);
+            }
         }
 
         outputStrip = outRow.withTrimmedLeft (railWidth + railGap);
@@ -673,6 +695,7 @@ public:
     {
         const auto free = firstEmptySlot() >= 0;
         addButton.setEnabled (free);
+        addTile.setTooltip ("Add an effect after the last one: the library, every effect grouped by what it does");
         addButton.setTooltip (free ? "Add an effect to the next empty slot: the library, every effect grouped by what it does"
                                    : "Every slot is in use: remove an effect to add another.");
     }
@@ -1099,12 +1122,13 @@ private:
     };
 
     // Row geometry (px of the 1060 x 720 design): the rail is 56 wide, a row
-    // is 80 high (64 when the rack is long), its left block 156 wide, its knobs
+    // is 80 high (64 when the rack is long, 96 when it is short: its picture and
+    // its dials grow with it), its left block 156 wide, its knobs
     // 116 x 44 cells with the dial's name and value beside it.
     // The parallel ladder's buses, x in the rail (inside the IN / OUT pills).
     static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
-    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 80, duplicateHeight = 56;
+    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 96, duplicateHeight = 56, addTileMinimum = 40;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
@@ -1544,6 +1568,11 @@ private:
             auto cell = juce::Rectangle<int> (knobsArea.getX() + (i % columns) * cellWidth, knobsArea.getY() + (i / columns) * rowHeight,
                                               cellWidth, rowHeight);
             auto* item = items[(size_t) i];
+
+            // The dial grows with the row (a short rack's rows are taller), so
+            // a tall row's knobs fill it instead of floating in a band.
+            if (auto* knob = dynamic_cast<KnobControl*> (item))
+                knob->setInlineDial (juce::jlimit (40, 56, rowHeight - 18));
 
             if (dynamic_cast<ComboControl*> (item) != nullptr)
                 item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));
@@ -2293,6 +2322,7 @@ private:
     bool parallelRouting = false;
     juce::TextButton copyChainButton { "COPY TO 2" };
     juce::TextButton addButton { "+ ADD" };
+    DashedAddButton addTile { "+  ADD EFFECT", "+  ADD EFFECT" };
     std::array<bool, 64> ownMix {};
     int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, availableStackHeight = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;

@@ -463,15 +463,13 @@ inline void paintCard (juce::Graphics& g, juce::Rectangle<float> bounds, float r
     g.setColour (Ui::panel);
     g.fillRoundedRectangle (bounds, radius);
 
-    // (Only an oscillator's card carries the wash, as in the mockups: every
-    // other card is flat ink 2 and shows its colour by its tag.)
-    if (isOscIdentityColour (tint))
-    {
-        juce::ColourGradient wash (tint.withAlpha (0.07f), bounds.getX(), bounds.getY(),
-                                   tint.withAlpha (0.0f), bounds.getX(), bounds.getY() + juce::jmin (90.0f, bounds.getHeight() * 0.55f), false);
-        g.setGradientFill (wash);
-        g.fillRoundedRectangle (bounds.reduced (1.0f), radius - 1.0f);
-    }
+    // The family colour as the sheet's .tint: 7 % at the very top, gone by
+    // mid-card, so the colour reads as identity and the eye lands on the
+    // displays.
+    juce::ColourGradient wash (tint.withAlpha (isOscIdentityColour (tint) ? 0.07f : 0.05f), bounds.getX(), bounds.getY(),
+                               tint.withAlpha (0.0f), bounds.getX(), bounds.getY() + juce::jmin (90.0f, bounds.getHeight() * 0.55f), false);
+    g.setGradientFill (wash);
+    g.fillRoundedRectangle (bounds.reduced (1.0f), radius - 1.0f);
 
     g.setColour (Ui::line);
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);

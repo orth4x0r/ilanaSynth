@@ -7931,6 +7931,55 @@ int main (int argc, char** argv)
         shot ("duplicate-aw");
         fill ({ 30, 13, 1, 3 });
         shot ("aw-all");
+
+        // The effect picker (mockup "fxadd"): from the rack's + ADD EFFECT
+        // tile and from slot 1's type button, at 100 % and 75 %. (Saved
+        // quickly: a call-out closes itself within 200 ms under xvfb.)
+        const auto picker = [&] (const juce::String& name, bool fromTitle)
+        {
+            settle (400);
+            if (fromTitle)
+            {
+                std::vector<FxTypeButton*> titles;
+                findAll<FxTypeButton> (*editor, titles);
+                for (auto* title : titles)
+                    if (visibleInTree (title) && title->getTooltip().startsWith ("Slot 1:") && title->onClick != nullptr)
+                    {
+                        title->onClick();
+                        break;
+                    }
+            }
+            else
+            {
+                std::vector<DashedAddButton*> tiles;
+                findAll<DashedAddButton> (*editor, tiles);
+                for (auto* tile : tiles)
+                    if (visibleInTree (tile) && tile->getButtonText().contains ("ADD EFFECT"))
+                    {
+                        tile->triggerClick();
+                        break;
+                    }
+            }
+            settle (60);
+            save (*editor, outDir.getChildFile ("fx-" + name + ".png"));
+            std::vector<FxLibraryView*> views;
+            findAll<FxLibraryView> (*editor, views);
+            for (auto* view : views)
+                if (auto* box = view->findParentComponentOfClass<juce::CallOutBox>())
+                    box->dismiss();
+            settle (300);
+        };
+        fill ({ 32, 2, 20 });
+        picker ("picker-add", false);
+        picker ("picker-replace", true);
+        if (auto* top = editor->getTopLevelComponent())
+        {
+            const auto before = top->getBounds();
+            top->setSize (795, 540);
+            picker ("picker-replace-75", true);
+            top->setBounds (before);
+        }
+
         clear();
         shot ("empty");
         return 0;

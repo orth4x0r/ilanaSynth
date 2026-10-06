@@ -128,7 +128,7 @@ public:
         // a change (an offscreen snapshot never runs it).
         matching = processorRef.findMatchingFmAlgorithm();
         matchingDx7 = processorRef.findMatchingDx7Algorithm();
-        const auto near = matching < 0 && matchingDx7 == 0 ? nearestBasic (processorRef) : -1;
+        const auto nearTile = matching < 0 && matchingDx7 == 0 ? nearestBasic (processorRef) : -1;
         const auto shown = shownCount();
         for (int index = 0; index < getNumCells(); ++index)
         {
@@ -146,7 +146,7 @@ public:
 
             // The routing no tile matches is near this one: a dashed outline
             // (the heading says "near B1 ...").
-            if (page == basic && index == near && ! lit)
+            if (page == basic && index == nearTile && ! lit)
             {
                 juce::Path outline;
                 outline.addRoundedRectangle (cell.reduced (0.5f), 5.0f);

@@ -407,8 +407,8 @@ public:
             return FmAlgorithms::all()[(size_t) matching].name;
 
         // One that no tile matches names the nearest (V7-14).
-        if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
-            return FmAlgorithmStrip::basicName (near) + ", EDITED"; // (review 12, I12-9)
+        if (const auto nearTile = FmAlgorithmStrip::nearestBasic (processorRef); nearTile >= 0)
+            return FmAlgorithmStrip::basicName (nearTile) + ", EDITED"; // (review 12, I12-9)
 
         for (const auto source : shown)
             for (const auto target : shown)

@@ -718,6 +718,10 @@ public:
         if (colour != lastColour)
         {
             lastColour = colour;
+            // The row's switch takes the source's colour, as the design draws
+            // it (the dock's chips and the matrix agree on a source's colour).
+            bypass.getProperties().set ("switchColour", (int) colour.getARGB());
+            bypass.repaint();
             amount.setColour (juce::Slider::rotarySliderFillColourId, colour);
             curve.setColour (colour);
             polarity.setColour (colour);

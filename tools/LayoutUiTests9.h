@@ -316,8 +316,11 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         settle (300);
         const auto matrix = shownAddButtons();
         editor.showPage ("MAIN");
-        expect (play.size() == 1 && osc.size() == 1 && fx.isEmpty() && matrix.size() >= 1,
-                "PLAY, OSC and the matrix add with the one dashed add button, the FX rack with + ADD in its top bar (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
+        // (Design round 2: a short FX rack ends in the same dashed add row,
+        // which fills the space its few effects leave; the rack's top bar
+        // keeps its + ADD for a long rack, where the row has no room.)
+        expect (play.size() == 1 && osc.size() == 1 && fx.size() <= 1 && matrix.size() >= 1,
+                "PLAY, OSC, the matrix and a short FX rack add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }
 

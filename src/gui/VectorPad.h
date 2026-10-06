@@ -155,13 +155,36 @@ public:
                 g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (corners[c]));
             }
 
-            g.setColour (sounding ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            // Each corner names its oscillator on a small pill with the
+            // oscillator's dot, as the design draws it.
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto label = getCornerLabel (c, weights[(size_t) c]);
-            auto box = juce::Rectangle<float> (area.getWidth() * 0.5f - 8.0f, 16.0f);
-            box.setPosition (c % 2 == 0 ? area.getX() + 6.0f : area.getRight() - box.getWidth() - 6.0f,
-                             c < 2 ? area.getY() + 4.0f : area.getBottom() - 20.0f);
-            g.drawText (label, box, c % 2 == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight);
+            const auto osc = processorRef.getVectorCorner (c);
+            const auto tint = osc >= 0 && osc < OscillatorIds::count ? IlanaTheme::oscColour (osc) : IlanaTheme::Ui::text3;
+            const auto textWidth = (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), label);
+            auto pill = juce::Rectangle<float> (textWidth + 28.0f, 20.0f);
+            pill.setPosition (c % 2 == 0 ? area.getX() + 6.0f : area.getRight() - pill.getWidth() - 6.0f,
+                              c < 2 ? area.getY() + 6.0f : area.getBottom() - 26.0f);
+            g.setColour (IlanaTheme::Ui::raised.withAlpha (0.85f));
+            g.fillRoundedRectangle (pill, 10.0f);
+            g.setColour ((sounding ? tint : IlanaTheme::Ui::line).withAlpha (sounding ? 0.7f : 1.0f));
+            g.drawRoundedRectangle (pill.reduced (0.5f), 10.0f, 1.0f);
+            g.setColour (sounding ? tint : IlanaTheme::Ui::text3);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ pill.getX() + 11.0f, pill.getCentreY() }));
+            g.setColour (sounding ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, label, pill.withTrimmedLeft (18.0f).withTrimmedRight (4.0f).toNearestInt(),
+                                    juce::Justification::centredLeft, 1);
+        }
+
+        // Where the puck sits, over the pad's top edge (the design's readout).
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("X " + juce::String (juce::roundToInt (live.x * 100.0f)) + "%  "
+                            + juce::String::fromUTF8 ("\xc2\xb7") + "  Y "
+                            + juce::String (juce::roundToInt (live.y * 100.0f)) + "%",
+                        area.withHeight (16.0f).translated (0.0f, 8.0f).toNearestInt(), juce::Justification::centred);
         }
 
         // The mix itself: the four corners' cycles at the puck's weights,

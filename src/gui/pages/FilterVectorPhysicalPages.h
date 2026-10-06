@@ -719,8 +719,7 @@ public:
         makePhysical.setToggleState (true, juce::dontSendNotification);
         makePhysical.onClick = [this]
         {
-            if (auto* parameter = processorRef.apvts.getParameter (prefix() + "_mode"))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 (1.0f));
+            processorRef.setOscillatorMode (chosen, OscMode::physical);
         };
         addChildComponent (makePhysical);
 
@@ -790,8 +789,8 @@ public:
         // offers the switch, rather than a page of its own (V14-3).
         if (! isPhysical (chosen))
         {
-            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input" };
-            const auto mode = juce::jlimit (0, 4, juce::roundToInt (readParam (prefix() + "_mode")));
+            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input", "FM / DX7" };
+            const auto mode = juce::jlimit (0, OscMode::count - 1, juce::roundToInt (readParam (prefix() + "_mode")));
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
             // An FM operator is not offered a string: switching it would take it out of the FM voice (V12-24).
@@ -1075,11 +1074,11 @@ private:
         repaint();
     }
 
-    // An oscillator that plays as an FM operator (it takes part in the voice's FM).
+    // An oscillator that plays as an FM operator: the FM / DX7 type.
     bool isOperatorVoice (int osc) const
     {
-        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 0
-               && FmOperatorInfo::isPlaying (processorRef, osc) && FmOperatorInfo::usesOperatorEnv (processorRef, osc);
+        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == OscMode::fmOperator
+               && FmOperatorInfo::isPlaying (processorRef, osc);
     }
 
     void updateAvailability()

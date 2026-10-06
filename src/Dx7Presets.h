@@ -117,7 +117,7 @@ inline std::vector<Value> values (const Dx7::Voice& v)
         const std::string p = OscillatorIds::prefixes[(size_t) (k - 1)];
         const auto t = Dx7::tuning (v, k, 60);
         set (p + "_on", 1);
-        set (p + "_mode", 0);
+        set (p + "_mode", OscMode::fmOperator); // a DX7 operator: FM / DX7
         set (p + "_table", 8); // Sine
         set (p + "_frame", 0);
         set (p + "_level", opLevel);

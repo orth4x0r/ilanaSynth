@@ -870,7 +870,10 @@ private:
         if (modeId.isEmpty() || isSampleMode())
             return;
 
-        if (auto* parameter = processorRef.apvts.getParameter (modeId))
+        // (Through the processor, so an operator's ratio tuning goes too.)
+        if (modeId == juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]) + "_mode")
+            processorRef.setOscillatorMode (oscIndex, OscMode::sample);
+        else if (auto* parameter = processorRef.apvts.getParameter (modeId))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
     }
 
@@ -1542,7 +1545,7 @@ private:
 
     bool hasWarp() const
     {
-        if (subTableMapping || (modeId.isNotEmpty() && readChoice (modeId) != 0))
+        if (subTableMapping || (modeId.isNotEmpty() && ! OscMode::playsWavetable (readChoice (modeId))))
             return false;
 
         const auto stages = readWarp();
@@ -1790,7 +1793,8 @@ private:
     // A plain wavetable oscillator (not sample, grains, physical or live).
     bool isTableMode() const
     {
-        return frameId.isNotEmpty() && (modeId.isEmpty() || readChoice (modeId) == 0);
+        // (FM / DX7 plays the wavetable engine too.)
+        return frameId.isNotEmpty() && (modeId.isEmpty() || OscMode::playsWavetable (readChoice (modeId)));
     }
 
     juce::String warpAmountId() const

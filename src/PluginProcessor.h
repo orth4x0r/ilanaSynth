@@ -322,6 +322,15 @@ public:
 
     static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
                                    const std::function<void (const juce::String&, float)>& set);
+    // Before the FM / DX7 type (2026-10-06) an operator was a Wavetable
+    // oscillator tuned by ratio or fixed Hz, or on the Operator EG: such an
+    // oscillator becomes FM / DX7 (OscMode::fmOperator), which renders the
+    // same. Works on stored values (get falls back to the default); returns
+    // how many oscillators moved. Idempotent.
+    static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
+                                     const std::function<void (const juce::String&, float)>& set);
+    // The same on the live parameters (after a bounce or a factory preset).
+    void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
     // Two slots routing the same source to the same destination (with the
@@ -471,7 +480,17 @@ public:
     int getRevealVersion() const { return revealVersion.load(); }
     // Shows an oscillator and switches it on, as adding one should sound.
     void addOscillator (int index);
+    // Adds it as that type: FM / DX7 starts as a sine operator tuned by
+    // ratio on the Operator EG (a DX7 operator's init state).
+    void addOscillator (int index, int mode);
     void removeOscillator (int index);
+    // Sets an oscillator's type (OscMode). Leaving FM / DX7 drops what only
+    // an operator has, so the new type's card shows everything that plays:
+    // TUNING goes back to semitones, and a Wavetable leaves the Operator EG
+    // for the Amp Env. Choosing FM / DX7 changes nothing else (the same
+    // sound, with the operator's controls). Message thread; wrap it in
+    // performEdit for one undo step.
+    void setOscillatorMode (int index, int mode);
     bool isOscillatorShown (int index) const;
 
     // M5: sets the FM matrix and the operators' outputs to one of the

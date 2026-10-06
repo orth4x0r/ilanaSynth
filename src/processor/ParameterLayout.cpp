@@ -176,6 +176,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
     };
 
+    // The oscillator types; FM / DX7 is appended (OscMode, OscillatorIds.h).
+    juce::StringArray oscModeChoices;
+    for (const auto* modeName : OscMode::names)
+        oscModeChoices.add (modeName);
+
     // OSC 1 and 2 retain their original parameter order and defaults.
     for (int osc = 0; osc < 2; ++osc)
     {
@@ -214,7 +219,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", oscModeChoices, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -376,7 +381,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", oscModeChoices, 0);
         addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
@@ -687,7 +692,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc);
         const auto id = [&prefix] (const char* suffix) { return prefix + "_" + suffix; };
         addBool (id ("on"), name + " On", false);
-        addChoice (id ("mode"), name + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (id ("mode"), name + " Mode", oscModeChoices, 0);
         addChoice (id ("table"), name + " Table", getOscTableChoices(), 0);
         addFloat (id ("frame"), name + " Frame", 0.0f, 1.0f, 0.0f);
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, 0.6f);

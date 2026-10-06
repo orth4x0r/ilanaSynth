@@ -30,7 +30,7 @@ inline bool vectorCornerCycle (IlanaSynthAudioProcessor& processor, int osc, std
         return 0;
     };
 
-    if (choice (prefix + "_mode") != 0)
+    if (! OscMode::playsWavetable (choice (prefix + "_mode")))
         return false;
 
     const auto* table = processor.getWavetable (choice (prefix + "_table"));

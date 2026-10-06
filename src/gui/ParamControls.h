@@ -2232,6 +2232,9 @@ public:
 
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+    // The arrow keys' step to the next or previous choice (+1 / -1), when a
+    // choice must go through more than its parameter (the oscillator type).
+    void setNudgeOverride (std::function<void (int)> override) { combo.nudgeOverride = std::move (override); }
 
     juce::String getLabelText() const { return label.getText(); }
     void setLabelText (const juce::String& text)
@@ -2310,6 +2313,25 @@ private:
     struct PopupCombo : public juce::ComboBox
     {
         std::function<void()> popupOverride;
+        std::function<void (int)> nudgeOverride;
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (nudgeOverride != nullptr)
+            {
+                if (key == juce::KeyPress::upKey || key == juce::KeyPress::leftKey)
+                {
+                    nudgeOverride (-1);
+                    return true;
+                }
+                if (key == juce::KeyPress::downKey || key == juce::KeyPress::rightKey)
+                {
+                    nudgeOverride (1);
+                    return true;
+                }
+            }
+            return juce::ComboBox::keyPressed (key);
+        }
 
         void showPopup() override
         {

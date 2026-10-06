@@ -122,7 +122,8 @@ juce::StringArray IlanaSynthAudioProcessor::getFactoryMacroNames (int factoryInd
             hasDelay = changedFrom ("fx_delay_") || changedFrom ("fx_taps_");
         }
 
-        const auto osc1Mode = (int) value ("osc1_mode");
+        // (FM / DX7 is the wavetable engine: its timbre macro is a wavetable's.)
+        const auto osc1Mode = OscMode::engineMode ((int) value ("osc1_mode"));
         const auto timbre = defaultTimbreMacro (osc1Mode, value ("fm_amount"), value ("osc2_on") > 0.5f,
                                                 (int) value ("osc1_warp"));
         const juce::String defaults[4] {
@@ -507,8 +508,9 @@ void IlanaSynthAudioProcessor::applyDefaultMacros (const std::array<bool, 4>& ke
 
     // 2: timbre, from whatever the main oscillators are: FM depth, warp,
     // wavetable frame, string damping or sample start.
-    const auto osc1Mode = (int) getParam ("osc1_mode");
-    const auto osc2Wave = on ("osc2_on") && (int) getParam ("osc2_mode") == 0;
+    // (FM / DX7 is the wavetable engine: it reads as a wavetable here.)
+    const auto osc1Mode = OscMode::engineMode ((int) getParam ("osc1_mode"));
+    const auto osc2Wave = on ("osc2_on") && OscMode::playsWavetable ((int) getParam ("osc2_mode"));
     const auto timbre = defaultTimbreMacro (osc1Mode, getParam ("fm_amount"), on ("osc2_on"), (int) getParam ("osc1_warp"));
 
     if (timbre == "FM")
@@ -961,6 +963,30 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     applyPresetTrims (presets[(size_t) index].name, getFactoryPresetCategories()[index], values);
     moveLevelToTrim (values);
+
+    // Its operators (a wavetable tuned by ratio or fixed Hz, or on the
+    // Operator EG) load as FM / DX7, which renders the same.
+    {
+        const auto find = [&values] (const juce::String& id) -> std::pair<juce::String, float>*
+        {
+            for (auto& entry : values)
+                if (entry.first == id)
+                    return &entry;
+            return nullptr;
+        };
+        migrateOperatorModes ([&find] (const juce::String& id, float fallback)
+                              {
+                                  const auto* entry = find (id);
+                                  return entry != nullptr ? entry->second : fallback;
+                              },
+                              [&find, &values] (const juce::String& id, float value)
+                              {
+                                  if (auto* entry = find (id))
+                                      entry->second = value;
+                                  else
+                                      values.push_back ({ id, value });
+                              });
+    }
 
     for (const auto& value : values)
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))

@@ -434,6 +434,98 @@ void IlanaSynthAudioProcessor::removeOscillator (int index)
     setRevealed (Module::Oscillator, index, false);
 }
 
+int IlanaSynthAudioProcessor::migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
+                                                   const std::function<void (const juce::String&, float)>& set)
+{
+    auto moved = 0;
+
+    for (const auto* prefixText : OscillatorIds::prefixes)
+    {
+        const juce::String prefix (prefixText);
+
+        if (juce::roundToInt (get (prefix + "_mode", 0.0f)) != OscMode::wavetable)
+            continue;
+
+        const auto tuned = juce::roundToInt (get (prefix + "_tune", (float) OscTuning::Semitones)) != OscTuning::Semitones;
+        const auto onOperatorEg = juce::roundToInt (get (prefix + "_amp_env", 0.0f)) == OperatorEg::envelopeChoice;
+
+        if (tuned || onOperatorEg)
+        {
+            set (prefix + "_mode", (float) OscMode::fmOperator);
+            ++moved;
+        }
+    }
+
+    return moved;
+}
+
+void IlanaSynthAudioProcessor::migrateOperatorModes()
+{
+    migrateOperatorModes ([this] (const juce::String& id, float fallback)
+                          {
+                              const auto* value = apvts.getRawParameterValue (id);
+                              return value != nullptr ? value->load() : fallback;
+                          },
+                          [this] (const juce::String& id, float value)
+                          {
+                              if (auto* parameter = apvts.getParameter (id))
+                                  parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                          });
+}
+
+void IlanaSynthAudioProcessor::setOscillatorMode (int index, int mode)
+{
+    if (index < 0 || index >= OscillatorIds::count || mode < 0 || mode >= OscMode::count)
+        return;
+
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+    const auto set = [this, &prefix] (const char* suffix, float value)
+    {
+        if (auto* parameter = apvts.getParameter (prefix + suffix))
+        {
+            const auto normalised = parameter->convertTo0to1 (value);
+            if (parameter->getValue() != normalised)
+                parameter->setValueNotifyingHost (normalised);
+        }
+    };
+
+    if (mode != OscMode::fmOperator)
+    {
+        set ("_tune", (float) OscTuning::Semitones);
+        const auto* envelope = apvts.getRawParameterValue (prefix + "_amp_env");
+        if (mode == OscMode::wavetable && envelope != nullptr && juce::roundToInt (envelope->load()) == OperatorEg::envelopeChoice)
+            set ("_amp_env", 0.0f);
+    }
+
+    set ("_mode", (float) mode);
+}
+
+void IlanaSynthAudioProcessor::addOscillator (int index, int mode)
+{
+    if (index < 0 || index >= OscillatorIds::count)
+        return;
+
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+    const auto set = [this, &prefix] (const char* suffix, float value)
+    {
+        if (auto* parameter = apvts.getParameter (prefix + suffix))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    if (mode == OscMode::fmOperator)
+    {
+        set ("_table", 8.0f); // Sine
+        set ("_frame", 0.0f);
+        set ("_tune", (float) OscTuning::Ratio);
+        set ("_amp_env", (float) OperatorEg::envelopeChoice);
+        set ("_mode", (float) OscMode::fmOperator);
+    }
+    else
+        setOscillatorMode (index, mode);
+
+    addOscillator (index);
+}
+
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     liveRetrigger = true;
@@ -790,6 +882,28 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                 state.appendChild (missingParameter, nullptr);
             }
         }
+
+    // An operator saved before the FM / DX7 type loads as one (it renders
+    // the same: the type only picks its card).
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateOperatorModes ([&find] (const juce::String& id, float fallback)
+                              {
+                                  const auto child = find (id);
+                                  return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                              },
+                              [&find] (const juce::String& id, float value)
+                              {
+                                  if (auto child = find (id); child.isValid())
+                                      child.setProperty ("value", value, nullptr);
+                              });
+    }
 
     apvts.replaceState (state);
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).

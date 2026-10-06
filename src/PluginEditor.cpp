@@ -2660,19 +2660,19 @@ void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
     {
         setValue ("osc1_on", 1.0f);
         setValue ("sub_on", 1.0f);
-        setValue ("osc2_mode", 0.0f);
-        setValue ("sub_mode", 0.0f);
+        processorRef.setOscillatorMode (1, OscMode::wavetable); // (drops an operator's ratio and OP ENV)
+        processorRef.setOscillatorMode (2, OscMode::wavetable);
 
         if (random.nextFloat() < 0.25f)
         {
-            setValue ("osc1_mode", 1.0f);
+            processorRef.setOscillatorMode (0, OscMode::physical);
             setValue ("osc1_excite", (float) random.nextInt (4));
             setValue ("osc1_string_decay", randomRange (0.6f, 0.95f));
             setValue ("osc1_string_damp", randomRange (0.1f, 0.6f));
         }
         else
         {
-            setValue ("osc1_mode", 0.0f);
+            processorRef.setOscillatorMode (0, OscMode::wavetable);
         }
 
         setValue ("osc1_table", (float) random.nextInt (tableCount));

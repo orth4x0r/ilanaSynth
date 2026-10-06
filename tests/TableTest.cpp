@@ -8527,6 +8527,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "PlanTests.inc"
 #include "TuningTests.inc"
 #include "OperatorEgTests.inc"
+#include "OscModeTests.inc"
 #include "AirwindowsTests.inc"
 #include "VocoderTests.inc"
 #include "FilterTests.inc"
@@ -8987,6 +8988,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OSCMODE_TEST", "").isNotEmpty())
+    {
+        runOscModeTests();
+        std::cout << (failures == 0 ? "OSC MODE TESTS PASSED" : "OSC MODE TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEG_TEST", "").isNotEmpty())
     {
         runOperatorEgTests();
@@ -9419,6 +9427,7 @@ int main()
     timedRun ("runPlanTests", [] { runPlanTests(); });
     timedRun ("runTuningTests", [] { runTuningTests(); });
     timedRun ("runOperatorEgTests", [] { runOperatorEgTests(); });
+    timedRun ("runOscModeTests", [] { runOscModeTests(); });
     timedRun ("runAirwindowsTests", [] { runAirwindowsTests(); });
     timedRun ("runVocoderTests", [] { runVocoderTests(); });
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });

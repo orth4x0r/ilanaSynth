@@ -43,6 +43,7 @@ public:
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
             strip->on->setSwitchColour (colour); // (the card's switch in its colour, as the sheet's)
             strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "");
+            OscRole::bindModeMenu (*strip->mode, p, osc);
             strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "");
             groupExciteMenu (*strip->excite);
             strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "");
@@ -85,7 +86,7 @@ public:
             strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
 
             // The slots by role, the same on every strip (review 12, I12-10).
-            for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains or the live input." },
+            for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains, the live input or an FM / DX7 operator." },
                                               { strip->table.get(), "SOURCE\nThe wavetable (or sample) this oscillator plays." },
                                               { strip->excite.get(), "SOURCE\nWhat excites the string: a hammer, a bow, a pluck..." },
                                               { strip->warp.get(), "WARP MODE\nHow the table is bent. Off leaves it as it is." } })
@@ -111,6 +112,17 @@ public:
             updateStrips();
         };
         oscColumn.addChildComponent (addOscButton);
+        // An FM / DX7 operator has its own way in, at the row's right end.
+        addFmButton.setTooltip ("Add this oscillator as an FM / DX7 operator: a sine tuned by ratio, on the Operator EG");
+        addFmButton.onClick = [this]
+        {
+            if (const auto next = firstEmptySlot(); next >= 0)
+                processorRef.performEdit ("Add FM / DX7 OSC " + juce::String (next + 1),
+                                          [this, next] { processorRef.addOscillator (next, OscMode::fmOperator); });
+
+            updateStrips();
+        };
+        oscColumn.addChildComponent (addFmButton);
         oscColumn.addChildComponent (patchFlow);
         oscColumn.addChildComponent (outputView);
 
@@ -632,6 +644,7 @@ public:
         oscView.setViewPosition (0, snappedY);
         auto column = oscColumn.getLocalBounds();
         addOscButton.setVisible (false);
+        addFmButton.setVisible (false);
         addRowArea = {};
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -653,8 +666,12 @@ public:
             addRowArea = column.removeFromTop (addRowHeight);
             column.removeFromTop (slotGap);
             addOscButton.setLabel ("+  ADD OSC " + juce::String (next + 1));
-            addOscButton.setBounds (addRowArea);
+            auto row = addRowArea;
+            addFmButton.setBounds (row.removeFromRight (juce::jmin (140, row.getWidth() / 2)));
+            row.removeFromRight (slotGap);
+            addOscButton.setBounds (row);
             addOscButton.setVisible (true);
+            addFmButton.setVisible (true);
         }
 
         subCard = column.removeFromTop (subFolded ? foldedHeight : subHeight);
@@ -807,6 +824,7 @@ private:
         bool shownOn = true;
         juce::String role, tableTip;
         bool opEg = false;
+        bool fm = false; // the FM / DX7 type (shownMode is then 0, its engine's)
         OperatorEnvThumb thumb;
 
         // Six columns on every card, in one order whatever the mode, so a
@@ -825,6 +843,9 @@ private:
 
             if (opEg)
                 return { pitch, operatorEnvKnobs[0], operatorEnvKnobs[1], panKnob, nullptr, nullptr };
+            // FM / DX7 on another envelope: the same order, its LEVEL for OUTPUT.
+            if (fm)
+                return { pitch, operatorEnvKnobs[0], modeKnobs[0][0], panKnob, nullptr, nullptr };
             if (mode == 4)
                 return { nullptr, modeKnobs[4][0], modeKnobs[4][1], nullptr, nullptr, nullptr };
 
@@ -922,12 +943,15 @@ private:
         {
             auto& strip = *strips[(size_t) index];
             const auto prefix = OscRole::prefix (index);
-            const auto mode = juce::jlimit (0, 4, readInt (prefix + "_mode"));
+            // (An FM / DX7 oscillator is the wavetable engine: its strip is
+            // a wavetable's with the operator's pitch, or the Operator EG's.)
+            const auto fm = OscRole::isOperator (processorRef, index);
+            const auto mode = OscMode::engineMode (OscRole::mode (processorRef, index));
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
             const auto tuning = OscRole::tuning (processorRef, index);
             const auto role = OscRole::roleLine (processorRef, index);
-            const auto opEg = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
+            const auto opEg = fm && OscRole::usesOperatorEg (processorRef, index);
 
             // A modulator's OUTPUT is a depth (I12-3).
             if (auto* outKnob = dynamic_cast<KnobControl*> (strip.operatorEnvKnobs[1]))
@@ -941,8 +965,9 @@ private:
             }
 
             if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn || tuning != strip.shownTuning
-                || opEg != strip.opEg)
+                || opEg != strip.opEg || fm != strip.fm)
             {
+                strip.fm = fm;
                 strip.shownMode = mode;
                 strip.shownOn = on;
                 strip.shownTuning = tuning;
@@ -1026,7 +1051,8 @@ private:
             }
 
         strip.table->setVisible (shown && mode == 0);
-        strip.warp->setVisible (shown && mode == 0 && ! strip.opEg && roomy (oscCards[(size_t) index]));
+        // (WARP is a Wavetable's: an FM / DX7 strip keeps to the operator's controls.)
+        strip.warp->setVisible (shown && mode == 0 && ! strip.fm && roomy (oscCards[(size_t) index]));
         strip.excite->setVisible (shown && mode == 1);
         // An operator names itself where the MODE menu goes (its mode is
         // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
@@ -1188,7 +1214,7 @@ private:
         {
             auto off = false;
             for (int osc = 0; osc < OscillatorIds::count && ! off; ++osc)
-                off = processorRef.isOscillatorShown (osc) && readInt (OscRole::prefix (osc) + "_mode") == 0 && OscRole::usesOperatorEg (processorRef, osc);
+                off = processorRef.isOscillatorShown (osc) && OscRole::isOperator (processorRef, osc) && OscRole::usesOperatorEg (processorRef, osc);
             off = off && FilterDisplay::isPassThrough (processorRef, 0, true) && FilterDisplay::isPassThrough (processorRef, 1, true);
             if (off != operatorFilterOff)
             {
@@ -1723,6 +1749,7 @@ private:
     juce::Viewport oscView;
     Column oscColumn;
     DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
+    DashedAddButton addFmButton { "+  FM / DX7", "+  FM / DX7" };
     std::array<bool, OscillatorIds::count> shownStrips {};
     int lastRevealVersion = -1, hoverEditLink = -1;
     // The column: the strips and SUB + NOISE, all one height, and the

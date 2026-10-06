@@ -142,7 +142,7 @@ public:
         addAndMakeVisible (moreButton);
 
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_tune", "_amp_env", "_on" })
+            for (const auto* suffix : { "_tune", "_amp_env", "_on", "_mode" })
                 tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + suffix));
 
         // The operator picker (the one oscillator picker, I8-10) and, past
@@ -156,6 +156,18 @@ public:
                                  "oscillator on the Operator Env follows them. Edited in MOD's pools, with TRANSPOSE and SCALE SHIFT.");
         pitchLfoLink.onClick = [] { FmOperatorInfo::openPitchAndLfo(); };
         addChildComponent (pitchLfoLink);
+        // An oscillator of another type: one click makes it an FM / DX7
+        // operator (the same sound, the operator's controls).
+        styleFmLink (makeOperator, "MAKE FM / DX7");
+        makeOperator.setTooltip ("Make this oscillator an FM / DX7 operator: it sounds the same, and gets ratio and fixed tuning and the Operator EG");
+        makeOperator.onClick = [this]
+        {
+            OscRole::chooseMode (processorRef, selectedOperator, OscMode::fmOperator);
+            updateOperatorVisibility();
+            resized();
+            repaint();
+        };
+        addChildComponent (makeOperator);
         addChildComponent (envelope);
 
         refreshShown();
@@ -202,14 +214,20 @@ public:
         IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1),
                                      (usesOperatorEnv (selectedOperator) ? juce::String (juce::String::fromUTF8 ("operator \xc2\xb7 ")) : juce::String()) + operatorText(), colour, reserve);
 
-        // An operator on another envelope: where that envelope is edited.
+        // An operator on another envelope: where that envelope is edited; an
+        // oscillator of another type: what it takes part in, and the way to
+        // the operator's own controls (FM / DX7).
         if (! usesOperatorEnv (selectedOperator))
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             const auto envelopeName = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
-            IlanaTheme::drawFitted (g, "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here.",
-                                    ampHint, juce::Justification::centredLeft, 3);
+            IlanaTheme::drawFitted (g, isFmType (selectedOperator)
+                                           ? "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here."
+                                           : "A " + OscRole::modeName (OscRole::mode (processorRef, selectedOperator))
+                                                 + " in the FM routes, tuned in semitones. Ratio, Fixed Hz and OP ENV are FM / DX7's.",
+                                    ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
+                                    juce::Justification::centredLeft, 3);
         }
 
         paintMatrix (g);
@@ -436,6 +454,7 @@ private:
     }
 
     bool usesOperatorEnv (int op) const { return FmOperatorInfo::usesOperatorEnv (processorRef, op); }
+    bool isFmType (int op) const { return OscRole::isOperator (processorRef, op); }
 
     bool anyOperatorEnv() const
     {
@@ -499,10 +518,15 @@ private:
         pitchLfoLink.setVisible (anyOperatorEnv());
 
         const auto opEnv = usesOperatorEnv (selectedOperator);
+        makeOperator.setVisible (! isFmType (selectedOperator) && ! opEnv);
         for (int op = 0; op < OscillatorIds::count; ++op)
         {
             auto& controls = *operators[(size_t) op];
             const auto selected = op == selectedOperator;
+            // Ratio, Fixed Hz and OP ENV are the FM / DX7 type's (a
+            // Wavetable's ENVELOPE has no OP ENV).
+            OscRole::showOperatorChoices (&controls.tune.getComboBox(), &controls.ampEnv.getComboBox(), isFmType (op),
+                                          OscRole::mode (processorRef, op) != OscMode::wavetable);
             const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_tune"));
 
             for (auto* control : controls.all())
@@ -619,6 +643,12 @@ private:
         {
             controls.feedbackType.setBounds (foot.removeFromLeft (92).withSizeKeepingCentre (92, 30));
             ampHint = foot.withTrimmedLeft (8);
+        }
+        // Another type's way to the operator's controls, at the hint's end.
+        if (makeOperator.isVisible())
+        {
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), makeOperator.getButtonText()) + 26;
+            makeOperator.setBounds (ampHint.withLeft (ampHint.getRight() - width).withSizeKeepingCentre (width, 22));
         }
     }
 
@@ -1099,7 +1129,7 @@ private:
     FmAlgorithmStrip algorithms;
     OperatorEnvEditor envelope;
     OscPicker picker;
-    juce::TextButton pitchLfoLink;
+    juce::TextButton pitchLfoLink, makeOperator;
     CardTabs pageTabs;
     ComboControl mode;
     ToggleControl hardSync;
@@ -1120,7 +1150,7 @@ private:
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
     juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, pairRow, pairText, ampHint, readoutArea;
     std::vector<std::atomic<float>*> tuneValues;
-    std::array<int, OscillatorIds::count * 3> lastTune {};
+    std::array<int, OscillatorIds::count * 4> lastTune {};
     std::vector<int> shown;
     int selectedOperator = 0, tabsLeft = 0, lastDiagramMinimum = 0;
     bool lastAnyOperatorEnv = false;

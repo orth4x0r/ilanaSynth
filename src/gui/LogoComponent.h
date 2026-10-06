@@ -43,31 +43,28 @@ public:
 
             const auto centreY = badge.getCentreY();
 
-            for (int line = 0; line < 3; ++line)
+            // The mockup's mark: one sine, white, with round ends.
+            const auto amplitude = badge.getHeight() * 0.2f;
+            const auto inner = badge.reduced (7.0f, 0.0f);
+            juce::Path wave;
+
+            for (int x = 0; x <= (int) inner.getWidth(); ++x)
             {
-                const auto amplitude = badge.getHeight() * (0.09f + 0.045f * (float) line);
-                const auto phase = phaseOffset + (float) line * 0.9f;
+                const auto t = (float) x / juce::jmax (1.0f, inner.getWidth());
+                const auto y = centreY + std::sin ((t * 1.0f + phaseOffset) * juce::MathConstants<float>::twoPi) * amplitude;
 
-                juce::Path wave;
-
-                for (int x = 0; x <= (int) badge.getWidth(); ++x)
-                {
-                    const auto t = (float) x / juce::jmax (1.0f, badge.getWidth());
-                    const auto y = centreY + std::sin ((t * 1.5f + phase) * juce::MathConstants<float>::twoPi) * amplitude;
-
-                    if (x == 0)
-                        wave.startNewSubPath (badge.getX() + (float) x, y);
-                    else
-                        wave.lineTo (badge.getX() + (float) x, y);
-                }
-
-                g.setColour (juce::Colours::white.withAlpha (0.35f + 0.25f * (float) line));
-                g.strokePath (wave, juce::PathStrokeType (1.5f));
+                if (x == 0)
+                    wave.startNewSubPath (inner.getX() + (float) x, y);
+                else
+                    wave.lineTo (inner.getX() + (float) x, y);
             }
+
+            g.setColour (juce::Colours::white);
+            g.strokePath (wave, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
         auto textArea = bounds.withTrimmedLeft (badge.getWidth() + 10.0f);
-        const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title, true));
+        const auto nameFont = juce::Font (IlanaTheme::font (19.5f, true));
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (nameFont);
         g.drawText ("ilanaSynth", textArea.removeFromTop (textArea.getHeight() * 0.56f).withTrimmedTop (1.0f), juce::Justification::bottomLeft);

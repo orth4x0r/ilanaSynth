@@ -456,7 +456,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // BPM and CPU are plain read-outs; VOICES opens the voice settings. All
     // three live in the tab bar now (tiny bold caps, label grey, value light).
     {
-        const auto readoutFont = [] { return IlanaTheme::font (IlanaTheme::TextSize::tiny, true, true).withKerningFactor (0.06f); };
+        const auto readoutFont = [] { return IlanaTheme::font (13.2f, true, true).withKerningFactor (0.04f); };
         const auto paintReadout = [readoutFont] (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& label, const juce::String& value,
                                                  juce::Colour valueColour, juce::Colour labelColour)
         {
@@ -474,7 +474,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         bpmArea.setInterceptsMouseClicks (false, false);
         bpmArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
         {
-            paintReadout (g, area, "BPM", juce::String (processorRef.getCurrentBpm(), 1), IlanaTheme::Ui::text2, IlanaTheme::Ui::text3);
+            paintReadout (g, area, "BPM", juce::String (processorRef.getCurrentBpm(), 1), IlanaTheme::Ui::text, IlanaTheme::Ui::text3);
         };
         content.addAndMakeVisible (bpmArea);
 
@@ -482,8 +482,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         cpuArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
         {
             const auto cpu = processorRef.getCpuUsage() * 100.0f;
-            const auto colour = cpu < 30.0f ? IlanaTheme::Ui::text2
-                                            : (cpu < 60.0f ? IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
+            const auto colour = cpu < 30.0f ? IlanaTheme::Ui::text
+                                            : (cpu < 60.0f ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
                                                            : IlanaTheme::accent().interpolatedWith (juce::Colours::red, juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
             paintReadout (g, area, "CPU", juce::String (juce::roundToInt (cpu)) + "%", colour, IlanaTheme::Ui::text3);
         };
@@ -507,9 +507,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             g.setFont (readoutFont());
             g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
             g.drawText (label, at.removeFromLeft (labelWidth), juce::Justification::centredLeft);
-            g.setColour (activeVoices > 0 ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
+            g.setColour (IlanaTheme::Ui::text);
             g.drawText (active, at.removeFromLeft (activeWidth), juce::Justification::centredLeft);
-            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setColour (IlanaTheme::Ui::text);
             g.drawText (maxText, at, juce::Justification::centredLeft);
 
             if (hover)
@@ -1669,7 +1669,7 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
 
     const auto textWidth = [] (const juce::String& text)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true, true).withKerningFactor (0.06f)), text) + 2;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.2f, true, true).withKerningFactor (0.04f)), text) + 2;
     };
     constexpr int readoutGap = 12;
     place (cpuArea, textWidth ("CPU 100%"), readoutGap);

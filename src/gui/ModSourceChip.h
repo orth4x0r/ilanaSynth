@@ -51,7 +51,7 @@ public:
     // The width the chip needs for its name (the bar shares out the rest).
     static float widthFor (const juce::String& text)
     {
-        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 24.0f;
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 35.0f;
     }
 
     // (plus room for an LFO's "OUT 2" sub-chip when it has one).
@@ -63,7 +63,7 @@ public:
     // the bar folds alike at 75 % and 100 % (V7-39).
     static float layoutWidthFor (const juce::String& text)
     {
-        return layoutTextWidth (text) + 24.0f;
+        return layoutTextWidth (text) + 35.0f;
     }
     float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
 
@@ -90,13 +90,13 @@ public:
         if (hasSecondOutput == nullptr || ! hasSecondOutput())
             return {};
 
-        const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
         return { bounds.getRight() - secondOutputRoom, bounds.getY() + 3.0f, secondOutputRoom - 3.0f, bounds.getHeight() - 6.0f };
     }
 
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
         const auto colour = modSourceColour (index);
         const auto radius = bounds.getHeight() * 0.5f; // a full pill, as in the mockup
         const auto glow = juce::jlimit (0.0f, 1.0f, activity);
@@ -122,8 +122,8 @@ public:
         const auto second = getSecondOutputBounds();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 15.0f))
-                                    .withTrimmedRight (second.isEmpty() ? 3 : (int) secondOutputRoom + 3),
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 20.5f))
+                                    .withTrimmedRight (second.isEmpty() ? 9 : (int) secondOutputRoom + 6),
                           juce::Justification::centred, 1);
 
         if (! second.isEmpty())

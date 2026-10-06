@@ -44,7 +44,7 @@ inline juce::Path make (Icon icon, juce::Rectangle<float> r)
                               tip.x - s * 0.02f, tip.y + s * 0.15f);
 
             juce::Path stroked;
-            juce::PathStrokeType (s * 0.09f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+            juce::PathStrokeType (s * 0.07f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
                 .createStrokedPath (stroked, p);
             stroked.addPath (head);
 
@@ -63,52 +63,44 @@ inline juce::Path make (Icon icon, juce::Rectangle<float> r)
             outline.lineTo (cx, cy);
             outline.lineTo (cx + radius * 0.48f, cy + radius * 0.3f);
 
-            juce::PathStrokeType (s * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+            juce::PathStrokeType (s * 0.07f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
                 .createStrokedPath (p, outline);
             return p;
         }
 
         case Icon::Gear:
         {
-            const auto outer = s * 0.4f;
-            const auto inner = s * 0.29f;
-            constexpr int teeth = 8;
+            // The mockup's settings mark: a small ring with eight rays, thin lines.
+            juce::Path outline;
+            outline.addEllipse (juce::Rectangle<float> (s * 0.28f, s * 0.28f).withCentre ({ cx, cy }));
 
-            for (int i = 0; i < teeth * 2; ++i)
+            for (int i = 0; i < 8; ++i)
             {
-                const auto a0 = (float) i / (float) (teeth * 2) * juce::MathConstants<float>::twoPi;
-                const auto a1 = (float) (i + 1) / (float) (teeth * 2) * juce::MathConstants<float>::twoPi;
-                const auto radius = i % 2 == 0 ? outer : inner;
-                const juce::Point<float> pa (cx + std::cos (a0) * radius, cy + std::sin (a0) * radius);
-                const juce::Point<float> pb (cx + std::cos (a1) * radius, cy + std::sin (a1) * radius);
-
-                if (i == 0)
-                    p.startNewSubPath (pa);
-                else
-                    p.lineTo (pa);
-
-                p.lineTo (pb);
+                const auto a = (float) i / 8.0f * juce::MathConstants<float>::twoPi;
+                outline.startNewSubPath (cx + std::cos (a) * s * 0.26f, cy + std::sin (a) * s * 0.26f);
+                outline.lineTo (cx + std::cos (a) * s * 0.38f, cy + std::sin (a) * s * 0.38f);
             }
 
-            p.closeSubPath();
-            p.addEllipse (juce::Rectangle<float> (s * 0.26f, s * 0.26f).withCentre ({ cx, cy }));
-            p.setUsingNonZeroWinding (false);
+            juce::PathStrokeType (s * 0.065f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+                .createStrokedPath (p, outline);
             return p;
         }
 
         case Icon::Dice:
         {
-            const auto box = juce::Rectangle<float> (s * 0.66f, s * 0.66f).withCentre ({ cx, cy });
-            p.addRoundedRectangle (box, s * 0.12f);
+            // A rounded square in outline with three pips, as drawn.
+            const auto box = juce::Rectangle<float> (s * 0.62f, s * 0.62f).withCentre ({ cx, cy });
+            juce::Path outline;
+            outline.addRoundedRectangle (box, s * 0.14f);
+            juce::PathStrokeType (s * 0.065f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+                .createStrokedPath (p, outline);
 
-            const auto pip = s * 0.12f;
+            const auto pip = s * 0.09f;
 
-            for (const auto& offset : { juce::Point<float> (-0.18f, -0.18f), juce::Point<float> (0.18f, 0.18f),
-                                        juce::Point<float> (0.0f, 0.0f), juce::Point<float> (0.18f, -0.18f),
-                                        juce::Point<float> (-0.18f, 0.18f) })
+            for (const auto& offset : { juce::Point<float> (-0.14f, -0.14f), juce::Point<float> (0.0f, 0.0f),
+                                        juce::Point<float> (0.14f, 0.14f) })
                 p.addEllipse (juce::Rectangle<float> (pip, pip).withCentre ({ cx + offset.x * s, cy + offset.y * s }));
 
-            p.setUsingNonZeroWinding (false);
             return p;
         }
 
@@ -120,7 +112,7 @@ inline juce::Path make (Icon icon, juce::Rectangle<float> r)
             line.startNewSubPath (cx + dir * s * 0.1f, cy - s * 0.22f);
             line.lineTo (cx - dir * s * 0.1f, cy);
             line.lineTo (cx + dir * s * 0.1f, cy + s * 0.22f);
-            juce::PathStrokeType (s * 0.1f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded)
+            juce::PathStrokeType (s * 0.075f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded)
                 .createStrokedPath (p, line);
             return p;
         }
@@ -147,7 +139,7 @@ inline juce::Path make (Icon icon, juce::Rectangle<float> r)
             line.lineTo (cx - s * 0.3f, cy + s * 0.3f);
             line.lineTo (cx + s * 0.3f, cy + s * 0.3f);
             line.lineTo (cx + s * 0.3f, cy + s * 0.08f);
-            juce::PathStrokeType (s * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+            juce::PathStrokeType (s * 0.07f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
                 .createStrokedPath (p, line);
             return p;
         }
@@ -274,7 +266,7 @@ public:
 
         g.setColour (on ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::line.brighter (isHighlighted ? 0.3f : 0.0f));
         g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
-        g.setColour (on || isHighlighted ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f));
         g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
     }
@@ -404,7 +396,7 @@ public:
 private:
     // The preset name is the header's centrepiece: a size up from the type
     // scale's "large".
-    static constexpr float nameSize = 17.0f;
+    static constexpr float nameSize = 20.0f;
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;

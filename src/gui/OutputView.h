@@ -124,8 +124,11 @@ public:
 private:
     void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool thin = false)
     {
-        g.setColour (juce::Colours::white.withAlpha (thin ? 0.14f : 0.06f));
-        g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
+        if (! thin)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
+        }
 
         // Start on a rising zero crossing so the trace holds still.
         auto start = 0;
@@ -150,8 +153,18 @@ private:
         for (int x = 0; x < width; ++x)
         {
             const auto index = start + x * span / width;
-            const auto sample = (scopeL[(size_t) index] + scopeR[(size_t) index]) * 0.5f * gain;
-            const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, sample) * area.getHeight() * 0.46f;
+            auto sample = (scopeL[(size_t) index] + scopeR[(size_t) index]) * 0.5f * gain;
+
+            if (thin) // the header's trace is a calm line: smoothed over a few pixels' samples
+            {
+                auto sum = 0.0f;
+                const auto taps = juce::jmax (1, 3 * span / width);
+                for (int k = 0; k < taps; ++k)
+                    sum += scopeL[(size_t) (index + k)] + scopeR[(size_t) (index + k)];
+                sample = sum / (2.0f * (float) taps) * gain;
+            }
+
+            const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, sample) * area.getHeight() * (thin ? 0.34f : 0.46f);
 
             if (x == 0)
                 path.startNewSubPath (area.getX(), y);
@@ -159,10 +172,13 @@ private:
                 path.lineTo (area.getX() + (float) x, y);
         }
 
-        g.setColour (colour.withMultipliedAlpha (0.2f));
-        g.strokePath (path, juce::PathStrokeType (thin ? 3.0f : 4.0f));
+        if (! thin)
+        {
+            g.setColour (colour.withMultipliedAlpha (0.2f));
+            g.strokePath (path, juce::PathStrokeType (4.0f));
+        }
         g.setColour (colour.withMultipliedAlpha (0.95f));
-        g.strokePath (path, juce::PathStrokeType (thin ? 1.1f : 1.5f));
+        g.strokePath (path, juce::PathStrokeType (thin ? 1.0f : 1.5f));
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour)

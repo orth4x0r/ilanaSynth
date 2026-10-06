@@ -1578,7 +1578,12 @@ int runUiTests()
             auto* level1 = mainKnob ("osc1_level");
             auto* level3 = mainKnob (osc3 + "_level");
             expect (level1 != nullptr && level3 != nullptr && level1->getHeight() == level3->getHeight(),
-                    "PLAY's oscillator strips share one size");
+                    "PLAY's oscillator strips share one size"
+                        + (level1 != nullptr && level3 != nullptr ? " (" + juce::String (level1->getHeight()) + ", " + juce::String (level3->getHeight()) + "; "
+                                                                 + level1->getBoundsInParent().toString() + " / " + level3->getBoundsInParent().toString() + "; "
+                                                                 + juce::String (level1->labelBlockHeight()) + " " + juce::String (level3->labelBlockHeight()) + " "
+                                                                 + juce::String (level1->getNameLabel().getFont().getHeight()) + " " + juce::String (level3->getNameLabel().getFont().getHeight()) + ")" : juce::String()));
+            if (only == "STRIPS") return uiFailures == 0 ? 0 : 1; // (a quick loop for this check)
         }
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)
@@ -6530,10 +6535,6 @@ int runUiTests()
                             break;
                         }
                 }
-                if (knob->getNumRoutings() > 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_DEBUG_RINGS", {}).isNotEmpty())
-                    std::cout << "RINGS " << knob->getParameterId() << " shown " << knob->getNumRings() << " dial " << knob->getDialRadius()
-                              << " room " << knob->getRingRoom() << " knob " << knob->getBounds().toString() << " centre "
-                              << knob->getDialCentre().toString() << std::endl;
                 if (! why.isEmpty())
                     names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + "; knob " + knob->getLocalBounds().toString()
                                + ", name " + name.toString() + ", rings " + rings.toString() + ")");
@@ -7470,6 +7471,7 @@ static juce::Image renderMenuSheet (juce::LookAndFeel& lf, std::vector<std::pair
     {
         juce::Graphics::ScopedSaveState state (g);
         g.setOrigin (x, 20);
+        g.reduceClipRegion (0, 0, sizes[m].x, sizes[m].y); // (a menu background may fill its whole clip)
         lf.drawPopupMenuBackground (g, sizes[m].x, sizes[m].y);
         auto y = border;
         for (size_t i = 0; i < rows[m].size(); ++i)

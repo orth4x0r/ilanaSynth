@@ -187,6 +187,18 @@ inline juce::FontOptions font (float height, bool bold = false, bool tabular = f
     return tabular ? options.withFeatureEnabled ("tnum") : options;
 }
 
+// The tallest a text of `height` units draws at any of the editor's zooms
+// (75 % to 200 %): font() snaps to whole device pixels and to the screen
+// floor, so at 75 % a 14.3 unit name is 14.67 units tall. A line laid out
+// for it holds it at every zoom (the layout doesn't change with the zoom).
+inline float tallestAtAnyZoom (float height)
+{
+    auto tallest = height;
+    for (const auto zoom : { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f })
+        tallest = juce::jmax (tallest, juce::jmax (1.0f, std::round (juce::jmax (height * zoom, TextSize::screenFloorPx))) / zoom);
+    return tallest;
+}
+
 // An inline knob's value text (the OSC cards, the voice strip): left-aligned
 // under the name, in the label size, so a cell of a dial and a few words holds
 // it. `on` false restores the usual centred value.

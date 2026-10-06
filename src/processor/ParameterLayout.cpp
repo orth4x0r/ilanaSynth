@@ -315,7 +315,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Global
     addFloat ("amp_velocity", "Amp Velocity", 0.0f, 1.0f, 0.3f);
     addFloat ("filter_velocity", "Filter Velocity", 0.0f, 1.0f, 0.5f);
-    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.35f);
+    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.13f); // (skew 0.13: 10 ms sits at half the travel; most glides are 0-10 ms, the longer ones effects)
     addFloat ("bend_range", "Bend Range", 0.0f, 24.0f, 2.0f, 1.0f, 1.0f);
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
 

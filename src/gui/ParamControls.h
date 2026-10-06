@@ -857,7 +857,6 @@ public:
     float getDialRadius() const { return dialRadius(); }
     float getRingRadius (int ring) const { return ringRadius (ring); }
     juce::Point<float> getDialCentre() const { return dialCentre(); }
-    float getRingRoom() const { return ringRoom(); }
     // Where the name's line of letters draws (local; empty without a name),
     // and the box the drawn rings cover with their strokes: the cut-text
     // test keeps both inside the knob and its views, and apart.
@@ -980,7 +979,11 @@ public:
         slider.getProperties().set ("inlineKnob", inlineLayout);
         slider.setTextBoxStyle (inlineLayout ? juce::Slider::TextBoxRight : juce::Slider::TextBoxBelow, false, 60, 14);
         label.setJustificationType (inlineLayout ? juce::Justification::centredLeft : juce::Justification::centred);
-        label.setFont (IlanaTheme::font (inlineLayout ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body));
+        // (Back from inline, the name is the sheet's .kl again, as the
+        // constructor sets it: it used to come back in the body size,
+        // unbolded, so one strip's names were bigger than the next's.)
+        label.setFont (inlineLayout ? IlanaTheme::font (IlanaTheme::TextSize::label)
+                                    : IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.08f));
         IlanaTheme::styleInlineValueBox (slider, inlineLayout);
         resized();
     }
@@ -1021,7 +1024,17 @@ public:
     // rings, so the rings clear the name (V10-18); 0 without a name.
     // (A knob that draws rings keeps 5 px under its name: room for three
     // rings over the dial without reaching the name, design sweep.)
-    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : 13 + (ringConfig.destination != 0 ? 5 : 0); }
+    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : nameLineHeight() + (ringConfig.destination != 0 ? 5 : 0); }
+    // The name's line: 13, or the font's whole height when that is more (at
+    // 75 % the screen floor makes the name taller than 13 units, and its
+    // letters ran out of the top of the knob: ilana's PLAY strip).
+    // (From the name's size step, not its font, whose height was snapped at
+    // whatever zoom the knob was made in: every knob of a size gets one line.)
+    int nameLineHeight() const
+    {
+        const auto size = label.getFont().getHeight() >= 13.8f ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::label;
+        return juce::jmax (13, (int) std::ceil (IlanaTheme::tallestAtAnyZoom (size) - 0.01f));
+    }
     // The dial's drawn size right now (the UI test checks roles with it).
     int getDialSize() const { return knobBounds.getWidth() > 0 ? juce::jmin (knobBounds.getWidth(), (int) rotaryArea().getHeight()) : 0; }
 
@@ -1276,6 +1289,9 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+        // (Only an inline knob caps its dial: set below; a knob switched
+        // back to stacked must not keep a small dial.)
+        slider.getProperties().remove ("dialRadiusCap");
 
         if (compact && inlineText)
         {
@@ -1347,9 +1363,9 @@ public:
         const auto groupHeight = juce::jmin (area.getHeight(), (hasLabel ? labelHeight : 0) + dial + valueHeight);
         auto group = hasLabel ? area.removeFromTop (groupHeight) : area.withSizeKeepingCentre (area.getWidth(), groupHeight);
 
-        label.setBounds (hasLabel ? group.removeFromTop (13) : juce::Rectangle<int>());
+        label.setBounds (hasLabel ? group.removeFromTop (nameLineHeight()) : juce::Rectangle<int>());
         if (hasLabel)
-            group.removeFromTop (labelHeight - 13);
+            group.removeFromTop (labelHeight - nameLineHeight());
         knobBounds = group;
         slider.setBounds (group);
         layoutDots();

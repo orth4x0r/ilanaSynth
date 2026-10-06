@@ -1577,7 +1577,12 @@ int runUiTests()
             auto* level1 = mainKnob ("osc1_level");
             auto* level3 = mainKnob (osc3 + "_level");
             expect (level1 != nullptr && level3 != nullptr && level1->getHeight() == level3->getHeight(),
-                    "PLAY's oscillator strips share one size");
+                    "PLAY's oscillator strips share one size"
+                        + (level1 != nullptr && level3 != nullptr ? " (" + juce::String (level1->getHeight()) + ", " + juce::String (level3->getHeight()) + "; "
+                                                                 + level1->getBoundsInParent().toString() + " / " + level3->getBoundsInParent().toString() + "; "
+                                                                 + juce::String (level1->labelBlockHeight()) + " " + juce::String (level3->labelBlockHeight()) + " "
+                                                                 + juce::String (level1->getNameLabel().getFont().getHeight()) + " " + juce::String (level3->getNameLabel().getFont().getHeight()) + ")" : juce::String()));
+            if (only == "STRIPS") return uiFailures == 0 ? 0 : 1; // (a quick loop for this check)
         }
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)

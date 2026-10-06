@@ -114,8 +114,12 @@ public:
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 
         const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 10.0f, bounds.getCentreY() });
-        g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
-        g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        // (A plain dot at rest, as the design draws it; a halo while it moves something.)
+        if (glow > 0.02f)
+        {
+            g.setColour (colour.withAlpha (0.35f * glow));
+            g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        }
         g.setColour (colour);
         g.fillEllipse (dot);
 
@@ -304,15 +308,19 @@ public:
     float getLayoutWidth() const { return layoutWidthFor ({}, (int) sources.size()); }
     static float layoutWidthFor (const juce::String&, int count)
     {
-        return ModSourceChip::layoutTextWidth ("+" + juce::String (count)) + 28.0f;
+        return ModSourceChip::layoutTextWidth ("+" + juce::String (count)) + extraWidth;
     }
+
+    // Room beside the "+N": its members' dots at the left, where a chip's dot
+    // sits, and the caret at the right, with a chip's padding round them.
+    static constexpr float extraWidth = 46.0f;
 
     // The width a group chip of n sources needs.
     static float widthFor (const juce::String&, int count)
     {
         return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true),
                                                                  "+" + juce::String (count))
-               + 28.0f;
+               + extraWidth;
     }
 
     void setOpen (bool shouldBeOpen)
@@ -326,10 +334,13 @@ public:
 
     bool isOpen() const { return open; }
 
+    // A pill like the source chips (design: the dock's chips), its members'
+    // colours as a small stack of dots where a chip's dot sits, then "+N"
+    // and a caret.
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto radius = bounds.getHeight() * 0.5f;
         const auto lit = juce::jmax (hover, open ? 1.0f : 0.0f);
 
         g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.05f * lit));
@@ -337,25 +348,27 @@ public:
         g.setColour (IlanaTheme::Ui::line.interpolatedWith (IlanaTheme::Ui::text2, 0.6f * lit));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 
-        // The members' colours, as a row of small dots under the name.
-        const auto count = juce::jmin ((int) sources.size(), 8);
-        const auto pitch = 5.0f;
-        auto x = bounds.getCentreX() - pitch * (float) (count - 1) * 0.5f - 5.0f;
-        for (int i = 0; i < count; ++i, x += pitch)
+        const auto count = juce::jmin ((int) sources.size(), 3);
+        const auto pitch = 4.5f;
+        for (int i = count - 1; i >= 0; --i)
         {
+            const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 10.0f + pitch * (float) i, bounds.getCentreY() });
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillEllipse (dot.expanded (1.0f));
             g.setColour (modSourceColour (sources[(size_t) i]));
-            g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ x, bounds.getBottom() - 3.0f }));
+            g.fillEllipse (dot);
         }
 
-        auto text = getLocalBounds().reduced (6, 0).withTrimmedBottom (6);
+        auto text = getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 10.0f + pitch * (float) juce::jmax (0, count - 1) + 8.0f))
+                        .withTrimmedRight (6);
+        const auto caret = text.removeFromRight (10).toFloat();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        const auto caret = text.removeFromRight (10).toFloat();
         IlanaTheme::drawFitted (g, getLabel(), text, juce::Justification::centred, 1);
 
         juce::Path down;
         const auto c = caret.getCentre();
-        down.addTriangle (c.x - 3.5f, c.y - 1.5f, c.x + 3.5f, c.y - 1.5f, c.x, c.y + 2.5f);
+        down.addTriangle (c.x - 3.0f, c.y - 1.5f, c.x + 3.0f, c.y - 1.5f, c.x, c.y + 2.0f);
         g.fillPath (down);
     }
 

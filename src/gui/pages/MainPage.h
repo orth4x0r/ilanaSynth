@@ -1435,27 +1435,21 @@ private:
 
         if (roomy (card))
         {
-            // The design's menus: 112 / 96 / 68 of a 276 px row, 6 px apart.
-            const auto count = mode == 0 && ! strip.opEg ? 3 : mode <= 1 ? 2 : 1;
-            const auto room = menus.getWidth() - 6 * (count - 1);
-            const auto cell = room / count;
-            if (mode == 0 && count == 3)
+            // The design's menus: 112 / 96 / 68 of a 276 px row, 6 px apart,
+            // the same three slots in every mode (the engine, its source, the
+            // wavetable's warp), so the menus line up from card to card.
+            const auto room = menus.getWidth() - 12;
+            strip.mode->setBounds (menus.removeFromLeft (room * 112 / 276));
+            menus.removeFromLeft (6);
+            const auto source = menus.removeFromLeft (room * 96 / 276);
+            menus.removeFromLeft (6);
+            if (mode == 0)
             {
-                strip.mode->setBounds (menus.removeFromLeft (room * 112 / 276));
-                menus.removeFromLeft (6);
-                strip.table->setBounds (menus.removeFromLeft (room * 96 / 276));
-                menus.removeFromLeft (6);
+                strip.table->setBounds (source);
                 strip.warp->setBounds (menus);
             }
-            else
-            {
-                strip.mode->setBounds (menus.removeFromLeft (cell));
-                menus.removeFromLeft (6);
-                if (mode == 0)
-                    strip.table->setBounds (menus);
-                else if (mode == 1)
-                    strip.excite->setBounds (menus);
-            }
+            else if (mode == 1)
+                strip.excite->setBounds (source);
         }
         else
         {
@@ -1726,7 +1720,7 @@ private:
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, envGraphHeight = 56, lfoThumbHeight = 74, envKnobDial = 34, stripPictureWidth = 190, stripMenuHeight = 26;
-    static constexpr int minSlotHeight = 68, roomyHeight = 112, headerHeight = 20, editLinkWidth = 56;
+    static constexpr int minSlotHeight = 68, roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
     static constexpr int compactTitleWidth = 64, lowPictureWidth = 100;
     juce::Rectangle<int> addRowArea;

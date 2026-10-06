@@ -118,14 +118,69 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         editor.showPage ("MAIN");
         settle (400);
         auto* trim = knobFor ("osc1_eg_out"); // (an operator's one level on PLAY)
-        expect (trim != nullptr && trim->getHeight() <= neuroHeight && trim->getHeight() >= 48,
+        // (Since ilana's PC test a low card's knobs stand inline, as on OSC:
+        // a 26 px dial with its name and value beside it.)
+        expect (trim != nullptr && trim->getHeight() <= neuroHeight
+                    && (trim->getHeight() >= 48 || (trim->isInlineKnob() && trim->getDialSize() >= 24)),
                 "PLAY: six operator strips share the column, no scrolling, knobs still readable (V9-2: " + juce::String (trim != nullptr ? trim->getHeight() : 0) + " / "
-                    + juce::String (neuroHeight) + " px)");
+                    + juce::String (neuroHeight) + " px, dial " + juce::String (trim != nullptr ? trim->getDialSize() : 0) + ")");
         // The scroll bar comes out of the picture: the knobs keep their
         // width, so "-30.9 dB" fits under LEVEL.
         expect (trim != nullptr && trim->getWidth() >= neuroWidth - 1,
                 "PLAY: a scrolling column keeps the knobs' width (" + juce::String (trim != nullptr ? trim->getWidth() : 0) + " / "
                     + juce::String (neuroWidth) + " px)");
+    }
+
+    // ilana's PC test: an oscillator of another mode is the same card as a
+    // wavetable's (PLAY: its knobs in the same six columns; OSC: the same
+    // three rows), with two to four oscillators, and switching the mode live
+    // leaves no control of the old mode behind.
+    {
+        loadNamed ("Init");
+        for (const auto* page : { "MAIN", "OSC" })
+            for (const auto oscillators : { 2, 4 })
+            {
+                loadNamed ("Init");
+                for (int slot = 0; slot < oscillators; ++slot)
+                    if (! processor.isOscillatorShown (slot))
+                        processor.addOscillator (slot);
+                for (int slot = 0; slot < oscillators; ++slot)
+                    setParam (juce::String (OscillatorIds::prefixes[(size_t) slot]) + "_on", 1.0f);
+                editor.showPage (page);
+                settle (400);
+                juce::StringArray problems;
+                for (const auto mode : { 1, 2, 3, 4, 0, 1 })
+                {
+                    setParam ("osc1_mode", (float) mode);
+                    settle (300);
+                    // Every shown control of OSC 1 inside the page, none on another.
+                    std::vector<KnobControl*> bound;
+                    findAll<KnobControl> (editor, bound);
+                    std::vector<juce::Component*> shown;
+                    for (auto* control : bound)
+                        if (visibleInTree (control) && ! control->getBounds().isEmpty() && control->getParameterId().startsWith ("osc1_"))
+                            shown.push_back (control);
+                    // (A knob's bounds reach 3 px past its row for the modulation
+                    // rings; the cores must not meet.)
+                    for (size_t a = 0; a < shown.size(); ++a)
+                        for (size_t b = a + 1; b < shown.size(); ++b)
+                            if (area (shown[a]).reduced (2, 6).intersects (area (shown[b]).reduced (2, 6)))
+                                problems.add ("mode " + juce::String (mode) + ": " + static_cast<KnobControl*> (shown[a])->getParameterId() + " on "
+                                              + static_cast<KnobControl*> (shown[b])->getParameterId());
+                    // PLAY: LEVEL stands in OSC 2's LEVEL column (one grid for every mode).
+                    if (juce::String (page) == "MAIN")
+                    {
+                        auto* level1 = knobFor ("osc1_level");
+                        auto* level2 = knobFor ("osc2_level");
+                        if (level1 == nullptr || level2 == nullptr || std::abs (area (level1).getCentreX() - area (level2).getCentreX()) > 2)
+                            problems.add ("mode " + juce::String (mode) + ": LEVEL at " + area (level1).toString() + " against OSC 2's " + area (level2).toString());
+                    }
+                }
+                expect (problems.isEmpty(), juce::String (page) + ", " + juce::String (oscillators)
+                                                + " oscillators: every mode's card on one grid, a live mode switch leaves nothing behind "
+                                                + problems.joinIntoString ("; "));
+            }
+        loadNamed ("Init");
     }
 
     // FILTER (V8-9): Init's two open filters, both at 20 kHz: on FILTER

@@ -1332,6 +1332,9 @@ public:
         // the top, where combo and toggle labels in the same row sit; a knob
         // without a label (a matrix cell) is centred instead.
         // (A knob that draws rings keeps 3 px more between its arcs and the value, V12-12.)
+        // (A dial stacked between its name and value is never capped: the cap belongs to the inline layouts above, and a knob that was
+        // inline a moment ago, in a card too low for its row, must not keep it, or its dial stays at half size.)
+        slider.getProperties().remove ("dialRadiusCap");
         const auto valueHeight = 16 + (ringConfig.destination != 0 ? 3 : 0);
         const auto hasLabel = label.getText().isNotEmpty();
         const auto labelHeight = labelBlockHeight();

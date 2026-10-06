@@ -8388,6 +8388,17 @@ int main (int argc, char** argv)
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
 
+        // ILANA_SNAPSHOT_KNOBS: every shown knob's id, cell and drawn dial (the dial-size guard's numbers).
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_KNOBS", "").isNotEmpty())
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getWidth() > 0)
+                    std::fprintf (stderr, "KNOB %s %s cell %dx%d maxDial %d dial %d radius %.1f\n", pageIds[i].toRawUTF8(), knob->getParameterId().toRawUTF8(),
+                                  knob->getWidth(), knob->getHeight(), knob->getMaxDial(), knob->getDialSize(), knob->getDialRadius());
+        }
+
         if (pageIds[i] == "OSC")
         {
             if (auto* mode = processor.apvts.getParameter ("osc1_mode"))

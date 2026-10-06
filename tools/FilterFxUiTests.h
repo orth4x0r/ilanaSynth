@@ -46,6 +46,27 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         return matching;
     };
 
+    // PLAY's knobs draw the dial their card gives them: none keeps the inline
+    // layouts' half-size cap after the card grew (ilana's PC test: the
+    // oscillator and SUB + NOISE dials were half the size of the filter's).
+    {
+        loadNamed ("Init");
+        editor.showPage ("MAIN");
+        settle (400);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        auto checked = 0;
+        juce::String small;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob) && knob->getWidth() > 0 && knob->getDialSize() >= 28)
+            {
+                ++checked;
+                if (knob->getDialRadius() < 0.4f * (float) knob->getDialSize())
+                    small += knob->getParameterId() + " (dial " + juce::String (knob->getDialSize()) + ", radius " + juce::String (knob->getDialRadius(), 1) + ") ";
+            }
+        expect (checked >= 10 && small.isEmpty(), "PLAY's stacked knobs are drawn at their cell's dial size: " + small);
+    }
+
     // I7-1, S7-1, I7-32, V7-35: SIGNAL FLOW keeps F1 and F2 at a usable
     // width with a soundboard, strings, WEST and BODY on, serial or
     // parallel, with a bypass, and with WEST in Filter 2's place; no two

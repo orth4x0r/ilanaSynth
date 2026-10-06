@@ -393,6 +393,85 @@ private:
     bool isActive = false;
 };
 
+// A Physical oscillator's STRING row, right of its knobs: the string's
+// partials as bars (their levels from the strike point, DAMP and STIFF, as
+// the PHYSICAL page's PARTIALS read-out), so the row reads as the wavetable
+// card's, full to its end, without a second copy of the string's controls
+// (those stay on PHYSICAL: UI review 9, I9-3). A picture only.
+class StringPartialsView : public juce::Component,
+                           public juce::SettableTooltipClient
+{
+public:
+    StringPartialsView (IlanaSynthAudioProcessor& p, int index)
+        : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
+    {
+        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is. OSC > PHYSICAL edits the string.");
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    std::function<void()> onClick;
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+    // Re-reads the settings; repaints when they changed.
+    void update()
+    {
+        const std::array<float, 3> now { read ("_string_damp"), read ("_string_stiffness"), read ("_string_excite_pos") };
+        if (now != shown)
+        {
+            shown = now;
+            repaint();
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto area = getLocalBounds().toFloat();
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto title = area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
+        g.drawText ("PARTIALS", title.toNearestInt(), juce::Justification::centredLeft, false);
+        area.removeFromLeft (8.0f);
+        const auto plot = area.reduced (0.0f, 2.0f);
+
+        const auto damp = shown[0], stiff = shown[1];
+        const auto pos = juce::jlimit (0.05f, 0.5f, shown[2] > 0.001f ? shown[2] : 0.25f);
+        constexpr int count = 16;
+        const auto slot = plot.getWidth() / (float) count;
+        for (int n = 1; n <= count; ++n)
+        {
+            const auto comb = 0.3f + 0.7f * std::abs (std::sin (juce::MathConstants<float>::pi * (float) n * pos));
+            // (Drawn on a square-root scale, so the upper partials still show in a 28 px row.)
+            const auto level = std::sqrt (juce::jlimit (0.02f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3))));
+            const auto bar = juce::Rectangle<float> (juce::jmin (4.0f, slot * 0.6f), plot.getHeight() * level)
+                                 .withCentre ({ plot.getX() + slot * ((float) n - 0.5f), plot.getBottom() - plot.getHeight() * level * 0.5f });
+            g.setColour (colour.withAlpha (0.45f + 0.5f * level));
+            g.fillRoundedRectangle (bar, 2.0f);
+        }
+    }
+
+private:
+    float read (const char* suffix) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (prefix + suffix);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    juce::String prefix;
+    juce::Colour colour = IlanaTheme::accent();
+    std::array<float, 3> shown { -1.0f, -1.0f, -1.0f };
+};
+
 // The right-hand cells of an oscillator's PITCH row: an oscillator in an FM
 // route says so in a chip in its source's colour (a link to the FM page), one
 // in none shows its output level as a bar.
@@ -749,6 +828,9 @@ public:
                     editor->showOperatorEnvelope (i);
             };
             card.spreadView.setColour (oscColour (i));
+            card.partials.setColour (oscColour (i));
+            card.partials.onClick = [this, i] { showPhysicalString (*this, i); };
+            addChildComponent (card.partials);
             card.status.setColour (oscColour (i));
             card.status.onClick = [i]
             {
@@ -891,8 +973,15 @@ public:
             effectRules.add (osc.spectralAmt, effectRules.choiceIsNot (prefix + "_spectral", 0), "SPECTRAL is Off");
             effectRules.add (osc.warpAmt, effectRules.choiceIsNot (prefix + "_warp", 0), "WARP is Off");
 
-            for (auto* knob : { &osc.uniBlend, &osc.spread, &osc.detune })
-                effectRules.add (*knob, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+            effectRules.add (osc.detune, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+            // Grains have no unison blend or spread: the knobs keep their
+            // columns, dimmed, with a dash for the value.
+            for (auto* knob : { &osc.uniBlend, &osc.spread })
+            {
+                effectRules.add (*knob, [this, i, voices = effectRules.isAbove (prefix + "_unison", 1.5f)] { return voices() && getMode (i) != 3; },
+                                 "UNISON is 1 (a Granular oscillator has no unison blend or spread)");
+                knob->setDashWhen ([this, i] { return getMode (i) == 3; });
+            }
 
             // The sample's own controls dim until there is a sample (S14-3).
             for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleStart,
@@ -1215,7 +1304,9 @@ private:
                 add (osc.semi, 1, 3);
                 add (osc.fine, 1, 4);
                 add (osc.ampEnv, 1, 5);
-                unisonRow (2, false);
+                // BLEND and SPREAD keep their columns, dimmed with a dash:
+                // grains have no unison blend or spread (controls dim in place).
+                unisonRow (2, true);
                 break;
             }
             case Kind::live:
@@ -1266,7 +1357,9 @@ private:
         {
             case Kind::wavetable: return row == 0 ? "SHAPE" : row == 1 ? "PITCH" : "UNISON";
             case Kind::operatorEg: return row == 0 ? "PITCH" : row == 1 ? "WAVE" : "UNISON";
-            case Kind::physical: return row == 0 ? "STRING" : row == 1 ? "PITCH" : "COPIES"; // (copies of the string: I11-9)
+            // (Its third row is the wavetable's UNISON row, named as on every
+            // card; its tooltip says they are copies of the string, I11-9.)
+            case Kind::physical: return row == 0 ? "STRING" : row == 1 ? "PITCH" : "UNISON";
             case Kind::grain: return row == 0 ? "GRAINS" : row == 1 ? "PITCH" : "UNISON";
             case Kind::live: return "LEVEL";
             case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : "UNISON";
@@ -1519,6 +1612,9 @@ private:
 
         // The right-hand cells: the FM chip or the output bar in PITCH's, the
         // unison picture in UNISON's.
+        if (card.kind == Kind::physical)
+            pieces.partials.setBounds (cellRect (card, 0, 4, 5).reduced (4, 0));
+
         if (card.kind != Kind::live)
         {
             pieces.status.setBounds (cellRect (card, 1 - (card.kind == Kind::operatorEg ? 1 : 0), 6, 3));
@@ -1798,11 +1894,12 @@ private:
     {
         CardAux (IlanaSynthAudioProcessor& p, int index)
             : stringView (p, juce::String (OscillatorIds::prefixes[(size_t) index])), opEnvGraph (p),
-              spreadView (p, index), status (p, index) {}
+              spreadView (p, index), partials (p, index), status (p, index) {}
 
         PhysicalView stringView;
         OperatorEnvDisplay opEnvGraph;
         UnisonSpreadView spreadView;
+        StringPartialsView partials;
         OscStatusView status;
         juce::TextButton opEnvButton, stringButton, sampleLoadButton;
     };
@@ -1948,6 +2045,7 @@ private:
         for (const auto index : shownList())
         {
             aux[(size_t) index]->spreadView.update();
+            aux[(size_t) index]->partials.update();
             updateStatus (index);
         }
 
@@ -2095,7 +2193,7 @@ private:
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
-                 bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.status,
+                 bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
                  &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton };
     }
 
@@ -2167,6 +2265,7 @@ private:
             pieces.stringView.setVisible (kind == Kind::physical && ! electric);
             pieces.opEnvGraph.setVisible (opEnv);
             pieces.opEnvGraph.setSource (prefix, oscColour (index));
+            pieces.partials.setVisible (kind == Kind::physical && ! electric);
             pieces.status.setVisible (kind != Kind::sample);
             pieces.spreadView.setVisible (kind != Kind::live && ((kind != Kind::sample && kind != Kind::operatorEg) || readFloat (prefix + "_unison") > 1.5f));
         }
@@ -2278,7 +2377,7 @@ private:
                 osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
             }
 
-            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt })
+            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.spread })
                 knob->refreshValueText();
 
             // A switched-off oscillator dims in place, the same size.
@@ -2294,6 +2393,7 @@ private:
             pieces.stringView.setAlpha (alpha);
             pieces.opEnvGraph.setAlpha (alpha);
             pieces.spreadView.setAlpha (alpha);
+            pieces.partials.setAlpha (alpha);
             pieces.status.setAlpha (alpha);
             pieces.opEnvButton.setAlpha (alpha);
             pieces.stringButton.setAlpha (alpha);

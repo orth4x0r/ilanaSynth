@@ -406,6 +406,97 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     && more != nullptr && more->getKind() == FxLibraryButton::Kind::more && fxTwinOf (13) == 34 && fxTwinOf (34) == 13,
                 "the library offers Spaces as Reverb's Airwindows model and the all-in-one module as More Airwindows");
 
+        // ilana's PC test: the picker a card's type button opens is drawn at
+        // the editor's zoom (it was half size, its text about 7 px, in the
+        // unscaled window), fits the window at 100 % and 75 %, and a pick from
+        // it swaps that slot's effect (undo puts it back).
+        {
+            const auto slotType = [&processor] (int slot) { return (int) processor.apvts.getRawParameterValue ("fx_slot" + juce::String (slot))->load(); };
+            const auto findPicker = [&editor]() -> FxLibraryView*
+            {
+                std::vector<FxLibraryView*> views;
+                findAll<FxLibraryView> (editor, views);
+                for (auto* view : views)
+                    if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                        return view;
+                return nullptr;
+            };
+            const auto closePicker = [&findPicker]
+            {
+                if (auto* view = findPicker())
+                    if (auto* box = view->findParentComponentOfClass<juce::CallOutBox>())
+                        box->dismiss();
+                settle (300);
+            };
+            const auto openFromTitle = [&editor] (int slot)
+            {
+                std::vector<FxTypeButton*> buttons;
+                findAll<FxTypeButton> (editor, buttons);
+                for (auto* button : buttons)
+                    if (visibleInTree (button) && button->getTooltip().startsWith ("Slot " + juce::String (slot) + ":") && button->onClick != nullptr)
+                    {
+                        button->onClick();
+                        settle (80); // (a call-out closes itself within 200 ms under xvfb)
+                        return true;
+                    }
+                return false;
+            };
+
+            auto* top = editor.getTopLevelComponent();
+            const auto before = top->getBounds();
+            for (const auto small : { false, true })
+            {
+                if (small)
+                    top->setSize (795, 540);
+                settle (300);
+                loadFx ({ 32, 13 }); // Tape, Reverb
+                const auto opened = openFromTitle (1);
+                auto* picker = findPicker();
+                const auto zoom = (float) editor.getHeight() / 720.0f;
+                const auto shown = picker != nullptr ? editor.getLocalArea (picker, picker->getLocalBounds()) : juce::Rectangle<int>();
+                auto* tape = picker != nullptr ? picker->findButton (32) : nullptr;
+                expect (opened && picker != nullptr && picker->getReplacingSlot() == 0
+                            && std::abs ((float) shown.getWidth() - (float) picker->getWidth() * zoom) < 3.0f
+                            && editor.getLocalBounds().contains (shown) && tape != nullptr && tape->getHeight() >= 26
+                            && tape->getInRackSlot() == 0,
+                        juce::String ("FX: TAPE's type button opens the effect picker for slot 1 at the editor's zoom, inside the window ")
+                            + (small ? "at 75 %" : "at 100 %") + " (" + shown.toString() + ", zoom " + juce::String (zoom, 2) + ")");
+
+                if (! small && picker != nullptr)
+                {
+                    // A pick replaces the slot's effect, one undo step.
+                    if (auto* chorus = picker->findButton (7))
+                        chorus->triggerClick();
+                    settle (400);
+                    const auto replaced = slotType (1) == 7 && slotType (2) == 13 && findPicker() == nullptr;
+                    processor.getUndoManager().undo();
+                    settle (300);
+                    expect (replaced && slotType (1) == 32,
+                            "FX: picking CHORUS from TAPE's picker puts a chorus in slot 1 (reverb stays in 2), closes it, and undo brings TAPE back");
+
+                    // An effect another slot holds isn't taken from it.
+                    openFromTitle (1);
+                    if (auto* again = findPicker())
+                        if (auto* reverb = again->findButton (13))
+                            reverb->triggerClick();
+                    settle (400);
+                    expect (slotType (1) == 32 && slotType (2) == 13, "FX: picking an effect another slot holds leaves both slots as they were");
+                    closePicker();
+
+                    // REMOVE EFFECT empties the slot.
+                    openFromTitle (1);
+                    if (auto* again = findPicker())
+                        again->getRemoveButton().triggerClick();
+                    settle (400);
+                    expect (slotType (1) == 0 && slotType (2) == 13, "FX: the picker's REMOVE EFFECT takes the slot's effect out");
+                }
+                closePicker();
+            }
+            top->setBounds (before);
+            settle (300);
+            loadFx ({});
+        }
+
         // I7-28: the all-in-one Airwindows card has a display.
         loadFx ({ 30 });
         std::vector<FxDisplay*> displays;

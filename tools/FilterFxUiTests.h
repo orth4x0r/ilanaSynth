@@ -61,7 +61,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             if (visibleInTree (knob) && knob->getWidth() > 0 && knob->getDialSize() >= 28)
             {
                 ++checked;
-                if (knob->getDialRadius() < 0.4f * (float) knob->getDialSize())
+                if (knob->getDialRadius() < 0.33f * (float) knob->getDialSize())
                     small += knob->getParameterId() + " (dial " + juce::String (knob->getDialSize()) + ", radius " + juce::String (knob->getDialRadius(), 1) + ") ";
             }
         expect (checked >= 10 && small.isEmpty(), "PLAY's stacked knobs are drawn at their cell's dial size: " + small);

@@ -205,6 +205,31 @@ inline std::vector<Placed> layout (const std::vector<int>& ids, int selected, bo
     return items;
 }
 
+// The cards sharing the whole view evenly (the design's pools: PLAY's and
+// MOD's), the "+" keeping `plusW`.
+inline void fillEvenly (std::vector<Placed>& items, int plusId, float view, float plusW)
+{
+    auto cards = 0;
+    auto hasPlus = false;
+    for (const auto& item : items)
+    {
+        cards += item.id == plusId ? 0 : 1;
+        hasPlus = hasPlus || item.id == plusId;
+    }
+
+    if (cards == 0)
+        return;
+
+    const auto width = (view - (hasPlus ? plusW + gap : 0.0f) - gap * (float) (cards - 1)) / (float) cards;
+    auto x = 0.0f;
+    for (auto& item : items)
+    {
+        item.bounds.setX (x);
+        item.bounds.setWidth (item.id == plusId ? plusW : width);
+        x += item.bounds.getWidth() + gap;
+    }
+}
+
 inline void paintOverflow (juce::Graphics& g, juce::Rectangle<float> card, int count, bool hovered)
 {
     IlanaTheme::paintWell (g, card, 6.0f);
@@ -326,7 +351,7 @@ public:
 
     // PLAY: the cards share the whole bar evenly (the design's thumbnails)
     // instead of keeping a quarter each.
-    void setFillWidth (bool fill) { fillWidth = fill; repaint(); }
+    void setFillWidth (bool fill, float plusWidth = PoolCards::plusWidth) { fillWidth = fill; plusW = plusWidth; repaint(); }
 
     // The cards folded into the overflow card right now (the UI test).
     std::vector<int> getFoldedCards() const
@@ -541,20 +566,7 @@ private:
                                         folded);
 
         if (fillWidth && folded.empty() && ! ids.empty())
-        {
-            const auto view = (float) (viewWidth > 0 ? viewWidth : getWidth());
-            const auto width = (view - (withPlus ? PoolCards::plusWidth + PoolCards::gap : 0.0f) - PoolCards::gap * (float) ((int) ids.size() - 1))
-                               / (float) ids.size();
-            auto x = 0.0f;
-            for (auto& item : items)
-            {
-                const auto isCard = item.id != plusId;
-                item.bounds.setX (x);
-                if (isCard)
-                    item.bounds.setWidth (width);
-                x += item.bounds.getWidth() + PoolCards::gap;
-            }
-        }
+            PoolCards::fillEvenly (items, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), plusW);
 
         return items;
     }
@@ -1002,5 +1014,6 @@ private:
     bool hoverRemove = false, hoverB = false;
     int viewWidth = 0;
     bool fillWidth = false;
+    float plusW = PoolCards::plusWidth;
     int lastCardCount = -1;
 };

@@ -101,23 +101,21 @@ public:
                 g.fillRoundedRectangle (pill.expanded (3.0f), 6.0f);
             }
 
-            if (active)
-                g.setColour (IlanaTheme::accent().withAlpha (0.18f));
-            else if (i == hoverIndex)
-                g.setColour (juce::Colours::white.withAlpha (0.08f));
-            else
-                g.setColour (IlanaTheme::Ui::panel);
-
+            // The choice and the hover fade (the shared animator).
+            const auto chosen = IlanaTheme::fade (*this, i, active ? 1.0f : 0.0f);
+            const auto hovered = IlanaTheme::fade (*this, 1000 + i, i == hoverIndex && ! active ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+            g.setColour (IlanaTheme::Ui::panel.interpolatedWith (juce::Colours::white, 0.08f * hovered)
+                             .interpolatedWith (IlanaTheme::accent().withAlpha (0.18f), chosen));
             g.fillRoundedRectangle (pill, 4.0f);
 
-            g.setColour (active ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
+            g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::accent(), chosen));
             g.setFont (active ? IlanaTheme::font (IlanaTheme::TextSize::body, true)
                               : IlanaTheme::font (IlanaTheme::TextSize::body));
             g.drawText (items[i], pill, juce::Justification::centred);
 
-            if (active)
+            if (chosen > 0.01f)
             {
-                g.setColour (IlanaTheme::accent());
+                g.setColour (IlanaTheme::accent().withAlpha (chosen));
                 g.fillRoundedRectangle (pill.withHeight (2.0f).withY (pill.getBottom() - 2.0f), 1.0f);
             }
         }

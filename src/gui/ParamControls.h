@@ -357,10 +357,11 @@ public:
             const auto& dot = dots[(size_t) i];
             const auto area = dotBounds (i);
             const auto colour = modSourceColour (dot.source);
-            const auto active = i == dragIndex || i == hoverIndex;
+            // (The hover's glow fades: the shared animator.)
+            const auto active = IlanaTheme::fade (*this, i, i == dragIndex || i == hoverIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
 
-            g.setColour (colour.withAlpha (active ? 0.35f : 0.16f));
-            g.fillEllipse (area.expanded (active ? 2.0f : 1.0f));
+            g.setColour (colour.withAlpha (0.16f + 0.19f * active));
+            g.fillEllipse (area.expanded (1.0f + active));
 
             // A plain disc in the source's colour: the ring shows the depth,
             // the badge only which source it is (review 7, V7-27: no pie).
@@ -380,8 +381,8 @@ public:
         if (hasOverflow())
         {
             const auto area = dotBounds (numShown());
-            const auto active = hoverIndex == overflowIndex;
-            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, active ? 0.15f : 0.0f));
+            const auto active = IlanaTheme::fade (*this, 1000, hoverIndex == overflowIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.15f * active));
             g.fillEllipse (area);
             g.setColour (IlanaTheme::Ui::text2);
             g.drawEllipse (area.reduced (0.5f), 1.0f);
@@ -856,6 +857,7 @@ public:
     float getDialRadius() const { return dialRadius(); }
     float getRingRadius (int ring) const { return ringRadius (ring); }
     juce::Point<float> getDialCentre() const { return dialCentre(); }
+    float getRingRoom() const { return ringRoom(); }
     // Where the name's line of letters draws (local; empty without a name),
     // and the box the drawn rings cover with their strokes: the cut-text
     // test keeps both inside the knob and its views, and apart.
@@ -871,6 +873,31 @@ public:
         glyphs.addFittedText (font, label.getText(), area.getX(), area.getY(), area.getWidth(), area.getHeight(),
                               label.getJustificationType(), 1, 1.0f);
         return glyphs.getBoundingBox (0, -1, true).translated ((float) label.getX(), (float) label.getY());
+    }
+    // The ink of the name's letters (local; empty without a name): the
+    // rings keep 1 px of air under it, not under the label's whole line.
+    juce::Rectangle<float> getNameInkBounds() const
+    {
+        if (! label.isVisible() || label.getText().isEmpty() || label.getWidth() <= 0)
+            return {};
+
+        const auto key = label.getText() + label.getBounds().toString() + juce::String (label.getFont().getHeight());
+
+        if (key != nameInkKey)
+        {
+            auto& lf = label.getLookAndFeel();
+            const auto font = lf.getLabelFont (const_cast<juce::Label&> (label));
+            const auto area = lf.getLabelBorderSize (const_cast<juce::Label&> (label)).subtractedFrom (label.getLocalBounds()).toFloat();
+            juce::GlyphArrangement glyphs;
+            glyphs.addFittedText (font, label.getText(), area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                                  label.getJustificationType(), 1, 1.0f);
+            juce::Path ink;
+            glyphs.createPath (ink);
+            nameInk = ink.getBounds().translated ((float) label.getX(), (float) label.getY());
+            nameInkKey = key;
+        }
+
+        return nameInk;
     }
     juce::Rectangle<float> getRingsBounds() const
     {
@@ -1171,13 +1198,11 @@ public:
 
         // The outer rings pass behind the knob's name, not over it.
         const juce::Graphics::ScopedSaveState state (g);
-        if (label.isVisible() && label.getText().isNotEmpty())
-        {
-            const auto font = label.getFont();
-            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, label.getText()) + 6.0f;
-            // (4 px of air under the name: a ring's 2.5 px stroke used to touch it, V9-18.)
-            g.excludeClipRegion (label.getBounds().withSizeKeepingCentre (juce::roundToInt (width), label.getHeight()).withTrimmedBottom (-4));
-        }
+        // (The rings stop 1 px under the name's letters (ringRoom), so this
+        // only guards a grabbed ring's wider stroke; it used to cut the
+        // rings flat 4 px under the label's line, V9-18, design sweep.)
+        if (const auto ink = getNameInkBounds(); ! ink.isEmpty())
+            g.excludeClipRegion (ink.expanded (2.0f, 0.5f).getSmallestIntegerContainer());
 
         for (int i = count - 1; i >= 0; --i)
         {
@@ -1279,6 +1304,8 @@ public:
             // The dial is a square as high as the cell; the name above the
             // value, level with the dial's middle line, to its right.
             const auto dial = juce::jmin (area.getHeight(), inlineDial);
+            // (A modulatable dial leaves its rings a 4 px band: the look-and-feel's layout.)
+            slider.getProperties().set ("inlineRingRoom", ringConfig.destination != 0 ? 4 : 0);
             knobBounds = area.withWidth (dial).withSizeKeepingCentre (dial, dial);
             slider.setBounds (area);
             const auto textX = knobBounds.getRight() + 3;
@@ -1416,7 +1443,8 @@ private:
         const auto dialTop = dialBounds().getY();
         const auto nameAbove = label.isVisible() && label.getText().isNotEmpty() && (float) label.getBottom() <= dialTop + 2.0f
                                && (float) label.getX() < centre.x && (float) label.getRight() > centre.x;
-        const auto ceiling = nameAbove ? (float) label.getBottom() + 1.0f : 0.0f;
+        const auto ink = nameAbove ? getNameInkBounds() : juce::Rectangle<float>();
+        const auto ceiling = ink.isEmpty() ? 0.0f : ink.getBottom() + 1.0f;
         return juce::jmin (juce::jmin (centre.x, (float) getWidth() - centre.x) - 2.5f, centre.y - ceiling - 1.5f);
     }
 
@@ -1676,7 +1704,17 @@ private:
         const auto centre = dialCentre();
         const auto dial = dialRadius();
         const auto stripW = ModDotStrip::stripWidth, pitch = ModDotStrip::dotPitch;
-        const auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
+        auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
+
+        // An inline knob's name and value stand right of its rings: the
+        // badges go after the longer of them, not over them.
+        if (inlineLayout && label.getText().isNotEmpty())
+        {
+            const auto value = slider.getTextFromValue (slider.getValue());
+            const auto textWidth = juce::jmax (juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText()),
+                                               juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)), value));
+            x = juce::jmax (x, label.getX() + textWidth + 4);
+        }
 
         // Beside the rings, a column of badges as tall as the dial, while
         // the knob is hovered (the rings are the legend the rest of the
@@ -2114,6 +2152,8 @@ private:
     std::function<bool()> dashWhen;
     bool sourceKnob = false;
     bool badgesShown = false; // the mouse is on the knob (or its badges)
+    mutable juce::String nameInkKey; // (getNameInkBounds's cache)
+    mutable juce::Rectangle<float> nameInk;
     bool badgesForced = false; // (the tests and snapshots)
     int maxDial = IlanaTheme::KnobSize::main;
     juce::String baseTooltip, inactiveNote;

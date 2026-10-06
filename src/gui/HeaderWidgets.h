@@ -166,11 +166,14 @@ public:
         {
             // The sheet's header key (.ib): 30 px, ink 2, a hairline, 8 px
             // corners; lit (.ib.on) the accent at 15 % with a half-accent rim.
-            auto fill = on ? Ui::panel.interpolatedWith (accent(), 0.15f) : Ui::panel;
-            fill = fill.interpolatedWith (Ui::hover, (isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f));
+            // (Lit and hovered fade in and out: the shared animator.)
+            const auto lit = IlanaTheme::fade (*this, 0, on ? 1.0f : 0.0f);
+            const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, FadeRate::hover);
+            auto fill = Ui::panel.interpolatedWith (accent(), 0.15f * lit);
+            fill = fill.interpolatedWith (Ui::hover, over);
             g.setColour (fill.withMultipliedAlpha (fade));
             g.fillRoundedRectangle (bounds, 8.0f);
-            g.setColour ((on ? accent().withAlpha (0.5f) : Ui::line.interpolatedWith (Ui::text3, isHighlighted ? 0.4f : 0.0f)).withMultipliedAlpha (fade));
+            g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.8f * over).interpolatedWith (accent().withAlpha (0.5f), lit).withMultipliedAlpha (fade));
             g.drawRoundedRectangle (bounds.reduced (0.5f), 7.5f, 1.0f);
         }
         else if (isHighlighted)

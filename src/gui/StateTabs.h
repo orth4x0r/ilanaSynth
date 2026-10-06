@@ -112,18 +112,18 @@ public:
             // The same on indicator as every switchable tab (review 7).
             if (item.dot)
             {
-                IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
+                IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, IlanaTheme::fade (*this, 2000 + i, item.lit ? 1.0f : 0.0f));
                 area.removeFromLeft (13.0f);
             }
 
-            g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));
+            g.setColour ((item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3).interpolatedWith (IlanaTheme::Ui::text, chosen));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
             g.drawText (shownName (i, stateLevel()), area, juce::Justification::centredLeft);
 
             if (item.state.isNotEmpty() && showsState (i, stateLevel()))
             {
                 area.removeFromLeft ((float) nameWidth (i, stateLevel()) + 7.0f);
-                g.setColour (active ? item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f) : IlanaTheme::Ui::text3);
+                g.setColour (IlanaTheme::Ui::text3.interpolatedWith (item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f), chosen));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (item.state, area, juce::Justification::centredLeft);
             }

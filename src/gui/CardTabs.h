@@ -123,7 +123,7 @@ public:
                 continue;
             }
 
-            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, isTabOn (i));
+            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, IlanaTheme::fade (*this, 4000 + i, isTabOn (i) ? 1.0f : 0.0f));
         }
 
         if (hasOpen)

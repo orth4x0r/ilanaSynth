@@ -6511,8 +6511,10 @@ int runUiTests()
                     why.add ("name outside the knob");
                 if (! rings.isEmpty() && ! own.contains (rings))
                     why.add ("rings outside the knob");
-                if (! name.isEmpty() && ! rings.isEmpty() && rings.getY() < name.getBottom() - 0.5f
-                    && rings.getX() < name.getRight() && rings.getRight() > name.getX())
+                // (The rings may pass under the name's line, never into its letters.)
+                const auto ink = knob->getNameInkBounds();
+                if (! ink.isEmpty() && ! rings.isEmpty() && rings.getY() < ink.getBottom() + 0.5f
+                    && rings.getX() < ink.getRight() && rings.getRight() > ink.getX())
                     why.add ("rings reach the name");
                 const std::pair<const char*, juce::Rectangle<float>> parts[] { { "name", name }, { "rings", rings } };
                 for (const auto& [what, part] : parts)
@@ -6527,6 +6529,10 @@ int runUiTests()
                             break;
                         }
                 }
+                if (knob->getNumRings() > 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_DEBUG_RINGS", {}).isNotEmpty())
+                    std::cout << "RINGS " << knob->getParameterId() << " shown " << knob->getNumRings() << " dial " << knob->getDialRadius()
+                              << " room " << knob->getRingRoom() << " knob " << knob->getBounds().toString() << " centre "
+                              << knob->getDialCentre().toString() << std::endl;
                 if (! why.isEmpty())
                     names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + "; knob " + knob->getLocalBounds().toString()
                                + ", name " + name.toString() + ", rings " + rings.toString() + ")");

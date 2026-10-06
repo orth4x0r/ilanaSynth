@@ -521,20 +521,23 @@ inline void paintTag (juce::Graphics& g, juce::Point<float> centre, juce::Colour
 // Whether a tab's switchable part is on (review 7, I7-37: one indicator on
 // every tab that names a switch, CardTabs and the FM operator pills): a lit
 // dot with a halo while on, a quiet ring while off.
-inline void paintOnDot (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, bool on)
+// `on` may be between 0 and 1 while it fades (fade()).
+inline void paintOnDot (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, float on)
 {
     const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre);
+    on = juce::jlimit (0.0f, 1.0f, on);
 
-    if (on)
+    if (on > 0.0f)
     {
-        g.setColour (colour.withAlpha (0.3f));
+        g.setColour (colour.withAlpha (0.3f * on));
         g.fillEllipse (dot.expanded (2.5f));
-        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f).withMultipliedAlpha (on));
         g.fillEllipse (dot);
     }
-    else
+
+    if (on < 1.0f)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.28f));
+        g.setColour (juce::Colours::white.withAlpha (0.28f * (1.0f - on)));
         g.drawEllipse (dot.reduced (0.5f), 1.0f);
     }
 }
@@ -969,8 +972,13 @@ public:
             const auto area = slider.getLocalBounds();
             // (40, or the knob's own inline size: the FX rack's taller rows.)
             const auto dial = juce::jmin (area.getHeight(), (int) slider.getProperties().getWithDefault ("inlineDial", 40));
+            // A knob that draws modulation rings keeps a band for them
+            // inside its cell: the dial a little smaller and in from the
+            // left, so its rings are never cut by the cell (design sweep).
+            const auto ringRoom = juce::jlimit (0, dial / 4, (int) slider.getProperties().getWithDefault ("inlineRingRoom", 0));
+            const auto side = dial - ringRoom;
             juce::Slider::SliderLayout layout;
-            layout.sliderBounds = juce::Rectangle<int> (dial, dial).withCentre ({ dial / 2, area.getCentreY() });
+            layout.sliderBounds = juce::Rectangle<int> (side, side).withCentre ({ ringRoom + side / 2, area.getCentreY() });
             layout.textBoxBounds = { dial + 3, area.getCentreY(), juce::jmax (0, area.getWidth() - dial - 3), 14 };
             return layout;
         }
@@ -1033,13 +1041,24 @@ public:
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool) override
     {
         const auto box = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ 13.0f, (float) button.getHeight() * 0.5f });
-        g.setColour (highlighted ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised);
+        // The hover and the tick's rim fade (the shared animator); a
+        // keyboard focus rings the box in the accent.
+        const auto hover = IlanaTheme::fade (button, 0, highlighted ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+        const auto ticked = IlanaTheme::fade (button, 1, button.getToggleState() ? 1.0f : 0.0f);
+        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (IlanaTheme::Ui::hover, hover));
         g.fillRoundedRectangle (box, 4.0f);
-        g.setColour (button.getToggleState() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::accent(), ticked).withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
         g.drawRoundedRectangle (box, 4.0f, 1.4f);
 
-        if (button.getToggleState())
+        if (button.hasKeyboardFocus (false))
         {
+            g.setColour (IlanaTheme::accent().withAlpha (0.5f));
+            g.drawRoundedRectangle (box.expanded (2.5f), 6.0f, 1.0f);
+        }
+
+        if (ticked > 0.01f)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (ticked));
             juce::Path tick;
             tick.startNewSubPath (box.getX() + 4.5f, box.getCentreY());
             tick.lineTo (box.getX() + 7.8f, box.getBottom() - 5.0f);
@@ -1183,11 +1202,11 @@ public:
             // takes the click, so nothing sits over its text).
             if (button.getProperties().contains ("groupName"))
             {
-                const auto on = button.getToggleState();
+                const auto on = juce::jlimit (0.0f, 1.0f, amount); // (fades as the switch slides)
                 const auto area = button.getLocalBounds().toFloat();
                 const auto groupColour = juce::Colour ((juce::uint32) (int) button.getProperties()["groupColour"]);
                 IlanaTheme::paintOnDot (g, { area.getX() + 4.0f, area.getCentreY() }, groupColour, on);
-                g.setColour (groupColour.withAlpha (on ? 0.9f : 0.55f));
+                g.setColour (groupColour.withAlpha (0.55f + 0.35f * on));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
                 IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (13),
                                         juce::Justification::centredLeft, 1);
@@ -1206,11 +1225,12 @@ public:
         // The component sheet's button (.btn): ink 3 with a hairline, 8 px
         // corners at 30 px and 6 px at 24 (.sm). Lit, its colour at 22 % over
         // ink 3 with a 75 % edge, never a solid block.
-        const auto on = button.getToggleState();
+        // (Lit and unlit fade into each other: the shared animator.)
+        const auto on = fade (button, 2, button.getToggleState() ? 1.0f : 0.0f);
         const auto onColour = button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f);
         const auto radius = buttonRadius (bounds.getHeight());
 
-        auto fill = on ? Ui::raised.interpolatedWith (onColour, 0.22f) : backgroundColour;
+        auto fill = backgroundColour.interpolatedWith (Ui::raised.interpolatedWith (onColour, 0.22f), on);
         fill = fill.interpolatedWith (Ui::hover, hover * 0.5f);
 
         if (shouldDrawButtonAsDown)
@@ -1219,8 +1239,7 @@ public:
         g.setColour (fill);
         g.fillRoundedRectangle (bounds, radius);
 
-        g.setColour (on ? onColour.withAlpha (0.75f)
-                        : Ui::line.interpolatedWith (Ui::text3, 0.45f * hover));
+        g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.45f * hover).interpolatedWith (onColour.withAlpha (0.75f), on));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
     }
 

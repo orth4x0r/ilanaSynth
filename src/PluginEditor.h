@@ -292,7 +292,7 @@ private:
     // Each region's "+N": the chips it folds away, in a tray.
     std::array<std::unique_ptr<ModSourceGroupChip>, 3> groupChips;
     static constexpr int chipPickerWidth = 34;
-    static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
+    static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row, bool withOperatorChips);
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.

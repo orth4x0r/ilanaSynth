@@ -1289,6 +1289,9 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+        // (Only an inline knob caps its dial: set below; a knob switched
+        // back to stacked must not keep a small dial.)
+        slider.getProperties().remove ("dialRadiusCap");
 
         if (compact && inlineText)
         {

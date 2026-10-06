@@ -1032,11 +1032,7 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
     for (size_t i = 0; i < chips.size(); ++i)
         chipFolded[i] = false;
 
-    auto operatorChips = false; // the Operator Env's own chips only take room while the patch shows them
-    for (size_t i = 0; i < chips.size(); ++i)
-        operatorChips = operatorChips || (chipWanted[i] && (chips[i]->getSourceName() == "OP LFO" || chips[i]->getSourceName() == "OP PITCH"));
-
-    const auto regions = chipRegions (row, operatorChips);
+    const auto regions = chipRegions (row);
     chipSeparatorX = { juce::roundToInt (regions[0].getRight() + (regions[1].getX() - regions[0].getRight()) * 0.5f),
                        juce::roundToInt (regions[1].getRight() + (regions[2].getX() - regions[1].getRight()) * 0.5f) };
 
@@ -1109,7 +1105,7 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
 
 // The three regions' places in the bar, fixed for a given width (and the
 // same at every zoom): each in proportion to its planned names.
-std::array<juce::Rectangle<float>, 3> IlanaSynthAudioProcessorEditor::chipRegions (juce::Rectangle<int> row, bool withOperatorChips)
+std::array<juce::Rectangle<float>, 3> IlanaSynthAudioProcessorEditor::chipRegions (juce::Rectangle<int> row)
 {
     static const std::array<std::vector<const char*>, 3> planned { {
         { "OP LFO", "LFO 1", "LFO 2", "LFO 3" },
@@ -1123,10 +1119,7 @@ std::array<juce::Rectangle<float>, 3> IlanaSynthAudioProcessorEditor::chipRegion
     for (size_t g = 0; g < 3; ++g)
     {
         for (const auto* name : planned[g])
-            if (withOperatorChips || std::string_view (name).substr (0, 3) != "OP ")
-                wanted[g] += ModSourceChip::layoutWidthFor (name);
-        if (g == 0)
-            wanted[g] += ModSourceChip::secondOutputRoom; // room for an LFO's OUT 2
+            wanted[g] += ModSourceChip::layoutWidthFor (name);
         total += wanted[g];
     }
 

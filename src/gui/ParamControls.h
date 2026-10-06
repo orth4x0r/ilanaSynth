@@ -857,7 +857,6 @@ public:
     float getDialRadius() const { return dialRadius(); }
     float getRingRadius (int ring) const { return ringRadius (ring); }
     juce::Point<float> getDialCentre() const { return dialCentre(); }
-    float getRingRoom() const { return ringRoom(); }
     // Where the name's line of letters draws (local; empty without a name),
     // and the box the drawn rings cover with their strokes: the cut-text
     // test keeps both inside the knob and its views, and apart.

@@ -6529,10 +6529,6 @@ int runUiTests()
                             break;
                         }
                 }
-                if (knob->getNumRoutings() > 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_DEBUG_RINGS", {}).isNotEmpty())
-                    std::cout << "RINGS " << knob->getParameterId() << " shown " << knob->getNumRings() << " dial " << knob->getDialRadius()
-                              << " room " << knob->getRingRoom() << " knob " << knob->getBounds().toString() << " centre "
-                              << knob->getDialCentre().toString() << std::endl;
                 if (! why.isEmpty())
                     names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + "; knob " + knob->getLocalBounds().toString()
                                + ", name " + name.toString() + ", rings " + rings.toString() + ")");
@@ -7468,6 +7464,7 @@ static juce::Image renderMenuSheet (juce::LookAndFeel& lf, std::vector<std::pair
     {
         juce::Graphics::ScopedSaveState state (g);
         g.setOrigin (x, 20);
+        g.reduceClipRegion (0, 0, sizes[m].x, sizes[m].y); // (a menu background may fill its whole clip)
         lf.drawPopupMenuBackground (g, sizes[m].x, sizes[m].y);
         auto y = border;
         for (size_t i = 0; i < rows[m].size(); ++i)

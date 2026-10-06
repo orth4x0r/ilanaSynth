@@ -176,7 +176,8 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             if (visibleInTree (candidate))
             {
                 const auto m = candidate->getMarkerCentres();
-                expect (m[0].getDistanceFrom (m[1]) >= 22.0f, "PLAY: the open filters' markers stand apart (" + juce::String (m[0].getDistanceFrom (m[1])) + " px)");
+                expect (m[0].getDistanceFrom (m[1]) >= 16.0f, // (the design's 170 px display: 16 px is still two dots)
+                         "PLAY: the open filters' markers stand apart (" + juce::String (m[0].getDistanceFrom (m[1])) + " px)");
             }
     }
 
@@ -219,8 +220,19 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* boardOn = toggleFor ("sb_on");
         auto* amount = knobFor ("res_amount");
         auto* mix = knobFor ("sb_mix");
-        auto* bodyLink = buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"));
-        auto* boardLink = buttonNamed (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba"));
+        // The design's rows each carry one "EDIT ›": BODY's above SOUNDBOARD's.
+        std::vector<juce::Button*> editLinks;
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (editor, buttons);
+            for (auto* button : buttons)
+                if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba"))
+                    editLinks.push_back (button);
+            std::sort (editLinks.begin(), editLinks.end(), [&editor] (juce::Button* a, juce::Button* b)
+                       { return editor.getLocalArea (a->getParentComponent(), a->getBounds()).getY() < editor.getLocalArea (b->getParentComponent(), b->getBounds()).getY(); });
+        }
+        auto* bodyLink = editLinks.size() > 0 ? editLinks[0] : nullptr;
+        auto* boardLink = editLinks.size() > 1 ? editLinks[1] : nullptr;
         const auto clash = overlaps ({ bodyOn, boardOn, amount, knobFor ("res_decay"), mix, bodyLink, boardLink });
         expect (bodyOn != nullptr && boardOn != nullptr && amount != nullptr && mix != nullptr && bodyLink != nullptr && boardLink != nullptr
                     && clash.isEmpty(),

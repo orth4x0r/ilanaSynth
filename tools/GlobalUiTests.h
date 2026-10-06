@@ -224,7 +224,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         probe = {};
                         probe.armed = true;
                         probe.recordRects = true;
-                        probe.origin = bounds.getPosition();
+                        // (Rectangles are recorded in the painter's own units and mapped into the editor's afterwards, so a zoomed editor compares like with like.)
+                        probe.origin = {};
                         juce::Image image (juce::Image::ARGB, painter->getWidth(), painter->getHeight(), true);
                         {
                             juce::Graphics g (image);
@@ -239,8 +240,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         for (auto* parent = painter->getParentComponent(); parent != nullptr && parent != &editor; parent = parent->getParentComponent())
                             shown = shown.getIntersection (editor.getLocalArea (parent, parent->getLocalBounds()));
 
-                        for (const auto& [text, whole] : rects)
+                        for (const auto& [text, local] : rects)
                         {
+                            const auto whole = editor.getLocalArea (painter, local);
                             const auto rect = whole.getIntersection (shown);
                             if (rect.isEmpty())
                                 continue;

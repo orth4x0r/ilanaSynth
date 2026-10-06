@@ -342,6 +342,14 @@ private:
     juce::String undoName;
 };
 
+// The FILTER page's SIGNAL FLOW opens on hover or click; the UI tests and
+// snapshots hold it open with this.
+inline bool& filterFlowForcedOpen()
+{
+    static bool forced = false;
+    return forced;
+}
+
 // 12 / 24 dB switch.  Hidden by the page for types without a slope.
 class SlopeSwitch : public ParamBoundComponent
 {

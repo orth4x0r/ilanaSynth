@@ -884,6 +884,26 @@ public:
         resized();
     }
 
+    // An inline knob (the design's WEST / BODY row and the signal-flow strip's
+    // BALANCE): the dial at the left, its name and value stacked beside it.
+    // The dial is the compact knob (no text box under it); the name is the
+    // label, the value is drawn here.
+    void setInline (bool shouldInline)
+    {
+        inlineText = shouldInline;
+        setCompact (shouldInline);
+        if (shouldInline)
+        {
+            label.setVisible (true);
+            label.setJustificationType (juce::Justification::centredLeft);
+            label.setBorderSize ({ 0, 0, 0, 0 });
+            slider.onValueChange = [this] { repaint(); };
+        }
+        resized();
+    }
+
+    bool isInline() const { return inlineText; }
+
     // The knob's role sets its largest dial (IlanaTheme::KnobSize: main,
     // small or mini); layoutRow and preferredControlHeight follow it.
     void setSizeRole (int largestDial)
@@ -1143,9 +1163,33 @@ public:
         }
     }
 
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! inlineText || inlineValueArea.isEmpty())
+            return;
+
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        IlanaTheme::drawFitted (g, slider.getTextFromValue (slider.getValue()), inlineValueArea, juce::Justification::centredLeft, 1);
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (compact && inlineText)
+        {
+            const auto dial = juce::jmin (area.getHeight(), maxDial);
+            knobBounds = area.removeFromLeft (dial).withSizeKeepingCentre (dial, dial);
+            slider.setBounds (knobBounds);
+            area.removeFromLeft (6);
+            const auto top = area.getY() + (area.getHeight() - 27) / 2;
+            label.setBounds (area.getX(), top, area.getWidth(), 13);
+            label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            inlineValueArea = { area.getX(), top + 13, area.getWidth(), 14 };
+            layoutDots();
+            return;
+        }
 
         if (compact)
         {
@@ -1940,7 +1984,8 @@ private:
     bool dragHover = false;
     int dragSource = 0; // the source being dragged anywhere (V8-10)
     bool hover = false;
-    bool compact = false;
+    bool compact = false, inlineText = false;
+    juce::Rectangle<int> inlineValueArea;
     bool sourceKnob = false;
     bool badgesShown = false; // the mouse is on the knob (or its badges)
     bool badgesForced = false; // (the tests and snapshots)
@@ -2259,7 +2304,7 @@ private:
 class ValueSliderControl : public juce::Component
 {
 public:
-    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID)
+    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID) : parameterId (parameterID)
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 16);
@@ -2280,8 +2325,10 @@ public:
     void resized() override { slider.setBounds (getLocalBounds()); }
 
     juce::Slider& getSlider() { return slider; }
+    const juce::String& getParameterId() const { return parameterId; }
 
 private:
+    juce::String parameterId;
     juce::Slider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };

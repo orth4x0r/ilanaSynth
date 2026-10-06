@@ -4,10 +4,155 @@
 
 namespace
 {
+// The FILTER page's SIGNAL FLOW as a 40 px strip: the sources, F1, the
+// SERIES / PARALLEL pill, F2 and OUT as chips in one line, a hint, and BALANCE
+// inline at the right. Hovering or clicking it enlarges the full routing
+// diagram over the response (FilterPage owns that).
+class FlowStrip : public juce::Component,
+                  public juce::SettableTooltipClient
+{
+public:
+    explicit FlowStrip (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setRepaintsOnMouseActivity (true);
+        setTooltip ("SIGNAL FLOW\nHover or click to enlarge the routing diagram and re-route the oscillators.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    std::function<void()> onClick;
+    void setExpanded (bool shouldBeExpanded) { expanded = shouldBeExpanded; repaint(); }
+    // The room the balance knob takes at the right.
+    static constexpr int balanceWidth = 118;
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (! event.mouseWasDraggedSinceMouseDown() && onClick != nullptr)
+            onClick();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintCard (g, bounds, 7.0f, expanded ? IlanaTheme::accent() : IlanaTheme::Ui::text2.withAlpha (0.2f));
+        const auto parallel = read ("filters_parallel") > 0.5f;
+        const auto westReplaces = read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1;
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+        const auto chipHeight = 22.0f;
+        auto x = 12.0f;
+        const auto centreY = bounds.getCentreY();
+        const auto chipWidth = [&] (const juce::String& text) { return (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 18.0f; };
+        const auto chip = [&] (const juce::String& text, juce::Colour colour, float alpha = 1.0f)
+        {
+            const auto box = juce::Rectangle<float> (x, centreY - chipHeight / 2.0f, chipWidth (text), chipHeight);
+            g.setColour (IlanaTheme::Ui::panel.interpolatedWith (colour, 0.14f).withAlpha (alpha));
+            g.fillRoundedRectangle (box, 6.0f);
+            g.setColour (colour.withAlpha (alpha));
+            g.drawRoundedRectangle (box.reduced (0.5f), 6.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text.withAlpha (alpha));
+            g.setFont (font);
+            g.drawText (text, box, juce::Justification::centred);
+            x += box.getWidth() + 3.0f;
+        };
+        const auto arrow = [&]
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), juce::Rectangle<float> (x, centreY - 8.0f, 12.0f, 16.0f), juce::Justification::centred);
+            x += 14.0f;
+        };
+
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (font);
+        g.drawText ("SIGNAL FLOW", juce::Rectangle<float> (x, centreY - 8.0f, 92.0f, 16.0f), juce::Justification::centredLeft);
+        x += 100.0f;
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc))
+                chip ("OSC " + juce::String (osc + 1), IlanaTheme::oscColour (osc), read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f ? 1.0f : 0.45f);
+        chip ("SUB + N", IlanaTheme::accent());
+        x += 2.0f;
+        arrow();
+        chip ("F1", FilterColours::filter (0));
+        const auto pill = parallel ? "PARALLEL" : "SERIAL";
+        const auto pillWidth = (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::pillFont(), pill) + 20.0f;
+        IlanaTheme::paintPill (g, { x + 3.0f, centreY - 9.0f, pillWidth, 18.0f }, pill, IlanaTheme::accent(), true);
+        x += pillWidth + 9.0f;
+        chip (westReplaces ? "WEST" : "F2", westReplaces ? FilterColours::west() : FilterColours::filter (1));
+        arrow();
+        chip ("OUT", IlanaTheme::Ui::text);
+
+        // The hint, when it fits between the chips and BALANCE.
+        const auto room = (float) getWidth() - (float) balanceWidth - 8.0f - x;
+        const juce::String hint (expanded ? "Drag a source onto F1 or F2 to re-route." : "Hover or click to enlarge and re-route.");
+        const auto hintFont = IlanaTheme::font (IlanaTheme::TextSize::label);
+        if (room > (float) juce::GlyphArrangement::getStringWidthInt (hintFont, hint) + 8.0f)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (hintFont);
+            g.drawText (hint, juce::Rectangle<float> (x, centreY - 8.0f, (float) getWidth() - (float) balanceWidth - 8.0f - x, 16.0f), juce::Justification::centredRight);
+        }
+    }
+
+private:
+    float read (const juce::String& id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    bool expanded = false;
+};
+
+// The enlarged SIGNAL FLOW: a card over the response display holding the
+// full routing diagram and the BALANCE knob.
+class FlowOverlay : public juce::Component
+{
+public:
+    FlowOverlay (SignalFlow& flowIn, KnobControl& balanceIn) : flow (flowIn), balance (balanceIn)
+    {
+        addAndMakeVisible (flow);
+        addAndMakeVisible (balance);
+    }
+
+    std::function<void()> onHeaderClick;
+    juce::String caption;
+
+    void paint (juce::Graphics& g) override
+    {
+        IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, IlanaTheme::accent());
+        IlanaTheme::paintCardHeader (g, getLocalBounds().reduced (12, 0).removeFromTop (30), "SIGNAL FLOW", caption, IlanaTheme::Ui::text2, 0);
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (event.getPosition().y < 30 && ! event.mouseWasDraggedSinceMouseDown() && onHeaderClick != nullptr)
+            onHeaderClick();
+    }
+
+    void resized() override
+    {
+        const auto area = getLocalBounds().withTrimmedTop (30).reduced (8, 0).withTrimmedBottom (8);
+        flow.setBounds (area);
+        const auto width = 120, height = 32;
+        const auto corner = juce::Rectangle<int> (area.getRight() - width - 8, area.getBottom() - height - 4, width, height);
+        balance.setBounds (corner);
+        flow.setReservedCorner (corner - area.getPosition());
+    }
+
+private:
+    SignalFlow& flow;
+    KnobControl& balance;
+};
+
 class FilterPage : public juce::Component,
                    private juce::Timer
 {
 public:
+    // The UI tests open the flow first (it is hover / click driven).
+    static bool& flowForcedOpen() { return filterFlowForcedOpen(); }
+
     explicit FilterPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           filterDisplay (p),
@@ -15,7 +160,10 @@ public:
           panel2 (p, 2, FilterColours::filter (1)),
           westPanel (p),
           flow (p),
+          strip (p),
           balance (p.apvts, "filter_balance", "BALANCE", IlanaTheme::accent(), true),
+          stripBalance (p.apvts, "filter_balance", "BALANCE", IlanaTheme::accent(), true),
+          overlay (flow, balance),
           resOn (p.apvts, "res_on", "ON"),
           resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), true),
           resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), true),
@@ -27,12 +175,19 @@ public:
           bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
           bodyCoupling (p.apvts, "body_coupling", "COUPLE", resonatorColour(), true)
     {
-        // The page (UI review 6): the response beside the signal flow, the
-        // two filters side by side, then WEST and BODY, each its own card,
-        // so nothing that shapes the sound hides behind a tab (I6-15/16).
-        addAll (*this, filterDisplay, panel1, panel2, westPanel, flow, balance,
+        // The page (approved design): the response across the whole width,
+        // SIGNAL FLOW as a 40 px strip that enlarges over it on hover or
+        // click, the two filters as matched cards, then WEST and BODY.
+        addAll (*this, filterDisplay, strip, panel1, panel2, westPanel,
                 resOn, resAmount, resDecay, resOffset, resKeytrack,
                 bodyType, bodyMaterial, bodySize, bodyCouplingMode, bodyCoupling);
+        strip.addAndMakeVisible (stripBalance);
+        balance.setInline (true);
+        stripBalance.setInline (true);
+        stripBalance.setSizeRole (IlanaTheme::KnobSize::minimum);
+        addChildComponent (overlay);
+        strip.onClick = [this] { pinned = ! pinned; };
+        overlay.onHeaderClick = [this] { pinned = false; };
 
         // What doesn't act right now dims (the one rule for every page:
         // UI review 4, V26): BALANCE in serial, the body's knobs while it is
@@ -46,111 +201,161 @@ public:
         const auto couplingMode = [this] { return juce::roundToInt (readValue ("body_coupling_mode")); };
         // (BALANCE is also disabled in serial, below: V6-18, S6-21.)
         effectRules.add (balance, effectRules.isOn ("filters_parallel"), "the filters are in SERIAL");
+        effectRules.add (stripBalance, effectRules.isOn ("filters_parallel"), "the filters are in SERIAL");
         bodyRules.add (bodyMaterial, modal, "BODY is Classic");
         bodyRules.add (bodySize, modal, "BODY is Classic");
         bodyRules.add (bodyCoupling, [modal, couplingMode] { return couplingMode() == 3 || (couplingMode() != 0 && modal()); },
                        "COUPLING is Off, or needs a modal BODY");
+        animator.step = [this] { tickAnimation(); };
+        animator.start();
         startTimerHz (8);
     }
+
+    ~FilterPage() override { animator.stopTimer(); }
 
     // Sections that aren't modulation sources take the accent, so a source's
     // colour always means that source.
     static juce::Colour resonatorColour() { return IlanaTheme::accent(); }
 
+    // The flow card, for the tests: open now, no animation.
+    void openFlowNow()
+    {
+        pinned = true;
+        openAmount = 1.0f;
+        applyOpenAmount();
+    }
+
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintSectionTitle (g, "RESPONSE", { headingX, 12, juce::jmax (0, filterDisplay.getRight() - headingX), headingHeight },
-                           "cutoff across, resonance up and down");
-
-        // Signal flow: a card like BODY beside it, the diagram and the
-        // BALANCE knob inside; the subtitle says what BALANCE does now.
-        {
-            // (WEST in Filter 2's place is named as it: I7-32.)
-            const auto active = readValue ("filters_parallel") > 0.5f;
-            const juce::String second (filter2Replaced() ? "WEST" : "F2");
-            IlanaTheme::paintCard (g, flowCard.toFloat(), 7.0f, IlanaTheme::Ui::text2.withAlpha (0.2f));
-            IlanaTheme::paintCardHeader (g, flowCard.reduced (12, 0).removeFromTop (26), "SIGNAL FLOW",
-                                         active ? "parallel: BALANCE mixes F1 and " + second : "serial: F1 into " + second,
-                                         IlanaTheme::Ui::text2, 0);
-        }
-
         IlanaTheme::paintCard (g, resonatorCard.toFloat(), 7.0f, resonatorColour().withAlpha (0.35f));
-        IlanaTheme::paintCardTitle (g, resonatorCard.reduced (12, 0).removeFromTop (26), "BODY", resonatorColour());
+        IlanaTheme::paintCardTitle (g, resonatorCard.reduced (12, 0).removeFromTop (30), "BODY", resonatorColour());
         // The subtitle follows the title; the switch has the right of the header.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (26).withTrimmedLeft (78),
+        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (30).withTrimmedLeft (78),
                     juce::Justification::centredLeft);
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (overlay.isVisible())
+            return;
+
+        // The response's legend, inside its well: the name at the left,
+        // F1 / F2 / SPECTRUM at the right.
+        {
+            const auto well = filterDisplay.getBounds().reduced (8, 5);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("RESPONSE", well.withHeight (14), juce::Justification::centredLeft);
+            auto legend = well.withHeight (14);
+            const auto item = [&] (const juce::String& text, juce::Colour colour)
+            {
+                const auto width = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), text) + 16;
+                const auto cell = legend.removeFromRight (width + 8);
+                g.setColour (colour);
+                g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ (float) cell.getX() + 4.0f, (float) cell.getCentreY() }));
+                g.drawText (text, cell.withTrimmedLeft (10), juce::Justification::centredLeft);
+            };
+            item ("SPECTRUM", IlanaTheme::Ui::text3);
+            item ("F2", FilterColours::filter (1));
+            item ("F1", FilterColours::filter (0));
+        }
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12);
+        auto area = getLocalBounds().reduced (14, 12);
+        constexpr int gap = 10, stripHeight = 40, panelHeight = 150, bottomHeight = 132;
 
-        const auto panelHeight = juce::jlimit (128, 156, panel1.preferredHeight ((area.getWidth() - 10) / 2));
-        // A module that is off folds to its header and its switch (UI review
-        // 9, V9-4); the response and the flow take the room.
-        // (WEST and BODY open together or fold together, so a lone open card
-        // never leaves a hole beside it: I14-5; the one that is off shows its
-        // controls dimmed, as the PHYSICAL page's boxes do.)
-        westShown = bodyShown = westOn() || bodyActive();
-        const auto openHeight = juce::jlimit (166, 186, area.getHeight() * 9 / 25);
-        const auto bottomHeight = westShown || bodyShown ? openHeight : foldedCardHeight;
-        const auto topHeight = juce::jmax (120, area.getHeight() - panelHeight - bottomHeight - 16);
+        // WEST and BODY stay open, dimmed while off (controls dim in place).
+        auto bottom = area.removeFromBottom (bottomHeight);
+        area.removeFromBottom (gap);
+        auto panels = area.removeFromBottom (panelHeight);
+        area.removeFromBottom (gap);
+        const auto stripArea = area.removeFromBottom (stripHeight);
+        area.removeFromBottom (gap);
+        filterDisplay.setBounds (area);
+        strip.setBounds (stripArea);
+        stripBalance.setBounds (strip.getLocalBounds().withTrimmedLeft (strip.getWidth() - FlowStrip::balanceWidth).reduced (0, 6).withTrimmedRight (10));
+        closedBounds = stripArea;
+        openBounds = area.withHeight (juce::jmin (230, stripArea.getY() - gap - area.getY()));
+        applyOpenAmount();
 
-        // Top: the response (under its heading) and, beside it, the flow.
-        auto top = area.removeFromTop (topHeight);
-        flowCard = top.removeFromRight (juce::jlimit (330, 440, top.getWidth() * 2 / 5));
-        top.removeFromRight (10);
-        top.removeFromTop (headingHeight);
-        filterDisplay.setBounds (top);
-        {
-            // The flow takes the card's width (its filters need it: I7-1);
-            // BALANCE sits in its lower right corner, under OUT.
-            const auto flowArea = flowCard.reduced (8, 0).withTrimmedTop (26).withTrimmedBottom (8);
-            flow.setBounds (flowArea);
-            const auto balanceWidth = 70;
-            const auto balanceHeight = juce::jmin (juce::jmin (70, flowArea.getHeight() / 2), preferredControlHeight (&balance, balanceWidth - 6));
-            const auto corner = flowArea.withTrimmedLeft (flowArea.getWidth() - balanceWidth).withTrimmedTop (flowArea.getHeight() - balanceHeight - 4)
-                                    .withTrimmedBottom (4).withTrimmedRight (4);
-            balance.setBounds (corner);
-            flow.setReservedCorner (corner - flowArea.getPosition());
-        }
-        area.removeFromTop (8);
-
-        auto panels = area.removeFromTop (panelHeight);
-        panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - 10) / 2));
-        panels.removeFromLeft (10);
+        panel1.setBounds (panels.removeFromLeft ((panels.getWidth() - gap) / 2));
+        panels.removeFromLeft (gap);
         panel2.setBounds (panels);
 
-        area.removeFromTop (8);
-        auto bottom = area.removeFromTop (bottomHeight);
-        westPanel.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2 - 5).withHeight (westShown ? bottomHeight : foldedCardHeight));
-
-        bottom.removeFromLeft (10);
-        resonatorCard = bottom.withHeight (bodyShown ? bottomHeight : foldedCardHeight);
-        for (juce::Component* control : { (juce::Component*) &resAmount, (juce::Component*) &resDecay, (juce::Component*) &resOffset,
-                                          (juce::Component*) &resKeytrack, (juce::Component*) &bodyType, (juce::Component*) &bodyMaterial,
-                                          (juce::Component*) &bodySize, (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyCoupling })
-            control->setVisible (bodyShown);
+        westPanel.setBounds (bottom.removeFromLeft (bottom.getWidth() / 2 - gap / 2));
+        bottom.removeFromLeft (gap);
+        resonatorCard = bottom;
         // The on switch at the right of the header, as on the oscillator cards.
-        resOn.setBounds (IlanaTheme::cardSwitchBounds (resonatorCard, resonatorCard.getY() + 13));
-        // The grid WEST's card uses (S7-24): its menus' row, then its knobs,
-        // so the two cards' rows line up side by side.
+        resOn.setBounds (IlanaTheme::cardSwitchBounds (resonatorCard, resonatorCard.getY() + 15));
+        // The grid WEST's card uses: its menus' row, then its knobs.
         auto resArea = resonatorCard.reduced (10, 0);
         resArea.removeFromTop (30);
         resArea.removeFromBottom (4);
-        auto menuRow = resArea.removeFromTop (juce::jmin (52, resArea.getHeight() / 3));
-        const auto menuWidth = (menuRow.getWidth() - menuRow.getWidth() * 2 / 5) / 3;
-        bodyType.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 2));
-        bodyCouplingMode.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 2));
+        auto menuRow = resArea.removeFromTop (40);
+        const auto menuWidth = (menuRow.getWidth() - 3 * 2) / 3;
+        bodyType.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 1));
+        bodyCouplingMode.setBounds (menuRow.removeFromLeft (menuWidth).reduced (3, 1));
         resArea.removeFromTop (2);
         layoutRow (resArea, { &resAmount, &resDecay, &bodyMaterial, &bodySize, &resOffset, &resKeytrack, &bodyCoupling });
     }
 
 private:
+    // The flow card grows from the strip to its place over the response and
+    // shrinks back; the response stays under it.
+    struct Animator : private juce::Timer
+    {
+        std::function<void()> step;
+        void start() { if (! isTimerRunning()) startTimerHz (60); }
+        void stopTimer() { juce::Timer::stopTimer(); }
+        void timerCallback() override { if (step != nullptr) step(); }
+    };
+
+    void applyOpenAmount()
+    {
+        const auto eased = openAmount * openAmount * (3.0f - 2.0f * openAmount);
+        const auto lerp = [eased] (int from, int to) { return from + juce::roundToInt ((float) (to - from) * eased); };
+        const auto visible = openAmount > 0.01f;
+        if (visible)
+            overlay.setBounds (lerp (closedBounds.getX(), openBounds.getX()), lerp (closedBounds.getY(), openBounds.getY()),
+                               lerp (closedBounds.getWidth(), openBounds.getWidth()), lerp (closedBounds.getHeight(), openBounds.getHeight()));
+        overlay.setAlpha (juce::jlimit (0.0f, 1.0f, openAmount * 1.6f));
+        if (overlay.isVisible() != visible)
+        {
+            overlay.setVisible (visible);
+            if (visible)
+                overlay.toFront (false);
+        }
+        overlay.caption = readValue ("filters_parallel") > 0.5f ? "parallel: BALANCE mixes F1 and " + juce::String (filter2Replaced() ? "WEST" : "F2")
+                                                                : "serial: F1 into " + juce::String (filter2Replaced() ? "WEST" : "F2");
+        strip.setExpanded (openAmount > 0.5f);
+    }
+
+    void tickAnimation()
+    {
+        // Open while pinned by a click or the pointer is on the strip or the
+        // card (or a menu from it is up); leaving lets it shrink back.
+        const auto over = strip.isMouseOver (true) || (overlay.isVisible() && overlay.isMouseOver (true))
+                          || juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0 && overlay.isVisible();
+        const auto want = pinned || over || flowForcedOpen();
+        const auto target = want ? 1.0f : 0.0f;
+        if (std::abs (openAmount - target) > 0.001f)
+        {
+            // (A short leave delay: the pointer crossing a gap does not flicker it.)
+            leaveTicks = want ? 0 : leaveTicks + 1;
+            if (want || leaveTicks > 6)
+                openAmount = want ? juce::jmin (1.0f, openAmount + 0.14f) : juce::jmax (0.0f, openAmount - 0.12f);
+            applyOpenAmount();
+        }
+        else if (! want)
+            leaveTicks = 0;
+    }
+
     // Balance only acts in parallel (disabled in serial, so it can't be
     // set by mistake); resonator knobs only when it is on.
     void timerCallback() override
@@ -158,15 +363,15 @@ private:
         const auto parallelNow = readValue ("filters_parallel") > 0.5f;
         const auto replacedNow = filter2Replaced();
 
-        if ((westOn() || bodyActive()) != westShown)
-            resized();
-
         if (parallelNow != wasParallel || replacedNow != wasReplaced)
         {
             wasParallel = parallelNow;
             wasReplaced = replacedNow;
-            repaint (flowCard);
+            strip.repaint();
+            applyOpenAmount();
+            overlay.repaint();
         }
+        strip.repaint();
 
         // (A rule dims it first, while it is still enabled.)
         effectRules.apply();
@@ -198,8 +403,9 @@ private:
         }
 
         // (Its tooltip keeps the rule's "no effect now" note.)
-        if (balance.isEnabled() != parallelNow)
-            balance.setEnabled (parallelNow);
+        for (auto* knob : { &balance, &stripBalance })
+            if (knob->isEnabled() != parallelNow)
+                knob->setEnabled (parallelNow);
     }
 
     float readValue (const char* id) const
@@ -209,26 +415,26 @@ private:
     }
 
     bool filter2Replaced() const { return readValue ("west_on") > 0.5f && juce::roundToInt (readValue ("west_pos")) == 1; }
-    bool westOn() const { return readValue ("west_on") > 0.5f; }
-    // The body shows while it is on, or while it couples the strings (which
-    // works without it).
-    bool bodyActive() const { return readValue ("res_on") > 0.5f || juce::roundToInt (readValue ("body_coupling_mode")) == 3; }
-
-    static constexpr int foldedCardHeight = 40;
-    bool westShown = true, bodyShown = true;
 
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;
     FilterPanel panel1, panel2;
     WestPanel westPanel;
     SignalFlow flow;
-    KnobControl balance;
+    FlowStrip strip;
+    KnobControl balance, stripBalance;
+    FlowOverlay overlay;
+    Animator animator;
+    juce::Rectangle<int> closedBounds, openBounds;
+    float openAmount = 0.0f;
+    int leaveTicks = 0;
+    bool pinned = false;
     bool wasParallel = false, wasReplaced = false;
     ToggleControl resOn;
     KnobControl resAmount, resDecay, resOffset, resKeytrack;
     ComboControl bodyType, bodyCouplingMode;
     KnobControl bodyMaterial, bodySize, bodyCoupling;
-    juce::Rectangle<int> flowCard, resonatorCard;
+    juce::Rectangle<int> resonatorCard;
     EffectRules effectRules { processorRef }, bodyRules { processorRef };
 };
 
@@ -312,6 +518,94 @@ private:
     int lfo = 0;
     bool shown = true;
     KnobControl rate, division;
+};
+
+// PLAY's LFO card RATE (the approved design): a labelled horizontal slider
+// with its value, on the card's one baseline with SHAPE, SYNC and RETRIG. As
+// LfoRateControl it follows SYNC (Hz, or a note value), and a source dropped
+// on it still routes to RATE.
+class LfoRateSlider : public juce::Component,
+                      public juce::DragAndDropTarget,
+                      private juce::Timer
+{
+public:
+    LfoRateSlider (IlanaSynthAudioProcessor& p, int lfoIndex, juce::Colour accent)
+        : processorRef (p),
+          lfo (lfoIndex),
+          rate (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_rate"),
+          division (p.apvts, "lfo" + juce::String (lfoIndex + 1) + "_div"),
+          destination (modRingConfigFor ("lfo" + juce::String (lfoIndex + 1) + "_rate").destination)
+    {
+        label.setText ("RATE", juce::dontSendNotification);
+        label.setJustificationType (juce::Justification::centredLeft);
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        label.setBorderSize ({ 0, 1, 0, 1 });
+        label.setInterceptsMouseClicks (false, false);
+        addAndMakeVisible (label);
+
+        for (auto* control : { &rate, &division })
+        {
+            control->getSlider().setColour (juce::Slider::rotarySliderFillColourId, accent);
+            control->getSlider().setColour (juce::Slider::trackColourId, accent);
+            addChildComponent (*control);
+        }
+
+        const juce::String tip ("LFO " + juce::String (lfoIndex + 1) + " rate\nHz while free-running; a note value at the host tempo while SYNC is on. "
+                                "Drop a modulation source here to modulate the rate.");
+        rate.getSlider().setTooltip (tip);
+        division.getSlider().setTooltip (tip);
+        refresh();
+        startTimerHz (10);
+    }
+
+    void addTo (juce::Component& parent) { parent.addChildComponent (*this); }
+    void setShown (bool shouldShow) { shown = shouldShow; setVisible (shown); refresh(); }
+    ValueSliderControl& getRateSlider() { return rate; }
+    ValueSliderControl& getDivisionSlider() { return division; }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        label.setBounds (area.removeFromTop (13));
+        // The slider line is the menus' box height, centred in it.
+        rate.setBounds (area);
+        division.setBounds (area);
+    }
+
+    bool isInterestedInDragSource (const SourceDetails& details) override
+    {
+        return destination != 0 && details.description.toString().startsWith ("modsource:");
+    }
+
+    void itemDropped (const SourceDetails& details) override
+    {
+        const auto source = details.description.toString().fromFirstOccurrenceOf ("modsource:", false, false).getIntValue();
+        processorRef.performEdit ("Add modulation", [this, source] { processorRef.assignModSlot (source, destination, 0.35f); });
+    }
+
+private:
+    bool isSynced() const
+    {
+        const auto* sync = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_sync");
+        return sync != nullptr && sync->load() > 0.5f;
+    }
+
+    void refresh()
+    {
+        const auto synced = isSynced();
+        rate.setVisible (shown && ! synced);
+        division.setVisible (shown && synced);
+    }
+
+    void timerCallback() override { refresh(); }
+
+    IlanaSynthAudioProcessor& processorRef;
+    int lfo = 0;
+    bool shown = true;
+    juce::Label label;
+    ValueSliderControl rate, division;
+    int destination = 0;
 };
 
 // PLAY's OP ENV tab (UI review 8, I8-18): the Operator Env every operator

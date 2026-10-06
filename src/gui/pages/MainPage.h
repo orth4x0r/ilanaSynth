@@ -164,6 +164,15 @@ public:
 
         // Filters: one set of controls per filter, swapped by the F1/F2 tabs.
         addAndMakeVisible (filterDisplay);
+        // A DX7 voice has no filter: the response says so (a label over its well).
+        filterOffNote.setText ("FILTER OFF\na DX7 voice has none: turn CUTOFF down to bring one in", juce::dontSendNotification);
+        filterOffNote.setJustificationType (juce::Justification::centred);
+        filterOffNote.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        filterOffNote.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        filterOffNote.setBorderSize ({ 0, 6, 0, 6 });
+        filterOffNote.setMinimumHorizontalScale (0.8f);
+        filterOffNote.setInterceptsMouseClicks (false, false);
+        addChildComponent (filterOffNote);
 
         for (int f = 0; f < 2; ++f)
         {
@@ -171,7 +180,7 @@ public:
             auto set = std::make_unique<ControlSet>();
             // TYPE and SLOPE named and grouped as on the FILTER page: the
             // type grid's short names and families, and its 12 / 24 dB pills.
-            auto type = std::make_unique<ComboControl> (p.apvts, prefix + "_type", "TYPE");
+            auto type = std::make_unique<ComboControl> (p.apvts, prefix + "_type", "");
             {
                 // (Same item ids, so the attachment still matches them.)
                 auto& box = type->getComboBox();
@@ -182,6 +191,8 @@ public:
                     box.addItem (index < shortNames.size() ? shortNames[index] : names[index], index + 1);
                 box.setSelectedId (readInt (prefix + "_type") + 1, juce::dontSendNotification);
             }
+            type->setTooltip ("FILTER TYPE\nThe filter model; the FILTER tab shows them all in a grid.");
+            type->getComboBox().setTooltip ("FILTER TYPE\nThe filter model; the FILTER tab shows them all in a grid.");
             type->setPopupOverride ([this, combo = &type->getComboBox(), id = prefix + "_type", f]
             {
                 showFilterTypeMenu (*combo, id, f);
@@ -194,6 +205,7 @@ public:
                                       { "_drive", "DRIVE" }, { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" } })
             {
                 set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, filterColour (f), false));
+                static_cast<KnobControl&> (*set->items.back()).setSizeRole (IlanaTheme::KnobSize::minimum);
                 // A DX7 voice has no filter: its knobs but CUTOFF, which
                 // brings one in, dim and say why (review 14, I14-3).
                 if (juce::String (spec.first) != "_cutoff")
@@ -219,7 +231,9 @@ public:
             for (const auto& spec : { std::pair<const char*, const char*> { "_attack", "ATTACK" }, { "_decay", "DECAY" },
                                       { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" } })
                 set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, envColour (e), e == 0));
+                static_cast<KnobControl&> (*set->items.back()).setSizeRole (envKnobDial);
 
+            set->display->setSlim (true);
             addChildComponent (*set->display);
 
             for (auto& item : set->items)
@@ -265,10 +279,11 @@ public:
             lfoSets.push_back (std::move (set));
 
             // RATE reads in Hz, or in note values while SYNC is on.
-            lfoRates.push_back (std::make_unique<LfoRateControl> (p, lfo, lfoColour (lfo), false));
+            lfoRates.push_back (std::make_unique<LfoRateSlider> (p, lfo, lfoColour (lfo)));
             lfoRates.back()->addTo (*this);
         }
 
+        lfoThumbs.setFillWidth (true);
         lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
         lfoThumbView.setViewedComponent (&lfoThumbs, false);
         lfoThumbView.setScrollBarsShown (false, true);
@@ -447,18 +462,6 @@ public:
         {
             const auto well = filterDisplay.getBounds().toFloat();
             IlanaTheme::paintWell (g, well, 6.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            IlanaTheme::drawFitted (g, "FILTER OFF", well.toNearestInt().withTrimmedBottom ((int) (well.getHeight() / 2.0f)), juce::Justification::centredBottom, 1);
-            g.setColour (IlanaTheme::Ui::text3);
-            const auto noteFont = IlanaTheme::font (IlanaTheme::TextSize::label);
-            g.setFont (noteFont);
-            const juce::String note ("a DX7 voice has none: turn CUTOFF down to bring one in");
-            // (A box only as wide and tall as the words, so it never reaches the controls around the well.)
-            auto noteArea = well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0);
-            noteArea = noteArea.withSizeKeepingCentre (juce::jmin (noteArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (noteFont, note) + 2), noteArea.getHeight())
-                               .withHeight (juce::jmin (noteArea.getHeight(), 2 * (int) std::ceil (noteFont.getHeight()) + 2));
-            IlanaTheme::drawFitted (g, note, noteArea, juce::Justification::centredTop, 2);
         }
         paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
 
@@ -483,7 +486,7 @@ public:
             IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
-            for (int i = 0; i < count && rowHeight >= 10; ++i)
+            for (int i = 0; i < count && rowHeight >= 8; ++i)
             {
                 const auto osc = operators[(size_t) i];
                 const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
@@ -505,13 +508,6 @@ public:
             }
         }
 
-        if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            IlanaTheme::drawFitted (g, shownAmpNote, ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0).withTrimmedLeft (4),
-                              juce::Justification::centredLeft, 2);
-        }
         paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
 
         // How the selected LFO runs, in MOD's words (UI review 9, I9-19).
@@ -527,21 +523,38 @@ public:
         }
     }
 
+    // AMP ENV's note while nothing plays it, over the (dimmed) graph.
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
+        {
+            const auto room = ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0);
+            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.8f));
+            g.fillRoundedRectangle (ampNoteArea.toFloat(), 4.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, shownAmpNote, room.withTrimmedLeft (4), juce::Justification::centredLeft, 1);
+        }
+    }
+
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12, 10);
-        auto left = area.removeFromLeft ((int) ((float) area.getWidth() * 0.56f));
-        area.removeFromLeft (10);
+        // One spacing grid (the approved design): 14 px page gutter, a 10 px
+        // gap between all cards in both columns, cards 30 px header and
+        // 8 / 10 padding. The left column is 1.2 : 1 against the right.
+        auto area = getLocalBounds().reduced (pageGutter, 12);
+        const auto leftWidth = (int) ((float) (area.getWidth() - cardGap) * 1.2f / 2.2f + 0.5f);
+        auto left = area.removeFromLeft (leftWidth);
+        area.removeFromLeft (cardGap);
         auto right = area;
 
-        // The added oscillators' strips and SUB + NOISE, with one slim
-        // "+ ADD OSC" row between them while a slot is free (UI review 7,
-        // V7-4, S7-2). The strips share the column's height (UI review 9,
-        // V9-1, V9-2): few of them grow up to a cap, so the column ends
-        // where the right one does; five or six shrink to compact rows, so
-        // a six-operator voice shows whole without scrolling. A
-        // switched-off oscillator folds to a slim strip with its switch
-        // (V8-17); only a window too small even for compact rows scrolls.
+        // The oscillator strips and SUB + NOISE, with one slim "+ ADD OSC"
+        // row between them while a slot is free (UI review 5-9). Open strips
+        // are 146 px, SUB + NOISE 140, a switched-off one folds to 36, the
+        // add row is 28 (the design's fixed heights); a column that is too
+        // short (five or six operators) shares its height, and one with room
+        // to spare grows its strips a little rather than end in a bare band,
+        // the rest going to a live PATCH tile and OUTPUT view.
         oscView.setBounds (left);
         const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
         auto shown = 0, folded = 0;
@@ -552,21 +565,27 @@ public:
                 folded += isFolded (osc) ? 1 : 0;
             }
         const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
+        const auto openOscillators = shown - folded;
         folded += subFolded ? 1 : 0;
-        const auto flexible = shown + 1 - folded; // the open strips and SUB + NOISE
+        const auto flexible = openOscillators + (subFolded ? 0 : 1); // the open strips and SUB + NOISE
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
-        // The strips fill the column first, up to a cap (ilana, 2026-10-05: the
-        // pictures and knobs get the room); the PATCH tile (and the OUTPUT
-        // view) take only the height left over. When that is too little for a
-        // tile the strips take it instead, up to a larger cap, so the column
-        // never ends in a bare band (V10-2, V10-4).
-        auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
+        const auto wanted = openOscillators * oscHeightDesign + (subFolded ? 0 : subHeightDesign);
+        auto oscHeight = oscHeightDesign, subHeight = subHeightDesign;
+        if (flexible > 0 && wanted > free)
         {
-            const auto spare = free - flexible * slotHeight - slotGap;
+            oscHeight = subHeight = juce::jmax (minSlotHeight, free / flexible);
+        }
+        else if (flexible > 0)
+        {
+            const auto spare = free - wanted - slotGap;
+            auto extra = 0;
             if (spare < patchMinHeight)
-                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, free / juce::jmax (1, flexible));
+                extra = (free - wanted) / flexible;
             else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
-                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, slotHeight + (spare - maxPatchOnlyHeight) / juce::jmax (1, flexible));
+                extra = (spare - maxPatchOnlyHeight) / flexible;
+            extra = juce::jlimit (0, maxGrowth, extra);
+            oscHeight += extra;
+            subHeight += extra;
         }
         auto columnHeight = 0, lastWholeBottom = 0;
         std::vector<int> cardTops;
@@ -580,16 +599,16 @@ public:
         };
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
-                addCard (isFolded (osc) ? foldedHeight : slotHeight);
+                addCard (isFolded (osc) ? foldedHeight : oscHeight);
         if (addRow > 0)
             addCard (addRowHeight);
-        addCard (subFolded ? foldedHeight : slotHeight);
+        addCard (subFolded ? foldedHeight : subHeight);
         const auto scrolls = columnHeight > left.getHeight();
         // A scrolling column ends its view at a strip's foot, so no strip
         // shows cut in half (V13, S8).
         if (scrolls && lastWholeBottom > left.getHeight() / 2)
             oscView.setBounds (left.withHeight (lastWholeBottom));
-        oscView.setSingleStepSizes (16, slotHeight + slotGap);
+        oscView.setSingleStepSizes (16, oscHeight + slotGap);
         // The column's foot is padded so that scrolled to its end the view
         // also starts at a strip's top, and the view snaps to a strip's top.
         const auto viewHeight = oscView.getHeight();
@@ -601,7 +620,7 @@ public:
                                                 [&] (int top) { return columnHeight - top <= viewHeight; });
             paddedHeight = juce::jmax (columnHeight, lastTop + viewHeight);
             for (const auto top : cardTops)
-                if (top <= juce::jmin (oscView.getViewPositionY() + slotHeight / 2, lastTop))
+                if (top <= juce::jmin (oscView.getViewPositionY() + oscHeight / 2, lastTop))
                     snappedY = top;
         }
         oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0), paddedHeight);
@@ -616,7 +635,7 @@ public:
 
             if (shownStrips[(size_t) osc])
             {
-                oscCards[(size_t) osc] = column.removeFromTop (isFolded (osc) ? foldedHeight : slotHeight);
+                oscCards[(size_t) osc] = column.removeFromTop (isFolded (osc) ? foldedHeight : oscHeight);
                 column.removeFromTop (slotGap);
             }
 
@@ -633,7 +652,7 @@ public:
             addOscButton.setVisible (true);
         }
 
-        subCard = column.removeFromTop (subFolded ? foldedHeight : slotHeight);
+        subCard = column.removeFromTop (subFolded ? foldedHeight : subHeight);
         layoutSubCard();
 
         // Height the strips don't take goes to a live PATCH tile (the signal
@@ -650,24 +669,26 @@ public:
             column.removeFromTop (slotGap);
             if (showOutput)
                 outputCard = column.removeFromTop (column.getHeight());
-            patchFlow.setBounds (patchCard.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
-            outputView.setBounds (outputCard.withTrimmedTop (22).reduced (6, 0).withTrimmedBottom (8));
+            patchFlow.setBounds (patchCard.withTrimmedTop (cardHeaderHeight).reduced (12, 0).withTrimmedBottom (12));
+            outputView.setBounds (outputCard.withTrimmedTop (cardHeaderHeight - 6).reduced (6, 0).withTrimmedBottom (8));
         }
         patchFlow.setVisible (showPatch);
         outputView.setVisible (showOutput);
         oscColumn.repaint();
 
-        const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
-        const auto remaining = right.getHeight() - lfoHeight - 16;
-        filterCard = right.removeFromTop ((int) ((float) remaining * 0.53f));
-        right.removeFromTop (8);
-        envCard = right.removeFromTop (remaining - filterCard.getHeight());
-        right.removeFromTop (8);
+        // FILTER, ENVELOPE and LFO: three equal cards, a 10 px gap (172 px
+        // each at the design's size).
+        const auto rightCard = (right.getHeight() - 2 * cardGap) / 3;
+        filterCard = right.removeFromTop (rightCard);
+        right.removeFromTop (cardGap);
+        envCard = right.removeFromTop (rightCard);
+        right.removeFromTop (cardGap);
         lfoCard = right;
 
+        // The tabs sit in the 30 px header, 22 px pills level with its title.
         const auto placeTabs = [] (CardTabs& tabs, juce::Rectangle<int> card)
         {
-            auto header = card.reduced (8, 0).withHeight (26).reduced (0, 5);
+            auto header = card.withHeight (cardHeaderHeight).reduced (10, 4);
             tabs.setBounds (header.removeFromRight (tabs.getIdealWidth()));
         };
 
@@ -676,30 +697,46 @@ public:
         placeTabs (envTabs, envCard);
         placeTabs (lfoTabs, lfoCard);
 
+        // FILTER: the response on the left at the card's full height, the
+        // controls in a 3 x 2 grid on the right: CUTOFF, RESO, DRIVE, ENV AMT,
+        // KEY TRK, then TYPE with the slope pills.
         {
-            auto inner = filterCard.reduced (10).withTrimmedTop (18);
-            filterDisplay.setBounds (inner.removeFromTop (juce::jmax (50, inner.getHeight() - 96)));
-            inner.removeFromTop (4);
+            auto inner = filterCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            filterDisplay.setBounds (inner.removeFromLeft (filterDisplayWidth));
+            filterOffNote.setBounds (filterDisplay.getBounds().reduced (4, 20));
+            inner.removeFromLeft (12);
+            const auto cellWidth = inner.getWidth() / 3, cellHeight = inner.getHeight() / 2;
+            const auto cell = [&] (int index) { return juce::Rectangle<int> (inner.getX() + (index % 3) * cellWidth, inner.getY() + (index / 3) * cellHeight,
+                                                                           cellWidth, cellHeight); };
 
             for (auto& set : filterSets)
             {
-                auto row = inner;
-                auto combos = row.removeFromLeft (104);
-                set->items[0]->setBounds (combos.removeFromTop (combos.getHeight() / 2).reduced (0, 1));
-                set->items[1]->setBounds (combos.reduced (0, 1));
-                layoutRow (row, { set->items[2].get(), set->items[3].get(), set->items[4].get(), set->items[5].get(), set->items[6].get() });
+                for (int knob = 0; knob < 5; ++knob)
+                    set->items[(size_t) knob + 2]->setBounds (cell (knob).reduced (2, 0));
+
+                const auto slot = cell (5);
+                const auto width = juce::jmin (slot.getWidth() - 4, 96);
+                const auto stack = slot.withSizeKeepingCentre (width, 24 + 6 + 22);
+                set->items[0]->setBounds (stack.withHeight (24));
+                set->items[1]->setBounds (stack.withTrimmedTop (30));
             }
         }
 
+        // ENVELOPE: the graph across the card's full width, the four knobs in
+        // one evenly spaced row under it.
         {
-            auto inner = envCard.reduced (10).withTrimmedTop (18);
-            auto displayArea = inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2));
-            inner.removeFromLeft (6);
-
-            // An unused AMP ENV says so under its knobs.
-            ampNoteArea = shownAmpNote.isNotEmpty() ? inner.removeFromBottom (28) : juce::Rectangle<int>();
-            auto noteArea = ampNoteArea;
-            opEgButton.setBounds (noteArea.removeFromRight (100).withSizeKeepingCentre (96, 22));
+            auto inner = envCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            // OP ENV: the picture takes the height its operators' bars leave.
+            auto graphHeight = envGraphHeight;
+            if (selectedEnv == opEnvTab)
+            {
+                const auto operators = (int) OperatorPool::operatorsOnEnv (processorRef).size();
+                graphHeight = juce::jlimit (36, 100, inner.getHeight() - 8 - (18 + 12 * juce::jmax (1, operators)));
+            }
+            const auto displayArea = inner.removeFromTop (graphHeight);
+            inner.removeFromTop (8);
+            ampNoteArea = shownAmpNote.isNotEmpty() ? displayArea.withTrimmedTop (displayArea.getHeight() - 22).reduced (6, 2) : juce::Rectangle<int>();
+            opEgButton.setBounds (ampNoteArea.removeFromRight (100).withSizeKeepingCentre (96, 20));
 
             for (auto& set : envSets)
             {
@@ -708,36 +745,42 @@ public:
             }
 
             // OP ENV: its picture where the graph is, a line on what plays
-            // it, and EDIT OP ENV under it.
+            // it under it, and EDIT OP ENV in the header.
             opEnvOverview.setBounds (displayArea);
             opEnvNoteArea = {};
             if (selectedEnv == opEnvTab)
-            {
-                opEnvNoteArea = inner.reduced (4, 6);
-            }
+                opEnvNoteArea = inner.reduced (4, 0);
 
             updateVisibility();
         }
 
+        // LFO: three thumbnails (filled waves, live phase dot, route chip, the
+        // selected one lit) over ONE row on a single baseline: SHAPE, RATE,
+        // SYNC and RETRIG, each named above its control.
         {
-            auto inner = lfoCard.reduced (10).withTrimmedTop (18);
-            // The selected LFO's controls: one row, labels above like the
-            // filter's and envelope's (a small dial fits the card).
-            constexpr int controlRow = 13 + 30 + 16 + 6;
-            // (12 px between the cards and the row, so the row's labels
-            // don't crowd the cards.)
-            auto cards = inner.removeFromTop (juce::jmax (40, inner.getHeight() - controlRow - 8));
+            auto inner = lfoCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            const auto cards = inner.removeFromTop (lfoThumbHeight);
             lfoThumbs.setViewWidth (cards.getWidth());
             const auto thumbWidth = lfoThumbs.getPreferredWidth();
             lfoThumbView.setBounds (cards);
             lfoThumbs.setSize (thumbWidth, cards.getHeight() - (thumbWidth > cards.getWidth() ? lfoThumbView.getScrollBarThickness() + 1 : 0));
-            inner.removeFromTop (12);
+            inner.removeFromTop (8);
 
+            auto row = inner.removeFromBottom (13 + 24);
             for (size_t lfo = 0; lfo < lfoSets.size(); ++lfo)
             {
                 auto& set = lfoSets[lfo];
-                layoutRow (inner, { set->items[0].get(), lfoRates[lfo]->layoutItem(), set->items[1].get(), set->items[2].get() });
-                lfoRates[lfo]->matchBounds();
+                auto cells = row;
+                const auto shape = cells.removeFromLeft (juce::jmin (132, cells.getWidth() / 3));
+                cells.removeFromLeft (16);
+                const auto retrig = cells.removeFromRight (64);
+                cells.removeFromRight (16);
+                const auto sync = cells.removeFromRight (56);
+                cells.removeFromRight (16);
+                set->items[0]->setBounds (shape);
+                lfoRates[lfo]->setBounds (cells);
+                set->items[1]->setBounds (sync);
+                set->items[2]->setBounds (retrig);
             }
         }
     }
@@ -827,23 +870,15 @@ private:
         SlopeField (juce::AudioProcessorValueTreeState& state, const juce::String& id, juce::Colour colour)
             : pills (state, id, colour)
         {
-            label.setText ("SLOPE", juce::dontSendNotification);
-            label.setJustificationType (juce::Justification::centredLeft);
-            label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
-            label.setInterceptsMouseClicks (false, false);
-            addAndMakeVisible (label);
+            pills.setTooltip ("SLOPE\n12 or 24 dB per octave.");
             addAndMakeVisible (pills);
         }
 
         void resized() override
         {
-            auto area = getLocalBounds();
-            label.setBounds (area.removeFromTop (13));
-            pills.setBounds (area.removeFromTop (24));
+            pills.setBounds (getLocalBounds());
         }
 
-        juce::Label label;
         SlopeSwitch pills;
     };
 
@@ -1139,6 +1174,7 @@ private:
             {
                 operatorFilterOff = off;
                 filterDisplay.setVisible (! off);
+                filterOffNote.setVisible (off);
                 repaint (filterCard);
             }
         }
@@ -1257,7 +1293,7 @@ private:
     }
 
     // The title line's centre on the right column's cards.
-    static int titleCentreY (juce::Rectangle<int> card) { return card.getY() + 14; }
+    static int titleCentreY (juce::Rectangle<int> card) { return card.getY() + cardHeaderHeight / 2; }
 
     static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint)
     {
@@ -1282,14 +1318,14 @@ private:
     static bool roomy (juce::Rectangle<int> card) { return card.getHeight() >= roomyHeight; }
     static int dialSize (juce::Rectangle<int> card)
     {
-        return card.getHeight() >= tallHeight ? 64 : roomy (card) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum;
+        return roomy (card) ? 38 : IlanaTheme::KnobSize::minimum;
     }
     static juce::Rectangle<int> titleArea (juce::Rectangle<int> card) { return card.withWidth (8 + titleWidth); }
     // The strip's "EDIT ›": on a roomy strip in the header line, left of the
     // switch and level with it; on a low one at the title row's right.
     static juce::Rectangle<int> editLinkArea (juce::Rectangle<int> card)
     {
-        return roomy (card) ? juce::Rectangle<int> (card.getRight() - switchWidth - 12 - editLinkWidth, card.getY() + headerHeight / 2 + 7 - 8, editLinkWidth, 16)
+        return roomy (card) ? juce::Rectangle<int> (card.getRight() - switchWidth - 12 - editLinkWidth, card.getY() + cardHeaderHeight / 2 - 8, editLinkWidth, 16)
                             : juce::Rectangle<int> (card.getRight() - 12 - 52, card.getY() + 6, 52, 16);
     }
 
@@ -1310,12 +1346,10 @@ private:
 
         if (roomy (card))
         {
-            inner.removeFromTop (headerHeight);
-            const auto picture = inner.removeFromLeft (juce::jmin ((int) ((float) inner.getHeight() * 1.7f), inner.getWidth() * 4 / 10));
-            columns.picture = picture;
+            inner = card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            columns.picture = inner.removeFromLeft (stripPictureWidth);
             inner.removeFromLeft (10);
-            columns.menus = inner.removeFromTop (24);
-            inner.removeFromTop (4);
+            columns.menus = inner.removeFromTop (stripMenuHeight);
             columns.knobs = inner;
             return columns;
         }
@@ -1348,7 +1382,7 @@ private:
         if (! shownStrips[(size_t) index])
             return;
 
-        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, roomy (card) && ! isFolded (index) ? card.getY() + headerHeight / 2 + 6 : card.getCentreY() - 1));
+        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, roomy (card) && ! isFolded (index) ? card.getY() + cardHeaderHeight / 2 : card.getCentreY() - 1));
 
         if (isFolded (index))
             return;
@@ -1371,19 +1405,27 @@ private:
 
         if (roomy (card))
         {
+            // The design's menus: 112 / 96 / 68 of a 276 px row, 6 px apart.
             const auto count = mode == 0 && ! strip.opEg ? 3 : mode <= 1 ? 2 : 1;
-            const auto cell = (menus.getWidth() - 4 * (count - 1)) / count;
-            strip.mode->setBounds (menus.removeFromLeft (cell));
-            menus.removeFromLeft (4);
-
-            if (mode == 0)
+            const auto room = menus.getWidth() - 6 * (count - 1);
+            const auto cell = room / count;
+            if (mode == 0 && count == 3)
             {
-                strip.table->setBounds (menus.removeFromLeft (cell));
-                menus.removeFromLeft (4);
+                strip.mode->setBounds (menus.removeFromLeft (room * 112 / 276));
+                menus.removeFromLeft (6);
+                strip.table->setBounds (menus.removeFromLeft (room * 96 / 276));
+                menus.removeFromLeft (6);
                 strip.warp->setBounds (menus);
             }
-            else if (mode == 1)
-                strip.excite->setBounds (menus);
+            else
+            {
+                strip.mode->setBounds (menus.removeFromLeft (cell));
+                menus.removeFromLeft (6);
+                if (mode == 0)
+                    strip.table->setBounds (menus);
+                else if (mode == 1)
+                    strip.excite->setBounds (menus);
+            }
         }
         else
         {
@@ -1414,7 +1456,7 @@ private:
 
     void layoutSubCard()
     {
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) && ! subFolded ? subCard.getY() + headerHeight / 2 + 6 : subCard.getCentreY() - 1));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) && ! subFolded ? subCard.getY() + cardHeaderHeight / 2 : subCard.getCentreY() - 1));
         for (auto* item : { (juce::Component*) subShape.get(), (juce::Component*) subOctave.get(), (juce::Component*) subLevel.get(),
                             (juce::Component*) noiseLevel.get(), (juce::Component*) noiseColour.get() })
             item->setVisible (! subFolded);
@@ -1437,8 +1479,8 @@ private:
         }
 
         for (auto* knob : { subLevel.get(), noiseLevel.get(), noiseColour.get() })
-            if (knob != nullptr && knob->getMaxDial() != dialSize (subCard))
-                knob->setSizeRole (dialSize (subCard));
+            if (knob != nullptr && knob->getMaxDial() != (roomy (subCard) ? 34 : dialSize (subCard)))
+                knob->setSizeRole (roomy (subCard) ? 34 : dialSize (subCard));
 
         layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
     }
@@ -1641,8 +1683,11 @@ private:
     int lastRevealVersion = -1, hoverEditLink = -1;
     // The column: the strips and SUB + NOISE, all one height, and the
     // "+ ADD OSC" row.
-    static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
-    static constexpr int minSlotHeight = 68, maxSlotHeight = 160, foldedHeight = 40, roomyHeight = 112, tallHeight = 170, headerHeight = 22, editLinkWidth = 56;
+    // The design's one spacing grid and fixed heights (mockup panelsA.js, play).
+    static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
+    static constexpr int filterDisplayWidth = 170, envGraphHeight = 56, lfoThumbHeight = 74, envKnobDial = 34, stripPictureWidth = 190, stripMenuHeight = 26;
+    static constexpr int minSlotHeight = 68, roomyHeight = 112, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
     static constexpr int compactTitleWidth = 64, compactPictureWidth = 66, compactMenuWidth = 88, compactSwitchWidth = 40, minDenseKnobsWidth = 280, subMenuWidth = 176;
     juce::Rectangle<int> addRowArea;
@@ -1670,13 +1715,14 @@ private:
     OperatorEnvOverview opEnvOverview { processorRef };
     juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
+    juce::Label filterOffNote;
     bool operatorFilterOff = false;
     juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;
     CardTabs filterTabs, envTabs, lfoTabs;
     std::vector<std::unique_ptr<OscStrip>> strips;
     std::vector<std::unique_ptr<ControlSet>> filterSets, envSets, lfoSets;
-    std::vector<std::unique_ptr<LfoRateControl>> lfoRates;
+    std::vector<std::unique_ptr<LfoRateSlider>> lfoRates;
     std::array<juce::Rectangle<int>, OscillatorIds::count> oscCards;
     juce::Rectangle<int> filterCard, envCard, lfoCard;
 };

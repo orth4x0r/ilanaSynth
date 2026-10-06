@@ -424,8 +424,12 @@ public:
             const auto prefix = "fx_slot" + juce::String (slot + 1);
             header.type.onClick = [this, slot]
             {
+                // The picker, as + ADD EFFECT's, swapping this slot's effect
+                // (its bypass, solo, band and move are on the card and its
+                // right-click menu).
                 select (slot);
-                showTypeMenu (slot, &cardHeaders[(size_t) slot].type);
+                auto& button = cardHeaders[(size_t) slot].type;
+                showLibrary (button, button.getLocalBounds(), slot);
             };
             stackContent.addChildComponent (header.type);
 
@@ -760,10 +764,14 @@ private:
         }
     }
 
-    // A library pick: a new effect goes into the first empty slot; one the
+    // A library pick: a new effect goes into the first empty slot, or into
+    // replacingSlot in place of its effect (a card's type button); one the
     // rack already holds is shown instead.
-    void pickFromLibrary (int type)
+    void pickFromLibrary (int type, int replacingSlot = -1)
     {
+        if (replacingSlot >= 0 && getSlotType (replacingSlot) == type)
+            return;
+
         if (const auto holder = slotHoldingType (type); holder >= 0)
         {
             select (holder);
@@ -773,11 +781,12 @@ private:
             return;
         }
 
-        const auto slot = firstEmptySlot();
+        const auto slot = replacingSlot >= 0 ? replacingSlot : firstEmptySlot();
         if (slot < 0)
             return;
 
-        processorRef.performEdit ("Add " + getSlotName (type), [this, slot, type] { processorRef.assignFxSlot (slot + 1, type); });
+        processorRef.performEdit ((replacingSlot >= 0 ? "Change effect to " : "Add ") + getSlotName (type),
+                                  [this, slot, type] { processorRef.assignFxSlot (slot + 1, type); });
         selectedSlot = slot;
         updateVisibility();
         scrollToSlot (slot);
@@ -795,15 +804,35 @@ private:
         updateVisibility();
     }
 
-    // The library in a call-out over the page (in the editor's window).
-    void showLibrary (juce::Component& target, juce::Rectangle<int> area)
+    // The editor's scaled content (the page's ancestor under the editor), so
+    // the call-out is drawn at the UI zoom like the page around it; it was
+    // added to the unscaled window and came out at half size, its text about
+    // 7 px, on a zoomed editor (ilana's PC test).
+    juce::Component* calloutHost()
     {
+        auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>();
+        if (editor == nullptr)
+            return getTopLevelComponent();
+        juce::Component* host = this;
+        while (host->getParentComponent() != nullptr && host->getParentComponent() != editor)
+            host = host->getParentComponent();
+        return host->getParentComponent() == editor ? host : editor;
+    }
+
+    // The library in a call-out over the page: adding (slot -1) or swapping a
+    // slot's effect (its card's type button).
+    void showLibrary (juce::Component& target, juce::Rectangle<int> area, int slot = -1)
+    {
+        auto* host = calloutHost();
+        if (host == nullptr)
+            return;
+
         juce::Component::SafePointer<FxPage> safeThis (this);
         auto view = std::make_unique<FxLibraryView> ([safeThis] (int type) { return safeThis != nullptr ? safeThis->slotHoldingType (type) : -1; },
-                                                     [safeThis] (int type)
+                                                     [safeThis, slot] (int type)
                                                      {
                                                          if (safeThis != nullptr)
-                                                             safeThis->pickFromLibrary (type);
+                                                             safeThis->pickFromLibrary (type, slot);
                                                      });
         auto* raw = view.get();
         view->afterPick = [raw]
@@ -811,13 +840,36 @@ private:
             if (auto* box = raw->findParentComponentOfClass<juce::CallOutBox>())
                 box->dismiss();
         };
-        view->setSize (FxLibraryView::columns * 136 + (FxLibraryView::columns - 1) * 10, FxLibraryView::preferredHeight());
+        if (slot >= 0)
+        {
+            view->setReplacing (slot, getSlotType (slot));
+            view->onRemove = [safeThis, slot]
+            {
+                if (safeThis != nullptr)
+                    safeThis->removeSlot (slot);
+            };
+        }
+        view->setPadding (FxLibraryView::calloutPadding);
+        view->setSize (juce::jmin (FxLibraryView::calloutWidth, host->getWidth() - 2 * 14 - 8),
+                       FxLibraryView::preferredHeight() + FxLibraryView::calloutPadding.getTopAndBottom());
         view->setName ("FX LIBRARY"); // (the UI test finds it by name)
 
-        auto* parent = getTopLevelComponent();
-        juce::CallOutBox::launchAsynchronously (std::move (view),
-                                                parent != nullptr ? parent->getLocalArea (&target, area) : target.localAreaToGlobal (area),
-                                                parent);
+        // The page behind it dims while it is open.
+        host->addAndMakeVisible (pickerDimmer);
+        pickerDimmer.setBounds (host->getLocalBounds());
+        pickerDimmer.toFront (false);
+        view->onGone = [safeThis]
+        {
+            if (safeThis != nullptr)
+                if (auto* parent = safeThis->pickerDimmer.getParentComponent())
+                    parent->removeChildComponent (&safeThis->pickerDimmer);
+        };
+
+        const auto pointAt = host->getLocalArea (&target, area);
+        auto& box = juce::CallOutBox::launchAsynchronously (std::move (view), pointAt, host);
+        box.setLookAndFeel (&pickerLook);
+        box.setArrowSize (12.0f);
+        box.updatePosition (pointAt, host->getLocalBounds()); // (with the picker's border)
     }
 
     void showFileMenu()
@@ -2177,6 +2229,8 @@ private:
     FxStackContent stackContent;
     std::array<std::unique_ptr<SlotSwitch>, IlanaSynthAudioProcessor::numFxSlots> slotSwitches;
     std::unique_ptr<FxLibraryView> library;
+    FxPickerLook pickerLook;
+    FxPickerDimmer pickerDimmer;
     // (At most five split groups: each needs a plain card or the end after it.)
     std::array<std::unique_ptr<CrossoverStrip>, 5> crossoverStrips;
 

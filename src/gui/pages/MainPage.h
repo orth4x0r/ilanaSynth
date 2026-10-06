@@ -71,9 +71,11 @@ public:
             // follows the FM card's order: RATIO, FINE, its OUTPUT in dB, the
             // oscillator's own LEVEL (I7-2, I7-19; review 8, V8-5; 9, I9-7).
             strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
-            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
+            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME") };
             strip->warpKnob = knob ("_warp_amt", "WARP");
+            strip->unisonKnob = knob ("_unison", "UNISON");
             strip->detuneKnob = knob ("_detune", "DETUNE");
+            strip->panKnob = knob ("_pan", "PAN");
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
             strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
@@ -793,7 +795,7 @@ private:
     {
         std::unique_ptr<ToggleControl> on;
         std::unique_ptr<ComboControl> mode, excite, table, warp;
-        juce::Component *warpKnob = nullptr, *detuneKnob = nullptr; // the wavetable's extra knobs, shown on a roomy strip
+        juce::Component *warpKnob = nullptr, *detuneKnob = nullptr, *unisonKnob = nullptr, *panKnob = nullptr;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
         // The first column by TUNING (semitones, ratio, fixed Hz); the other
         // three by mode, or the Operator Env's.
@@ -807,24 +809,28 @@ private:
         bool opEg = false;
         OperatorEnvThumb thumb;
 
-        std::vector<juce::Component*> knobs (bool roomy = false) const
+        // Six columns on every card, in one order whatever the mode, so a
+        // physical, sample, granular or live oscillator's knobs stand in the
+        // wavetable's columns (ilana's PC test: a second mode "regressed to
+        // the previous design" with four knobs spread over the row): the
+        // pitch, LEVEL, the mode's two main knobs, UNISON and DETUNE. A null
+        // is an empty column. An operator on the Operator Env keeps the FM
+        // card's order (RATIO, FINE, OUTPUT; I7-2, V8-5) and its PAN.
+        // Every strip has its six columns at any height (V13-4): five or six
+        // strips shrink the picture, not the controls.
+        std::vector<juce::Component*> knobs() const
         {
             const auto mode = juce::jmax (0, shownMode);
-            std::vector<juce::Component*> result { mode == 4 ? nullptr : pitchKnobs[(size_t) (mode == 0 ? shownTuning : 0)] };
-            const auto& rest = opEg ? operatorEnvKnobs : modeKnobs[(size_t) mode];
-            result.insert (result.end(), rest.begin(), rest.end());
+            auto* pitch = pitchKnobs[(size_t) (mode == 0 ? shownTuning : 0)];
 
-            // Every wavetable strip has six controls, roomy or compact (UI
-            // review 13, V13-4): five or six strips shrink the picture, not
-            // the controls.
-            if (mode == 0 && ! opEg)
-            {
-                // SEMI, LEVEL, FRAME, WARP, UNISON, DETUNE
-                result.insert (result.begin() + 3, warpKnob);
-                result.push_back (detuneKnob);
-            }
+            if (opEg)
+                return { pitch, operatorEnvKnobs[0], operatorEnvKnobs[1], panKnob, nullptr, nullptr };
+            if (mode == 4)
+                return { nullptr, modeKnobs[4][0], modeKnobs[4][1], nullptr, nullptr, nullptr };
 
-            return result;
+            const auto& own = modeKnobs[(size_t) mode];
+            // (A wavetable's third knob is WARP, after FRAME.)
+            return { pitch, own[0], own[1], mode == 0 ? warpKnob : own[2], unisonKnob, detuneKnob };
         }
     };
 
@@ -1012,7 +1018,7 @@ private:
         if (strip.opEg)
             strip.thumb.update (processorRef, index);
 
-        for (auto* item : strip.knobs (roomy (oscCards[(size_t) index])))
+        for (auto* item : strip.knobs())
             if (item != nullptr)
             {
                 item->setVisible (shown);
@@ -1327,40 +1333,59 @@ private:
     // A strip's title column: the tag and name, then what it is.
     // A strip with the height for it is laid out as a header line (title,
     // role, switch) over a body: the picture takes the left, the menus sit
-    // in a row over the knobs. A low strip (six operators, a small window)
-    // keeps the title column and the stacked menus.
+    // in a row over the knobs; a low one (four or more, a small window)
+    // carries its menus in the header line (see stripColumns).
     static bool roomy (juce::Rectangle<int> card) { return card.getHeight() >= roomyHeight; }
     static int dialSize (juce::Rectangle<int> card)
     {
         return roomy (card) ? 38 : IlanaTheme::KnobSize::minimum;
     }
     static juce::Rectangle<int> titleArea (juce::Rectangle<int> card) { return card.withWidth (8 + titleWidth); }
-    // The strip's "EDIT ›": on a roomy strip in the header line, left of the
-    // switch and level with it; on a low one at the title row's right.
+    // The strip's "EDIT ›": in the header line, left of the switch and level with it.
     static juce::Rectangle<int> editLinkArea (juce::Rectangle<int> card)
     {
-        return roomy (card) ? juce::Rectangle<int> (card.getRight() - switchWidth - 12 - editLinkWidth, card.getY() + cardHeaderHeight / 2 - 8, editLinkWidth, 16)
-                            : juce::Rectangle<int> (card.getRight() - 12 - 52, card.getY() + 6, 52, 16);
+        return { card.getRight() - switchWidth - 12 - editLinkWidth, card.getY() + cardHeaderHeight / 2 - 8, editLinkWidth, 16 };
     }
 
-    // A strip, left to right: title, picture, the two menus stacked, four
-    // knobs, the switch (centred on the strip, at the right like every card's).
+    // A card's body: the picture, the menus (a row, or a low card's header
+    // line) and the knobs.
     struct StripColumns
     {
         juce::Rectangle<int> picture, menus, knobs;
     };
 
-    // (A compact oscillator strip keeps its six controls, so its title, picture
-    // and menus are narrower; SUB + NOISE, with three knobs, gives the room to
-    // its pills instead, V13-4.)
+    // Every open card is the design's (mockup "play"): a header line (tag,
+    // name, what it does, EDIT and the switch) over a body with the picture
+    // at the left. A tall card has its menus in a row over the knobs; a low
+    // one (four or more oscillators, a small window) carries them in its
+    // header line, between the title and EDIT, as the OSC page's cards do,
+    // and its knobs are one row: stacked (name, dial, value) while the body
+    // has the height, inline (the dial with its name and value beside it,
+    // as on OSC) below that. ilana's PC test: four oscillators fell back to
+    // the old strip (a title column, stacked menus, the switch mid-card).
+    static constexpr int headerMenuHeight = 22, oscHeaderMenus = 100 + 6 + 96, subHeaderMenus = 156 + 6 + 104;
+    static constexpr int stackedKnobsHeight = 13 + IlanaTheme::KnobSize::minimum + 14, lowPadY = 5;
+
+    static juce::Rectangle<int> headerMenusArea (juce::Rectangle<int> card, bool oscillator)
+    {
+        const auto width = oscillator ? oscHeaderMenus : subHeaderMenus;
+        const auto right = card.getRight() - switchWidth - 12 - (oscillator ? editLinkWidth + 8 : 0);
+        return { right - width, card.getY() + (cardHeaderHeight - headerMenuHeight) / 2, width, headerMenuHeight };
+    }
+
+    // A low card's knobs stand inline once the body is too low for name, dial and value stacked.
+    static bool inlineKnobs (juce::Rectangle<int> card)
+    {
+        return ! roomy (card) && card.getHeight() - cardHeaderHeight - 2 * lowPadY < stackedKnobsHeight;
+    }
+
     static StripColumns stripColumns (juce::Rectangle<int> card, bool oscillator = true)
     {
-        auto inner = card.reduced (8, 5);
         StripColumns columns;
 
         if (roomy (card))
         {
-            inner = card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            auto inner = card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
             columns.picture = inner.removeFromLeft (stripPictureWidth);
             inner.removeFromLeft (10);
             columns.menus = inner.removeFromTop (stripMenuHeight);
@@ -1368,23 +1393,12 @@ private:
             return columns;
         }
 
-        const auto title = oscillator ? compactTitleWidth : titleWidth;
-        const auto picture = oscillator ? compactPictureWidth : pictureWidth;
-        const auto menuColumn = oscillator ? compactMenuWidth : subMenuWidth;
-        inner.removeFromLeft (title);
-        inner.removeFromRight (oscillator ? compactSwitchWidth : switchWidth);
-        // A scrolling column's bar comes out of the picture, not the knobs,
-        // so a value such as "-30.9 dB" still fits under its knob.
-        const auto knobsMinimum = oscillator ? minDenseKnobsWidth : minKnobsWidth;
-        const auto squeeze = juce::jmax (0, knobsMinimum - (inner.getWidth() - picture - 6 - menuColumn - 4));
-        // The picture is a square (a saw stretched into a portrait box reads as
-        // a tick, a string as a hairline: V10-2), centred in its column.
-        const auto column = inner.removeFromLeft (juce::jmax (picture - 24, picture - squeeze));
-        const auto side = juce::jmin (column.getWidth(), column.getHeight());
-        columns.picture = column.withSizeKeepingCentre (side, side);
-        inner.removeFromLeft (6);
-        columns.menus = inner.removeFromLeft (menuColumn).withSizeKeepingCentre (menuColumn, 24 + 4 + 24);
-        inner.removeFromLeft (4);
+        auto inner = card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, lowPadY);
+        columns.menus = headerMenusArea (card, oscillator);
+        // The picture keeps a landscape well (a saw in a portrait box read as
+        // a tick, V10-2), narrower on an inline row.
+        columns.picture = inner.removeFromLeft (inlineKnobs (card) ? lowPictureWidth - 30 : lowPictureWidth);
+        inner.removeFromLeft (10);
         columns.knobs = inner;
         return columns;
     }
@@ -1396,12 +1410,25 @@ private:
         if (! shownStrips[(size_t) index])
             return;
 
-        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, roomy (card) && ! isFolded (index) ? card.getY() + cardHeaderHeight / 2 : card.getCentreY() - 1));
+        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, ! isFolded (index) ? card.getY() + cardHeaderHeight / 2 : card.getCentreY() - 1));
 
         if (isFolded (index))
             return;
 
-        const auto columns = stripColumns (card);
+        auto columns = stripColumns (card);
+        auto row = strip.knobs();
+        // An inline row needs the card's width for its names and values
+        // ("POSITION", "-30.9 dB"): the picture gives way, so the six columns
+        // still line up from card to card. An operator keeps its envelope
+        // picture (I8-37) and spreads its four knobs over the row.
+        if (inlineKnobs (card) && ! strip.opEg)
+        {
+            columns.knobs.setLeft (columns.picture.getX());
+            columns.picture = {};
+        }
+        else if (strip.opEg)
+            while (! row.empty() && row.back() == nullptr)
+                row.pop_back();
         wave (index).setBounds (columns.picture);
         auto menus = columns.menus;
         const auto mode = juce::jmax (0, strip.shownMode);
@@ -1419,37 +1446,30 @@ private:
 
         if (roomy (card))
         {
-            // The design's menus: 112 / 96 / 68 of a 276 px row, 6 px apart.
-            const auto count = mode == 0 && ! strip.opEg ? 3 : mode <= 1 ? 2 : 1;
-            const auto room = menus.getWidth() - 6 * (count - 1);
-            const auto cell = room / count;
-            if (mode == 0 && count == 3)
+            // The design's menus: 112 / 96 / 68 of a 276 px row, 6 px apart,
+            // the same three slots in every mode (the engine, its source, the
+            // wavetable's warp), so the menus line up from card to card.
+            const auto room = menus.getWidth() - 12;
+            strip.mode->setBounds (menus.removeFromLeft (room * 112 / 276));
+            menus.removeFromLeft (6);
+            const auto source = menus.removeFromLeft (room * 96 / 276);
+            menus.removeFromLeft (6);
+            if (mode == 0)
             {
-                strip.mode->setBounds (menus.removeFromLeft (room * 112 / 276));
-                menus.removeFromLeft (6);
-                strip.table->setBounds (menus.removeFromLeft (room * 96 / 276));
-                menus.removeFromLeft (6);
+                strip.table->setBounds (source);
                 strip.warp->setBounds (menus);
             }
-            else
-            {
-                strip.mode->setBounds (menus.removeFromLeft (cell));
-                menus.removeFromLeft (6);
-                if (mode == 0)
-                    strip.table->setBounds (menus);
-                else if (mode == 1)
-                    strip.excite->setBounds (menus);
-            }
+            else if (mode == 1)
+                strip.excite->setBounds (source);
         }
         else
         {
-            strip.mode->setBounds (menus.removeFromTop (24));
-            menus.removeFromTop (4);
+            // In the header line: the engine, then the table or the exciter.
+            strip.mode->setBounds (menus.removeFromLeft (100));
+            menus.removeFromLeft (6);
 
             if (mode == 0)
-            {
-                strip.table->setBounds (menus.removeFromTop (24));
-            }
+                strip.table->setBounds (menus);
             else if (mode == 1)
                 strip.excite->setBounds (menus);
         }
@@ -1457,11 +1477,41 @@ private:
         // A tall strip (one open oscillator) gets bigger dials rather than a
         // gap above and below a row of small ones (V13-3).
         const auto dial = dialSize (card);
+        const auto inlineRow = inlineKnobs (card);
         for (auto& entry : strip.allKnobs)
+        {
+            entry.second->setInlineKnob (inlineRow);
+            entry.second->setInlineDial (inlineDial);
             if (entry.second->getMaxDial() != dial)
                 entry.second->setSizeRole (dial);
+        }
 
-        layoutRow (columns.knobs, strip.knobs (roomy (card)));
+        if (! inlineRow)
+        {
+            layoutRow (columns.knobs, strip.knobs());
+            return;
+        }
+
+        // Equal cells, each knob's 26 px dial at its left (as the OSC cards').
+        placeInline (columns.knobs, row);
+    }
+
+    // An inline row: equal cells, a dial at each cell's left with its name
+    // and value beside it (a null is an empty cell).
+    static constexpr int inlineDial = 26;
+    static void placeInline (juce::Rectangle<int> area, const std::vector<juce::Component*>& row)
+    {
+        if (row.empty())
+            return;
+        const auto cells = area.withSizeKeepingCentre (area.getWidth(), 28);
+        const auto cellWidth = (float) cells.getWidth() / (float) row.size();
+        for (size_t i = 0; i < row.size(); ++i)
+            if (row[i] != nullptr)
+            {
+                const auto left = cells.getX() + juce::roundToInt ((float) i * cellWidth);
+                const auto right = cells.getX() + juce::roundToInt ((float) (i + 1) * cellWidth) - 2;
+                row[i]->setBounds (juce::Rectangle<int> (left, cells.getY(), right - left, cells.getHeight()).expanded (0, 3)); // (room for the rings)
+            }
     }
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
@@ -1470,7 +1520,7 @@ private:
 
     void layoutSubCard()
     {
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) && ! subFolded ? subCard.getY() + cardHeaderHeight / 2 : subCard.getCentreY() - 1));
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, ! subFolded ? subCard.getY() + cardHeaderHeight / 2 : subCard.getCentreY() - 1));
         for (auto* item : { (juce::Component*) subShape.get(), (juce::Component*) subOctave.get(), (juce::Component*) subLevel.get(),
                             (juce::Component*) noiseLevel.get(), (juce::Component*) noiseColour.get() })
             item->setVisible (! subFolded);
@@ -1487,79 +1537,61 @@ private:
         }
         else
         {
-            subShape->setBounds (menus.removeFromTop (24));
-            menus.removeFromTop (4);
+            // In the header line, as the oscillators' menus.
+            subShape->setBounds (menus.removeFromLeft (156));
+            menus.removeFromLeft (6);
             subOctave->setBounds (menus);
         }
 
+        const auto inlineRow = inlineKnobs (subCard);
         for (auto* knob : { subLevel.get(), noiseLevel.get(), noiseColour.get() })
-            if (knob != nullptr && knob->getMaxDial() != (roomy (subCard) ? 34 : dialSize (subCard)))
+        {
+            knob->setInlineKnob (inlineRow);
+            knob->setInlineDial (inlineDial);
+            if (knob->getMaxDial() != (roomy (subCard) ? 34 : dialSize (subCard)))
                 knob->setSizeRole (roomy (subCard) ? 34 : dialSize (subCard));
+        }
 
-        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
+        if (! inlineRow)
+        {
+            layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
+            return;
+        }
+
+        placeInline (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() });
     }
 
     // The strips' cards and titles (their controls draw themselves), and
     // the dim empty slots.
     void paintColumn (juce::Graphics& g)
     {
-        const auto paintTitle = [this, &g] (juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit,
-                                            const juce::String& line2, const juce::String& line3, bool header = false)
+        // One line across a card's top: tag, name, what it is. `reserve` is
+        // the width the header's own controls take before EDIT (a low card's
+        // menus); a caption too long for the rest says the same shorter
+        // ("out, \u2192 1": V14-17).
+        const auto paintTitle = [&g] (juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit,
+                                      const juce::String& line2, int reserve = 0)
         {
-            if (header)
-            {
-                // One line across the card's top: tag, name, what it is.
-                const auto line = card.withHeight (headerHeight + 10).reduced (0, 5).withTrimmedRight (switchWidth + 20 + editLinkWidth + 8);
-                IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
-                g.setColour (lit ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-                const auto nameFont = juce::Font (IlanaTheme::cardTitleFont());
-                g.setFont (nameFont);
-                g.drawText (title, line.withTrimmedLeft (24), juce::Justification::centredLeft);
-
-                if (line2.isNotEmpty())
-                {
-                    // (The card caption: the sheet's .cap, 8 px after the title.)
-                    g.setColour (IlanaTheme::Ui::text3);
-                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-                    g.drawText (IlanaTheme::captionFragment (line2), line.withTrimmedLeft (24 + juce::GlyphArrangement::getStringWidthInt (nameFont, title) + 8),
-                                juce::Justification::centredLeft, true);
-                }
-
-                return;
-            }
-
-            auto area = titleArea (card).reduced (0, 6);
-            const auto top = area.removeFromTop (16);
-            IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) top.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
+            const auto line = card.withHeight (headerHeight + 10).reduced (0, 5).withTrimmedRight (switchWidth + 20 + editLinkWidth + 8 + reserve);
+            IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
             g.setColour (lit ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText (title, top.withTrimmedLeft (24), juce::Justification::centredLeft);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto nameFont = juce::Font (IlanaTheme::cardTitleFont());
+            g.setFont (nameFont);
+            g.drawText (title, line.withTrimmedLeft (24), juce::Justification::centredLeft);
 
-            // A line stops at the picture beside it; one that does not fit in the
-            // strip's narrow column says the same shorter ("MODULATES 1" at 75 %
-            // lost its digit under the wave: V14-17).
-            const auto room = juce::jmax (20, stripColumns (card).picture.getX() - card.getX() - 9 - 6);
-            const auto lineFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-
-            for (auto line : { line2, line3 })
-                if (line.isNotEmpty())
-                {
-                    area.removeFromTop (2);
-                    if (juce::GlyphArrangement::getStringWidthInt (lineFont, line) > room)
-                        line = line.replace ("TO OUTPUT, MODULATES ", "OUT, " + juce::String::fromUTF8 ("\xe2\x86\x92 "))
-                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
-                    g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3); // (not the strip's one coloured text: V10-16)
-                    // (Never cut mid-digit: a role line too long for a narrow strip says "→ 1", V14-17.)
-                    // (To the picture's edge, the title column being narrower on a compact strip.)
-                    auto row = area.removeFromTop (12).withTrimmedLeft (9);
-                    row.setRight (juce::jmin (row.getRight(), stripColumns (card).picture.getX() - 4));
-                    auto text = line;
-                    if (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) > (float) row.getWidth())
-                        text = text.replace ("TO OUTPUT, MODULATES ", juce::String::fromUTF8 ("OUT, \xe2\x86\x92 "))
-                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
-                    IlanaTheme::drawFitted (g, text, row, juce::Justification::centredLeft);
-                }
+            if (line2.isNotEmpty())
+            {
+                // (The card caption: the sheet's .cap, 8 px after the title.)
+                const auto room = line.withTrimmedLeft (24 + juce::GlyphArrangement::getStringWidthInt (nameFont, title) + 8);
+                const auto captionFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body));
+                auto text = IlanaTheme::captionFragment (line2);
+                if (juce::GlyphArrangement::getStringWidth (captionFont, text) > (float) room.getWidth())
+                    text = text.replace ("to output, modulates ", juce::String::fromUTF8 ("out, \xe2\x86\x92 "))
+                               .replace ("modulates ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (captionFont);
+                g.drawText (text, room, juce::Justification::centredLeft, true);
+            }
         };
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
@@ -1583,13 +1615,12 @@ private:
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
                 g.drawText (name, line.withX (card.getX() + 24).withWidth (titleWidth - 16), juce::Justification::centredLeft);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                const auto columns = stripColumns (card);
-                g.drawText (foldedSummary (osc), line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()),
+                g.drawText (foldedSummary (osc), line.withLeft (card.getX() + 8 + compactTitleWidth).withRight (card.getRight() - switchWidth - 12),
                             juce::Justification::centredLeft, true);
                 continue;
             }
 
-            paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), {}, roomy (card)); // off: the dimming says it (S8-12)
+            paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), roomy (card) ? 0 : oscHeaderMenus + 8); // off: the dimming says it (S8-12)
 
             // The title opens the oscillator's full page, and so does the
             // link beside the switch, worded like every other jump.
@@ -1606,26 +1637,26 @@ private:
                 // (Under the title, at the card's foot, clear of the curve.)
                 g.setColour (IlanaTheme::Ui::text3.withAlpha (strip.shownOn ? 1.0f : 0.5f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText ("OP ENV", roomy (card) ? juce::Rectangle<int> (picture.getX() + 6, picture.getBottom() - 16, 60, 12)
-                                                   : juce::Rectangle<int> (card.getX() + 17, card.getBottom() - 21, titleWidth - 12, 12),
-                            juce::Justification::centredLeft);
+                g.drawText ("OP ENV", juce::Rectangle<int> (picture.getX() + 6, picture.getBottom() - 16, 60, 12), juce::Justification::centredLeft);
                 // An operator has no MODE menu: its place labels the wave under it (S12-13).
                 g.setColour (strip.shownOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                IlanaTheme::drawFitted (g, "WAVE", stripColumns (card).menus.withHeight (24).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+                IlanaTheme::drawFitted (g, "WAVE", roomy (card) ? stripColumns (card).menus.withHeight (24).withTrimmedLeft (8)
+                                                                  : stripColumns (card).menus.withWidth (100).withTrimmedLeft (8),
+                                        juce::Justification::centredLeft, 1);
             }
         }
 
         if (! patchCard.isEmpty())
         {
             IlanaTheme::paintCard (g, patchCard.toFloat(), 6.0f, IlanaTheme::accent());
-            paintTitle (patchCard, "PATCH", IlanaTheme::accent(), true, {}, {}, true);
+            paintTitle (patchCard, "PATCH", IlanaTheme::accent(), true, {});
         }
 
         if (! outputCard.isEmpty())
         {
             IlanaTheme::paintCard (g, outputCard.toFloat(), 6.0f, IlanaTheme::Ui::text2);
-            paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {}, {}, true);
+            paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {});
         }
 
         if (! subCard.isEmpty() && subFolded)
@@ -1639,14 +1670,13 @@ private:
             g.drawText ("SUB + NOISE", line.withX (subCard.getX() + 24).withWidth (juce::jmax (titleWidth, 100)), juce::Justification::centredLeft);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
             static const char* const shapes[] { "Sine", "Square", "Saw" };
-            const auto columns = stripColumns (subCard, false);
             g.drawText (juce::String (shapes[juce::jlimit (0, 2, readInt ("sub_shape"))]) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 sub off, no noise")),
-                        line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()), juce::Justification::centredLeft, true);
+                        line.withLeft (subCard.getX() + 8 + titleWidth).withRight (subCard.getRight() - switchWidth - 12), juce::Justification::centredLeft, true);
         }
         else if (! subCard.isEmpty())
         {
             IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
-            paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, {}, roomy (subCard));
+            paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, roomy (subCard) ? 0 : subHeaderMenus + 8 - editLinkWidth - 8);
 
             // The sub's shape where the oscillators show their picture.
             const auto picture = stripColumns (subCard, false).picture.toFloat();
@@ -1701,9 +1731,9 @@ private:
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, envGraphHeight = 56, lfoThumbHeight = 74, envKnobDial = 34, stripPictureWidth = 190, stripMenuHeight = 26;
-    static constexpr int minSlotHeight = 68, roomyHeight = 112, headerHeight = 20, editLinkWidth = 56;
+    static constexpr int minSlotHeight = 68, roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
-    static constexpr int compactTitleWidth = 64, compactPictureWidth = 66, compactMenuWidth = 88, compactSwitchWidth = 40, minDenseKnobsWidth = 280, subMenuWidth = 176;
+    static constexpr int compactTitleWidth = 64, lowPictureWidth = 100;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
     // PLAY's envelope: which one, the envelopes on its tabs, those behind

@@ -309,13 +309,17 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<OperatorEnvDisplay> (editor, graphs);
         auto graph = false;
         for (auto* g : graphs)
-            graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
+            graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 120); // (the approved card gives it its 150 px well)
         auto* wave = oscWave (0);
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
-                "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread");
+                "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread ("
+                    + juce::String ((int) graph) + juce::String ((int) (knobFor ("osc1_eg_out", "OUTPUT") != nullptr)) + juce::String ((int) (knobFor ("osc1_level", "VOICE LEVEL") == nullptr))
+                    + juce::String ((int) (knobFor ("osc1_warp_amt") == nullptr)) + juce::String ((int) (knobFor ("osc1_spectral_amt") == nullptr))
+                    + juce::String ((int) (knobFor ("osc1_detune") == nullptr)) + juce::String ((int) (knobFor ("osc1_frame") == nullptr))
+                    + juce::String ((int) (buttonNamed (editOpEnv) != nullptr)) + ")");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
         // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
         expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
@@ -4983,31 +4987,70 @@ int runUiTests()
                             return button;
                     return nullptr;
                 };
-                juce::StringArray seen;
-                for (const auto* name : { "WAVE", "3D", "SPEC" })
-                    if (auto* button = key (name))
+                // (OSC's card shows the display slim: its view chip and table arrows
+                // are drawn on its top line, so the test clicks them there.)
+                const auto clickSlim = [&] (int which)
+                {
+                    const auto at = wave->getSlimTarget (which);
+                    const auto now = juce::Time::getCurrentTime();
+                    const auto make = [&] (bool up)
                     {
-                        button->triggerClick();
-                        settle (60);
+                        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys::leftButtonModifier,
+                                                 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, wave, wave, now, at, now, 1, false);
+                    };
+                    static_cast<juce::Component*> (wave)->mouseDown (make (false));
+                    static_cast<juce::Component*> (wave)->mouseUp (make (true));
+                    settle (60);
+                };
+
+                juce::StringArray seen;
+                auto spec = juce::String();
+                if (wave->isSlim())
+                {
+                    // The chip cycles WAVE > 3D > SPEC > WAVE; it starts on 3D.
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        clickSlim (0);
                         seen.add (juce::String (wave->getViewMode()));
-                        const auto image = wave->createComponentSnapshot (wave->getLocalBounds());
-                        juce::ignoreUnused (image);
+                        if (wave->getViewMode() == 2)
+                            spec = wave->getFrameReadout();
                     }
-                expect (seen.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
-                expect (wave->getFrameReadout().isEmpty(), "SPEC shows no frame readout");
-                if (auto* button = key ("3D"))
-                    button->triggerClick();
+                    juce::StringArray sorted (seen);
+                    sorted.sort (false);
+                    expect (sorted.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
+                    expect (spec.isEmpty(), "SPEC shows no frame readout");
+                    while (wave->getViewMode() != 1)
+                        clickSlim (0);
+                }
+                else
+                {
+                    for (const auto* name : { "WAVE", "3D", "SPEC" })
+                        if (auto* button = key (name))
+                        {
+                            button->triggerClick();
+                            settle (60);
+                            seen.add (juce::String (wave->getViewMode()));
+                        }
+                    expect (seen.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
+                    expect (wave->getFrameReadout().isEmpty(), "SPEC shows no frame readout");
+                    if (auto* button = key ("3D"))
+                        button->triggerClick();
+                }
                 settle (60);
                 expect (wave->getFrameReadout().startsWith ("frame "), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
 
                 const auto table = [&processor] { return juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()); };
                 const auto before = table();
                 const auto nameBefore = wave->getTableName();
-                if (auto* next = key (">"))
+                if (wave->isSlim())
+                    clickSlim (2);
+                else if (auto* next = key (">"))
                     next->triggerClick();
                 settle (100);
                 const auto after = table();
-                if (auto* previous = key ("<"))
+                if (wave->isSlim())
+                    clickSlim (1);
+                else if (auto* previous = key ("<"))
                     previous->triggerClick();
                 settle (100);
                 expect (after != before && table() == before && wave->getTableName() == nameBefore && nameBefore.isNotEmpty(),
@@ -6443,9 +6486,11 @@ int runUiTests()
             auto shown = 0;
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 shown += processor.isOscillatorShown (osc) ? 1 : 0;
-            expect (adds == 1 && switches == (juce::String (page) == "OSC" ? 1 : shown),
+            // (The approved OSC design stacks every shown oscillator as a card,
+            // each with its own switch, so OSC counts like PLAY now.)
+            expect (adds == 1 && switches == shown,
                     juce::String (page) + ": one ADD OSC button (" + juce::String (adds) + "), "
-                        + (juce::String (page) == "OSC" ? "the chosen oscillator's switch" : "a switch per oscillator") + " ("
+                        + "a switch per oscillator" + " ("
                         + juce::String (switches) + ")");
         }
 
@@ -6547,8 +6592,11 @@ int runUiTests()
             pages->showPage ("OSC");
             settle (300);
             auto* oscLevel = findKnob ("osc1_level");
-            expect (playDial > 0 && oscLevel != nullptr && oscLevel->getDialSize() >= playDial,
-                    "OSC's LEVEL dial (" + juce::String (oscLevel != nullptr ? oscLevel->getDialSize() : 0) + " px) is not smaller than PLAY's ("
+            // (The approved OSC design draws every oscillator as a compact card with
+            // a 26 px inline dial, so OSC's LEVEL is deliberately smaller than PLAY's.
+            // The check is now that it exists and is still a usable size.)
+            expect (playDial > 0 && oscLevel != nullptr && oscLevel->getDialSize() >= 24,
+                    "OSC's LEVEL dial (" + juce::String (oscLevel != nullptr ? oscLevel->getDialSize() : 0) + " px) is a usable inline dial (PLAY's is "
                         + juce::String (playDial) + " px)");
         }
 
@@ -6559,10 +6607,15 @@ int runUiTests()
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*editor, buttons);
             auto loadShown = false;
+            // (Every oscillator is a card on OSC now: look inside OSC 1's.)
             for (auto* button : buttons)
-                loadShown = loadShown || (visibleInTree (button) && button->getButtonText().startsWith ("LOAD"));
+                if (visibleInTree (button) && button->getButtonText().startsWith ("LOAD")
+                    && pages->getOscCardBounds (0).contains (editor->getLocalArea (button, button->getLocalBounds()).getCentre()))
+                    loadShown = true;
             expect (! loadShown && findKnob ("osc1_string_decay") != nullptr && findKnob ("osc1_unison") != nullptr,
-                    "a Physical card has no LOAD .WAV, and shows its string and voice rows");
+                    "a Physical card has no LOAD .WAV, and shows its string and voice rows (load "
+                        + juce::String ((int) loadShown) + ", decay " + juce::String ((int) (findKnob ("osc1_string_decay") != nullptr))
+                        + ", unison " + juce::String ((int) (findKnob ("osc1_unison") != nullptr)) + ")");
             setParam ("osc1_mode", 0.0f);
             settle (300);
         }
@@ -7297,6 +7350,100 @@ int main (int argc, char** argv)
         processor.addOscillator (5);
         settle (500);
         save (*editor, outDir.getChildFile ("play-6osc.png"));
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_OSC: just OSC, in the states the design is checked in
+    // (design review: oscillator counts 1, 3 and 6, a Sample, a String, an
+    // Operator EG, a Grain and a Live oscillator); then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_OSC", "").isNotEmpty())
+    {
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto shot = [&] (const juce::String& name, int scrollTo = 0)
+        {
+            settle (500);
+            if (auto* viewport = dynamic_cast<juce::Viewport*> (pages->getCurrentPage()))
+            {
+                viewport->setViewPosition (0, scrollTo);
+                settle (200);
+            }
+            save (*editor, outDir.getChildFile (name + ".png"));
+        };
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-shot-sfz");
+        folder.createDirectory();
+        {
+            juce::AudioBuffer<float> tone (1, 22050);
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (0, i, 0.5f * std::sin ((float) i * 0.06f) * std::exp (-(float) i / 8000.0f) * (0.6f + 0.4f * std::sin ((float) i * 0.0011f)));
+            juce::WavAudioFormat wav;
+            auto file = folder.getChildFile ("tone.wav");
+            file.deleteFile();
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 44100.0, 1, 16, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+                }
+            folder.getChildFile ("test.sfz").replaceWithText ("<region> sample=tone.wav lokey=36 hikey=59 pitch_keycenter=48\n"
+                                                              "<region> sample=tone.wav lokey=60 hikey=84 pitch_keycenter=72\n");
+        }
+
+        // (ILANA_SNAPSHOT_SMALL: the 75 % window the UI tests also check.)
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SMALL", "").isNotEmpty())
+            editor->getTopLevelComponent()->setSize (795, 540);
+        pages->showPage ("OSC");
+        shot ("osc-as-loaded");
+        processor.addOscillator (2);
+        shot ("osc-3");
+        processor.addOscillator (3);
+        processor.addOscillator (4);
+        processor.addOscillator (5);
+        shot ("osc-6-top");
+        shot ("osc-6-bottom", 10000);
+        // One of each engine: Sample, String, Operator EG, Grain, Live.
+        set ("osc1_mode", 2.0f);
+        set ("osc2_mode", 1.0f);
+        set ("osc3_amp_env", 17.0f);
+        set ("osc3_tune", 1.0f);
+        set ("osc4_mode", 3.0f);
+        set ("osc5_mode", 4.0f);
+        processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+        settle (400);
+        shot ("osc-mixed-1");
+        shot ("osc-mixed-2", 330);
+        shot ("osc-mixed-3", 10000);
+        // The sample alone, with its unison open.
+        for (const auto slot : { 1, 2, 3, 4, 5 })
+            processor.removeOscillator (slot);
+        shot ("osc-sample-alone");
+        set ("osc1_unison", 4.0f);
+        shot ("osc-sample-unison");
+        set ("osc1_mode", 1.0f);
+        shot ("osc-string-alone");
+        set ("osc1_mode", 0.0f);
+        set ("osc1_amp_env", 17.0f);
+        set ("osc1_tune", 1.0f);
+        shot ("osc-operator-alone");
+        set ("osc1_amp_env", 0.0f);
+        set ("osc1_tune", 0.0f);
+        set ("osc1_unison", 1.0f);
+        shot ("osc-1");
+        // The strip opened under MORE.
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->isShowing() && button->getButtonText().startsWith ("MORE"))
+                    button->triggerClick();
+        }
+        set ("sym_on", 1.0f);
+        set ("sym_manual", 1.0f);
+        shot ("osc-strip-open");
+        folder.deleteRecursively();
         return 0;
     }
 

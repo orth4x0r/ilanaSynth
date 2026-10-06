@@ -37,13 +37,18 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         return knob != nullptr ? knob->getSlider().getTextFromValue (knob->getSlider().getValue()) : juce::String();
     };
     const auto area = [&editor] (juce::Component* c) { return c == nullptr ? juce::Rectangle<int>() : editor.getLocalArea (c, c->getLocalBounds()); };
-    const auto shownButtons = [&editor] (const juce::String& text)
+    // (On OSC every oscillator is a card, so "on OSC 1" means inside OSC 1's card.)
+    const auto shownButtons = [&editor] (const juce::String& text, bool inFirstCard = false)
     {
         std::vector<juce::TextButton*> buttons, shown;
         findAll<juce::TextButton> (editor, buttons);
         for (auto* button : buttons)
             if (visibleInTree (button) && button->getWidth() > 0 && button->getButtonText() == text)
+            {
+                if (inFirstCard && ! editor.getOscCardBounds (0).contains (editor.getLocalArea (button, button->getLocalBounds()).getCentre()))
+                    continue;
                 shown.push_back (button);
+            }
         return shown;
     };
     const auto shownEditor = [&editor] () -> OperatorEnvEditor*
@@ -145,17 +150,20 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
     {
         editor.showPage ("OSC");
         settle (400);
+        // The approved OSC design has no tabs: the bottom strip is one card whose
+        // STRINGS and SOUNDBOARD dim in place while off, on an operator voice too
+        // (their keys-only tabs are gone, so the old "no such tab" check is now
+        // "no tabs at all, and both groups dimmed, not drawn live").
         std::vector<StateTabs*> rows;
         findAll<StateTabs> (editor, rows);
-        auto voice = false, strings = false;
-        for (auto* tabs : rows)
-            if (visibleInTree (tabs))
-                for (int i = 0; i < tabs->getNumItems(); ++i)
-                {
-                    voice = voice || tabs->getItem (i).name == "VOICE";
-                    strings = strings || tabs->getItem (i).name == "STRINGS" || tabs->getItem (i).name == "SOUNDBOARD";
-                }
-        expect (voice && ! strings, "OSC: an operator voice's drawer has no STRINGS or SOUNDBOARD tab (I12-6)");
+        auto tabs = 0;
+        for (auto* row : rows)
+            tabs += visibleInTree (row) ? 1 : 0;
+        auto* amount = knobFor ("sym_amount");
+        auto* board = knobFor ("sb_mix");
+        expect (tabs == 0 && knobFor ("noise_level") != nullptr && amount != nullptr && amount->getAlpha() < 0.99f
+                    && board != nullptr && board->getAlpha() < 0.99f,
+                "OSC: the strip has no tabs, and STRINGS and SOUNDBOARD sit dimmed on an operator voice (I12-6)");
         editor.showPage ("MAIN");
         settle (300);
         expect (knobFor ("osc2_eg_out", "DEPTH") != nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
@@ -293,8 +301,8 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                              && area (semi).getCentreX() < area (fine).getCentreX() && area (fine).getCentreX() < area (level).getCentreX();
         expect (graph != nullptr && graph->isReadOnly() && ordered,
                 "OSC: an operator's OP ENV is a picture of the one editor; SEMI, FINE, OUTPUT as on FM, no VOICE LEVEL (S8-4, V8-5, I12-1)");
-        expect (shownButtons ("RESAMPLE").empty() && shownButtons (juce::String ("EDIT TABLE ") + juce::String::fromUTF8 ("\xe2\x80\xba")).empty() && shownButtons ("LOAD...").empty()
-                    && shownButtons ("3D").empty() && shownButtons ("SPEC").empty() && knobFor ("osc1_unison") == nullptr,
+        expect (shownButtons ("RESAMPLE", true).empty() && shownButtons (juce::String ("EDIT TABLE ") + juce::String::fromUTF8 ("\xe2\x80\xba"), true).empty()
+                    && shownButtons ("LOAD...", true).empty() && shownButtons ("3D", true).empty() && shownButtons ("SPEC", true).empty() && knobFor ("osc1_unison") == nullptr,
                 "OSC: an operator has no RESAMPLE, EDIT, LOAD .WAV, 3D / SPEC or UNISON 1 (I8-15, S8-9, V8-16)");
         juce::String role;
         std::vector<juce::Component*> all;

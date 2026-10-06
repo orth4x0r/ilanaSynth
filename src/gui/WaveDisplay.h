@@ -108,6 +108,17 @@ public:
         repaint();
     }
 
+    // The picture with a slim line over its top (the table's name between
+    // arrows, a chip that cycles the view) and the frame's number at its foot:
+    // the OSC cards' 150 px well. Set after setCompact.
+    void setSlim (bool shouldBeSlim)
+    {
+        slim = shouldBeSlim;
+        repaint();
+    }
+
+    bool isSlim() const { return slim; }
+
     // An FM operator plays one plain cycle: no 3D or SPEC views to pick
     // (UI review 8, I8-15).
     void setSingleCycle (bool shouldBeSingle)
@@ -208,7 +219,10 @@ public:
             return;
         }
 
-        const auto plot = bounds.reduced (10.0f, compact ? 5.0f : 10.0f);
+        auto plot = bounds.reduced (10.0f, compact ? 5.0f : 10.0f);
+
+        if (slim)
+            plot.removeFromTop ((float) slimHeader - 2.0f);
 
         if (shownViewMode() == 1)
         {
@@ -251,7 +265,60 @@ public:
                 drawFramePosition (g, frameCount, frame, plot);
         }
 
+        if (slim)
+            paintSlimLine (g, table);
+
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
+    }
+
+    // Where the slim line's view chip and arrows sit, for the UI tests.
+    juce::Point<float> getSlimTarget (int which) const // 0 view chip, 1 previous, 2 next
+    {
+        const auto areas = slimAreas();
+        return (which == 0 ? areas.view : which == 1 ? areas.previous : areas.next).getCentre().toFloat();
+    }
+
+    // The slim line's parts: arrow, name, arrow, view chip.
+    struct SlimAreas { juce::Rectangle<int> previous, name, next, view; };
+
+    SlimAreas slimAreas() const
+    {
+        auto line = getLocalBounds().removeFromTop (slimHeader).reduced (2, 1);
+        SlimAreas areas;
+        areas.view = line.removeFromRight (32);
+        areas.previous = line.removeFromLeft (13);
+        areas.next = line.removeFromRight (13);
+        areas.name = line.reduced (1, 0);
+        return areas;
+    }
+
+    void paintSlimLine (juce::Graphics& g, const Wavetable* table) const
+    {
+        const auto areas = slimAreas();
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (font);
+        g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), areas.previous, juce::Justification::centred);
+        g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), areas.next, juce::Justification::centred);
+        g.setColour (IlanaTheme::Ui::text2);
+        IlanaTheme::drawFitted (g, getTableName(), areas.name, juce::Justification::centredLeft, 1);
+
+        static const char* const names[] { "WAVE", "3D", "SPEC" };
+        const auto chip = areas.view.toFloat().reduced (0.0f, 1.0f);
+        g.setColour (traceColour.withAlpha (0.18f));
+        g.fillRoundedRectangle (chip, 4.0f);
+        g.setColour (traceColour);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        IlanaTheme::drawFitted (g, names[juce::jlimit (0, 2, shownViewMode())], areas.view, juce::Justification::centred, 1);
+
+        // The frame the cycle comes from, at the picture's foot.
+        if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, "FRAME " + juce::String (juce::jlimit (0, table->getNumFrames() - 1, juce::roundToInt (displayedFrame * (float) (table->getNumFrames() - 1)))),
+                                    getLocalBounds().removeFromBottom (15).withTrimmedBottom (3).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+        }
     }
 
     // The frame readout under the plot ("FRAME 12 / 64"), empty when the
@@ -278,7 +345,8 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         endGestures();
-        pressInHeader = ! compact && event.position.y < (float) headerHeight;
+        pressInHeader = (! compact && event.position.y < (float) headerHeight)
+                        || (slim && isTableMode() && event.position.y < (float) slimHeader);
 
         if (pressInHeader)
         {
@@ -571,7 +639,7 @@ private:
     {
         // PLAY's strip is too small for 3D or the harmonics: it always shows
         // the cycle (UI review 8, S8-34).
-        if (compact)
+        if (compact && ! slim)
             return 0;
 
         if (singleCycle)
@@ -1634,6 +1702,27 @@ private:
 
     void mouseDownOnHeader (const juce::MouseEvent& event)
     {
+        if (slim)
+        {
+            const auto areas = slimAreas();
+            const auto at = event.getPosition();
+
+            if (areas.view.contains (at))
+            {
+                viewPicked = true;
+                pickedTable = resolveTableIndex();
+                setViewMode ((shownViewMode() + 1) % 3);
+            }
+            else if (areas.previous.contains (at))
+                stepTable (-1);
+            else if (areas.next.contains (at))
+                stepTable (1);
+            else if (areas.name.contains (at) && isTableMode() && ! subTableMapping)
+                TableBrowser::show (processorRef, tableId, traceColour, *this);
+
+            return;
+        }
+
         if (tableNameArea.contains (event.getPosition()) && isTableMode() && ! subTableMapping)
             TableBrowser::show (processorRef, tableId, traceColour, *this);
     }
@@ -1784,8 +1873,8 @@ private:
     std::array<juce::TextButton, 3> viewButtons;
     juce::TextButton previousTable, nextTable;
     juce::Rectangle<int> tableNameArea;
-    bool compact = false, pressInHeader = false, singleCycle = false;
-    static constexpr int headerHeight = 20, footerHeight = 14;
+    bool compact = false, pressInHeader = false, singleCycle = false, slim = false;
+    static constexpr int headerHeight = 20, footerHeight = 14, slimHeader = 17;
     int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
     bool viewPicked = false; // a view chosen by hand, kept for that table even when static
     int pickedTable = -1;

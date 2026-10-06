@@ -892,6 +892,43 @@ public:
         resized();
     }
 
+    // Inline (the OSC cards and the voice strip): the dial at the left with
+    // the name and the value stacked to its right, in a cell one dial high.
+    // The layout is the look-and-feel's (getSliderLayout) for a slider with
+    // the "inlineKnob" property.
+    void setInline (bool shouldBeInline)
+    {
+        if (inlineLayout == shouldBeInline)
+            return;
+
+        inlineLayout = shouldBeInline;
+        slider.getProperties().set ("inlineKnob", inlineLayout);
+        slider.setTextBoxStyle (inlineLayout ? juce::Slider::TextBoxRight : juce::Slider::TextBoxBelow, false, 60, 14);
+        label.setJustificationType (inlineLayout ? juce::Justification::centredLeft : juce::Justification::centred);
+        label.setFont (IlanaTheme::font (inlineLayout ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body));
+        IlanaTheme::styleInlineValueBox (slider, inlineLayout);
+        resized();
+    }
+
+    bool isInline() const { return inlineLayout; }
+
+    // A value drawn as a faded dash while `shown` says it does nothing (an
+    // amount whose stage is Off): the knob keeps its place and its size.
+    void setDashWhen (std::function<bool()> isIdle)
+    {
+        dashWhen = std::move (isIdle);
+        const auto base = slider.textFromValueFunction;
+        slider.textFromValueFunction = [this, base] (double value)
+        {
+            if (dashWhen != nullptr && dashWhen())
+                return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
+            return base != nullptr ? base (value) : juce::String (value);
+        };
+        slider.updateText();
+    }
+
+    void refreshValueText() { slider.updateText(); }
+
     int getMaxDial() const { return maxDial; }
     // The label's line, and 3 px more under it for a knob that draws modulation
     // rings, so the rings clear the name (V10-18); 0 without a name.
@@ -1151,6 +1188,19 @@ public:
         {
             knobBounds = area;
             slider.setBounds (area);
+            layoutDots();
+            return;
+        }
+
+        if (inlineLayout)
+        {
+            // The dial is a square as high as the cell; the name above the
+            // value, level with the dial's middle line, to its right.
+            const auto dial = juce::jmin (area.getHeight(), 40);
+            knobBounds = area.withWidth (dial).withSizeKeepingCentre (dial, dial);
+            slider.setBounds (area);
+            const auto textX = knobBounds.getRight() + 3;
+            label.setBounds (textX, area.getCentreY() - 13, juce::jmax (0, area.getRight() - textX), 13);
             layoutDots();
             return;
         }
@@ -1491,7 +1541,7 @@ private:
     {
         auto area = knobBounds.toFloat();
 
-        if (! compact)
+        if (! compact && ! inlineLayout)
             area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
 
         return area;
@@ -1941,6 +1991,8 @@ private:
     int dragSource = 0; // the source being dragged anywhere (V8-10)
     bool hover = false;
     bool compact = false;
+    bool inlineLayout = false;
+    std::function<bool()> dashWhen;
     bool sourceKnob = false;
     bool badgesShown = false; // the mouse is on the knob (or its badges)
     bool badgesForced = false; // (the tests and snapshots)
@@ -1994,9 +2046,35 @@ public:
             label.setText (text, juce::dontSendNotification);
     }
 
+    // A menu 18 px high under a 9 px name (the OSC cards and the voice strip).
+    void setCompactLayout (bool shouldBeCompact)
+    {
+        if (compactLayout == shouldBeCompact)
+            return;
+
+        compactLayout = shouldBeCompact;
+        label.setFont (IlanaTheme::font (compactLayout ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body));
+        combo.getProperties().set ("compactMenu", compactLayout);
+        resized();
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (compactLayout && label.getText().isNotEmpty())
+        {
+            label.setBounds (area.removeFromTop (10));
+            combo.setBounds (area.removeFromTop (18));
+            return;
+        }
+
+        if (compactLayout)
+        {
+            label.setBounds ({});
+            combo.setBounds (area.withSizeKeepingCentre (area.getWidth(), juce::jmin (20, area.getHeight())));
+            return;
+        }
 
         // A menu without a name (PLAY's strips: its value says what it is)
         // is just the box.
@@ -2061,6 +2139,7 @@ private:
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float hover = 0.0f;
+    bool compactLayout = false;
 };
 
 class ToggleControl : public juce::Component,
@@ -2101,6 +2180,54 @@ public:
 
     juce::TextButton& getButton() { return button; }
 
+    // The switch in an owner's colour (an oscillator's) instead of the accent.
+    void setSwitchColour (juce::Colour colour)
+    {
+        button.getProperties().set ("switchColour", (int) colour.getARGB());
+        button.repaint();
+    }
+
+    // The name to the right of the switch, on one line (a row of knobs and
+    // switches in a card: "TUNED", "LOOP").
+    void setInlineLabel (bool shouldBeInline)
+    {
+        inlineLabel = shouldBeInline;
+        resized();
+        repaint();
+    }
+
+    // The name over the switch in the small size (the voice strip's LEGATO).
+    void setSmallName (bool small)
+    {
+        smallName = small;
+        repaint();
+    }
+
+    // Just the pill, filling the area (a card header's power switch).
+    void setBareSwitch (bool shouldBeBare)
+    {
+        bareSwitch = shouldBeBare;
+        resized();
+    }
+
+    // A group's name that is its own switch (the voice strip's SUB, STRINGS,
+    // SOUNDBOARD): a lit dot while on, the name in the family colour, all of
+    // it dimmed while off. The whole area takes the click.
+    void setGroupName (const juce::String& name, juce::Colour colour)
+    {
+        groupColour = colour;
+        groupText = name;
+        groupStyle = true;
+        button.getProperties().set ("groupName", true);
+        button.getProperties().set ("groupColour", (int) colour.getARGB());
+        button.getProperties().set ("groupText", name);
+        resized();
+        repaint();
+    }
+
+    bool isGroupName() const { return groupStyle; }
+    juce::String getGroupText() const { return groupText; }
+
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
 
     // (Every toggle is a switch now; kept for the call sites that ask.)
@@ -2116,12 +2243,24 @@ public:
     // steady glow (a glow that never settles keeps the whole UI busy).
     void paint (juce::Graphics& g) override
     {
+        if (groupStyle)
+            return; // (the switch draws its own dot and name: IlanaLookAndFeel)
+
+        if (inlineLabel && isSwitch())
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineSwitchWidth + 5),
+                                    juce::Justification::centredLeft, 1);
+            return;
+        }
+
         // A named switch shows its name where other controls show a label.
         if (isSwitch() && button.getButtonText() != "ON")
         {
             g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (button.getButtonText(), getLocalBounds().withHeight (13), juce::Justification::centred, true);
+            g.setFont (IlanaTheme::font (smallName ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::body));
+            g.drawText (button.getButtonText(), getLocalBounds().withHeight (smallName ? 11 : 13), juce::Justification::centred, true);
             return;
         }
 
@@ -2138,6 +2277,19 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (groupStyle || bareSwitch)
+        {
+            button.setBounds (area);
+            return;
+        }
+
+        if (inlineLabel)
+        {
+            button.setBounds (area.removeFromLeft (inlineSwitchWidth).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
+            return;
+        }
+
         area.removeFromTop (13 + switchDrop);
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
@@ -2156,6 +2308,10 @@ public:
 
 private:
     int switchDrop = 0;
+    bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
+    juce::Colour groupColour;
+    juce::String groupText;
+    static constexpr int inlineSwitchWidth = 34;
 
     void timerCallback() override
     {

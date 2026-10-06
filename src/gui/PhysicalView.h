@@ -57,6 +57,8 @@ public:
     }
 
     void setOscillator (const juce::String& newPrefix) { prefix = newPrefix; restart(); }
+    // The picture alone, small (an OSC card's well): no captions, a slim body.
+    void setCompact (bool shouldBeCompact) { compact = shouldBeCompact; repaint(); }
     const juce::String& getOscillator() const { return prefix; } // (the UI test reads it)
     // Drawn in the oscillator's identity colour, like the rest of its page.
     void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
@@ -66,11 +68,12 @@ public:
         const auto bounds = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, bounds, 8.0f);
         const auto accent = colour;
-        auto area = bounds.reduced (18.0f, 14.0f);
+        auto area = compact ? bounds.reduced (8.0f, 8.0f) : bounds.reduced (18.0f, 14.0f);
         // The body a slim band under the string, so the string keeps the
         // room (UI review 7, S7-39).
-        const auto bodyArea = area.removeFromBottom (juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
-        area.removeFromBottom (8.0f);
+        const auto bodyArea = area.removeFromBottom (compact ? juce::jlimit (10.0f, 18.0f, area.getHeight() * 0.2f)
+                                                             : juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
+        area.removeFromBottom (compact ? 4.0f : 8.0f);
         const auto stringY = area.getCentreY() + area.getHeight() * 0.12f;
         const auto left = area.getX() + 12.0f, right = area.getRight() - 12.0f;
         const auto excite = (int) read ("_excite");
@@ -190,9 +193,12 @@ public:
             g.setColour (IlanaTheme::Ui::text3);
         }
 
-        g.drawText (bodyName(), bodyArea.reduced (12.0f, 2.0f), juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.drawText (exciteName (excite), area.withHeight (16.0f), juce::Justification::topRight);
+        if (! compact)
+        {
+            g.drawText (bodyName(), bodyArea.reduced (12.0f, 2.0f), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.drawText (exciteName (excite), area.withHeight (16.0f), juce::Justification::topRight);
+        }
 
         // Not a Physical oscillator: the picture is only what it would be.
         if (juce::roundToInt (read ("_mode")) != 1)
@@ -205,6 +211,7 @@ public:
     }
 
 private:
+    bool compact = false;
     static constexpr int numModes = 16;
 
     float read (const char* suffix) const

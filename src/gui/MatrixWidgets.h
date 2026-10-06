@@ -722,6 +722,12 @@ public:
             // it (the dock's chips and the matrix agree on a source's colour).
             bypass.getProperties().set ("switchColour", (int) colour.getARGB());
             bypass.repaint();
+            // SOURCE reads in its source's colour, outlined with it, as the
+            // design draws the row.
+            source.setColour (juce::ComboBox::outlineColourId, colour.withAlpha (0.6f));
+            source.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (colour, 0.12f));
+            source.setColour (juce::ComboBox::textColourId, IlanaTheme::Ui::text.interpolatedWith (colour, 0.5f));
+            source.repaint();
             amount.setColour (juce::Slider::rotarySliderFillColourId, colour);
             curve.setColour (colour);
             polarity.setColour (colour);

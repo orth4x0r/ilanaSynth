@@ -70,6 +70,13 @@ public:
         std::array<float, 128> cycle {};
         const auto plot = area.reduced (8.0f, 8.0f);
 
+        // A quarter grid behind the cycle, as the design draws these wells.
+        g.setColour (juce::Colours::white.withAlpha (0.05f));
+        for (int i = 1; i < 4; ++i)
+        {
+            g.drawHorizontalLine ((int) (area.getY() + area.getHeight() * (float) i / 4.0f), area.getX() + 1.0f, area.getRight() - 1.0f);
+            g.drawVerticalLine ((int) (area.getX() + area.getWidth() * (float) i / 4.0f), area.getY() + 1.0f, area.getBottom() - 1.0f);
+        }
         g.setColour (IlanaTheme::Ui::line);
         g.drawHorizontalLine ((int) plot.getCentreY(), plot.getX(), plot.getRight());
 

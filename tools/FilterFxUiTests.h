@@ -465,9 +465,9 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
 
             auto* top = editor.getTopLevelComponent();
             const auto before = top->getBounds();
-            for (const auto small : { false, true })
+            for (const auto reduced : { false, true })
             {
-                if (small)
+                if (reduced)
                     top->setSize (795, 540);
                 settle (300);
                 loadFx ({ 32, 13 }); // Tape, Reverb
@@ -481,9 +481,9 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                             && editor.getLocalBounds().contains (shown) && tape != nullptr && tape->getHeight() >= 26
                             && tape->getInRackSlot() == 0,
                         juce::String ("FX: TAPE's type button opens the effect picker for slot 1 at the editor's zoom, inside the window ")
-                            + (small ? "at 75 %" : "at 100 %") + " (" + shown.toString() + ", zoom " + juce::String (zoom, 2) + ")");
+                            + (reduced ? "at 75 %" : "at 100 %") + " (" + shown.toString() + ", zoom " + juce::String (zoom, 2) + ")");
 
-                if (! small && picker != nullptr)
+                if (! reduced && picker != nullptr)
                 {
                     // A pick replaces the slot's effect, one undo step.
                     if (auto* chorus = picker->findButton (7))

@@ -635,7 +635,7 @@ public:
             library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight() + 170)));
         }
 
-        // The rows take their own height (stretched to 96 at most, squeezed to
+        // The rows take their own height (stretched to 88 at most, squeezed to
         // 64 when the rack is long, scrolling beyond); OUTPUT follows the last
         // of them (V7-29, S7-16: no empty band above it). A short rack with a
         // free slot ends in a dashed "+ ADD EFFECT" row that takes the rest of
@@ -1122,13 +1122,13 @@ private:
     };
 
     // Row geometry (px of the 1060 x 720 design): the rail is 56 wide, a row
-    // is 80 high (64 when the rack is long, 96 when it is short: its picture and
+    // is 80 high (64 when the rack is long, 88 when it is short: its picture and
     // its dials grow with it), its left block 156 wide, its knobs
     // 116 x 44 cells with the dial's name and value beside it.
     // The parallel ladder's buses, x in the rail (inside the IN / OUT pills).
     static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
-    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 96, duplicateHeight = 56, addTileMinimum = 40;
+    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 88, duplicateHeight = 56, addTileMinimum = 40;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
@@ -1334,7 +1334,7 @@ private:
         }
 
         // Heights: every row at its natural height; a short rack stretches its
-        // single-line rows (to 96 at most), a long one compresses them (to 64)
+        // single-line rows (to 88 at most), a long one compresses them (to 64)
         // before the stack scrolls.
         const auto viewHeight = availableStackHeight;
         auto overhead = stackTopMargin + stackFootMargin + juce::jmax (0, (int) cards.size() - 1) * rowGap;
@@ -1572,7 +1572,7 @@ private:
             // The dial grows with the row (a short rack's rows are taller), so
             // a tall row's knobs fill it instead of floating in a band.
             if (auto* knob = dynamic_cast<KnobControl*> (item))
-                knob->setInlineDial (juce::jlimit (40, 56, rowHeight - 18));
+                knob->setInlineDial (juce::jlimit (40, 56, rowHeight - 16));
 
             if (dynamic_cast<ComboControl*> (item) != nullptr)
                 item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));

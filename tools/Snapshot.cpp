@@ -7487,6 +7487,68 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_FX: the FX rack in the states the design is checked in
+    // (the mockup's five effects with one bypassed, a long rack, bands, the
+    // delay's taps, a duplicate, Airwindows models, an empty rack); then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FX", "").isNotEmpty())
+    {
+        pages->showPage ("FX");
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto clear = [&]
+        {
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                const auto prefix = "fx_slot" + juce::String (slot);
+                setParam (prefix, 0.0f);
+                setParam (prefix + "_bypass", 0.0f);
+                setParam (prefix + "_solo", 0.0f);
+                setParam (prefix + "_band", 0.0f);
+                setParam (prefix + "_mix", 1.0f);
+            }
+        };
+        const auto fill = [&] (std::vector<int> types)
+        {
+            clear();
+            auto slot = 1;
+            for (const auto type : types)
+                processor.assignFxSlot (slot++, type);
+        };
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("fx-" + name + ".png"));
+        };
+
+        fill ({ 27, 2, 20, 36, 34 });
+        setParam ("fx_slot4_bypass", 1.0f);
+        shot ("mock");
+        fill ({ 27, 2, 20, 7, 13, 9, 18, 1 });
+        shot ("eight");
+        fill ({ 27, 2, 20, 7, 13, 9, 18, 1, 29, 4 });
+        shot ("ten");
+        fill ({ 9, 16, 29, 4 });
+        setParam ("fx_taps_on", 1.0f);
+        shot ("taps-gate");
+        fill ({ 12, 22, 19, 21, 31, 25, 17, 10 });
+        shot ("plain");
+        fill ({ 2, 6, 20, 4 });
+        setParam ("fx_slot2_band", 1.0f);
+        setParam ("fx_slot3_band", 2.0f);
+        setParam ("fx_slot4_band", 3.0f);
+        shot ("bands");
+        fill ({ 2, 2, 32, 34, 38, 37 });
+        shot ("duplicate-aw");
+        fill ({ 30, 13, 1, 3 });
+        shot ("aw-all");
+        clear();
+        shot ("empty");
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_FM: just the FM page (UI review 6's DX7 pass): the
     // first operator, its KEYS & VELOCITY tab, PITCH & LFO, each other
     // operator, then the patch on DX7 algorithm 1 (the tallest stack); then stop.
@@ -7537,6 +7599,8 @@ int main (int argc, char** argv)
             save (*editor, outDir.getChildFile ("fm-dx7-algorithm-" + number + ".png"));
         }
         // Operator 1 on the Operator Env: the card as the DX7 voices have it.
+        if (auto* picker = findChild<OscPicker> (*page))
+            picker->pick (0);
         if (auto* parameter = processor.apvts.getParameter ("osc1_amp_env"))
         {
             parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) OperatorEg::envelopeChoice));

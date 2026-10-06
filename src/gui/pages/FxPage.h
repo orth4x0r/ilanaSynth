@@ -553,7 +553,7 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (14, 8);
+        auto area = getLocalBounds().reduced (0, 8);
 
         // The top bar: IN above the rail, the two chains, the routing; at the
         // right the chain's file menu, + ADD and the dice.
@@ -573,11 +573,12 @@ public:
         fileButton.setBounds (toolbar.removeFromRight (84).reduced (0, 2));
         seriesHint = toolbar.withTrimmedRight (10);
         copyChainButton.setVisible (false);
-        area.removeFromTop (rowGap);
+        area.removeFromTop (rowGap - stackTopMargin);
 
         auto outRow = area.removeFromBottom (outputHeight);
         area.removeFromBottom (rowGap);
-        auto stackArea = area;
+        // (The chip under the last row reaches 3 px past the gap: the view's foot margin overlaps OUTPUT's top edge by 4.)
+        auto stackArea = area.withTrimmedBottom (-(stackFootMargin - rowGap));
 
         // An empty rack shows the library in the stack's place (one view
         // of the chain, not a list beside the cards: S5-18, S6-25).
@@ -602,7 +603,7 @@ public:
         {
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
             layoutStack();
-            outRow.setY (stackView.getBottom() + rowGap);
+            outRow.setY (stackView.getBottom() - (stackFootMargin - rowGap));
         }
 
         outputStrip = outRow.withTrimmedLeft (railWidth + railGap);
@@ -1032,10 +1033,10 @@ private:
     // is 80 high (64 when the rack is long), its left block 156 wide, its knobs
     // 116 x 44 cells with the dial's name and value beside it.
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
-    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 96, duplicateHeight = 56;
+    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 80, duplicateHeight = 56;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
-    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 6, stackFootMargin = 14;
+    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 
@@ -1622,7 +1623,7 @@ private:
                 g.setColour (IlanaTheme::Ui::track);
                 g.fillRoundedRectangle (bar, 2.0f);
                 const auto fill = railFill (slot);
-                g.setColour (fill > 0.85f ? juce::Colour (0xffff4f5e) : railGood());
+                g.setColour (fill > 0.97f ? juce::Colour (0xffff4f5e) : railGood());
                 g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * fill), 2.0f);
             }
             g.setColour (off ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
@@ -1639,14 +1640,16 @@ private:
         if (in < 1.0e-4f)
             return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94 dB"));
         const auto db = juce::Decibels::gainToDecibels (processorRef.getFxSlotOutLevel (slot) / in, -60.0f);
-        return (db >= 0.05f ? "+" : "") + juce::String (db, 1) + " dB";
+        if (std::abs (db) < 0.05f)
+            return "0.0 dB";
+        return (db > 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
     }
 
     // The level leaving the slot, 0 to 1 over -48 to 0 dB, for the chip's bar.
     float railFill (int slot) const
     {
         const auto db = juce::Decibels::gainToDecibels (processorRef.getFxSlotOutLevel (slot), -60.0f);
-        return juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f);
+        return juce::jlimit (0.0f, 1.0f, (db + 54.0f) / 54.0f);
     }
 
     void paintStack (juce::Graphics& g)

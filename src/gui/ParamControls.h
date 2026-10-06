@@ -856,6 +856,32 @@ public:
     float getDialRadius() const { return dialRadius(); }
     float getRingRadius (int ring) const { return ringRadius (ring); }
     juce::Point<float> getDialCentre() const { return dialCentre(); }
+    // Where the name's line of letters draws (local; empty without a name),
+    // and the box the drawn rings cover with their strokes: the cut-text
+    // test keeps both inside the knob and its views, and apart.
+    juce::Rectangle<float> getNameTextBounds() const
+    {
+        if (! label.isVisible() || label.getText().isEmpty() || label.getWidth() <= 0)
+            return {};
+
+        auto& lf = label.getLookAndFeel();
+        const auto font = lf.getLabelFont (const_cast<juce::Label&> (label));
+        const auto area = lf.getLabelBorderSize (const_cast<juce::Label&> (label)).subtractedFrom (label.getLocalBounds()).toFloat();
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (font, label.getText(), area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                              label.getJustificationType(), 1, 1.0f);
+        return glyphs.getBoundingBox (0, -1, true).translated ((float) label.getX(), (float) label.getY());
+    }
+    juce::Rectangle<float> getRingsBounds() const
+    {
+        if (numRings() == 0 || knobRadiusFor (knobBounds) < 8.0f)
+            return {};
+
+        // The sweep passes the top and both sides; its ends sit 0.81 r below the centre.
+        const auto r = ringRadius (numRings() - 1) + 1.0f; // (the stroke's outer half)
+        const auto centre = dialCentre();
+        return juce::Rectangle<float>::leftTopRightBottom (centre.x - r, centre.y - r, centre.x + r, centre.y + r * 0.81f);
+    }
     // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
     void syncRoutings() { refreshRoutings(); }
     ModDotStrip& getDotStrip() { return dotStrip; }
@@ -964,7 +990,9 @@ public:
     int getMaxDial() const { return maxDial; }
     // The label's line, and 3 px more under it for a knob that draws modulation
     // rings, so the rings clear the name (V10-18); 0 without a name.
-    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : 13 + (ringConfig.destination != 0 ? 3 : 0); }
+    // (A knob that draws rings keeps 5 px under its name: room for three
+    // rings over the dial without reaching the name, design sweep.)
+    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : 13 + (ringConfig.destination != 0 ? 5 : 0); }
     // The dial's drawn size right now (the UI test checks roles with it).
     int getDialSize() const { return knobBounds.getWidth() > 0 ? juce::jmin (knobBounds.getWidth(), (int) rotaryArea().getHeight()) : 0; }
 
@@ -1387,8 +1415,16 @@ private:
     float ringRadius (int index) const
     {
         const auto count = numRings();
-        const auto centreX = dialCentre().x;
-        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 2.5f; // (the stroke and its outline)
+        const auto centre = dialCentre();
+        // Nor above the knob's name (or its own top): the outer ring keeps
+        // 1 px of air under the name, so no arc is cut flat by it or runs
+        // out of the cell (ilana's FRAME, design sweep).
+        const auto dialTop = dialBounds().getY();
+        const auto nameAbove = label.isVisible() && label.getText().isNotEmpty() && (float) label.getBottom() <= dialTop + 2.0f
+                               && (float) label.getX() < centre.x && (float) label.getRight() > centre.x;
+        const auto ceiling = nameAbove ? (float) label.getBottom() + 1.0f : 0.0f;
+        const auto room = juce::jmin (juce::jmin (centre.x, (float) getWidth() - centre.x) - 2.5f, // (the stroke and its outline)
+                                      centre.y - ceiling - 1.5f);                                  // (a grabbed ring's half stroke)
         const auto dial = dialRadius();
         auto base = dial + ringGap;
         auto pitch = ringPitch;
@@ -2193,11 +2229,14 @@ private:
         {
             if (popupOverride != nullptr)
             {
-                popupOverride();
-
                 // ComboBox marks its menu active on click and only clears that
-                // when its own menu closes; without this, later clicks are ignored.
+                // when its own menu closes; without this, later clicks are
+                // ignored. Cleared first: hidePopup() dismisses every open
+                // menu, so after the override it closed the override's own
+                // menu as it opened, and nothing could be picked (ilana's
+                // Airwindows ALGORITHM select).
                 hidePopup();
+                popupOverride();
             }
             else
                 juce::ComboBox::showPopup();

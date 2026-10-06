@@ -100,8 +100,9 @@ public:
             const auto closeness = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (pill - (float) i));
             auto colour = Ui::text3.interpolatedWith (Ui::text, closeness);
 
-            if (i == hover && i != selected)
-                colour = colour.interpolatedWith (Ui::text, 0.6f);
+            // (The hover fades in and out: the shared animator.)
+            const auto hovered = fade (*this, 100 + i, i == hover && i != selected ? 1.0f : 0.0f, FadeRate::hover);
+            colour = colour.interpolatedWith (Ui::text, 0.6f * hovered);
 
             if (isItemDimmed (i) && i != selected)
                 colour = colour.withMultipliedAlpha (0.4f);

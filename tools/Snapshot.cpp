@@ -6483,6 +6483,73 @@ int runUiTests()
         editor->setSize (1060, 720);
         settle (300);
 
+        // Knob names and modulation rings are never cut (ilana's Windows
+        // screenshots, design sweep): on every page, at 75 %, 100 % and
+        // 150 %, each visible knob's name and the box its rings draw in sit
+        // inside the knob and inside every view above it, and the rings stay
+        // under the name. Neuro Wobble's FRAME has three rings.
+        const auto cutKnobText = [&editor] (juce::StringArray& names)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+            {
+                if (! visibleInTree (knob) || knob->getWidth() <= 0 || knob->getHeight() <= 0)
+                    continue;
+                const auto own = knob->getLocalBounds().toFloat().expanded (0.5f);
+                const auto name = knob->getNameTextBounds();
+                const auto rings = knob->getRingsBounds();
+                const auto whole = editor->getLocalArea (knob, knob->getLocalBounds());
+                // A knob scrolled wholly out of view is hidden, not cut.
+                auto hidden = false;
+                for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole);
+                if (hidden)
+                    continue;
+                juce::StringArray why;
+                if (! name.isEmpty() && ! own.contains (name))
+                    why.add ("name outside the knob");
+                if (! rings.isEmpty() && ! own.contains (rings))
+                    why.add ("rings outside the knob");
+                if (! name.isEmpty() && ! rings.isEmpty() && rings.getY() < name.getBottom() - 0.5f
+                    && rings.getX() < name.getRight() && rings.getRight() > name.getX())
+                    why.add ("rings reach the name");
+                const std::pair<const char*, juce::Rectangle<float>> parts[] { { "name", name }, { "rings", rings } };
+                for (const auto& [what, part] : parts)
+                {
+                    if (part.isEmpty())
+                        continue;
+                    const auto area = editor->getLocalArea (knob, part.getSmallestIntegerContainer().reduced (1));
+                    for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                        if (! editor->getLocalArea (parent, parent->getLocalBounds()).contains (area))
+                        {
+                            why.add (juce::String (what) + " cut by " + parent->getName() + " " + juce::String (typeid (*parent).name()));
+                            break;
+                        }
+                }
+                if (! why.isEmpty())
+                    names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + ")");
+            }
+        };
+
+        loadNamed ("Neuro Wobble");
+        for (const auto width : { 795, 1060, 1590 })
+        {
+            editor->setSize (width, width * 720 / 1060);
+            settle (300);
+            for (const auto& page : pages->getPageIds())
+            {
+                pages->showPage (page);
+                settle (300);
+                juce::StringArray cut;
+                cutKnobText (cut);
+                expect (cut.isEmpty(), page + " at " + juce::String (width) + " px: no knob's name or rings are cut"
+                                           + (cut.isEmpty() ? juce::String() : " (" + cut.joinIntoString (", ") + ")"));
+            }
+        }
+        editor->setSize (1060, 720);
+        settle (300);
+
         // The DX7 voice's six operators: six strips on PLAY, each showing
         // its RATIO (it is an operator: UI review 6, V3, I6-5), nothing
         // cut; on OSC the OSC 4 tab shows OSC 4 alone.
@@ -6760,8 +6827,68 @@ int runUiTests()
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
 
+    // Design sweep: every pop-up draws in the design's look. A menu shown on
+    // the desktop never asks its target for a look, nor does an AlertWindow
+    // with no owner or JUCE's file browser: they use the process default,
+    // which is the editor's own look while it is open. A knob's right-click
+    // menu and its "Modulate with" submenu are windows of that look.
+    {
+        expect (&juce::LookAndFeel::getDefaultLookAndFeel() == &editor->getLookAndFeel()
+                    && dynamic_cast<IlanaLookAndFeel*> (&editor->getLookAndFeel()) != nullptr,
+                "sweep: while the editor is open its look is the default one (desktop menus, dialogs)");
+
+        pages->showPage ("MAIN");
+        settle (300);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* knob = nullptr;
+        for (auto* candidate : knobs)
+            if (knob == nullptr && visibleInTree (candidate) && candidate->getRingDestination() != 0)
+                knob = candidate;
+
+        const auto menuWindows = [&editor]
+        {
+            std::vector<juce::Component*> windows;
+            auto& desktop = juce::Desktop::getInstance();
+            for (int i = 0; i < desktop.getNumComponents(); ++i)
+                if (auto* window = desktop.getComponent (i); window != nullptr && window != editor.get() && window->isVisible())
+                    windows.push_back (window);
+            return windows;
+        };
+
+        if (knob != nullptr && juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr)
+        {
+            const auto centre = knob->getLocalBounds().getCentre().toFloat();
+            const juce::MouseEvent rightClick (juce::Desktop::getInstance().getMainMouseSource(), centre,
+                                               juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier | juce::ModifierKeys::popupMenuClickModifier),
+                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, knob, knob, juce::Time::getCurrentTime(), centre,
+                                               juce::Time::getCurrentTime(), 1, false);
+            knob->mouseDown (rightClick);
+            settle (150);
+            auto windows = menuWindows();
+            if (! windows.empty())
+            {
+                // The keys open "Modulate with" (its highlight is the keyboard's).
+                windows.back()->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                windows.back()->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
+                settle (150);
+                windows = menuWindows();
+            }
+            auto designed = 0;
+            for (auto* window : windows)
+                designed += dynamic_cast<IlanaLookAndFeel*> (&window->getLookAndFeel()) != nullptr ? 1 : 0;
+            expect (windows.size() >= 2 && designed == (int) windows.size(),
+                    "sweep: a knob's right-click menu and its submenu draw in the design's look ("
+                        + juce::String (designed) + " of " + juce::String ((int) windows.size()) + " windows)");
+            juce::PopupMenu::dismissAllActiveMenus();
+            settle (150);
+        }
+    }
+
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
+    expect (dynamic_cast<IlanaLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel()) == nullptr,
+            "sweep: with no editor open the default look is JUCE's own again");
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
 }
@@ -7297,8 +7424,44 @@ static int runLoadState (const juce::File& file)
     return 0;
 }
 
+#if JUCE_LINUX
+ #include <dlfcn.h>
+// Under xvfb no window manager has made its atoms, and JUCE then sets a new
+// window's type with atom 0 (BadAtom, and the run hangs): make them first,
+// so the tests and snapshots can open real menus and windows.
+static void internWindowManagerAtoms()
+{
+    auto* library = dlopen ("libX11.so.6", RTLD_LAZY | RTLD_LOCAL);
+    if (library == nullptr)
+        return;
+
+    using OpenDisplayFn = void* (*) (const char*);
+    using InternAtomFn = unsigned long (*) (void*, const char*, int);
+    using CloseDisplayFn = int (*) (void*);
+    const auto openDisplay = reinterpret_cast<OpenDisplayFn> (dlsym (library, "XOpenDisplay"));
+    const auto internAtom = reinterpret_cast<InternAtomFn> (dlsym (library, "XInternAtom"));
+    const auto closeDisplay = reinterpret_cast<CloseDisplayFn> (dlsym (library, "XCloseDisplay"));
+
+    if (openDisplay != nullptr && internAtom != nullptr && closeDisplay != nullptr)
+        if (auto* display = openDisplay (nullptr))
+        {
+            for (const auto* name : { "WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW", "_NET_WM_PING", "WM_CHANGE_STATE", "WM_STATE",
+                                      "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_NORMAL", "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_STATE",
+                                      "_NET_WM_STATE_HIDDEN", "_NET_WM_STATE_FULLSCREEN", "_NET_FRAME_EXTENTS", "_MOTIF_WM_HINTS",
+                                      "_NET_WM_ALLOWED_ACTIONS", "_NET_WM_ACTION_CLOSE", "_NET_WM_ACTION_FULLSCREEN",
+                                      "_NET_WM_ACTION_MINIMIZE", "_NET_WM_ACTION_RESIZE", "_NET_WM_MOVERESIZE" })
+                internAtom (display, name, 0);
+            // (Left open: an X server with no clients left resets, and its atoms go.)
+            juce::ignoreUnused (closeDisplay);
+        }
+}
+#endif
+
 int main (int argc, char** argv)
 {
+   #if JUCE_LINUX
+    internWindowManagerAtoms();
+   #endif
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     if (argc < 2)
@@ -7410,23 +7573,27 @@ int main (int argc, char** argv)
     // sub-menu), into menu.png at the snapshot scale; then stop.
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_MENU", "").isNotEmpty())
     {
-        auto& lf = editor->getLookAndFeel();
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel(); // (what a desktop menu draws with)
         const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
         struct Item { juce::String text; bool header, separator, highlighted, ticked, sub; };
         const Item items[] { { "ADD EFFECT", true, false, false, false, false }, { "Vowel", false, false, true, false, false },
                              { "Drive", false, false, false, true, false }, { "OTT", false, false, false, false, false },
                              { {}, false, true, false, false, false }, { "Airwindows", false, false, false, false, true } };
         const auto width = 200;
-        auto height = 4;
+        const auto border = lf.getPopupMenuBorderSize();
+        auto height = border;
         std::vector<int> heights;
         for (const auto& item : items)
         {
             int w = 0, h = 0;
-            lf.getIdealPopupMenuItemSize (item.text, item.separator, -1, w, h);
-            heights.push_back (item.header ? h + 4 : h);
+            if (item.header)
+                lf.getIdealPopupMenuSectionHeaderSizeWithOptions (item.text, -1, w, h, juce::PopupMenu::Options());
+            else
+                lf.getIdealPopupMenuItemSize (item.text, item.separator, -1, w, h);
+            heights.push_back (h);
             height += heights.back();
         }
-        height += 4;
+        height += border;
         juce::Image image (juce::Image::ARGB, juce::roundToInt ((float) (width + 40) * scale), juce::roundToInt ((float) (height + 40) * scale), true);
         {
             juce::Graphics g (image);
@@ -7434,11 +7601,11 @@ int main (int argc, char** argv)
             g.fillAll (IlanaTheme::Ui::bg);
             g.setOrigin (20, 20);
             lf.drawPopupMenuBackground (g, width, height);
-            auto y = 4;
+            auto y = border;
             for (size_t i = 0; i < std::size (items); ++i)
             {
                 const auto& item = items[i];
-                const juce::Rectangle<int> row (0, y, width, heights[i]);
+                const juce::Rectangle<int> row (border, y, width - 2 * border, heights[i]);
                 if (item.header)
                     lf.drawPopupMenuSectionHeader (g, row, item.text);
                 else
@@ -7451,6 +7618,186 @@ int main (int argc, char** argv)
         juce::FileOutputStream stream (file);
         juce::PNGImageFormat().writeImageToStream (image, stream);
         std::cout << file.getFullPathName() << std::endl;
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_WIDGETS: the real pop-ups, drawn by the look the user
+    // gets (the process default while the editor is open), then stop:
+    //   widgets-knob-menu.png   FRAME's right-click menu with "Modulate with"
+    //                           opened by the keys (the keyboard highlight)
+    //   widgets-combo-menu.png  a type box's list
+    //   widgets-alert.png       a message box and a question
+    //   widgets-sheet.png       tooltip, text fields (typing, with a selection,
+    //                           and empty), scroll bar, progress, call-out box
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_WIDGETS", "").isNotEmpty())
+    {
+        const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+        const auto writePng = [&outDir] (const juce::Image& image, const juce::String& name)
+        {
+            const auto file = outDir.getChildFile (name);
+            file.deleteFile();
+            juce::FileOutputStream stream (file);
+            juce::PNGImageFormat().writeImageToStream (image, stream);
+            std::cout << file.getFullPathName() << std::endl;
+        };
+
+        // On screen, as in a host: menus open beside their knob.
+        editor->addToDesktop (juce::ComponentPeer::windowIsTemporary);
+        editor->setVisible (true);
+        pages->showPage ("MAIN");
+        settle (400);
+
+        // Every window on the desktop but the editor, left to right on the page's ink.
+        const auto captureWindows = [&] (const juce::String& name)
+        {
+            std::vector<juce::Component*> windows;
+            auto& desktop = juce::Desktop::getInstance();
+            for (int i = 0; i < desktop.getNumComponents(); ++i)
+                if (auto* c = desktop.getComponent (i); c != nullptr && c != editor.get() && c->isVisible() && c->getWidth() > 0)
+                    windows.push_back (c);
+            std::sort (windows.begin(), windows.end(), [] (auto* a, auto* b) { return a->getScreenX() < b->getScreenX(); });
+            auto w = 16, h = 0;
+            for (auto* c : windows)
+            {
+                w += c->getWidth() + 16;
+                h = juce::jmax (h, c->getHeight());
+            }
+            juce::Image sheet (juce::Image::ARGB, juce::roundToInt ((float) w * scale), juce::roundToInt ((float) (h + 32) * scale), true);
+            {
+                juce::Graphics g (sheet);
+                g.fillAll (IlanaTheme::Ui::bg);
+                auto x = 16;
+                for (auto* c : windows)
+                {
+                    g.drawImage (c->createComponentSnapshot (c->getLocalBounds(), true, scale),
+                                 juce::Rectangle<float> ((float) x, 16.0f, (float) c->getWidth(), (float) c->getHeight()) * scale);
+                    x += c->getWidth() + 16;
+                }
+            }
+            writePng (sheet, name);
+        };
+
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* knob = nullptr;
+        for (auto* candidate : knobs)
+            if (knob == nullptr && visibleInTree (candidate) && candidate->getNumRings() > 0)
+                knob = candidate;
+
+        if (knob != nullptr)
+        {
+            const auto centre = knob->getLocalBounds().getCentre().toFloat();
+            const juce::MouseEvent rightClick (juce::Desktop::getInstance().getMainMouseSource(), centre,
+                                               juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier | juce::ModifierKeys::popupMenuClickModifier),
+                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, knob, knob, juce::Time::getCurrentTime(), centre,
+                                               juce::Time::getCurrentTime(), 1, false);
+            knob->mouseDown (rightClick);
+            settle (200);
+            auto& desktop = juce::Desktop::getInstance();
+            if (auto* menu = desktop.getNumComponents() > 0 ? desktop.getComponent (desktop.getNumComponents() - 1) : nullptr; menu != nullptr && menu != editor.get())
+            {
+                menu->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                menu->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
+                settle (200);
+                if (auto* sub = desktop.getComponent (desktop.getNumComponents() - 1); sub != nullptr && sub != menu)
+                    sub->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                settle (200);
+            }
+            captureWindows ("widgets-knob-menu.png");
+            juce::PopupMenu::dismissAllActiveMenus();
+            settle (300);
+        }
+
+        std::vector<juce::ComboBox*> combos;
+        findAll<juce::ComboBox> (*editor, combos);
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getNumItems() > 3)
+            {
+                combo->showPopup();
+                settle (300);
+                std::cerr << "DBG combo popup active " << combo->isPopupActive() << " desktop " << juce::Desktop::getInstance().getNumComponents() << " showing " << combo->isShowing() << std::endl;
+                for (int i = 0; i < juce::Desktop::getInstance().getNumComponents(); ++i) { auto* c = juce::Desktop::getInstance().getComponent (i); std::cerr << "  " << typeid (*c).name() << " " << c->getBounds().toString() << " vis " << c->isVisible() << std::endl; }
+                captureWindows ("widgets-combo-menu.png");
+                juce::PopupMenu::dismissAllActiveMenus();
+                settle (300);
+                break;
+            }
+
+        {
+            std::unique_ptr<juce::AlertWindow> info (lf.createAlertWindow ("Export MIDI", "This clip has no notes yet.", "OK", {}, {},
+                                                                           juce::MessageBoxIconType::InfoIcon, 1, nullptr));
+            std::unique_ptr<juce::AlertWindow> ask (lf.createAlertWindow ("Copy to chain B", "Replace chain B's effects with a copy of chain A's?",
+                                                                          "Copy", "Cancel", {}, juce::MessageBoxIconType::WarningIcon, 2, nullptr));
+            const auto a = info->createComponentSnapshot (info->getLocalBounds(), true, scale);
+            const auto b = ask->createComponentSnapshot (ask->getLocalBounds(), true, scale);
+            const auto gap = juce::roundToInt (16.0f * scale);
+            juce::Image sheet (juce::Image::ARGB, a.getWidth() + b.getWidth() + gap * 3, juce::jmax (a.getHeight(), b.getHeight()) + gap * 2, true);
+            {
+                juce::Graphics g (sheet);
+                g.fillAll (IlanaTheme::Ui::bg);
+                g.drawImageAt (a, gap, gap);
+                g.drawImageAt (b, gap * 2 + a.getWidth(), gap);
+            }
+            writePng (sheet, "widgets-alert.png");
+        }
+
+        {
+            struct Sheet : public juce::Component
+            {
+                void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::bg); }
+            } sheet;
+            sheet.setSize (640, 330);
+
+            // A tooltip as the editor's TooltipWindow draws it.
+            struct Tip : public juce::Component
+            {
+                juce::String text;
+                void paint (juce::Graphics& g) override { getLookAndFeel().drawTooltip (g, text, getWidth(), getHeight()); }
+            } tip;
+            tip.text = "Frame\nWhere in the wavetable the oscillator plays. Drag a modulation source here to sweep it.";
+            tip.setBounds (lf.getTooltipBounds (tip.text, { 0, 0 }, { 0, 0, 1000, 1000 }).withPosition (16, 16));
+            sheet.addAndMakeVisible (tip);
+
+            juce::TextEditor typing, empty;
+            typing.setText ("Neuro Wobble");
+            typing.setBounds (16, 120, 260, 30);
+            empty.setTextToShowWhenEmpty ("Optional", IlanaTheme::Ui::text3);
+            empty.setBounds (16, 160, 260, 30);
+            for (auto* field : { &typing, &empty })
+            {
+                field->setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)));
+                field->setIndents (10, 7);
+                sheet.addAndMakeVisible (*field);
+            }
+
+            juce::ScrollBar scroll (true);
+            scroll.setRangeLimits (0.0, 100.0);
+            scroll.setCurrentRange (20.0, 35.0);
+            scroll.setBounds (300, 120, 10, 160);
+            sheet.addAndMakeVisible (scroll);
+
+            double progress = 0.62;
+            juce::ProgressBar bar (progress);
+            bar.setBounds (16, 210, 260, 12);
+            sheet.addAndMakeVisible (bar);
+
+            juce::Label callOutText ({}, "A call-out box");
+            callOutText.setJustificationType (juce::Justification::centred);
+            callOutText.setColour (juce::Label::textColourId, IlanaTheme::Ui::text);
+            callOutText.setSize (180, 60);
+
+            sheet.addToDesktop (juce::ComponentPeer::windowIsTemporary);
+            sheet.setVisible (true);
+            juce::CallOutBox callOut (callOutText, { 420, 40, 20, 20 }, &sheet);
+            settle (100);
+            typing.grabKeyboardFocus();
+            typing.setHighlightedRegion ({ 6, 12 });
+            settle (300);
+            writePng (sheet.createComponentSnapshot (sheet.getLocalBounds(), true, scale), "widgets-sheet.png");
+            sheet.removeFromDesktop();
+        }
+
         return 0;
     }
 

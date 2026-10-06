@@ -838,12 +838,17 @@ private:
             : ParamBoundComponent (state, id), labels (std::move (labelsIn)), shortLabels (std::move (shortLabelsIn)), colour (colourIn)
         {
             setTooltip (state.getParameter (id)->getName (40));
+            setRepaintsOnMouseActivity (true);
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
         }
+
+        void mouseMove (const juce::MouseEvent&) override { repaint(); }
 
         void paint (juce::Graphics& g) override
         {
             const auto bounds = getLocalBounds().toFloat();
             const auto width = bounds.getWidth() / (float) labels.size();
+            const auto mouse = getMouseXYRelative().toFloat();
 
             // A narrow pill (a low card) says it shorter rather than cut.
             const auto fits = [&] (const juce::String& text) { return juce::GlyphArrangement::getStringWidth (IlanaTheme::pillFont(), text) <= width - 10.0f; };
@@ -851,9 +856,15 @@ private:
             if (shortLabels.size() == labels.size() && ! std::all_of (labels.begin(), labels.end(), fits))
                 shown = shortLabels;
 
+            // The choice and the hover fade (the shared animator).
             for (int option = 0; option < labels.size(); ++option)
-                IlanaTheme::paintPill (g, bounds.withWidth (width).withX (bounds.getX() + width * (float) option).reduced (2.0f, 1.0f),
-                                       shown[option], colour, option == current);
+            {
+                const auto cell = bounds.withWidth (width).withX (bounds.getX() + width * (float) option);
+                const auto hovered = isMouseOver() && cell.contains (mouse);
+                IlanaTheme::paintPill (g, cell.reduced (2.0f, 1.0f), shown[option], colour,
+                                       IlanaTheme::fade (*this, option, option == current ? 1.0f : 0.0f),
+                                       IlanaTheme::fade (*this, 100 + option, hovered ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
+            }
         }
 
         void mouseDown (const juce::MouseEvent& event) override

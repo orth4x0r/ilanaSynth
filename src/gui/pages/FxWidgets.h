@@ -315,8 +315,10 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        IlanaTheme::paintSwitch (g, (bare ? getLocalBounds() : getLocalBounds().withTrimmedTop (13)).toFloat(), isOn() ? 1.0f : 0.0f,
-                                 IlanaTheme::accent(), isMouseOver() ? 1.0f : 0.0f);
+        // Slides and fades as every switch does (the shared animator).
+        IlanaTheme::paintSwitch (g, (bare ? getLocalBounds() : getLocalBounds().withTrimmedTop (13)).toFloat(),
+                                 IlanaTheme::fade (*this, 0, isOn() ? 1.0f : 0.0f),
+                                 IlanaTheme::accent(), IlanaTheme::fade (*this, 1, isMouseOver() ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
     }
 
     void mouseDown (const juce::MouseEvent&) override

@@ -219,6 +219,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
    #endif
 
     setLookAndFeel (&lookAndFeel);
+    tooltipWindow.setOpaque (false);
 
     {
         juce::PropertiesFile::Options options;

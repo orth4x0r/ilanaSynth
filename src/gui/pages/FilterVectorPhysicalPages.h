@@ -161,12 +161,11 @@ private:
         if (prefix == "f2")
         {
             const auto onNow = ! passThrough || replaced;
+            // (It slides as every switch does: the look-and-feel's shared
+            // animator eases it, as no "switchAmount" is set here.)
             if (onNow != f2Switch.getToggleState())
-                f2Switch.setToggleState (onNow, juce::dontSendNotification);
-            const auto amount = f2Switch.getToggleState() ? 1.0f : 0.0f;
-            if ((float) f2Switch.getProperties().getWithDefault ("switchAmount", -1.0f) != amount)
             {
-                f2Switch.getProperties().set ("switchAmount", amount);
+                f2Switch.setToggleState (onNow, juce::dontSendNotification);
                 f2Switch.repaint();
             }
         }

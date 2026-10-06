@@ -182,8 +182,12 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, (size_t) Mod::Source::Count> usedModSources {};
     std::vector<bool> chipSecondOutputs; // the LFO chips showing a "B" (they lay out wider)
-    IlanaLookAndFeel lookAndFeel;
-    juce::TooltipWindow tooltipWindow { this, 900 };
+    // One look shared by every open editor, and made the process default
+    // while any is open, so menus, dialogs and file browsers shown on the
+    // desktop draw in it too.
+    DefaultLookAndFeelScope defaultLook;
+    IlanaLookAndFeel& lookAndFeel { defaultLook.get() };
+    juce::TooltipWindow tooltipWindow { this, 900 }; // (see-through: its card has round corners)
     Content content;
     LogoComponent logo;
     InfoStrip infoStrip;

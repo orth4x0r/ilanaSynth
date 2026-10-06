@@ -358,19 +358,28 @@ public:
         : ParamBoundComponent (state, id), colour (colourIn)
     {
         setTooltip ("Slope\n12 dB is gentler and brighter; 24 dB cuts harder.");
+        setRepaintsOnMouseActivity (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
     void paint (juce::Graphics& g) override
     {
-        // Two choice pills, like every other selector.
+        // Two choice pills, like every other selector; the choice and the
+        // hover fade (the shared animator).
         const auto bounds = getLocalBounds().toFloat();
+        const auto mouse = getMouseXYRelative().toFloat();
 
         for (int option = 0; option < 2; ++option)
         {
             const auto half = bounds.withWidth (bounds.getWidth() * 0.5f).withX (bounds.getX() + bounds.getWidth() * 0.5f * (float) option);
-            IlanaTheme::paintPill (g, half.reduced (2.0f, 1.0f), option == 0 ? "12 dB" : "24 dB", colour, option == current);
+            const auto hovered = isMouseOver() && half.contains (mouse);
+            IlanaTheme::paintPill (g, half.reduced (2.0f, 1.0f), option == 0 ? "12 dB" : "24 dB", colour,
+                                   IlanaTheme::fade (*this, option, option == current ? 1.0f : 0.0f),
+                                   IlanaTheme::fade (*this, 10 + option, hovered ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
         }
     }
+
+    void mouseMove (const juce::MouseEvent&) override { repaint(); }
 
     void mouseDown (const juce::MouseEvent& event) override
     {

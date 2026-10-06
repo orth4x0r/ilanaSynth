@@ -5,6 +5,7 @@
 #include <BinaryData.h>
 
 #include <cmath>
+#include <map>
 #include <unordered_map>
 
 namespace IlanaTheme
@@ -16,6 +17,9 @@ inline juce::Colour& accentRef()
 }
 
 inline juce::Colour accent() { return accentRef(); }
+// The accent as text on an accent-tinted fill (the sheet's acc2): lighter,
+// in every skin's own hue.
+inline juce::Colour accentText() { return accentRef().interpolatedWith (juce::Colours::white, 0.2f); }
 
 inline const juce::uint32 palette[]
 {
@@ -644,6 +648,67 @@ inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int tit
 
 // An on/off switch: a pill with a sliding knob. `amount` runs 0 (off) to 1
 // (on) so callers can animate it; the on state glows in `colour`.
+// The one animator for every small state change drawn in paint() (a
+// switch's slide, a pill's choice and hover, a segment's fill): eases a
+// value toward its target over time, keyed by the component and a channel,
+// and repaints the owner until it settles. A key not painted for two
+// seconds (a page just opened, a component at a reused address) starts
+// where it should be rather than sliding in from a stale state.
+// The rates match ToggleControl's own timer (30 % and 22 % a 60 Hz frame).
+namespace FadeRate
+{
+    inline constexpr float slide = 21.4f; // a switch's knob, a choice's fill
+    inline constexpr float hover = 14.9f; // a hover's tint
+}
+
+// The core, keyed by any address and a channel: the look-and-feel's own
+// hovers (animatedHover) run on it too. `fresh` false starts it at the target.
+inline float fadeValue (const void* key, int channel, float target, float rate, bool fresh, bool& moving)
+{
+    struct State { float value = 0.0f; double time = 0.0; };
+    static std::map<std::pair<const void*, int>, State> states;
+    static double lastSweep = 0.0;
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    moving = false;
+
+    if (states.size() > 4096 && now - lastSweep > 1000.0)
+    {
+        lastSweep = now;
+        for (auto it = states.begin(); it != states.end();)
+            it = now - it->second.time > 60000.0 ? states.erase (it) : std::next (it);
+    }
+
+    auto& state = states[{ key, channel }];
+
+    if (! fresh || state.time <= 0.0 || now - state.time > 2000.0)
+    {
+        state = { target, now };
+        return target;
+    }
+
+    const auto dt = juce::jlimit (0.0, 0.1, (now - state.time) * 0.001);
+    state.time = now;
+    state.value += (target - state.value) * (1.0f - std::exp (-(float) dt * rate));
+
+    if (std::abs (target - state.value) < 0.004f)
+        state.value = target;
+    else
+        moving = true;
+
+    return state.value;
+}
+
+inline float fade (juce::Component& owner, int channel, float target, float rate = FadeRate::slide)
+{
+    auto moving = false;
+    const auto value = fadeValue (&owner, channel, target, rate, owner.isShowing(), moving);
+
+    if (moving)
+        owner.repaint();
+
+    return value;
+}
+
 inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float amount, juce::Colour colour, float hover = 0.0f)
 {
     // The component sheet's switch (.tg): 32 x 18, ink 4 with a hairline
@@ -677,19 +742,20 @@ inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, tru
 // dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
 // in its colour with a bright edge; the others are quiet.
 inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juce::String& text, juce::Colour colour,
-                       bool active, float hover = 0.0f, bool enabled = true)
+                       float active, float hover = 0.0f, bool enabled = true)
 {
     // The component sheet's pill (.pill): ink 3 with a hairline and t2
     // text; chosen, its colour at 22 % over ink 3, a 75 % edge and t1 text.
+    // `active` may be between 0 and 1 while a choice fades (fade()).
+    active = juce::jlimit (0.0f, 1.0f, active);
     const auto radius = pill.getHeight() * 0.5f;
-    g.setColour ((active ? Ui::raised.interpolatedWith (colour, 0.22f) : Ui::raised).interpolatedWith (Ui::hover, 0.5f * hover));
+    g.setColour (Ui::raised.interpolatedWith (colour, 0.22f * active).interpolatedWith (Ui::hover, 0.5f * hover));
     g.fillRoundedRectangle (pill, radius);
 
-    g.setColour (active ? colour.withAlpha (0.75f) : Ui::line.interpolatedWith (Ui::text3, 0.4f * hover));
+    g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.4f * hover).interpolatedWith (colour.withAlpha (0.75f), active));
     g.drawRoundedRectangle (pill.reduced (0.5f), radius - 0.5f, 1.0f);
 
-    g.setColour (active ? Ui::text
-                        : Ui::text2.withAlpha (enabled ? 1.0f : 0.5f).interpolatedWith (Ui::text, 0.5f * hover));
+    g.setColour (Ui::text2.withAlpha (enabled ? 1.0f : 0.5f).interpolatedWith (Ui::text, juce::jmax (active, 0.5f * hover)));
     g.setFont (pillFont());
     g.drawText (text, pill, juce::Justification::centred);
 }
@@ -740,7 +806,7 @@ public:
         setColour (juce::ComboBox::textColourId, Ui::text);
         setColour (juce::ComboBox::arrowColourId, Ui::text3);
 
-        setColour (juce::PopupMenu::backgroundColourId, Ui::raised);
+        setColour (juce::PopupMenu::backgroundColourId, Ui::raised.withAlpha (0.995f)); // (not opaque: a see-through window keeps the round corners)
         setColour (juce::PopupMenu::textColourId, Ui::text);
         setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
         setColour (juce::PopupMenu::headerTextColourId, Ui::text2);
@@ -768,6 +834,33 @@ public:
         setColour (juce::TextEditor::backgroundColourId, Ui::well);
         setColour (juce::TextEditor::outlineColourId, Ui::line);
         setColour (juce::TextEditor::textColourId, Ui::text);
+        setColour (juce::TextEditor::highlightedTextColourId, Ui::text);
+        setColour (juce::TextEditor::shadowColourId, juce::Colours::transparentBlack);
+
+        // Dialogs (the sheet's .dlg): ink 2 with a hairline rim.
+        setColour (juce::AlertWindow::backgroundColourId, Ui::panel);
+        setColour (juce::AlertWindow::textColourId, Ui::text);
+        setColour (juce::AlertWindow::outlineColourId, Ui::line);
+
+        // Lists and JUCE's own file browser (used where no native chooser is).
+        setColour (juce::ListBox::backgroundColourId, Ui::well);
+        setColour (juce::ListBox::outlineColourId, Ui::line);
+        setColour (juce::ListBox::textColourId, Ui::text);
+        setColour (juce::DirectoryContentsDisplayComponent::textColourId, Ui::text);
+        setColour (juce::FileBrowserComponent::currentPathBoxBackgroundColourId, Ui::well);
+        setColour (juce::FileBrowserComponent::currentPathBoxTextColourId, Ui::text);
+        setColour (juce::FileBrowserComponent::currentPathBoxArrowColourId, Ui::text3);
+        setColour (juce::FileBrowserComponent::filenameBoxBackgroundColourId, Ui::well);
+        setColour (juce::FileBrowserComponent::filenameBoxTextColourId, Ui::text);
+        setColour (juce::FileChooserDialogBox::titleTextColourId, Ui::text);
+        setColour (juce::DocumentWindow::textColourId, Ui::text);
+
+        setColour (juce::ProgressBar::backgroundColourId, Ui::track);
+        setColour (juce::BubbleComponent::backgroundColourId, Ui::raised);
+        setColour (juce::BubbleComponent::outlineColourId, Ui::hover);
+        setColour (juce::ScrollBar::backgroundColourId, juce::Colours::transparentBlack);
+        setColour (juce::TreeView::backgroundColourId, Ui::well);
+        setColour (juce::TreeView::linesColourId, Ui::line);
 
         applyAccent();
     }
@@ -776,6 +869,20 @@ public:
     {
         IlanaTheme::accentRef() = colour;
         applyAccent();
+    }
+
+    // Everything that is clicked to act or choose shows the hand, as the
+    // custom pills, tabs and chips do: every button and menu box (a cursor
+    // a component sets itself is kept).
+    juce::MouseCursor getMouseCursorFor (juce::Component& component) override
+    {
+        const auto cursor = LookAndFeel_V4::getMouseCursorFor (component);
+
+        if (cursor == juce::MouseCursor::NormalCursor && component.isEnabled()
+            && (dynamic_cast<juce::Button*> (&component) != nullptr || dynamic_cast<juce::ComboBox*> (&component) != nullptr))
+            return juce::MouseCursor::PointingHandCursor;
+
+        return cursor;
     }
 
     juce::Typeface::Ptr getTypefaceForFont (const juce::Font& font) override
@@ -882,6 +989,10 @@ public:
         setColour (juce::TextEditor::focusedOutlineColourId, accent);
         setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.35f));
         setColour (juce::CaretComponent::caretColourId, accent);
+        setColour (juce::ProgressBar::foregroundColourId, accent);
+        setColour (juce::DirectoryContentsDisplayComponent::highlightColourId, accent.withAlpha (0.15f));
+        setColour (juce::DirectoryContentsDisplayComponent::highlightedTextColourId, IlanaTheme::accentText());
+        setColour (juce::TreeView::selectedItemBackgroundColourId, accent.withAlpha (0.15f));
     }
 
     // The tab bar of the shell mockup: bold caps in grey (white while chosen),
@@ -1056,7 +1167,7 @@ public:
         if (button.getProperties().contains ("pill"))
         {
             paintPill (g, bounds, button.getButtonText(), button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f),
-                       button.getToggleState(), hover, button.isEnabled());
+                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled());
             return;
         }
 
@@ -1065,7 +1176,7 @@ public:
             // Switches without an animation driver just show their state.
             const auto amount = button.getProperties().contains ("switchAmount")
                                     ? (float) button.getProperties()["switchAmount"]
-                                    : (button.getToggleState() ? 1.0f : 0.0f);
+                                    : fade (button, 1, button.getToggleState() ? 1.0f : 0.0f); // (one without its own driver slides by the shared animator)
             // A group's own name draws the state: a dot, then the name in the
             // family colour, dimmed while off (drawn here, on the switch that
             // takes the click, so nothing sits over its text).
@@ -1226,18 +1337,82 @@ public:
         }
     }
 
-    // The component sheet's menu (.menu): ink 3 with an ink 5 rim; the
-    // item under the mouse a rounded accent tint (15 %) with its text in the
-    // light accent; section names in small tracked t3 caps; hairline
-    // separators; ticks in the accent.
+    // The component sheet's menu (.menu): ink 3 with an ink 5 rim, 10 px
+    // corners and 5 px of padding; 26 px rows whose highlight (mouse or
+    // keys) is a rounded accent tint with its text in the light accent;
+    // section names in small tracked t3 caps; hairline separators; ticks
+    // in the accent. Every menu draws through here: the editor makes this
+    // look the process default while it is open (DefaultLookAndFeelScope),
+    // as a menu shown on the desktop never asks its target for one.
+    static constexpr int menuBorder = 5;
+    static constexpr int menuRowHeight = 26;
+    static constexpr int menuSeparatorHeight = 9;
+    static constexpr int menuSectionHeight = 27;
+    static constexpr float menuRadius = 10.0f;
+
+    static juce::Font menuSectionFont()
+    {
+        return juce::Font (IlanaTheme::font (13.0f, true).withKerningFactor (0.1f)); // (the sheet's 9.5 px, 800)
+    }
+
+    int getPopupMenuBorderSize() override { return menuBorder; }
+
+    void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
+                                    int& idealWidth, int& idealHeight) override
+    {
+        if (isSeparator)
+        {
+            idealWidth = 50;
+            idealHeight = menuSeparatorHeight;
+            return;
+        }
+
+        // A combo's menu asks for rows its box's height; the sheet's rows
+        // are 26 px whatever opened them.
+        idealHeight = juce::jmax (menuRowHeight, standardMenuItemHeight);
+        // 10 px padding, the tick column and its gap, the text, then room
+        // for a submenu's chevron and the right padding.
+        idealWidth = juce::GlyphArrangement::getStringWidthInt (getPopupMenuFont(), text) + 10 + 18 + 32;
+    }
+
+    void getIdealPopupMenuSectionHeaderSizeWithOptions (const juce::String& text, int, int& idealWidth, int& idealHeight,
+                                                        const juce::PopupMenu::Options&) override
+    {
+        idealHeight = menuSectionHeight;
+        idealWidth = juce::GlyphArrangement::getStringWidthInt (menuSectionFont(), text.toUpperCase()) + 24;
+    }
+
     void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
     {
         const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
-        g.fillAll (IlanaTheme::Ui::header); // (the corners read as the menu's shadow)
+
+        // Where the window can't be see-through its corners are filled
+        // in the darkest ink, as the menu's shadow.
+        if (! juce::Desktop::canUseSemiTransparentWindows())
+            g.fillAll (IlanaTheme::Ui::header);
+
         g.setColour (IlanaTheme::Ui::raised);
-        g.fillRoundedRectangle (bounds, 10.0f);
+        g.fillRoundedRectangle (bounds, menuRadius);
         g.setColour (IlanaTheme::Ui::hover);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 9.5f, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), menuRadius - 0.5f, 1.0f);
+    }
+
+    void drawPopupMenuUpDownArrow (juce::Graphics& g, int width, int height, bool isScrollUpArrow) override
+    {
+        using namespace IlanaTheme;
+        g.setGradientFill (juce::ColourGradient (Ui::raised, 0.0f, (float) height * 0.5f,
+                                                 Ui::raised.withAlpha (0.0f), 0.0f, isScrollUpArrow ? (float) height : 0.0f, false));
+        g.fillRect (1, 1, width - 2, height - 2);
+
+        const auto cx = (float) width * 0.5f;
+        const auto cy = (float) height * 0.5f;
+        const auto dy = isScrollUpArrow ? -2.0f : 2.0f;
+        juce::Path chevron;
+        chevron.startNewSubPath (cx - 4.0f, cy - dy);
+        chevron.lineTo (cx, cy + dy);
+        chevron.lineTo (cx + 4.0f, cy - dy);
+        g.setColour (Ui::text3);
+        g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
@@ -1249,45 +1424,45 @@ public:
         if (isSeparator)
         {
             g.setColour (Ui::line);
-            g.fillRect (area.reduced (5, 0).withSizeKeepingCentre (area.getWidth() - 10, 1));
+            g.fillRect (area.withSizeKeepingCentre (area.getWidth(), 1));
             return;
         }
 
-        const auto row = area.reduced (4, 1);
+        const auto row = area.toFloat();
+        const auto lit = isHighlighted && isActive;
 
-        if (isHighlighted && isActive)
+        if (lit)
         {
             g.setColour (accent().withAlpha (0.15f));
-            g.fillRoundedRectangle (row.toFloat(), 6.0f);
+            g.fillRoundedRectangle (row, 6.0f);
         }
 
         auto colour = textColour != nullptr ? *textColour : Ui::text;
-        if (isHighlighted && isActive)
-            colour = Ui::accent2;
+        if (lit)
+            colour = accentText();
         if (! isActive)
             colour = Ui::text3;
 
-        auto r = row.reduced (6, 0);
-        const auto font = getPopupMenuFont();
-        const auto maxFontHeight = (float) r.getHeight() / 1.3f;
-        auto shown = font;
-        if (shown.getHeight() > maxFontHeight)
-            shown = shown.withHeight (maxFontHeight);
+        auto r = area.reduced (10, 0);
+        auto shown = getPopupMenuFont();
+        shown = shown.withHeight (juce::jmin (shown.getHeight(), (float) area.getHeight() / 1.3f));
 
-        // The tick column (as JUCE's: a square the row's height).
-        auto iconArea = r.removeFromLeft (juce::roundToInt (maxFontHeight)).toFloat();
+        // The tick column, then an 8 px gap.
+        const auto tickArea = r.removeFromLeft (10).toFloat();
+        r.removeFromLeft (8);
 
         if (icon != nullptr)
         {
-            icon->drawWithin (g, iconArea.reduced (2.0f), juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize, 1.0f);
+            icon->drawWithin (g, tickArea.withSizeKeepingCentre (12.0f, 12.0f),
+                              juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize, 1.0f);
         }
         else if (isTicked)
         {
-            const auto box = iconArea.withSizeKeepingCentre (9.0f, 9.0f);
+            const auto box = tickArea.withSizeKeepingCentre (9.0f, 8.0f);
             juce::Path tick;
             tick.startNewSubPath (box.getX(), box.getCentreY());
-            tick.lineTo (box.getX() + box.getWidth() * 0.38f, box.getBottom() - 1.0f);
-            tick.lineTo (box.getRight(), box.getY() + 1.0f);
+            tick.lineTo (box.getX() + box.getWidth() * 0.38f, box.getBottom());
+            tick.lineTo (box.getRight(), box.getY());
             g.setColour (isActive ? accent() : Ui::text3);
             g.strokePath (tick, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
@@ -1295,35 +1470,258 @@ public:
         if (hasSubMenu)
         {
             // A chevron, as the sheet's "›".
-            const auto arrowH = 0.55f * getPopupMenuFont().getAscent();
-            const auto x = (float) r.removeFromRight ((int) arrowH + 4).getX();
-            const auto halfH = (float) r.getCentreY();
+            const auto arrowArea = r.removeFromRight (10).toFloat();
+            const auto x = arrowArea.getCentreX() - 1.5f;
+            const auto cy = arrowArea.getCentreY();
             juce::Path arrow;
-            arrow.startNewSubPath (x, halfH - arrowH * 0.5f);
-            arrow.lineTo (x + arrowH * 0.5f, halfH);
-            arrow.lineTo (x, halfH + arrowH * 0.5f);
-            g.setColour (isHighlighted && isActive ? Ui::accent2 : Ui::text2);
+            arrow.startNewSubPath (x, cy - 3.5f);
+            arrow.lineTo (x + 3.5f, cy);
+            arrow.lineTo (x, cy + 3.5f);
+            g.setColour (lit ? accentText() : Ui::text3);
             g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            r.removeFromRight (6);
         }
-
-        r.removeFromRight (3);
-        g.setColour (colour);
-        g.setFont (shown);
-        IlanaTheme::drawFitted (g, text, r, juce::Justification::centredLeft, 1);
 
         if (shortcutKeyText.isNotEmpty())
         {
+            const auto keyFont = shown.withHeight (shown.getHeight() * 0.88f);
+            const auto keyWidth = juce::GlyphArrangement::getStringWidthInt (keyFont, shortcutKeyText) + 2;
             g.setColour (Ui::text3);
-            g.setFont (shown.withHeight (shown.getHeight() * 0.85f));
-            g.drawText (shortcutKeyText, r, juce::Justification::centredRight, true);
+            g.setFont (keyFont);
+            g.drawText (shortcutKeyText, r.removeFromRight (keyWidth), juce::Justification::centredRight, false);
+            r.removeFromRight (12);
         }
+
+        g.setColour (colour);
+        g.setFont (shown);
+        IlanaTheme::drawFitted (g, text, r, juce::Justification::centredLeft, 1);
     }
 
     void drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& sectionName) override
     {
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.1f));
+        g.setFont (menuSectionFont());
         g.setColour (IlanaTheme::Ui::text3);
-        g.drawText (sectionName.toUpperCase(), area.reduced (10, 0).withTrimmedTop (3), juce::Justification::centredLeft, true);
+        g.drawText (sectionName.toUpperCase(), area.reduced (10, 0).withTrimmedTop (8).withTrimmedBottom (4),
+                    juce::Justification::centredLeft, true);
+    }
+
+    //==============================================================================
+    // Tooltips: a small menu-like card (ink 3, ink 5 rim, 7 px corners)
+    // with body text, wrapped at about 340 px.
+    static juce::TextLayout tooltipLayout (const juce::String& text, juce::Colour colour)
+    {
+        juce::AttributedString s;
+        s.setJustification (juce::Justification::centredLeft);
+        s.setLineSpacing (1.0f);
+        s.append (text.trim(), juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)), colour);
+        juce::TextLayout layout;
+        layout.createLayoutWithBalancedLineLengths (s, 340.0f);
+        return layout;
+    }
+
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override
+    {
+        const auto layout = tooltipLayout (tipText, IlanaTheme::Ui::text);
+        const auto w = (int) std::ceil (layout.getWidth()) + 22;
+        const auto h = (int) std::ceil (layout.getHeight()) + 14;
+
+        return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                     screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6,
+                                     w, h)
+            .constrainedWithin (parentArea);
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height) override
+    {
+        using namespace IlanaTheme;
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+        g.setColour (Ui::raised);
+        g.fillRoundedRectangle (bounds, 7.0f);
+        g.setColour (Ui::hover);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.5f, 1.0f);
+        tooltipLayout (text, Ui::text).draw (g, bounds.reduced (11.0f, 7.0f));
+    }
+
+    //==============================================================================
+    // Dialogs (the sheet's .dlg): ink 2, 14 px corners, the accent's rim
+    // as the save dialog's; a small tinted badge in place of JUCE's icons.
+    int getAlertWindowButtonHeight() override { return 32; }
+    juce::Font getAlertWindowTitleFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::display, true)); }
+    juce::Font getAlertWindowMessageFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title)); }
+    juce::Font getAlertWindowFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)); }
+
+    void drawAlertBox (juce::Graphics& g, juce::AlertWindow& alert, const juce::Rectangle<int>& textArea, juce::TextLayout& textLayout) override
+    {
+        using namespace IlanaTheme;
+        juce::ignoreUnused (textArea);
+        const auto bounds = alert.getLocalBounds().toFloat();
+
+        if (alert.isOpaque())
+            g.fillAll (Ui::header);
+
+        g.setColour (Ui::panel);
+        g.fillRoundedRectangle (bounds, 14.0f);
+        g.setColour (accent().withAlpha (0.5f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 13.5f, 1.0f);
+
+        auto iconSpace = 0;
+
+        if (alert.getAlertType() != juce::MessageBoxIconType::NoIcon)
+        {
+            const auto warning = alert.getAlertType() == juce::MessageBoxIconType::WarningIcon;
+            const auto tone = warning ? accent() : Ui::text2;
+            const auto badge = juce::Rectangle<float> (26.0f, 30.0f, 34.0f, 34.0f);
+            g.setColour (tone.withAlpha (0.16f));
+            g.fillEllipse (badge);
+            g.setColour (tone.withAlpha (0.6f));
+            g.drawEllipse (badge.reduced (0.5f), 1.0f);
+            g.setColour (tone);
+            g.setFont (font (TextSize::large, true));
+            g.drawText (warning ? "!" : alert.getAlertType() == juce::MessageBoxIconType::InfoIcon ? "i" : "?",
+                        badge, juce::Justification::centred, false);
+            iconSpace = 80;
+        }
+
+        const juce::Rectangle<int> textBounds (1 + iconSpace, 30, alert.getWidth() - 2,
+                                               alert.getHeight() - getAlertWindowButtonHeight() - 20);
+        textLayout.draw (g, textBounds.toFloat());
+    }
+
+    //==============================================================================
+    // Call-out boxes: the menu's card on a soft shadow.
+    void drawCallOutBoxBackground (juce::CallOutBox& box, juce::Graphics& g, const juce::Path& path, juce::Image& cachedImage) override
+    {
+        if (cachedImage.isNull())
+        {
+            cachedImage = { juce::Image::ARGB, box.getWidth(), box.getHeight(), true };
+            juce::Graphics g2 (cachedImage);
+            juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 14, { 0, 6 }).drawForPath (g2, path);
+        }
+
+        g.setColour (juce::Colours::black);
+        g.drawImageAt (cachedImage, 0, 0);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillPath (path);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.strokePath (path, juce::PathStrokeType (1.0f));
+    }
+
+    float getCallOutBoxCornerSize (const juce::CallOutBox&) override { return menuRadius; }
+
+    //==============================================================================
+    // A slider's value bubble: the tooltip's card with bold body text.
+    void drawBubble (juce::Graphics& g, juce::BubbleComponent&, const juce::Point<float>&, const juce::Rectangle<float>& body) override
+    {
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (body, 6.0f);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.drawRoundedRectangle (body.reduced (0.5f), 5.5f, 1.0f);
+    }
+
+    juce::Font getSliderPopupFont (juce::Slider&) override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)); }
+
+    //==============================================================================
+    // Progress: the slider's 3 px-style track, rounded, filled in the accent.
+    void drawProgressBar (juce::Graphics& g, juce::ProgressBar& bar, int width, int height, double progress, const juce::String& textToShow) override
+    {
+        using namespace IlanaTheme;
+        const auto track = juce::Rectangle<float> ((float) width, (float) height).withSizeKeepingCentre ((float) width, juce::jmin ((float) height, 6.0f));
+        g.setColour (bar.findColour (juce::ProgressBar::backgroundColourId));
+        g.fillRoundedRectangle (track, track.getHeight() * 0.5f);
+
+        if (progress >= 0.0 && progress <= 1.0)
+        {
+            g.setColour (bar.findColour (juce::ProgressBar::foregroundColourId));
+            g.fillRoundedRectangle (track.withWidth (track.getWidth() * (float) progress), track.getHeight() * 0.5f);
+        }
+        else
+        {
+            // Unknown progress: a sliding third of the track.
+            const auto phase = (float) std::fmod (juce::Time::getMillisecondCounterHiRes() * 0.0008, 1.0);
+            const auto seg = track.withWidth (track.getWidth() / 3.0f).withX (track.getX() + (track.getWidth() * 4.0f / 3.0f) * phase - track.getWidth() / 3.0f);
+            g.setColour (bar.findColour (juce::ProgressBar::foregroundColourId));
+            g.fillRoundedRectangle (seg.getIntersection (track), track.getHeight() * 0.5f);
+        }
+
+        if (textToShow.isNotEmpty() && height >= 14)
+        {
+            g.setColour (Ui::text);
+            g.setFont (font (TextSize::label, true));
+            g.drawText (textToShow, 0, 0, width, height, juce::Justification::centred, false);
+        }
+    }
+
+    //==============================================================================
+    // Text fields (the sheet's .inp): a well with 8 px corners and a
+    // hairline rim, the accent's rim while typing; selection in the
+    // accent at 35 %, the caret in the accent.
+    static float textFieldRadius (int height) { return juce::jmin (8.0f, (float) height * 0.27f); }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        const auto fill = editor.findColour (juce::TextEditor::backgroundColourId);
+
+        if (dynamic_cast<juce::ComboBox*> (editor.getParentComponent()) != nullptr || fill.isTransparent())
+        {
+            g.fillAll (fill);
+            return;
+        }
+
+        g.setColour (fill);
+        g.fillRoundedRectangle (juce::Rectangle<float> ((float) width, (float) height), textFieldRadius (height));
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        if (dynamic_cast<juce::ComboBox*> (editor.getParentComponent()) != nullptr)
+            return;
+
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+        const auto radius = textFieldRadius (height);
+        const auto typing = editor.isEnabled() && editor.hasKeyboardFocus (true) && ! editor.isReadOnly();
+        auto rim = editor.findColour (typing ? juce::TextEditor::focusedOutlineColourId : juce::TextEditor::outlineColourId);
+
+        if (rim.isTransparent())
+            return;
+
+        if (! editor.isEnabled())
+            rim = rim.withMultipliedAlpha (0.5f);
+
+        g.setColour (rim);
+        g.drawRoundedRectangle (bounds.reduced (typing ? 0.75f : 0.5f), radius, typing ? 1.5f : 1.0f);
+    }
+
+    //==============================================================================
+    // JUCE's own file browser rows (only where no native chooser exists).
+    void drawFileBrowserRow (juce::Graphics& g, int width, int height, const juce::File&, const juce::String& filename, juce::Image* icon,
+                             const juce::String& fileSizeDescription, const juce::String& fileTimeDescription,
+                             bool isDirectory, bool isItemSelected, int, juce::DirectoryContentsDisplayComponent& dcc) override
+    {
+        using namespace IlanaTheme;
+        auto row = juce::Rectangle<int> (width, height);
+
+        if (isItemSelected)
+        {
+            g.setColour (accent().withAlpha (0.15f));
+            g.fillRoundedRectangle (row.reduced (2, 1).toFloat(), 6.0f);
+        }
+
+        juce::ignoreUnused (icon, dcc);
+        row.removeFromLeft (10);
+        g.setColour (isDirectory ? Ui::text3 : (isItemSelected ? accent() : Ui::text3).withAlpha (0.8f));
+        g.fillEllipse (row.removeFromLeft (6).toFloat().withSizeKeepingCentre (6.0f, 6.0f));
+        row.removeFromLeft (8);
+
+        g.setFont (font (TextSize::body));
+        g.setColour (isItemSelected ? accentText() : Ui::text);
+        const auto details = width > 450 && ! isDirectory;
+        g.drawFittedText (filename, details ? row.withWidth (row.getWidth() * 3 / 5) : row, juce::Justification::centredLeft, 1);
+
+        if (details)
+        {
+            g.setColour (Ui::text3);
+            g.drawText (fileSizeDescription + "   " + fileTimeDescription, row, juce::Justification::centredRight, true);
+        }
     }
 
     void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height,
@@ -1386,47 +1784,12 @@ public:
     }
 
 private:
-    struct HoverState
-    {
-        float value = 0.0f;
-        double lastTime = 0.0;
-    };
-
-    static std::unordered_map<const void*, HoverState>& hoverStates()
-    {
-        static std::unordered_map<const void*, HoverState> states;
-        return states;
-    }
-
+    // A hover's ease for what the look-and-feel draws, on the shared
+    // animator (IlanaTheme::fadeValue); the caller repaints while it moves.
     float animatedHover (const void* key, bool isOver, float rate)
     {
-        auto& states = hoverStates();
-        const auto now = juce::Time::getMillisecondCounterHiRes();
-
-        // Keyed by component address and never told when one is deleted:
-        // drop entries not painted for a minute once there are many, so the
-        // map doesn't grow with every editor opened.
-        static double lastSweep = 0.0;
-
-        if (states.size() > 2048 && now - lastSweep > 1000.0)
-        {
-            lastSweep = now;
-            for (auto it = states.begin(); it != states.end();)
-                it = now - it->second.lastTime > 60000.0 ? states.erase (it) : std::next (it);
-        }
-
-        auto& state = states[key];
-        // Not painted for seconds (or a new component at a reused address):
-        // start from where it should be rather than from a stale glow.
-        if (state.lastTime > 0.0 && now - state.lastTime > 2000.0)
-            state.value = isOver ? 1.0f : 0.0f;
-        const auto dt = state.lastTime > 0.0 ? juce::jlimit (0.0, 0.1, (now - state.lastTime) * 0.001) : 0.016;
-        state.lastTime = now;
-
-        const auto target = isOver ? 1.0f : 0.0f;
-        state.value += (target - state.value) * juce::jlimit (0.0f, 1.0f, (float) (dt * (double) rate));
-
-        return state.value;
+        auto moving = false;
+        return IlanaTheme::fadeValue (key, -1, isOver ? 1.0f : 0.0f, rate, true, moving);
     }
 
     // 1 just after the user moves a knob, easing back to 0 over about half a
@@ -1463,4 +1826,44 @@ private:
 
     juce::Typeface::Ptr regularTypeface;
     juce::Typeface::Ptr boldTypeface;
+};
+
+// Makes one shared IlanaLookAndFeel the process's default while any editor
+// is open. A PopupMenu shown on the desktop (a knob's right-click menu, its
+// submenus, the header's and the dock's menus), an AlertWindow with no
+// owner and JUCE's own file browser never ask their target component for
+// a look: they use the default, which was JUCE's stock V4 grey (ilana's
+// Windows screenshots). The last editor to close hands the default back.
+class DefaultLookAndFeelScope
+{
+public:
+    DefaultLookAndFeelScope()
+    {
+        ++openScopes();
+        juce::LookAndFeel::setDefaultLookAndFeel (&shared.get());
+    }
+
+    ~DefaultLookAndFeelScope()
+    {
+        if (--openScopes() == 0 && &juce::LookAndFeel::getDefaultLookAndFeel() == &shared.get())
+        {
+            // Nothing may keep drawing with it once it's gone.
+            juce::PopupMenu::dismissAllActiveMenus();
+            juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        }
+    }
+
+    IlanaLookAndFeel& get() { return shared.get(); }
+
+private:
+    // (Counted here, on the message thread, as editors open and close.)
+    static int& openScopes()
+    {
+        static int count = 0;
+        return count;
+    }
+
+    juce::SharedResourcePointer<IlanaLookAndFeel> shared;
+
+    JUCE_DECLARE_NON_COPYABLE (DefaultLookAndFeelScope)
 };

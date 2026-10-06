@@ -179,7 +179,7 @@ public:
             g.fillRect (getLocalBounds());
         }
 
-        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : on ? Ui::accent2 : Ui::text2);
+        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : on ? IlanaTheme::accentText() : Ui::text2);
 
         if (! enabled)
             colour = colour.withMultipliedAlpha (fade);

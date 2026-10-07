@@ -144,6 +144,73 @@ public:
     // One output sample. phaseModulation is in cycles and shared by every
     // lane; rate bends the frequency (through-zero and exponential FM, 1 is
     // the plain pitch); oversample runs two half steps and averages them.
+    // render() for one voice with no warp and no oversampling, its checks
+    // made once for a run of samples: the rows to read, then renderSingle()
+    // per sample (the same operations as render()'s one-voice path).
+    struct SingleRead
+    {
+        const float* row0 = nullptr;
+        const float* row1 = nullptr;
+        float frac = 0.0f;
+        bool lerp = false;
+    };
+
+    bool canRenderSingle (bool oversample) const
+    {
+        return table != nullptr && table->getNumFrames() > 0 && sampleRate > 0.0 && numGroups > 0 && numLanesInUse == 1
+               && ! oversample && ! ((warpMode != Warp::Off && warpAmount > 0.0f) || (warpMode2 != Warp::Off && warpAmount2 > 0.0f));
+    }
+
+    SingleRead singleRead (const WavetableOscillator::FrameRead& frames) const
+    {
+        SingleRead read;
+        read.lerp = frames.frac > 0.0f && frames.frame1 != frames.frame0;
+        read.row0 = rows[0][frames.frame0];
+        read.row1 = read.lerp ? rows[0][frames.frame1] : nullptr;
+        read.frac = frames.frac;
+        return read;
+    }
+
+    Sums renderSingle (const SingleRead& rows0, double phaseModulation, double rate) noexcept
+    {
+        Sums out;
+        const auto modulation = toFixed (phaseModulation - fastFloor (phaseModulation));
+        const auto stepScale = rate * 1.0;
+        const auto lane0Step = incrementCycles[0] * stepScale;
+        const auto step = stepScale == 1.0 ? increment[0] : toFixedStep (lane0Step - fastFloor (lane0Step));
+        constexpr auto scale = 1.0f / (float) (1 << fractionBits);
+
+        const auto before = phase[0];
+        const auto read = before + modulation;
+        const auto index = (int) (read >> (32 - frameBits));
+        const auto f = (float) (std::int32_t) (read & ((1u << fractionBits) - 1u)) * scale;
+        const auto* row0 = rows0.row0;
+        auto y0 = row0[index], y1 = row0[index + 1], y2 = row0[index + 2], y3 = row0[index + 3];
+
+        if (rows0.lerp)
+        {
+            const auto* next = rows0.row1 + index;
+            y0 = y0 + (next[0] - y0) * rows0.frac;
+            y1 = y1 + (next[1] - y1) * rows0.frac;
+            y2 = y2 + (next[2] - y2) * rows0.frac;
+            y3 = y3 + (next[3] - y3) * rows0.frac;
+        }
+
+        const auto c1 = 0.5f * (y2 - y0);
+        const auto c2 = (y0 + (y2 + y2)) - 0.5f * (5.0f * y1 + y3);
+        const auto c3 = 0.5f * (3.0f * (y1 - y2) + (y3 - y0));
+        auto value = c2 + f * c3;
+        value = c1 + f * value;
+        value = y1 + f * value;
+
+        out.mono += value * weightMono[0];
+        out.left += value * weightLeft[0];
+        out.right += value * weightRight[0];
+        phase[0] = before + step;
+        wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < before);
+        return out;
+    }
+
     Sums render (double phaseModulation, const WavetableOscillator::FrameRead& frames, double rate, bool oversample)
     {
         Sums out;

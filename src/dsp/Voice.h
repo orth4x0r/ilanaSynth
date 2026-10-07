@@ -605,6 +605,13 @@ private:
 public:
     // Tests: run Filter 2 even when it is wide open.
     inline static bool disableOpenFilterBypass = false;
+    // The block-wise source path (renderNextBlock); ILANA_NO_BLOCK_SOURCES
+    // keeps the per-sample loop everywhere, for comparing the two.
+    static bool blockSourcesEnabled()
+    {
+        static const bool enabled = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_BLOCK_SOURCES", "").isEmpty();
+        return enabled;
+    }
 private:
 
     static void processFilterPair (FilterUnit& left, FilterUnit& right, bool& linked,

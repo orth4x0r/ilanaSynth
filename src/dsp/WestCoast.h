@@ -232,6 +232,10 @@ public:
             previous[stage] = _mm_setzero_pd();
             previousCosine[stage] = _mm_set1_pd (1.0);
         }
+        std::fill (std::begin (upFloat), std::end (upFloat), 0.0f);
+        std::fill (std::begin (downFloat), std::end (downFloat), 0.0f);
+        for (auto& p : previousFloat)
+            p[0] = p[1] = 0.0f;
         historyPosition = 0;
         dcIn[0] = dcIn[1] = dcOut[0] = dcOut[1] = 0.0f;
        #else
@@ -253,8 +257,8 @@ public:
        #endif
     }
 
-    // ILANA_NO_AVX (or a CPU without it) keeps the SSE2 path; both give
-    // the same samples.
+    // ILANA_NO_AVX (or a CPU without it) keeps the SSE2 path, in double
+    // precision; the AVX path runs in float, within about -125 dB of it.
     static bool& useAvx()
     {
        #if ILANA_WEST_SSE
@@ -362,157 +366,118 @@ public:
 
 private:
    #if ILANA_WEST_SSE
-    // process() with phases 0-1 and 2-3 of both sides in two AVX registers
-    // ([left, right] per phase, a phase per 128-bit half): every lane does
-    // the SSE2 path's arithmetic in its order, so the samples are the same.
+    static constexpr int maxStages = 4, factor = 4, tapsPerPhase = 8, numTaps = factor * tapsPerPhase;
+    static constexpr int historyLength = tapsPerPhase, downLength = numTaps;
+
+    // The float path's tap vectors in lane order, built once.
+    struct FloatLaneTaps
+    {
+        alignas (32) float up[tapsPerPhase][8];
+        alignas (32) float down[numTaps / 4][8];
+    };
+
+    // process() in single precision, all four phases of both sides in one
+    // AVX register ([L0 R0 L1 R1 L2 R2 L3 R3]). The fold's antiderivative
+    // step is taken in its stable form,
+    //   (cos (pi/2 a) - cos (pi/2 b)) / (pi/2 (b - a))
+    //     = sin (pi/2 (a + b) / 2) * sin (pi/4 (b - a)) / (pi/4 (b - a)),
+    // which has no cancellation as the step shrinks (and needs no special
+    // case at zero), so float carries it. The same filters and fold as the
+    // double paths, within float rounding (about -140 dB).
     ILANA_AVX_TARGET void processAvx (float& l, float& r)
     {
-        const auto& lanes = laneTaps();
-        auto* up = reinterpret_cast<__m128d*> (upHistory);
-        auto* down = reinterpret_cast<__m128d*> (downHistory);
-        const auto input = _mm_set_pd ((double) r, (double) l);
-        up[historyPosition] = input;
-        up[historyPosition + historyLength] = input;
-        const auto* newestUp = up + historyPosition + historyLength;
+        const auto& lanes = floatLaneTapsImpl();
+        float* up = upFloat;
+        up[2 * historyPosition] = l;
+        up[2 * historyPosition + 1] = r;
+        up[2 * (historyPosition + historyLength)] = l;
+        up[2 * (historyPosition + historyLength) + 1] = r;
+        const auto* newestUp = up + 2 * (historyPosition + historyLength);
 
         // Interpolate.
-        auto x01 = _mm256_setzero_pd(), x23 = _mm256_setzero_pd();
+        auto x = _mm256_setzero_ps();
         for (int t = 0; t < tapsPerPhase; ++t)
         {
-            const auto sample = _mm256_broadcast_pd (newestUp - t);
-            x01 = _mm256_add_pd (x01, _mm256_mul_pd (_mm256_load_pd (lanes.up[t][0]), sample));
-            x23 = _mm256_add_pd (x23, _mm256_mul_pd (_mm256_load_pd (lanes.up[t][1]), sample));
+            const auto pair = _mm_castpd_ps (_mm_load1_pd (reinterpret_cast<const double*> (newestUp - 2 * t)));
+            const auto sample = _mm256_insertf128_ps (_mm256_castps128_ps256 (pair), pair, 1);
+            x = _mm256_add_ps (x, _mm256_mul_ps (_mm256_load_ps (lanes.up[t]), sample));
         }
-        const auto factorVec = _mm256_set1_pd ((double) factor), gainVec = _mm256_set1_pd (gain), biasVec = _mm256_set1_pd (bias);
-        x01 = _mm256_add_pd (_mm256_mul_pd (_mm256_mul_pd (x01, factorVec), gainVec), biasVec);
-        x23 = _mm256_add_pd (_mm256_mul_pd (_mm256_mul_pd (x23, factorVec), gainVec), biasVec);
+        x = _mm256_add_ps (_mm256_mul_ps (x, _mm256_set1_ps ((float) ((double) factor * gain))), _mm256_set1_ps ((float) bias));
 
         // The fold. Each phase's "last" is the phase before it (phase 0's,
         // the previous sample's phase 3).
-        const auto stretch = _mm256_set1_pd (1.0 + 0.35 * gain / (double) stages);
-        const auto halfPi = _mm256_set1_pd (juce::MathConstants<double>::halfPi);
+        const auto stretch = _mm256_set1_ps ((float) (1.0 + 0.35 * gain / (double) stages));
+        const auto limit = _mm256_set1_ps (1.0e6f);
         for (int stage = 0; stage < stages; ++stage)
         {
-            const auto cos01 = cosHalfPiAvx (x01), cos23 = cosHalfPiAvx (x23);
-            const auto last01 = _mm256_insertf128_pd (_mm256_castpd128_pd256 (previous[stage]), _mm256_castpd256_pd128 (x01), 1);
-            const auto last23 = _mm256_permute2f128_pd (x01, x23, 0x21);
-            const auto lastCos01 = _mm256_insertf128_pd (_mm256_castpd128_pd256 (previousCosine[stage]), _mm256_castpd256_pd128 (cos01), 1);
-            const auto lastCos23 = _mm256_permute2f128_pd (cos01, cos23, 0x21);
-            previous[stage] = _mm256_extractf128_pd (x23, 1);
-            previousCosine[stage] = _mm256_extractf128_pd (cos23, 1);
+            x = _mm256_max_ps (_mm256_min_ps (x, limit), _mm256_sub_ps (_mm256_setzero_ps(), limit));
+            const auto xd = _mm256_castps_pd (x);
+            // [previous, phase 0, phase 1, phase 2] as LR pairs.
+            const auto low = _mm256_permute2f128_pd (xd, _mm256_castpd128_pd256 (_mm_castps_pd (_mm_loadl_pi (_mm_setzero_ps(), reinterpret_cast<const __m64*> (previousFloat[stage])))), 0x02);
+            const auto last = _mm256_castpd_ps (_mm256_shuffle_pd (low, xd, 0x4));
+            _mm_storeh_pi (reinterpret_cast<__m64*> (previousFloat[stage]), _mm256_extractf128_ps (x, 1));
 
-            auto y01 = foldPairAvx (x01, last01, cos01, lastCos01, halfPi);
-            auto y23 = foldPairAvx (x23, last23, cos23, lastCos23, halfPi);
+            const auto mid = _mm256_mul_ps (_mm256_add_ps (x, last), _mm256_set1_ps (0.5f));
+            const auto half = _mm256_mul_ps (_mm256_sub_ps (x, last), _mm256_set1_ps (0.5f));
+            const auto u = _mm256_mul_ps (half, _mm256_set1_ps ((float) juce::MathConstants<double>::halfPi));
+            const auto zeroStep = _mm256_cmp_ps (u, _mm256_setzero_ps(), _CMP_EQ_OQ);
+            const auto ratio = _mm256_blendv_ps (_mm256_div_ps (sinHalfPiAvx (half), u), _mm256_set1_ps (1.0f), zeroStep);
+            auto y = _mm256_mul_ps (sinHalfPiAvx (mid), ratio);
             if (stage + 1 < stages)
-            {
-                y01 = _mm256_mul_pd (y01, stretch);
-                y23 = _mm256_mul_pd (y23, stretch);
-            }
-            x01 = y01;
-            x23 = y23;
+                y = _mm256_mul_ps (y, stretch);
+            x = y;
         }
 
-        // Each 4x sample is kept at float precision, as a Wavefolder keeps it.
-        const auto downBase = historyPosition * factor;
-        const auto makeUpVec = _mm256_set1_pd (makeUp);
-        const auto folded01 = _mm256_cvtps_pd (_mm256_cvtpd_ps (_mm256_mul_pd (x01, makeUpVec)));
-        const auto folded23 = _mm256_cvtps_pd (_mm256_cvtpd_ps (_mm256_mul_pd (x23, makeUpVec)));
-        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase), folded01);
-        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + 2), folded23);
-        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + downLength), folded01);
-        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + downLength + 2), folded23);
+        // Each 4x sample at float precision, as the other paths keep it.
+        x = _mm256_mul_ps (x, _mm256_set1_ps ((float) makeUp));
+        float* down = downFloat;
+        const auto downBase = 2 * historyPosition * factor;
+        _mm256_storeu_ps (down + downBase, x);
+        _mm256_storeu_ps (down + downBase + 2 * downLength, x);
 
-        // Decimate: sums[k] over taps t + k, as the SSE2 path. The lanes are
-        // [k = 1, k = 0] and [k = 3, k = 2] (the history runs forward in
-        // memory, the taps backward).
-        const auto* newestDown = down + downBase + factor - 1 + downLength;
-        auto sums10 = _mm256_setzero_pd(), sums32 = _mm256_setzero_pd();
+        // Decimate: the newest 4x sample is phase 3 of this one; the taps run
+        // backward over the history, four 4x samples a step.
+        const auto* newestDown = down + downBase + 2 * (factor - 1) + 2 * downLength;
+        auto sum = _mm256_setzero_ps();
         for (int t = 0; t < numTaps; t += 4)
-        {
-            sums10 = _mm256_add_pd (sums10, _mm256_mul_pd (_mm256_load_pd (lanes.down[t / 4][0]),
-                                                           _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 1)))));
-            sums32 = _mm256_add_pd (sums32, _mm256_mul_pd (_mm256_load_pd (lanes.down[t / 4][1]),
-                                                           _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 3)))));
-        }
-        const auto sum01 = _mm_add_pd (_mm256_extractf128_pd (sums10, 1), _mm256_castpd256_pd128 (sums10));
-        const auto sum23 = _mm_add_pd (_mm256_extractf128_pd (sums32, 1), _mm256_castpd256_pd128 (sums32));
-        alignas (16) double out[2];
-        _mm_store_pd (out, _mm_add_pd (sum01, sum23));
+            sum = _mm256_add_ps (sum, _mm256_mul_ps (_mm256_load_ps (lanes.down[t / 4]), _mm256_loadu_ps (newestDown - 2 * (t + 3))));
+        auto pairs = _mm_add_ps (_mm256_castps256_ps128 (sum), _mm256_extractf128_ps (sum, 1));
+        pairs = _mm_add_ps (pairs, _mm_movehl_ps (pairs, pairs));
+        alignas (16) float out[4];
+        _mm_store_ps (out, pairs);
         if (++historyPosition >= historyLength)
             historyPosition = 0;
 
-        l = blockDc ((float) out[0], 0);
-        r = blockDc ((float) out[1], 1);
+        l = blockDc (out[0], 0);
+        r = blockDc (out[1], 1);
     }
 
-    // One fold stage on two phases (the antiderivative step, or the fold at
-    // the midpoint where the step is too small to divide by).
-    static ILANA_AVX_TARGET __m256d foldPairAvx (__m256d xs, __m256d lasts, __m256d cosines, __m256d lastCosines, __m256d hp)
+    // sin (pi/2 x) on eight lanes: x = q + f, q the nearest integer, then
+    // +-sin or +-cos of pi/2 f (|pi/2 f| <= pi/4) by cephes' float kernels.
+    static ILANA_AVX_TARGET __m256 sinHalfPiAvx (__m256 x)
     {
-        const auto difference = _mm256_sub_pd (xs, lasts);
-        auto y = _mm256_div_pd (_mm256_sub_pd (lastCosines, cosines), _mm256_mul_pd (hp, difference));
-        const auto magnitude = _mm256_andnot_pd (_mm256_set1_pd (-0.0), difference);
-        const auto small = _mm256_movemask_pd (_mm256_cmp_pd (magnitude, _mm256_set1_pd (1.0e-5), _CMP_LT_OQ));
-        if (small != 0)
-        {
-            alignas (32) double ys[4], xv[4], lv[4];
-            _mm256_store_pd (ys, y);
-            _mm256_store_pd (xv, xs);
-            _mm256_store_pd (lv, lasts);
-            for (int lane = 0; lane < 4; ++lane)
-                if ((small >> lane) & 1)
-                    ys[lane] = Wavefolder::fold (0.5 * (xv[lane] + lv[lane]));
-            y = _mm256_load_pd (ys);
-        }
-        return y;
+        const auto q = _mm256_cvtps_epi32 (x); // round to nearest
+        const auto t = _mm256_mul_ps (_mm256_set1_ps ((float) juce::MathConstants<double>::halfPi), _mm256_sub_ps (x, _mm256_cvtepi32_ps (q)));
+        const auto t2 = _mm256_mul_ps (t, t);
+        auto s = _mm256_set1_ps (-1.9515295891e-4f);
+        s = _mm256_add_ps (_mm256_set1_ps (8.3321608736e-3f), _mm256_mul_ps (t2, s));
+        s = _mm256_add_ps (_mm256_set1_ps (-1.6666654611e-1f), _mm256_mul_ps (t2, s));
+        s = _mm256_add_ps (t, _mm256_mul_ps (_mm256_mul_ps (t, t2), s));
+        auto c = _mm256_set1_ps (2.443315711809948e-5f);
+        c = _mm256_add_ps (_mm256_set1_ps (-1.388731625493765e-3f), _mm256_mul_ps (t2, c));
+        c = _mm256_add_ps (_mm256_set1_ps (4.166664568298827e-2f), _mm256_mul_ps (t2, c));
+        c = _mm256_add_ps (_mm256_sub_ps (_mm256_set1_ps (1.0f), _mm256_mul_ps (_mm256_set1_ps (0.5f), t2)), _mm256_mul_ps (_mm256_mul_ps (t2, t2), c));
+
+        // sin (pi/2 q + t): q = 0 sin t, 1 cos t, 2 -sin t, 3 -cos t. AVX has
+        // no 256-bit integer ops, so the quadrant bits go through 128-bit halves.
+        const auto q0 = _mm256_castsi256_si128 (q), q1 = _mm256_extractf128_si256 (q, 1);
+        const auto bit = [] (__m128i v, int b) { return _mm_slli_epi32 (_mm_and_si128 (v, _mm_set1_epi32 (b)), b == 1 ? 31 : 30); };
+        const auto odd = _mm256_castsi256_ps (_mm256_insertf128_si256 (_mm256_castsi128_si256 (bit (q0, 1)), bit (q1, 1), 1));
+        const auto sign = _mm256_castsi256_ps (_mm256_insertf128_si256 (_mm256_castsi128_si256 (bit (q0, 2)), bit (q1, 2), 1));
+        return _mm256_xor_ps (_mm256_blendv_ps (s, c, odd), sign);
     }
 
-    // cosHalfPi on four lanes, the SSE2 version's arithmetic.
-    static ILANA_AVX_TARGET __m256d cosHalfPiAvx (__m256d x)
-    {
-        const auto magnitude = _mm256_andnot_pd (_mm256_set1_pd (-0.0), x);
-        if (_mm256_movemask_pd (_mm256_cmp_pd (magnitude, _mm256_set1_pd (1.0e8), _CMP_LT_OQ)) != 15)
-        {
-            alignas (32) double v[4];
-            _mm256_store_pd (v, x);
-            return _mm256_set_pd (Wavefolder::cosHalfPi (v[3]), Wavefolder::cosHalfPi (v[2]),
-                                  Wavefolder::cosHalfPi (v[1]), Wavefolder::cosHalfPi (v[0]));
-        }
-        const auto q = _mm_sub_epi32 (_mm256_cvttpd_epi32 (_mm256_add_pd (x, _mm256_set1_pd (0.5 + 1073741824.0))), _mm_set1_epi32 (1073741824));
-        const auto t = _mm256_mul_pd (_mm256_set1_pd (juce::MathConstants<double>::halfPi), _mm256_sub_pd (x, _mm256_cvtepi32_pd (q)));
-        const auto t2 = _mm256_mul_pd (t, t);
 
-        using W = Wavefolder;
-        auto c = _mm256_set1_pd (W::c6);
-        c = _mm256_add_pd (_mm256_set1_pd (W::c5), _mm256_mul_pd (t2, c));
-        c = _mm256_add_pd (_mm256_set1_pd (W::c4), _mm256_mul_pd (t2, c));
-        c = _mm256_add_pd (_mm256_set1_pd (W::c3), _mm256_mul_pd (t2, c));
-        c = _mm256_add_pd (_mm256_set1_pd (W::c2), _mm256_mul_pd (t2, c));
-        c = _mm256_add_pd (_mm256_set1_pd (W::c1), _mm256_mul_pd (t2, c));
-        c = _mm256_add_pd (_mm256_sub_pd (_mm256_set1_pd (1.0), _mm256_mul_pd (_mm256_set1_pd (0.5), t2)), _mm256_mul_pd (_mm256_mul_pd (t2, t2), c));
-        auto s = _mm256_set1_pd (W::s6);
-        s = _mm256_add_pd (_mm256_set1_pd (W::s5), _mm256_mul_pd (t2, s));
-        s = _mm256_add_pd (_mm256_set1_pd (W::s4), _mm256_mul_pd (t2, s));
-        s = _mm256_add_pd (_mm256_set1_pd (W::s3), _mm256_mul_pd (t2, s));
-        s = _mm256_add_pd (_mm256_set1_pd (W::s2), _mm256_mul_pd (t2, s));
-        s = _mm256_add_pd (_mm256_set1_pd (W::s1), _mm256_mul_pd (t2, s));
-        s = _mm256_add_pd (t, _mm256_mul_pd (_mm256_mul_pd (t, t2), s));
-
-        // Odd quadrants take the sine; quadrants 1 and 2 are negative. The
-        // 32-bit quadrant masks widen to the 64-bit lanes.
-        const auto odd32 = _mm_cmpeq_epi32 (_mm_and_si128 (q, _mm_set1_epi32 (1)), _mm_set1_epi32 (1));
-        const auto odd = _mm256_castps_pd (_mm256_insertf128_ps (_mm256_castps128_ps256 (_mm_castsi128_ps (_mm_unpacklo_epi32 (odd32, odd32))),
-                                                                 _mm_castsi128_ps (_mm_unpackhi_epi32 (odd32, odd32)), 1));
-        const auto chosen = _mm256_blendv_pd (c, s, odd);
-        const auto sign32 = _mm_slli_epi32 (_mm_and_si128 (_mm_add_epi32 (q, _mm_set1_epi32 (1)), _mm_set1_epi32 (2)), 30);
-        const auto zero = _mm_setzero_si128();
-        const auto sign = _mm256_castps_pd (_mm256_insertf128_ps (_mm256_castps128_ps256 (_mm_castsi128_ps (_mm_unpacklo_epi32 (zero, sign32))),
-                                                                  _mm_castsi128_ps (_mm_unpackhi_epi32 (zero, sign32)), 1));
-        return _mm256_xor_pd (chosen, sign);
-    }
-
-    static constexpr int maxStages = 4, factor = 4, tapsPerPhase = 8, numTaps = factor * tapsPerPhase;
-    static constexpr int historyLength = tapsPerPhase, downLength = numTaps;
 
     static const std::array<double, numTaps>& doubleTaps()
     {
@@ -526,34 +491,20 @@ private:
         return taps;
     }
 
-    // The AVX path's tap vectors in lane order, built once: [interpolation
-    // taps t: k1 k1 k0 k0, k3 k3 k2 k2] then [decimation taps t: k0 k0 k1 k1,
-    // k2 k2 k3 k3] (the same doubles, loaded instead of assembled).
-    struct LaneTaps
-    {
-        alignas (32) double up[tapsPerPhase][2][4];
-        alignas (32) double down[numTaps / 4][2][4];
-    };
-    static const LaneTaps& laneTaps()
+    static const FloatLaneTaps& floatLaneTapsImpl()
     {
         static const auto lanes = []
         {
-            const auto& k = doubleTaps();
-            LaneTaps l {};
+            const auto& k = Wavefolder::firTaps();
+            FloatLaneTaps l {};
             for (int t = 0; t < tapsPerPhase; ++t)
-            {
-                const auto* p = k.data() + t * factor;
-                const double a[4] { p[0], p[0], p[1], p[1] }, b[4] { p[2], p[2], p[3], p[3] };
-                std::copy (a, a + 4, l.up[t][0]);
-                std::copy (b, b + 4, l.up[t][1]);
-            }
+                for (int phase = 0; phase < factor; ++phase)
+                    l.up[t][2 * phase] = l.up[t][2 * phase + 1] = k[(size_t) (t * factor + phase)];
+            // down[b] lines up with the 4x samples t + 3, t + 2, t + 1, t
+            // back from the newest (memory runs forward, the taps backward).
             for (int t = 0; t < numTaps; t += 4)
-            {
-                const auto* p = k.data() + t;
-                const double a[4] { p[1], p[1], p[0], p[0] }, b[4] { p[3], p[3], p[2], p[2] };
-                std::copy (a, a + 4, l.down[t / 4][0]);
-                std::copy (b, b + 4, l.down[t / 4][1]);
-            }
+                for (int j = 0; j < 4; ++j)
+                    l.down[t / 4][2 * j] = l.down[t / 4][2 * j + 1] = k[(size_t) (t + 3 - j)];
             return l;
         }();
         return lanes;
@@ -608,6 +559,9 @@ private:
         return dcOut[side];
     }
 
+    alignas (32) float upFloat[2 * historyLength * 2] {};
+    alignas (32) float downFloat[2 * downLength * 2] {};
+    alignas (16) float previousFloat[maxStages][2] {};
     alignas (16) double upHistory[2 * historyLength * 2] {};
     alignas (16) double downHistory[2 * downLength * 2] {};
     __m128d previous[maxStages] {}, previousCosine[maxStages] {};

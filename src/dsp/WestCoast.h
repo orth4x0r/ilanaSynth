@@ -24,6 +24,14 @@
 #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
  #define ILANA_WEST_SSE 1
  #include <emmintrin.h>
+ #include <immintrin.h>
+ // The folder's AVX path is compiled for AVX on its own and picked at run
+ // time (the build targets SSE2).
+ #if defined(__GNUC__) || defined(__clang__)
+  #define ILANA_AVX_TARGET __attribute__ ((target ("avx")))
+ #else
+  #define ILANA_AVX_TARGET
+ #endif
 #else
  #define ILANA_WEST_SSE 0
 #endif
@@ -245,9 +253,27 @@ public:
        #endif
     }
 
+    // ILANA_NO_AVX (or a CPU without it) keeps the SSE2 path; both give
+    // the same samples.
+    static bool& useAvx()
+    {
+       #if ILANA_WEST_SSE
+        static bool use = juce::SystemStats::hasAVX()
+                          && juce::SystemStats::getEnvironmentVariable ("ILANA_NO_AVX", "").isEmpty();
+       #else
+        static bool use = false;
+       #endif
+        return use;
+    }
+
     void process (float& l, float& r)
     {
        #if ILANA_WEST_SSE
+        if (useAvx())
+        {
+            processAvx (l, r);
+            return;
+        }
         const auto& taps = doubleTaps();
         auto* up = reinterpret_cast<__m128d*> (upHistory);
         auto* down = reinterpret_cast<__m128d*> (downHistory);
@@ -336,6 +362,157 @@ public:
 
 private:
    #if ILANA_WEST_SSE
+    // process() with phases 0-1 and 2-3 of both sides in two AVX registers
+    // ([left, right] per phase, a phase per 128-bit half): every lane does
+    // the SSE2 path's arithmetic in its order, so the samples are the same.
+    ILANA_AVX_TARGET void processAvx (float& l, float& r)
+    {
+        const auto& taps = doubleTaps();
+        auto* up = reinterpret_cast<__m128d*> (upHistory);
+        auto* down = reinterpret_cast<__m128d*> (downHistory);
+        const auto input = _mm_set_pd ((double) r, (double) l);
+        up[historyPosition] = input;
+        up[historyPosition + historyLength] = input;
+        const auto* newestUp = up + historyPosition + historyLength;
+
+        // Interpolate.
+        auto x01 = _mm256_setzero_pd(), x23 = _mm256_setzero_pd();
+        for (int t = 0; t < tapsPerPhase; ++t)
+        {
+            const auto sample = _mm256_broadcast_pd (newestUp - t);
+            const auto* k = taps.data() + t * factor;
+            x01 = _mm256_add_pd (x01, _mm256_mul_pd (_mm256_set_pd (k[1], k[1], k[0], k[0]), sample));
+            x23 = _mm256_add_pd (x23, _mm256_mul_pd (_mm256_set_pd (k[3], k[3], k[2], k[2]), sample));
+        }
+        const auto factorVec = _mm256_set1_pd ((double) factor), gainVec = _mm256_set1_pd (gain), biasVec = _mm256_set1_pd (bias);
+        x01 = _mm256_add_pd (_mm256_mul_pd (_mm256_mul_pd (x01, factorVec), gainVec), biasVec);
+        x23 = _mm256_add_pd (_mm256_mul_pd (_mm256_mul_pd (x23, factorVec), gainVec), biasVec);
+
+        // The fold. Each phase's "last" is the phase before it (phase 0's,
+        // the previous sample's phase 3).
+        const auto stretch = _mm256_set1_pd (1.0 + 0.35 * gain / (double) stages);
+        const auto halfPi = _mm256_set1_pd (juce::MathConstants<double>::halfPi);
+        for (int stage = 0; stage < stages; ++stage)
+        {
+            const auto cos01 = cosHalfPiAvx (x01), cos23 = cosHalfPiAvx (x23);
+            const auto last01 = _mm256_insertf128_pd (_mm256_castpd128_pd256 (previous[stage]), _mm256_castpd256_pd128 (x01), 1);
+            const auto last23 = _mm256_permute2f128_pd (x01, x23, 0x21);
+            const auto lastCos01 = _mm256_insertf128_pd (_mm256_castpd128_pd256 (previousCosine[stage]), _mm256_castpd256_pd128 (cos01), 1);
+            const auto lastCos23 = _mm256_permute2f128_pd (cos01, cos23, 0x21);
+            previous[stage] = _mm256_extractf128_pd (x23, 1);
+            previousCosine[stage] = _mm256_extractf128_pd (cos23, 1);
+
+            auto y01 = foldPairAvx (x01, last01, cos01, lastCos01, halfPi);
+            auto y23 = foldPairAvx (x23, last23, cos23, lastCos23, halfPi);
+            if (stage + 1 < stages)
+            {
+                y01 = _mm256_mul_pd (y01, stretch);
+                y23 = _mm256_mul_pd (y23, stretch);
+            }
+            x01 = y01;
+            x23 = y23;
+        }
+
+        // Each 4x sample is kept at float precision, as a Wavefolder keeps it.
+        const auto downBase = historyPosition * factor;
+        const auto makeUpVec = _mm256_set1_pd (makeUp);
+        const auto folded01 = _mm256_cvtps_pd (_mm256_cvtpd_ps (_mm256_mul_pd (x01, makeUpVec)));
+        const auto folded23 = _mm256_cvtps_pd (_mm256_cvtpd_ps (_mm256_mul_pd (x23, makeUpVec)));
+        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase), folded01);
+        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + 2), folded23);
+        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + downLength), folded01);
+        _mm256_storeu_pd (reinterpret_cast<double*> (down + downBase + downLength + 2), folded23);
+
+        // Decimate: sums[k] over taps t + k, as the SSE2 path. The lanes are
+        // [k = 1, k = 0] and [k = 3, k = 2] (the history runs forward in
+        // memory, the taps backward).
+        const auto* newestDown = down + downBase + factor - 1 + downLength;
+        auto sums10 = _mm256_setzero_pd(), sums32 = _mm256_setzero_pd();
+        for (int t = 0; t < numTaps; t += 4)
+        {
+            const auto* k = taps.data() + t;
+            sums10 = _mm256_add_pd (sums10, _mm256_mul_pd (_mm256_set_pd (k[0], k[0], k[1], k[1]),
+                                                           _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 1)))));
+            sums32 = _mm256_add_pd (sums32, _mm256_mul_pd (_mm256_set_pd (k[2], k[2], k[3], k[3]),
+                                                           _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 3)))));
+        }
+        const auto sum01 = _mm_add_pd (_mm256_extractf128_pd (sums10, 1), _mm256_castpd256_pd128 (sums10));
+        const auto sum23 = _mm_add_pd (_mm256_extractf128_pd (sums32, 1), _mm256_castpd256_pd128 (sums32));
+        alignas (16) double out[2];
+        _mm_store_pd (out, _mm_add_pd (sum01, sum23));
+        if (++historyPosition >= historyLength)
+            historyPosition = 0;
+
+        l = blockDc ((float) out[0], 0);
+        r = blockDc ((float) out[1], 1);
+    }
+
+    // One fold stage on two phases (the antiderivative step, or the fold at
+    // the midpoint where the step is too small to divide by).
+    static ILANA_AVX_TARGET __m256d foldPairAvx (__m256d xs, __m256d lasts, __m256d cosines, __m256d lastCosines, __m256d hp)
+    {
+        const auto difference = _mm256_sub_pd (xs, lasts);
+        auto y = _mm256_div_pd (_mm256_sub_pd (lastCosines, cosines), _mm256_mul_pd (hp, difference));
+        const auto magnitude = _mm256_andnot_pd (_mm256_set1_pd (-0.0), difference);
+        const auto small = _mm256_movemask_pd (_mm256_cmp_pd (magnitude, _mm256_set1_pd (1.0e-5), _CMP_LT_OQ));
+        if (small != 0)
+        {
+            alignas (32) double ys[4], xv[4], lv[4];
+            _mm256_store_pd (ys, y);
+            _mm256_store_pd (xv, xs);
+            _mm256_store_pd (lv, lasts);
+            for (int lane = 0; lane < 4; ++lane)
+                if ((small >> lane) & 1)
+                    ys[lane] = Wavefolder::fold (0.5 * (xv[lane] + lv[lane]));
+            y = _mm256_load_pd (ys);
+        }
+        return y;
+    }
+
+    // cosHalfPi on four lanes, the SSE2 version's arithmetic.
+    static ILANA_AVX_TARGET __m256d cosHalfPiAvx (__m256d x)
+    {
+        const auto magnitude = _mm256_andnot_pd (_mm256_set1_pd (-0.0), x);
+        if (_mm256_movemask_pd (_mm256_cmp_pd (magnitude, _mm256_set1_pd (1.0e8), _CMP_LT_OQ)) != 15)
+        {
+            alignas (32) double v[4];
+            _mm256_store_pd (v, x);
+            return _mm256_set_pd (Wavefolder::cosHalfPi (v[3]), Wavefolder::cosHalfPi (v[2]),
+                                  Wavefolder::cosHalfPi (v[1]), Wavefolder::cosHalfPi (v[0]));
+        }
+        const auto q = _mm_sub_epi32 (_mm256_cvttpd_epi32 (_mm256_add_pd (x, _mm256_set1_pd (0.5 + 1073741824.0))), _mm_set1_epi32 (1073741824));
+        const auto t = _mm256_mul_pd (_mm256_set1_pd (juce::MathConstants<double>::halfPi), _mm256_sub_pd (x, _mm256_cvtepi32_pd (q)));
+        const auto t2 = _mm256_mul_pd (t, t);
+
+        using W = Wavefolder;
+        auto c = _mm256_set1_pd (W::c6);
+        c = _mm256_add_pd (_mm256_set1_pd (W::c5), _mm256_mul_pd (t2, c));
+        c = _mm256_add_pd (_mm256_set1_pd (W::c4), _mm256_mul_pd (t2, c));
+        c = _mm256_add_pd (_mm256_set1_pd (W::c3), _mm256_mul_pd (t2, c));
+        c = _mm256_add_pd (_mm256_set1_pd (W::c2), _mm256_mul_pd (t2, c));
+        c = _mm256_add_pd (_mm256_set1_pd (W::c1), _mm256_mul_pd (t2, c));
+        c = _mm256_add_pd (_mm256_sub_pd (_mm256_set1_pd (1.0), _mm256_mul_pd (_mm256_set1_pd (0.5), t2)), _mm256_mul_pd (_mm256_mul_pd (t2, t2), c));
+        auto s = _mm256_set1_pd (W::s6);
+        s = _mm256_add_pd (_mm256_set1_pd (W::s5), _mm256_mul_pd (t2, s));
+        s = _mm256_add_pd (_mm256_set1_pd (W::s4), _mm256_mul_pd (t2, s));
+        s = _mm256_add_pd (_mm256_set1_pd (W::s3), _mm256_mul_pd (t2, s));
+        s = _mm256_add_pd (_mm256_set1_pd (W::s2), _mm256_mul_pd (t2, s));
+        s = _mm256_add_pd (_mm256_set1_pd (W::s1), _mm256_mul_pd (t2, s));
+        s = _mm256_add_pd (t, _mm256_mul_pd (_mm256_mul_pd (t, t2), s));
+
+        // Odd quadrants take the sine; quadrants 1 and 2 are negative. The
+        // 32-bit quadrant masks widen to the 64-bit lanes.
+        const auto odd32 = _mm_cmpeq_epi32 (_mm_and_si128 (q, _mm_set1_epi32 (1)), _mm_set1_epi32 (1));
+        const auto odd = _mm256_castps_pd (_mm256_insertf128_ps (_mm256_castps128_ps256 (_mm_castsi128_ps (_mm_unpacklo_epi32 (odd32, odd32))),
+                                                                 _mm_castsi128_ps (_mm_unpackhi_epi32 (odd32, odd32)), 1));
+        const auto chosen = _mm256_blendv_pd (c, s, odd);
+        const auto sign32 = _mm_slli_epi32 (_mm_and_si128 (_mm_add_epi32 (q, _mm_set1_epi32 (1)), _mm_set1_epi32 (2)), 30);
+        const auto zero = _mm_setzero_si128();
+        const auto sign = _mm256_castps_pd (_mm256_insertf128_ps (_mm256_castps128_ps256 (_mm_castsi128_ps (_mm_unpacklo_epi32 (zero, sign32))),
+                                                                  _mm_castsi128_ps (_mm_unpackhi_epi32 (zero, sign32)), 1));
+        return _mm256_xor_pd (chosen, sign);
+    }
+
     static constexpr int maxStages = 4, factor = 4, tapsPerPhase = 8, numTaps = factor * tapsPerPhase;
     static constexpr int historyLength = tapsPerPhase, downLength = numTaps;
 

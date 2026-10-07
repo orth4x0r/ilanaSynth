@@ -7473,6 +7473,14 @@ static int runHeldCpu (const juce::String& presetName)
             std::cout << id << " = " << parameter->getCurrentValueAsText() << std::endl;
 
     const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    // ILANA_HELD_DUMP=file: the raw output (each block's left then right
+    // floats), to compare two builds sample for sample.
+    std::unique_ptr<juce::FileOutputStream> dump;
+    if (const auto dumpPath = juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_DUMP", ""); dumpPath.isNotEmpty())
+    {
+        juce::File (dumpPath).deleteFile();
+        dump = std::make_unique<juce::FileOutputStream> (juce::File (dumpPath));
+    }
     // ILANA_HELD_NOTES=n: only the first n of them.
     const auto heldNotes = juce::jlimit (1, 12, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_NOTES", "12").getIntValue());
     juce::AudioBuffer<float> buffer (2, blockSize);
@@ -7503,6 +7511,9 @@ static int runHeldCpu (const juce::String& presetName)
                 std::cout << "  block " << second * blocksPerSecond + block << ": " << juce::String (100.0 * blockMs / (1000.0 * blockSize / rate), 0) << "%" << std::endl;
             for (int i = 0; i < blockSize; ++i)
                 sumSquares += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+            if (dump != nullptr)
+                for (int channel = 0; channel < 2; ++channel)
+                    dump->write (buffer.getReadPointer (channel), (size_t) blockSize * sizeof (float));
         }
         const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
         total += ms;

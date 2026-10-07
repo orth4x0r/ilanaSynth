@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "ModNames.h"
+#include "AnimationUtils.h"
 
 // A mod slot's remap curve (Vital's per-route remap), drawn as the LFO curve
 // shape is: the source's range runs left to right, the amount it sends from
@@ -15,7 +16,7 @@
 // it meets the curve. The matrix docks it under its row; X closes it.
 class RemapEditor : public juce::Component,
                     public juce::SettableTooltipClient,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     RemapEditor (IlanaSynthAudioProcessor& p, int slotIndexIn, juce::Colour colourIn)
@@ -352,7 +353,9 @@ private:
         if (! isMouseButtonDown())
             curve = processorRef.getModRemap (slotIndex);
 
-        repaint();
+        // The live marker moves with the frames; nothing to draw while hidden.
+        if (isShowing())
+            repaint();
     }
 
     juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().withTrimmedTop (24.0f).reduced (14.0f, 12.0f); }

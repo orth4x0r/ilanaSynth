@@ -627,7 +627,7 @@ inline bool handleMidiLearnResult (int result, IlanaSynthAudioProcessor& process
 // lives in the editor's scaled content and goes with it.
 class FloatingNote : public juce::Component,
                      private juce::ComponentListener,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     static void show (juce::Component& anchor, const juce::String& text)
@@ -691,7 +691,7 @@ private:
 
     void timerCallback() override
     {
-        life -= 1.0f / 30.0f;
+        life -= frameSeconds();
         setAlpha (juce::jlimit (0.0f, 1.0f, life / 0.4f));
         if (life <= 0.0f)
         {

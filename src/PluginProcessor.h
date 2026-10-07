@@ -348,6 +348,10 @@ public:
 
     static constexpr int scopeSize = 4096;
     void copyScopeData (float* left, float* right, int numSamples) const;
+    // The same window, but ending part-way into the newest block by the time
+    // since that block arrived (one block behind at most): the scope moves
+    // smoothly at the display's rate however large the host's buffer is.
+    void copyScopeDataSmooth (float* left, float* right, int numSamples) const;
 
     static constexpr int lfoDrawSteps = 64;
     void setLfoCustomPoint (int lfoIndex, int step, float value);
@@ -1059,6 +1063,8 @@ private:
 
     std::vector<float> scopeLeft, scopeRight;
     std::atomic<int> scopeWritePos { 0 };
+    std::atomic<int> scopeBlockSamples { 0 };
+    std::atomic<double> scopeBlockMs { 0.0 };
     mutable juce::SpinLock scopeLock;
 
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> lfoCustom {};

@@ -134,6 +134,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("envThumbs");
         std::vector<int> folded;
         for (const auto& item : layoutItems (folded))
         {

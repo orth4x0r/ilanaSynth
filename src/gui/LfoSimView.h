@@ -87,6 +87,16 @@ public:
 
     void trigger (const LfoSimSettings& settings) { sim.trigger (settings, 7); }
 
+    // Output A's recent history as a rolling picture for a small card:
+    // phase 0 is the oldest point, 1 the newest (what the dot sits on).
+    float historyAt (double phase) const
+    {
+        const auto index = juce::jlimit (0, historySize - 1, (int) (phase * (double) historySize));
+        return historyA[(size_t) ((head + index) % historySize)];
+    }
+
+    float latestA() const { return lastA; }
+
     // What outputs A and B carry, spelled out ("X axis", "impacts"), following
     // OUTPUT A's axis on the attractors (B is the next axis; Mix puts X and Z
     // on A, Y on B).

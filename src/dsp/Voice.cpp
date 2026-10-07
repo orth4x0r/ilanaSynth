@@ -1144,6 +1144,26 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         alternateAmpRouting = alternateAmpRouting
                               || (params.oscillatorEnabled[osc] && params.oscillators[osc].ampEnv != 0);
+
+    // Only the modal body's tail left (the amp envelope is over, nothing
+    // else rings it): render the body alone. Not with per-oscillator
+    // envelopes or the Operator EG (their sources may still drive it) or a
+    // live input ringing it.
+    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0
+        && ! alternateAmpRouting && ! operatorEgOwnsVoice() && ! envelopesActive()
+        && (params.liveInput == nullptr || params.inputToBody == 0.0f))
+    {
+        if (resonatorAmount > 0.001f)
+            renderBodyTail (left, right, startSample, numSamples,
+                            resonatorAmount * ampVelScale * juce::jlimit (0.0f, 2.0f, 1.0f + blockMod (D::AmpLevel)));
+        lastAmpValue = 0.0f;
+        lastLifetimeValue = 0.0f;
+        bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
+        if (! hasActiveAmpEnvelope())
+            clearCurrentNote();
+        return;
+    }
+
     auto* mods = sampleMods.data();
 
     constexpr D frameDestinations[] { D::Osc1Frame, D::Osc2Frame, D::SubFrame,
@@ -1947,8 +1967,20 @@ bool Voice::hasActiveAmpEnvelope() const
 {
     if (operatorEgOwnsVoice())
         return dx7Note.isActive();
-    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0)
+    // The modal body rings on after the envelopes (up to 1.5 x its decay,
+    // 10 s at most), but only while it can be heard: once its level is under
+    // -110 dB (its wet gain is at most 2: under -104 dB out per voice) the
+    // tail is over, and the voice ends with the envelopes. A body that never
+    // rang (BODY AMOUNT at 0) holds no voice at all.
+    constexpr auto bodySilence = 3.0e-6f;
+    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0
+        && (materialBodyL.level() > bodySilence || materialBodyR.level() > bodySilence))
         return true;
+    return envelopesActive();
+}
+
+bool Voice::envelopesActive() const
+{
     bool anyOscillator = false;
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
@@ -1991,21 +2023,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
 {
     using D = Mod::Destination;
 
-    currentFrequency += (baseFrequency - currentFrequency) * (double) glideCoeff;
-
-    auto driftFactor = 1.0;
-    const auto drift = juce::jlimit (0.0f, 1.0f, params.drift + mods[(int) D::Drift]);
-
-    if (drift > 0.0f)
-    {
-        if (driftRandom.nextFloat() > 0.995f)
-            driftTarget = driftRandom.nextFloat() * 2.0f - 1.0f;
-
-        driftValue += (driftTarget - driftValue) * 0.002f;
-        driftFactor = std::exp2 ((double) driftValue * (double) drift * 0.25 / 12.0);
-    }
-
-    const auto driftedFrequency = currentFrequency * driftFactor;
+    const auto driftedFrequency = advanceGlideAndDrift (mods[(int) D::Drift]);
 
     // Warp amounts move at sub-block rate: the table-level choice behind them
     // is too costly to redo every sample.
@@ -2084,6 +2102,36 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
     if (params.subOscLevel > 0.0f)
         subOsc.setFrequency (driftedFrequency * std::exp2 (((double) params.subOscOctave + bendSemitones) / 12.0));
 
+    tuneBody (driftedFrequency);
+
+    updateFilterCoefficients (mods, filterEnvValue, filter2EnvValue);
+}
+
+// One sub-block's glide and drift (the drift's random walk steps here, so it
+// stays in step whether the voice renders in full or only its body's tail).
+double Voice::advanceGlideAndDrift (float driftMod)
+{
+    currentFrequency += (baseFrequency - currentFrequency) * (double) glideCoeff;
+
+    auto driftFactor = 1.0;
+    const auto drift = juce::jlimit (0.0f, 1.0f, params.drift + driftMod);
+
+    if (drift > 0.0f)
+    {
+        if (driftRandom.nextFloat() > 0.995f)
+            driftTarget = driftRandom.nextFloat() * 2.0f - 1.0f;
+
+        driftValue += (driftTarget - driftValue) * 0.002f;
+        driftFactor = std::exp2 ((double) driftValue * (double) drift * 0.25 / 12.0);
+    }
+
+    return currentFrequency * driftFactor;
+}
+
+void Voice::tuneBody (double driftedFrequency)
+{
+    using D = Mod::Destination;
+
     if (params.resonatorOn && params.resonatorAmount + blockMod (D::ResAmount) > 0.001f)
     {
         const auto offset = juce::jlimit (-24.0f, 24.0f, params.resonatorOffset + blockMod (D::ResOffset) * 12.0f);
@@ -2104,8 +2152,33 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                                      decay, noteHz, params.quality, 1.0f);
         }
     }
+}
 
-    updateFilterCoefficients (mods, filterEnvValue, filter2EnvValue);
+// The body's tail alone: every envelope is over, so the sources and filters
+// add exact zeros (their output and the body's drive are both scaled by the
+// finished amp envelope) and only the body rings. The same sums as the full
+// render, without computing the zeros. AMP LEVEL modulation is read once per
+// block here (per sample in the full render).
+void Voice::renderBodyTail (float* left, float* right, int startSample, int numSamples, float wetGain)
+{
+    using D = Mod::Destination;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        if ((i & 15) == 0)
+            tuneBody (advanceGlideAndDrift (blockMod (D::Drift)));
+        const auto wetL = materialBodyL.process (0.0f) * wetGain;
+        const auto wetR = materialBodyR.process (0.0f) * wetGain;
+        if (right != nullptr)
+        {
+            left[startSample + i] += wetL;
+            right[startSample + i] += wetR;
+        }
+        else
+        {
+            left[startSample + i] += wetL;
+            left[startSample + i] += wetR;
+        }
+    }
 }
 
 void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue)

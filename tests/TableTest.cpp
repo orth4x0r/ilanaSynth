@@ -8683,7 +8683,10 @@ void runLibraryBench()
 // output peak (and any non-finite samples). ILANA_BODY_BENCH_TYPE / _COUPLING
 // pick one case, _AMOUNT sets body_coupling (0.5), _SET="id=value,..." sets
 // more parameters (real values), _AS_IS plays the preset unchanged, _ONSET
-// times one note's rise per type, _ALL ranks every preset by Shell's cost.
+// times one note's rise per type, _ALL ranks every preset by Shell's cost,
+// _SECONDS sets the held run's length (4), _CLIP_ONLY skips it, _DUMP=<dir>
+// writes each run's output as raw floats. Voices are counted with their
+// body tails (getRenderingVoiceCount).
 void runBodyBench()
 {
     IlanaSynthAudioProcessor processor;
@@ -8714,10 +8717,18 @@ void runBodyBench()
         buffer.clear();
         juce::MidiBuffer silence;
         processor.processBlock (buffer, silence);
-        const auto seconds = clip ? 6.0 : 4.0;
+        const auto seconds = clip ? 6.0 : juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SECONDS", "4").getDoubleValue();
         const auto blocks = (int) (44100.0 * seconds / blockSize);
         auto elapsed = 0.0, slowest = 0.0, voiceSum = 0.0;
-        auto peakVoices = 0, nonFinite = 0;
+        auto peakVoices = 0, nonFinite = 0, lastSounding = -1;
+        // ILANA_BODY_BENCH_DUMP=<folder>: each run's output as raw floats.
+        std::unique_ptr<juce::FileOutputStream> dump;
+        if (const auto folder = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_DUMP", ""); folder.isNotEmpty())
+        {
+            const auto file = juce::File (folder).getChildFile (label.replaceCharacter (' ', '_') + (clip ? "_clip" : "_held") + ".f32");
+            file.deleteFile();
+            dump = std::make_unique<juce::FileOutputStream> (file);
+        }
         auto outPeak = 0.0f;
         for (int block = 0; block < blocks; ++block)
         {
@@ -8739,6 +8750,9 @@ void runBodyBench()
             const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
             elapsed += ms;
             slowest = juce::jmax (slowest, ms);
+            if (dump != nullptr)
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    dump->write (buffer.getReadPointer (ch), sizeof (float) * (size_t) blockSize);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                 for (int i = 0; i < blockSize; ++i)
                 {
@@ -8748,14 +8762,19 @@ void runBodyBench()
                     else
                         outPeak = juce::jmax (outPeak, std::abs (x));
                 }
-            voiceSum += processor.getActiveVoiceCount();
-            peakVoices = juce::jmax (peakVoices, processor.getActiveVoiceCount());
+            const auto rendering = processor.getRenderingVoiceCount();
+            if (rendering > 0)
+                lastSounding = block;
+            voiceSum += rendering;
+            peakVoices = juce::jmax (peakVoices, rendering);
         }
         const auto perBlock = elapsed / blocks;
         std::cout << "body " << label << (clip ? " clip" : " held") << ": " << juce::String (perBlock, 3)
                   << " ms/block, " << juce::String (100.0 * perBlock / (1000.0 * blockSize / 44100.0), 1)
                   << " % of one core, slowest " << juce::String (slowest, 2) << " ms, voices "
-                  << juce::String (voiceSum / blocks, 1) << " (peak " << peakVoices << "), out peak "
+                  << juce::String (voiceSum / blocks, 1) << " (peak " << peakVoices << ")"
+                  << (clip ? juce::String() : ", last voice ends " + juce::String ((lastSounding + 1) * blockSize / 44100.0 - 2.0, 2) + " s after release")
+                  << ", out peak "
                   << juce::String (outPeak, 3) << (nonFinite > 0 ? ", NON-FINITE " + juce::String (nonFinite) : juce::String()) << std::endl;
     };
     // ILANA_BODY_BENCH_ALL=1: every factory preset with the BODY on, 6 notes
@@ -8847,6 +8866,8 @@ void runBodyBench()
                 continue;
             for (const auto clip : { false, true })
             {
+                if (! clip && juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_CLIP_ONLY", "").isNotEmpty())
+                    continue;
                 processor.loadFactoryPreset (index);
                 set ("res_on", 1.0f);
                 set ("body_type", (float) type);

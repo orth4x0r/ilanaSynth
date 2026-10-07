@@ -2329,6 +2329,7 @@ private:
     struct PopupCombo : public juce::ComboBox
     {
         std::function<void()> popupOverride;
+        double lastOverrideOpen = 0.0;
         std::function<void (int)> nudgeOverride;
 
         bool keyPressed (const juce::KeyPress& key) override
@@ -2349,10 +2350,27 @@ private:
             return juce::ComboBox::keyPressed (key);
         }
 
+        // A select with its own menu opens it on the press only. ComboBox also
+        // asks for its popup on a drag and on repeated key events, and (its
+        // own "menu active" flag being cleared below) used to open a second
+        // menu over the first: a menu that opened, closed and opened again
+        // within a few frames (ilana's PC test).
+        void mouseDrag (const juce::MouseEvent& event) override
+        {
+            if (popupOverride == nullptr)
+                juce::ComboBox::mouseDrag (event);
+        }
+
         void showPopup() override
         {
             if (popupOverride != nullptr)
             {
+                const auto now = juce::Time::getMillisecondCounterHiRes();
+
+                if (now - lastOverrideOpen < 150.0 || (now - lastOverrideOpen < 500.0 && juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown()))
+                    return;
+
+                lastOverrideOpen = now;
                 // ComboBox marks its menu active on click and only clears that
                 // when its own menu closes; without this, later clicks are
                 // ignored. Cleared first: hidePopup() dismisses every open

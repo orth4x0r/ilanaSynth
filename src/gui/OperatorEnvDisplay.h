@@ -517,6 +517,10 @@ public:
             return;
 
         frozen = layout();
+        // The point keeps its place under the press (no jump to the pointer);
+        // the drag moves it by the pointer's movement.
+        dragPoint = getHandlePositions()[(size_t) dragHandle];
+        lastMousePosition = event.position;
         rateParameter = parameterFor (dragHandle, false);
         levelParameter = parameterFor (dragHandle, true);
         processorRef.beginEdit (juce::String ("OP ENV ") + OperatorEnv::rateName (dragHandle));
@@ -533,6 +537,10 @@ public:
             return;
 
         const auto& geo = *frozen;
+        // Shift (or Ctrl / Cmd) moves it 10x finer than the pointer.
+        dragPoint += (event.position - lastMousePosition) * (event.mods.isShiftDown() || event.mods.isCommandDown() ? 0.1f : 1.0f);
+        lastMousePosition = event.position;
+        dragPoint.y = juce::jlimit (geo.plot.getY(), geo.plot.getBottom(), dragPoint.y);
         const auto set = [] (juce::RangedAudioParameter* parameter, int value)
         {
             if (parameter != nullptr && juce::roundToInt (parameter->convertFrom0to1 (parameter->getValue())) != value)
@@ -542,10 +550,10 @@ public:
         // Across: the stage's time, back through the square-root scale from
         // where it starts (the release from the key going up).
         const auto start = (dragHandle == 3 ? geo.keyUpX : geo.stageX[(size_t) dragHandle]) + minimumStageWidth;
-        const auto units = juce::jmax (0.0f, event.position.x - start) / geo.scale;
+        const auto units = juce::jmax (0.0f, dragPoint.x - start) / geo.scale;
         set (rateParameter, OperatorEnv::rateForSeconds (settings, dragHandle, (double) (units * units)));
         // Up and down: its level.
-        set (levelParameter, OperatorEnv::levelForValue (settings, geo.value (event.position.y)));
+        set (levelParameter, OperatorEnv::levelForValue (settings, geo.value (dragPoint.y)));
 
         refresh();
         updateReadout();
@@ -860,6 +868,7 @@ private:
     bool hasSettings = false;
     int hoverHandle = -1, dragHandle = -1;
     std::optional<Geometry> frozen;
+    juce::Point<float> dragPoint, lastMousePosition;
     juce::RangedAudioParameter* rateParameter = nullptr;
     juce::RangedAudioParameter* levelParameter = nullptr;
     juce::String readout;

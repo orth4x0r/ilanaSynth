@@ -647,6 +647,12 @@ private:
         lastMousePosition = event.position;
         frozenScale = fitScale (getPlotArea());
 
+        // The handle keeps its place under the press: the pointer may be up
+        // to the hit radius off its centre, and the drag moves the handle by
+        // the pointer's movement, not to the pointer (no jump on first click).
+        if (dragHandle >= 0)
+            dragPoint = handlePosition (layoutGeometry(), dragHandle);
+
         if (dragHandle >= 0)
         {
             dragParameter = parameterFor (suffixForHandle (dragHandle));
@@ -693,6 +699,15 @@ private:
             return;
 
         const auto geo = layoutGeometry();
+
+        // Shift (or Ctrl / Cmd) moves the handle 10x finer than the pointer.
+        {
+            const auto fine = event.mods.isShiftDown() || event.mods.isCommandDown() ? 0.1f : 1.0f;
+            dragPoint += (event.position - lastMousePosition) * fine;
+            dragPoint.x = juce::jmax (dragPoint.x, geo.x0);
+            dragPoint.y = juce::jlimit (geo.yTop, geo.yBottom, dragPoint.y);
+        }
+
         const auto setSeconds = [] (juce::RangedAudioParameter& parameter, float seconds)
         {
             const auto range = parameter.getNormalisableRange();
@@ -711,20 +726,20 @@ private:
         switch (dragHandle)
         {
             case 0:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xStart) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xStart) / geo.scale));
                 break;
 
             case 1:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xH) / geo.scale));
-                setSustainFromY (event.position.y);
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xH) / geo.scale));
+                setSustainFromY (dragPoint.y);
                 break;
 
             case 2:
-                setSustainFromY (event.position.y);
+                setSustainFromY (dragPoint.y);
                 break;
 
             case 3:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xS) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xS) / geo.scale));
                 break;
 
             default:
@@ -735,7 +750,7 @@ private:
                 const auto segment = dragHandle - firstCurveHandle;
                 const auto sustain = readValue ("sustain");
                 const auto height = geo.plot.getHeight();
-                const auto level = (geo.yBottom - event.position.y) / juce::jmax (1.0f, height);
+                const auto level = (geo.yBottom - dragPoint.y) / juce::jmax (1.0f, height);
                 const auto low = segment == 0 ? 0.0f : segment == 1 ? sustain : 0.0f;
                 const auto high = segment == 0 ? 1.0f : segment == 1 ? 1.0f : sustain;
 
@@ -750,7 +765,7 @@ private:
                 }
                 else
                 {
-                    const auto delta = event.position.y - lastMousePosition.y;
+                    const auto delta = (event.position.y - lastMousePosition.y) * (event.mods.isShiftDown() || event.mods.isCommandDown() ? 0.1f : 1.0f);
                     dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta * 0.004f);
                 }
 
@@ -823,6 +838,6 @@ private:
     juce::RangedAudioParameter* sustainGesture = nullptr;
     float dragNormalised = 0.5f;
     float frozenScale = 1.0f;
-    juce::Point<float> lastMousePosition;
+    juce::Point<float> lastMousePosition, dragPoint;
     juce::String readout;
 };

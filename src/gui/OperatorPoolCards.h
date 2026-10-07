@@ -295,7 +295,6 @@ class TransposeKnob : public juce::Component,
 public:
     TransposeKnob (IlanaSynthAudioProcessor& p, juce::Colour colour) : processorRef (p)
     {
-        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 14);
         slider.setRange (-24.0, 24.0, 1.0);
         slider.setColour (juce::Slider::rotarySliderFillColourId, colour);
@@ -406,7 +405,7 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label label;
     bool dragging = false, updating = false;
 };

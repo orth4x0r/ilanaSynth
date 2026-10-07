@@ -641,8 +641,15 @@ private:
 
     void processOpenPairBlock (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
     {
-        for (int s = 0; s < n; ++s)
+        auto s = 0;
+        while (filter2Linked && s < n)
+        {
             processOpenPair (inLeft[s], inRight[s], outLeft[s], outRight[s]);
+            ++s;
+        }
+        if (s < n)
+            Airwindows::OpenLowPass::processPairBlock (openFilter2L, openFilter2R, inLeft + s, inRight + s,
+                                                       outLeft + s, outRight + s, n - s);
     }
 
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;

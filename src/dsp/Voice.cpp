@@ -1211,6 +1211,14 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 ++numExtendedFmCells;
             }
 
+    // OSC 1-3 that are off with nothing still fading: the per-sample loop
+    // skips them (their smoothers would return the same values).
+    bool idleOsc[3] {};
+    for (int osc = 0; osc < 3; ++osc)
+        idleOsc[osc] = ! active[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f
+                       && ! oscEnableSmooth[osc].isSmoothing() && ! frameSmooth[osc].isSmoothing()
+                       && ! levelSmooth[osc].isSmoothing();
+
     // An operator whose FM input cells are all zero and unmodulated this
     // block gets nothing from its feedback type (every term is zero), so its
     // per-sample sum is skipped; its feedback filter still tracks.
@@ -1649,6 +1657,14 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         {
             if (osc >= 3 && ! active[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f)
             {
+                previousOsc[osc] = 0.0f;
+                continue;
+            }
+            // OSC 1-3 off and settled: nothing below would render or move.
+            if (osc < 3 && idleOsc[osc])
+            {
+                if (osc == 1)
+                    previousOsc[0] = juce::jlimit (-2.0f, 2.0f, oscMono[0]);
                 previousOsc[osc] = 0.0f;
                 continue;
             }

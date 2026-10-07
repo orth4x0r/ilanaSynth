@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <xmmintrin.h>
+#endif
+
 // Voice filters ported from Airwindows (Chris Johnson, https://www.airwindows.com,
 // MIT license: see airwindows/LICENSE.txt). Each is one channel of one voice,
 // set from a cutoff in Hz and a resonance 0..1 like the other models; the
@@ -246,6 +250,64 @@ public:
         out1 = v2 * fixed[1] - y * fixed[3] + out2;
         out2 = v2 * fixed[2] - y * fixed[4];
         return y;
+    }
+
+    // Two filters (left and right) over a block, as SSE lanes: the same
+    // arithmetic as process(), lane by lane.
+    static void processPairBlock (OpenLowPass& l, OpenLowPass& r, const float* inL, const float* inR,
+                                  float* outL, float* outR, int n)
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        const auto pair = [] (float a, float b) { return _mm_set_ps (0.0f, 0.0f, b, a); };
+        const __m128 f0 = pair (l.fixed[0], r.fixed[0]), f1 = pair (l.fixed[1], r.fixed[1]), f2 = pair (l.fixed[2], r.fixed[2]),
+                     f3 = pair (l.fixed[3], r.fixed[3]), f4 = pair (l.fixed[4], r.fixed[4]);
+        const __m128 a1 = pair (l.a1, r.a1), a2 = pair (l.a2, r.a2), a3 = pair (l.a3, r.a3), two = _mm_set1_ps (2.0f);
+        auto in1 = pair (l.in1, r.in1), in2 = pair (l.in2, r.in2), out1 = pair (l.out1, r.out1), out2 = pair (l.out2, r.out2);
+        auto s1 = pair (l.s1, r.s1), s2 = pair (l.s2, r.s2);
+
+        for (int i = 0; i < n; ++i)
+        {
+            const auto x = pair (inL[i], inR[i]);
+            const auto b = _mm_add_ps (_mm_mul_ps (x, f0), in1);
+            in1 = _mm_add_ps (_mm_sub_ps (_mm_mul_ps (x, f1), _mm_mul_ps (b, f3)), in2);
+            in2 = _mm_sub_ps (_mm_mul_ps (x, f2), _mm_mul_ps (b, f4));
+
+            const auto v3 = _mm_sub_ps (b, s2);
+            const auto v1 = _mm_add_ps (_mm_mul_ps (a1, s1), _mm_mul_ps (a2, v3));
+            const auto v2 = _mm_add_ps (_mm_add_ps (s2, _mm_mul_ps (a2, s1)), _mm_mul_ps (a3, v3));
+            s1 = _mm_sub_ps (_mm_mul_ps (two, v1), s1);
+            s2 = _mm_sub_ps (_mm_mul_ps (two, v2), s2);
+
+            const auto y = _mm_add_ps (_mm_mul_ps (v2, f0), out1);
+            out1 = _mm_add_ps (_mm_sub_ps (_mm_mul_ps (v2, f1), _mm_mul_ps (y, f3)), out2);
+            out2 = _mm_sub_ps (_mm_mul_ps (v2, f2), _mm_mul_ps (y, f4));
+
+            alignas (16) float lanes[4];
+            _mm_store_ps (lanes, y);
+            outL[i] = lanes[0];
+            outR[i] = lanes[1];
+        }
+
+        const auto store = [] (__m128 v, float& a, float& b)
+        {
+            alignas (16) float lanes[4];
+            _mm_store_ps (lanes, v);
+            a = lanes[0];
+            b = lanes[1];
+        };
+        store (in1, l.in1, r.in1);
+        store (in2, l.in2, r.in2);
+        store (out1, l.out1, r.out1);
+        store (out2, l.out2, r.out2);
+        store (s1, l.s1, r.s1);
+        store (s2, l.s2, r.s2);
+       #else
+        for (int i = 0; i < n; ++i)
+        {
+            outL[i] = l.process (inL[i]);
+            outR[i] = r.process (inR[i]);
+        }
+       #endif
     }
 
 private:

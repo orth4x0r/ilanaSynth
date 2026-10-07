@@ -117,6 +117,12 @@ public:
 
     float getNextSample()
     {
+        // Held notes spend most of their life here.
+        if (stage == Stage::Sustain)
+            return currentValue = params.sustain;
+        if (stage == Stage::Idle)
+            return currentValue = 0.0f;
+
         if (stage == Stage::Delay)
         {
             if (position < (double) params.delay * sampleRate)

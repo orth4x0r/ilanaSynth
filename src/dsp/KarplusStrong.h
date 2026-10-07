@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <xmmintrin.h>
+#endif
+
 #include <juce_core/juce_core.h>
 
 #include <array>
@@ -69,8 +73,8 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
+        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
         resetHorizontal();
@@ -231,8 +235,8 @@ public:
             writePosition = 0;
             lowpassState = 0.0f;
             phase = 0.0;
-            std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-            std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
+            for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+            for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
             slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
             slapLevel = level;
             strikeVelocity = level;
@@ -272,8 +276,8 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
+        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
         slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
         slapLevel = level;
         strikeVelocity = level;
@@ -298,7 +302,7 @@ public:
         const auto size = (int) buffer.size();
         const auto period = sampleRate / frequency;
         const auto hammered = excite == Excite::Hammer;
-        // Piano strings run two loops (see processHorizontal), one per half.
+        // Piano strings run two loops (see readHorizontal), one per half.
         const auto loopSize = hammered ? size / 2 : size;
         const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
         const auto stages = (double) dispersionStages();
@@ -364,14 +368,25 @@ public:
 
         auto delayed = rawDelayed;
 
-        if (useDispersion)
+        // A piano string's horizontal polarisation reads its own half of the
+        // buffer, so it is read now and both run their (identical) stiffness
+        // allpasses together, one SIMD lane each.
+        auto horizontal = 0.0f;
+        if (hammered)
+            horizontal = readHorizontal (period);
+
+        if (hammered && useDispersion)
+        {
+            disperseHammeredPair (delayed, horizontal);
+        }
+        else if (useDispersion)
         {
             for (int stage = 0; stage < dispersionStages(); ++stage)
             {
-                const auto next = coefficient * delayed + dispersionInput[stage]
-                                  - coefficient * dispersionState[stage];
-                dispersionInput[stage] = delayed;
-                dispersionState[stage] = next;
+                const auto next = coefficient * delayed + dispersionPairIn[stage][0]
+                                  - coefficient * dispersionPairState[stage][0];
+                dispersionPairIn[stage][0] = delayed;
+                dispersionPairState[stage][0] = next;
                 delayed = next;
             }
         }
@@ -467,7 +482,7 @@ public:
         writePosition = (writePosition + 1) % loopSize;
 
         if (hammered)
-            output += processHorizontal (drive, noteHeld, period);
+            output += finishHorizontal (horizontal, drive, noteHeld);
 
         if (slapRemaining > 0)
         {
@@ -777,7 +792,7 @@ private:
     // The horizontal polarisation: the same string (same stiffness filter),
     // in the upper half of the buffer, taking aftersound's share of the
     // strike and losing energy far more slowly.
-    float processHorizontal (float drive, bool noteHeld, double period)
+    float readHorizontal (double period)
     {
         const auto half = (int) buffer.size() / 2;
         const auto length = juce::jlimit (1.5, (double) half - 2.0, period - horizontalLoopDelay);
@@ -788,20 +803,50 @@ private:
             readIndex += half;
         const auto input = buffer[(size_t) (half + readIndex % half)];
         const auto a = (float) ((1.0 - part) / (1.0 + part));
-        auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
+        const auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
         horizontalThiranIn = input;
         horizontalThiranOut = delayed;
+        return delayed;
+    }
 
-        if (pianoCoefficient != 0.0f)
+    // Both polarisations through the piano stiffness allpasses (lane 0 the
+    // vertical, lane 1 the horizontal): the same arithmetic per lane.
+    void disperseHammeredPair (float& vertical, float& horizontal) noexcept
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        const auto c = _mm_set1_ps (pianoCoefficient);
+        auto x = _mm_set_ps (0.0f, 0.0f, horizontal, vertical);
+        for (int stage = 0; stage < maxDispersionStages; ++stage)
+        {
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (c, x), _mm_load_ps (dispersionPairIn[stage])),
+                                          _mm_mul_ps (c, _mm_load_ps (dispersionPairState[stage])));
+            _mm_store_ps (dispersionPairIn[stage], x);
+            _mm_store_ps (dispersionPairState[stage], next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        vertical = out[0];
+        horizontal = out[1];
+       #else
+        for (int lane = 0; lane < 2; ++lane)
+        {
+            auto& x = lane == 0 ? vertical : horizontal;
             for (int stage = 0; stage < maxDispersionStages; ++stage)
             {
-                const auto next = pianoCoefficient * delayed + horizontalDispersionIn[stage]
-                                  - pianoCoefficient * horizontalDispersionState[stage];
-                horizontalDispersionIn[stage] = delayed;
-                horizontalDispersionState[stage] = next;
-                delayed = next;
+                const auto next = pianoCoefficient * x + dispersionPairIn[stage][lane] - pianoCoefficient * dispersionPairState[stage][lane];
+                dispersionPairIn[stage][lane] = x;
+                dispersionPairState[stage][lane] = next;
+                x = next;
             }
+        }
+       #endif
+    }
 
+    // The rest of the horizontal loop, after its allpasses.
+    float finishHorizontal (float delayed, float drive, bool noteHeld)
+    {
+        const auto half = (int) buffer.size() / 2;
         horizontalLowState += (delayed - horizontalLowState) * horizontalLowpass;
         auto loopValue = horizontalLowState * horizontalFeedback;
         if (damper > 0.0f && ! noteHeld)
@@ -816,8 +861,8 @@ private:
     {
         horizontalWrite = 0;
         horizontalThiranIn = horizontalThiranOut = horizontalLowState = 0.0f;
-        std::fill (std::begin (horizontalDispersionIn), std::end (horizontalDispersionIn), 0.0f);
-        std::fill (std::begin (horizontalDispersionState), std::end (horizontalDispersionState), 0.0f);
+        for (auto& stage : dispersionPairIn) stage[1] = 0.0f;
+        for (auto& stage : dispersionPairState) stage[1] = 0.0f;
     }
 
     // A bowed string as two waveguides either side of the bow (the STK
@@ -958,10 +1003,8 @@ private:
     float pickPosition = 0.0f;
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
-    float dispersionState[maxDispersionStages] {};
     double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
     float lowpassDelayCoefficient = -1.0f;
-    float dispersionInput[maxDispersionStages] {};
     bool slap = false;
     int slapRemaining = 0;
     float slapLevel = 0.0f;
@@ -988,7 +1031,10 @@ private:
     float thiranInput = 0.0f, thiranOutput = 0.0f;
     float horizontalLowpass = 0.5f, horizontalFeedback = 0.99f;
     float horizontalThiranIn = 0.0f, horizontalThiranOut = 0.0f, horizontalLowState = 0.0f;
-    float horizontalDispersionIn[8] {}, horizontalDispersionState[8] {};
+    // The stiffness allpasses' state per stage: lane 0 the string (or the
+    // vertical polarisation), lane 1 a piano string's horizontal one.
+    alignas (16) float dispersionPairIn[maxDispersionStages][4] {};
+    alignas (16) float dispersionPairState[maxDispersionStages][4] {};
     int horizontalWrite = 0;
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;

@@ -7073,6 +7073,13 @@ int runFps()
 {
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 256);
+    // ILANA_FPS_PRESET=<factory preset> and ILANA_FPS_SET="id=value;..."
+    // (real values) set the patch the chord plays.
+    if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_PRESET", ""); preset.isNotEmpty())
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (preset));
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_SET", ""), ";", ""))
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1060, 720);
     HostWindow window (*editor);

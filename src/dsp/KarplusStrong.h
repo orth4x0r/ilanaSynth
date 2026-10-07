@@ -58,6 +58,7 @@ public:
     void prepare (double newSampleRate)
     {
         sampleRate = newSampleRate;
+        loopSetupDirty = true;
 
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
@@ -89,6 +90,7 @@ public:
     {
         electric.setFrequency (hz);
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
+        loopSetupDirty = true;
         piano.setNote (hz, juce::roundToInt (69.0 + 12.0 * std::log2 (juce::jmax (1.0, hz) / 440.0)));
         updateHammerFeedback();
         updatePianoDispersion();
@@ -97,6 +99,7 @@ public:
     void setParams (Excite newExcite, float newSustainLevel, float newDamping, float newDecay)
     {
         excite = newExcite;
+        loopSetupDirty = true;
         if (isElectric())
             electric.setModel (excite == Excite::Tine ? ElectricPiano::Model::Tine : ElectricPiano::Model::Reed);
         updateDispersionDelay();
@@ -105,6 +108,7 @@ public:
         decay = juce::jlimit (0.0f, 1.0f, newDecay);
 
         lowpassCoefficient = 1.0f - damping * 0.96f;
+        loopSetupDirty = true;
         feedback = 0.90f + decay * 0.0995f;
         updateHammerFeedback();
         updatePianoDispersion();
@@ -129,12 +133,14 @@ public:
                             float newPickHardness, float newPickPosition, bool newSlap)
     {
         stiffness = juce::jlimit (0.0f, 1.0f, newStiffness);
+        loopSetupDirty = true;
         pickupPosition = juce::jlimit (0.0f, 1.0f, newPickup);
         excitationPosition = juce::jlimit (0.0f, 1.0f, newExcitationPosition);
         pickHardness = juce::jlimit (0.0f, 1.0f, newPickHardness);
         pickPosition = juce::jlimit (0.0f, 1.0f, newPickPosition);
         slap = newSlap;
         dispersionCoefficient = -0.7f * stiffness;
+        loopSetupDirty = true;
         updateDispersionDelay();
         updatePianoDispersion();
         updatePiano();
@@ -300,57 +306,17 @@ public:
             return processBowed (expression, noteHeld);
 
         const auto size = (int) buffer.size();
-        // The divisions below are cached on their inputs: the pitch moves
-        // at most once a sub-block, so they rarely need doing.
-        if (frequency != cachedFrequency || sampleRate != cachedSampleRate)
-        {
-            cachedFrequency = frequency;
-            cachedSampleRate = sampleRate;
-            cachedPeriod = sampleRate / frequency;
-            cachedPhaseStep = frequency / sampleRate;
-        }
+        // The loop's pitch, delays and allpass coefficient follow the
+        // setters (at most once a sub-block): worked out again only then.
+        if (loopSetupDirty)
+            prepareLoop();
         const auto period = cachedPeriod;
         const auto hammered = excite == Excite::Hammer;
         // Piano strings run two loops (see readHorizontal), one per half.
         const auto loopSize = hammered ? size / 2 : size;
-        const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
-        const auto stages = (double) dispersionStages();
-        auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
-        auto coefficient = dispersionCoefficient;
-        if (delay < (double) dispersionDelay)
-        {
-            if (delay != cachedShortDelay || stages != cachedShortStages)
-            {
-                cachedShortDelay = delay;
-                cachedShortStages = stages;
-                cachedShortCoefficient = (float) ((stages - delay) / (stages + delay));
-            }
-            coefficient = cachedShortCoefficient;
-        }
-
-        // Piano strings: the designed allpass, and the loop's exact delay at
-        // the fundamental taken off so the note stays in tune.
-        if (hammered)
-        {
-            delay = pianoLoopDelay;
-            coefficient = pianoCoefficient;
-        }
-        // The damping low-pass in the loop delays the fundamental too (about
-        // (1 - c) / c samples): take its phase delay off as well, or the
-        // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
-        if (! hammered)
-        {
-            // Cached: the pitch and damping change at most once a sub-block.
-            if (period != lowpassDelayPeriod || lowpassCoefficient != lowpassDelayCoefficient)
-            {
-                const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
-                const auto pole = 1.0 - (double) lowpassCoefficient;
-                lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
-                lowpassDelayPeriod = period;
-                lowpassDelayCoefficient = lowpassCoefficient;
-            }
-            delay = juce::jmin (delay + lowpassDelay, period - 1.25);
-        }
+        const auto useDispersion = loopUseDispersion;
+        const auto delay = loopDelay;
+        const auto coefficient = loopCoefficient;
 
         auto readPosition = (double) writePosition - period
                             + delay;
@@ -538,10 +504,70 @@ private:
     // mode was built for: more allpass stages make the upper partials
     // audibly sharp, as in a real piano's bass.
     static constexpr int maxDispersionStages = 8;
+    // The per-sample loop's setup (see process), with the caches below.
+    void prepareLoop()
+    {
+        loopSetupDirty = false;
+        // The divisions below are cached on their inputs: the pitch moves
+        // at most once a sub-block, so they rarely need doing.
+        if (frequency != cachedFrequency || sampleRate != cachedSampleRate)
+        {
+            cachedFrequency = frequency;
+            cachedSampleRate = sampleRate;
+            cachedPeriod = sampleRate / frequency;
+            cachedPhaseStep = frequency / sampleRate;
+        }
+        const auto period = cachedPeriod;
+        const auto hammered = excite == Excite::Hammer;
+        const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
+        const auto stages = (double) dispersionStages();
+        auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
+        auto coefficient = dispersionCoefficient;
+        if (delay < (double) dispersionDelay)
+        {
+            if (delay != cachedShortDelay || stages != cachedShortStages)
+            {
+                cachedShortDelay = delay;
+                cachedShortStages = stages;
+                cachedShortCoefficient = (float) ((stages - delay) / (stages + delay));
+            }
+            coefficient = cachedShortCoefficient;
+        }
+
+        // Piano strings: the designed allpass, and the loop's exact delay at
+        // the fundamental taken off so the note stays in tune.
+        if (hammered)
+        {
+            delay = pianoLoopDelay;
+            coefficient = pianoCoefficient;
+        }
+        // The damping low-pass in the loop delays the fundamental too (about
+        // (1 - c) / c samples): take its phase delay off as well, or the
+        // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
+        if (! hammered)
+        {
+            // Cached: the pitch and damping change at most once a sub-block.
+            if (period != lowpassDelayPeriod || lowpassCoefficient != lowpassDelayCoefficient)
+            {
+                const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
+                const auto pole = 1.0 - (double) lowpassCoefficient;
+                lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
+                lowpassDelayPeriod = period;
+                lowpassDelayCoefficient = lowpassCoefficient;
+            }
+            delay = juce::jmin (delay + lowpassDelay, period - 1.25);
+        }
+
+        loopUseDispersion = useDispersion;
+        loopDelay = delay;
+        loopCoefficient = coefficient;
+    }
+
     int dispersionStages() const { return excite == Excite::Hammer ? maxDispersionStages : 2; }
     void updateDispersionDelay()
     {
         dispersionDelay = (float) dispersionStages() * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
+        loopSetupDirty = true;
     }
 
     // A stiff piano string's partials run sharp: partial n sits at
@@ -581,7 +607,9 @@ private:
         const auto dampingDelay = lowpassPhaseDelay (w0);
         const auto horizontalDampingDelay = lowpassPhaseDelay (w0, (double) horizontalLowpass);
         pianoCoefficient = 0.0f;
+        loopSetupDirty = true;
         pianoLoopDelay = juce::jmin (dampingDelay, period - 1.25);
+        loopSetupDirty = true;
         horizontalLoopDelay = juce::jmin (horizontalDampingDelay, period - 1.25);
 
         const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
@@ -611,7 +639,9 @@ private:
             a *= 0.8;
 
         pianoCoefficient = (float) a;
+        loopSetupDirty = true;
         pianoLoopDelay = stages * allpassPhaseDelay (a, w0) + dampingDelay;
+        loopSetupDirty = true;
         horizontalLoopDelay = juce::jmin (period - 1.25, stages * allpassPhaseDelay (a, w0) + horizontalDampingDelay);
     }
 
@@ -752,6 +782,7 @@ private:
         if (hammerDesignValid && inputs == hammerDesignInputs)
         {
             lowpassCoefficient = hammerDesign[0];
+            loopSetupDirty = true;
             feedback = hammerDesign[1];
             horizontalLowpass = hammerDesign[2];
             horizontalFeedback = hammerDesign[3];
@@ -802,6 +833,7 @@ private:
         // barely couples, and rings on as the quiet aftersound. DECAY sets
         // the aftersound; the prompt sound lasts promptRatio of it.
         design (juce::jmax (0.05, t60 * (double) tuning.promptRatio), lowpassCoefficient, feedback);
+        loopSetupDirty = true;
         design (t60, horizontalLowpass, horizontalFeedback);
 
         hammerDesignInputs = inputs;
@@ -1028,6 +1060,9 @@ private:
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
     double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
+    bool loopSetupDirty = true, loopUseDispersion = false;
+    double loopDelay = 0.0;
+    float loopCoefficient = 0.0f;
     double cachedFrequency = -1.0, cachedSampleRate = -1.0, cachedPeriod = 1.0, cachedPhaseStep = 0.0;
     double cachedShortDelay = -1.0, cachedShortStages = -1.0;
     float cachedShortCoefficient = 0.0f;

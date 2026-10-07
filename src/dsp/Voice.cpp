@@ -1219,6 +1219,20 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 ++numExtendedFmCells;
             }
 
+    // The oscillators whose feedback history the per-sample loop keeps
+    // (DX7 and filtered feedback types), and those whose string drives a
+    // body (the others' drive is zero).
+    int historyOscs[VoiceParams::numOscillators] {}, numHistoryOscs = 0;
+    int drivingOscs[VoiceParams::numOscillators] {}, numDrivingOscs = 0;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto type = params.oscillators[osc].feedbackType;
+        if (type == FmFeedback::Dx7 || type == FmFeedback::Filtered)
+            historyOscs[numHistoryOscs++] = osc;
+        if (params.oscillators[osc].stringMode && ! params.oscillators[osc].sampleMode)
+            drivingOscs[numDrivingOscs++] = osc;
+    }
+
     // OSC 1-3 that are off with nothing still fading: the per-sample loop
     // skips them (their smoothers would return the same values).
     bool idleOsc[3] {};
@@ -1226,6 +1240,39 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         idleOsc[osc] = ! active[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f
                        && ! oscEnableSmooth[osc].isSmoothing() && ! frameSmooth[osc].isSmoothing()
                        && ! levelSmooth[osc].isSmoothing();
+
+    // The per-sample loop's oscillators: OSC 1-3 that are idle and OSC 4-6
+    // that are off and silent at the block's start are left out (nothing in
+    // the loop would move them; their outputs are set after it).
+    int visitOscs[VoiceParams::numOscillators] {}, numVisitOscs = 0;
+    int skippedOscs[VoiceParams::numOscillators] {}, numSkippedOscs = 0;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto skip = osc < 3 ? idleOsc[osc]
+                                  : ! active[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f;
+        if (skip)
+            skippedOscs[numSkippedOscs++] = osc;
+        else
+            visitOscs[numVisitOscs++] = osc;
+    }
+    const auto skipsOsc1 = idleOsc[1];
+    // An oscillator skipped all block whose feedback state is at rest (zero)
+    // stays there: its history update would leave it unchanged.
+    {
+        auto kept = 0;
+        for (int k = 0; k < numHistoryOscs; ++k)
+        {
+            const auto osc = historyOscs[k];
+            auto resting = feedbackHistory[osc] == 0.0f && ! std::signbit (feedbackHistory[osc])
+                           && feedbackFiltered[osc] == 0.0f && ! std::signbit (feedbackFiltered[osc]);
+            auto skippedAll = false;
+            for (int v = 0; v < numSkippedOscs; ++v)
+                skippedAll = skippedAll || skippedOscs[v] == osc;
+            if (! (resting && skippedAll))
+                historyOscs[kept++] = osc;
+        }
+        numHistoryOscs = kept;
+    }
 
     // An operator whose FM input cells are all zero and unmodulated this
     // block gets nothing from its feedback type (every term is zero), so its
@@ -1850,6 +1897,116 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 const auto single = render && bank.canRenderSingle (oversample);
                 const auto singleRows = single ? bank.singleRead (frames) : UnisonBank::SingleRead {};
 
+                // An operator that doesn't hear itself: its FM input for the
+                // whole chunk first (every source it hears is done), then a
+                // lean render loop: the same sums in the same order. (Its own
+                // row reads as zero there: a silent cell's term is a zero
+                // either way, and the input's + 0.0 drops the zero's sign.)
+                // (With DX7 or filtered feedback the input is the sum over
+                // its sources, its own term a zero while its cell is.)
+                const auto altInput = anyAltFeedbackInput && altFeedbackInput[osc];
+                auto selfFed = ! cellIsSilent (osc, osc);
+                for (int k = 0; k < numOpCells; ++k)
+                    selfFed = selfFed || opCells[k] == osc;
+                for (int k = 0; k < numAltSources[osc]; ++k)
+                    selfFed = selfFed || altSources[osc][k] == osc;
+                if (render && ! selfFed)
+                {
+                    static constexpr float zeroRow[maxChunk + 1] {};
+                    const float* rows[numOsc];
+                    for (int source = 0; source < numOsc; ++source)
+                        rows[source] = source == osc ? zeroRow : prev[source];
+
+                    double fmIn[maxChunk];
+                    if (altInput)
+                    {
+                        for (int slot = 0; slot < n; ++slot)
+                            fmIn[slot] = 0.0;
+                        for (int k = 0; k < numAltSources[osc]; ++k)
+                        {
+                            const auto source = altSources[osc][k];
+                            const auto* row = rows[source];
+                            if (source >= 3 || osc >= 3)
+                            {
+                                const auto amount = (double) params.fmMatrix[source][osc];
+                                for (int slot = 0; slot < n; ++slot)
+                                    fmIn[slot] += amount * (double) row[slot];
+                            }
+                            else
+                                for (int slot = 0; slot < n; ++slot)
+                                    fmIn[slot] += (double) (params.fmMatrix[source][osc] + legacyMods[slot][source * 3 + osc]) * (double) row[slot];
+                        }
+                    }
+                    else if (osc == 0)
+                        for (int slot = 0; slot < n; ++slot)
+                        {
+                            const auto* m = legacyMods[slot];
+                            const auto fmAmount = params.fmAmount + m[3];
+                            const auto fmFeedback = params.fmFeedback + m[0];
+                            const auto fm3to1 = params.fmMatrix[2][0] + m[6];
+                            fmIn[slot] = (double) (fmAmount * rows[1][slot] + fmFeedback * rows[0][slot]) + (double) (fm3to1 * rows[2][slot]);
+                        }
+                    else if (osc < 3)
+                        for (int slot = 0; slot < n; ++slot)
+                        {
+                            const auto* m = legacyMods[slot];
+                            fmIn[slot] = (double) ((params.fmMatrix[0][osc] + m[osc]) * rows[0][slot]
+                                                   + (params.fmMatrix[1][osc] + m[3 + osc]) * rows[1][slot]
+                                                   + (params.fmMatrix[2][osc] + m[6 + osc]) * rows[2][slot]);
+                        }
+                    else
+                        for (int slot = 0; slot < n; ++slot)
+                            fmIn[slot] = 0.0;
+                    for (int k = 0; k < (altInput ? 0 : numOpCells); ++k)
+                    {
+                        const auto amount = (double) params.fmMatrix[opCells[k]][osc];
+                        const auto* row = rows[opCells[k]];
+                        for (int slot = 0; slot < n; ++slot)
+                            fmIn[slot] += amount * (double) row[slot];
+                    }
+
+                    const auto constantGain = ! levelPerSample && ! alternateAmpRouting;
+                    const auto fixedGain = levelEnable * 1.0f * keyGain * 1.0f;
+                    const auto carrierScale = operatorEg ? dx7CarrierScale : 1.0f;
+                    for (int slot = 0; slot < n; ++slot)
+                    {
+                        const auto rate = egRate ? dx7Rates[slot] : 1.0;
+                        auto gain = fixedGain;
+                        if (! constantGain)
+                        {
+                            const auto selectedEnv = operatorEg ? dx7Gains[slot][osc] * dx7LevelScale : selectedEnvs[slot][osc];
+                            const auto slotLevelEnable = levelPerSample ? juce::jlimit (0.0f, 1.0f, levelTarget + levelMods[slot][osc]) * enable
+                                                                        : levelEnable;
+                            gain = slotLevelEnable * (alternateAmpRouting ? selectedEnv : 1.0f) * keyGain * 1.0f;
+                        }
+                        const auto sums = single ? bank.renderSingle (singleRows, fmIn[slot] + 0.0, rate)
+                                                 : bank.render (fmIn[slot] + 0.0, frames, rate, oversample);
+                        const auto oscMono = 0.0f + sums.mono * gain;
+                        if (out)
+                        {
+                            const auto heard = operatorEg ? gain * carrierScale : gain;
+                            heardL[osc][slot][0] = sums.left * heard;
+                            heardR[osc][slot][0] = sums.right * heard;
+                            heardCount[osc][slot] = 1;
+                        }
+                        monoOut[osc][slot] = oscMono;
+                        const auto clamped = juce::jlimit (-2.0f, 2.0f, oscMono);
+                        prev[osc][slot + 1] = clamped;
+                        if (anyAltFeedback)
+                        {
+                            if (feedbackType == FmFeedback::Dx7)
+                                feedbackHistory[osc] = clamped;
+                            else if (feedbackType == FmFeedback::Filtered)
+                            {
+                                const auto average = 0.5f * (clamped + feedbackHistory[osc]);
+                                feedbackFiltered[osc] += feedbackCoeff[osc] * (average - feedbackFiltered[osc]);
+                                feedbackHistory[osc] = clamped;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 for (int slot = 0; slot < n; ++slot)
                 {
                     const auto* m = legacyMods[slot];
@@ -2292,18 +2449,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             return 1.0;
         };
 
-        for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        for (int v = 0; v < numVisitOscs; ++v)
         {
+            const auto osc = visitOscs[v];
             if (osc >= 3 && ! active[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f)
             {
-                previousOsc[osc] = 0.0f;
-                continue;
-            }
-            // OSC 1-3 off and settled: nothing below would render or move.
-            if (osc < 3 && idleOsc[osc])
-            {
-                if (osc == 1)
-                    previousOsc[0] = juce::jlimit (-2.0f, 2.0f, oscMono[0]);
                 previousOsc[osc] = 0.0f;
                 continue;
             }
@@ -2455,12 +2605,22 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 previousOsc[osc] = juce::jlimit (-2.0f, 2.0f, oscMono[osc]);
             }
         }
+        // The skipped oscillators' outputs, as the loop above would have
+        // left them (nothing in it reads them).
+        for (int v = 0; v < numSkippedOscs; ++v)
+        {
+            const auto osc = skippedOscs[v];
+            if (osc == 1)
+                previousOsc[0] = juce::jlimit (-2.0f, 2.0f, oscMono[0]);
+            if (osc != 0 || skipsOsc1)
+                previousOsc[osc] = 0.0f;
+        }
 
         if (anyAltFeedback)
-            for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
-                if (params.oscillators[osc].feedbackType == FmFeedback::Dx7)
+            for (int k = 0; k < numHistoryOscs; ++k)
+                if (const auto osc = historyOscs[k]; params.oscillators[osc].feedbackType == FmFeedback::Dx7)
                     feedbackHistory[osc] = previousOsc[osc];
-                else if (params.oscillators[osc].feedbackType == FmFeedback::Filtered)
+                else
                 {
                     // The average of two samples (the DX7's feedback filter)
                     // through a gentle one-pole: calm, saw-like feedback.
@@ -2527,8 +2687,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             {
                 bodyExciteL *= 0.2f;
                 bodyExciteR *= 0.2f;
-                for (const auto drive : stringDrive)
+                for (int k = 0; k < numDrivingOscs; ++k)
                 {
+                    const auto drive = stringDrive[drivingOscs[k]];
                     bodyExciteL += drive * params.bodyCoupling * 0.2f;
                     bodyExciteR += drive * params.bodyCoupling * 0.2f;
                 }

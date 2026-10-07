@@ -367,7 +367,7 @@ private:
     // the SSE2 path's arithmetic in its order, so the samples are the same.
     ILANA_AVX_TARGET void processAvx (float& l, float& r)
     {
-        const auto& taps = doubleTaps();
+        const auto& lanes = laneTaps();
         auto* up = reinterpret_cast<__m128d*> (upHistory);
         auto* down = reinterpret_cast<__m128d*> (downHistory);
         const auto input = _mm_set_pd ((double) r, (double) l);
@@ -380,9 +380,8 @@ private:
         for (int t = 0; t < tapsPerPhase; ++t)
         {
             const auto sample = _mm256_broadcast_pd (newestUp - t);
-            const auto* k = taps.data() + t * factor;
-            x01 = _mm256_add_pd (x01, _mm256_mul_pd (_mm256_set_pd (k[1], k[1], k[0], k[0]), sample));
-            x23 = _mm256_add_pd (x23, _mm256_mul_pd (_mm256_set_pd (k[3], k[3], k[2], k[2]), sample));
+            x01 = _mm256_add_pd (x01, _mm256_mul_pd (_mm256_load_pd (lanes.up[t][0]), sample));
+            x23 = _mm256_add_pd (x23, _mm256_mul_pd (_mm256_load_pd (lanes.up[t][1]), sample));
         }
         const auto factorVec = _mm256_set1_pd ((double) factor), gainVec = _mm256_set1_pd (gain), biasVec = _mm256_set1_pd (bias);
         x01 = _mm256_add_pd (_mm256_mul_pd (_mm256_mul_pd (x01, factorVec), gainVec), biasVec);
@@ -430,10 +429,9 @@ private:
         auto sums10 = _mm256_setzero_pd(), sums32 = _mm256_setzero_pd();
         for (int t = 0; t < numTaps; t += 4)
         {
-            const auto* k = taps.data() + t;
-            sums10 = _mm256_add_pd (sums10, _mm256_mul_pd (_mm256_set_pd (k[0], k[0], k[1], k[1]),
+            sums10 = _mm256_add_pd (sums10, _mm256_mul_pd (_mm256_load_pd (lanes.down[t / 4][0]),
                                                            _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 1)))));
-            sums32 = _mm256_add_pd (sums32, _mm256_mul_pd (_mm256_set_pd (k[2], k[2], k[3], k[3]),
+            sums32 = _mm256_add_pd (sums32, _mm256_mul_pd (_mm256_load_pd (lanes.down[t / 4][1]),
                                                            _mm256_loadu_pd (reinterpret_cast<const double*> (newestDown - (t + 3)))));
         }
         const auto sum01 = _mm_add_pd (_mm256_extractf128_pd (sums10, 1), _mm256_castpd256_pd128 (sums10));
@@ -526,6 +524,39 @@ private:
             return t;
         }();
         return taps;
+    }
+
+    // The AVX path's tap vectors in lane order, built once: [interpolation
+    // taps t: k1 k1 k0 k0, k3 k3 k2 k2] then [decimation taps t: k0 k0 k1 k1,
+    // k2 k2 k3 k3] (the same doubles, loaded instead of assembled).
+    struct LaneTaps
+    {
+        alignas (32) double up[tapsPerPhase][2][4];
+        alignas (32) double down[numTaps / 4][2][4];
+    };
+    static const LaneTaps& laneTaps()
+    {
+        static const auto lanes = []
+        {
+            const auto& k = doubleTaps();
+            LaneTaps l {};
+            for (int t = 0; t < tapsPerPhase; ++t)
+            {
+                const auto* p = k.data() + t * factor;
+                const double a[4] { p[0], p[0], p[1], p[1] }, b[4] { p[2], p[2], p[3], p[3] };
+                std::copy (a, a + 4, l.up[t][0]);
+                std::copy (b, b + 4, l.up[t][1]);
+            }
+            for (int t = 0; t < numTaps; t += 4)
+            {
+                const auto* p = k.data() + t;
+                const double a[4] { p[1], p[1], p[0], p[0] }, b[4] { p[3], p[3], p[2], p[2] };
+                std::copy (a, a + 4, l.down[t / 4][0]);
+                std::copy (b, b + 4, l.down[t / 4][1]);
+            }
+            return l;
+        }();
+        return lanes;
     }
 
     static __m128d absolute (__m128d v) { return _mm_andnot_pd (_mm_set1_pd (-0.0), v); }
@@ -710,9 +741,20 @@ private:
         lastConductance = c;
         // Cutoff: exponential in the conductance, from a closed gate's
         // near-silence to the open top.
-        const auto cutoff = (double) t.closedHz * std::pow ((double) t.openHz / (double) t.closedHz, std::pow (c, (double) t.cutoffCurve));
+        // pow (r, x) as exp2 (x log2 r) with log2 r kept, and the default
+        // curve's pow (c, 0.5) as a square root: the same values to an ulp
+        // or so, at a third of the cost (this runs every sample while the
+        // cell moves).
+        const auto ratio = (double) t.openHz / (double) t.closedHz;
+        if (ratio != log2RatioOf)
+        {
+            log2RatioOf = ratio;
+            log2Ratio = std::log2 (ratio);
+        }
+        const auto shaped = t.cutoffCurve == 0.5f ? std::sqrt (c) : std::pow (c, (double) t.cutoffCurve);
+        const auto cutoff = (double) t.closedHz * std::exp2 (shaped * log2Ratio);
         g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff, sampleRate * 0.45) / sampleRate);
-        gain = std::pow (c, (double) t.gainCurve);
+        gain = c > 0.0 ? std::exp2 ((double) t.gainCurve * std::log2 (c)) : std::pow (c, (double) t.gainCurve);
     }
 
     float filter (float input)
@@ -744,4 +786,5 @@ private:
     Mode mode = Mode::Combo;
     double sampleRate = 48000.0, s1 = 0.0, s2 = 0.0, damping = 1.414;
     double lastConductance = -1.0, g = 0.0, gain = 0.0;
+    double log2RatioOf = 0.0, log2Ratio = 0.0;
 };

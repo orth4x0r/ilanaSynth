@@ -1283,7 +1283,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     auto anyAltFeedbackInput = false;
     const auto cellIsSilent = [this, mods] (int source, int target)
     {
-        if (params.fmMatrix[source][target] != 0.0f)
+        // (OSC 1 hears its own feedback and OSC 2 through the legacy
+        // amounts, which the processor mirrors into the matrix.)
+        const auto amount = target == 0 && source == 0 ? params.fmFeedback
+                          : target == 0 && source == 1 ? params.fmAmount
+                                                       : params.fmMatrix[source][target];
+        if (amount != 0.0f || params.fmMatrix[source][target] != 0.0f)
             return false;
 
         if (source >= 3 || target >= 3)

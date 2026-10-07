@@ -101,6 +101,13 @@ public:
         vibFR = awRand()*-2147483647;
         vibGR = awRand()*-2147483647;
         vibHR = awRand()*-2147483647;
+        // ilanaSynth: the same phases taken modulo 2 pi. sin() of a value
+        // near -2^31 needs glibc's slow argument reduction on every call
+        // (a twentieth of a piano patch's CPU went to it); the vibrato is
+        // the same to within its rounding.
+        for (auto* vib : { &vibAL, &vibBL, &vibCL, &vibDL, &vibEL, &vibFL, &vibGL, &vibHL,
+                           &vibAR, &vibBR, &vibCR, &vibDR, &vibER, &vibFR, &vibGR, &vibHR })
+            *vib = std::fmod (*vib, 2.0 * 3.141592653589793238);
 
         fpdL = 1.0; while (fpdL < 16386) fpdL = awRand()*UINT32_MAX;
         fpdR = 1.0; while (fpdR < 16386) fpdR = awRand()*UINT32_MAX;

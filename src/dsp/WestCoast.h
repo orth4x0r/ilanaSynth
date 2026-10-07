@@ -437,8 +437,8 @@ public:
         // is (the photocell's memory).
         const auto seconds = target > conductance
                                  ? (double) t.riseSeconds
-                                 : (double) t.fallSeconds * decayScale * std::pow (1.0 + (double) t.fallSlowing * (1.0 - conductance), 2.0)
-                                       / std::pow (1.0 + (double) t.fallSlowing * 0.5, 2.0);
+                                 : (double) t.fallSeconds * decayScale * square (1.0 + (double) t.fallSlowing * (1.0 - conductance))
+                                       / square (1.0 + (double) t.fallSlowing * 0.5);
         // (The step's coefficient is kept while the time constant holds:
         // rising, or settled on a steady drive.)
         if (seconds != lastSeconds)
@@ -452,6 +452,8 @@ public:
     }
 
     float getConductance() const { return (float) conductance; }
+    // std::pow (x, 2.0) is x * x correctly rounded, which is what x * x is.
+    static double square (double x) { return x * x; }
     bool sameAs (const Vactrol& other) const
     {
         return conductance == other.conductance && decayScale == other.decayScale && sampleRate == other.sampleRate;

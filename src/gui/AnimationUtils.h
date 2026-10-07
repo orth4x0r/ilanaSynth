@@ -138,6 +138,18 @@ public:
     {
         const auto now = juce::Time::getMillisecondCounterHiRes();
 
+        // First look, or not looked at for a while (a hidden view): show the
+        // published value as it is.
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0)
+        {
+            target = published;
+            from = shown = published;
+            span = 0.0f;
+            changeMs = now;
+        }
+
+        lastCallMs = now;
+
         if (published != target)
         {
             const auto measured = juce::jlimit (2.0, 60.0, now - changeMs);
@@ -172,7 +184,7 @@ public:
 
 private:
     mutable float target = -1.0e9f, from = 0.0f, span = 0.0f, shown = 0.0f;
-    mutable double changeMs = 0.0, interval = 12.0;
+    mutable double changeMs = 0.0, interval = 12.0, lastCallMs = 0.0;
 };
 
 class FrameTimer;

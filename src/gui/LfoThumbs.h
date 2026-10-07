@@ -757,19 +757,28 @@ private:
         return (double) readParam (lfo, "_rate");
     }
 
-    // Steps every shown simulated LFO's preview by `seconds`; true if any ran.
-    bool advanceSimPreviews (double seconds)
+    // The preview, stepped by the real time since this card last drew it
+    // (so a card that was hidden catches up, and one not drawn costs nothing).
+    LfoSimPreview& liveSimPreview (int lfo) const
     {
-        auto any = false;
-        for (const auto lfo : visibleLfos())
-            if (LfoSimShapes::isSim ((int) readParam (lfo, "_shape")))
-            {
-                simPreviewOf (lfo).advance (processorRef.readLfoSimSettings (lfo), lfoRateHz (lfo), seconds);
-                any = true;
-            }
-        return any;
+        auto& preview = simPreviewOf (lfo);
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        auto& stamp = simStamps[(size_t) lfo];
+        if (stamp > 0.0)
+            preview.advance (processorRef.readLfoSimSettings (lfo), lfoRateHz (lfo), juce::jlimit (0.0, 0.25, (now - stamp) * 0.001));
+        stamp = now;
+        return preview;
     }
 
+    bool anySimShown() const
+    {
+        for (const auto lfo : visibleLfos())
+            if (LfoSimShapes::isSim ((int) readParam (lfo, "_shape")))
+                return true;
+        return false;
+    }
+
+    mutable std::array<double, (size_t) IlanaSynthAudioProcessor::numLfos> simStamps {};
     std::array<IlanaAnim::BlockSmoother, (size_t) IlanaSynthAudioProcessor::numLfos> phaseSmoothers;
     mutable std::array<std::unique_ptr<LfoSimPreview>, (size_t) IlanaSynthAudioProcessor::numLfos> simPreviews;
 
@@ -922,6 +931,9 @@ private:
         const auto plot = inner.withTrimmedTop (7.0f).reduced (0.0f, 3.0f);
         const auto shape = (int) readParam (lfo, "_shape");
 
+        if (LfoSimShapes::isSim (shape))
+            liveSimPreview (lfo);
+
         // Unassigned LFOs are drawn faint.
         paintTrace (g, plot, colour, active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f), false,
                     [this, lfo, shape] (double phase) { return shapeValue (lfo, shape, phase); });
@@ -1007,8 +1019,9 @@ private:
             // Routing an LFO elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            // Simulated shapes move all the time: their traces step with the frame.
-            const auto simulating = advanceSimPreviews (frameSeconds());
+            // Simulated shapes move all the time: they redraw every frame
+            // (each card steps its simulation by the time since its last draw).
+            const auto simulating = anySimShown();
             if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ lfoPhases()) || simulating)
                 repaint();
         }

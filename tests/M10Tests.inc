@@ -86,6 +86,10 @@ void runUniqueIdTest()
     juce::Random random (9);
     for (auto* parameter : source.getParameters())
         parameter->setValueNotifyingHost (random.nextFloat());
+    // (A random Wavetable tuned by ratio or on OP ENV is an operator from
+    // before the FM / DX7 type: it loads as FM / DX7, the same sound. Made
+    // so here, so the round trip compares like with like.)
+    source.migrateOperatorModes();
     juce::MemoryBlock state;
     source.getStateInformation (state);
     IlanaSynthAudioProcessor target;

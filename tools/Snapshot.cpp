@@ -7450,6 +7450,140 @@ static int runLoopTest (const juce::String& presetName, bool allNotesOffAtLoop)
     return 0;
 }
 
+// CPU of a preset with twelve notes held (C2 to G5, struck at once, velocity
+// 100): percent of real time per second of audio, for 8 s
+// (ILANA_HELD_SECONDS). The preset is a
+// factory name or a file; ILANA_LOOP_SET applies as in --looptest.
+static int runHeldCpu (const juce::String& presetName)
+{
+    IlanaSynthAudioProcessor processor;
+    const auto rate = 48000.0;
+    const auto blockSize = 256;
+    processor.prepareToPlay (rate, blockSize);
+    if (juce::File::isAbsolutePath (presetName))
+        processor.loadPresetFromFile (juce::File (presetName));
+    else
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+
+    const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    const auto blocksPerSecond = (int) (rate / blockSize);
+    double total = 0.0, sumSquares = 0.0, worstBlock = 0.0;
+    const auto seconds = juce::jmax (1, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_SECONDS", "8").getIntValue());
+    for (int second = 0; second < seconds; ++second)
+    {
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        for (int block = 0; block < blocksPerSecond; ++block)
+        {
+            juce::MidiBuffer midi;
+            // (ILANA_HELD_RESTRIKE=1: the chord again every 2 s, as in playing.)
+            if (block == 0 && (second == 0 || (second % 2 == 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RESTRIKE", "").isNotEmpty())))
+                for (auto note : notes)
+                {
+                    if (second > 0)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                }
+            buffer.clear();
+            const auto blockStart = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, midi);
+            const auto blockMs = juce::Time::getMillisecondCounterHiRes() - blockStart;
+            worstBlock = juce::jmax (worstBlock, blockMs);
+            if (blockMs > 1000.0 * blockSize / rate && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_SPIKES", "").isNotEmpty())
+                std::cout << "  block " << second * blocksPerSecond + block << ": " << juce::String (100.0 * blockMs / (1000.0 * blockSize / rate), 0) << "%" << std::endl;
+            for (int i = 0; i < blockSize; ++i)
+                sumSquares += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        }
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+        total += ms;
+        std::cout << "second " << second + 1 << ": " << juce::String (100.0 * ms / (1000.0 * blocksPerSecond * blockSize / rate), 1)
+                  << "% of real time, " << processor.getActiveVoiceCount() << " voices" << std::endl;
+    }
+    std::cout << "mean " << juce::String (100.0 * total / (1000.0 * seconds * blocksPerSecond * blockSize / rate), 1) << "%, rms "
+              << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sumSquares / ((double) seconds * blocksPerSecond * blockSize)), -120.0f), 2)
+              << " dB, worst block " << juce::String (100.0 * worstBlock / (1000.0 * blockSize / rate), 0) << "% of its time" << std::endl;
+    return 0;
+}
+
+// CPU of every factory preset, then every preset file in a folder, with the
+// twelve notes of --heldcpu held for 2 s: one CSV row each (index, name,
+// percent of real time over the second second, voices, what it uses).
+//   ilanaSnapshot --cpurank [folder] > cpu.csv   (ILANA_RANK_FACTORY=0: the folder only)
+static int runCpuRank (const juce::File& folder)
+{
+    const auto rate = 48000.0;
+    const auto blockSize = 256;
+    const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    const auto blocksPerSecond = (int) (rate / blockSize);
+
+    juce::String lastTags;
+    const auto measure = [&] (const std::function<void (IlanaSynthAudioProcessor&)>& load) -> std::pair<double, int>
+    {
+        auto processor = std::make_unique<IlanaSynthAudioProcessor>();
+        processor->prepareToPlay (rate, blockSize);
+        load (*processor);
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        double ms = 0.0;
+        for (int block = 0; block < 2 * blocksPerSecond; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (auto note : notes)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            buffer.clear();
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            processor->processBlock (buffer, midi);
+            if (block >= blocksPerSecond)
+                ms += juce::Time::getMillisecondCounterHiRes() - start;
+        }
+        // What the patch uses, for finding what heavy presets share.
+        juce::StringArray tags;
+        const auto text = [&processor] (const juce::String& id)
+        {
+            auto* parameter = processor->apvts.getParameter (id);
+            return parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String();
+        };
+        const auto on = [&processor] (const juce::String& id)
+        {
+            auto* parameter = processor->apvts.getParameter (id);
+            return parameter != nullptr && parameter->getValue() > 0.5f;
+        };
+        for (const auto& osc : { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" })
+            if (on (juce::String (osc) + "_on"))
+                tags.add (juce::String (osc) + ":" + text (juce::String (osc) + "_mode") + "x" + text (juce::String (osc) + "_unison"));
+        if (on ("west_on")) tags.add ("west");
+        if (on ("res_on")) tags.add ("body:" + text ("body_type"));
+        if (on ("sym_on")) tags.add ("sym");
+        if (on ("oversampling")) tags.add ("oversample");
+        tags.add ("q:" + text ("quality"));
+        tags.add ("f1:" + text ("f1_type"));
+        for (int slot = 1; slot <= 10; ++slot)
+            if (auto* fx = processor->apvts.getParameter ("fx_slot" + juce::String (slot)); fx != nullptr && fx->getValue() > 0.0f)
+                tags.add ("fx:" + fx->getCurrentValueAsText());
+        lastTags = tags.joinIntoString (" ");
+        return { 100.0 * ms / (1000.0 * blocksPerSecond * blockSize / rate), processor->getActiveVoiceCount() };
+    };
+
+    std::cout << "index,name,cpu_percent,voices,uses" << std::endl;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    const auto factory = juce::SystemStats::getEnvironmentVariable ("ILANA_RANK_FACTORY", "1") != "0";
+    for (int i = 0; factory && i < names.size(); ++i)
+    {
+        const auto [cpu, voices] = measure ([i] (IlanaSynthAudioProcessor& p) { p.loadFactoryPreset (i); });
+        std::cout << i << ",\"" << names[i] << "\"," << juce::String (cpu, 2) << "," << voices << ",\"" << lastTags << "\"" << std::endl;
+    }
+    if (folder.isDirectory())
+        for (const auto& file : folder.findChildFiles (juce::File::findFiles, true, "*.ilanapreset"))
+        {
+            const auto [cpu, voices] = measure ([file] (IlanaSynthAudioProcessor& p) { p.loadPresetFromFile (file); });
+            std::cout << "user,\"" << file.getFileNameWithoutExtension() << "\"," << juce::String (cpu, 2) << "," << voices << ",\"" << lastTags << "\"" << std::endl;
+        }
+    return 0;
+}
+
 // Loudness of each physical exciter on Init with OSC 1 switched to Physical:
 // one note held 1 s, RMS and peak in dBFS. ILANA_LOOP_SET applies as above.
 static int runExciterLevels()
@@ -7645,6 +7779,12 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--exciters")
         return runExciterLevels();
+
+    if (juce::String (argv[1]) == "--cpurank")
+        return runCpuRank (argc > 2 ? juce::File (juce::String (argv[2])) : juce::File());
+
+    if (juce::String (argv[1]) == "--heldcpu" && argc > 2)
+        return runHeldCpu (juce::String (argv[2]));
 
     if (juce::String (argv[1]) == "--looptest")
         return runLoopTest (argc > 2 ? juce::String (argv[2]) : juce::String ("Swarm"), argc > 3);

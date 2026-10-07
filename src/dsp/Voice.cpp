@@ -141,8 +141,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     materialBodyR.prepare (newRate);
     westGateL.prepare (newRate);
     westGateR.prepare (newRate);
-    westFolderL.reset();
-    westFolderR.reset();
+    westFolder.reset();
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
@@ -452,8 +451,7 @@ void Voice::resetForNewPatch()
     openFilter2R.reset();
     westGateL.reset();
     westGateR.reset();
-    westFolderL.reset();
-    westFolderR.reset();
+    westFolder.reset();
     westStrikeRemaining = 0;
     resonatorL.reset();
     resonatorR.reset();
@@ -943,8 +941,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     if (params.west.on)
     {
-        westFolderL.setParams (params.west.fold, params.west.symmetry, params.west.stages);
-        westFolderR.setParams (params.west.fold, params.west.symmetry, params.west.stages);
+        westFolder.setParams (params.west.fold, params.west.symmetry, params.west.stages);
     }
 
     glideCoeff = params.glideTime > 0.001f
@@ -1210,10 +1207,38 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 ++numExtendedFmCells;
             }
 
+    // An operator whose FM input cells are all zero and unmodulated this
+    // block gets nothing from its feedback type (every term is zero), so its
+    // per-sample sum is skipped; its feedback filter still tracks.
+    bool altFeedbackInput[VoiceParams::numOscillators] {};
+    auto anyAltFeedbackInput = false;
+    const auto cellIsSilent = [this, mods] (int source, int target)
+    {
+        if (params.fmMatrix[source][target] != 0.0f)
+            return false;
+
+        if (source >= 3 || target >= 3)
+            return ! params.anyExtendedFmMods;
+
+        static constexpr D legacy[3][3] { { D::FmFeedback, D::Fm1to2, D::Fm1to3 },
+                                          { D::FmAmount, D::Fm2Feedback, D::Fm2to3 },
+                                          { D::Fm3to1, D::Fm3to2, D::Fm3Feedback } };
+        const auto destination = (int) legacy[source][target];
+        for (int d = 0; d < params.numActiveDestinations; ++d)
+            if (params.activeDestinations[d] == destination)
+                return false;
+        return mods[destination] == 0.0f;
+    };
+
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
         anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
+
+        if (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain)
+            for (int source = 0; source < VoiceParams::numOscillators && ! altFeedbackInput[osc]; ++source)
+                altFeedbackInput[osc] = ! cellIsSilent (source, osc);
+        anyAltFeedbackInput = anyAltFeedbackInput || altFeedbackInput[osc];
     }
     // The heard noise's colour, on the FM noise's scale (about 200 Hz to
     // white); 1 leaves it white.
@@ -1303,8 +1328,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
         westGateL.setParams (gateMode, w.decay, w.resonance);
         westGateR.setParams (gateMode, w.decay, w.resonance);
-        l = westGateL.process (westFolderL.process (l), control);
-        r = westGateR.process (westFolderR.process (r), control);
+        westFolder.process (l, r);
+        westGateL.processPair (l, r, control, westGateR);
     };
     const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
 
@@ -1544,7 +1569,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
 
         // Filtered and cross feedback replace an operator's plain self term.
-        if (anyAltFeedback)
+        if (anyAltFeedbackInput)
         {
             double cross[VoiceParams::numOscillators] {};
 
@@ -1552,7 +1577,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             {
                 const auto type = params.oscillators[osc].feedbackType;
 
-                if (type == FmFeedback::Plain || ! active[osc])
+                if (! altFeedbackInput[osc])
                     continue;
 
                 auto sum = 0.0;

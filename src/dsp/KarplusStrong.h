@@ -300,15 +300,33 @@ public:
             return processBowed (expression, noteHeld);
 
         const auto size = (int) buffer.size();
-        const auto period = sampleRate / frequency;
+        // The divisions below are cached on their inputs: the pitch moves
+        // at most once a sub-block, so they rarely need doing.
+        if (frequency != cachedFrequency || sampleRate != cachedSampleRate)
+        {
+            cachedFrequency = frequency;
+            cachedSampleRate = sampleRate;
+            cachedPeriod = sampleRate / frequency;
+            cachedPhaseStep = frequency / sampleRate;
+        }
+        const auto period = cachedPeriod;
         const auto hammered = excite == Excite::Hammer;
         // Piano strings run two loops (see readHorizontal), one per half.
         const auto loopSize = hammered ? size / 2 : size;
         const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
         const auto stages = (double) dispersionStages();
         auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
-        auto coefficient = delay < (double) dispersionDelay
-                               ? (float) ((stages - delay) / (stages + delay)) : dispersionCoefficient;
+        auto coefficient = dispersionCoefficient;
+        if (delay < (double) dispersionDelay)
+        {
+            if (delay != cachedShortDelay || stages != cachedShortStages)
+            {
+                cachedShortDelay = delay;
+                cachedShortStages = stages;
+                cachedShortCoefficient = (float) ((stages - delay) / (stages + delay));
+            }
+            coefficient = cachedShortCoefficient;
+        }
 
         // Piano strings: the designed allpass, and the loop's exact delay at
         // the fundamental taken off so the note stays in tune.
@@ -342,11 +360,16 @@ public:
         while (readPosition >= (double) size)
             readPosition -= (double) size;
 
-        const auto index = (int) readPosition;
-        const auto nextIndex = (index + 1) % size;
-        const auto fraction = (float) (readPosition - (double) index);
-        auto rawDelayed = buffer[(size_t) index]
-                        + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+        // (A piano string reads through its Thiran allpass below instead.)
+        auto rawDelayed = 0.0f;
+        if (! hammered)
+        {
+            const auto index = (int) readPosition;
+            const auto nextIndex = index + 1 < size ? index + 1 : (index + 1) % size;
+            const auto fraction = (float) (readPosition - (double) index);
+            rawDelayed = buffer[(size_t) index]
+                       + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+        }
 
         // Piano strings read the fractional part through a first-order
         // allpass (Thiran) instead: linear interpolation averages neighbours,
@@ -354,13 +377,14 @@ public:
         if (hammered)
         {
             const auto length = period - delay;
-            const auto whole = (int) std::floor (length - 0.5);
-            const auto part = length - (double) whole; // 0.5 .. 1.5
+            if (length != verticalTap.length)
+                verticalTap = thiranTapFor (length);
+            const auto whole = verticalTap.whole;
             auto readIndex = writePosition - whole;
             while (readIndex < 0)
                 readIndex += loopSize;
-            const auto input = buffer[(size_t) (readIndex % loopSize)];
-            const auto a = (float) ((1.0 - part) / (1.0 + part));
+            const auto input = buffer[(size_t) (readIndex < loopSize ? readIndex : readIndex % loopSize)];
+            const auto a = verticalTap.a;
             rawDelayed = a * input + thiranInput - a * thiranOutput;
             thiranInput = input;
             thiranOutput = rawDelayed;
@@ -456,7 +480,7 @@ public:
         excitation += bridgeInput;
         bridgeInput = 0.0f;
 
-        phase += frequency / sampleRate;
+        phase += cachedPhaseStep;
 
         if (phase >= 1.0)
             phase -= 1.0;
@@ -479,7 +503,7 @@ public:
         }
 
         buffer[(size_t) writePosition] = loopValue + excitation;
-        writePosition = (writePosition + 1) % loopSize;
+        writePosition = writePosition + 1 < loopSize ? writePosition + 1 : (writePosition + 1) % loopSize;
 
         if (hammered)
             output += finishHorizontal (horizontal, drive, noteHeld);
@@ -796,13 +820,13 @@ private:
     {
         const auto half = (int) buffer.size() / 2;
         const auto length = juce::jlimit (1.5, (double) half - 2.0, period - horizontalLoopDelay);
-        const auto whole = (int) std::floor (length - 0.5);
-        const auto part = length - (double) whole;
-        auto readIndex = horizontalWrite - whole;
+        if (length != horizontalTap.length)
+            horizontalTap = thiranTapFor (length);
+        auto readIndex = horizontalWrite - horizontalTap.whole;
         while (readIndex < 0)
             readIndex += half;
-        const auto input = buffer[(size_t) (half + readIndex % half)];
-        const auto a = (float) ((1.0 - part) / (1.0 + part));
+        const auto input = buffer[(size_t) (half + (readIndex < half ? readIndex : readIndex % half))];
+        const auto a = horizontalTap.a;
         const auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
         horizontalThiranIn = input;
         horizontalThiranOut = delayed;
@@ -853,7 +877,7 @@ private:
             loopValue *= 1.0f - damper * 0.16f;
 
         buffer[(size_t) (half + horizontalWrite)] = loopValue + drive * PianoTuning::get().aftersound;
-        horizontalWrite = (horizontalWrite + 1) % half;
+        horizontalWrite = horizontalWrite + 1 < half ? horizontalWrite + 1 : (horizontalWrite + 1) % half;
         return delayed;
     }
 
@@ -1004,6 +1028,27 @@ private:
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
     double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
+    double cachedFrequency = -1.0, cachedSampleRate = -1.0, cachedPeriod = 1.0, cachedPhaseStep = 0.0;
+    double cachedShortDelay = -1.0, cachedShortStages = -1.0;
+    float cachedShortCoefficient = 0.0f;
+
+    // A Thiran read's whole delay and allpass coefficient for one length.
+    struct ThiranTap
+    {
+        double length = -1.0;
+        int whole = 0;
+        float a = 0.0f;
+    };
+    static ThiranTap thiranTapFor (double length)
+    {
+        ThiranTap tap;
+        tap.length = length;
+        tap.whole = (int) std::floor (length - 0.5);
+        const auto part = length - (double) tap.whole; // 0.5 .. 1.5
+        tap.a = (float) ((1.0 - part) / (1.0 + part));
+        return tap;
+    }
+    ThiranTap verticalTap, horizontalTap;
     float lowpassDelayCoefficient = -1.0f;
     bool slap = false;
     int slapRemaining = 0;

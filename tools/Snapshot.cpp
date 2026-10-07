@@ -7467,6 +7467,10 @@ static int runHeldCpu (const juce::String& presetName)
     for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
         if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+    // ILANA_HELD_PRINT="id,id,...": print those parameters first.
+    for (const auto& id : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_PRINT", ""), ",", ""))
+        if (auto* parameter = processor.apvts.getParameter (id))
+            std::cout << id << " = " << parameter->getCurrentValueAsText() << std::endl;
 
     const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
     juce::AudioBuffer<float> buffer (2, blockSize);

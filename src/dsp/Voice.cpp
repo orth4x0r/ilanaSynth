@@ -391,7 +391,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
     filter1Linked = filter2Linked = true;
-    filter2Open = false;
+    filter1Open = filter2Open = false;
+    filter1Fade = 0;
+    filter1Ran = false;
+    openFilter1L.reset();
+    openFilter1R.reset();
     openFilter2L.reset();
     openFilter2R.reset();
 
@@ -446,7 +450,11 @@ void Voice::resetForNewPatch()
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
         filter->reset();
     filter1Linked = filter2Linked = true;
-    filter2Open = false;
+    filter1Open = filter2Open = false;
+    filter1Fade = 0;
+    filter1Ran = false;
+    openFilter1L.reset();
+    openFilter1R.reset();
     openFilter2L.reset();
     openFilter2R.reset();
     westGateL.reset();
@@ -1372,7 +1380,26 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                            busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL[s], inR[s]);
         }
 
-        processFilterPairBlock (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R, n);
+        if (filter1Open)
+            processOpenPairBlock (openFilter1L, openFilter1R, filter1Linked, inL, inR, f1L, f1R, n);
+        else
+            processFilterPairBlock (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R, n);
+        filter1Ran = true;
+
+        if (filter1Fade > 0)
+        {
+            float oldL[maxChunk], oldR[maxChunk];
+            if (filter1Open)
+                processFilterPairBlock (filter1L, filter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+            else
+                processOpenPairBlock (openFilter1L, openFilter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+            for (int s = 0; s < n && filter1Fade > 0; ++s, --filter1Fade)
+            {
+                const auto g = (float) filter1Fade / (float) filterFadeLength;
+                f1L[s] += (oldL[s] - f1L[s]) * g;
+                f1R[s] += (oldR[s] - f1R[s]) * g;
+            }
+        }
 
         if (params.filtersParallel)
         {
@@ -1393,7 +1420,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
             else if (filter2Open)
             {
-                processOpenPairBlock (in2L, in2R, f2L, f2R, n);
+                processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
             }
             else
             {
@@ -1426,7 +1453,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
             else if (filter2Open)
             {
-                processOpenPairBlock (in2L, in2R, outL, outR, n);
+                processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, outL, outR, n);
             }
             else
             {
@@ -2255,15 +2282,78 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
                                                         + (double) mods[(int) D::Filter1Cutoff] * 6.0));
     const auto reso1 = juce::jlimit (0.0f, 1.0f, params.filter1.resonance + mods[(int) D::Filter1Reso]);
 
-    for (auto* filter : { &filter1L, &filter1R, &bothFilter1L, &bothFilter1R })
-        filter->setType (params.filter1.type, params.filter1.slope24);
+    // Filter 1 left wide open (the piano presets) gets the same bypass as
+    // Filter 2 below, but only while nothing moves it: a swept Filter 1
+    // crossing 19 kHz would restart from rest on each crossing.
+    // Macros, the wheel and per-note sources (velocity, key) are fine: they
+    // cross rarely, and a crossing fades between the two.
+    const auto filter1Static = [this]
+    {
+        if (params.filter1.envAmount != 0.0f)
+            return false;
+        for (int i = 0; i < params.numModSlots; ++i)
+        {
+            const auto& slot = params.modSlots[i];
+            const auto destination = slot.destination;
+            if (destination != (int) D::Filter1Cutoff && destination != (int) D::Filter1Env
+                && destination != (int) D::Filter1Reso && destination != (int) D::Filter1Fm)
+                continue;
+            using S = Mod::Source;
+            const auto source = slot.source;
+            const auto userOrNote = source == S::Velocity || source == S::KeyTrack || source == S::ModWheel
+                                    || source == S::Aftertouch || source == S::Expression
+                                    || (source >= S::Macro1 && source <= S::Macro4)
+                                    || (source >= S::Macro5 && source <= S::Macro8);
+            if (! userOrNote || destination == (int) D::Filter1Fm)
+                return false;
+        }
+        return true;
+    };
+    const auto open1 = ! disableOpenFilterBypass && params.filter1.type == FilterType::LowPass
+                       && ! params.filter1.slope24 && cutoff1 >= openFilterHz && reso1 <= 0.3f && fmOctaves1 == 0.0
+                       && filter1Static();
 
-    const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
-    const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
-    filter1L.setCoefficients (coefficients1);
-    filter1R.setCoefficients (coefficients1);
-    bothFilter1L.setCoefficients (coefficients1);
-    bothFilter1R.setCoefficients (coefficients1);
+    if (open1 != filter1Open)
+    {
+        // The new model starts from rest; once Filter 1 has played, the old
+        // one keeps its state and fades out (postChunk).
+        filter1Fade = filter1Ran ? filterFadeLength : 0;
+        filter1FadeLinked = filter1Linked;
+        filter1Open = open1;
+        if (open1)
+        {
+            openFilter1L.reset();
+            openFilter1R.reset();
+            openCutoff1 = -1.0;
+        }
+        else
+        {
+            filter1L.reset();
+            filter1R.reset();
+        }
+        filter1Linked = true;
+    }
+
+    if (open1 && (cutoff1 != openCutoff1 || reso1 != openReso1))
+    {
+        openCutoff1 = cutoff1;
+        openReso1 = reso1;
+        openFilter1L.set (sampleRate, cutoff1, reso1);
+        openFilter1R = openFilter1L;
+    }
+
+    if (! open1 || bothRouteActive)
+    {
+        for (auto* filter : { &filter1L, &filter1R, &bothFilter1L, &bothFilter1R })
+            filter->setType (params.filter1.type, params.filter1.slope24);
+
+        const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
+        const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
+        filter1L.setCoefficients (coefficients1);
+        filter1R.setCoefficients (coefficients1);
+        bothFilter1L.setCoefficients (coefficients1);
+        bothFilter1R.setCoefficients (coefficients1);
+    }
 
     const auto keyOctaves2 = (double) params.filter2.keyTrack * (double) keyTrackOctaves;
     const auto envOctaves2 = (double) (params.filter2.envAmount + mods[(int) D::Filter2Env] * envAmountRange)

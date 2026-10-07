@@ -280,7 +280,7 @@ public:
             auto combRead = forceHistoryWrite - nutDelay;
             if (combRead < 0)
                 combRead += forceHistorySize;
-            forceHistoryWrite = (forceHistoryWrite + 1) % forceHistorySize;
+            forceHistoryWrite = forceHistoryWrite + 1 < forceHistorySize ? forceHistoryWrite + 1 : (forceHistoryWrite + 1) % forceHistorySize;
             const auto drive = (push - forceHistory[(size_t) combRead]) * aftersound;
 
             horizontalLossState += (h - horizontalLossState) * horizontalLossCoefficient;

@@ -569,31 +569,37 @@ private:
     // and the pair runs apart until the next reset.
     bool filter1Linked = true, filter2Linked = true;
     // Filter 2 while wide open (updateFilterCoefficients): a linear copy.
-    bool filter2Open = false, bothRouteActive = false;
+    bool filter1Open = false, filter2Open = false, bothRouteActive = false;
     static constexpr double openFilterHz = 19000.0;
-    Airwindows::OpenLowPass openFilter2L, openFilter2R;
-    double openCutoff2 = -1.0;
-    float openReso2 = -1.0f;
+    Airwindows::OpenLowPass openFilter1L, openFilter1R, openFilter2L, openFilter2R;
+    double openCutoff1 = -1.0, openCutoff2 = -1.0;
+    float openReso1 = -1.0f, openReso2 = -1.0f;
+    // Filter 1 is often swept by a macro: moving between its two models while
+    // it plays fades the old one out over filterFadeLength samples.
+    static constexpr int filterFadeLength = 32;
+    int filter1Fade = 0;
+    bool filter1FadeLinked = true, filter1Ran = false;
 
     // Like processFilterPair: one filter while both sides are equal. The
     // linear filters from equal states stay equal, so the right one follows
     // by copy until the sides first differ.
-    void processOpenPair (float inLeft, float inRight, float& outLeft, float& outRight)
+    static void processOpenPair (Airwindows::OpenLowPass& l, Airwindows::OpenLowPass& r, bool& linked,
+                                 float inLeft, float inRight, float& outLeft, float& outRight)
     {
-        if (filter2Linked)
+        if (linked)
         {
             if (inLeft == inRight)
             {
-                outLeft = outRight = openFilter2L.process (inLeft);
+                outLeft = outRight = l.process (inLeft);
                 return;
             }
 
-            openFilter2R = openFilter2L;
-            filter2Linked = false;
+            r = l;
+            linked = false;
         }
 
-        outLeft = openFilter2L.process (inLeft);
-        outRight = openFilter2R.process (inRight);
+        outLeft = l.process (inLeft);
+        outRight = r.process (inRight);
     }
 public:
     // Tests: run Filter 2 even when it is wide open.
@@ -639,17 +645,17 @@ private:
         FilterUnit::processStereoBlock (left, right, inLeft + start, inRight + start, outLeft + start, outRight + start, n - start);
     }
 
-    void processOpenPairBlock (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    static void processOpenPairBlock (Airwindows::OpenLowPass& l, Airwindows::OpenLowPass& r, bool& linked,
+                                      const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
     {
         auto s = 0;
-        while (filter2Linked && s < n)
+        while (linked && s < n)
         {
-            processOpenPair (inLeft[s], inRight[s], outLeft[s], outRight[s]);
+            processOpenPair (l, r, linked, inLeft[s], inRight[s], outLeft[s], outRight[s]);
             ++s;
         }
         if (s < n)
-            Airwindows::OpenLowPass::processPairBlock (openFilter2L, openFilter2R, inLeft + s, inRight + s,
-                                                       outLeft + s, outRight + s, n - s);
+            Airwindows::OpenLowPass::processPairBlock (l, r, inLeft + s, inRight + s, outLeft + s, outRight + s, n - s);
     }
 
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;

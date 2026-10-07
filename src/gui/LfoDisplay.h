@@ -48,6 +48,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("lfo");
         const auto bounds = getLocalBounds().toFloat();
 
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
@@ -215,7 +216,7 @@ public:
         g.setColour (traceColour);
         g.strokePath (path, juce::PathStrokeType (1.6f));
 
-        auto phase = (double) processorRef.getLfoPhase (index);
+        auto phase = (double) phaseSmoother.get (processorRef.getLfoPhase (index), true);
         auto value = 0.0f;
 
         // Count whole cycles so the physics dot can walk the longer trace.
@@ -997,7 +998,7 @@ private:
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.42f;
         const auto stepWidth = plot.getWidth() / 16.0f;
-        const auto playing = juce::jlimit (0, 15, (int) (processorRef.getLfoPhase (index) * 16.0f));
+        const auto playing = juce::jlimit (0, 15, (int) (phaseSmoother.get (processorRef.getLfoPhase (index), true) * 16.0f));
         // The step under the mouse lights as well, as an arp lane's does.
         const auto mouse = getMouseXYRelative().toFloat();
         const auto hovered = isMouseOver() && plot.getWidth() > 1.0f
@@ -1123,7 +1124,7 @@ private:
         if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (processorRef.getLfoPhase (index), index))))
+        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), true), index))))
             repaint();
     }
 
@@ -1177,5 +1178,6 @@ private:
     double lastPhase = 0.0;
     int cycleCount = 0;
     LfoSimPreview simPreview;
+    IlanaAnim::BlockSmoother phaseSmoother; // the published phase, glided between audio blocks
     double lastTimerMs = juce::Time::getMillisecondCounterHiRes();
 };

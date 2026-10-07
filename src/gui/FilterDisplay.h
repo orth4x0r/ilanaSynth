@@ -46,6 +46,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("filter");
         // Smoothing and decay steps (tuned at 30 Hz) since the last paint,
         // however long ago that was.
         {
@@ -313,8 +314,10 @@ private:
 
     void timerCallback() override
     {
-        // The glow pulses only while notes sound.
-        if (processorRef.getActiveVoiceCount() > 0)
+        // The glow pulses only while notes sound, so it repaints on every
+        // frame then (the audio epoch alone changes once per block).
+        const auto pulsing = processorRef.getActiveVoiceCount() > 0;
+        if (pulsing)
             pulse += 0.09f * frameTicks();
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
@@ -323,7 +326,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
-        if (isShowing() && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (isShowing() && (appear < 1.0f || falling || pulsing || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -462,7 +465,7 @@ private:
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot)
     {
-        processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+        processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
         const auto sampleRate = juce::jmax (8000.0, processorRef.getCurrentSampleRate());
 
         for (int i = 0; i < fftSize; ++i)

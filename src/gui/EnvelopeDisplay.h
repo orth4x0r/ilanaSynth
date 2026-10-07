@@ -52,6 +52,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("env");
         const auto bounds = getLocalBounds().toFloat();
 
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
@@ -339,7 +340,7 @@ public:
 private:
     std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
     {
-        const auto position = processorRef.getEnvMonitorPosition (envelopeIndex());
+        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f);
 
         // Idle, or an envelope that isn't running (it waits at the start).
         if (position <= 0.0f)
@@ -483,6 +484,11 @@ private:
 
     float readMonitor() const
     {
+        return levelSmoother.get (readRawMonitor());
+    }
+
+    float readRawMonitor() const
+    {
         if (paramPrefix.startsWith ("env"))
             return processorRef.getEnvMonitorExtra (paramPrefix.substring (3).getIntValue() - 6);
 
@@ -512,11 +518,12 @@ private:
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
-                                                                ^ IlanaAnim::phaseSignature (processorRef.getEnvMonitorPosition (envelopeIndex()), 31))))
+                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f), 31))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
+    IlanaAnim::BlockSmoother positionSmoother, levelSmoother; // monitors glided between audio blocks
 
     float readSeconds (const char* suffix) const
     {

@@ -62,6 +62,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("outputView");
         {
             const auto now = juce::Time::getMillisecondCounterHiRes();
             paintTicks = lastPaintMs > 0.0 ? (float) juce::jlimit (0.0, 300.0, (now - lastPaintMs) * 0.03) : 1.0f;
@@ -72,7 +73,7 @@ public:
 
         if (strip)
         {
-            processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+            processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
             // Quiet: it sits under the preset name, the most-read text, and
             // moves all the time (review 8, S8-41).
             // On a faint band of its own, so it doesn't read as an underline
@@ -88,7 +89,7 @@ public:
         IlanaTheme::paintCard (g, bounds, 6.0f, IlanaTheme::accent());
         IlanaTheme::paintWell (g, bounds.reduced (6.0f), 5.0f);
 
-        processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+        processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
         auto area = bounds.reduced (12.0f, 10.0f);
         const auto colour = IlanaTheme::accent();
 

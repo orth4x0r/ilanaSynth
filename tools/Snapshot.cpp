@@ -1516,6 +1516,101 @@ int runUiTests()
                     "release handle follows the mouse (" + juce::String (get ("amp_release"), 3) + " s, expected "
                         + juce::String (expectedRelease, 3) + ")");
             juce::ignoreUnused (xR);
+
+            // Drag feel (ilana: "adjusting adsrs via the graph feels weird"): the first click does not
+            // jump the handle to the pointer, Shift is 10x finer, dragging left past the stage's start
+            // does not turn into a long time, a double-click resets.
+            {
+                set ("amp_attack", 0.25f);
+                set ("amp_decay", 0.3f);
+                set ("amp_sustain", 0.5f);
+                set ("amp_release", 0.5f);
+                const auto gesture = [&] (juce::Point<float> from, juce::Point<float> to, juce::ModifierKeys mods, int clicks = 1)
+                {
+                    const auto now = juce::Time::getCurrentTime();
+                    const auto make = [&] (juce::Point<float> at, bool dragged)
+                    {
+                        return juce::MouseEvent (source, at, mods.withFlags (juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                 amp, amp, now, from, now, clicks, dragged);
+                    };
+                    auto& component = static_cast<juce::Component&> (*amp);
+                    component.mouseDown (make (from, false));
+                    component.mouseDrag (make (to, true));
+                    component.mouseUp (make (to, true));
+                };
+                const auto attackHandle = amp->getHandlePosition (0);
+
+                gesture (attackHandle + juce::Point<float> (6.0f, 0.0f), attackHandle + juce::Point<float> (6.0f, 0.0f), {});
+                expect (std::abs (get ("amp_attack") - 0.25f) < 0.003f,
+                        "a press 6 px off the attack handle does not move it (" + juce::String (get ("amp_attack"), 4) + " s)");
+
+                const auto before = get ("amp_attack");
+                gesture (attackHandle, attackHandle + juce::Point<float> (20.0f, 0.0f), {});
+                const auto coarse = get ("amp_attack") - before;
+                set ("amp_attack", before);
+                gesture (attackHandle, attackHandle + juce::Point<float> (20.0f, 0.0f), juce::ModifierKeys::shiftModifier);
+                const auto fine = get ("amp_attack") - before;
+                expect (coarse > 0.0f && fine > 0.0f && fine < coarse * 0.2f,
+                        "Shift drags the handle about 10x finer (" + juce::String (fine, 4) + " vs " + juce::String (coarse, 4) + ")");
+
+                set ("amp_attack", 0.25f);
+                gesture (attackHandle, attackHandle - juce::Point<float> (400.0f, 0.0f), {});
+                expect (get ("amp_attack") < 0.01f,
+                        "dragging left of the stage's start gives the shortest time, not a long one (" + juce::String (get ("amp_attack"), 3) + " s)");
+
+                set ("amp_attack", 0.25f);
+                set ("amp_attack", 0.6f);
+                gesture (amp->getHandlePosition (0), amp->getHandlePosition (0), {}, 2);
+                static_cast<juce::Component&> (*amp).mouseDoubleClick (juce::MouseEvent (source, amp->getHandlePosition (0), {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                                                         amp, amp, juce::Time::getCurrentTime(), amp->getHandlePosition (0), juce::Time::getCurrentTime(), 2, false));
+                if (auto* parameter = processor.apvts.getParameter ("amp_attack"))
+                    expect (std::abs (get ("amp_attack") - parameter->convertFrom0to1 (parameter->getDefaultValue())) < 0.002f,
+                            "double-clicking the attack handle resets it");
+
+                // A knob: 20 px up moves it 10% of its range, Shift 1%, sideways nothing, Ctrl-click resets.
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*page, knobs);
+                KnobControl* knob = nullptr;
+                for (auto* candidate : knobs)
+                    if (visibleInTree (candidate) && candidate->getSlider().getInterval() == 0.0 && candidate->getSlider().isEnabled())
+                    {
+                        knob = candidate;
+                        break;
+                    }
+                if (knob != nullptr)
+                {
+                    auto& slider = knob->getSlider();
+                    slider.setPopupDisplayEnabled (false, false, nullptr); // never open a real popup window in a test
+                    const auto centre = juce::Point<float> (slider.getWidth() * 0.5f, slider.getHeight() * 0.5f);
+                    const auto press = [&] (juce::Point<float> from, juce::Point<float> to, juce::ModifierKeys mods)
+                    {
+                        const auto now = juce::Time::getCurrentTime();
+                        const auto make = [&] (juce::Point<float> at, bool dragged)
+                        {
+                            return juce::MouseEvent (source, at, mods.withFlags (juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                     &slider, &slider, now, from, now, 1, dragged);
+                        };
+                        slider.mouseDown (make (from, false));
+                        slider.mouseDrag (make (to, true));
+                        slider.mouseUp (make (to, true));
+                    };
+                    const auto proportion = [&slider] { return slider.valueToProportionOfLength (slider.getValue()); };
+                    slider.setValue (slider.proportionOfLengthToValue (0.5), juce::sendNotificationSync);
+                    press (centre, centre - juce::Point<float> (0.0f, 20.0f), {});
+                    expect (std::abs (proportion() - 0.6) < 0.002, "a knob moves 10% for a 20 px drag up (" + juce::String (proportion(), 4) + ")");
+                    slider.setValue (slider.proportionOfLengthToValue (0.5), juce::sendNotificationSync);
+                    press (centre, centre + juce::Point<float> (30.0f, 0.0f), {});
+                    expect (std::abs (proportion() - 0.5) < 0.002, "a sideways drag does not turn a knob (" + juce::String (proportion(), 4) + ")");
+                    press (centre, centre - juce::Point<float> (0.0f, 20.0f), juce::ModifierKeys::shiftModifier);
+                    expect (std::abs (proportion() - 0.51) < 0.002, "Shift turns a knob 10x finer (" + juce::String (proportion(), 4) + ")");
+                    press (centre, centre, juce::ModifierKeys::ctrlModifier);
+                    expect (std::abs (slider.getValue() - slider.getDoubleClickReturnValue()) < 1.0e-6, "Ctrl-click resets a knob to its default");
+                }
+                else
+                {
+                    expect (false, "ENV/LFO page has a continuous knob to drag");
+                }
+            }
         }
         else
         {

@@ -714,6 +714,60 @@ private:
     float life = 2.2f;
 };
 
+// The knob's slider with Vital's drag feel: vertical only (the stock "rotary
+// horizontal + vertical" style adds the sideways movement in, so a wobbling
+// hand moves the value), 200 px for the whole range, linear in the
+// parameter's normalised value (skewed knobs feel even), Shift (or Ctrl /
+// Cmd) = 10x finer from where it is held, the cursor hidden and unbounded
+// while turning so a drag never runs out of screen. Ctrl-click resets to
+// the default (the double-click return value, set by KnobControl).
+class KnobSlider : public juce::Slider
+{
+public:
+    static constexpr float fullRangePixels = 200.0f;
+    static constexpr float fineDivisor = 10.0f;
+
+    KnobSlider() { setSliderStyle (juce::Slider::RotaryVerticalDrag); }
+
+    static bool wantsFine (const juce::ModifierKeys& mods) { return mods.isShiftDown() || mods.isCommandDown(); }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        juce::Slider::mouseDown (event);
+
+        // (a popup-menu press or a ctrl-click reset is not the start of a drag)
+        dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
+        lastY = event.position.y;
+        proportion = valueToProportionOfLength (getValue());
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! dragging)
+            return;
+
+        const auto step = (lastY - event.position.y) / fullRangePixels / (wantsFine (event.mods) ? fineDivisor : 1.0f);
+        lastY = event.position.y;
+        proportion = juce::jlimit (0.0, 1.0, proportion + (double) step);
+        setValue (proportionOfLengthToValue (proportion), juce::sendNotificationSync);
+
+        if (event.source.canDoUnboundedMovement())
+            event.source.enableUnboundedMouseMovement (true, false);
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        dragging = false;
+        juce::Slider::mouseUp (event);
+        event.source.enableUnboundedMouseMovement (false);
+    }
+
+private:
+    bool dragging = false;
+    float lastY = 0.0f;
+    double proportion = 0.0;
+};
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -730,7 +784,6 @@ public:
     {
         processorRef = dynamic_cast<IlanaSynthAudioProcessor*> (&state.processor);
 
-        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 14);
         slider.setPopupDisplayEnabled (true, true, nullptr);
         slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
@@ -796,7 +849,7 @@ public:
 
         if (parameter != nullptr)
         {
-            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
 
             applyModulatableMark();
         }
@@ -1483,7 +1536,7 @@ private:
     // (above its value box), less its 4 px inset, radius 14-30.
     juce::Rectangle<float> dialBounds() const
     {
-        auto& s = const_cast<juce::Slider&> (slider);
+        auto& s = const_cast<KnobSlider&> (slider);
         return s.getLookAndFeel().getSliderLayout (s).sliderBounds.toFloat().translated ((float) slider.getX(), (float) slider.getY()).reduced (4.0f);
     }
     juce::Point<float> dialCentre() const { return dialBounds().getCentre(); }
@@ -2118,7 +2171,7 @@ private:
         }
     }
 
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label label;
     ModDotStrip dotStrip;
     RingOverlay ringOverlay { *this };

@@ -13,7 +13,11 @@ class MaterialBody
 {
 public:
     void prepare (double rate) { sampleRate = std::max (8000.0, rate); lastShape = -1; reset(); }
-    void reset() { for (auto& mode : state) mode = {}; }
+    void reset()
+    {
+        y1.fill (0.0f);
+        y2.fill (0.0f);
+    }
 
     void configure (int shapeIndex, float material, float size, float decay,
                     double noteHz, int quality, float stereoOffset = 0.0f)
@@ -52,28 +56,36 @@ public:
 
         for (int i = 0; i < activeModes; ++i)
         {
-            auto& mode = state[(size_t) i];
+            const auto m = (size_t) i;
             const auto ratio = (double) shape.ratio[(size_t) i]
                                * (1.0 + (double) glass * (i == 0 ? 0.0 : 0.012 * i));
             const auto frequency = pitch * ratio * (1.0 + (double) stereoOffset * 0.001);
             if (frequency >= sampleRate * 0.46)
             {
-                mode.gain = mode.strike = 0.0f;
+                gain[m] = strikeLevel[m] = 0.0f;
                 continue;
             }
             const auto t60 = seconds * (double) shape.lifetime[(size_t) i] * lifetimeScale;
             const auto radius = std::exp (-6.907755278982137 / (sampleRate * std::max (0.015, t60)));
             const auto phase = 6.283185307179586 * frequency / sampleRate;
-            mode.a1 = (float) (2.0 * radius * std::cos (phase));
-            mode.a2 = (float) (-radius * radius);
+            a1[m] = (float) (2.0 * radius * std::cos (phase));
+            a2[m] = (float) (-radius * radius);
+            // 1 / sin^2 of the mode's angle: what level() needs to turn two
+            // samples into the mode's amplitude.
+            const auto s = std::sin (phase);
+            amplitudeScale[m] = (float) (1.0 / std::max (1.0e-6, s * s));
             const auto brightness = 1.0f - 0.7f * (1.0f - colour) * (float) i / 7.0f;
             const auto weight = shape.gain[(size_t) i] * brightness;
-            mode.gain = (float) (8.0 * peakNorm) * weight;          // +12 dB: plucks never reach full build-up
+            gain[m] = (float) (8.0 * peakNorm) * weight;            // +12 dB: plucks never reach full build-up
             // A strike rings mode i at 0.25 * weight * sin(root) / sin(mode): the
             // first mode at a fixed level, the higher ones falling off as before.
-            mode.strike = 0.5f * weight * (float) std::sin (rootPhase);
-
+            strikeLevel[m] = 0.5f * weight * (float) std::sin (rootPhase);
         }
+
+        // Modes past the quality's count are silent (all zero), so process()
+        // runs every lane without a branch and adds exact zeros for them.
+        for (auto m = (size_t) activeModes; m < (size_t) BodyTuning::modes; ++m)
+            a1[m] = a2[m] = gain[m] = strikeLevel[m] = y1[m] = y2[m] = amplitudeScale[m] = 0.0f;
     }
 
     // A physical string's initial pluck also transfers a strike into the
@@ -82,28 +94,51 @@ public:
     void strike (float strength)
     {
         const auto amount = std::clamp (strength, 0.0f, 1.0f);
-        for (int i = 0; i < activeModes; ++i)
-            state[(size_t) i].y1 += state[(size_t) i].strike * amount;
+        for (size_t m = 0; m < (size_t) BodyTuning::modes; ++m)
+            y1[m] += strikeLevel[m] * amount;
     }
 
+    // Every mode in one pass with no branches: the compiler runs the eight
+    // lanes as SIMD. Each lane does the same arithmetic as a mode did one at
+    // a time, and the sum is taken in mode order, so the output is the same
+    // to the bit.
     float process (float input)
     {
         const auto drive = std::clamp (input, -2.0f, 2.0f);
-        auto sum = 0.0f;
-        for (int i = 0; i < activeModes; ++i)
+        constexpr auto count = (size_t) BodyTuning::modes;
+        alignas (32) float next[count];
+        for (size_t m = 0; m < count; ++m)
         {
-            auto& mode = state[(size_t) i];
-            const auto value = mode.a1 * mode.y1 + mode.a2 * mode.y2 + mode.gain * drive;
-            mode.y2 = mode.y1;
-            mode.y1 = std::clamp (value, -8.0f, 8.0f);
-            sum += mode.y1;
+            const auto value = a1[m] * y1[m] + a2[m] * y2[m] + gain[m] * drive;
+            next[m] = value < -8.0f ? -8.0f : (8.0f < value ? 8.0f : value);
+        }
+        auto sum = 0.0f;
+        for (size_t m = 0; m < count; ++m)
+        {
+            y2[m] = y1[m];
+            y1[m] = next[m];
+            sum += next[m];
         }
         return std::clamp (sum * 0.5f, -2.0f, 2.0f);
     }
 
+    // The body's output level bound: half the sum of every mode's amplitude
+    // (as process() halves the sum), each found from its last two samples
+    // (for a ringing mode, A^2 sin^2 w = y1^2 + y2^2 - 2 cos w y1 y2). A
+    // voice uses it to end its tail once the body has died away.
+    float level() const
+    {
+        auto total = 0.0f;
+        for (size_t m = 0; m < (size_t) BodyTuning::modes; ++m)
+        {
+            const auto energy = y1[m] * y1[m] + y2[m] * y2[m] - a1[m] * y1[m] * y2[m];
+            total += std::sqrt (std::max (0.0f, energy) * amplitudeScale[m]);
+        }
+        return 0.5f * total;
+    }
+
 private:
-    struct Mode { float y1 = 0.0f, y2 = 0.0f, a1 = 0.0f, a2 = 0.0f, gain = 0.0f, strike = 0.0f; };
-    std::array<Mode, BodyTuning::modes> state {};
+    alignas (32) std::array<float, BodyTuning::modes> y1 {}, y2 {}, a1 {}, a2 {}, gain {}, strikeLevel {}, amplitudeScale {};
     double sampleRate = 44100.0;
     int activeModes = 6;
     int lastShape = -1, lastQuality = -1;

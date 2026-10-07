@@ -247,14 +247,14 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 245,"Wood Bar Hybrid",-21.5326,0.704806,1743.34,0.246491
 246,"Metal Plate Hybrid",-21.1657,0.553959,826.842,0.732272
 247,"Bell Shell Hybrid",-21.5496,0.439834,848.611,0.979963
-248,"Glass Shell Hybrid",-21.9279,0.632985,1275.81,0.871171
+248,"Glass Shell Hybrid",-21.5014,0.608695,1173.69,0.847203
 249,"Supersaw Bell Body",-16.9076,0.749053,3007.06,0.678854
 250,"Tine Keys",-16.3422,0.663625,535.41,0
 251,"Reed Keys",-16.8861,0.723764,677.77,0
 252,"Live Body",-120,0,0,0
 253,"Live Wah",-120,0,0,0
 254,"Live Grains",-8.46689,0.993394,1649.11,0.628626
-255,"Live Strings",-24.1436,0.72971,2645.61,0.267773
+255,"Live Strings",-24.8801,0.75202,2884.5,0.27409
 256,"Felt Hammer Board",-20.6888,0.876424,999.872,0.533614
 257,"Nylon Twelve",-24.5551,0.804437,4107.06,0.376823
 258,"Cello Section",-20.9345,0.644725,1497.12,0.30007
@@ -330,7 +330,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 328,"Glass Chime Body",-21.6278,0.657031,7263.4,0.547542
 329,"Coupled String Body",-22.1143,0.688338,3591.85,0.706198
 330,"FM Struck Body",-19.253,0.487157,693.687,0.174518
-331,"Feedback Body Growl",-18.9498,0.625956,2472.56,0.0756145
+331,"Feedback Body Growl",-17.8184,0.555012,2357.01,0.0753708
 332,"West Body Pluck",-26.1867,0.639574,1091.93,0.00179937
 333,"Deep FM Bell Body",-18.838,0.461766,1350.53,0.00733527
 334,"Struck Board Pad",-18.341,0.49153,1065.89,0.234777
@@ -368,7 +368,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 366,"Live Ring FM",-120,0,0,0
 367,"Live Granular Delay",-36.5078,0.100083,827.968,0.900306
 368,"Live Formant Filter",-120,0,0,0
-369,"Live Feedback Strings",-25.1606,0.661716,3298.73,0.363796
+369,"Live Feedback Strings",-26.5226,0.573645,3599.45,0.390356
 370,"Live Twin Peak Wah",-120,0,0,0
 371,"BRASS 1 (ROM1A)",-15.5932,0.814659,1701.83,0
 372,"BRASS 2 (ROM1A)",-18.2475,0.856395,931.889,0

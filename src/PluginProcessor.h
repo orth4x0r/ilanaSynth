@@ -394,6 +394,16 @@ public:
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
     float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
+    // Voices still rendering, tails included (getActiveVoiceCount counts only
+    // those with their envelopes up). Audio thread or tests only.
+    int getRenderingVoiceCount() const
+    {
+        auto count = 0;
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (synth.getVoice (i)->isVoiceActive())
+                ++count;
+        return count;
+    }
 
     // Changes whenever something the editor draws may have changed: any
     // parameter, an edit to data that isn't a parameter (LFO curves and

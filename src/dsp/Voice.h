@@ -498,6 +498,10 @@ public:
 private:
     void syncSamplePlayers();
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues);
+    double advanceGlideAndDrift (float driftMod);
+    void tuneBody (double driftedFrequency);
+    void renderBodyTail (float* left, float* right, int startSample, int numSamples, float wetGain);
+    bool envelopesActive() const;
     double oscFrequencyFactor (const VoiceParams::OscParams& settings) const;
     void updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue);
     void updateUnisonLayout();

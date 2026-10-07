@@ -8674,6 +8674,216 @@ void runLibraryBench()
         std::cout << "  slowest " << results[i].second << ": " << juce::String (results[i].first, 2) << " %" << std::endl;
 }
 
+// ILANA_BODY_BENCH=1: a Physical patch (ILANA_BODY_BENCH_PRESET, default
+// Felt Hammer Board) with the BODY on, each body type and STRING TO BODY
+// coupling mode in turn, at 44.1 kHz in 512-sample blocks: "held" holds
+// ILANA_BODY_BENCH_VOICES (default 12) notes for 2 s and releases them for
+// 2 s; "clip" plays that chord for 0.4 s every 0.5 s for 6 s, as a looped
+// clip does. Prints ms per block, % of one core, the voices sounding and the
+// output peak (and any non-finite samples). ILANA_BODY_BENCH_TYPE / _COUPLING
+// pick one case, _AMOUNT sets body_coupling (0.5), _SET="id=value,..." sets
+// more parameters (real values), _AS_IS plays the preset unchanged, _ONSET
+// times one note's rise per type, _ALL ranks every preset by Shell's cost,
+// _SECONDS sets the held run's length (4), _CLIP_ONLY skips it, _DUMP=<dir>
+// writes each run's output as raw floats. Voices are counted with their
+// body tails (getRenderingVoiceCount).
+void runBodyBench()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto blockSize = 512;
+    processor.prepareToPlay (44100.0, blockSize);
+    const auto names = processor.getFactoryPresetNames();
+    const auto presetName = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_PRESET", "Felt Hammer Board");
+    const auto voices = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_VOICES", "12").getIntValue();
+    const auto onlyType = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_TYPE", "-1").getIntValue();
+    const auto onlyCoupling = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_COUPLING", "-1").getIntValue();
+    const auto keepPreset = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_AS_IS", "").isNotEmpty();
+    const auto index = names.indexOf (presetName);
+    if (index < 0)
+    {
+        std::cout << "no preset " << presetName << std::endl;
+        return;
+    }
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* param = processor.apvts.getParameter (id))
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+    };
+    const juce::StringArray types { "Classic", "Bar", "Plate", "Bell", "Shell" };
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    const auto run = [&] (const juce::String& label, bool clip)
+    {
+        processor.panic();
+        buffer.clear();
+        juce::MidiBuffer silence;
+        processor.processBlock (buffer, silence);
+        const auto seconds = clip ? 6.0 : juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SECONDS", "4").getDoubleValue();
+        const auto blocks = (int) (44100.0 * seconds / blockSize);
+        auto elapsed = 0.0, slowest = 0.0, voiceSum = 0.0;
+        auto peakVoices = 0, nonFinite = 0, lastSounding = -1;
+        // ILANA_BODY_BENCH_DUMP=<folder>: each run's output as raw floats.
+        std::unique_ptr<juce::FileOutputStream> dump;
+        if (const auto folder = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_DUMP", ""); folder.isNotEmpty())
+        {
+            const auto file = juce::File (folder).getChildFile (label.replaceCharacter (' ', '_') + (clip ? "_clip" : "_held") + ".f32");
+            file.deleteFile();
+            dump = std::make_unique<juce::FileOutputStream> (file);
+        }
+        auto outPeak = 0.0f;
+        for (int block = 0; block < blocks; ++block)
+        {
+            juce::MidiBuffer midi;
+            const auto t0 = (double) block * blockSize / 44100.0, t1 = t0 + blockSize / 44100.0;
+            const auto inBlock = [&] (double t) { return t >= t0 && t < t1 ? juce::jlimit (0, blockSize - 1, (int) ((t - t0) * 44100.0)) : -1; };
+            for (double t = 0.0; t < seconds; t += clip ? 0.5 : 100.0)
+            {
+                if (const auto on = inBlock (t); on >= 0)
+                    for (int v = 0; v < voices; ++v)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 40 + v * 3, (juce::uint8) 100), on);
+                if (const auto off = inBlock (t + (clip ? 0.4 : 2.0)); off >= 0)
+                    for (int v = 0; v < voices; ++v)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, 40 + v * 3), off);
+            }
+            buffer.clear();
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, midi);
+            const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+            elapsed += ms;
+            slowest = juce::jmax (slowest, ms);
+            if (dump != nullptr)
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    dump->write (buffer.getReadPointer (ch), sizeof (float) * (size_t) blockSize);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    const auto x = buffer.getSample (ch, i);
+                    if (! std::isfinite (x))
+                        ++nonFinite;
+                    else
+                        outPeak = juce::jmax (outPeak, std::abs (x));
+                }
+            const auto rendering = processor.getRenderingVoiceCount();
+            if (rendering > 0)
+                lastSounding = block;
+            voiceSum += rendering;
+            peakVoices = juce::jmax (peakVoices, rendering);
+        }
+        const auto perBlock = elapsed / blocks;
+        std::cout << "body " << label << (clip ? " clip" : " held") << ": " << juce::String (perBlock, 3)
+                  << " ms/block, " << juce::String (100.0 * perBlock / (1000.0 * blockSize / 44100.0), 1)
+                  << " % of one core, slowest " << juce::String (slowest, 2) << " ms, voices "
+                  << juce::String (voiceSum / blocks, 1) << " (peak " << peakVoices << ")"
+                  << (clip ? juce::String() : ", last voice ends " + juce::String ((lastSounding + 1) * blockSize / 44100.0 - 2.0, 2) + " s after release")
+                  << ", out peak "
+                  << juce::String (outPeak, 3) << (nonFinite > 0 ? ", NON-FINITE " + juce::String (nonFinite) : juce::String()) << std::endl;
+    };
+    // ILANA_BODY_BENCH_ALL=1: every factory preset with the BODY on, 6 notes
+    // held 1 s, Bar / Plate / Bell / Shell; prints Shell's time against the
+    // others' mean, the worst first.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_ALL", "").isNotEmpty())
+    {
+        std::vector<std::pair<double, juce::String>> rows;
+        juce::AudioBuffer<float> one (2, blockSize);
+        for (int preset = 0; preset < names.size(); ++preset)
+        {
+            double ms[5] {};
+            for (int type = 1; type < 5; ++type)
+            {
+                processor.loadFactoryPreset (preset);
+                set ("res_on", 1.0f);
+                set ("body_type", (float) type);
+                processor.panic();
+                const auto blocks = (int) (44100.0 / blockSize);
+                for (int block = 0; block < blocks; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0)
+                        for (int v = 0; v < 6; ++v)
+                            midi.addEvent (juce::MidiMessage::noteOn (1, 48 + v * 4, (juce::uint8) 100), 0);
+                    one.clear();
+                    const auto start = juce::Time::getMillisecondCounterHiRes();
+                    processor.processBlock (one, midi);
+                    ms[type] += juce::Time::getMillisecondCounterHiRes() - start;
+                }
+            }
+            const auto others = (ms[1] + ms[2] + ms[3]) / 3.0;
+            rows.push_back ({ ms[4] / juce::jmax (1.0e-6, others), names[preset] + ": shell " + juce::String (ms[4], 1) + " ms, bar "
+                                                                      + juce::String (ms[1], 1) + ", plate " + juce::String (ms[2], 1)
+                                                                      + ", bell " + juce::String (ms[3], 1) });
+        }
+        std::sort (rows.begin(), rows.end(), [] (const auto& a, const auto& b) { return a.first > b.first; });
+        for (size_t i = 0; i < juce::jmin<size_t> (25, rows.size()); ++i)
+            std::cout << juce::String (rows[i].first, 2) << "x  " << rows[i].second << std::endl;
+        return;
+    }
+    // ILANA_BODY_BENCH_ONSET=1: one note (C4) per body type, 2 s; the time
+    // its 512-sample RMS takes to reach half (-6 dB) of its peak.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_ONSET", "").isNotEmpty())
+    {
+        for (int type = 0; type < 5; ++type)
+        {
+            processor.loadFactoryPreset (index);
+            set ("res_on", 1.0f);
+            set ("body_type", (float) type);
+            for (const auto& pair : juce::StringArray::fromTokens (
+                     juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SET", ""), ",", ""))
+                if (pair.contains ("="))
+                    set (pair.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(),
+                         pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            processor.panic();
+            std::vector<float> rms;
+            for (int block = 0; block < (int) (2.0 * 44100.0 / blockSize); ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                rms.push_back (buffer.getRMSLevel (0, 0, blockSize));
+            }
+            const auto peak = *std::max_element (rms.begin(), rms.end());
+            const auto peakAt = (int) (std::max_element (rms.begin(), rms.end()) - rms.begin());
+            auto half = 0;
+            while (half < (int) rms.size() && rms[(size_t) half] < 0.5f * peak)
+                ++half;
+            std::cout << "onset " << types[type] << ": -6 dB at " << juce::String (half * blockSize / 44.1, 0) << " ms, peak at "
+                      << juce::String (peakAt * blockSize / 44.1, 0) << " ms, peak rms " << juce::String (peak, 3) << std::endl;
+        }
+        return;
+    }
+    if (keepPreset)
+    {
+        processor.loadFactoryPreset (index);
+        run (presetName, false);
+        processor.loadFactoryPreset (index);
+        run (presetName, true);
+        return;
+    }
+    for (int coupling = 0; coupling < 4; ++coupling)
+        for (int type = 0; type < 5; ++type)
+        {
+            if ((onlyType >= 0 && type != onlyType) || (onlyCoupling >= 0 && coupling != onlyCoupling))
+                continue;
+            for (const auto clip : { false, true })
+            {
+                if (! clip && juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_CLIP_ONLY", "").isNotEmpty())
+                    continue;
+                processor.loadFactoryPreset (index);
+                set ("res_on", 1.0f);
+                set ("body_type", (float) type);
+                set ("body_coupling_mode", (float) coupling);
+                if (coupling > 0)
+                    set ("body_coupling", juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_AMOUNT", "0.5").getFloatValue());
+                for (const auto& pair : juce::StringArray::fromTokens (
+                         juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SET", ""), ",", ""))
+                    if (pair.contains ("="))
+                        set (pair.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(),
+                             pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+                run (types[type] + " coupling " + juce::String (coupling), clip);
+            }
+        }
+}
+
 // ILANA_OPEN_FILTER_CHECK=1: the gain of Filter 2's default (Low Pass wide
 // open, resonance 0 and 0.3) against a straight wire, per frequency, at
 // 44.1 and 48 kHz, for sines at -6 dBFS and -20 dBFS.
@@ -8890,6 +9100,12 @@ int main()
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_NULL_CHECK", "").isNotEmpty())
     {
         runNullCheck();
+        return 0;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH", "").isNotEmpty())
+    {
+        runBodyBench();
         return 0;
     }
 

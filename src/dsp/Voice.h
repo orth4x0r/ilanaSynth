@@ -418,6 +418,7 @@ public:
             case 5:  return 0.708f; // Hammer (classic), -3 dB
             case 7:  return 0.398f; // Tine, -8 dB
             case 8:  return 0.708f; // Reed, -3 dB
+            case 9:  return 2.0f;   // Piano, +6 dB (heard 2-6 dB under Hammer; the drive takes some back)
             default: return 1.0f;
         }
     }

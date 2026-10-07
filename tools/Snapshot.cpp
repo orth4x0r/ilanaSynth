@@ -7473,6 +7473,8 @@ static int runHeldCpu (const juce::String& presetName)
             std::cout << id << " = " << parameter->getCurrentValueAsText() << std::endl;
 
     const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    // ILANA_HELD_NOTES=n: only the first n of them.
+    const auto heldNotes = juce::jlimit (1, 12, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_NOTES", "12").getIntValue());
     juce::AudioBuffer<float> buffer (2, blockSize);
     const auto blocksPerSecond = (int) (rate / blockSize);
     double total = 0.0, sumSquares = 0.0, worstBlock = 0.0;
@@ -7485,8 +7487,9 @@ static int runHeldCpu (const juce::String& presetName)
             juce::MidiBuffer midi;
             // (ILANA_HELD_RESTRIKE=1: the chord again every 2 s, as in playing.)
             if (block == 0 && (second == 0 || (second % 2 == 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RESTRIKE", "").isNotEmpty())))
-                for (auto note : notes)
+                for (int n = 0; n < heldNotes; ++n)
                 {
+                    const auto note = notes[n];
                     if (second > 0)
                         midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
                     midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
@@ -7595,6 +7598,8 @@ static int runExciterLevels()
     const juce::StringArray names { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" };
     const auto rate = 48000.0;
     const auto blockSize = 512;
+    // ILANA_EXCITER_VELOCITY: the note-on velocity (100 by default).
+    const auto velocity = juce::jlimit (1, 127, juce::SystemStats::getEnvironmentVariable ("ILANA_EXCITER_VELOCITY", "100").getIntValue());
 
     for (const auto note : { 48, 60, 72 })
     {
@@ -7604,13 +7609,17 @@ static int runExciterLevels()
         {
             IlanaSynthAudioProcessor processor;
             processor.prepareToPlay (rate, blockSize);
-            processor.loadFactoryPreset (0);
+            // ILANA_EXCITER_PRESET: a factory preset by name instead of Init
+            // (its osc1 exciter is switched; the mode is left as it is).
+            const auto presetName = juce::SystemStats::getEnvironmentVariable ("ILANA_EXCITER_PRESET", "");
+            processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf (presetName)));
             const auto set = [&processor] (const juce::String& id, float value)
             {
                 if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (id)))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
             };
-            set ("osc1_mode", 1.0f);
+            if (presetName.isEmpty())
+                set ("osc1_mode", 1.0f);
             set ("osc1_excite", (float) excite);
             for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
                 set (pair.upToFirstOccurrenceOf ("=", false, false), pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
@@ -7620,13 +7629,26 @@ static int runExciterLevels()
             float peak = 0.0f;
             int count = 0;
             // The loudest 400 ms (what a percussive sound is heard at).
-            std::vector<double> squares;
+            std::vector<double> squares, weighted;
+            // ITU-R BS.1770 K-weighting at 48 kHz (what loudness meters hear).
+            struct Biquad
+            {
+                double b0, b1, b2, a1, a2, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+                double process (double x)
+                {
+                    const auto y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+                    x2 = x1; x1 = x; y2 = y1; y1 = y;
+                    return y;
+                }
+            };
+            Biquad shelf { 1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585 };
+            Biquad highPass { 1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621 };
 
             for (int block = 0; block < (int) rate / blockSize; ++block)
             {
                 juce::MidiBuffer midi;
                 if (block == 0)
-                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
                 buffer.clear();
                 processor.processBlock (buffer, midi);
 
@@ -7635,12 +7657,14 @@ static int runExciterLevels()
                     const auto s = buffer.getSample (0, i);
                     sum += (double) s * s;
                     squares.push_back ((double) s * s);
+                    const auto k = highPass.process (shelf.process ((double) s));
+                    weighted.push_back (k * k);
                     peak = juce::jmax (peak, std::abs (s));
                     ++count;
                 }
             }
 
-            const auto loudestOver = [&squares, rate] (double seconds)
+            const auto loudestOver = [rate] (const std::vector<double>& squares, double seconds)
             {
                 const auto window = (size_t) (seconds * rate);
                 double windowSum = 0.0, loudest = 0.0;
@@ -7654,8 +7678,9 @@ static int runExciterLevels()
             };
 
             std::cout << "  " << names[excite].paddedRight (' ', 9) << " rms " << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sum / count), -120.0f), 1)
-                      << " dB, loudest 400 ms " << juce::String (loudestOver (0.4), 1)
-                      << " dB, 50 ms " << juce::String (loudestOver (0.05), 1)
+                      << " dB, loudest 400 ms " << juce::String (loudestOver (squares, 0.4), 1)
+                      << " dB, 50 ms " << juce::String (loudestOver (squares, 0.05), 1)
+                      << " dB, K 400 ms " << juce::String (loudestOver (weighted, 0.4), 1)
                       << " dB, peak " << juce::String (juce::Decibels::gainToDecibels (peak, -120.0f), 1) << " dB" << std::endl;
         }
     }

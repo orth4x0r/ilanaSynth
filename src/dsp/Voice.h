@@ -551,7 +551,7 @@ private:
     ResonatorBank resonatorL, resonatorR;
     MaterialBody materialBodyL, materialBodyR;
     // M8.3
-    Wavefolder westFolderL, westFolderR;
+    StereoWavefolder westFolder;
     LowPassGate westGateL, westGateR;
     int westStrikeRemaining = 0;
     bool bodyStrikePending = false;

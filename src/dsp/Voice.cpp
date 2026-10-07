@@ -141,8 +141,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     materialBodyR.prepare (newRate);
     westGateL.prepare (newRate);
     westGateR.prepare (newRate);
-    westFolderL.reset();
-    westFolderR.reset();
+    westFolder.reset();
 
     for (auto* filter : { &filter1L, &filter1R, &filter2L, &filter2R,
                           &bothFilter1L, &bothFilter1R, &bothFilter2L, &bothFilter2R })
@@ -452,8 +451,7 @@ void Voice::resetForNewPatch()
     openFilter2R.reset();
     westGateL.reset();
     westGateR.reset();
-    westFolderL.reset();
-    westFolderR.reset();
+    westFolder.reset();
     westStrikeRemaining = 0;
     resonatorL.reset();
     resonatorR.reset();
@@ -943,8 +941,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     if (params.west.on)
     {
-        westFolderL.setParams (params.west.fold, params.west.symmetry, params.west.stages);
-        westFolderR.setParams (params.west.fold, params.west.symmetry, params.west.stages);
+        westFolder.setParams (params.west.fold, params.west.symmetry, params.west.stages);
     }
 
     glideCoeff = params.glideTime > 0.001f
@@ -1283,8 +1280,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto gateMode = (LowPassGate::Mode) juce::jlimit (0, 2, w.mode);
         westGateL.setParams (gateMode, w.decay, w.resonance);
         westGateR.setParams (gateMode, w.decay, w.resonance);
-        l = westGateL.process (westFolderL.process (l), control);
-        r = westGateR.process (westFolderR.process (r), control);
+        westFolder.process (l, r);
+        westGateL.processPair (l, r, control, westGateR);
     };
     const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
 

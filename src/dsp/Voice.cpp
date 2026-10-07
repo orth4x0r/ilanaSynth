@@ -462,11 +462,15 @@ void Voice::resetForNewPatch()
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
-        for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
-        {
-            stringFor (osc, u).reset();
-            sampleUnison[osc][u].reset();
-        }
+        // A voice that has not played since its last reset still has silent
+        // strings and samples: skip clearing their buffers, so a patch load
+        // does not clear every voice's delay lines in one audio block.
+        if (hasPlayedNote)
+            for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
+            {
+                stringFor (osc, u).reset();
+                sampleUnison[osc][u].reset();
+            }
         feedbackHistory[osc] = feedbackFiltered[osc] = previousOsc[osc] = 0.0f;
     }
     fmNoiseState = 0.0f;
@@ -1211,6 +1215,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // block gets nothing from its feedback type (every term is zero), so its
     // per-sample sum is skipped; its feedback filter still tracks.
     bool altFeedbackInput[VoiceParams::numOscillators] {};
+    int altSources[VoiceParams::numOscillators][VoiceParams::numOscillators];
+    int numAltSources[VoiceParams::numOscillators] {};
     auto anyAltFeedbackInput = false;
     const auto cellIsSilent = [this, mods] (int source, int target)
     {
@@ -1235,9 +1241,16 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
         anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
 
+        // The other operators that feed it: a silent cell adds an exact zero,
+        // so leaving it out of the sum changes nothing.
         if (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain)
-            for (int source = 0; source < VoiceParams::numOscillators && ! altFeedbackInput[osc]; ++source)
-                altFeedbackInput[osc] = ! cellIsSilent (source, osc);
+            for (int source = 0; source < VoiceParams::numOscillators; ++source)
+                if (! cellIsSilent (source, osc))
+                {
+                    altFeedbackInput[osc] = true;
+                    if (source != osc)
+                        altSources[osc][numAltSources[osc]++] = source;
+                }
         anyAltFeedbackInput = anyAltFeedbackInput || altFeedbackInput[osc];
     }
     // The heard noise's colour, on the FM noise's scale (about 200 Hz to
@@ -1581,9 +1594,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     continue;
 
                 auto sum = 0.0;
-                for (int source = 0; source < VoiceParams::numOscillators; ++source)
-                    if (source != osc)
-                        sum += (double) fmAmountAt (mods, source, osc) * (double) previousOsc[source];
+                for (int k = 0; k < numAltSources[osc]; ++k)
+                {
+                    const auto source = altSources[osc][k];
+                    sum += (double) fmAmountAt (mods, source, osc) * (double) previousOsc[source];
+                }
 
                 const auto self = (double) fmAmountAt (mods, osc, osc);
 

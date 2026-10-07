@@ -130,6 +130,7 @@ public:
     {
         count = juce::jlimit (0, maxLanes, count);
         numGroups = (count + laneWidth - 1) / laneWidth;
+        numLanesInUse = count;
 
         for (int lane = 0; lane < maxLanes; ++lane)
         {
@@ -167,6 +168,60 @@ public:
         const auto plainStep = stepScale == 1.0;
         const std::uint32_t* steps = increment;
 
+        const auto lane0Step = incrementCycles[0] * stepScale;
+        const auto substeps = oversample ? 2 : 1;
+
+        // One voice (every FM operator, most oscillators): lane 0 alone, the
+        // same operations in the same order as the vector path, without the
+        // three silent lanes (their phases are left where they are).
+        if (numLanesInUse == 1 && ! warping)
+        {
+            const auto step = plainStep ? increment[0] : toFixedStep (lane0Step - fastFloor (lane0Step));
+            const auto* row0 = rows[0][frames.frame0];
+            const auto* row1 = lerpFrames ? rows[0][frames.frame1] : nullptr;
+            constexpr auto scale = 1.0f / (float) (1 << fractionBits);
+
+            for (int sub = 0; sub < substeps; ++sub)
+            {
+                const auto before = phase[0];
+                const auto read = before + modulation;
+                const auto index = (int) (read >> (32 - frameBits));
+                const auto f = (float) (std::int32_t) (read & ((1u << fractionBits) - 1u)) * scale;
+                auto y0 = row0[index], y1 = row0[index + 1], y2 = row0[index + 2], y3 = row0[index + 3];
+
+                if (lerpFrames)
+                {
+                    const auto* next = row1 + index;
+                    y0 = y0 + (next[0] - y0) * frames.frac;
+                    y1 = y1 + (next[1] - y1) * frames.frac;
+                    y2 = y2 + (next[2] - y2) * frames.frac;
+                    y3 = y3 + (next[3] - y3) * frames.frac;
+                }
+
+                const auto c1 = 0.5f * (y2 - y0);
+                const auto c2 = (y0 + (y2 + y2)) - 0.5f * (5.0f * y1 + y3);
+                const auto c3 = 0.5f * (3.0f * (y1 - y2) + (y3 - y0));
+                auto value = c2 + f * c3;
+                value = c1 + f * value;
+                value = y1 + f * value;
+
+                out.mono += value * weightMono[0];
+                out.left += value * weightLeft[0];
+                out.right += value * weightRight[0];
+                phase[0] = before + step;
+                wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < before);
+            }
+
+            if (oversample)
+            {
+                out.mono *= 0.5f;
+                out.left *= 0.5f;
+                out.right *= 0.5f;
+            }
+
+            return out;
+        }
+
         if (! plainStep)
         {
             for (int lane = 0; lane < numLanes; ++lane)
@@ -177,9 +232,6 @@ public:
 
             steps = scaledIncrement;
         }
-
-        const auto lane0Step = incrementCycles[0] * stepScale;
-        const auto substeps = oversample ? 2 : 1;
 
        #if ILANA_UNISON_SSE
         auto accMono = _mm_setzero_ps();
@@ -484,6 +536,7 @@ private:
     double sampleRate = 44100.0;
     double stretch = 1.0;
     int numGroups = 0;
+    int numLanesInUse = 0;
     int warpMode = Warp::Off;
     float warpAmount = 0.0f;
     int warpMode2 = Warp::Off;

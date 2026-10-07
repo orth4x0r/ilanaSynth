@@ -7615,6 +7615,8 @@ static int runExciterLevels()
             double sum = 0.0;
             float peak = 0.0f;
             int count = 0;
+            // The loudest 400 ms (what a percussive sound is heard at).
+            std::vector<double> squares;
 
             for (int block = 0; block < (int) rate / blockSize; ++block)
             {
@@ -7628,12 +7630,28 @@ static int runExciterLevels()
                 {
                     const auto s = buffer.getSample (0, i);
                     sum += (double) s * s;
+                    squares.push_back ((double) s * s);
                     peak = juce::jmax (peak, std::abs (s));
                     ++count;
                 }
             }
 
+            const auto loudestOver = [&squares, rate] (double seconds)
+            {
+                const auto window = (size_t) (seconds * rate);
+                double windowSum = 0.0, loudest = 0.0;
+                for (size_t i = 0; i < squares.size(); ++i)
+                {
+                    windowSum += squares[i] - (i >= window ? squares[i - window] : 0.0);
+                    if (i + 1 >= window)
+                        loudest = juce::jmax (loudest, windowSum / (double) window);
+                }
+                return juce::Decibels::gainToDecibels ((float) std::sqrt (loudest), -120.0f);
+            };
+
             std::cout << "  " << names[excite].paddedRight (' ', 9) << " rms " << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sum / count), -120.0f), 1)
+                      << " dB, loudest 400 ms " << juce::String (loudestOver (0.4), 1)
+                      << " dB, 50 ms " << juce::String (loudestOver (0.05), 1)
                       << " dB, peak " << juce::String (juce::Decibels::gainToDecibels (peak, -120.0f), 1) << " dB" << std::endl;
         }
     }

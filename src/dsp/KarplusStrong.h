@@ -318,9 +318,15 @@ public:
         // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
         if (! hammered)
         {
-            const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
-            const auto pole = 1.0 - (double) lowpassCoefficient;
-            const auto lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
+            // Cached: the pitch and damping change at most once a sub-block.
+            if (period != lowpassDelayPeriod || lowpassCoefficient != lowpassDelayCoefficient)
+            {
+                const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
+                const auto pole = 1.0 - (double) lowpassCoefficient;
+                lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
+                lowpassDelayPeriod = period;
+                lowpassDelayCoefficient = lowpassCoefficient;
+            }
             delay = juce::jmin (delay + lowpassDelay, period - 1.25);
         }
 
@@ -953,6 +959,8 @@ private:
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
     float dispersionState[maxDispersionStages] {};
+    double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
+    float lowpassDelayCoefficient = -1.0f;
     float dispersionInput[maxDispersionStages] {};
     bool slap = false;
     int slapRemaining = 0;

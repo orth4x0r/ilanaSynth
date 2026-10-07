@@ -3738,6 +3738,23 @@ int runUiTests()
                 thumbs->onSelect (0);
         setShape (LfoSimShapes::Lorenz);
         settle (300);
+        // The LFO cards (PLAY and MOD) draw a simulated shape from the live
+        // simulation, not one fixed picture: the card's pixels move between
+        // two moments, and its dot rides the trace's right-hand end.
+        if (auto* page = pages->getCurrentPage())
+            if (auto* cards = findChild<LfoThumbBar> (*page); cards != nullptr && cards->isCardShown (0))
+            {
+                const auto area = cards->boundsOfCard (0).toNearestInt();
+                const auto grab = [&] { return cards->createComponentSnapshot (area, false, 1.0f); };
+                const auto before = grab();
+                settle (500);
+                const auto after = grab();
+                auto changed = 0;
+                for (int y = 0; y < before.getHeight() && y < after.getHeight(); ++y)
+                    for (int x = 0; x < before.getWidth() && x < after.getWidth(); ++x)
+                        changed += before.getPixelAt (x, y) != after.getPixelAt (x, y) ? 1 : 0;
+                expect (changed > 20, "a simulated LFO's thumbnail moves with the live simulation (" + juce::String (changed) + " pixels changed in 0.5 s)");
+            }
         auto* p1 = knobFor ("lfo1_p1");
         auto* p4 = knobFor ("lfo1_p4");
         auto* start = knobFor ("lfo1_phase");
@@ -7167,7 +7184,8 @@ juce::String frameStats (const std::vector<double>& times, double windowMs)
 int runFps()
 {
     IlanaSynthAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 256);
+    const auto blockSize = juce::jmax (32, juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_BLOCK", "256").getIntValue());
+    processor.prepareToPlay (48000.0, blockSize);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1060, 720);
     HostWindow window (*editor);
@@ -7203,7 +7221,7 @@ int runFps()
     std::atomic<bool> running { true }, playing { false };
     std::thread audio ([&]
     {
-        juce::AudioBuffer<float> buffer (2, 256);
+        juce::AudioBuffer<float> buffer (2, blockSize);
         auto wasPlaying = false;
         auto next = juce::Time::getMillisecondCounterHiRes();
         while (running)
@@ -7216,7 +7234,7 @@ int runFps()
             wasPlaying = now;
             buffer.clear();
             processor.processBlock (buffer, midi);
-            next += 256.0 / 48.0;
+            next += (double) blockSize / 48.0;
             const auto wait = next - juce::Time::getMillisecondCounterHiRes();
             if (wait > 0.0)
                 std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
@@ -7244,11 +7262,16 @@ int runFps()
         settle (300);
         probe.times.clear();
         vblanks = 0;
+        IlanaAnim::paintStats().clear();
+        IlanaAnim::paintStatsOn() = true;
         const auto playStart = cpuSeconds();
         settle (1500);
         std::cout << id << "\n  switch:  " << switchStats << " (" << juce::String (switchCpu, 0) << "% cpu)"
                   << "\n  playing: " << frameStats (probe.times, 1500.0) << " (" << juce::String (100.0 * (cpuSeconds() - playStart) / 1.5, 0) << "% cpu, "
                   << juce::String (vblanks / 1.5, 0) << " vblanks/s)" << std::endl;
+        IlanaAnim::paintStatsOn() = false;
+        for (const auto& entry : IlanaAnim::paintStats())
+            std::cout << "    paints/s " << entry.first << ": " << juce::String ((double) entry.second / 1.5, 0) << std::endl;
     }
 
     running = false;

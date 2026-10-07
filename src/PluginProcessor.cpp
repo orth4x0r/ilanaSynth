@@ -1850,6 +1850,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         }
 
         scopeWritePos.store (writePosition);
+        scopeBlockSamples.store (buffer.getNumSamples());
+        scopeBlockMs.store (juce::Time::getMillisecondCounterHiRes());
     }
 
     // Output peaks for the meter; the editor takes them when it reads.
@@ -1879,6 +1881,25 @@ void IlanaSynthAudioProcessor::copyScopeData (float* left, float* right, int num
 
     const juce::SpinLock::ScopedLockType lock (scopeLock);
     auto start = (scopeWritePos.load() - numSamples + scopeSize) % scopeSize;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        left[i] = scopeLeft[(size_t) start];
+        right[i] = scopeRight[(size_t) start];
+        start = (start + 1) % scopeSize;
+    }
+}
+
+void IlanaSynthAudioProcessor::copyScopeDataSmooth (float* left, float* right, int numSamples) const
+{
+    numSamples = juce::jlimit (0, scopeSize, numSamples);
+
+    const juce::SpinLock::ScopedLockType lock (scopeLock);
+    const auto block = scopeBlockSamples.load();
+    const auto sinceBlockMs = juce::Time::getMillisecondCounterHiRes() - scopeBlockMs.load();
+    const auto advanced = (int) juce::jlimit (0.0, (double) block, sinceBlockMs * 0.001 * currentSampleRate);
+    const auto lag = juce::jlimit (0, scopeSize - numSamples, block - advanced);
+    auto start = ((scopeWritePos.load() - lag - numSamples) % scopeSize + scopeSize) % scopeSize;
 
     for (int i = 0; i < numSamples; ++i)
     {

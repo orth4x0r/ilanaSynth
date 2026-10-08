@@ -7,8 +7,68 @@
 
 #include "Algorithm.h"
 
+#include <initializer_list>
+
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <emmintrin.h>
+ #define ILANA_MATRIXVERB_SSE 1
+#else
+ #define ILANA_MATRIXVERB_SSE 0
+#endif
+
 namespace airwindows
 {
+// ilanaSynth: sin of two phases at once (cephes' double kernel, SSE2 lanes),
+// for MatrixVerb's sixteen vibrato sines a sample (3 % of a piano patch in
+// libm's sin). Within an ulp or two of std::sin; |x| below 1e9.
+inline void sinPair (double a, double b, double& sinA, double& sinB)
+{
+   #if ILANA_MATRIXVERB_SSE
+    const auto x = _mm_set_pd (b, a);
+    const auto signBit = _mm_set1_pd (-0.0);
+    const auto negative = _mm_and_pd (x, signBit);
+    const auto ax = _mm_andnot_pd (signBit, x);
+    auto j = _mm_cvttpd_epi32 (_mm_mul_pd (ax, _mm_set1_pd (1.27323954473516268615))); // 4 / pi
+    j = _mm_and_si128 (_mm_add_epi32 (j, _mm_set1_epi32 (1)), _mm_set1_epi32 (~1));
+    const auto y = _mm_cvtepi32_pd (j);
+    auto z = _mm_sub_pd (ax, _mm_mul_pd (y, _mm_set1_pd (7.85398125648498535156E-1)));
+    z = _mm_sub_pd (z, _mm_mul_pd (y, _mm_set1_pd (3.77489470793079817668E-8)));
+    z = _mm_sub_pd (z, _mm_mul_pd (y, _mm_set1_pd (2.69515142907905952645E-15)));
+    const auto zz = _mm_mul_pd (z, z);
+
+    auto sp = _mm_set1_pd (1.58962301576546568060E-10);
+    sp = _mm_add_pd (_mm_mul_pd (sp, zz), _mm_set1_pd (-2.50507477628578072866E-8));
+    sp = _mm_add_pd (_mm_mul_pd (sp, zz), _mm_set1_pd (2.75573136213857245213E-6));
+    sp = _mm_add_pd (_mm_mul_pd (sp, zz), _mm_set1_pd (-1.98412698295895385996E-4));
+    sp = _mm_add_pd (_mm_mul_pd (sp, zz), _mm_set1_pd (8.33333333332211858878E-3));
+    sp = _mm_add_pd (_mm_mul_pd (sp, zz), _mm_set1_pd (-1.66666666666666307295E-1));
+    const auto sinZ = _mm_add_pd (z, _mm_mul_pd (_mm_mul_pd (z, zz), sp));
+
+    auto cp = _mm_set1_pd (-1.13585365213876817300E-11);
+    cp = _mm_add_pd (_mm_mul_pd (cp, zz), _mm_set1_pd (2.08757008419747316778E-9));
+    cp = _mm_add_pd (_mm_mul_pd (cp, zz), _mm_set1_pd (-2.75573141792967388112E-7));
+    cp = _mm_add_pd (_mm_mul_pd (cp, zz), _mm_set1_pd (2.48015872888517045348E-5));
+    cp = _mm_add_pd (_mm_mul_pd (cp, zz), _mm_set1_pd (-1.38888888888730564116E-3));
+    cp = _mm_add_pd (_mm_mul_pd (cp, zz), _mm_set1_pd (4.16666666666665929218E-2));
+    const auto cosZ = _mm_add_pd (_mm_sub_pd (_mm_set1_pd (1.0), _mm_mul_pd (_mm_set1_pd (0.5), zz)),
+                                  _mm_mul_pd (_mm_mul_pd (zz, zz), cp));
+
+    // Octant j (even) of |x|: 2 or 6 take the cosine, 4 and 6 flip the sign.
+    const auto lanes = [] (__m128i bits) { return _mm_castsi128_pd (_mm_shuffle_epi32 (bits, _MM_SHUFFLE (1, 1, 0, 0))); };
+    const auto useCos = lanes (_mm_cmpeq_epi32 (_mm_and_si128 (j, _mm_set1_epi32 (2)), _mm_set1_epi32 (2)));
+    const auto flip = lanes (_mm_cmpeq_epi32 (_mm_and_si128 (j, _mm_set1_epi32 (4)), _mm_set1_epi32 (4)));
+    auto r = _mm_or_pd (_mm_and_pd (useCos, cosZ), _mm_andnot_pd (useCos, sinZ));
+    r = _mm_xor_pd (r, _mm_xor_pd (negative, _mm_and_pd (flip, signBit)));
+    alignas (16) double out[2];
+    _mm_store_pd (out, r);
+    sinA = out[0];
+    sinB = out[1];
+   #else
+    sinA = std::sin (a);
+    sinB = std::sin (b);
+   #endif
+}
+
 class MatrixVerb final : public Algorithm
 {
 public:
@@ -346,23 +406,32 @@ private:
             vibHR += (depthH * vibSpeed); //R
             //Depth is shared, but each started at a random position
 
-            double offsetAL = (sin(vibAL)+1.0)*vibDepth;
-            double offsetBL = (sin(vibBL)+1.0)*vibDepth;
-            double offsetCL = (sin(vibCL)+1.0)*vibDepth;
-            double offsetDL = (sin(vibDL)+1.0)*vibDepth;
-            double offsetEL = (sin(vibEL)+1.0)*vibDepth;
-            double offsetFL = (sin(vibFL)+1.0)*vibDepth;
-            double offsetGL = (sin(vibGL)+1.0)*vibDepth;
-            double offsetHL = (sin(vibHL)+1.0)*vibDepth; //L
-
-            double offsetAR = (sin(vibAR)+1.0)*vibDepth;
-            double offsetBR = (sin(vibBR)+1.0)*vibDepth;
-            double offsetCR = (sin(vibCR)+1.0)*vibDepth;
-            double offsetDR = (sin(vibDR)+1.0)*vibDepth;
-            double offsetER = (sin(vibER)+1.0)*vibDepth;
-            double offsetFR = (sin(vibFR)+1.0)*vibDepth;
-            double offsetGR = (sin(vibGR)+1.0)*vibDepth;
-            double offsetHR = (sin(vibHR)+1.0)*vibDepth; //R
+            // ilanaSynth: the sixteen sines two at a time (sinPair).
+            double sinVib[16];
+            sinPair (vibAL, vibBL, sinVib[0], sinVib[1]);
+            sinPair (vibCL, vibDL, sinVib[2], sinVib[3]);
+            sinPair (vibEL, vibFL, sinVib[4], sinVib[5]);
+            sinPair (vibGL, vibHL, sinVib[6], sinVib[7]);
+            sinPair (vibAR, vibBR, sinVib[8], sinVib[9]);
+            sinPair (vibCR, vibDR, sinVib[10], sinVib[11]);
+            sinPair (vibER, vibFR, sinVib[12], sinVib[13]);
+            sinPair (vibGR, vibHR, sinVib[14], sinVib[15]);
+            double offsetAL = (sinVib[0]+1.0)*vibDepth;
+            double offsetBL = (sinVib[1]+1.0)*vibDepth;
+            double offsetCL = (sinVib[2]+1.0)*vibDepth;
+            double offsetDL = (sinVib[3]+1.0)*vibDepth;
+            double offsetEL = (sinVib[4]+1.0)*vibDepth;
+            double offsetFL = (sinVib[5]+1.0)*vibDepth;
+            double offsetGL = (sinVib[6]+1.0)*vibDepth;
+            double offsetHL = (sinVib[7]+1.0)*vibDepth;
+            double offsetAR = (sinVib[8]+1.0)*vibDepth;
+            double offsetBR = (sinVib[9]+1.0)*vibDepth;
+            double offsetCR = (sinVib[10]+1.0)*vibDepth;
+            double offsetDR = (sinVib[11]+1.0)*vibDepth;
+            double offsetER = (sinVib[12]+1.0)*vibDepth;
+            double offsetFR = (sinVib[13]+1.0)*vibDepth;
+            double offsetGR = (sinVib[14]+1.0)*vibDepth;
+            double offsetHR = (sinVib[15]+1.0)*vibDepth;
 
             int workingAL = countA + offsetAL;
             int workingBL = countB + offsetBL;

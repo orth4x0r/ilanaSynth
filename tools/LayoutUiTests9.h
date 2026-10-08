@@ -153,7 +153,8 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
     auto* top = editor.getTopLevelComponent();
     const auto before = top->getBounds();
 
-    // V9-2: six operators on PLAY with no scrolling, compact strips.
+    // V9-2 (ilana, 2026-10-08): six operators on PLAY keep full-size strips and the column
+    // scrolls to reach them; every strip is there with its controls.
     {
         loadNamed ("E.PIANO 1 (ROM1A)");
         editor.showPage ("MAIN");
@@ -166,7 +167,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         {
             auto* trim = knobFor (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_eg_out");
             const auto bounds = area (trim);
-            allShown = allShown && trim != nullptr && pageArea.contains (bounds);
+            allShown = allShown && trim != nullptr && visibleInTree (trim) && ! bounds.isEmpty() && pageArea.getX() <= bounds.getX() && pageArea.getRight() >= bounds.getRight();
             lowest = juce::jmax (lowest, bounds.getBottom());
         }
         std::vector<juce::Viewport*> viewports;
@@ -178,7 +179,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         // (UI review 11, V11-1: PATCH is always the column's last card, so a six-operator
         // column may scroll to reach it; its strips are all there and whole.)
         juce::ignoreUnused (scrolls);
-        expect (allShown, "a six-operator DX7 voice shows all six operators on PLAY (lowest knob "
+        expect (allShown, "a six-operator DX7 voice has all six operators on PLAY, scrolling to reach them (lowest knob "
                                            + juce::String (lowest) + ", page " + pageArea.toString() + ")");
     }
 

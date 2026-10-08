@@ -699,8 +699,12 @@ public:
         other.g0 = g0;
         other.gain0 = gain0;
         other.anchorAge = anchorAge;
+       #if ILANA_WEST_SSE
+        filterPair (left, right, other);
+       #else
         left = filter (left);
         right = other.filter (right);
+       #endif
     }
 
     float getConductance() const { return vactrol.getConductance(); }
@@ -759,6 +763,47 @@ private:
         g = std::tan (juce::MathConstants<double>::pi * juce::jmin (cutoff, sampleRate * 0.45) / sampleRate);
         gain = c > 0.0 ? std::exp2 ((double) t.gainCurve * std::log2 (c)) : std::pow (c, (double) t.gainCurve);
     }
+
+   #if ILANA_WEST_SSE
+    // filter() on both sides at once (SSE2 double lanes, the same arithmetic
+    // per lane); `other` has this gate's settings.
+    void filterPair (float& left, float& right, LowPassGate& o)
+    {
+        auto y = _mm_set_pd ((double) right, (double) left);
+        if (mode != Mode::Vca)
+        {
+            const auto gv = _mm_set1_pd (g);
+            auto s1v = _mm_set_pd (o.s1, s1), s2v = _mm_set_pd (o.s2, s2);
+            const auto hp = _mm_div_pd (_mm_sub_pd (_mm_sub_pd (y, _mm_mul_pd (_mm_set1_pd (damping + g), s1v)), s2v),
+                                        _mm_set1_pd (1.0 + damping * g + g * g));
+            const auto bp = _mm_add_pd (_mm_mul_pd (gv, hp), s1v);
+            s1v = _mm_add_pd (_mm_mul_pd (gv, hp), bp);
+            const auto lp = _mm_add_pd (_mm_mul_pd (gv, bp), s2v);
+            s2v = _mm_add_pd (_mm_mul_pd (gv, bp), lp);
+            y = lp;
+            alignas (16) double a[2], b[2];
+            _mm_store_pd (a, s1v);
+            _mm_store_pd (b, s2v);
+            s1 = a[0]; o.s1 = a[1];
+            s2 = b[0]; o.s2 = b[1];
+        }
+        if (mode != Mode::LowPass)
+            y = _mm_mul_pd (y, _mm_set1_pd (gain));
+        alignas (16) double out[2];
+        _mm_store_pd (out, y);
+        const auto finish = [] (LowPassGate& gate, double v) -> float
+        {
+            if (! std::isfinite (v))
+            {
+                gate.reset();
+                return 0.0f;
+            }
+            return (float) v;
+        };
+        left = finish (*this, out[0]);
+        right = finish (o, out[1]);
+    }
+   #endif
 
     float filter (float input)
     {

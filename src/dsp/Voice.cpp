@@ -2517,7 +2517,48 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                 }
 
-                for (int u = 0; u < (wavetable ? 0 : numOscUnison[osc]); ++u)
+                // Strings alone: the loop below without the other modes'
+                // branches (the same sums in the same order).
+                const auto stringsOnly = settings.stringMode && ! settings.liveMode && ! settings.granularMode
+                                         && ! settings.sampleMode;
+                if (stringsOnly)
+                {
+                    const auto match = params.exciterLevelMatch;
+                    const auto trim = match ? exciterTrim (settings.stringExcite) : 1.0f;
+                    const auto liveIn = params.inputToStrings > 0.0f;
+                    const auto liveAmount = liveSample * params.inputToStrings;
+                    const auto envFactor = alternateAmpRouting ? selectedEnv : 1.0f;
+                    const auto keyGain = keyLevelGain[osc];
+                    const auto fm = (float) fmInput[osc];
+                    const auto out = params.oscOut[osc];
+                    const auto route = routes[osc];
+                    auto mono = oscMono[osc];
+                    auto bl = busL[route], br = busR[route];
+                    for (int u = 0; u < numOscUnison[osc]; ++u)
+                    {
+                        auto& string = stringFor (osc, u);
+                        if (liveIn)
+                            string.addLiveInput (liveAmount);
+                        auto raw = string.process (aftertouchValue, noteHeld, fm);
+                        if (match)
+                            raw *= trim;
+                        stringSum += raw;
+
+                        const auto gain = unisonGains[osc][u] * renderLevel * enable * envFactor * keyGain;
+                        mono += raw * gain;
+                        if (out)
+                        {
+                            const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
+                            bl += raw * heard * panGainL[osc][u];
+                            br += raw * heard * panGainR[osc][u];
+                        }
+                    }
+                    oscMono[osc] = mono;
+                    busL[route] = bl;
+                    busR[route] = br;
+                }
+
+                for (int u = 0; u < (wavetable || stringsOnly ? 0 : numOscUnison[osc]); ++u)
                 {
                     float raw = 0.0f;
                     float sampleL = 0.0f;

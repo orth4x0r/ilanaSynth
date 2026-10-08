@@ -7487,6 +7487,10 @@ static int runHeldCpu (const juce::String& presetName)
     const auto blocksPerSecond = (int) (rate / blockSize);
     double total = 0.0, sumSquares = 0.0, worstBlock = 0.0;
     const auto seconds = juce::jmax (1, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_SECONDS", "8").getIntValue());
+    const auto releaseAfter = juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RELEASE", "0").getIntValue();
+    // ILANA_NO_RELEASE_SILENCE=1: released voices run their whole release.
+    Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
+    IlanaSynthAudioProcessor::disableFxSleep = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_FX_SLEEP", "").isNotEmpty();
     for (int second = 0; second < seconds; ++second)
     {
         const auto start = juce::Time::getMillisecondCounterHiRes();
@@ -7494,6 +7498,10 @@ static int runHeldCpu (const juce::String& presetName)
         {
             juce::MidiBuffer midi;
             // (ILANA_HELD_RESTRIKE=1: the chord again every 2 s, as in playing.)
+            // (ILANA_HELD_RELEASE=n: let go of the chord after n seconds.)
+            if (block == 0 && second > 0 && second == releaseAfter)
+                for (int n = 0; n < heldNotes; ++n)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, notes[n]), 0);
             if (block == 0 && (second == 0 || (second % 2 == 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RESTRIKE", "").isNotEmpty())))
                 for (int n = 0; n < heldNotes; ++n)
                 {
@@ -7518,7 +7526,8 @@ static int runHeldCpu (const juce::String& presetName)
         const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
         total += ms;
         std::cout << "second " << second + 1 << ": " << juce::String (100.0 * ms / (1000.0 * blocksPerSecond * blockSize / rate), 1)
-                  << "% of real time, " << processor.getActiveVoiceCount() << " voices" << std::endl;
+                  << "% of real time, " << processor.getActiveVoiceCount() << " voices, "
+                  << processor.getRenderingVoiceCount() << " rendering" << std::endl;
     }
     std::cout << "mean " << juce::String (100.0 * total / (1000.0 * seconds * blocksPerSecond * blockSize / rate), 1) << "%, rms "
               << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sumSquares / ((double) seconds * blocksPerSecond * blockSize)), -120.0f), 2)

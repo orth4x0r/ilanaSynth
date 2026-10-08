@@ -225,6 +225,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 {
     const auto mono = monoPending;
     const auto legato = mono && monoLegato;
+    releaseSilentSamples = 0;
+    releasePeak = 0.0f;
     const auto keepRunning = mono && monoKeepRunning;
     const auto glide = ! mono || monoGlide;
     monoPending = false;
@@ -1724,6 +1726,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     right[startSample + i] += sampleR * ampGain;
                 else
                     left[startSample + i] += sampleR * ampGain;
+                if (watchReleaseSilence)
+                    releasePeak = juce::jmax (releasePeak, std::abs (sampleL * ampGain), std::abs (sampleR * ampGain));
             }
         }
     };
@@ -2449,6 +2453,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     classifySlowLfos();
 
+    // Watch a released note for silence (not one the modal body, the
+    // Operator EG or a live input can still sound through).
+    watchReleaseSilence = ! disableReleaseSilence && ! noteHeld && ! monoPending && ! dx7Playing && params.liveInput == nullptr
+                          && ! (params.resonatorOn && params.bodyType != 0);
+    if (! watchReleaseSilence)
+        releaseSilentSamples = 0;
+
     for (int chunkStart = 0; chunkStart < numSamples;)
     {
         const auto chunkEnd = sampleFeedback ? chunkStart + 1 : juce::jmin (numSamples, (chunkStart | (maxChunk - 1)) + 1);
@@ -2961,6 +2972,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     if (bodyTailSamplesRemaining > 0)
         bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
+
+    // A released note whose output has stayed under -110 dB for about 90 ms
+    // is over, even if its release time is not: free the voice now rather
+    // than render silence (decayed strings, long releases).
+    if (watchReleaseSilence)
+    {
+        releaseSilentSamples = releasePeak < releaseSilence ? releaseSilentSamples + numSamples : 0;
+        releasePeak = 0.0f;
+        if (releaseSilentSamples >= (int) (sampleRate * 0.09))
+            stopNote (0.0f, false);
+    }
 
     if (! hasActiveAmpEnvelope())
     {

@@ -615,6 +615,8 @@ private:
 public:
     // Tests: run Filter 2 even when it is wide open.
     inline static bool disableOpenFilterBypass = false;
+    // Tests: keep released voices to the end of their release (no silence end).
+    inline static bool disableReleaseSilence = false;
     // The block-wise source path (renderNextBlock); ILANA_NO_BLOCK_SOURCES
     // keeps the per-sample loop everywhere, for comparing the two.
     static bool blockSourcesEnabled()
@@ -732,6 +734,12 @@ private:
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
     bool lfoSlow[VoiceParams::numLfos] {};
+    // Release silence: a released voice ends once its output stays under
+    // releaseSilence (-110 dB) for about 90 ms.
+    static constexpr float releaseSilence = 3.0e-6f;
+    bool watchReleaseSilence = false;
+    float releasePeak = 0.0f;
+    int releaseSilentSamples = 0;
     // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
     LfoSim lfoSims[VoiceParams::numLfos];
     LfoSmoother lfoSmoothers[VoiceParams::numLfos];

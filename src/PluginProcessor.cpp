@@ -567,6 +567,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     for (auto& stage : dcBlock)
         for (auto& channel : stage)
             channel = { 0.0f, 0.0f };
+    fxAsleep = false;
+    fxSilentSamples = 0;
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -709,6 +711,8 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     for (auto& stage : dcBlock)
         for (auto& channel : stage)
             channel = { 0.0f, 0.0f };
+    fxAsleep = false;
+    fxSilentSamples = 0;
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -1784,7 +1788,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     };
 
     blockDc (0);
-    processEffects (buffer);
+    processEffectsUnlessAsleep (buffer);
     blockDc (1);
 
     // MASTER plus the preset's own level (output_trim, 0 unless a factory

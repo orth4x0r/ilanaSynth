@@ -587,7 +587,35 @@ float Voice::voiceLfoValue (int lfo) const
                        lfoParams.custom, lfoParams.customSize);
 }
 
-void Voice::advanceVoiceLfos()
+// An LFO is read at the control rate when only slow routes hear it (see
+// evaluateModsRated) and its value is a function of its phase (and hold):
+// then its shape is worked out only at the samples those routes are
+// evaluated, while its phase still moves every sample. Vital runs an LFO at
+// a control rate unless an audio-rate route needs it.
+void Voice::classifySlowLfos()
+{
+    for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
+    {
+        const auto& settings = params.lfos[lfo];
+        const auto shape = settings.shape;
+        lfoSlow[lfo] = modSlotsPrepared && settings.perVoice && ! settings.needsB
+                       && ! LfoSimShapes::isSim (shape) && ! LfoShapes::isStateful (shape) && ! LfoShapes::isPhysics (shape)
+                       && shape != LfoShapes::Chaos && ! (lfoSmoothCoefficients[lfo] < 1.0f);
+    }
+    for (int k = 0; k < numGroupSlots[1]; ++k)
+    {
+        const auto& slot = params.modSlots[groupSlots[1][(size_t) k]];
+        for (const auto source : { slot.source, slot.aux })
+        {
+            if (const auto lfo = Mod::lfoIndexFor (source); lfo >= 0)
+                lfoSlow[lfo] = false;
+            if (const auto lfo = Mod::lfoBIndexFor (source); lfo >= 0)
+                lfoSlow[lfo] = false;
+        }
+    }
+}
+
+void Voice::advanceVoiceLfos (int sampleIndex)
 {
     for (int index = 0; index < numPerVoiceLfos; ++index)
     {
@@ -612,7 +640,8 @@ void Voice::advanceVoiceLfos()
         else if (LfoShapes::isPhysics (shape))
             lfoChaos[lfo].advancePhysics (shape, lfoIncrements[lfo], params.lfos[lfo].physA, params.lfos[lfo].physB);
 
-        lfoValues[lfo] = voiceLfoValue (lfo);
+        if (! lfoSlow[lfo] || (sampleIndex & (modControlInterval - 1)) == 0)
+            lfoValues[lfo] = voiceLfoValue (lfo);
 
         if (lfoSmoothCoefficients[lfo] < 1.0f || params.lfos[lfo].needsB)
         {
@@ -1831,7 +1860,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     dx7PitchRate = std::exp2 ((double) octaves);
             }
 
-            advanceVoiceLfos();
+            advanceVoiceLfos (i);
             evaluateModsRated (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
             if ((i & 15) == 0)
@@ -2418,6 +2447,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
     };
 
+    classifySlowLfos();
+
     for (int chunkStart = 0; chunkStart < numSamples;)
     {
         const auto chunkEnd = sampleFeedback ? chunkStart + 1 : juce::jmin (numSamples, (chunkStart | (maxChunk - 1)) + 1);
@@ -2471,7 +2502,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 dx7PitchRate = std::exp2 ((double) octaves);
         }
 
-        advanceVoiceLfos();
+        advanceVoiceLfos (i);
         evaluateModsRated (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
         if ((i & 15) == 0)

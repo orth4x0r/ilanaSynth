@@ -522,7 +522,8 @@ private:
                             float filter2Value, float modValue, float env4Value);
     static bool isPerSampleDestination (int destination, bool filterFm);
     void prepareModSlots();
-    void advanceVoiceLfos();
+    void advanceVoiceLfos (int sampleIndex);
+    void classifySlowLfos();
 
     // Per block: the per-voice LFOs and the extra envelopes in use, so the
     // sample loop walks short lists instead of testing every slot.
@@ -730,6 +731,7 @@ private:
     float lfoHolds[VoiceParams::numLfos] {};
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
+    bool lfoSlow[VoiceParams::numLfos] {};
     // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
     LfoSim lfoSims[VoiceParams::numLfos];
     LfoSmoother lfoSmoothers[VoiceParams::numLfos];

@@ -602,12 +602,20 @@ public:
                                  : (double) t.fallSeconds * decayScale * square (1.0 + (double) t.fallSlowing * (1.0 - conductance))
                                        / square (1.0 + (double) t.fallSlowing * 0.5);
         // (The step's coefficient is kept while the time constant holds:
-        // rising, or settled on a steady drive.)
-        if (seconds != lastSeconds)
+        // rising, or settled on a steady drive. Going dark, the time constant
+        // creeps with the conductance: it is worked out again only once
+        // every controlInterval samples, as Vital runs its envelopes at a
+        // control rate; a turn between rising and falling takes effect at
+        // once.)
+        const auto rising = target > conductance;
+        if (seconds != lastSeconds && (rising != lastRising || stepCountdown <= 0))
         {
             lastSeconds = seconds;
+            lastRising = rising;
             lastStep = 1.0 - std::exp (-1.0 / (juce::jmax (1.0e-4, seconds) * sampleRate));
+            stepCountdown = controlInterval;
         }
+        --stepCountdown;
         conductance += (target - conductance) * lastStep;
         conductance = juce::jlimit (0.0, 1.0, conductance);
         return (float) conductance;
@@ -621,9 +629,14 @@ public:
         return conductance == other.conductance && decayScale == other.decayScale && sampleRate == other.sampleRate;
     }
 
+    // Samples between updates of what follows the cell's slow drift.
+    static constexpr int controlInterval = 8;
+
 private:
     double sampleRate = 48000.0, conductance = 0.0, decayScale = 1.0;
     double lastSeconds = -1.0, lastStep = 0.0;
+    bool lastRising = false;
+    int stepCountdown = 0;
 };
 
 class LowPassGate
@@ -643,6 +656,8 @@ public:
         vactrol.reset();
         s1 = s2 = 0.0;
         lastConductance = -1.0;
+        coefficientCountdown = 0;
+        gStep = gainStep = 0.0;
     }
 
     void setParams (Mode newMode, float decay, float resonance)
@@ -676,8 +691,14 @@ public:
         other.vactrol = vactrol;
         updateCoefficients (c);
         other.lastConductance = lastConductance;
+        other.coefficientCountdown = coefficientCountdown;
         other.g = g;
         other.gain = gain;
+        other.gStep = gStep;
+        other.gainStep = gainStep;
+        other.g0 = g0;
+        other.gain0 = gain0;
+        other.anchorAge = anchorAge;
         left = filter (left);
         right = other.filter (right);
     }
@@ -685,12 +706,40 @@ public:
     float getConductance() const { return vactrol.getConductance(); }
 
 private:
-    // The filter's and the amplifier's settings follow the cell; they are
-    // kept while it holds still.
+    // The filter's and the amplifier's settings follow the cell at a control
+    // rate (Vital's way with modulation): worked out once every
+    // controlInterval samples while the cell goes dark, and ramped there in
+    // straight lines on from there. Kept while the cell holds still.
     void updateCoefficients (double c)
     {
+        ++anchorAge;
+        if (coefficientCountdown > 0)
+        {
+            --coefficientCountdown;
+            g += gStep;
+            gain += gainStep;
+            return;
+        }
         if (c == lastConductance)
             return;
+        // Lighting up (a strike: fast) follows every sample.
+        const auto exact = c > lastConductance || lastConductance < 0.0;
+        const auto anchorG = g0, anchorGain = gain0, age = (double) anchorAge;
+        computeCoefficients (c);
+        g0 = g;
+        gain0 = gain;
+        anchorAge = 0;
+        if (exact)
+            return;
+        // Going on from here along the line through the last update, so the
+        // ramp does not lag behind the cell.
+        gStep = (g - anchorG) / age;
+        gainStep = (gain - anchorGain) / age;
+        coefficientCountdown = Vactrol::controlInterval - 1;
+    }
+
+    void computeCoefficients (double c)
+    {
         const auto& t = WestCoastTuning::get();
         lastConductance = c;
         // Cutoff: exponential in the conductance, from a closed gate's
@@ -740,5 +789,7 @@ private:
     Mode mode = Mode::Combo;
     double sampleRate = 48000.0, s1 = 0.0, s2 = 0.0, damping = 1.414;
     double lastConductance = -1.0, g = 0.0, gain = 0.0;
+    double g0 = 0.0, gain0 = 0.0, gStep = 0.0, gainStep = 0.0;
+    int coefficientCountdown = 0, anchorAge = 0;
     double log2RatioOf = 0.0, log2Ratio = 0.0;
 };

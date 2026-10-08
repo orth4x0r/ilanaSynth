@@ -163,6 +163,8 @@ int main (int argc, char** argv)
     // ILANA_NO_RELEASE_SILENCE=1: released voices run to the end of their
     // release (to compare against builds from before the silence end).
     Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
+    Voice::disableSlowEnvelopes = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_SLOW_ENVELOPES", "").isNotEmpty();
+    IlanaSynthAudioProcessor::forceVoiceThreads = juce::SystemStats::getEnvironmentVariable ("ILANA_THREADS", "-1").getIntValue();
     // ILANA_NO_FX_SLEEP=1: the effects run through silence too.
     IlanaSynthAudioProcessor::disableFxSleep = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_FX_SLEEP", "").isNotEmpty();
 

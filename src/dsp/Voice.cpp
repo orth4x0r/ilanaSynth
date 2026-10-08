@@ -227,6 +227,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     const auto legato = mono && monoLegato;
     releaseSilentSamples = 0;
     releasePeak = 0.0f;
+    fadeTotal = fadeRemaining = 0;
+    ampGainFade = 1.0f;
     const auto keepRunning = mono && monoKeepRunning;
     const auto glide = ! mono || monoGlide;
     monoPending = false;
@@ -617,6 +619,55 @@ void Voice::classifySlowLfos()
     }
 }
 
+// Like the slow LFOs: an envelope (other than ENV 1) whose value only
+// reaches what is read at the control points (slow mod routes, the
+// filters' sub-block update) is worked out only there and just moves on in
+// between. Not one that is an oscillator's amp or warp envelope, the WEST
+// gate's source, a per-sample route's source, or (ENV 2 and 3) the filters'
+// envelope while filter FM updates them every sample.
+void Voice::classifySlowEnvelopes()
+{
+    const auto envelopeOf = [] (Mod::Source source)
+    {
+        switch (source)
+        {
+            case Mod::Source::FilterEnv:  return 1;
+            case Mod::Source::FilterEnv2: return 2;
+            case Mod::Source::ModEnv:     return 3;
+            case Mod::Source::Env4:       return 4;
+            default: break;
+        }
+        if (source >= Mod::Source::Env6 && source <= Mod::Source::Env16)
+            return 5 + ((int) source - (int) Mod::Source::Env6);
+        return -1;
+    };
+
+    for (auto& slow : envSlow)
+        slow = modSlotsPrepared && ! disableSlowEnvelopes;
+    envSlow[0] = envSlow[16] = false;
+    if (modFilterFm)
+        envSlow[1] = envSlow[2] = false;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        if (! params.oscillatorEnabled[osc] && oscEnableSmooth[osc].getCurrentValue() <= 0.0005f)
+            continue;
+        const auto& settings = params.oscillators[osc];
+        envSlow[(size_t) juce::jlimit (0, 16, settings.ampEnv)] = false;
+        if (settings.pdEnv > 0)
+            envSlow[(size_t) juce::jlimit (0, 16, settings.pdEnv - 1)] = false;
+    }
+    if (params.west.on && params.west.source != 0)
+        if (const auto env = envelopeOf ((Mod::Source) params.west.source); env >= 0)
+            envSlow[(size_t) env] = false;
+    for (int k = 0; k < numGroupSlots[1]; ++k)
+    {
+        const auto& slot = params.modSlots[groupSlots[1][(size_t) k]];
+        for (const auto source : { slot.source, slot.aux })
+            if (const auto env = envelopeOf (source); env >= 0)
+                envSlow[(size_t) env] = false;
+    }
+}
+
 void Voice::advanceVoiceLfos (int sampleIndex)
 {
     for (int index = 0; index < numPerVoiceLfos; ++index)
@@ -893,6 +944,7 @@ void Voice::prepareModSlots()
         if (targetIndex >= 0 && ! slotHeld[(size_t) s])
             moving[(size_t) targetIndex] = true;
     }
+    modFilterFm = filterFm;
     const auto groupOf = [&] (int targetIndex)
     {
         return targetIndex < -1 || (moving[(size_t) targetIndex] && isPerSampleDestination (targetIndex, filterFm)) ? 1 : 0;
@@ -1315,6 +1367,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         lastAmpValue = 0.0f;
         lastLifetimeValue = 0.0f;
         bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
+        if (fadeTotal > 0 && fadeRemaining == 0)
+            stopNote (0.0f, false);
         if (! hasActiveAmpEnvelope())
             clearCurrentNote();
         return;
@@ -1706,13 +1760,20 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
 
             const auto ampLevelMod = chunkAmpLevel[s];
-            const auto ampGain = (alternateAmpRouting ? 1.0f : chunkAmp[s]) * ampVelScale
-                                 * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod);
+            auto ampGain = (alternateAmpRouting ? 1.0f : chunkAmp[s]) * ampVelScale
+                           * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod);
+
+            // SUSTAIN VOICES: a voice over the cap fades out (startFadeOut).
+            if (fadeTotal > 0)
+            {
+                ampGainFade = fadeRemaining > 0 ? (float) --fadeRemaining / (float) fadeTotal : 0.0f;
+                ampGain *= ampGainFade;
+            }
 
             if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
             {
                 const auto wetGain = resonatorAmount * ampVelScale
-                                     * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod);
+                                     * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod) * ampGainFade;
                 left[startSample + i] += sampleL * ampGain + bodyWetL * wetGain;
                 if (right != nullptr)
                     right[startSample + i] += sampleR * ampGain + bodyWetR * wetGain;
@@ -1824,14 +1885,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto slot = i - chunkStart;
             const auto liveSample = params.liveInput != nullptr ? params.liveInput[startSample + i] : 0.0f;
             const auto ampValue = ampEnv.getNextSample();
-            const auto filterValue = filterEnv.getNextSample();
-            const auto filter2Value = filter2Env.getNextSample();
-            const auto modValue = modEnv.getNextSample();
-            const auto env4Value = env4.getNextSample();
+            const auto control = (i & (modControlInterval - 1)) == 0;
+            const auto filterValue = stepEnvelope (filterEnv, 1, control);
+            const auto filter2Value = stepEnvelope (filter2Env, 2, control);
+            const auto modValue = stepEnvelope (modEnv, 3, control);
+            const auto env4Value = stepEnvelope (env4, 4, control);
             for (int index = 0; index < numNeededExtraEnvs; ++index)
             {
                 const auto env = (size_t) neededExtraEnvs[index];
-                extraEnvValues[env] = extraEnvs[env].getNextSample();
+                extraEnvValues[env] = stepEnvelope (extraEnvs[env], (int) env + 5, control);
             }
             if (params.msegEnvNeeded)
                 msegEnvValue = juce::jlimit (0.0f, 1.0f, envMseg.getNextValue());
@@ -2452,6 +2514,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     };
 
     classifySlowLfos();
+    classifySlowEnvelopes();
 
     // Watch a released note for silence (not one the modal body, the
     // Operator EG or a live input can still sound through).
@@ -2471,14 +2534,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     {
         const auto liveSample = params.liveInput != nullptr ? params.liveInput[startSample + i] : 0.0f;
         const auto ampValue = ampEnv.getNextSample();
-        const auto filterValue = filterEnv.getNextSample();
-        const auto filter2Value = filter2Env.getNextSample();
-        const auto modValue = modEnv.getNextSample();
-        const auto env4Value = env4.getNextSample();
+        const auto control = (i & (modControlInterval - 1)) == 0;
+        const auto filterValue = stepEnvelope (filterEnv, 1, control);
+        const auto filter2Value = stepEnvelope (filter2Env, 2, control);
+        const auto modValue = stepEnvelope (modEnv, 3, control);
+        const auto env4Value = stepEnvelope (env4, 4, control);
         for (int index = 0; index < numNeededExtraEnvs; ++index)
         {
             const auto env = (size_t) neededExtraEnvs[index];
-            extraEnvValues[env] = extraEnvs[env].getNextSample();
+            extraEnvValues[env] = stepEnvelope (extraEnvs[env], (int) env + 5, control);
         }
         if (params.msegEnvNeeded)
             msegEnvValue = juce::jlimit (0.0f, 1.0f, envMseg.getNextValue());
@@ -2973,6 +3037,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     if (bodyTailSamplesRemaining > 0)
         bodyTailSamplesRemaining = juce::jmax (0, bodyTailSamplesRemaining - numSamples);
 
+    if (fadeTotal > 0 && fadeRemaining == 0)
+        stopNote (0.0f, false);
+
     // A released note whose output has stayed under -110 dB for about 90 ms
     // is over, even if its release time is not: free the voice now rather
     // than render silence (decayed strings, long releases).
@@ -3237,8 +3304,10 @@ void Voice::renderBodyTail (float* left, float* right, int startSample, int numS
     {
         if ((i & 15) == 0)
             tuneBody (advanceGlideAndDrift (blockMod (D::Drift)));
-        const auto wetL = materialBodyL.process (0.0f) * wetGain;
-        const auto wetR = materialBodyR.process (0.0f) * wetGain;
+        if (fadeTotal > 0)
+            ampGainFade = fadeRemaining > 0 ? (float) --fadeRemaining / (float) fadeTotal : 0.0f;
+        const auto wetL = materialBodyL.process (0.0f) * wetGain * ampGainFade;
+        const auto wetR = materialBodyR.process (0.0f) * wetGain * ampGainFade;
         if (right != nullptr)
         {
             left[startSample + i] += wetL;

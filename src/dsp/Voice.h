@@ -406,6 +406,14 @@ public:
     Voice();
 
     void setParams (const VoiceParams& newParams) { params = newParams; }
+    // Fade out over the given samples, then end (a voice over SUSTAIN
+    // VOICES); a new note on the voice cancels it.
+    void startFadeOut (int samples) noexcept
+    {
+        if (fadeTotal == 0)
+            fadeTotal = fadeRemaining = juce::jmax (1, samples);
+    }
+    bool isFadingOut() const noexcept { return fadeTotal > 0; }
 
     float getLastAmpValue() const { return lastAmpValue; }
     // Gain bringing each exciter's first-second RMS within ~2 dB of a plucked
@@ -524,6 +532,7 @@ private:
     void prepareModSlots();
     void advanceVoiceLfos (int sampleIndex);
     void classifySlowLfos();
+    void classifySlowEnvelopes();
 
     // Per block: the per-voice LFOs and the extra envelopes in use, so the
     // sample loop walks short lists instead of testing every slot.
@@ -617,6 +626,8 @@ public:
     inline static bool disableOpenFilterBypass = false;
     // Tests: keep released voices to the end of their release (no silence end).
     inline static bool disableReleaseSilence = false;
+    // Tests: every envelope computed every sample (no control-rate envelopes).
+    inline static bool disableSlowEnvelopes = false;
     // The block-wise source path (renderNextBlock); ILANA_NO_BLOCK_SOURCES
     // keeps the per-sample loop everywhere, for comparing the two.
     static bool blockSourcesEnabled()
@@ -734,6 +745,20 @@ private:
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
     bool lfoSlow[VoiceParams::numLfos] {};
+    // Envelopes read only at the control points (classifySlowEnvelopes),
+    // by envelopeValues index: 0 ENV 1 (never), 1-4, 5-15 the extra ones.
+    bool envSlow[17] {};
+    // SUSTAIN VOICES fade (startFadeOut): samples left of fadeTotal.
+    int fadeTotal = 0, fadeRemaining = 0;
+    float ampGainFade = 1.0f;
+    bool modFilterFm = false;
+    float stepEnvelope (TensionAdsr& env, int index, bool control)
+    {
+        if (control || ! envSlow[index])
+            return env.getNextSample();
+        env.skip();
+        return env.getCurrentValue();
+    }
     // Release silence: a released voice ends once its output stays under
     // releaseSilence (-110 dB) for about 90 ms.
     static constexpr float releaseSilence = 3.0e-6f;

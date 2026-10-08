@@ -715,6 +715,87 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
     }
 }
 
+// What the per-sample loops read every sample (the rest, pitch included, is
+// read once a sub-block by updateSubBlock); with filter FM on,
+// updateFilterCoefficients reads the filters' settings every sample too.
+bool Voice::isPerSampleDestination (int destination, bool filterFm)
+{
+    using D = Mod::Destination;
+    switch ((D) destination)
+    {
+        case D::Filter1Cutoff: case D::Filter1Env: case D::Filter1Reso: case D::Filter1Morph:
+        case D::Filter2Cutoff: case D::Filter2Env: case D::Filter2Reso: case D::Filter2Morph:
+            return filterFm;
+        case D::FmAmount: case D::FmFeedback: case D::RingMod:
+        case D::Fm1to2: case D::Fm1to3: case D::Fm2to3: case D::Fm3to1:
+        case D::Fm3to2: case D::Fm2Feedback: case D::Fm3Feedback:
+        case D::Filter1Fm: case D::Filter2Fm:
+        case D::Osc1Frame: case D::Osc2Frame: case D::SubFrame:
+        case D::Osc4Frame: case D::Osc5Frame: case D::Osc6Frame:
+        case D::AmpLevel: case D::Osc1Level: case D::Osc2Level: case D::SubLevel:
+        case D::Osc4Level: case D::Osc5Level: case D::Osc6Level: case D::NoiseLevel:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// One group's slots (prepareModSlots), in slot order: evaluateMods' sums
+// for those destinations, to the bit.
+void Voice::evaluateModGroup (int group, float* mods, int sampleIndex, float ampValue, float filterValue,
+                              float filter2Value, float modValue, float env4Value) const
+{
+    const auto& destinations = groupDestinations[(size_t) group];
+    for (int d = 0; d < numGroupDestinations[(size_t) group]; ++d)
+        mods[destinations[(size_t) d]] = 0.0f;
+
+    if (group == 1 && params.anyExtendedFmMods)
+        fmCellMods.fill (0.0f);
+
+    const auto& slots = groupSlots[(size_t) group];
+    for (int k = 0; k < numGroupSlots[(size_t) group]; ++k)
+    {
+        const auto s = (size_t) slots[(size_t) k];
+        const auto targetIndex = slotTargets[s];
+        auto* target = targetIndex >= 0 ? &mods[targetIndex] : &fmCellMods[(size_t) (-2 - targetIndex)];
+
+        if (slotHeld[s])
+        {
+            *target += slotAmounts[s];
+            continue;
+        }
+
+        const auto& slot = params.modSlots[s];
+        auto value = Mod::shape (slot, sourceValue (slot.source, sampleIndex, ampValue, filterValue,
+                                                    filter2Value, modValue, env4Value));
+
+        if (slot.aux != Mod::Source::None)
+            value *= Mod::auxScale (slot.aux, sourceValue (slot.aux, sampleIndex, ampValue, filterValue,
+                                                            filter2Value, modValue, env4Value));
+
+        *target += slot.depth * value;
+    }
+}
+
+void Voice::evaluateModsRated (float* mods, int sampleIndex, float ampValue, float filterValue,
+                               float filter2Value, float modValue, float env4Value)
+{
+    if (! modSlotsPrepared)
+    {
+        evaluateMods (mods, sampleIndex, ampValue, filterValue, filter2Value, modValue, env4Value);
+        return;
+    }
+
+    // Group 0, the routes read once a sub-block (updateSubBlock, at the same
+    // samples) or only held sources: worked out only there, holding in
+    // between, so the same values where they are read. Group 1, moving
+    // sources into what is read every sample: every sample.
+    if ((sampleIndex & (modControlInterval - 1)) == 0)
+        evaluateModGroup (0, mods, sampleIndex, ampValue, filterValue, filter2Value, modValue, env4Value);
+    if (numGroupSlots[1] > 0)
+        evaluateModGroup (1, mods, sampleIndex, ampValue, filterValue, filter2Value, modValue, env4Value);
+}
+
 void Voice::prepareModSlots()
 {
     // Set only from MIDI and the block's parameters, never inside a render.
@@ -766,6 +847,41 @@ void Voice::prepareModSlots()
 
             slotAmounts[(size_t) s] = slot.depth * value;
         }
+    }
+
+    // Each routed destination's group (see evaluateModsRated): per sample
+    // when it is read every sample and a moving source feeds it; the OSC 4-6
+    // FM cells always.
+    std::array<bool, (size_t) Mod::Destination::Count> moving {};
+    auto filterFm = params.filter1Fm != 0.0f || params.filter2Fm != 0.0f;
+    for (int s = 0; s < params.numModSlots; ++s)
+    {
+        const auto targetIndex = slotTargets[(size_t) s];
+        if (targetIndex == (int) Mod::Destination::Filter1Fm || targetIndex == (int) Mod::Destination::Filter2Fm)
+            filterFm = true;
+        if (targetIndex >= 0 && ! slotHeld[(size_t) s])
+            moving[(size_t) targetIndex] = true;
+    }
+    const auto groupOf = [&] (int targetIndex)
+    {
+        return targetIndex < -1 || (moving[(size_t) targetIndex] && isPerSampleDestination (targetIndex, filterFm)) ? 1 : 0;
+    };
+
+    numGroupSlots = {};
+    for (int s = 0; s < params.numModSlots; ++s)
+    {
+        const auto targetIndex = slotTargets[(size_t) s];
+        if (targetIndex == -1)
+            continue;
+        const auto group = (size_t) groupOf (targetIndex);
+        groupSlots[group][(size_t) numGroupSlots[group]++] = s;
+    }
+    numGroupDestinations = {};
+    for (int d = 0; d < params.numActiveDestinations; ++d)
+    {
+        const auto destination = params.activeDestinations[d];
+        const auto group = (size_t) groupOf (destination);
+        groupDestinations[group][(size_t) numGroupDestinations[group]++] = destination;
     }
 
     modSlotsPrepared = true;
@@ -1716,7 +1832,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
 
             advanceVoiceLfos();
-            evaluateMods (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
+            evaluateModsRated (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
             if ((i & 15) == 0)
                 updateSubBlock (mods, filterValue, filter2Value, envelopeValues);
@@ -2356,7 +2472,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
 
         advanceVoiceLfos();
-        evaluateMods (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
+        evaluateModsRated (mods, i, ampValue, filterValue, filter2Value, modValue, env4Value);
 
         if ((i & 15) == 0)
             updateSubBlock (mods, filterValue, filter2Value, envelopeValues);

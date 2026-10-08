@@ -512,6 +512,15 @@ private:
                        float filter2Value, float modValue, float env4Value) const;
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
+    void evaluateModGroup (int group, float* mods, int sampleIndex, float ampValue, float filterValue,
+                           float filter2Value, float modValue, float env4Value) const;
+    // evaluateMods in the per-sample loops: moving routes into what is read
+    // every sample (FM, frames, levels) every sample, the rest every
+    // modControlInterval samples, where they are read (Vital runs its
+    // modulation at a control rate).
+    void evaluateModsRated (float* mods, int sampleIndex, float ampValue, float filterValue,
+                            float filter2Value, float modValue, float env4Value);
+    static bool isPerSampleDestination (int destination, bool filterFm);
     void prepareModSlots();
     void advanceVoiceLfos();
 
@@ -708,6 +717,12 @@ private:
     std::array<float, Mod::maxSlots> slotAmounts {};
     std::array<bool, Mod::maxSlots> slotHeld {};
     bool modSlotsPrepared = false;
+
+    // Control-rate modulation (evaluateModsRated): each slot's group and the
+    // routed destinations of each. The interval is updateSubBlock's.
+    static constexpr int modControlInterval = 16;
+    std::array<std::array<int, Mod::maxSlots>, 2> groupSlots {}, groupDestinations {}; // [0] slow, [1] per sample
+    std::array<int, 2> numGroupSlots {}, numGroupDestinations {};
     std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};

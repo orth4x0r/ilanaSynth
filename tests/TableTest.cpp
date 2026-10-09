@@ -26,6 +26,7 @@
 #include "dsp/UnisonBank.h"
 #include "dsp/Voice.h"
 #include "dsp/Wavetable.h"
+#include "dsp/TableFFT.h"
 #include "dsp/WavetableOscillator.h"
 #include "SamplingProfiler.h"
 
@@ -3107,6 +3108,63 @@ void runPerVoiceLfoSpectralTest()
     check (retrigGap < 0.05 && freeGap > 0.1,
            "a retriggered LFO into SPEC AMT morphs from each note's start (late-note gap retrig " + juce::String (retrigGap, 3)
                + ", free " + juce::String (freeGap, 3) + ")");
+}
+
+void runAudioImportModesTest()
+{
+    // Vocode: each frame's harmonics follow the audio spectrum at that point (bin 100 early, bin 300 late).
+    {
+        std::vector<float> audio (16384);
+        for (size_t i = 0; i < audio.size(); ++i)
+        {
+            const auto bin = i < audio.size() / 2 ? 100.0 : 300.0;
+            audio[i] = (float) std::sin (2.0 * juce::MathConstants<double>::pi * bin * (double) i / 2048.0);
+        }
+
+        std::vector<std::vector<float>> frames;
+        Wavetable::vocode (audio, frames);
+        check (frames.size() == 32, "vocode makes 32 frames");
+
+        const auto peakHarmonic = [] (const std::vector<float>& frame)
+        {
+            TableFFT fft (11);
+            std::vector<std::complex<float>> in (2048), out (2048);
+            for (size_t i = 0; i < 2048; ++i)
+                in[i] = frame[i];
+            fft.perform (in.data(), out.data(), false);
+            int best = 1;
+            for (int k = 1; k < 1024; ++k)
+                if (std::abs (out[(size_t) k]) > std::abs (out[(size_t) best]))
+                    best = k;
+            return best;
+        };
+
+        if (frames.size() == 32)
+        {
+            const auto early = peakHarmonic (frames.front()), late = peakHarmonic (frames.back());
+            check (std::abs (early - 100) <= 2 && std::abs (late - 300) <= 2,
+                   "vocode frames follow the spectrum (peak harmonic " + juce::String (early) + " -> " + juce::String (late) + ")");
+            auto peak = 0.0f;
+            for (const auto v : frames[10])
+                peak = juce::jmax (peak, std::abs (v));
+            check (peak > 0.85f && peak < 0.95f, "vocode frames are normalised");
+        }
+    }
+
+    // Time slice: equal slices in time order, each squeezed to one cycle.
+    {
+        std::vector<float> audio (32 * 500);
+        for (size_t i = 0; i < audio.size(); ++i)
+            audio[i] = (float) i / (float) audio.size();
+
+        std::vector<std::vector<float>> frames;
+        Wavetable::timeSlice (audio, frames);
+        check (frames.size() == 32 && frames[0].size() == 2048, "time slice makes 32 frames of 2048");
+
+        if (frames.size() == 32)
+            check (std::abs (frames[16][0] - 0.5f) < 0.01f && frames[31][0] > frames[1][0],
+                   "time slice frames follow the file in time order");
+    }
 }
 
 void runUnisonTests()
@@ -9828,6 +9886,7 @@ int main()
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
+    timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
     timedRun ("runMatrixTests", [] { runMatrixTests(); });
     timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });

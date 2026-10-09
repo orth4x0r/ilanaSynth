@@ -2294,6 +2294,8 @@ private:
             juce::PopupMenu menu;
             menu.addItem (1, "Load wavetable file...");
             menu.addItem (2, "Make a wavetable from any audio...");
+            menu.addItem (4, "Vocode: harmonics follow the audio's spectrum...");
+            menu.addItem (5, "Time slice: equal slices of the audio, one cycle each...");
             menu.addSeparator();
             menu.addItem (3, "(Any audio: the pitch is detected and one cycle per frame is taken across the file)", false);
 
@@ -2301,10 +2303,12 @@ private:
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&button),
                                 [safeMenu, tableId, tableChoiceOffset] (int result)
                                 {
-                                    if (safeMenu != nullptr && (result == 1 || result == 2))
+                                    if (safeMenu != nullptr && (result == 1 || result == 2 || result == 4 || result == 5))
                                         safeMenu->chooseTable (tableId, tableChoiceOffset,
                                                                result == 2 ? Wavetable::LoadMode::Resynthesize
-                                                                           : Wavetable::LoadMode::Automatic);
+                                                               : result == 4 ? Wavetable::LoadMode::Vocode
+                                                               : result == 5 ? Wavetable::LoadMode::TimeSlice
+                                                                             : Wavetable::LoadMode::Automatic);
                                 });
         };
     }

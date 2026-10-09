@@ -18,7 +18,9 @@ public:
     {
         Automatic,    // frame-sliced wavetable if the length says so, else resynthesize
         Frames,       // the file is already a wavetable: back-to-back single cycles
-        Resynthesize  // any audio: detect the pitch and cut one cycle per frame
+        Resynthesize, // any audio: detect the pitch and cut one cycle per frame
+        Vocode,       // any audio: each frame takes its harmonic levels from the spectrum at that point in time
+        TimeSlice     // any audio: the file is cut into equal time slices, each squeezed into one cycle
     };
 
     bool loadFromFile (const juce::File& file, LoadMode mode = LoadMode::Automatic);
@@ -34,6 +36,12 @@ public:
     // was found (in which case fixed windows are used).
     static bool resynthesize (const std::vector<float>& audio, double sampleRate,
                               std::vector<std::vector<float>>& frames, int maxFrames = 64);
+
+    // Vocode: frames whose harmonics follow the audio's spectrum at evenly spaced points (a fixed phase set keeps them smooth).
+    static void vocode (const std::vector<float>& audio, std::vector<std::vector<float>>& frames, int numFrames = 32);
+
+    // Time slice: the audio cut into equal slices, each resampled to one cycle.
+    static void timeSlice (const std::vector<float>& audio, std::vector<std::vector<float>>& frames, int numFrames = 32);
 
     // Detected period in samples (fractional), or 0 if the audio is unpitched.
     static double detectPeriod (const float* audio, int numSamples, double sampleRate);

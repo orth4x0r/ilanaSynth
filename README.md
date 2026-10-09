@@ -1,27 +1,73 @@
-# IlanaSynth — v1.3
+# ilanaSynth
 
-**IlanaSynth, para un sonido más bruto.** (for a more brutal sound)
+**para un sonido más bruto** (for a more brutal sound)
 
-A physical hybrid synthesizer: strings, bows, hammers, pianos and resonant bodies you can break, wired into wavetable, FM, granular and sample engines. VST3, CLAP and AU, built with JUCE.
+A physical-hybrid synthesizer: strings, bows, hammers, electric pianos and resonant bodies you can break, wired into wavetable, FM / DX7, granular and sample engines, through two routable filters and a 41-type effects rack. VST3, CLAP, AU and standalone, built with [JUCE](https://juce.com). Version 1.3.0 plus everything merged since (see [Since 1.3](#since-13)).
+
+<p align="center"><img src="docs/img/play.png" alt="The PLAY page: oscillator strips, the MODULATION card, the filter and the dock" width="920"></p>
+
+ilanaSynth is a personal project. It is built for one person's music and is not packaged or licensed for redistribution (see [Licence and credits](#licence-and-credits)).
 
 ---
 
 ## What it is
 
-IlanaSynth is a complete sound design machine:
-- **Oscillators:** six full oscillators, each with wavetable, physical modelling (strings, and Rhodes- and Wurlitzer-style electric pianos), sample, granular and live-input modes, plus a dedicated sub. OSC 4–6 start off. Sample mode also plays SoundFont (SF2) and SFZ multisamples: drop the file on the oscillator's display, or right-click it.
-- **FM:** six operators in a 6×6 matrix, with 16 one-click algorithms, ratio / fixed tuning, three feedback styles and a noise operator.
-- **Wavetables:** 40 wavetables, a built-in **wavetable editor** (draw, harmonics, formulas, morphs; Serum/Vital-compatible export), and 16 patch tables saved inside the patch. Spectral warps reshape their harmonics, and Casio CZ-style phase distortion bends them.
-- **Filters and envelopes:** 39 filter models across two routable filters (Low, Band and High Pass and Notch are Airwindows' Y filters; nine Airwindows character filters; a tuneable Disperser), and a pool of sixteen tension envelopes.
-- **Modulation:** sixteen LFOs with chaos and physics shapes, a step sequencer, an MSEG and a 64-slot modulation matrix.
-- **Effects:** a 10-slot rack with 31 modules, including a trance gate, a channel vocoder (audio input or built-in Talk modulator) and 39 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side: right-click it, Band), so a run of slots is a chain per band.
-- **Generative tools:** an arpeggiator with scale-random mode, a clip sequencer (8 clips of notes saved in the patch, a piano roll, MIDI import; a held key transposes the clip, or it follows the host's play), plus note spray and scale snapping.
-- **BODY:** material bodies (bar, plate, bell, shell) or the classic tuned resonator, rung by the oscillators.
-- **ilanaSynth FX:** the same engine as an effect plugin. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
+A complete sound design machine, and the same engine as an effect plugin.
 
-It all sits in a hardware-inspired interface with 371 factory presets.
+- **Oscillators:** six full oscillators, each in wavetable, FM / DX7, physical-model, sample, granular or live-input mode, plus a dedicated sub and noise layer. OSC 4–6 start off. Sample mode also plays SoundFont (SF2) and SFZ multisamples.
+- **Wavetables:** 120 factory tables, a built-in wavetable editor (draw, harmonics, formulas, morphs, Serum / Vital-compatible import and export) and 16 patch tables saved inside the patch. Eleven spectral warps, classic warp modes (Sync, Bend, PWM, Mirror, Asym, Quantize, FM, Ring) and the Casio CZ's phase distortion.
+- **Unison:** up to 16 voices per oscillator with eleven stack modes (Classic, Hypersaw, Octaves, Fifths, Center Drop, 2x Octaves, Power Chord, Major, Minor, Harmonics, Odd Harmonics).
+- **Physical models:** plucked, bowed and hammered strings, a felt-hammer piano exciter on a dense soundboard, Rhodes- and Wurlitzer-style electric pianos (Tine, Reed), a feedback-guitar exciter, material bodies (bar, plate, bell, shell), sympathetic strings, a west-coast wavefolder with a vactrol low-pass gate, and a PHYSICAL page that draws the string, exciter and body.
+- **FM and DX7:** a 6×6 operator matrix with 16 one-click algorithms and all 32 DX7 algorithms, three FM styles, the DX7's own Operator Envelope, key scaling, a pitch EG and LFO, a noise operator, 288 DX7 ROM and Dexed voices built in and `.syx` import for the rest.
+- **Filters:** two routable filters (serial or parallel) with 39 models: zero-delay ladders, diode, OTA, SEM, MS-20, Steiner-Parker, 303 Acid, combs, vowel filters, Airwindows' Y filters and nine Airwindows character filters, and a tuneable Disperser.
+- **Modulation:** 16 LFOs (including chaos and physics shapes), 16 tension envelopes, a step sequencer, an MSEG, 8 macros and a 64-slot matrix with per-route response curves. Drag any source onto any knob; the PLAY page's MODULATION card and the dock chips edit any source from any page.
+- **Effects:** a 10-slot rack with 41 module types in series or parallel, including a trance gate, a channel vocoder and 54 Airwindows algorithms. Any slot can work on one band (low, mid, high, mid or side).
+- **Generative tools:** an arpeggiator, a Euclidean sequencer, a probability sequencer, a clip sequencer with a piano roll and MIDI import / export, note spray, strum and scale snapping.
+- **Presets:** 659 factory presets (371 sound-design presets and 288 DX7 voices), a tagged and searchable browser with a dockable side panel, favourites and user presets.
+- **ilanaSynth FX:** a second plugin built from the same sources. Audio coming in rings the bodies and strings, is granulated live, or plays as an oscillator through the filters and effects.
+- **Efficient:** SIMD in the hot paths, control-rate modulation and optional multi-core voice rendering; the heaviest presets now run in roughly half the CPU they did.
 
 ---
+
+## A look around
+
+| | |
+|---|---|
+| ![OSC](docs/img/osc.png) | ![PHYSICAL](docs/img/physical.png) |
+| **OSC**: one compact card per oscillator; voice, stereo, sub, strings and soundboard in a single strip. | **PHYSICAL**: the string, exciter and body drawn live, with their controls. |
+| ![FILTER](docs/img/filter.png) | ![FM](docs/img/fm.png) |
+| **FILTER**: a full-width response display, 39 models and a signal-flow strip. | **FM**: the operator matrix, DX7 algorithms and the Operator Envelope. |
+| ![MOD](docs/img/mod.png) | ![FX](docs/img/fx.png) |
+| **MOD**: envelopes and LFOs with route lists, step sequencers and the matrix. | **FX**: a vertical signal rail with a live row and display per effect. |
+
+---
+
+## Since 1.3
+
+Everything below is on `main` and goes beyond the v1.3.0 release notes further down. Old patches and presets load and sound as before (every change is appended; parameter IDs and choice indices are never renumbered).
+
+**Interface**
+- **PLAY redesign:** a 52 px header, a tab bar carrying the BPM, voice and CPU readouts, and a dock of pill chips with a six-octave keyboard. PLAY is one 10 px grid of full-size oscillator strips (a big wave, menus and six knobs each, FM / DX7 operators with their own knobs and an envelope menu) that scroll past three.
+- **MODULATION card:** one card with a tab per source (LFOs, envelopes, macros, performance sources), the selected source's graph and controls, and a DRIVES list of every route with a depth bar you can drag. **Dock chips** show their route count and a live trace, and a click opens that source's editor as a floating pop-out on any page.
+- **Design pass on every page:** OSC, FILTER, PHYSICAL, ENV / LFO, FM and FX follow one set of mockups; text is about 10% larger; pages fold unused cards instead of leaving empty space (benchmarked against Vital and Serum 2).
+- **Fifteen UI reviews** against Vital and Serum 2: undo for every gesture, MIDI learn on every control, a confirm before replacing an edited patch, draggable depth rings on every knob, a one-name-per-source colour scheme, a numbered and sortable matrix, SAVE in place and a themed SAVE AS, a dockable preset browser, wavetable browser with audition, clip editor selection and velocity lane.
+- **Named macros:** every factory preset's macros are named for what they audibly do.
+
+**Sound**
+- **DX7 folded into FM:** there is no separate DX7 mode. **Operator EG** is an ENVELOPE choice any oscillator can use; **FM / DX7** is an oscillator type. The 8 ROM banks and Dexed voices are factory presets, and the preset menu imports any `.syx` file.
+- **Airwindows:** the Low / Band / High Pass and Notch models are Airwindows' Y filters; nine character filters and a tuneable Disperser join them. In the rack, ten category modules (Tape, Saturation, Reverb, Delay, Modulation, Dynamics, EQ, Console, Lo-Fi, Stereo) pick from 54 ported algorithms.
+- **Spectral warps, unison and drive (Vital parity):** Low Pass, High Pass, Phase Disperse, Random Amps and Skew spectral warps; Formant and Squeeze warp modes; seven new unison stack modes; **FRM SPR** and **WRP SPR** spread each unison voice's wavetable frame and warp amount; **Hard Clip** (and Soft Clip) drive modes and a **Sine Fold**; and a per-oscillator **scale quantize** (scale and root, semitone tuning).
+- **Vocoder, splitters and more:** a channel vocoder (audio input or a built-in Talk modulator), FX band splitters (low / mid / high, mid / side), parallel FX routing, SF2 / SFZ multisamples, Scala microtuning and MTS-ESP.
+- **Modulation curves:** any matrix route can carry a drawn response curve; LFO shapes are drawable; MIDI CCs drive all 8 macros.
+- **Presets:** a diversity pass using the new filters and effects, more distinct archetypes per category, and ilana's own presets in `content/user-presets`.
+
+**Performance and platforms**
+- **CPU:** SSE2 / AVX paths for the wavefolder, Y filters, unison strings, soundboard and reverb; Vital-style control-rate modulation; release-silence freeing; block-wise FM operators; and optional **multi-core voice rendering** (`multi_core`, on by default). Output is byte-identical to single-threaded rendering.
+- **GPU UI** (OpenGL) on macOS and Linux; Windows keeps Direct2D.
+- **Self-hosted CI runner** for the Windows PC (`docs/SELF-HOSTED-RUNNER.md`); `tools/verify.sh` and `tools/verify.ps1` run the whole gate locally.
+
+---
+
 
 ## What's new in 1.3
 
@@ -128,7 +174,7 @@ It all sits in a hardware-inspired interface with 371 factory presets.
 ### Oscillators (6)
 
 Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at full size. **+ ADD OSCILLATOR** (OSC and MAIN pages) adds the next one, switched on, and **×** removes one (switches it off and hides it). More than three cards scroll. OSC 4–6 are off and hidden in old patches and new Init patches; an oscillator that is on is always shown. The FM page's diagram and matrix show only the added oscillators.
-- Four modes per oscillator:
+- Six modes per oscillator (Wavetable, Physical, Sample, Granular, Live and FM / DX7, the operator type):
   - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 16 patch tables (User 1–16) saved inside the patch.
     - Click the TABLE box for the visual browser.
     - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display. Tables from Serum, Vital and other tools load with their frame size.
@@ -180,13 +226,11 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - Every route is a modulation destination.
 
 ### Filters (2)
-- 29 models. The first page has the classic twelve in three groups (CLASSIC, CHARACTER, SPECIAL); **MORE >** turns to seventeen more (ANALOG, SHAPES, VOICE: see *What's new since 1.2*):
-  - Low pass, Band pass, High pass and Notch (12 or 24 dB)
-  - Ladder LP and Ladder HP
-  - Diode LP and MS-20 LP
-  - Comb + and Comb −
-  - Formant (vowel morph)
-  - Morph (LP → BP → HP)
+- 39 models in two pages of a type grid:
+  - **BASIC**: Low, Band and High Pass and Notch (Airwindows' Y filters, 12 or 24 dB), Ladder LP and HP, Diode LP, MS-20 LP, Comb + and Comb −, Formant, Morph
+  - **ANALOG, SHAPES and VOICE**: Ladder BP and Drive, SEM, OTA LP and BP, MS-20 HP, Steiner-Parker, Phaser Notch, damped and morphing combs, Vowel, Talking, Twin Peak, 303 Acid, Moog Drive, Vowel Morph, Comb Body
+  - **AIRWINDOWS**: Z Low / High / Band Pass, Acid, X Low Pass, YNot, Holt, Angle, Pear, and a tuneable **Disperser** (an all-pass chain at the cutoff, key-tracked)
+  - The analog models are zero-delay circuits solved every sample, so full resonance self-oscillates exactly at the cutoff and plays in tune with key tracking.
 - Controls: cutoff, resonance (self-oscillating at the top), drive, envelope amount, key tracking, audio-rate FM and morph.
 - **Routing:**
   - **Serial** (F1 into F2) or **parallel**, with a BALANCE control between the two filters in parallel.
@@ -246,23 +290,24 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - the MOD / FILTER 1 / FILTER 2 / AMP / ENV 5 envelopes, plus ENV 6–16
   - velocity, key track and random
   - mod wheel, aftertouch and expression
-  - 4 macros and a clocked sample & hold
+  - 8 macros and a clocked sample & hold
 - **Drag a source chip or card onto any knob** to assign it.
   - Drag the coloured dot next to the knob to set the depth, or double-click the dot to remove the routing.
   - Hovering a source highlights everything it modulates.
 - **Right-click any knob** for quick modulation, reset, copy/paste and MIDI learn.
-- **Four macros** with editable names (double-click a name), shown in the bottom bar and in the matrix.
+- **Eight macros** with editable names (double-click a name). The dock shows four plus any in use, with a "+" that adds the next. Every factory preset names its macros for what they do, and EVOLVE can drift them.
 
-### Effects rack (10 slots, 30 modules)
+### Effects rack (10 slots, 41 module types)
 **Modules:**
 - **Drive and dynamics**: Drive (tube / fuzz / clean), Bit Crusher, Amp, Compressor, OTT, Limiter, Utility
 - **Modulation**: Chorus, Phaser, Flanger, Dimension, Tremolo, Comb
 - **Delay and time**: Delay (with tape pitch and wow), Multi-Tap delay with a drawable tap grid, Feedback, Tape Stop
 - **Space and texture**: Reverb (Room, Hall, Plate, Shimmer, Spring, Gated, and user IR loading), Smear, Freeze, Granular Stutter (reverse and pitch)
+- **Vocoder**: a channel vocoder (8–24 bands) driven by the audio input or a built-in Talk modulator
 - **Trance Gate**: patterns or up to 16 custom steps, with swing
 - **Tone**: Tilt EQ, 3-band parametric EQ
 - **Stereo and pitch**: Haas, Stereo Width, Frequency Shifter, Ring Mod, Octaver, Vowel filter
-- **Airwindows**: 39 of Chris Johnson's Airwindows algorithms (MIT) in one module, picked from a menu by family: tape and saturation (ToTape6, IronOxide5, Density, Spiral2, Tube2, Mojo...), consoles (Console7, Channel9), EQ (Air, Capacitor2, Baxandall2, Isolator2, Holt2), dynamics (Pressure5, ButterComp2, Logical4, Pop2), space (Galactic, kCathedral, Verbity2, Chamber, MatrixVerb), stereo (Wider, Srsly2, ToVinyl4), lo-fi (DeRez2, Deckwrecka, BitShiftGain) and character (DrumSlam, Inflamer, Flutter, ChorusEnsemble); the knobs take each algorithm's own names
+- **Airwindows**: 54 of Chris Johnson's Airwindows algorithms (MIT), in one all-in-one module and in ten category modules (Tape, Saturation, Reverb, Delay, Modulation, Dynamics, EQ, Console, Lo-Fi, Stereo), picked from a menu by family: tape and saturation (ToTape6, IronOxide5, Density, Spiral2, Tube2, Mojo...), consoles (Console7, Channel9), EQ (Air, Capacitor2, Baxandall2, Isolator2, Holt2), dynamics (Pressure5, ButterComp2, Logical4, Pop2), space (Galactic, kCathedral, Verbity2, Chamber, MatrixVerb), stereo (Wider, Srsly2, ToVinyl4), lo-fi (DeRez2, Deckwrecka, BitShiftGain) and character (DrumSlam, Inflamer, Flutter, ChorusEnsemble); the knobs take each algorithm's own names
 
 **Rack controls:**
 - Modules are coloured by family and stacked in a scrollable view.
@@ -273,7 +318,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 - The OUTPUT strip has the soft clipper and clip gain.
 
 ### Voice & global
-- **Voices**: 32-voice polyphony with a voice limit, and Poly, Mono and Legato modes.
+- **Voices**: 32-voice polyphony with a voice limit, Poly, Mono and Legato modes, and optional multi-core rendering (settings menu) that is byte-identical to single-threaded.
 - **Glide and bend**: glide (optionally legato-only, with the LEGATO switch next to it) and pitch-bend range.
 - **MPE mode** in the settings menu.
 - **Microtuning**: Scala scales (.scl) with optional keyboard mappings (.kbm) from the settings menu (Tuning); saved inside the patch, STRETCH still applies on top.
@@ -287,7 +332,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 
 ### Interface
 - **Design**: calm flat graphite with one accent colour (4 themes), Manrope type with fixed-width digits, and glowing, animated controls: knob arcs flare as they move, switches slide, lit buttons breathe. Resize it from the corner (75–200%) or from the settings menu.
-- **Tabs**: PLAY (overview, vector), OSC (oscillators, physical view), FILTER, MOD (envelopes and LFOs, step LFOs and MSEG, matrix), FM, SEQ and FX; tabs with several pages switch them at the right of the tab row. Number keys 1–7 switch tabs. Switched-off oscillators fold to one line, and the FX rack lists only the slots in use plus one to add to.
+- **Tabs**: PLAY (overview with the MODULATION card, vector pad), OSC (oscillators, physical view), FILTER, MOD (envelopes and LFOs, step LFOs and MSEG, matrix), FM, SEQ and FX; tabs with several pages switch them at the right of the tab row. Number keys 1–7 switch tabs. Switched-off oscillators fold to one line, and the FX rack lists only the slots in use plus one to add to.
 - **Header**:
   - preset name with category and an EDITED marker
   - previous / next and favourite
@@ -296,10 +341,10 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
   - COMPARE: flip between two versions of the patch (A and B)
   - DICE: randomise or mutate the patch, or one section of it
   - settings
-- **Bottom bar**: the modulation source chips (click one to keep every knob it drives lit, click again to clear), the four macros, glide, legato, master and an output meter (it lights red after a clip; click to reset). Voice mode, voice limit and pitch-bend range are in the settings menu (the gear). The on-screen keyboard opens with KEYS.
+- **Bottom bar**: the modulation source chips (click one to keep every knob it drives lit, click again to clear), the macros, glide, legato, master and an output meter (it lights red after a clip; click to reset). Voice mode, voice limit and pitch-bend range are in the settings menu (the gear). The on-screen keyboard opens with KEYS.
   - A source chip glows with its source's live value while that source modulates something.
 - **Help**: tooltips on hover, and a welcome tour (re-open it with the `?` button).
-- **Presets**: 371 factory presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX. The browser has search (names, categories and tags), favourites and user presets.
+- **Presets**: 659 factory presets: 371 sound-design presets in Bass, Lead, Pluck, Pad, Keys, Chords, Arp, Drone, Drums, Generative and FX, and 288 DX7 voices (the ROM banks and Dexed) filed by bank. The browser has search (names, categories and tags), favourites, user presets (including `.syx` import) and can dock as a side panel.
 
 ---
 
@@ -418,4 +463,28 @@ cmake --build build --config Release
 
 ---
 
-*IlanaSynth v1.3 — Ilana Audio.*
+## Project docs
+
+- [HANDOFF.md](HANDOFF.md): current state, rules and open issues (read first)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): code map, tests and tools
+- [docs/DECISIONS.md](docs/DECISIONS.md): why things are the way they are
+- [docs/REVIEW-PLAN.md](docs/REVIEW-PLAN.md): the roadmap and what is done
+- [docs/UI-CONVENTIONS.md](docs/UI-CONVENTIONS.md): the interface's shared rules
+- [docs/SELF-HOSTED-RUNNER.md](docs/SELF-HOSTED-RUNNER.md): running the gate on a Windows PC
+
+---
+
+## Licence and credits
+
+ilanaSynth is a personal project with **no licence file**: it is not offered for redistribution or reuse, and no open-source licence is granted. Some features are modelled on what Vital, Serum, the Yamaha DX7 and other synths do; they are reimplemented from their behaviour, and HANDOFF.md keeps a list of anything derived from third-party code.
+
+Third-party parts keep their own licences:
+- [JUCE](https://juce.com) (fetched at build time) and clap-juce-extensions
+- [Airwindows](https://github.com/airwindows/airwindows) algorithms by Chris Johnson (MIT)
+- MTS-ESP client by ODDSound (ISC-style permissive licence, `src/thirdparty/mts-esp/LICENSE`)
+- AKWF wavetables and VCSL samples (CC0), Manrope typeface (OFL)
+- The DX7 operator engine is a port of the open-source msfa engine (as used in Dexed); the ROM and Dexed voice banks are Yamaha factory voices
+
+---
+
+*ilanaSynth, para un sonido más bruto.*

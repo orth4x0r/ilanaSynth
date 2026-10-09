@@ -1118,6 +1118,17 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         auto slot = readModSlot (i);
         slot.remap = activeModRemapOn[(size_t) i] ? activeModRemapTables[(size_t) i].data() : nullptr;
 
+        // A spectral amount fed by a retriggered LFO is worked out per voice, like an envelope.
+        if (Mod::spectralOscFor (slot.destination) >= 0)
+            for (const auto source : { slot.source, slot.aux })
+            {
+                const auto lfo = juce::jmax (Mod::lfoIndexFor (source), Mod::lfoBIndexFor (source));
+
+                if (lfo >= 0 && lfo < numLfos)
+                    slot.perVoiceLfo = slot.perVoiceLfo || getParam (lfoIds[(size_t) lfo].retrig) > 0.5f
+                                       || getParam (lfoIds[(size_t) lfo].key) > 0.5f;
+            }
+
         if (slot.isActive())
             activeSlots[numActiveSlots++] = slot;
     }

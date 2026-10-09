@@ -3059,6 +3059,56 @@ void runStereoModulationTest()
                + ", on " + juce::String (on, 2) + ")");
 }
 
+void runPerVoiceLfoSpectralTest()
+{
+    // An LFO that retriggers per note, routed into SPEC AMT, morphs each note from its own start; a free LFO does not.
+    const auto brightness = [] (bool retrig, int delayBlocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 10.0f);
+        setParam (processor, "osc1_spectral", (float) SpectralWarp::LowPass);
+        setParam (processor, "osc1_spectral_amt", 0.4f);
+        setParam (processor, "lfo1_rate", 2.0f);
+        setParam (processor, "lfo1_retrig", retrig ? 1.0f : 0.0f);
+        setParam (processor, "mod1_src", (float) Mod::Source::Lfo1);
+        setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_spectral_amt"));
+        setParam (processor, "mod1_amt", 0.9f);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto energy = 0.0, change = 0.0;
+
+        for (int block = 0; block < delayBlocks + 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == delayBlocks)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block >= delayBlocks + 40)
+                for (int i = 1; i < 512; ++i)
+                {
+                    const auto x = (double) buffer.getSample (0, i), d = x - buffer.getSample (0, i - 1);
+                    energy += x * x;
+                    change += d * d;
+                }
+        }
+
+        return std::sqrt (change / juce::jmax (1.0e-12, energy));
+    };
+
+    const auto retrigGap = std::abs (brightness (true, 0) - brightness (true, 23)) / brightness (true, 0);
+    const auto freeGap = std::abs (brightness (false, 0) - brightness (false, 23)) / brightness (false, 0);
+    check (retrigGap < 0.05 && freeGap > 0.1,
+           "a retriggered LFO into SPEC AMT morphs from each note's start (late-note gap retrig " + juce::String (retrigGap, 3)
+               + ", free " + juce::String (freeGap, 3) + ")");
+}
+
 void runUnisonTests()
 {
     // 16 voices render, and blend 0 leaves only the centre voice(s).
@@ -9777,6 +9827,7 @@ int main()
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
+    timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
     timedRun ("runMatrixTests", [] { runMatrixTests(); });
     timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });

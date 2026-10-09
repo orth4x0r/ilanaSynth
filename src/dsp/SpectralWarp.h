@@ -21,12 +21,18 @@ enum
     Formant,     // moves the spectral envelope, keeps the pitch
     Smear,       // blurs harmonics together and scatters their phases
     HarmonicCut, // keeps only the lowest harmonics
+    LowPass,     // a soft slope: darkens the wave, harmonics roll off above a corner
+    HighPass,    // the opposite: thins the wave out below a corner
+    PhaseDisperse, // rotates higher harmonics further: a chirp-like smear, same spectrum
+    RandomAmps,  // gives every harmonic its own fixed random level
+    Skew,        // bends the cycle's timing: the first half stretches, the rest squeezes
     Count
 };
 
 inline juce::StringArray getNames()
 {
-    return { "Off", "Stretch", "Shift", "Odd/Even", "Formant", "Smear", "Harmonic Cut" };
+    return { "Off", "Stretch", "Shift", "Odd/Even", "Formant", "Smear", "Harmonic Cut",
+             "Low Pass", "High Pass", "Phase Disperse", "Random Amps", "Skew" };
 }
 
 // One frame through the chosen warp. amount runs 0..1 (Formant: 0.5 = none).
@@ -44,6 +50,21 @@ inline std::vector<float> warpFrame (const float* source, int mode, float amount
     {
         time[(size_t) i] = Complex (source[i], 0.0f);
         originalPeak = juce::jmax (originalPeak, std::abs (source[i]));
+    }
+
+    if (mode == Skew)
+    {
+        // Read the cycle at x^p (circular, linear interpolation); p = 1 is
+        // the plain wave. The spectrum is then left alone.
+        const auto power = std::pow (2.0, 2.0 * (double) juce::jlimit (0.0f, 1.0f, amount));
+
+        for (int i = 0; i < size; ++i)
+        {
+            const auto position = std::pow ((double) i / (double) size, power) * (double) size;
+            const auto index = (int) position;
+            const auto frac = (float) (position - (double) index);
+            time[(size_t) i] = Complex (source[index % size] * (1.0f - frac) + source[(index + 1) % size] * frac, 0.0f);
+        }
     }
 
     fft.perform (time.data(), spectrum.data(), false);
@@ -143,6 +164,57 @@ inline std::vector<float> warpFrame (const float* source, int mode, float amount
             {
                 const auto fade = juce::jlimit (0.0, 1.0, keep + 1.0 - (double) k);
                 warped[(size_t) k] = spectrum[(size_t) k] * (float) fade;
+            }
+
+            break;
+        }
+
+        case LowPass:
+        {
+            const auto corner = std::pow (256.0, 1.0 - (double) a);
+
+            for (int k = 1; k < half; ++k)
+            {
+                const auto r = (double) k / corner, r2 = r * r;
+                warped[(size_t) k] = spectrum[(size_t) k] * (float) (1.0 / (1.0 + r2 * r2));
+            }
+
+            break;
+        }
+
+        case HighPass:
+        {
+            const auto corner = 0.25 * std::pow (256.0, (double) a);
+
+            for (int k = 1; k < half; ++k)
+            {
+                const auto r = (double) k / corner, r4 = r * r * r * r;
+                warped[(size_t) k] = spectrum[(size_t) k] * (float) (r4 / (1.0 + r4));
+            }
+
+            break;
+        }
+
+        case PhaseDisperse:
+        {
+            for (int k = 1; k < half; ++k)
+                warped[(size_t) k] = spectrum[(size_t) k] * std::polar (1.0f, a * juce::MathConstants<float>::twoPi * (float) (k * k) / 600.0f);
+
+            break;
+        }
+
+        case RandomAmps:
+        {
+            for (int k = 1; k < half; ++k)
+            {
+                // The same level for a harmonic in every frame (an integer hash),
+                // so frames morph smoothly.
+                auto h = (std::uint32_t) k * 2654435761u;
+                h ^= h >> 15;
+                h *= 2246822519u;
+                h ^= h >> 13;
+                const auto u = (float) (h & 0xffffffu) / (float) 0x1000000;
+                warped[(size_t) k] = spectrum[(size_t) k] * ((1.0f - a) + a * 2.0f * u);
             }
 
             break;

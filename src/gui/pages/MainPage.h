@@ -261,6 +261,12 @@ public:
                 onOpenPage ("ENV/LFO");
             }
         };
+        modCard.onEditOperatorEnv = [this]
+        {
+            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+            if (onEditOperator != nullptr)
+                onEditOperator (operators.empty() ? 0 : operators.front());
+        };
         addAndMakeVisible (modCard);
 
         filterTabs.onSelect = [this] (int) { updateVisibility(); };

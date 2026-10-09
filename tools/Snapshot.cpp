@@ -8722,6 +8722,7 @@ int main (int argc, char** argv)
                 pages->toggleSourcePopover (chip->getSourceIndex(), *chip);
                 settle (400);
                 save (*editor, outDir.getChildFile ("popover.png"));
+                pages->toggleSourcePopover (chip->getSourceIndex(), *chip);
                 break;
             }
     }

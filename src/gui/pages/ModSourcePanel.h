@@ -40,6 +40,99 @@ inline int modRouteCount (const IlanaSynthAudioProcessor& processor, int source)
     return count;
 }
 
+// PLAY's OP ENV tab: the Operator Env is no modulation source (nothing to
+// drag), but a DX7 voice's envelope card showed it first, so its picture
+// and what plays it stay on PLAY.
+inline constexpr int opEnvSourceId = -1;
+
+inline juce::Colour sourceTabColour (int source)
+{
+    return source == opEnvSourceId ? OperatorPool::colour() : modSourceColour (source);
+}
+
+inline juce::String sourceTabName (int source, const IlanaSynthAudioProcessor& processor)
+{
+    return source == opEnvSourceId ? juce::String ("OP ENV") : ModNames::sourceUpper (source, &processor);
+}
+
+// OP ENV's list of what plays it: each oscillator's OUTPUT as a bar, under a
+// header that folds it away.
+class OperatorEnvList : public juce::Component,
+                        public juce::SettableTooltipClient,
+                        private juce::Timer
+{
+public:
+    explicit OperatorEnvList (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setTooltip ("What plays the Operator Env: each oscillator's OUTPUT, as a bar. Click to open or close the list.");
+        startTimerHz (4);
+    }
+
+    std::function<void()> onToggle;
+    bool isOpen() const { return open; }
+    static constexpr int headerHeight = 24, rowHeight = 16;
+    int getIdealHeight() const { return headerHeight + (open ? 4 + rowHeight * juce::jmax (1, (int) OperatorPool::operatorsOnEnv (processorRef).size()) + 4 : 0); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+        const auto count = (int) operators.size();
+        auto area = getLocalBounds();
+        auto header = area.removeFromTop (headerHeight);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (header.toFloat().reduced (0.5f), 6.0f);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawText (juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS IT  " : " OSCILLATORS PLAY IT  ")
+                        + juce::String::fromUTF8 (open ? "\xe2\x96\xb4" : "\xe2\x96\xbe"),
+                    header.reduced (10, 0), juce::Justification::centredLeft);
+        if (! open)
+            return;
+
+        area.removeFromTop (4);
+        for (int i = 0; i < count && area.getHeight() >= rowHeight; ++i)
+        {
+            const auto osc = operators[(size_t) i];
+            const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
+            if (parameter == nullptr)
+                continue;
+            auto row = area.removeFromTop (rowHeight).reduced (4, 0);
+            g.setColour (IlanaTheme::oscColour (osc));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText ("OSC " + juce::String (osc + 1), row.removeFromLeft (52), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (parameter->getCurrentValueAsText(), row.removeFromRight (62), juce::Justification::centredRight);
+            const auto bar = row.withSizeKeepingCentre (row.getWidth() - 8, 6).toFloat();
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRoundedRectangle (bar, 3.0f);
+            g.setColour (IlanaTheme::oscColour (osc).withAlpha (0.85f));
+            g.fillRoundedRectangle (bar.withWidth (juce::jmax (3.0f, bar.getWidth() * parameter->getValue())), 3.0f);
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (event.y < headerHeight && ! event.mouseWasDraggedSinceMouseDown())
+        {
+            open = ! open;
+            if (onToggle != nullptr)
+                onToggle();
+            repaint();
+        }
+    }
+
+private:
+    void timerCallback() override
+    {
+        if (open && isShowing())
+            repaint();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    bool open = true; // (open, as PLAY's OP ENV card listed them: ilana, 2026-10-09)
+};
+
 // "DRIVES": each route of one source, its target, a bar of its depth and the
 // number. Drag a bar sideways to set the depth (shift for fine), double-click
 // it to zero, click the target to open its matrix row, right-click for
@@ -241,10 +334,12 @@ private:
         return { 10, headerHeight + 4 + row * rowHeight, getWidth() - 20, rowHeight };
     }
 
-    static int nameWidth (juce::Rectangle<int> row) { return juce::jlimit (90, 170, row.getWidth() * 36 / 100); }
+    // The targets' column: as wide as the longest target (no wider than a
+    // third of the row), so the bars start right after the names.
+    int nameWidth (juce::Rectangle<int> row) const { return juce::jlimit (80, juce::jmax (80, row.getWidth() / 3), longestName + 18); }
     static constexpr int valueWidth = 46;
 
-    static juce::Rectangle<int> barArea (juce::Rectangle<int> row)
+    juce::Rectangle<int> barArea (juce::Rectangle<int> row) const
     {
         row.removeFromLeft (nameWidth (row));
         row.removeFromRight (valueWidth + 8);
@@ -317,6 +412,17 @@ private:
             lastSignature = signature;
             const auto countChanged = next.size() != slots.size();
             slots = std::move (next);
+            longestName = 0;
+            const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label));
+            for (const auto slot : slots)
+            {
+                const auto routing = processorRef.readModSlot (slot);
+                const auto lfo = Mod::lfoIndexFor ((Mod::Source) source);
+                const auto prefix = lfo >= 0 && routing.source == Mod::lfoBSourceFor (lfo) ? juce::String ("OUT 2  ")
+                                    : routing.source != (Mod::Source) source                  ? juce::String ("VIA  ")
+                                                                                              : juce::String();
+                longestName = juce::jmax (longestName, juce::GlyphArrangement::getStringWidthInt (font, prefix + ModNames::destination (routing.destination, processorRef)));
+            }
             if (countChanged && onRoutesChanged != nullptr)
                 onRoutesChanged();
             repaint();
@@ -340,7 +446,7 @@ private:
     std::vector<int> slots;
     juce::int64 lastSignature = -1;
     bool collapsed = false, editing = false, hoverName = false;
-    int hoverRow = -1, dragRow = -1;
+    int hoverRow = -1, dragRow = -1, longestName = 0;
     float dragStartDepth = 0.0f;
 };
 
@@ -354,9 +460,11 @@ class SourceEditor : public juce::Component,
                      private juce::Timer
 {
 public:
-    explicit SourceEditor (IlanaSynthAudioProcessor& p) : processorRef (p), routes (p)
+    explicit SourceEditor (IlanaSynthAudioProcessor& p) : processorRef (p), routes (p), operatorList (p)
     {
         addAndMakeVisible (routes);
+        addChildComponent (operatorList);
+        operatorList.onToggle = [this] { resized(); };
         routes.onRoutesChanged = [this] { resized(); };
         routes.onCollapsedChange = [this] (bool) { resized(); };
         startTimerHz (20);
@@ -380,6 +488,9 @@ public:
     int getSource() const { return source; }
     SourceRouteList& getRouteList() { return routes; }
 
+    // OP ENV's picture: a click opens the operator's envelope on FM.
+    std::function<void()> onEditOperatorEnv;
+
     void setSource (int newSource)
     {
         if (newSource == source && built)
@@ -390,13 +501,21 @@ public:
         graph.reset();
         controls.clear();
         rate.reset();
-        colour = modSourceColour (source);
+        colour = sourceTabColour (source);
 
         const auto lfo = Mod::lfoIndexFor ((Mod::Source) source);
         const auto env = envelopeOf (source);
         auto& state = processorRef.apvts;
 
-        if (lfo >= 0)
+        if (source == opEnvSourceId)
+        {
+            auto overview = std::make_unique<OperatorEnvOverview> (processorRef);
+            overview->onClick = [this] { if (onEditOperatorEnv != nullptr) onEditOperatorEnv(); };
+            graph = std::move (overview);
+            colour = OperatorPool::colour();
+            kind = Kind::opEnv;
+        }
+        else if (lfo >= 0)
         {
             const auto prefix = "lfo" + juce::String (lfo + 1);
             graph = std::make_unique<LfoDisplay> (processorRef, lfo, colour);
@@ -446,7 +565,10 @@ public:
         if (rate != nullptr)
             rate->setShown (true);
 
-        routes.setSource (source, colour);
+        routes.setVisible (kind != Kind::opEnv);
+        operatorList.setVisible (kind == Kind::opEnv);
+        if (kind != Kind::opEnv)
+            routes.setSource (source, colour);
         history.fill (0.0f);
         resized();
         repaint();
@@ -499,6 +621,17 @@ public:
     {
         auto area = getLocalBounds();
 
+        if (kind == Kind::opEnv)
+        {
+            // The picture, and under it what plays it (a drop-down).
+            operatorList.setBounds (area.removeFromBottom (juce::jmin (operatorList.getIdealHeight(), area.getHeight() / 2)));
+            area.removeFromBottom (gap);
+            graphArea = area;
+            if (graph != nullptr)
+                graph->setBounds (area);
+            return;
+        }
+
         // The DRIVES list takes what it needs (its whole list, up to half the
         // height); folded, one line. The graph and controls get the rest.
         const auto routesHeight = routes.isCollapsed() ? SourceRouteList::headerHeight + 6
@@ -508,7 +641,12 @@ public:
 
         // The graph on the left, the controls in a grid of equal cells on the
         // right, both the same height, so their edges line up.
-        const auto controlsWidth = kind == Kind::other ? 0 : juce::jlimit (180, 280, area.getWidth() * 40 / 100);
+        // An LFO's controls on a low area go in one row under SHAPE, which
+        // wants a wider column.
+        const auto lowLfo = kind == Kind::lfo && area.getHeight() < menuHeight + 6 + 2 * knobRowHeight;
+        const auto controlsWidth = kind == Kind::other || kind == Kind::opEnv ? 0
+                                   : lowLfo ? juce::jlimit (220, 300, area.getWidth() * 50 / 100)
+                                            : juce::jlimit (180, 280, area.getWidth() * 40 / 100);
         auto controlArea = area.removeFromRight (controlsWidth);
         if (controlsWidth > 0)
             area.removeFromRight (gap);
@@ -517,10 +655,21 @@ public:
         if (graph != nullptr)
             graph->setBounds (graphArea);
 
-        if (kind == Kind::lfo && controls.size() == 4 && rate != nullptr)
+        if (kind == Kind::lfo && controls.size() == 4 && rate != nullptr && lowLfo)
+        {
+            // SHAPE across the top; RATE, SMOOTH, SYNC and RETRIG in one row
+            // at the foot, level with the graph's bottom.
+            controls[0]->setBounds (controlArea.removeFromTop (menuHeight));
+            auto row = controlArea.removeFromBottom (knobRowHeight);
+            const auto cell = row.getWidth() / 4;
+            rate->setBounds (row.removeFromLeft (cell));
+            controls[1]->setBounds (row.removeFromLeft (cell));
+            // (The switches' names level with the knobs'.)
+            layoutRow (row.withHeight (13 + 30), { controls[2].get(), controls[3].get() });
+        }
+        else if (kind == Kind::lfo && controls.size() == 4 && rate != nullptr)
         {
             // SHAPE across the top; RATE and SMOOTH; SYNC and RETRIG.
-            const auto menuHeight = 13 + 4 + 28;
             controls[0]->setBounds (controlArea.removeFromTop (menuHeight));
             controlArea.removeFromTop (6);
             const auto rowHeight = controlArea.getHeight() / 2;
@@ -541,8 +690,8 @@ public:
     }
 
 private:
-    enum class Kind { lfo, envelope, other };
-    static constexpr int gap = 10;
+    enum class Kind { lfo, envelope, opEnv, other };
+    static constexpr int gap = 10, menuHeight = 13 + 4 + 28, knobRowHeight = 70;
 
     juce::String describeOther() const
     {
@@ -575,6 +724,7 @@ private:
     std::vector<std::unique_ptr<juce::Component>> controls;
     std::unique_ptr<LfoRateControl> rate;
     SourceRouteList routes;
+    OperatorEnvList operatorList;
     juce::Rectangle<int> graphArea;
     std::array<float, 80> history {};
     size_t historyPos = 0;
@@ -714,7 +864,10 @@ class SourceTab : public juce::Component,
 public:
     SourceTab (IlanaSynthAudioProcessor& p, int sourceIndex) : processorRef (p), source (sourceIndex)
     {
-        setTooltip (ModNames::source (source, &processorRef) + "\nClick to edit it here; drag it onto any knob to modulate that knob.");
+        setTooltip (source == opEnvSourceId
+                        ? juce::String ("OP ENV\nThe Operator Env: the DX7 envelope each oscillator on it plays (its level). It shapes its "
+                                        "operators only, so it isn't a modulation source: nothing to drag.")
+                        : ModNames::source (source, &processorRef) + "\nClick to edit it here; drag it onto any knob to modulate that knob.");
     }
 
     std::function<void (int)> onSelect;
@@ -741,7 +894,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        const auto colour = modSourceColour (source);
+        const auto colour = sourceTabColour (source);
         const auto hot = isMouseOver() || selected;
         g.setColour (selected ? IlanaTheme::Ui::panel.interpolatedWith (colour, 0.2f) : IlanaTheme::Ui::raised.interpolatedWith (colour, isMouseOver() ? 0.06f : 0.0f));
         g.fillRoundedRectangle (bounds, 7.0f);
@@ -766,8 +919,9 @@ public:
             g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (badge.getCentre().toFloat()));
         }
 
-        // The grip: two columns of dots, the drag handle.
+        // The grip: two columns of dots, the drag handle (none on OP ENV).
         const auto grip = area.removeFromRight (10);
+        if (source != opEnvSourceId)
         g.setColour ((hot ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3).withAlpha (0.9f));
         for (int row = 0; row < 3; ++row)
             for (int column = 0; column < 2; ++column)
@@ -775,10 +929,15 @@ public:
 
         g.setColour (hot ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
-        IlanaTheme::drawFitted (g, ModNames::sourceUpper (source, &processorRef), area.reduced (6, 0), juce::Justification::centred, 1);
+        IlanaTheme::drawFitted (g, sourceTabName (source, processorRef), area.reduced (6, 0), juce::Justification::centred, 1);
     }
 
-    void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = source; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override
+    {
+        if (source != opEnvSourceId)
+            highlightedModSource() = source;
+        repaint();
+    }
     void mouseExit (const juce::MouseEvent&) override
     {
         if (highlightedModSource() == source)
@@ -794,6 +953,8 @@ public:
 
     void mouseDrag (const juce::MouseEvent&) override
     {
+        if (source == opEnvSourceId)
+            return;
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
             if (! container->isDragAndDropActive())
             {
@@ -824,6 +985,7 @@ public:
     explicit ModulationCard (IlanaSynthAudioProcessor& p) : processorRef (p), editor (p)
     {
         addAndMakeVisible (editor);
+        editor.onEditOperatorEnv = [this] { if (onEditOperatorEnv != nullptr) onEditOperatorEnv(); };
         addTab.setButtonText ("+");
         addTab.setTooltip ("Add an LFO or envelope to the patch");
         addTab.onClick = [this] { showAddMenu(); };
@@ -835,8 +997,11 @@ public:
         startTimerHz (6);
     }
 
-    // EDIT ›: the selected source's full editor on MOD.
+    // EDIT ›: the selected source's full editor on MOD (OP ENV's: on FM).
     std::function<void (int source)> onOpenInMod;
+
+    // OP ENV's editor (FM, the first operator on it).
+    std::function<void()> onEditOperatorEnv;
 
     int getSelectedSource() const { return selected; }
     const std::vector<int>& getSources() const { return sources; }
@@ -864,7 +1029,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto colour = modSourceColour (selected);
+        const auto colour = sourceTabColour (selected);
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 6.0f, colour);
         auto header = getLocalBounds().withHeight (headerHeight).withTrimmedLeft (12).withTrimmedRight (12);
         IlanaTheme::paintCardHeader (g, header, "MODULATION", "drag a tab onto any knob", colour, editWidth + 8);
@@ -934,15 +1099,24 @@ public:
 
     void mouseUp (const juce::MouseEvent& event) override
     {
-        if (editLinkArea().contains (event.getPosition()) && onOpenInMod != nullptr)
+        if (! editLinkArea().contains (event.getPosition()))
+            return;
+        if (selected == opEnvSourceId)
+        {
+            if (onEditOperatorEnv != nullptr)
+                onEditOperatorEnv();
+        }
+        else if (onOpenInMod != nullptr)
+        {
             onOpenInMod (selected);
+        }
     }
 
 private:
     static constexpr int editWidth = 60;
     // The graph and controls keep at least this; the DRIVES list folds to
     // its header line before they get less (controls first).
-    static constexpr int minControlsHeight = 150;
+    static constexpr int minControlsHeight = 130;
 
     juce::Rectangle<int> editLinkArea() const { return { getWidth() - 12 - editWidth, headerHeight / 2 - 8, editWidth, 16 }; }
 
@@ -957,6 +1131,8 @@ private:
     std::vector<int> wantedSources() const
     {
         std::vector<int> wanted;
+        if (operatorPoolShown (processorRef))
+            wanted.push_back (opEnvSourceId);
         if (operatorSourceShown (processorRef, Mod::Source::OpPitchEnv))
             wanted.push_back ((int) Mod::Source::OpPitchEnv);
         for (int env = 0; env < 16; ++env)
@@ -1000,13 +1176,15 @@ private:
             // A selection that left the patch: its first LFO, else its first source.
             if (std::find (sources.begin(), sources.end(), selected) == sources.end())
             {
+                // (A DX7 voice opens on OP ENV, as its envelope card did: I8-18.)
                 selected = sources.empty() ? (int) Mod::lfoSourceFor (0) : sources.front();
-                for (const auto source : sources)
-                    if (Mod::lfoIndexFor ((Mod::Source) source) >= 0)
-                    {
-                        selected = source;
-                        break;
-                    }
+                if (selected != opEnvSourceId)
+                    for (const auto source : sources)
+                        if (Mod::lfoIndexFor ((Mod::Source) source) >= 0)
+                        {
+                            selected = source;
+                            break;
+                        }
             }
             resized();
             select (selected);
@@ -1048,13 +1226,13 @@ private:
     void showMoreMenu()
     {
         juce::PopupMenu menu;
-        for (const auto source : hiddenSources)
-            menu.addItem (source + 1, ModNames::source (source, &processorRef), true, source == selected);
+        for (size_t i = 0; i < hiddenSources.size(); ++i)
+            menu.addItem ((int) i + 1, sourceTabName (hiddenSources[i], processorRef), true, hiddenSources[i] == selected);
         juce::Component::SafePointer<ModulationCard> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreTab), [safeThis] (int result)
         {
-            if (safeThis != nullptr && result > 0)
-                safeThis->select (result - 1);
+            if (safeThis != nullptr && juce::isPositiveAndNotGreaterThan (result, (int) safeThis->hiddenSources.size()) && result > 0)
+                safeThis->select (safeThis->hiddenSources[(size_t) result - 1]);
         });
     }
 

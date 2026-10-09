@@ -96,8 +96,12 @@ public:
 private:
     void workerLoop()
     {
+        // seen is read before quit: a stop() that lands before this thread
+        // first runs (prepare then prepare again, quickly) is either seen
+        // here or has moved generation past seen, so the wait returns;
+        // waiting first could sleep through it and hang stop()'s join.
         auto seen = generation.load();
-        while (true)
+        while (! quit.load())
         {
             generation.wait (seen);
             seen = generation.load();

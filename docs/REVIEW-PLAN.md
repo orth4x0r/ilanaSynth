@@ -188,6 +188,14 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
       user: fold DX7 mode into the synth): DX7 mode is gone; the Operator EG is an ENVELOPE choice any oscillator can use,
       edited on the FM page (see HANDOFF).
    6. Help text: "+-48 st" to ±, Rössler, Hénon.
+   **Done** 2026-10-09 (cloud, branch `claude/project-thread-9uxvg1`; ilana: "yeah, do that"). 1: the 29 presets that
+   still had automatic macros on some or all knobs got named ones in `src/PresetVoicing.h` (a section at the end for the
+   ones with no voicing line; the rest appended to their lines). Init keeps no macros (index 0 never gets defaults).
+   2 and 4 were already done (`Presets::dx7DisplayName`; review 4's chip row). 3: Vocal Chops -> Vocal Stutter,
+   Self Osc Drone -> Self-Osc Drone, Formant Scream II -> Formant Scream, Glass Keys -> Crystal Keys, Hypersaw
+   Pad / Pluck / Stab -> Supersaw Pad / Pluck / Stab (Virus Hypersaw keeps the Virus term). Sound unchanged; old names
+   still find the preset: `Presets::currentPresetName` maps them when a session loads, and favourites and the recent
+   list move to the new names once (`migrateRenamedPresetSettings`). 6: done in `ParamInfo.h`.
 14. **UI review 4 fixes** (the user, 2026-10-02: "add all these findings and fixes to the roadmap, then execute"). Two
    adversarial reviews against Vital and Serum 2: `/mnt/project-files/ilanasynth/ui-review/UI-REVIEW-4-VITAL.md` (V1-V31) and
    `UI-REVIEW-4-SERUM2.md` (S1-S29); merged report claude.ai/artifact/BWMkLJv7Ap8BtEw9ZQhkPL. Every finding is in one batch
@@ -235,11 +243,14 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    mod polarity choice reads "Auto" (was "Natural"; display only); MIDI learn on every control saves as `midiCcMap` and
    factory loads keep it; macro CCs now drive all 8 macros and move only the macro that moved (was 1-4, others reset);
    user presets' category and tags are read back (JUCE's 8 KB header read had dropped them); text floors are 12.5 / 11 in
-   the theme's font-height units (about 9.2 / 8 px em), not a global type-scale bump. Left: offering to merge duplicate
-   routes (they are flagged), quantise and zoom buttons in the clip editor, a "Recent" sort (nothing records it), a live
-   input dot on the FX transfer curves, the scope as a dock, DX7 rows still carry "(ROM1A)" (13.2).
+   the theme's font-height units (about 9.2 / 8 px em), not a global type-scale bump. The leftovers (checked 2026-10-09):
+   merging duplicate routes (MatrixPage's merge menu and button), quantise and zoom in the clip editor (SEQ page), the
+   "Recent" sort (the browser's SORT and its Recent filter) and the DX7 bank text (13.2) were done in later passes; the
+   live input dot on the FX transfer curves is done (drive, amp, crush and the Airwindows saturators, `FxDisplays.h`).
+   Left: the scope as a dock (it touches the dock, which the modulation work on PLAY is rebuilding).
 15. **UI review 6 fixes** (the user, 2026-10-02: "full adversarial review pass and fix ... what feels separate from the normal
    engines ... a powerhouse, yet one thats not unwieldy"; "implement all ui suggestions the review process gave us"; the DX7
    fold-in reviewed too; "do two full cycles"). Reviews and the package plan (P1-P7) in `docs/ui-review/`. **Cycle 1 done**
    2026-10-04 (branch `claude/project-thread-smvgfk`): every finding of reviews 5 and 6 fixed except the ones HANDOFF lists
-   as not done on purpose, plus the 10 % type scale-up. **Cycle 2** (review 7 and its fixes) is next.
+   as not done on purpose, plus the 10 % type scale-up. Reviews 7-15 and their fixes followed (PR #13, merged); the passes are paused until the user says go
+   (goal: one review at 9.5 against Vital or Serum 2; the last scored 9.1).

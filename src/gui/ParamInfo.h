@@ -738,7 +738,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Randomises unison start phases for a softer, phasey attack.";
 
     if (id == "mpe_mode")
-        return "Per-note bend and pressure via MIDI channels, +-48 st bend range.";
+        return juce::String (juce::CharPointer_UTF8 ("Per-note bend and pressure via MIDI channels, \xc2\xb1" "48 st bend range."));
 
     if (id == "drift")
         return "Analog-style per-voice pitch instability.";
@@ -920,10 +920,11 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("lfo") && id.length() > 4 && juce::CharacterFunctions::isDigit (id[3]) && id.contains ("_"))
     {
         if (id.endsWith ("_shape"))
-            return "Waveform. Draw = design your own, Steps = 16-step sequencer. Random: S&H, Sine Random, Perlin and "
-                   "Drunk Walk, with a seed and stereo. Chaos: Lorenz, Rossler, Duffing, the logistic and Henon maps and "
-                   "a double pendulum, solved properly. Physics: Bounce, Pendulum, Spring and Friction with real "
-                   "parameters. Each has two outputs (LFO n and LFO n B). The M2 versions stay as \"classic\".";
+            return juce::String (juce::CharPointer_UTF8 (
+                "Waveform. Draw = design your own, Steps = 16-step sequencer. Random: S&H, Sine Random, Perlin and "
+                "Drunk Walk, with a seed and stereo. Chaos: Lorenz, R\xc3\xb6ssler, Duffing, the logistic and H\xc3\xa9non maps and "
+                "a double pendulum, solved properly. Physics: Bounce, Pendulum, Spring and Friction with real "
+                "parameters. Each has two outputs (LFO n and LFO n B). The M2 versions stay as \"classic\"."));
 
         if (id.endsWith ("_phys_a"))
             return "Physics shape: Bounce height, Pendulum swing, Spring stiffness, or Friction drive.";

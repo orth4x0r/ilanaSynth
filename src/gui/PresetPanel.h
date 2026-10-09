@@ -42,6 +42,7 @@ public:
         : processorRef (processor),
           settings (settingsIn)
     {
+        Presets::migrateRenamedPresetSettings (settings);
         setWantsKeyboardFocus (true);
 
         search.setTextToShowWhenEmpty ("Search names, categories, tags and banks", juce::Colours::white.withAlpha (0.35f));

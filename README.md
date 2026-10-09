@@ -56,7 +56,7 @@ Everything below is on `main` and goes beyond the v1.3.0 release notes further d
 **Sound**
 - **DX7 folded into FM:** there is no separate DX7 mode. **Operator EG** is an ENVELOPE choice any oscillator can use; **FM / DX7** is an oscillator type. The 8 ROM banks and Dexed voices are factory presets, and the preset menu imports any `.syx` file.
 - **Airwindows:** the Low / Band / High Pass and Notch models are Airwindows' Y filters; nine character filters and a tuneable Disperser join them. In the rack, ten category modules (Tape, Saturation, Reverb, Delay, Modulation, Dynamics, EQ, Console, Lo-Fi, Stereo) pick from 54 ported algorithms.
-- **Spectral warps and stack modes:** Low Pass, High Pass, Phase Disperse, Random Amps and Skew warps; seven new unison stack modes.
+- **Spectral warps, unison and drive (Vital parity):** Low Pass, High Pass, Phase Disperse, Random Amps and Skew spectral warps; Formant and Squeeze warp modes; seven new unison stack modes; **FRM SPR** and **WRP SPR** spread each unison voice's wavetable frame and warp amount; **Hard Clip** (and Soft Clip) drive modes and a **Sine Fold**; and a per-oscillator **scale quantize** (scale and root, semitone tuning).
 - **Vocoder, splitters and more:** a channel vocoder (audio input or a built-in Talk modulator), FX band splitters (low / mid / high, mid / side), parallel FX routing, SF2 / SFZ multisamples, Scala microtuning and MTS-ESP.
 - **Modulation curves:** any matrix route can carry a drawn response curve; LFO shapes are drawable; MIDI CCs drive all 8 macros.
 - **Presets:** a diversity pass using the new filters and effects, more distinct archetypes per category, and ilana's own presets in `content/user-presets`.

@@ -746,11 +746,12 @@ private:
 
     // Modulation evaluated at the start of each block, for everything that
     // doesn't need to move within a block (envelope times, pans, detune...).
-    std::array<float, (size_t) Mod::Destination::Count> blockMods {};
+    std::array<float, (size_t) Mod::Destination::Count + Mod::numStereoDestinations> blockMods {};
     mutable std::array<float, 36> fmCellMods {};   // per-voice mods of the OSC 4-6 FM cells
     // Per-voice spectral amount mods: slot targets -1000 - osc; worked out once a block.
     mutable std::array<float, 6> spectralMods {};
     std::array<float, 6> spectralBlock {};
+    std::array<bool, Mod::numStereoDestinations> stereoRouted {}; // a stereo route feeds Filter 1 / 2 cutoff
 
     // Per render (prepareModSlots): each slot's target (a mods index, or
     // -2 - cell for an OSC 4-6 FM cell, or -1 for none) and, for sources that
@@ -766,7 +767,7 @@ private:
     static constexpr int modControlInterval = 16;
     std::array<std::array<int, Mod::maxSlots>, 2> groupSlots {}, groupDestinations {}; // [0] slow, [1] per sample
     std::array<int, 2> numGroupSlots {}, numGroupDestinations {};
-    std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
+    std::array<float, (size_t) Mod::Destination::Count + Mod::numStereoDestinations> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};
     double lfoIncrements[VoiceParams::numLfos] {};

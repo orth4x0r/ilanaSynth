@@ -655,7 +655,8 @@ private:
         add ("VIA", C::via (viaExpanded), C::gap * 2, Sort::none);
         add ("AMOUNT", C::amount (viaExpanded), C::gap, Sort::amount);
         add ("CURVE", C::curve, C::gap, Sort::none);
-        add ("POLARITY", C::polarity, C::gap * 3, Sort::none);
+        add ("POLARITY", C::polarity, C::gap, Sort::none);
+        add ("ST", C::stereo, C::gap * 2, Sort::none);
         add ("DESTINATION", C::destination, C::gap, Sort::destination);
         return result;
     }

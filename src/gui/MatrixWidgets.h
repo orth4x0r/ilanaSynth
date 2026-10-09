@@ -641,12 +641,16 @@ public:
         bypass.getProperties().set ("switch", true);
         bypass.setTooltip ("Switch this routing on or off without losing its settings.");
 
+        stereo.setClickingTogglesState (true);
+        stereo.setTooltip ("Stereo\nOn: the left and right filters get opposite amounts (the sign flips on the right), "
+                           "so the cutoff spreads across the stereo field.  Works on filter cutoffs.");
+
         remove.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
         remove.setTooltip ("Remove this routing");
         remove.onClick = [this] { processorRef.performEdit ("Remove modulation", [this] { processorRef.clearModSlot (slotIndex); }); };
 
         for (auto* component : std::initializer_list<juce::Component*> { &bypass, &source, &via, &viaButton, &amount, &curve,
-                                                                          &polarity, &destination, &remove })
+                                                                          &polarity, &stereo, &destination, &remove })
             addAndMakeVisible (component);
 
         auto& state = p.apvts;
@@ -654,6 +658,7 @@ public:
         viaAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("aux")), via);
         destinationAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("dst")), destination);
         amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, id ("amt"), amount);
+        stereoAttachment = std::make_unique<juce::ButtonParameterAttachment> (*state.getParameter (id ("stereo")), stereo);
         bypassAttachment = std::make_unique<ReverseButtonAttachment> (*state.getParameter (id ("byp")), bypass);
     }
 
@@ -832,7 +837,7 @@ public:
     struct Columns
     {
         static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 40, viaPill = 40,
-                             amountBase = 190, curve = 50, polarity = 76, destination = 244, remove = 24, gap = 6;
+                             amountBase = 190, curve = 50, polarity = 76, stereo = 28, destination = 216, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
         // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
         static int amount (bool viaExpanded) { return amountBase + (viaExpanded ? 0 : viaWide - viaNarrow); }
@@ -859,7 +864,9 @@ public:
         curve.setBounds (area.removeFromLeft (Columns::curve));
         area.removeFromLeft (Columns::gap);
         polarity.setBounds (area.removeFromLeft (Columns::polarity));
-        area.removeFromLeft (Columns::gap * 3);
+        area.removeFromLeft (Columns::gap);
+        stereo.setBounds (area.removeFromLeft (Columns::stereo).reduced (0, 2));
+        area.removeFromLeft (Columns::gap * 2);
         destination.setBounds (area.removeFromLeft (Columns::destination));
         area.removeFromLeft (Columns::gap);
         remove.setBounds (area.removeFromLeft (Columns::remove));
@@ -916,7 +923,8 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove;
+    juce::TextButton bypass, remove, stereo { "ST" };
+    std::unique_ptr<juce::ButtonParameterAttachment> stereoAttachment;
     DashedAddButton viaButton { "+", "+ VIA" };
     juce::ComboBox source, via, destination;
     juce::Slider amount;

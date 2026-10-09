@@ -909,7 +909,7 @@ private:
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
-    struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass; };
+    struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass, stereo; };
     struct ModSlotRaw
     {
         std::atomic<float>* src = nullptr;
@@ -919,6 +919,7 @@ private:
         std::atomic<float>* polarity = nullptr;
         std::atomic<float>* aux = nullptr;
         std::atomic<float>* bypass = nullptr;
+        std::atomic<float>* stereo = nullptr;
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;

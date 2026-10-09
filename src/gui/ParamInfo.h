@@ -984,6 +984,9 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.startsWith ("mod") && id.endsWith ("_byp"))
         return "Bypass: switches this route off without losing its settings.";
 
+    if (id.startsWith ("mod") && id.endsWith ("_stereo"))
+        return "Stereo: the left and right filters get opposite amounts from this route, so a filter cutoff spreads across the stereo field.";
+
     // Singles that had no help.
     if (id.endsWith ("_sample_factory"))
         return "Factory sample this oscillator plays in Sample or Granular mode (a loaded or dropped wav replaces it).";

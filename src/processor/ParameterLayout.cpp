@@ -1151,5 +1151,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // held by the pedal); past it the oldest fade out. Off as before.
     addChoice ("sustain_voices", "Sustain Voices", { "Off", "4", "6", "8", "12", "16" }, 0);
 
+    // Vital parity: a stereo route into a filter cutoff moves the left and
+    // right channels in opposite directions. Off, as in every older patch.
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        addBool ("mod" + juce::String (slot) + "_stereo", "Mod" + juce::String (slot) + " Stereo", false);
+
     return layout;
 }

@@ -205,6 +205,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("spectral_amt"), name + " Spectral Amount", 0.0f, 1.0f, 0.5f);
         addChoice (id ("uni_mode"), name + " Unison Mode", UnisonMode::getNames(), 0);
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
+        addFloat (id ("uni_frame"), name + " Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+        addFloat (id ("uni_warp"), name + " Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+        addChoice (id ("scale"), name + " Scale Quantize", Scales::getNames(), 0);
+        addChoice (id ("scale_root"), name + " Scale Root", Scales::getRootNames(), 0);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
     }
 
@@ -240,6 +244,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("sub_spectral_amt", "Osc3 Spectral Amount", 0.0f, 1.0f, 0.5f);
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
+    addFloat ("sub_uni_frame", "Osc3 Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_uni_warp", "Osc3 Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+    addChoice ("sub_scale", "Osc3 Scale Quantize", Scales::getNames(), 0);
+    addChoice ("sub_scale_root", "Osc3 Scale Root", Scales::getRootNames(), 0);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
     addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
@@ -619,6 +627,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fx_drive_amount", "Drive Amount", 1.0f, 20.0f, 3.0f);
     addFloat ("fx_drive_mix", "Drive Mix", 0.0f, 1.0f, 1.0f);
     addFloat ("fx_fold", "Fold", 0.0f, 1.0f, 0.0f);
+    addChoice ("fx_drive_type", "Drive Type", { "Soft Clip", "Hard Clip" }, 0);
+    addChoice ("fx_fold_type", "Fold Type", { "Linear", "Sine" }, 0);
     addBool ("fx_drive_on", "Drive On", true);
 
     addBool ("fx_crush_on", "Crush On", false);
@@ -708,6 +718,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("spectral_amt"), name + " Spectral Amount", 0.0f, 1.0f, 0.5f);
         addChoice (id ("uni_mode"), name + " Unison Mode", UnisonMode::getNames(), 0);
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
+        addFloat (id ("uni_frame"), name + " Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+        addFloat (id ("uni_warp"), name + " Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+        addChoice (id ("scale"), name + " Scale Quantize", Scales::getNames(), 0);
+        addChoice (id ("scale_root"), name + " Scale Root", Scales::getRootNames(), 0);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
         addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);

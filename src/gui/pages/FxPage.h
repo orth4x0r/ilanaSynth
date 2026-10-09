@@ -21,6 +21,8 @@ public:
           driveAmount (p.apvts, "fx_drive_amount", "AMOUNT"),
           driveMix (p.apvts, "fx_drive_mix", "MIX"),
           foldAmount (p.apvts, "fx_fold", "FOLD"),
+          driveType (p.apvts, "fx_drive_type", "CLIP"),
+          foldType (p.apvts, "fx_fold_type", "FOLD TYPE"),
           crushOn (p.apvts, "fx_crush_on", "ON"),
           crushBits (p.apvts, "fx_crush_bits", "BITS"),
           crushDown (p.apvts, "fx_crush_down", "DOWN"),
@@ -144,7 +146,7 @@ public:
             slotNames = choice->getAllValueStrings();
 
         addAll (*this, ampMode, ampDrive, ampBass, ampMid, ampTreble, ampLevel,
-                driveOn, driveAmount, driveMix, foldAmount,
+                driveOn, driveAmount, driveMix, foldAmount, driveType, foldType,
                 crushOn, crushBits, crushDown, crushMix,
                 compThreshold, compRatio, compAttack, compRelease, compMakeup, compMix,
                 combOn, combFreq, combFeedback, combMix,
@@ -175,7 +177,7 @@ public:
 
         slotGroups.push_back ({});
         slotGroups.push_back ({ &ampMode, &ampDrive, &ampBass, &ampMid, &ampTreble, &ampLevel });
-        slotGroups.push_back ({ &driveOn, &driveAmount, &driveMix, &foldAmount });
+        slotGroups.push_back ({ &driveOn, &driveAmount, &driveMix, &foldAmount, &driveType, &foldType });
         slotGroups.push_back ({ &crushOn, &crushBits, &crushDown, &crushMix });
         slotGroups.push_back ({ &compThreshold, &compRatio, &compAttack, &compRelease, &compMakeup, &compMix });
         slotGroups.push_back ({ &combOn, &combFreq, &combFeedback, &combMix });
@@ -2385,6 +2387,7 @@ private:
     KnobControl ampDrive, ampBass, ampMid, ampTreble, ampLevel;
     ToggleControl driveOn;
     KnobControl driveAmount, driveMix, foldAmount;
+    ComboControl driveType, foldType;
     ToggleControl crushOn;
     KnobControl crushBits, crushDown, crushMix;
     KnobControl compThreshold, compRatio, compAttack, compRelease, compMakeup, compMix;

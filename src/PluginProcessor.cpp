@@ -291,7 +291,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             oscShapeIds[(size_t) osc] = { prefix + "_warp", prefix + "_warp_amt", prefix + "_uni_mode", prefix + "_uni_blend",
-                                          prefix + "_route" };
+                                          prefix + "_route", prefix + "_uni_frame", prefix + "_uni_warp",
+                                          prefix + "_scale", prefix + "_scale_root" };
             operatorIds[(size_t) osc] = { prefix + "_tune", prefix + "_ratio", prefix + "_ratio_snap", prefix + "_fixed_hz",
                                           prefix + "_key_level", prefix + "_fb_type", prefix + "_warp2", prefix + "_warp2_amt",
                                           prefix + "_pd_env", prefix + "_pd_env_amt" };
@@ -1506,6 +1507,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.warpAmount = getParam (ids.warpAmount);
         osc.unisonMode = (int) getParam (ids.unisonMode);
         osc.unisonBlend = getParam (ids.unisonBlend);
+        osc.frameSpread = getParam (ids.frameSpread);
+        osc.warpSpread = getParam (ids.warpSpread);
+        osc.scale = (int) getParam (ids.scale);
+        osc.scaleRoot = (int) getParam (ids.scaleRoot);
         osc.route = (int) getParam (ids.route);
     };
 

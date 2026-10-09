@@ -750,7 +750,11 @@ class OscPage : public juce::Component,
               uniMode (state, prefix + "_uni_mode", "UNI MODE"),
               warpAmt (state, prefix + "_warp_amt", "WARP AMT"),
               uniBlend (state, prefix + "_uni_blend", "BLEND"),
+              uniFrame (state, prefix + "_uni_frame", "FRM SPR"),
+              uniWarp (state, prefix + "_uni_warp", "WRP SPR"),
               spectral (state, prefix + "_spectral", "SPECTRAL"),
+              scale (state, prefix + "_scale", "SCALE"),
+              scaleRoot (state, prefix + "_scale_root", "ROOT"),
               spectralAmt (state, prefix + "_spectral_amt", "SPEC AMT"),
               grainPosition (state, prefix + "_sample_start", "POSITION"),
               grainSize (state, prefix + "_grain_size", "SIZE"),
@@ -776,20 +780,20 @@ class OscPage : public juce::Component,
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
                                 &stringDecay, &stringDamp, &stringSustain, &sampleStart, &sampleEnd, &sampleFadeIn,
-                                &sampleFadeOut, &warpAmt, &uniBlend, &spectralAmt, &grainPosition, &grainSize,
+                                &sampleFadeOut, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
                                 &grainDensity, &grainSpray, &grainPitch, &grainSpread })
                 knob->setIdentityColour (colour);
         }
 
         ToggleControl on, sampleTuned, sampleLoop, sampleReverse;
-        ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral;
+        ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral, scale, scaleRoot;
         // M6: the PD chain's second stage and the warp (DCW) envelope.
         ComboControl warp2, pdEnv;
         KnobControl warp2Amt, pdEnvAmt;
         KnobControl frame, level, pan, semi, fine, unison, detune, spread;
         KnobControl stringDecay, stringDamp, stringSustain;
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut;
-        KnobControl warpAmt, uniBlend, spectralAmt;
+        KnobControl warpAmt, uniBlend, uniFrame, uniWarp, spectralAmt;
         KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
         ToggleControl grainLive; // M7.5: grains from the live input (ilanaSynth FX)
         // An FM operator's tuning, as on the FM page (UI review 6, I6-5).
@@ -891,8 +895,8 @@ public:
             auto& osc = *item;
             addChildComponents (osc.grainPosition, osc.grainSize, osc.grainDensity,
                                 osc.grainSpray, osc.grainPitch, osc.grainSpread, osc.grainLive,
-                                osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode,
-                                osc.warpAmt, osc.uniBlend, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
+                                osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode, osc.scale, osc.scaleRoot,
+                                osc.warpAmt, osc.uniBlend, osc.uniFrame, osc.uniWarp, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
             addChildComponents (osc.on, osc.mode, osc.table, osc.excite,
                                 osc.frame, osc.level, osc.pan, osc.semi, osc.fine,
                                 osc.unison, osc.detune, osc.spread, osc.stringDecay,
@@ -913,7 +917,7 @@ public:
             // of the dial, menus 18 px high under a small name.
             for (auto* knob : cardKnobs (osc))
                 knob->setInlineKnob (true);
-            for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode,
+            for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode })
                 menu->setCompactLayout (true);
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.grainLive })
@@ -1093,11 +1097,12 @@ public:
             auto& osc = *controls[(size_t) i];
             effectRules.add (osc.spectralAmt, effectRules.choiceIsNot (prefix + "_spectral", 0), "SPECTRAL is Off");
             effectRules.add (osc.warpAmt, effectRules.choiceIsNot (prefix + "_warp", 0), "WARP is Off");
+            effectRules.add (osc.scaleRoot, effectRules.choiceIsNot (prefix + "_scale", 0), "SCALE is Off");
 
             effectRules.add (osc.detune, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
             // Grains have no unison blend or spread: the knobs keep their
             // columns, dimmed, with a dash for the value.
-            for (auto* knob : { &osc.uniBlend, &osc.spread })
+            for (auto* knob : { &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spread })
             {
                 effectRules.add (*knob, [this, i, voices = effectRules.isAbove (prefix + "_unison", 1.5f)] { return voices() && getMode (i) != 3; },
                                  "UNISON is 1 (a Granular oscillator has no unison blend or spread)");
@@ -1348,7 +1353,7 @@ private:
         const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
         std::vector<Slot> slots;
         const auto add = [&slots] (juce::Component& item, int row, int col, int span = 1) { slots.push_back ({ &item, row, col, span }); };
-        const auto unisonRow = [&] (int row, bool blend)
+        const auto unisonRow = [&] (int row, bool blend, bool spreads = false)
         {
             add (osc.uniMode, row, 0);
             add (osc.unison, row, 1);
@@ -1357,6 +1362,11 @@ private:
             {
                 add (osc.uniBlend, row, 3);
                 add (osc.spread, row, 4);
+                if (spreads)
+                {
+                    add (osc.uniFrame, row, 6);
+                    add (osc.uniWarp, row, 7);
+                }
             }
             add (osc.chord, row, 5);
         };
@@ -1382,7 +1392,9 @@ private:
                                                 : tuning == OscTuning::Fixed ? (juce::Component&) osc.fixedHz : (juce::Component&) osc.semi, 1, 3);
                 add (osc.fine, 1, 4);
                 add (osc.ampEnv, 1, 5);
-                unisonRow (2, true);
+                add (osc.scale, 1, 6, 2);
+                add (osc.scaleRoot, 1, 8);
+                unisonRow (2, true, true);
                 break;
             }
             case Kind::fm:
@@ -2080,7 +2092,7 @@ private:
     {
         return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.spectralAmt,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
                  &osc.trim, &osc.feedback };
@@ -2351,10 +2363,10 @@ private:
         auto& phys = *physical[(size_t) i];
         auto& pieces = *aux[(size_t) i];
         return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.mode, &osc.table,
-                 &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.spectral, &osc.frame,
+                 &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.spectralAmt,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
                  &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback, &osc.feedbackType,
@@ -2526,7 +2538,7 @@ private:
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,
-                               &osc.uniMode, &osc.uniBlend, &osc.ampEnv,
+                               &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.ampEnv,
                                &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt,
                                &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback,
                                &osc.feedbackType }, enabled);
@@ -2539,7 +2551,7 @@ private:
                 osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
             }
 
-            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.spread })
+            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spread })
                 knob->refreshValueText();
 
             // A switched-off oscillator dims in place, the same size.

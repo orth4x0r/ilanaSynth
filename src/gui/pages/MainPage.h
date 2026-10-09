@@ -274,6 +274,19 @@ public:
                                envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
 
+        // The other envelopes and the LFOs dim while nothing uses them: no
+        // route, oscillator or filter takes their output yet.
+        for (int env = 1; env < (int) envSets.size(); ++env)
+            for (auto* control : { static_cast<juce::Component*> (envSets[(size_t) env]->display.get()), envSets[(size_t) env]->items[0].get(),
+                                   envSets[(size_t) env]->items[1].get(), envSets[(size_t) env]->items[2].get(), envSets[(size_t) env]->items[3].get() })
+                effectRules.add (*control, [this, env] { return envelopeInUse (processorRef, env); },
+                                 "nothing uses this envelope yet: route it in the MATRIX or pick it as an oscillator's envelope");
+        for (int lfo = 0; lfo < (int) lfoSets.size(); ++lfo)
+            for (auto& item : lfoSets[(size_t) lfo]->items)
+                effectRules.add (*item, [this, lfo]
+                                 { return modSourceRouted (processorRef, Mod::lfoSourceFor (lfo)) || modSourceRouted (processorRef, Mod::lfoBSourceFor (lfo)); },
+                                 "nothing uses this LFO yet: drag it onto a knob or route it in the MATRIX");
+
         styleJumpLink (opEgButton, "OP ENV");
         opEgButton.setTooltip ("Open the Operator Env's editor. Each operator plays its own copy; it shapes their levels, and AMP ENV is unused.");
         opEgButton.onClick = [this]

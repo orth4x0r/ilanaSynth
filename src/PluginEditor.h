@@ -304,6 +304,19 @@ private:
     void updateChipVisibility();
     void layoutChips (juce::Rectangle<int> row);
     void showChipPicker();
+    // A chip's click: its source's editor floating over the page (SourcePopover).
+    std::unique_ptr<juce::Component> sourcePopover;
+    juce::Rectangle<int> sourcePopoverAnchor;
+    std::function<void (int)> openSourceInMod;
+    void closeSourcePopover();
+
+public:
+    void toggleSourcePopover (int source, juce::Component& chip);
+    // The source the pop-out editor shows, or 0 while it is closed (the UI test).
+    int getSourcePopoverSource() const;
+    juce::Component* getSourcePopover() { return sourcePopover.get(); }
+
+private:
 
 public:
     // Adds chip chipIndex's LFO or envelope to the pool (the "+" picker).

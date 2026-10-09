@@ -92,12 +92,21 @@ public:
                 onClose();
         };
 
+        windowButton.setButtonText ("WINDOW");
+        windowButton.setTooltip ("Open the scope in its own window, beside the synth: it covers no page");
+        windowButton.onClick = [this]
+        {
+            if (onPopOut != nullptr)
+                onPopOut();
+        };
+
+        addAndMakeVisible (windowButton);
         addAndMakeVisible (dockButton);
         addAndMakeVisible (closeButton);
         setDocked (true);
     }
 
-    std::function<void()> onClose;
+    std::function<void()> onClose, onPopOut;
     std::function<void (bool docked)> onDockChange;
 
     bool isDocked() const { return docked; }
@@ -163,6 +172,8 @@ public:
         closeButton.setBounds (header.removeFromRight (22));
         header.removeFromRight (4);
         dockButton.setBounds (header.removeFromRight (56));
+        header.removeFromRight (4);
+        windowButton.setBounds (header.removeFromRight (64));
         scope.setBounds (area.reduced (8, 0).withTrimmedBottom (8));
     }
 
@@ -199,10 +210,50 @@ private:
     }
 
     ScopeDisplay scope;
-    juce::TextButton dockButton, closeButton;
+    juce::TextButton windowButton, dockButton, closeButton;
     juce::Rectangle<int> pageArea;
     juce::Point<int> topLeft, dragStart;
     bool docked = true, placed = false, dragging = false;
+};
+
+// The scope in its own window (step 14, Serum 2 review S23: "dock the scope
+// as a resizable strip or a pop-out window"): beside the synth, so it covers
+// no page. Resizable; closing it closes the scope, and SCOPE opens it in the
+// page again (WINDOW pops it out once more).
+class ScopeWindow : public juce::DocumentWindow
+{
+public:
+    ScopeWindow (IlanaSynthAudioProcessor& p, juce::LookAndFeel& look, std::function<void()> closed)
+        : juce::DocumentWindow ("ilanaSynth scope", IlanaTheme::Ui::bg, juce::DocumentWindow::closeButton),
+          onClosed (std::move (closed))
+    {
+        setLookAndFeel (&look);
+        setUsingNativeTitleBar (true);
+        setContentOwned (new Content (p), false);
+        setResizable (true, false);
+        setResizeLimits (320, 200, 1800, 1200);
+        centreWithSize (560, 340);
+        setAlwaysOnTop (true);
+    }
+
+    ~ScopeWindow() override { setLookAndFeel (nullptr); }
+
+    void closeButtonPressed() override
+    {
+        if (onClosed != nullptr)
+            onClosed();
+    }
+
+private:
+    struct Content : public juce::Component
+    {
+        explicit Content (IlanaSynthAudioProcessor& p) : scope (p) { addAndMakeVisible (scope); }
+        void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::bg); }
+        void resized() override { scope.setBounds (getLocalBounds().reduced (8)); }
+        ScopeDisplay scope;
+    };
+
+    std::function<void()> onClosed;
 };
 
 IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioProcessor& p)
@@ -382,6 +433,11 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // The scope floats over any page.
     scopePanel = std::make_unique<ScopePanel> (p);
     static_cast<ScopePanel*> (scopePanel.get())->onClose = [this] { setScopeOpen (false); };
+    static_cast<ScopePanel*> (scopePanel.get())->onPopOut = [this]
+    {
+        scopePanel->setVisible (false);
+        setScopeWindowOpen (true);
+    };
     if (settings != nullptr)
         static_cast<ScopePanel*> (scopePanel.get())->setDocked (settings->getBoolValue ("scopeDocked", true));
     static_cast<ScopePanel*> (scopePanel.get())->onDockChange = [this] (bool docked)
@@ -806,6 +862,7 @@ void IlanaSynthAudioProcessorEditor::closeWavetableEditor()
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
     setGpuRendering (false); // before any child goes: the render thread paints them
+    scopeWindow.reset();
     FmOperatorInfo::hooks().openOperator = nullptr;
     FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
     ModNames::openMatrixRow() = nullptr;
@@ -1681,8 +1738,52 @@ juce::Component* IlanaSynthAudioProcessorEditor::getCurrentPage() const
     return nullptr;
 }
 
+void IlanaSynthAudioProcessorEditor::setScopeWindowOpen (bool shouldBeOpen)
+{
+    if (shouldBeOpen && scopeWindow == nullptr)
+    {
+        scopeWindow = std::make_unique<ScopeWindow> (processorRef, lookAndFeel, [this]
+        {
+            // Closing the window closes the scope; it opens in the page next time.
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
+            {
+                if (safe != nullptr)
+                    safe->setScopeOpen (false);
+            });
+        });
+        scopeWindow->setVisible (true);
+    }
+    else if (! shouldBeOpen)
+    {
+        scopeWindow.reset();
+    }
+
+    scopeButton.setToggleState (shouldBeOpen || scopePanel->isVisible(), juce::dontSendNotification);
+    tabs.getTabbedButtonBar().setAlpha (1.0f);
+    for (auto* section : sections)
+        section->switcher.setAlpha (1.0f);
+}
+
+bool IlanaSynthAudioProcessorEditor::isScopeWindowOpen() const
+{
+    return scopeWindow != nullptr && scopeWindow->isVisible();
+}
+
 void IlanaSynthAudioProcessorEditor::setScopeOpen (bool shouldBeOpen)
 {
+    // Popped out: SCOPE brings the window forward, closing closes it.
+    if (scopeWindow != nullptr)
+    {
+        if (shouldBeOpen)
+        {
+            scopeWindow->toFront (true);
+            scopeButton.setToggleState (true, juce::dontSendNotification);
+            return;
+        }
+
+        setScopeWindowOpen (false);
+    }
+
     scopeButton.setToggleState (shouldBeOpen, juce::dontSendNotification);
 
     // A docked scope covers the page: the tab and the page switch it covers
@@ -1719,7 +1820,7 @@ void IlanaSynthAudioProcessorEditor::setScopeOpen (bool shouldBeOpen)
 
 bool IlanaSynthAudioProcessorEditor::isScopeOpen() const
 {
-    return scopePanel != nullptr && scopePanel->isVisible();
+    return (scopePanel != nullptr && scopePanel->isVisible()) || isScopeWindowOpen();
 }
 
 // The current tab's page switch follows the tabs, left-aligned beside the

@@ -725,6 +725,38 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         editor.setScopeOpen (false);
         settle (100);
 
+        // WINDOW pops the scope out beside the synth (step 14, S23): no
+        // panel over the page; SCOPE keeps it open, closing closes it, and
+        // it opens in the page again next time.
+        {
+            editor.setScopeOpen (true);
+            settle (200);
+            juce::TextButton* windowButton = nullptr;
+            if (auto* shown = findChild<ScopeDisplay> (editor); shown != nullptr && shown->getParentComponent() != nullptr)
+                for (auto* child : shown->getParentComponent()->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child); button != nullptr && button->getButtonText() == "WINDOW")
+                        windowButton = button;
+            expect (windowButton != nullptr, "the scope panel has WINDOW");
+            if (windowButton != nullptr)
+            {
+                windowButton->triggerClick();
+                settle (200);
+                const auto panelHidden = ! visibleInTree (findChild<ScopeDisplay> (editor));
+                expect (editor.isScopeWindowOpen() && editor.isScopeOpen() && panelHidden,
+                        "WINDOW opens the scope in its own window and leaves the page uncovered");
+                editor.setScopeOpen (true);
+                expect (editor.isScopeWindowOpen(), "SCOPE keeps the popped-out window open");
+                editor.setScopeOpen (false);
+                settle (100);
+                expect (! editor.isScopeOpen() && ! editor.isScopeWindowOpen(), "closing the scope closes its window");
+                editor.setScopeOpen (true);
+                settle (200);
+                expect (! editor.isScopeWindowOpen() && visibleInTree (findChild<ScopeDisplay> (editor)), "the scope opens in the page again");
+                editor.setScopeOpen (false);
+                settle (100);
+            }
+        }
+
         auto* meter = findChild<OutputMeter> (editor);
         expect (meter != nullptr && meter->getTooltip().contains ("dB") && ! meter->isClipLit(),
                 "the OUT meter has a clip light and a tooltip in dB");

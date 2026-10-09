@@ -69,6 +69,9 @@ public:
     juce::Component* getCurrentPage() const;
     void setScopeOpen (bool shouldBeOpen);
     bool isScopeOpen() const;
+    // The scope in its own window beside the synth (it covers no page).
+    void setScopeWindowOpen (bool shouldBeOpen);
+    bool isScopeWindowOpen() const;
 
     // UI review 4 (S1): EDITED covers parameters and the patch's other data
     // (drawn curves, remaps, clips); a load or random patch that would
@@ -211,6 +214,7 @@ private:
     ShellTabs tabs;
     std::vector<SectionPage*> sections; // owned by tabs
     std::unique_ptr<juce::Component> scopePanel;
+    std::unique_ptr<juce::DocumentWindow> scopeWindow; // the scope popped out (WINDOW)
     GhostButton scopeButton { "SCOPE" };
 
     PresetDisplay presetDisplay;

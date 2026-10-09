@@ -1129,5 +1129,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // rack's input, their outputs averaged; see processEffectsParallel).
     addChoice ("fx_routing", "FX Routing", { "Series", "Parallel" }, 0);
 
+    // CPU round 7: the voices render on several cores (the same sound; off
+    // renders them on one, as before).
+    addBool ("multi_core", "Multi-Core Voices", true);
+
+    // At most this many voices ring on after their key is up (released or
+    // held by the pedal); past it the oldest fade out. Off as before.
+    addChoice ("sustain_voices", "Sustain Voices", { "Off", "4", "6", "8", "12", "16" }, 0);
+
     return layout;
 }

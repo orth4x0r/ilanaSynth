@@ -22,6 +22,48 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
     sanitiseBuffer (buffer);
 }
 
+// The rack sleeps through silence: once its input and output have both been
+// under -110 dB for 2 s (every tail rung out, nothing the effects make on
+// their own), the effects stop running and the output is silence, until the
+// input is above -110 dB again. Effects that sound without input (feedback,
+// self-oscillation) keep their output up, so they never sleep.
+void IlanaSynthAudioProcessor::processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer)
+{
+    constexpr auto silence = 3.0e-6f;
+    const auto peakOf = [&buffer]
+    {
+        auto peak = 0.0f;
+        for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+        {
+            const auto range = juce::FloatVectorOperations::findMinAndMax (buffer.getReadPointer (channel), buffer.getNumSamples());
+            peak = juce::jmax (peak, -range.getStart(), range.getEnd());
+        }
+        return peak;
+    };
+
+    const auto inputSilent = peakOf() < silence;
+    if (fxAsleep && inputSilent)
+    {
+        buffer.clear();
+        for (int slot = 0; slot < numFxSlots; ++slot)
+            clearFxSlotMeters (slot);
+        return;
+    }
+
+    fxAsleep = false;
+    processEffects (buffer);
+
+    if (inputSilent && peakOf() < silence)
+    {
+        fxSilentSamples += buffer.getNumSamples();
+        fxAsleep = fxSilentSamples >= (int) (2.0 * juce::jmax (1.0, baseSampleRate)) && ! disableFxSleep;
+    }
+    else
+    {
+        fxSilentSamples = 0;
+    }
+}
+
 bool IlanaSynthAudioProcessor::isFxSlotActive (int index)
 {
     const auto& ids = fxSlotIds[(size_t) index];

@@ -828,6 +828,12 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     for (int lfo = 0; lfo < numLfos; ++lfo)
         renderLfo[lfo] = simShape[lfo] ? lfoRouted[(size_t) lfo] || lfoRoutedB[(size_t) lfo]
                                        : lfo < 4 || lfoRouted[(size_t) lfo] || lfoRoutedB[(size_t) lfo];
+    // The ones that render, in order: the per-sample loop walks only these.
+    int renderList[numLfos] {};
+    auto numRendering = 0;
+    for (int lfo = 0; lfo < numLfos; ++lfo)
+        if (renderLfo[lfo])
+            renderList[numRendering++] = lfo;
 
     auto* clockBuffer = lfoBuffers.getWritePointer (4);
     auto* msegBuffer = lfoBuffers.getWritePointer (5);
@@ -849,11 +855,9 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
     for (int i = 0; i < numSamples; ++i)
     {
-        for (int lfo = 0; lfo < numLfos; ++lfo)
+        for (int index = 0; index < numRendering; ++index)
         {
-            if (! renderLfo[lfo])
-                continue;
-
+            const auto lfo = renderList[index];
             const auto phase = lfoPhases[(size_t) lfo];
             const auto stepIndex = juce::jlimit (0, 15, (int) (phase * 16.0));
             const auto shape = (int) lfoShapes[lfo];

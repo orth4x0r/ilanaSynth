@@ -684,6 +684,8 @@ struct Slot
     bool bypass = false;
     // On a filter cutoff: the left channel moves by the amount and the right by minus it.
     bool stereo = false;
+    // Set by the processor when a source or via of this route is an LFO that runs per voice (retrigger or key track).
+    bool perVoiceLfo = false;
     // The slot's drawn remap curve (Vital's per-route remap): remapSize + 1
     // values in -1..1 over the source's range, or nullptr for a straight line.
     const float* remap = nullptr;
@@ -737,7 +739,7 @@ inline int stereoTargetFor (const Slot& slot)
 // A route into a spectral amount that the voices evaluate themselves.
 inline bool isVoiceSpectralSlot (const Slot& slot)
 {
-    return spectralOscFor (slot.destination) >= 0 && (isPerVoiceSource (slot.source) || isPerVoiceSource (slot.aux));
+    return spectralOscFor (slot.destination) >= 0 && (slot.perVoiceLfo || isPerVoiceSource (slot.source) || isPerVoiceSource (slot.aux));
 }
 
 // Shapes a raw source value by the slot's polarity and curve.

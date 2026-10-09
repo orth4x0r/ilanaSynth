@@ -220,19 +220,22 @@ private:
 // as a resizable strip or a pop-out window"): beside the synth, so it covers
 // no page. Resizable; closing it closes the scope, and SCOPE opens it in the
 // page again (WINDOW pops it out once more).
-class ScopeWindow : public juce::DocumentWindow
+class ScopeWindow : public juce::Component
 {
 public:
     ScopeWindow (IlanaSynthAudioProcessor& p, juce::LookAndFeel& look, std::function<void()> closed)
-        : juce::DocumentWindow ("ilanaSynth scope", IlanaTheme::Ui::bg, juce::DocumentWindow::closeButton),
-          onClosed (std::move (closed))
+        : scope (p), onClosed (std::move (closed))
     {
+        setName ("ilanaSynth scope");
         setLookAndFeel (&look);
-        setContentOwned (new Content (p), false);
-        setResizable (true, false);
-        setResizeLimits (320, 200, 1800, 1200);
+        setOpaque (true);
+        addAndMakeVisible (scope);
+        constrainer.setSizeLimits (320, 200, 1800, 1200);
         centreWithSize (560, 340);
-        setUsingNativeTitleBar (true);
+        addToDesktop (juce::ComponentPeer::windowHasTitleBar | juce::ComponentPeer::windowIsResizable
+                      | juce::ComponentPeer::windowHasCloseButton | juce::ComponentPeer::windowAppearsOnTaskbar);
+        if (auto* peer = getPeer())
+            peer->setConstrainer (&constrainer);
        #if ! JUCE_LINUX
         // (On Linux "always on top" asks the window manager for an atom a
         // bare X server, the UI test's, doesn't have.)
@@ -240,23 +243,24 @@ public:
        #endif
     }
 
-    ~ScopeWindow() override { setLookAndFeel (nullptr); }
+    ~ScopeWindow() override
+    {
+        removeFromDesktop();
+        setLookAndFeel (nullptr);
+    }
 
-    void closeButtonPressed() override
+    void userTriedToCloseWindow() override
     {
         if (onClosed != nullptr)
             onClosed();
     }
 
-private:
-    struct Content : public juce::Component
-    {
-        explicit Content (IlanaSynthAudioProcessor& p) : scope (p) { addAndMakeVisible (scope); }
-        void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::bg); }
-        void resized() override { scope.setBounds (getLocalBounds().reduced (8)); }
-        ScopeDisplay scope;
-    };
+    void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::bg); }
+    void resized() override { scope.setBounds (getLocalBounds().reduced (8)); }
 
+private:
+    ScopeDisplay scope;
+    juce::ComponentBoundsConstrainer constrainer;
     std::function<void()> onClosed;
 };
 

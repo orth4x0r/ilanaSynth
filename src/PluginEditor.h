@@ -214,7 +214,7 @@ private:
     ShellTabs tabs;
     std::vector<SectionPage*> sections; // owned by tabs
     std::unique_ptr<juce::Component> scopePanel;
-    std::unique_ptr<juce::DocumentWindow> scopeWindow; // the scope popped out (WINDOW)
+    std::unique_ptr<juce::Component> scopeWindow; // the scope popped out (WINDOW)
     GhostButton scopeButton { "SCOPE" };
 
     PresetDisplay presetDisplay;

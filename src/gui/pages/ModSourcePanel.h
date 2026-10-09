@@ -723,6 +723,8 @@ private:
         if (opEnvLink.isVisible())
             pill.setRight (opEnvLink.getX() - 6);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
+        // (Room to spare: the text scales with the window.)
+        pill.setWidth (juce::jmin (pill.getWidth(), juce::roundToInt ((float) juce::GlyphArrangement::getStringWidthInt (font, unusedNote) * 1.25f) + 24));
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
         g.setColour (IlanaTheme::Ui::text2);
@@ -733,10 +735,14 @@ private:
     void refreshUnused()
     {
         const auto env = kind == Kind::envelope ? envelopeOf (source) : -1;
-        const auto inUse = env < 0 || envelopeInUse (processorRef, env);
+        const auto lfo = kind == Kind::lfo ? Mod::lfoIndexFor ((Mod::Source) source) : -1;
+        const auto inUse = env >= 0 ? envelopeInUse (processorRef, env)
+                         : lfo >= 0 ? modSourceRouted (processorRef, Mod::lfoSourceFor (lfo)) || modSourceRouted (processorRef, Mod::lfoBSourceFor (lfo))
+                                    : true;
         const auto ampOnOperators = env == 0 && ! inUse && FmOperatorInfo::anyOperatorEnv (processorRef);
-        const auto note = inUse ? juce::String()
+        const auto note = inUse            ? juce::String()
                           : ampOnOperators ? juce::String (EnvSection::ampUnusedText())
+                          : lfo >= 0       ? juce::String ("unused: drag it onto a knob to use it")
                                            : juce::String ("unused: nothing plays this envelope yet");
         if (note == unusedNote)
             return;
@@ -744,16 +750,20 @@ private:
         const auto alpha = inUse ? 1.0f : IlanaTheme::dimmedAlpha;
         if (graph != nullptr && kind == Kind::envelope)
             graph->setAlpha (alpha);
-        if (kind == Kind::envelope)
-            for (auto& control : controls)
-                control->setAlpha (alpha);
+        for (auto& control : controls)
+            control->setAlpha (alpha);
+        if (rate != nullptr)
+        {
+            rate->getRateKnob().setAlpha (alpha);
+            rate->getDivisionKnob().setAlpha (alpha);
+        }
         opEnvLink.setVisible (ampOnOperators);
         repaint();
     }
 
     void timerCallback() override
     {
-        if (kind == Kind::envelope && isShowing())
+        if ((kind == Kind::envelope || kind == Kind::lfo) && isShowing())
             refreshUnused();
         if (kind != Kind::other || ! isShowing())
             return;
